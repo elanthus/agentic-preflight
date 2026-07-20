@@ -64,6 +64,9 @@ def tmp_repo(tmp_path: Path) -> Path:
     git("init", "-b", "main", cwd=repo)
     write(repo, "README.md", "# demo\n\nA demo project.\n")
     write(repo, "src/app.py", "def greet(name):\n    return f'hi {name}'\n")
+    # Committed, not just written: worktrees are checked out at a commit, so an
+    # uncommitted ignore rule is invisible where it matters.
+    write(repo, ".gitignore", ".env\n")
     commit_all(repo, "base commit")
     return repo
 
