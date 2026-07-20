@@ -21,6 +21,9 @@ from . import findings as findingsmod
 from . import gitx, worktree
 from . import ledger as ledgermod
 from . import mergeback as mergebackmod
+from .publish import gate as gatemod
+from .publish import github as githubmod
+from .publish import provider as providermod
 from .stages import detect, shellstage
 from .stages import docs as docsstage
 from .config import Config, load_config
@@ -34,7 +37,11 @@ from .errors import (
     NoRun,
     StaleRun,
     MaxAttempts,
+    GhUnavailableError,
+    ManualGate,
     MergebackConflictError,
+    NeedsConfirm,
+    NeedsHuman,
     NoLog,
     StageFailed,
     UnknownFinding,
@@ -834,6 +841,172 @@ def mergeback(session: Session) -> Envelope:
     return envelope
 
 
+def _remote_for(session: Session, run: RunDoc):
+    url = gitx.remote_url(session.repo_root, "origin")
+    if not url:
+        raise NeedsHuman(
+            "no `origin` remote is configured, so there is nowhere to push",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction="Add a remote, then run the gate again.",
+            next_command="git remote add origin <url>",
+        )
+    return providermod.parse_remote(url)
+
+
+def gate(session: Session) -> Envelope:
+    """Summarise what would be pushed and mint a confirmation token."""
+    run = _load_current(session)
+    _assert_fresh(session, run)
+    _require_state(run, State.VERIFIED, State.AWAITING_PUSH_CONFIRM, command="gate")
+
+    remote = _remote_for(session, run)
+    commits = [
+        {"sha": sha, "subject": gitx.commit_subject(session.repo_root, sha)}
+        for sha in gitx.commits_between(session.repo_root, run.merge_base_sha, run.head_sha)
+    ]
+    summary = gatemod.GateSummary(
+        remote="origin",
+        refspec=f"{run.branch}:{run.branch}",
+        branch=run.branch,
+        base_ref=run.base_ref,
+        commits=commits,
+        pr_title=commits[-1]["subject"] if commits else run.branch,
+    )
+
+    if session.config.gate.mode == "manual":
+        raise ManualGate(
+            "gate.mode is 'manual', so agentic-cli will not push on your behalf",
+            state=run.state.value,
+            run_id=run.run_id,
+            data={**summary.as_dict(), "manual_command": f"git push origin {run.branch}"},
+            next_instruction=(
+                "Show the user this summary and ask them to run the push themselves."
+            ),
+            next_command=f"git push origin {run.branch}",
+        )
+
+    summary.token = gatemod.mint_token()
+    with session.store.transaction(run.run_id) as doc:
+        doc.gate_token = summary.token
+        if doc.state is State.VERIFIED:
+            _apply(doc, Action.GATE)
+        run = doc
+
+    return _envelope_for(
+        run,
+        data=summary.as_dict(),
+        next_instruction=(
+            "Show the user the remote, branch, and commit list in plain language and "
+            "ask whether to push. Never push without asking."
+        ),
+        next_command=f"agentic-cli push --confirm {summary.token}",
+    )
+
+
+def push(session: Session, *, confirm: str | None = None, dry_run: bool = False) -> Envelope:
+    run = _load_current(session)
+    _assert_fresh(session, run)
+    _require_state(run, State.AWAITING_PUSH_CONFIRM, command="push")
+
+    if not gatemod.token_matches(run.gate_token, confirm):
+        raise NeedsConfirm(
+            "push requires the confirmation token from `gate`",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction=(
+                "Run `gate`, show the user what would be pushed, ask for their "
+                "agreement, then push with the token."
+            ),
+            next_command="agentic-cli gate",
+        )
+
+    if dry_run:
+        return _envelope_for(
+            run,
+            data={"dry_run": True, "would_push": f"origin {run.branch}", "pushed": False},
+            next_instruction="Dry run only; nothing was pushed.",
+            next_command=f"agentic-cli push --confirm {run.gate_token}",
+        )
+
+    gitx.run(session.repo_root, "push", "origin", f"{run.branch}:{run.branch}")
+
+    with session.store.transaction(run.run_id) as doc:
+        doc.pushed_sha = run.head_sha
+        _apply(doc, Action.PUSH)
+        run = doc
+
+    session.store.append_event(run.run_id, {"event": "pushed", "sha": run.head_sha})
+    return _envelope_for(
+        run, data={"pushed": True, "sha": run.head_sha, "remote": "origin", "dry_run": False}
+    )
+
+
+def pull_request(session: Session, *, draft: bool | None = None) -> Envelope:
+    run = _load_current(session)
+    _require_state(run, State.PUSHED, command="pr")
+
+    remote = _remote_for(session, run)
+    if remote.provider != "github":
+        raise NeedsHuman(
+            f"{remote.host or 'this remote'} is not supported in v1 (GitHub only)",
+            state=run.state.value,
+            run_id=run.run_id,
+            data={"host": remote.host},
+            next_instruction="Open the pull request manually.",
+        )
+
+    commits = gitx.commits_between(session.repo_root, run.merge_base_sha, run.head_sha)
+    title = gitx.commit_subject(session.repo_root, commits[-1]) if commits else run.branch
+    draft_pr = session.config.publish.draft_pr if draft is None else draft
+
+    try:
+        result = githubmod.create_pull_request(
+            session.repo_root,
+            base=run.base_ref,
+            head=run.branch,
+            title=title,
+            body=_pr_body(session, run),
+            draft=draft_pr,
+        )
+    except githubmod.GhUnavailable as exc:
+        raise GhUnavailableError(
+            str(exc),
+            state=run.state.value,
+            run_id=run.run_id,
+            data={
+                "compare_url": providermod.compare_url(
+                    remote, base=run.base_ref, head=run.branch
+                )
+            },
+            next_instruction=(
+                "Give the user the compare URL and let them open the PR themselves. "
+                "agentic-cli never handles credentials."
+            ),
+        ) from exc
+
+    with session.store.transaction(run.run_id) as doc:
+        doc.pr_url = result.url
+        _apply(doc, Action.OPEN_PR)
+        run = doc
+
+    session.store.append_event(run.run_id, {"event": "pr_opened", "url": result.url})
+    return _envelope_for(run, data={"pr_url": result.url})
+
+
+def _pr_body(session: Session, run: RunDoc) -> str:
+    findings = session.store.load_findings(run.run_id)
+    lines = [
+        "Verified by agentic-cli.",
+        "",
+        f"- review: {len([f for f in findings if f.stage is Stage.REVIEW])} finding(s)",
+        f"- docs: {len([f for f in findings if f.stage is Stage.DOCS])} finding(s)",
+    ]
+    for stage_name, record in run.stages.items():
+        lines.append(f"- {stage_name.value}: {record.status} (`{record.command}`)")
+    return "\n".join(lines)
+
+
 def logs(session: Session, *, stage_name: str) -> Envelope:
     run = _load_current(session)
     log_path = session.store.logs_dir(run.run_id) / f"{stage_name}.txt"
@@ -1143,6 +1316,9 @@ def status(session: Session) -> Envelope:
             "stale": stale,
             "worktree_path": run.worktree_path,
             "worktree_branch": run.worktree_branch,
+            "gate_token": run.gate_token,
+            "pushed_sha": run.pushed_sha,
+            "pr_url": run.pr_url,
             "fix_commits": run.fix_commits,
             # Names only — contents are never read, logged, or echoed anywhere.
             "copied_files": run.copied_files,
