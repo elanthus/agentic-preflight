@@ -144,6 +144,54 @@ def verify() -> None:
 
 
 @main.command()
+@click.option("--id", "finding_id", required=True, help="Finding id, e.g. F001.")
+@click.option(
+    "--action",
+    required=True,
+    type=click.Choice(runs.RESPONSE_ACTIONS),
+    help="How the finding was resolved.",
+)
+@click.option("--commit", default=None, help="Commit that fixes it (required for `fixed`).")
+@click.option("--note", default=None, help="Why it was dismissed or accepted.")
+@command
+def respond(finding_id: str, action: str, commit: str | None, note: str | None) -> None:
+    """Resolve one finding. Claims about commits are verified, not trusted."""
+    session = runs.open_session()
+    _finish(
+        runs.respond(
+            session, finding_id=finding_id, action=action, commit=commit, note=note
+        )
+    )
+
+
+@main.command()
+@click.option("--limit", type=int, default=None, help="Show only the last N events.")
+@command
+def events(limit: int | None) -> None:
+    """The run's history, oldest first."""
+    session = runs.open_session()
+    _finish(runs.events(session, limit=limit))
+
+
+@main.command()
+@click.option("--force", is_flag=True, help="Discard unmerged fix commits.")
+@command
+def abort(force: bool) -> None:
+    """End the run and reclaim its worktree."""
+    session = runs.open_session()
+    _finish(runs.abort(session, force=force))
+
+
+@main.command()
+@click.option("--force", is_flag=True, help="Remove even when work would be lost.")
+@command
+def gc(force: bool) -> None:
+    """Reconcile run directories, git worktrees, and ac/* branches."""
+    session = runs.open_session()
+    _finish(runs.gc(session, force=force))
+
+
+@main.command()
 @command
 def status() -> None:
     """Where the run is and what to do next. Legal in every state."""

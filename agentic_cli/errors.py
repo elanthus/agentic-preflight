@@ -118,6 +118,23 @@ class StageFailed(AgenticError):
     exit_code = ExitCode.STAGE_FAILED
 
 
+class UnknownFinding(AgenticError):
+    code = "unknown_finding"
+    exit_code = ExitCode.PRECONDITION
+
+
+class InvalidResponse(AgenticError):
+    code = "invalid_response"
+    exit_code = ExitCode.PRECONDITION
+
+
+class UnmergedWork(AgenticError):
+    """Destroying work is the one outcome nobody can undo, so it needs a yes."""
+
+    code = "unmerged_work"
+    exit_code = ExitCode.NEEDS_CONFIRM
+
+
 class NeedsHuman(AgenticError):
     code = "needs_human"
     exit_code = ExitCode.NEEDS_HUMAN
