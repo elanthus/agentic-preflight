@@ -174,6 +174,69 @@ def events(limit: int | None) -> None:
 
 
 @main.command()
+@click.option("--force", is_flag=True, help="Replace an existing pre-push hook.")
+@click.option("--no-hook", is_flag=True, help="Write config only, skip the hook.")
+@command
+def init(force: bool, no_hook: bool) -> None:
+    """Install the pre-push hook and seed .agentic-cli.toml."""
+    from . import gitx, initcmd
+
+    repo_root = gitx.repo_root(Path.cwd())
+    try:
+        _finish(initcmd.init(repo_root, force=force, install_hook=not no_hook))
+    except FileExistsError as exc:
+        _fail(
+            _as_error(
+                "hook_exists",
+                f"a pre-push hook already exists at {exc} and was not written by "
+                f"agentic-cli; refusing to replace it",
+                ExitCode.PRECONDITION,
+                "Inspect the existing hook. Re-run with --force to replace it, or "
+                "merge the `agentic-cli hook-check` call into it by hand.",
+                "agentic-cli init --force",
+            )
+        )
+
+
+@main.command("hook-check")
+def hook_check() -> None:
+    """Pre-push predicate over the ledger. Reads stdin, writes prose to stderr.
+
+    Deliberately not wrapped in the envelope contract: its consumer is git, not
+    the agent, and git judges it by exit code alone.
+    """
+    from . import gitx, hook as hookmod
+    from .config import load_config
+    from .store import Store
+
+    raw = sys.stdin.read()
+    updates = hookmod.parse_stdin(raw)
+    if not updates:
+        sys.exit(int(ExitCode.OK))
+
+    try:
+        repo_root = gitx.repo_root(Path.cwd())
+        store = Store(gitx.git_common_dir(Path.cwd()) / runs.STATE_DIR_NAME)
+        ledger = store.load_ledger()
+        allow_force = load_config(repo_root).hook.allow_force_push
+    except Exception as exc:  # never brick a repo over our own failure
+        sys.stderr.write(f"agentic-cli: hook check unavailable ({exc}); allowing push\n")
+        sys.exit(int(ExitCode.OK))
+
+    decision = hookmod.evaluate(
+        ledger,
+        updates,
+        is_ancestor=lambda a, b: gitx.is_ancestor(repo_root, a, b),
+        allow_force_push=allow_force,
+    )
+    if decision.allowed:
+        sys.exit(int(ExitCode.OK))
+
+    sys.stderr.write(decision.message + "\n")
+    sys.exit(int(ExitCode.HOOK_BLOCK))
+
+
+@main.command()
 @command
 def mergeback() -> None:
     """Cherry-pick verified fixes onto your branch. Never auto-resolves."""
