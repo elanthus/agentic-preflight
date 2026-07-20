@@ -97,9 +97,12 @@ def evaluate(
                 reason="force push",
                 message=_block_message(
                     update.local_sha,
-                    "this is a force push (the remote tip is not an ancestor of yours), "
-                    "which rewrites history the remote already has",
-                    extra="allow: set [hook] allow_force_push = true",
+                    headline="force push",
+                    reason=(
+                        "the remote tip is not an ancestor of yours, so this rewrites "
+                        "history the remote already has"
+                    ),
+                    fix="rebase onto the remote tip, or set [hook] allow_force_push = true",
                 ),
             )
 
@@ -107,23 +110,33 @@ def evaluate(
             return Decision(
                 allowed=False,
                 reason="not green",
-                message=_block_message(update.local_sha, _explain(ledger, update)),
+                message=_block_message(
+                    update.local_sha,
+                    headline="no green run recorded for this exact SHA",
+                    reason=_explain(ledger, update),
+                    fix="run /agentic-cli",
+                ),
             )
 
     return Decision(allowed=True)
 
 
-def _block_message(sha: str, reason: str, extra: str | None = None) -> str:
-    lines = [
-        "agentic-cli: push blocked.",
-        f"  commit: {sha[:7]} (no green run recorded for this exact SHA)",
-        f"  reason: {reason}",
-        "  fix:    run /agentic-cli",
-        "  bypass: git push --no-verify   (documented escape hatch)",
-    ]
-    if extra:
-        lines.append(f"  {extra}")
-    return "\n".join(lines)
+def _block_message(sha: str, *, headline: str, reason: str, fix: str) -> str:
+    """Written for an agent to read and act on.
+
+    The headline must state the *actual* cause. A force-push block that also
+    claimed the commit was unverified would send the agent to re-run the gate
+    when the real problem is the rewrite.
+    """
+    return "\n".join(
+        [
+            "agentic-cli: push blocked.",
+            f"  commit: {sha[:7]} ({headline})",
+            f"  reason: {reason}",
+            f"  fix:    {fix}",
+            "  bypass: git push --no-verify   (documented escape hatch)",
+        ]
+    )
 
 
 def install(git_dir: Path | str, *, force: bool = False) -> tuple[Path, bool]:

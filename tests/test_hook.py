@@ -217,6 +217,28 @@ def test_a_force_push_is_blocked_even_when_green(feature_repo, tmp_path):
     assert "force" in result.stderr.lower()
 
 
+def test_a_force_push_block_does_not_claim_the_commit_is_unverified(feature_repo, tmp_path):
+    """The header must not contradict the reason.
+
+    A green commit blocked for being a force push is not 'unverified', and an
+    agent reading that would re-run the gate instead of addressing the rewrite.
+    """
+    _green_run(feature_repo, tmp_path)
+    sha = git("rev-parse", "HEAD", cwd=feature_repo)
+    result = hook_check(
+        feature_repo, f"refs/heads/feature/x {sha} refs/heads/feature/x {'c' * 40}\n"
+    )
+    assert result.returncode == ExitCode.HOOK_BLOCK
+    assert "force push" in result.stderr
+    assert "no green run recorded" not in result.stderr
+
+
+def test_an_unverified_block_still_says_so(feature_repo):
+    sha = git("rev-parse", "HEAD", cwd=feature_repo)
+    result = hook_check(feature_repo, f"refs/heads/feature/x {sha} refs/heads/feature/x {ZERO}\n")
+    assert "no green run recorded" in result.stderr
+
+
 def test_allow_force_push_config_permits_it(feature_repo, tmp_path):
     _green_run(feature_repo, tmp_path)
     write(feature_repo, ".agentic-cli.toml",
