@@ -1,0 +1,155 @@
+"""The pre-push hook predicate.
+
+A pure function of the ledger and the push refs. It reads ``ledger.json`` and
+nothing else: no run state, no config beyond one flag, no network, no mutation.
+That is what keeps it inside its latency budget and what makes it safe to run on
+every push.
+
+The hook cannot call back up to the agent — it is a subprocess of the agent's
+own ``git push``. So its only lever is to fail with a message written *for an
+agent to read*, naming ``/agentic-cli`` so the block doubles as a skill trigger
+that loops the agent back into the gate.
+"""
+
+from __future__ import annotations
+
+import shutil
+from dataclasses import dataclass
+from pathlib import Path
+
+from .envelope import ExitCode
+from .ledger import is_green
+from .models import Ledger
+
+ZERO_SHA = "0" * 40
+
+HOOK_SCRIPT = """#!/bin/sh
+# Installed by agentic-cli. Blocks pushes of commits with no green run.
+# If agentic-cli is not on PATH this allows the push and warns: a broken tool
+# must never leave a repository you cannot push from.
+if ! command -v agentic-cli >/dev/null 2>&1; then
+  echo "agentic-cli: not found on PATH, skipping the quality gate (warn only)" >&2
+  exit 0
+fi
+exec agentic-cli hook-check
+"""
+
+
+@dataclass
+class RefUpdate:
+    local_ref: str
+    local_sha: str
+    remote_ref: str
+    remote_sha: str
+
+    @property
+    def is_deletion(self) -> bool:
+        return set(self.local_sha) == {"0"}
+
+
+def parse_stdin(text: str) -> list[RefUpdate]:
+    """Parse git's pre-push stdin protocol: <local ref> <local sha> <remote ref> <remote sha>."""
+    updates: list[RefUpdate] = []
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) != 4:
+            continue
+        updates.append(RefUpdate(*parts))
+    return updates
+
+
+@dataclass
+class Decision:
+    allowed: bool
+    reason: str = ""
+    message: str = ""
+
+
+def _explain(ledger: Ledger, update: RefUpdate) -> str:
+    """Say *why* this exact sha is not green, as specifically as the ledger allows."""
+    for entry in sorted(ledger.entries.values(), key=lambda e: e.green_at, reverse=True):
+        if entry.branch and update.local_ref.endswith(entry.branch):
+            return (
+                f"ledger has {entry.sha[:7]}; you amended or added a commit since"
+            )
+    return "no green run recorded for this exact SHA"
+
+
+def evaluate(
+    ledger: Ledger,
+    updates: list[RefUpdate],
+    *,
+    is_ancestor,
+    allow_force_push: bool = False,
+) -> Decision:
+    """Decide the push. ``is_ancestor(a, b)`` is injected so this stays pure."""
+    for update in updates:
+        if update.is_deletion:
+            continue
+
+        forced = (
+            update.remote_sha != ZERO_SHA
+            and not is_ancestor(update.remote_sha, update.local_sha)
+        )
+        if forced and not allow_force_push:
+            return Decision(
+                allowed=False,
+                reason="force push",
+                message=_block_message(
+                    update.local_sha,
+                    "this is a force push (the remote tip is not an ancestor of yours), "
+                    "which rewrites history the remote already has",
+                    extra="allow: set [hook] allow_force_push = true",
+                ),
+            )
+
+        if not is_green(ledger, update.local_sha):
+            return Decision(
+                allowed=False,
+                reason="not green",
+                message=_block_message(update.local_sha, _explain(ledger, update)),
+            )
+
+    return Decision(allowed=True)
+
+
+def _block_message(sha: str, reason: str, extra: str | None = None) -> str:
+    lines = [
+        "agentic-cli: push blocked.",
+        f"  commit: {sha[:7]} (no green run recorded for this exact SHA)",
+        f"  reason: {reason}",
+        "  fix:    run /agentic-cli",
+        "  bypass: git push --no-verify   (documented escape hatch)",
+    ]
+    if extra:
+        lines.append(f"  {extra}")
+    return "\n".join(lines)
+
+
+def install(git_dir: Path | str, *, force: bool = False) -> tuple[Path, bool]:
+    """Write the pre-push hook. Returns (path, newly_written).
+
+    Refuses to clobber a hook we did not write: someone else's pre-push hook is
+    load-bearing for them, and silently replacing it would be exactly the kind
+    of unreviewed change this tool exists to prevent.
+    """
+    hooks_dir = Path(git_dir) / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    path = hooks_dir / "pre-push"
+
+    if path.exists() and not force:
+        existing = path.read_text()
+        if "agentic-cli hook-check" not in existing:
+            raise FileExistsError(str(path))
+        return path, False
+
+    path.write_text(HOOK_SCRIPT)
+    path.chmod(0o755)
+    return path, True
+
+
+def tool_on_path() -> bool:
+    return shutil.which("agentic-cli") is not None
+
+
+BLOCK_EXIT = ExitCode.HOOK_BLOCK
