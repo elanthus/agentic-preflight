@@ -244,6 +244,33 @@ def mergeback() -> None:
     _finish(runs.mergeback(session))
 
 
+@main.command()
+@command
+def gate() -> None:
+    """Summarise what would be pushed and mint a confirmation token."""
+    session = runs.open_session()
+    _finish(runs.gate(session))
+
+
+@main.command()
+@click.option("--confirm", default=None, help="Token minted by `gate`.")
+@click.option("--dry-run", is_flag=True, help="Report what would be pushed, push nothing.")
+@command
+def push(confirm: str | None, dry_run: bool) -> None:
+    """Push the verified branch. Requires the gate token."""
+    session = runs.open_session()
+    _finish(runs.push(session, confirm=confirm, dry_run=dry_run))
+
+
+@main.command()
+@click.option("--draft/--no-draft", default=None, help="Override [publish] draft_pr.")
+@command
+def pr(draft: bool | None) -> None:
+    """Open a pull request via the gh CLI. No credentials are ever handled here."""
+    session = runs.open_session()
+    _finish(runs.pull_request(session, draft=draft))
+
+
 @main.group()
 def stage() -> None:
     """Deterministic shell stages."""
