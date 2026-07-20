@@ -1,0 +1,523 @@
+"""Run orchestration: the logic behind each command.
+
+``cli.py`` is argument parsing and envelope emission only, so everything that
+decides *what happens* lives here. Each entry point takes a :class:`Session` and
+returns an :class:`Envelope`; none of them print, and none of them call
+``sys.exit``. That keeps them directly testable and keeps the transport concerns
+in one place.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+from pydantic import ValidationError
+
+from . import diff as diffmod
+from . import findings as findingsmod
+from . import gitx, worktree
+from .config import Config, load_config
+from .envelope import Envelope
+from .errors import (
+    DirtyTree,
+    DiffTooLarge,
+    EmptyDiff,
+    InvalidFindings,
+    NoRun,
+    StaleRun,
+    StageFailed,
+    WrongState,
+)
+from .machine import Action, IllegalTransition, State, next_state
+from .models import FindingStatus, FindingSubmission, RunDoc, Stage
+from .store import Store
+
+STATE_DIR_NAME = "agentic-cli"
+
+
+@dataclass
+class Session:
+    """Everything a command needs about *where* it is running."""
+
+    repo_root: Path
+    store: Store
+    config: Config
+
+
+def open_session(cwd: Path | str | None = None) -> Session:
+    cwd = Path(cwd) if cwd else Path.cwd()
+    repo_root = gitx.repo_root(cwd)
+    # GIT_COMMON_DIR, not GIT_DIR: these differ when the caller is already
+    # inside a worktree, and run state must be one namespace per clone.
+    state_root = gitx.git_common_dir(cwd) / STATE_DIR_NAME
+    return Session(
+        repo_root=repo_root,
+        store=Store(state_root),
+        config=load_config(repo_root),
+    )
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _new_run_id() -> str:
+    return "r_" + uuid.uuid4().hex[:10]
+
+
+def _apply(run: RunDoc, action: Action) -> None:
+    """Advance the run, converting an illegal move into a typed error."""
+    try:
+        run.state = next_state(run.state, action)
+    except IllegalTransition as exc:
+        raise WrongState(str(exc)) from exc
+
+
+def _require_state(run: RunDoc, *allowed: State, command: str) -> None:
+    if run.state not in allowed:
+        raise WrongState(
+            f"`{command}` is not legal in state {run.state.name}",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction="Run `status` to see where the run actually is, then obey `next`.",
+            next_command="agentic-cli status",
+        )
+
+
+def _next_hint(state: State) -> tuple[str | None, str | None]:
+    """The default next legal command for a state, or nothing when terminal.
+
+    A default, not a rule: `next` is properly a function of *(state, what just
+    happened)*. ``start`` and ``context`` both land in
+    ``REVIEW_AWAITING_FINDINGS`` but call for different moves — fetch the diff
+    versus judge the diff you now hold — so those commands override this.
+    """
+    return {
+        State.CREATED: ("Create the worktree.", "agentic-cli start"),
+        State.WORKTREE_READY: ("Fetch the diff to review.", "agentic-cli context"),
+        State.REVIEW_AWAITING_FINDINGS: (
+            "Review the diff, then submit findings (an empty list is a valid outcome).",
+            "agentic-cli submit-findings --file findings.json",
+        ),
+        State.REVIEW_SUBMITTED: ("Check the blocking set.", "agentic-cli verify"),
+        State.REVIEW_AWAITING_RESPONSES: (
+            "Resolve each blocking finding with `respond`.",
+            "agentic-cli respond --id F001 --action fixed --commit <sha>",
+        ),
+        State.REVIEW_FIXING: (
+            "Keep responding until nothing blocks, then verify.",
+            "agentic-cli verify",
+        ),
+        State.REVIEW_GREEN: ("Review is green. Move to the docs stage.", "agentic-cli context --section docs"),
+        State.DOCS_GREEN: ("Docs are green. Run lint.", "agentic-cli stage run lint"),
+        State.LINT_GREEN: ("Lint is green. Run tests.", "agentic-cli stage run test"),
+        State.TEST_GREEN: ("Tests are green. Merge the fixes back.", "agentic-cli mergeback"),
+        State.VERIFIED: ("Everything is green. Open the gate.", "agentic-cli gate"),
+        State.AWAITING_PUSH_CONFIRM: (
+            "Show the user the gate summary and ask before pushing.",
+            "agentic-cli push --confirm <token>",
+        ),
+        State.PUSHED: ("Open the pull request.", "agentic-cli pr"),
+    }.get(state, (None, None))
+
+
+def _envelope_for(run: RunDoc, **overrides) -> Envelope:
+    instruction, command = _next_hint(run.state)
+    fields = dict(
+        run_id=run.run_id,
+        state=run.state.value,
+        next_instruction=instruction,
+        next_command=command,
+    )
+    fields.update(overrides)
+    return Envelope(**fields)
+
+
+# -- run lookup and staleness -----------------------------------------------
+
+
+def _load_current(session: Session) -> RunDoc:
+    run_id = session.store.get_current()
+    if not run_id:
+        raise NoRun()
+    try:
+        return session.store.load_run(run_id)
+    except Exception as exc:  # a dangling `current` pointer is a missing run
+        raise NoRun(f"current run {run_id} is missing from the store") from exc
+
+
+def _head_moved(session: Session, run: RunDoc) -> str | None:
+    """Return the current tip if it differs from the reviewed one."""
+    try:
+        tip = gitx.rev_parse(session.repo_root, run.branch)
+    except gitx.GitError:
+        return None
+    return None if tip == run.head_sha else tip
+
+
+def _assert_fresh(session: Session, run: RunDoc) -> None:
+    tip = _head_moved(session, run)
+    if tip is None:
+        return
+    if not run.stale:
+        with session.store.transaction(run.run_id) as doc:
+            doc.stale = True
+    raise StaleRun(
+        f"branch {run.branch} has moved to {tip[:8]}; this run reviewed {run.head_sha[:8]}",
+        state=run.state.value,
+        run_id=run.run_id,
+    )
+
+
+# -- start ------------------------------------------------------------------
+
+
+def start(session: Session, *, base_ref: str | None = None) -> Envelope:
+    repo = session.repo_root
+    cfg = session.config
+
+    if not gitx.is_clean(repo):
+        raise DirtyTree(
+            "the working tree has uncommitted changes",
+            next_instruction="Commit or stash your changes, then start the run.",
+            next_command="git status",
+        )
+
+    base_ref = base_ref or cfg.general.base_ref
+    branch = gitx.current_branch(repo)
+    head_sha = gitx.rev_parse(repo, "HEAD")
+    try:
+        merge_base = gitx.merge_base(repo, base_ref, "HEAD")
+    except gitx.GitError as exc:
+        raise EmptyDiff(f"cannot find a merge base with {base_ref!r}: {exc}") from exc
+
+    changed = gitx.changed_files(repo, merge_base, "HEAD")
+    if not changed:
+        raise EmptyDiff(
+            f"{branch} has no changes over {base_ref}; there is nothing to review",
+            next_instruction="Commit some work on a branch, then start a run.",
+        )
+
+    run_id = _new_run_id()
+    run = RunDoc(
+        run_id=run_id,
+        state=State.CREATED,
+        branch=branch,
+        base_ref=base_ref,
+        merge_base_sha=merge_base,
+        head_sha=head_sha,
+        created_at=_now(),
+    )
+    # Persist the intent *before* the git call, so a crash mid-create leaves a
+    # record for `gc` to reconcile rather than an orphan nobody knows about.
+    session.store.create_run(run)
+    session.store.set_current(run_id)
+    session.store.append_event(run_id, {"event": "run_created", "head_sha": head_sha})
+
+    wt_path = session.store.worktrees_dir / run_id
+    wt_branch = f"ac/{run_id}"
+    worktree.create(repo, path=wt_path, branch=wt_branch, head_sha=head_sha)
+
+    copied = worktree.copy_files(repo, wt_path, cfg.worktree.copy_files)
+
+    setup_result = None
+    if cfg.worktree.setup_command:
+        completed = worktree.run_setup(
+            wt_path, cfg.worktree.setup_command, timeout_seconds=cfg.stage.timeout_seconds
+        )
+        setup_result = {
+            "command": cfg.worktree.setup_command,
+            "exit_code": completed.returncode,
+        }
+
+    with session.store.transaction(run_id) as doc:
+        doc.worktree_path = str(wt_path)
+        doc.worktree_branch = wt_branch
+        doc.copied_files = copied
+        _apply(doc, Action.CREATE_WORKTREE)
+        _apply(doc, Action.BEGIN_REVIEW)
+        run = doc
+
+    session.store.append_event(run_id, {"event": "worktree_ready", "path": str(wt_path)})
+
+    return _envelope_for(
+        run,
+        next_instruction="Fetch the diff before judging it.",
+        next_command="agentic-cli context",
+        data={
+            "worktree_path": str(wt_path),
+            "worktree_branch": wt_branch,
+            "branch": branch,
+            "base_ref": base_ref,
+            "head_sha": head_sha,
+            "merge_base_sha": merge_base,
+            "changed_files": changed,
+            # Names only. Contents are never read, logged, or echoed.
+            "copied_files": copied,
+            "setup": setup_result,
+        },
+    )
+
+
+# -- context ----------------------------------------------------------------
+
+
+def _bundle_for(session: Session, run: RunDoc) -> diffmod.DiffBundle:
+    return diffmod.build_bundle(
+        run.worktree_path or session.repo_root,
+        run.merge_base_sha,
+        "HEAD",
+        exclude=session.config.diff.exclude,
+    )
+
+
+def context(session: Session, *, section: str = "review") -> Envelope:
+    run = _load_current(session)
+    _assert_fresh(session, run)
+    _require_state(
+        run,
+        State.WORKTREE_READY,
+        State.REVIEW_AWAITING_FINDINGS,
+        command="context",
+    )
+
+    bundle = _bundle_for(session, run)
+    report = diffmod.check_budget(bundle, session.config.diff.max_bytes)
+    if report.over_budget:
+        raise DiffTooLarge(
+            f"the diff is {report.total_bytes} bytes, over the {report.max_bytes} byte budget",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=section,
+            data={
+                "mode": "diff_too_large",
+                "total_bytes": report.total_bytes,
+                "max_bytes": report.max_bytes,
+                "by_file": [list(item) for item in report.by_file],
+            },
+            next_instruction=(
+                "Narrow the diff before reviewing it. Add generated or vendored paths "
+                "to `[diff] exclude` in .agentic-cli.toml, or raise `[diff] max_bytes` "
+                "if the change really is this large. The diff is never truncated, so "
+                "reviewing it partially is not an option."
+            ),
+            next_command="agentic-cli context",
+        )
+
+    return _envelope_for(
+        run,
+        stage=section,
+        data={
+            "section": section,
+            "worktree_path": run.worktree_path,
+            "base": run.merge_base_sha,
+            "head": run.head_sha,
+            "changed_files": bundle.files,
+            "excluded_files": bundle.excluded,
+            "diff": bundle.text,
+            "diff_bytes": bundle.total_bytes,
+        },
+    )
+
+
+# -- submit-findings --------------------------------------------------------
+
+
+def _parse_submissions(payload) -> list[FindingSubmission]:
+    if isinstance(payload, dict):
+        payload = payload.get("findings", [])
+    if not isinstance(payload, list):
+        raise InvalidFindings(
+            "expected a JSON list of findings, or an object with a `findings` key"
+        )
+    try:
+        return [FindingSubmission.model_validate(item) for item in payload]
+    except ValidationError as exc:
+        raise InvalidFindings(_describe_validation(exc)) from exc
+
+
+def _describe_validation(exc: ValidationError) -> str:
+    parts = []
+    for error in exc.errors():
+        location = ".".join(str(item) for item in error["loc"])
+        if error["type"] == "extra_forbidden":
+            parts.append(
+                f"{location}: not a field you may set — id and stage are assigned by "
+                f"agentic-cli, never supplied by the agent"
+            )
+        else:
+            parts.append(f"{location}: {error['msg']}")
+    return "; ".join(parts)
+
+
+def submit_findings(session: Session, payload) -> Envelope:
+    run = _load_current(session)
+    _assert_fresh(session, run)
+    _require_state(
+        run,
+        State.REVIEW_AWAITING_FINDINGS,
+        State.DOCS_AWAITING_FINDINGS,
+        command="submit-findings",
+    )
+
+    stage = findingsmod.stage_for_state(run.state)
+    submissions = _parse_submissions(payload)
+    bundle = _bundle_for(session, run)
+    existing = session.store.load_findings(run.run_id)
+
+    allowed = set(bundle.files)
+    blocking_severities = (
+        session.config.review.blocking_severities
+        if stage is Stage.REVIEW
+        else session.config.docs.blocking_severities
+    )
+
+    try:
+        accepted = findingsmod.validate_and_assign(
+            submissions,
+            stage=stage,
+            worktree_path=run.worktree_path,
+            allowed_paths=allowed,
+            existing=existing,
+            max_findings=session.config.review.max_findings,
+        )
+    except findingsmod.FindingRejected as exc:
+        raise InvalidFindings(str(exc)) from exc
+
+    combined = existing + accepted
+    session.store.save_findings(run.run_id, combined)
+
+    stage_findings = [f for f in combined if f.stage is stage]
+    blocking = findingsmod.blocking(stage_findings, blocking_severities=blocking_severities)
+
+    with session.store.transaction(run.run_id) as doc:
+        _apply(doc, Action.SUBMIT_FINDINGS)
+        _apply(doc, Action.TRIAGE_BLOCKING if blocking else Action.TRIAGE_CLEAN)
+        run = doc
+
+    session.store.append_event(
+        run.run_id,
+        {"event": "findings_submitted", "stage": stage.value, "count": len(accepted)},
+    )
+
+    return _envelope_for(
+        run,
+        stage=stage.value,
+        data={
+            "accepted": [f.model_dump(mode="json") for f in accepted],
+            "total": len(combined),
+        },
+        blocking=[f.model_dump(mode="json") for f in blocking],
+    )
+
+
+# -- verify -----------------------------------------------------------------
+
+
+def verify(session: Session) -> Envelope:
+    run = _load_current(session)
+    _assert_fresh(session, run)
+    _require_state(
+        run,
+        State.REVIEW_SUBMITTED,
+        State.REVIEW_AWAITING_RESPONSES,
+        State.REVIEW_FIXING,
+        State.REVIEW_GREEN,
+        State.DOCS_SUBMITTED,
+        State.DOCS_AWAITING_RESPONSES,
+        State.DOCS_FIXING,
+        State.DOCS_GREEN,
+        command="verify",
+    )
+
+    stage = findingsmod.stage_for_state(run.state)
+    blocking_severities = (
+        session.config.review.blocking_severities
+        if stage is Stage.REVIEW
+        else session.config.docs.blocking_severities
+    )
+    stage_findings = [f for f in session.store.load_findings(run.run_id) if f.stage is stage]
+    outstanding = findingsmod.blocking(stage_findings, blocking_severities=blocking_severities)
+
+    if outstanding:
+        raise StageFailed(
+            f"{len(outstanding)} finding(s) still block the {stage.value} stage",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=stage.value,
+            data={"stage": stage.value},
+            blocking=[f.model_dump(mode="json") for f in outstanding],
+            next_instruction="Resolve each blocking finding with `respond`, then verify again.",
+            next_command="agentic-cli respond --id <id> --action fixed --commit <sha>",
+        )
+
+    if run.state not in (State.REVIEW_GREEN, State.DOCS_GREEN):
+        with session.store.transaction(run.run_id) as doc:
+            _apply(doc, Action.RESOLVE_GREEN)
+            run = doc
+
+    return _envelope_for(
+        run,
+        stage=stage.value,
+        data={"stage": stage.value, "blocking_count": 0},
+    )
+
+
+# -- status -----------------------------------------------------------------
+
+
+def status(session: Session) -> Envelope:
+    """Legal in every state, and the universal recovery entry point.
+
+    Deliberately never raises for a stale or wedged run: if `status` could fail,
+    an agent that had wandered off the path would have nowhere to go.
+    """
+    run_id = session.store.get_current()
+    if not run_id:
+        return Envelope(
+            data={"has_run": False},
+            next_instruction="No run is active. Start one.",
+            next_command="agentic-cli start",
+        )
+
+    try:
+        run = session.store.load_run(run_id)
+    except Exception:
+        return Envelope(
+            data={"has_run": False, "dangling_run_id": run_id},
+            next_instruction="The recorded run is missing. Start a fresh one.",
+            next_command="agentic-cli start",
+        )
+
+    findings = session.store.load_findings(run_id)
+    summary = {status.value: 0 for status in FindingStatus}
+    for finding in findings:
+        summary[finding.status.value] += 1
+
+    tip = _head_moved(session, run)
+    stale = run.stale or tip is not None
+
+    envelope = _envelope_for(
+        run,
+        data={
+            "has_run": True,
+            "seq": run.seq,
+            "branch": run.branch,
+            "base_ref": run.base_ref,
+            "head_sha": run.head_sha,
+            "current_tip": tip or run.head_sha,
+            "stale": stale,
+            "worktree_path": run.worktree_path,
+            "findings": [f.model_dump(mode="json") for f in findings],
+            "findings_summary": summary,
+        },
+    )
+    if stale:
+        envelope.next_instruction = (
+            "This run is stale: the branch moved after review began. Start a fresh run."
+        )
+        envelope.next_command = "agentic-cli start"
+    return envelope
