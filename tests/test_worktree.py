@@ -3,7 +3,7 @@ import stat
 import pytest
 
 from agentic_cli import gitx, worktree
-from tests.conftest import commit_all, git, write
+from tests.conftest import git, write
 
 
 @pytest.fixture

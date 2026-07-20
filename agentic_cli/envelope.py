@@ -91,6 +91,7 @@ def error_envelope(
     next_instruction: str | None = None,
     next_command: str | None = None,
     data: dict[str, Any] | None = None,
+    blocking: list[Any] | None = None,
 ) -> Envelope:
     return Envelope(
         ok=False,
@@ -98,6 +99,7 @@ def error_envelope(
         state=state,
         stage=stage,
         data=data or {},
+        blocking=blocking or [],
         error_code=code,
         error_message=message,
         error_detail=detail,

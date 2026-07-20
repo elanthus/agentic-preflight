@@ -1,0 +1,291 @@
+"""M0 walking skeleton: start -> context -> submit-findings -> verify -> status."""
+
+import json
+
+import pytest
+
+from agentic_cli.envelope import ExitCode
+from tests.conftest import commit_all, git, write
+from tests.driver import ScriptedAgent
+
+
+@pytest.fixture
+def agent(feature_repo):
+    return ScriptedAgent(feature_repo)
+
+
+def findings_json(tmp_path, items):
+    path = tmp_path / "findings.json"
+    path.write_text(json.dumps({"findings": items}))
+    return str(path)
+
+
+# -- start ------------------------------------------------------------------
+
+
+def test_start_creates_a_run_and_points_at_context(agent):
+    env = agent.run("start")
+    assert env["ok"] is True
+    assert env["run_id"].startswith("r_")
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert "context" in env["next"]["command"]
+
+
+def test_start_reports_an_absolute_worktree_path(agent):
+    env = agent.run("start")
+    assert env["data"]["worktree_path"].startswith("/")
+
+
+def test_start_leaves_the_users_tree_on_its_own_branch(agent, feature_repo):
+    agent.run("start")
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=feature_repo) == "feature/x"
+    assert git("status", "--porcelain", cwd=feature_repo) == ""
+
+
+def test_start_refuses_a_dirty_tree(agent, feature_repo):
+    write(feature_repo, "src/app.py", "uncommitted edit\n")
+    env = agent.run("start", expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "dirty_tree"
+
+
+def test_start_refuses_when_the_branch_has_no_commits_over_base(tmp_repo):
+    agent = ScriptedAgent(tmp_repo)
+    env = agent.run("start", expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "empty_diff"
+
+
+# -- context ----------------------------------------------------------------
+
+
+def test_context_returns_the_diff_and_changed_files(agent):
+    agent.run("start")
+    env = agent.run("context")
+    assert env["data"]["changed_files"] == ["src/app.py"]
+    assert "loud=False" in env["data"]["diff"]
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+
+
+def test_context_does_not_advance_the_state(agent):
+    agent.run("start")
+    first = agent.run("context")
+    second = agent.run("context")
+    assert first["state"] == second["state"] == "REVIEW_AWAITING_FINDINGS"
+
+
+def test_context_refuses_before_a_run_exists(feature_repo):
+    agent = ScriptedAgent(feature_repo)
+    env = agent.run("context", expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "no_run"
+
+
+def test_context_trips_the_budget_rather_than_truncating(agent, feature_repo):
+    write(feature_repo, "src/big.py", "x = 1\n" * 5000)
+    commit_all(feature_repo, "add a big file")
+    write(feature_repo, ".agentic-cli.toml", "[diff]\nmax_bytes = 500\n")
+    commit_all(feature_repo, "tighten the diff budget")
+
+    agent.run("start")
+    env = agent.run("context", expect=ExitCode.STAGE_FAILED)
+    assert env["data"]["mode"] == "diff_too_large"
+    assert env["data"]["by_file"][0][0] == "src/big.py"
+    assert "exclude" in env["next"]["instruction"]
+
+
+def test_context_exclusions_bring_an_oversized_diff_back_under_budget(agent, feature_repo):
+    write(feature_repo, "uv.lock", "generated\n" * 5000)
+    commit_all(feature_repo, "add lockfile")
+    agent.run("start")
+    env = agent.run("context")
+    assert "uv.lock" not in env["data"]["changed_files"]
+    assert "uv.lock" in env["data"]["excluded_files"]
+
+
+# -- submit-findings --------------------------------------------------------
+
+
+def test_a_clean_review_goes_straight_to_green(agent, tmp_path):
+    agent.run("start")
+    agent.run("context")
+    env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    assert env["state"] == "REVIEW_GREEN"
+    assert env["blocking"] == []
+
+
+def test_a_blocking_finding_holds_the_run_for_responses(agent, tmp_path):
+    agent.run("start")
+    agent.run("context")
+    path = findings_json(tmp_path, [{
+        "path": "src/app.py", "line": 1, "severity": "high",
+        "action": "auto_fix", "title": "loud flag is never used",
+    }])
+    env = agent.run("submit-findings", "--file", path)
+    assert env["state"] == "REVIEW_AWAITING_RESPONSES"
+    assert [f["id"] for f in env["blocking"]] == ["F001"]
+
+
+def test_a_non_blocking_finding_still_reaches_green(agent, tmp_path):
+    agent.run("start")
+    agent.run("context")
+    path = findings_json(tmp_path, [{
+        "path": "src/app.py", "line": 1, "severity": "low",
+        "action": "no_op", "title": "nit: naming",
+    }])
+    env = agent.run("submit-findings", "--file", path)
+    assert env["state"] == "REVIEW_GREEN"
+
+
+def test_an_agent_supplied_id_is_a_hard_error(agent, tmp_path):
+    agent.run("start")
+    agent.run("context")
+    path = findings_json(tmp_path, [{
+        "id": "F001", "path": "src/app.py", "severity": "high",
+        "action": "auto_fix", "title": "invented an id",
+    }])
+    env = agent.run("submit-findings", "--file", path, expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "invalid_findings"
+    assert "id" in env["error"]["message"]
+
+
+def test_a_finding_against_an_untouched_file_is_rejected(agent, tmp_path):
+    agent.run("start")
+    agent.run("context")
+    path = findings_json(tmp_path, [{
+        "path": "README.md", "severity": "high",
+        "action": "auto_fix", "title": "not in the diff",
+    }])
+    env = agent.run("submit-findings", "--file", path, expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "invalid_findings"
+
+
+def test_submit_findings_is_illegal_before_start(feature_repo, tmp_path):
+    agent = ScriptedAgent(feature_repo)
+    env = agent.run(
+        "submit-findings", "--file", findings_json(tmp_path, []),
+        expect=ExitCode.PRECONDITION,
+    )
+    assert env["error"]["code"] == "no_run"
+
+
+def test_submitting_twice_is_a_wrong_state_error_naming_the_next_move(agent, tmp_path):
+    agent.run("start")
+    agent.run("context")
+    path = findings_json(tmp_path, [])
+    agent.run("submit-findings", "--file", path)
+    env = agent.run("submit-findings", "--file", path, expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "wrong_state"
+    assert env["next"]["command"]
+
+
+def test_findings_accept_a_bare_list_as_well_as_a_wrapped_object(agent, tmp_path):
+    agent.run("start")
+    agent.run("context")
+    path = tmp_path / "bare.json"
+    path.write_text(json.dumps([]))
+    env = agent.run("submit-findings", "--file", str(path))
+    assert env["state"] == "REVIEW_GREEN"
+
+
+# -- verify -----------------------------------------------------------------
+
+
+def test_verify_reports_the_outstanding_blocking_set(agent, tmp_path):
+    agent.run("start")
+    agent.run("context")
+    path = findings_json(tmp_path, [{
+        "path": "src/app.py", "severity": "critical",
+        "action": "ask_user", "title": "should this change the public API?",
+    }])
+    agent.run("submit-findings", "--file", path)
+    env = agent.run("verify", expect=ExitCode.STAGE_FAILED)
+    assert [f["id"] for f in env["blocking"]] == ["F001"]
+    assert env["state"] == "REVIEW_AWAITING_RESPONSES"
+
+
+def test_verify_on_a_green_review_confirms_and_moves_on(agent, tmp_path):
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    env = agent.run("verify")
+    assert env["state"] == "REVIEW_GREEN"
+
+
+# -- status -----------------------------------------------------------------
+
+
+def test_status_is_legal_before_any_run_exists(feature_repo):
+    agent = ScriptedAgent(feature_repo)
+    env = agent.run("status")
+    assert env["ok"] is True
+    assert env["data"]["has_run"] is False
+    assert "start" in env["next"]["command"]
+
+
+def test_status_reports_state_and_findings_summary(agent, tmp_path):
+    agent.run("start")
+    agent.run("context")
+    path = findings_json(tmp_path, [{
+        "path": "src/app.py", "severity": "high",
+        "action": "auto_fix", "title": "x",
+    }])
+    agent.run("submit-findings", "--file", path)
+
+    env = agent.run("status")
+    assert env["state"] == "REVIEW_AWAITING_RESPONSES"
+    assert env["data"]["findings_summary"]["open"] == 1
+    assert env["data"]["findings"][0]["id"] == "F001"
+
+
+def test_status_is_legal_in_every_state_reached_by_the_happy_path(agent, tmp_path):
+    agent.run("start")
+    agent.run("status")
+    agent.run("context")
+    agent.run("status")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    env = agent.run("status")
+    assert env["state"] == "REVIEW_GREEN"
+
+
+# -- staleness --------------------------------------------------------------
+
+
+def test_a_moved_head_marks_the_run_stale_and_refuses_to_continue(agent, feature_repo, tmp_path):
+    agent.run("start")
+    agent.run("context")
+    write(feature_repo, "src/app.py", "def greet(name, loud=False):\n    return 'changed'\n")
+    commit_all(feature_repo, "amend the work after review started")
+
+    env = agent.run(
+        "submit-findings", "--file", findings_json(tmp_path, []),
+        expect=ExitCode.PRECONDITION,
+    )
+    assert env["error"]["code"] == "stale_run"
+    assert "start" in env["next"]["command"]
+
+
+def test_status_still_works_on_a_stale_run(agent, feature_repo):
+    agent.run("start")
+    write(feature_repo, "src/app.py", "moved\n")
+    commit_all(feature_repo, "move the head")
+    env = agent.run("status")
+    assert env["data"]["stale"] is True
+
+
+# -- the contract itself ----------------------------------------------------
+
+
+def test_every_command_emits_exactly_one_json_object(agent, tmp_path):
+    """Asserted by the driver on every step; this test makes it explicit."""
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("status")
+    assert len(agent.steps) == 4
+
+
+def test_the_contract_holds_over_a_real_subprocess(feature_repo, tmp_path):
+    """Some paths only exist as subprocesses; the envelope must survive that."""
+    agent = ScriptedAgent(feature_repo, transport="subprocess")
+    env = agent.run("start")
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    env = agent.run("status")
+    assert env["ok"] is True
