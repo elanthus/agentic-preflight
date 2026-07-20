@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from . import diff as diffmod
 from . import findings as findingsmod
 from . import gitx, worktree
+from .stages import detect, shellstage
 from .stages import docs as docsstage
 from .config import Config, load_config
 from .envelope import Envelope
@@ -30,13 +31,15 @@ from .errors import (
     InvalidResponse,
     NoRun,
     StaleRun,
+    MaxAttempts,
+    NoLog,
     StageFailed,
     UnknownFinding,
     UnmergedWork,
     WrongState,
 )
 from .machine import Action, IllegalTransition, State, next_state
-from .models import FindingStatus, FindingSubmission, RunDoc, Stage
+from .models import FindingStatus, FindingSubmission, RunDoc, Stage, StageRecord
 from .store import Store
 
 STATE_DIR_NAME = "agentic-cli"
@@ -545,6 +548,218 @@ def verify(session: Session) -> Envelope:
 
 
 RESPONSE_ACTIONS = ("fixed", "dismissed", "accepted")
+
+_STAGE_STATES = {
+    "lint": {
+        "ready": (State.DOCS_GREEN, State.LINT_RED),
+        "run": Action.RUN_LINT,
+        "retry": Action.RETRY_LINT,
+        "passed": Action.LINT_PASSED,
+        "failed": Action.LINT_FAILED,
+        "red": State.LINT_RED,
+    },
+    "test": {
+        "ready": (State.LINT_GREEN, State.TEST_RED),
+        "run": Action.RUN_TEST,
+        "retry": Action.RETRY_TEST,
+        "passed": Action.TEST_PASSED,
+        "failed": Action.TEST_FAILED,
+        "red": State.TEST_RED,
+    },
+}
+
+
+def _resolve_command(session: Session, run: RunDoc, stage_name: str, override: str | None):
+    """--command flag, then config, then detection. Detection never auto-runs."""
+    if override:
+        return override
+    configured = getattr(session.config.commands, stage_name)
+    if configured:
+        return configured
+
+    candidates = detect.candidates_for(run.worktree_path or session.repo_root, stage_name)
+    raise StageFailed(
+        f"no command configured for the {stage_name} stage",
+        state=run.state.value,
+        run_id=run.run_id,
+        stage=stage_name,
+        data={
+            "mode": "needs_command",
+            "stage": stage_name,
+            "candidates": [c.as_dict() for c in candidates],
+        },
+        next_instruction=(
+            f"Pick the command that runs {stage_name} in this repo and re-invoke with "
+            f"--command. Detection will not guess on your behalf. Add it to "
+            f"[commands] {stage_name} in .agentic-cli.toml to settle it permanently."
+        ),
+        next_command=(
+            f"agentic-cli stage run {stage_name} "
+            f"--command '{candidates[0].command if candidates else '<command>'}' --record"
+        ),
+    )
+
+
+def run_stage(
+    session: Session,
+    stage_name: str,
+    *,
+    command: str | None = None,
+    record: bool = False,
+    baseline: bool = False,
+) -> Envelope:
+    """Run a deterministic shell stage. Pass/fail is the exit code, nothing else."""
+    run = _load_current(session)
+    _assert_fresh(session, run)
+    spec = _STAGE_STATES[stage_name]
+    _require_state(run, *spec["ready"], command=f"stage run {stage_name}")
+
+    stage = Stage(stage_name)
+    record_entry = run.stages.get(stage) or StageRecord()
+    if record_entry.attempts >= session.config.stage.max_attempts:
+        raise MaxAttempts(
+            f"the {stage_name} stage has failed {record_entry.attempts} times "
+            f"(max_attempts={session.config.stage.max_attempts}); stopping rather than "
+            f"looping",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=stage_name,
+            data={"attempts": record_entry.attempts, "stage": stage_name},
+            next_instruction=(
+                "This needs a person. Show the user the stage log and the last failure, "
+                "and ask how to proceed."
+            ),
+            next_command=f"agentic-cli logs --stage {stage_name}",
+        )
+
+    resolved = _resolve_command(session, run, stage_name, command)
+
+    with session.store.transaction(run.run_id) as doc:
+        _apply(doc, spec["retry"] if doc.state is spec["red"] else spec["run"])
+        run = doc
+
+    baseline_red = None
+    if baseline:
+        baseline_red = _baseline_is_red(session, run, resolved)
+
+    result = shellstage.run_stage(
+        run.worktree_path, resolved, timeout_seconds=session.config.stage.timeout_seconds
+    )
+
+    secrets = shellstage.read_secrets(run.worktree_path, run.copied_files)
+    clean_output = shellstage.redact(result.output, secrets)
+
+    log_path = session.store.logs_dir(run.run_id) / f"{stage_name}.txt"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(clean_output)
+
+    summary = shellstage.summarise(clean_output)
+
+    with session.store.transaction(run.run_id) as doc:
+        entry = doc.stages.get(stage) or StageRecord()
+        entry.command = resolved
+        entry.exit_code = result.exit_code
+        entry.log_path = str(log_path)
+        entry.status = "green" if result.passed else "red"
+        entry.finished_at = _now()
+        if not result.passed:
+            entry.attempts += 1
+        doc.stages[stage] = entry
+        _apply(doc, spec["passed"] if result.passed else spec["failed"])
+        run = doc
+
+    session.store.append_event(
+        run.run_id,
+        {"event": f"{stage_name}_finished", "exit_code": result.exit_code},
+    )
+
+    data = {
+        "stage": stage_name,
+        "command": resolved,
+        "exit_code": result.exit_code,
+        "log_path": str(log_path),
+        "timed_out": result.timed_out,
+        **summary,
+    }
+    if baseline_red is not None:
+        data["baseline_red"] = baseline_red
+
+    if result.passed:
+        return _envelope_for(run, stage=stage_name, data=data)
+
+    message = f"the {stage_name} stage failed (exit {result.exit_code})"
+    instruction = (
+        f"Read the log, fix the cause in the worktree, commit, then re-run the stage."
+    )
+    if baseline_red:
+        message = (
+            f"the {stage_name} stage failed, but the base commit fails it too — "
+            f"this is pre-existing, not caused by the diff"
+        )
+        instruction = (
+            "The base commit already fails this stage, so the change under review is "
+            "not responsible. Tell the user rather than trying to fix it here."
+        )
+
+    raise StageFailed(
+        message,
+        state=run.state.value,
+        run_id=run.run_id,
+        stage=stage_name,
+        data=data,
+        next_instruction=instruction,
+        next_command=f"agentic-cli logs --stage {stage_name}",
+    )
+
+
+def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
+    """Run the command against the base commit in a scratch worktree.
+
+    Answers the question that otherwise sends an agent chasing phantoms: is this
+    failure ours, or was the base already broken?
+    """
+    scratch = session.store.worktrees_dir / f"{run.run_id}-baseline"
+    branch = f"ac/{run.run_id}-baseline"
+    try:
+        worktree.create(
+            session.repo_root, path=scratch, branch=branch, head_sha=run.merge_base_sha
+        )
+        try:
+            worktree.copy_files(session.repo_root, scratch, session.config.worktree.copy_files)
+        except worktree.CopyRefused:
+            pass
+        if session.config.worktree.setup_command:
+            worktree.run_setup(
+                scratch,
+                session.config.worktree.setup_command,
+                timeout_seconds=session.config.stage.timeout_seconds,
+            )
+        result = shellstage.run_stage(
+            scratch, command, timeout_seconds=session.config.stage.timeout_seconds
+        )
+        return not result.passed
+    except worktree.WorktreeError:
+        return False
+    finally:
+        worktree.remove(session.repo_root, scratch, branch=branch)
+
+
+def logs(session: Session, *, stage_name: str) -> Envelope:
+    run = _load_current(session)
+    log_path = session.store.logs_dir(run.run_id) / f"{stage_name}.txt"
+    if not log_path.exists():
+        raise NoLog(
+            f"the {stage_name} stage has not run in this run, so there is no log",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction=f"Run the stage first.",
+            next_command=f"agentic-cli stage run {stage_name}",
+        )
+    return _envelope_for(
+        run,
+        stage=stage_name,
+        data={"stage": stage_name, "log_path": str(log_path), "output": log_path.read_text()},
+    )
 
 
 def respond(

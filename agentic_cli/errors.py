@@ -135,6 +135,18 @@ class UnmergedWork(AgenticError):
     exit_code = ExitCode.NEEDS_CONFIRM
 
 
+class MaxAttempts(AgenticError):
+    """A stage failed repeatedly. Stop rather than let the agent loop forever."""
+
+    code = "max_attempts"
+    exit_code = ExitCode.NEEDS_HUMAN
+
+
+class NoLog(AgenticError):
+    code = "no_log"
+    exit_code = ExitCode.PRECONDITION
+
+
 class NeedsHuman(AgenticError):
     code = "needs_human"
     exit_code = ExitCode.NEEDS_HUMAN

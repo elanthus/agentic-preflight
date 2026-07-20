@@ -173,6 +173,36 @@ def events(limit: int | None) -> None:
     _finish(runs.events(session, limit=limit))
 
 
+@main.group()
+def stage() -> None:
+    """Deterministic shell stages."""
+
+
+@stage.command("run")
+@click.argument("name", type=click.Choice(["lint", "test"]))
+@click.option("--command", "command_str", default=None, help="Command to run.")
+@click.option("--record", is_flag=True, help="Acknowledge an explicitly chosen command.")
+@click.option("--baseline", is_flag=True, help="Also run against the base commit.")
+@command
+def stage_run(name: str, command_str: str | None, record: bool, baseline: bool) -> None:
+    """Run a stage. Pass/fail is the exit code and nothing else."""
+    session = runs.open_session()
+    _finish(
+        runs.run_stage(
+            session, name, command=command_str, record=record, baseline=baseline
+        )
+    )
+
+
+@main.command()
+@click.option("--stage", "stage_name", required=True, type=click.Choice(["lint", "test"]))
+@command
+def logs(stage_name: str) -> None:
+    """The full captured output of a stage."""
+    session = runs.open_session()
+    _finish(runs.logs(session, stage_name=stage_name))
+
+
 @main.command()
 @click.option("--force", is_flag=True, help="Discard unmerged fix commits.")
 @command
