@@ -19,6 +19,8 @@ from pydantic import ValidationError
 from . import diff as diffmod
 from . import findings as findingsmod
 from . import gitx, worktree
+from . import ledger as ledgermod
+from . import mergeback as mergebackmod
 from .stages import detect, shellstage
 from .stages import docs as docsstage
 from .config import Config, load_config
@@ -32,6 +34,7 @@ from .errors import (
     NoRun,
     StaleRun,
     MaxAttempts,
+    MergebackConflictError,
     NoLog,
     StageFailed,
     UnknownFinding,
@@ -742,6 +745,93 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
         return False
     finally:
         worktree.remove(session.repo_root, scratch, branch=branch)
+
+
+def mergeback(session: Session) -> Envelope:
+    """Cherry-pick the verified fixes onto the user's branch, strictly."""
+    run = _load_current(session)
+    _assert_fresh(session, run)
+    _require_state(run, State.TEST_GREEN, State.MERGEBACK_PENDING, command="mergeback")
+
+    repo = session.repo_root
+    if not gitx.is_clean(repo):
+        raise DirtyTree(
+            "the working tree has uncommitted changes; never cherry-pick onto a dirty tree",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction="Commit or stash your changes, then merge back.",
+            next_command="git status",
+        )
+
+    if run.state is State.TEST_GREEN:
+        with session.store.transaction(run.run_id) as doc:
+            _apply(doc, Action.BEGIN_MERGEBACK)
+            run = doc
+
+    try:
+        result = mergebackmod.cherry_pick_fixes(
+            repo,
+            run.fix_commits,
+            worktree_branch=run.worktree_branch,
+            worktree_path=run.worktree_path,
+        )
+    except mergebackmod.MergebackConflict as exc:
+        with session.store.transaction(run.run_id) as doc:
+            _apply(doc, Action.MERGEBACK_FAILED)
+            run = doc
+        session.store.append_event(run.run_id, {"event": "mergeback_conflict"})
+        raise MergebackConflictError(
+            str(exc),
+            state=run.state.value,
+            run_id=run.run_id,
+            data=exc.report.as_dict(),
+            next_instruction=(
+                "Do not attempt to resolve this yourself. Show the user the resolution "
+                "block verbatim and stop. The fix commits are intact in the worktree and "
+                "the branch is exactly where it was."
+            ),
+            next_command="agentic-cli status",
+        ) from exc
+
+    # Green transfers only when the content is provably identical.
+    findings = session.store.load_findings(run.run_id)
+    summary: dict[str, int] = {}
+    for finding in findings:
+        summary[finding.status.value] = summary.get(finding.status.value, 0) + 1
+
+    if result.tree_equivalent:
+        stages_recorded = {stage: "green" for stage in run.stages}
+        stages_recorded[Stage.REVIEW] = "green"
+        if session.config.docs.enabled:
+            stages_recorded[Stage.DOCS] = "green"
+        entry = ledgermod.build_entry(
+            run,
+            sha=result.post_sha,
+            tree_sha=result.local_tree_sha,
+            stages=stages_recorded,
+            findings_summary=summary,
+        )
+        session.store.save_ledger(ledgermod.record(session.store.load_ledger(), entry))
+
+    with session.store.transaction(run.run_id) as doc:
+        doc.head_sha = result.post_sha
+        _apply(doc, Action.MERGEBACK_OK)
+        run = doc
+
+    session.store.append_event(
+        run.run_id,
+        {"event": "mergeback_ok", "post_sha": result.post_sha,
+         "tree_equivalent": result.tree_equivalent},
+    )
+
+    envelope = _envelope_for(run, data=result.as_dict())
+    if not result.tree_equivalent:
+        envelope.next_instruction = (
+            "The merged tree does not match what was verified, so green did not "
+            "transfer. Start a fresh run against the new tip."
+        )
+        envelope.next_command = "agentic-cli start"
+    return envelope
 
 
 def logs(session: Session, *, stage_name: str) -> Envelope:

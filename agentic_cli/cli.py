@@ -173,6 +173,14 @@ def events(limit: int | None) -> None:
     _finish(runs.events(session, limit=limit))
 
 
+@main.command()
+@command
+def mergeback() -> None:
+    """Cherry-pick verified fixes onto your branch. Never auto-resolves."""
+    session = runs.open_session()
+    _finish(runs.mergeback(session))
+
+
 @main.group()
 def stage() -> None:
     """Deterministic shell stages."""
