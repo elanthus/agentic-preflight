@@ -1,0 +1,161 @@
+"""The docs must not lie.
+
+SKILL.md and its reference files were written last, against the finished CLI. These
+tests keep them that way: a command renamed in code and not in the skill is caught
+here rather than by an agent at runtime, halfway through someone's release.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import pytest
+from click.testing import CliRunner
+
+from agentic_cli.cli import main
+from agentic_cli.config import Config
+from agentic_cli.envelope import ExitCode
+
+SKILL_DIR = Path(__file__).parent.parent / "skill"
+SKILL = SKILL_DIR / "SKILL.md"
+REFERENCE = SKILL_DIR / "reference"
+README = Path(__file__).parent.parent / "README.md"
+
+
+def real_commands() -> set[str]:
+    names = set(main.commands)
+    for name, cmd in main.commands.items():
+        for sub in getattr(cmd, "commands", {}):
+            names.add(f"{name} {sub}")
+    return names
+
+
+def code_regions(text: str) -> str:
+    """Only fenced blocks and inline code spans.
+
+    Scanning raw prose would treat "agentic-cli refuses to push" as an
+    invocation of a `refuses` command. Commands appear in code, so only code
+    is searched.
+    """
+    fenced = re.findall(r"```[a-z]*\n(.*?)```", text, re.DOTALL)
+    inline = re.findall(r"`([^`\n]+)`", text)
+    return "\n".join(fenced + inline)
+
+
+def documented_commands(text: str) -> set[str]:
+    """Every `agentic-cli <command>` invocation appearing in a doc's code."""
+    found = set()
+    for match in re.finditer(r"agentic-cli ([a-z][a-z-]*)(?: (run))?", code_regions(text)):
+        name, sub = match.group(1), match.group(2)
+        found.add(f"{name} {sub}" if sub else name)
+        if sub:
+            # `stage run lint` documents the `stage` group too.
+            found.add(name)
+    return found
+
+
+# -- commands -------------------------------------------------------------
+
+
+def test_skill_md_exists_with_front_matter():
+    text = SKILL.read_text()
+    assert text.startswith("---")
+    assert "name: agentic-cli" in text
+    assert "description:" in text
+
+
+@pytest.mark.parametrize(
+    "doc", [SKILL, REFERENCE / "commands.md", REFERENCE / "findings-schema.md",
+            REFERENCE / "docs-rubric.md", README]
+)
+def test_every_documented_command_exists(doc):
+    real = real_commands()
+    documented = documented_commands(doc.read_text())
+    unknown = {c for c in documented if c not in real and c.split()[0] not in real}
+    assert unknown == set(), f"{doc.name} documents commands that do not exist: {unknown}"
+
+
+def test_every_real_command_is_documented_somewhere():
+    documented = set()
+    for doc in (SKILL, REFERENCE / "commands.md"):
+        documented |= documented_commands(doc.read_text())
+    missing = {c for c in real_commands() if " " not in c and c not in documented}
+    assert missing == set(), f"undocumented commands: {missing}"
+
+
+# -- exit codes -----------------------------------------------------------
+
+
+def test_documented_exit_codes_match_the_enum():
+    text = (REFERENCE / "commands.md").read_text()
+    for code in ExitCode:
+        assert str(int(code)) in text, f"exit code {code.name}={int(code)} is undocumented"
+
+
+def test_skill_documents_the_universal_recovery_rule():
+    text = SKILL.read_text()
+    assert "exit 3" in text
+    assert "status" in text
+
+
+# -- config ---------------------------------------------------------------
+
+
+def test_readme_config_example_uses_only_real_sections():
+    text = README.read_text()
+    documented = set(re.findall(r"^\[([a-z]+)\]$", text, re.MULTILINE))
+    real = set(Config.model_fields)
+    unknown = documented - real
+    assert unknown == set(), f"README documents config sections that do not exist: {unknown}"
+
+
+def test_every_config_section_is_documented_in_the_readme():
+    text = README.read_text()
+    documented = set(re.findall(r"^\[([a-z]+)\]$", text, re.MULTILINE))
+    missing = set(Config.model_fields) - documented
+    assert missing == set(), f"undocumented config sections: {missing}"
+
+
+def test_the_readme_config_example_actually_parses(tmp_path):
+    """The example must be valid config, not plausible-looking config."""
+    import tomllib
+
+    text = README.read_text()
+    block = re.search(r"```toml\n(.*?)```", text, re.DOTALL).group(1)
+    parsed = tomllib.loads(block)
+    Config.model_validate(parsed)
+
+
+# -- honesty --------------------------------------------------------------
+
+
+def test_the_readme_states_the_gate_is_not_a_security_boundary():
+    """The design requires this be said plainly; do not let it be edited away."""
+    text = README.read_text().lower()
+    assert "not a security boundary" in text
+    assert "--no-verify" in text
+    assert "manual" in text
+
+
+def test_the_skill_documents_the_findings_id_prohibition():
+    for doc in (SKILL, REFERENCE / "findings-schema.md"):
+        text = doc.read_text()
+        assert "`id`" in text or '"id"' in text
+        assert "stage" in text
+
+
+def test_the_docs_rubric_leads_with_the_obligation_test():
+    text = (REFERENCE / "docs-rubric.md").read_text()
+    assert "Would a reader following the current documentation now be wrong?" in text
+    assert "Zero findings is a normal" in text
+
+
+# -- the help text itself -------------------------------------------------
+
+
+def test_help_lists_every_command():
+    result = CliRunner().invoke(main, ["--help"])
+    assert result.exit_code == 0
+    for name in main.commands:
+        assert name in result.output
