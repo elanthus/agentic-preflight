@@ -43,8 +43,8 @@ def git(*args: str, cwd: Path) -> str:
     return result.stdout.strip()
 
 
-def write(repo: Path, relpath: str, content: str) -> Path:
-    path = repo / relpath
+def write(repo: Path | str, relpath: str, content: str) -> Path:
+    path = Path(repo) / relpath
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
     return path

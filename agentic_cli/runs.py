@@ -26,9 +26,12 @@ from .errors import (
     DiffTooLarge,
     EmptyDiff,
     InvalidFindings,
+    InvalidResponse,
     NoRun,
     StaleRun,
     StageFailed,
+    UnknownFinding,
+    UnmergedWork,
     WrongState,
 )
 from .machine import Action, IllegalTransition, State, next_state
@@ -469,6 +472,257 @@ def verify(session: Session) -> Envelope:
 # -- status -----------------------------------------------------------------
 
 
+RESPONSE_ACTIONS = ("fixed", "dismissed", "accepted")
+
+
+def respond(
+    session: Session,
+    *,
+    finding_id: str,
+    action: str,
+    commit: str | None = None,
+    note: str | None = None,
+) -> Envelope:
+    """Record the agent's resolution of one finding, verifying what it claims.
+
+    "I fixed F003 in abc123" is an assertion, and three things can be wrong with
+    it: the commit may not exist, it may not touch the file the finding was
+    about, or it may carry a copied environment file. All three are cheap to
+    check and expensive to miss, so none of them are taken on trust.
+    """
+    run = _load_current(session)
+    _assert_fresh(session, run)
+    _require_state(
+        run,
+        State.REVIEW_AWAITING_RESPONSES,
+        State.REVIEW_FIXING,
+        State.DOCS_AWAITING_RESPONSES,
+        State.DOCS_FIXING,
+        command="respond",
+    )
+
+    stored = session.store.load_findings(run.run_id)
+    target = next((f for f in stored if f.id == finding_id), None)
+    if target is None:
+        raise UnknownFinding(
+            f"no finding {finding_id!r} in this run; valid ids: "
+            f"{[f.id for f in stored] or '(none)'}",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+
+    if target.status is not FindingStatus.OPEN:
+        raise InvalidResponse(
+            f"{finding_id} is already {target.status.value}; each finding is "
+            f"resolved once",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+
+    if action == "fixed":
+        if not commit:
+            raise InvalidResponse(
+                f"resolving {finding_id} as fixed requires --commit <sha> naming the "
+                f"commit that fixes it",
+                state=run.state.value,
+                run_id=run.run_id,
+            )
+        commit = _verify_fix_commit(session, run, target, commit)
+    elif not note:
+        raise InvalidResponse(
+            f"resolving {finding_id} as {action} requires --note explaining why; "
+            f"an unexplained dismissal is indistinguishable from an oversight",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+
+    with session.store.transaction(run.run_id) as doc:
+        if commit and commit not in doc.fix_commits:
+            doc.fix_commits.append(commit)
+        if doc.state in (State.REVIEW_AWAITING_RESPONSES, State.DOCS_AWAITING_RESPONSES):
+            _apply(doc, Action.RESPOND)
+        run = doc
+
+    target.status = FindingStatus(action)
+    target.fix_commit = commit
+    target.response_note = note
+    session.store.save_findings(run.run_id, stored)
+    session.store.append_event(
+        run.run_id,
+        {"event": "finding_resolved", "id": finding_id, "action": action, "commit": commit},
+    )
+
+    stage = findingsmod.stage_for_state(run.state)
+    severities = (
+        session.config.review.blocking_severities
+        if stage is Stage.REVIEW
+        else session.config.docs.blocking_severities
+    )
+    remaining = findingsmod.blocking(
+        [f for f in stored if f.stage is stage], blocking_severities=severities
+    )
+
+    envelope = _envelope_for(
+        run,
+        stage=stage.value,
+        data={"finding": target.model_dump(mode="json"), "remaining_blocking": len(remaining)},
+        blocking=[f.model_dump(mode="json") for f in remaining],
+    )
+    if not remaining:
+        envelope.next_instruction = "Nothing blocks this stage any more. Verify it."
+        envelope.next_command = "agentic-cli verify"
+    return envelope
+
+
+def _verify_fix_commit(session: Session, run: RunDoc, target, commit: str) -> str:
+    wt = run.worktree_path
+    if not gitx.commit_exists(wt, commit):
+        raise InvalidResponse(
+            f"commit {commit} does not exist on the worktree branch",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+
+    full_sha = gitx.rev_parse(wt, commit)
+
+    if not gitx.commit_touches(wt, full_sha, target.path):
+        raise InvalidResponse(
+            f"commit {commit[:8]} does not touch {target.path}, the file {target.id} "
+            f"is about; it changes {gitx.commit_files(wt, full_sha)}",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+
+    # Independent of the preflight copy refusal: a .gitignore edited mid-run
+    # must not be able to open this hole.
+    worktree.assert_commit_is_clean_of(wt, full_sha, run.copied_files)
+    return full_sha
+
+
+def events(session: Session, *, limit: int | None = None) -> Envelope:
+    run = _load_current(session)
+    history = session.store.load_events(run.run_id)
+    if limit:
+        history = history[-limit:]
+    return _envelope_for(run, data={"events": history, "count": len(history)})
+
+
+def abort(session: Session, *, force: bool = False) -> Envelope:
+    """End the run and reclaim its worktree.
+
+    Unmerged fix commits are reported rather than discarded: the agent may have
+    done real work in there, and silently deleting it is the one outcome nobody
+    can undo.
+    """
+    run = _load_current(session)
+
+    if run.fix_commits and not force:
+        raise UnmergedWork(
+            f"this run has {len(run.fix_commits)} fix commit(s) that were never merged "
+            f"back: {', '.join(run.fix_commits)}",
+            state=run.state.value,
+            run_id=run.run_id,
+            data={"fix_commits": run.fix_commits, "worktree_path": run.worktree_path},
+            next_instruction=(
+                "Those commits exist only in the worktree. Cherry-pick anything worth "
+                "keeping, then abort again with --force to discard the rest."
+            ),
+            next_command="agentic-cli abort --force",
+        )
+
+    if run.worktree_path:
+        worktree.remove(session.repo_root, run.worktree_path, branch=run.worktree_branch)
+
+    with session.store.transaction(run.run_id) as doc:
+        _apply(doc, Action.ABORT)
+        run = doc
+
+    session.store.set_current(None)
+    session.store.append_event(run.run_id, {"event": "aborted", "forced": force})
+
+    return _envelope_for(
+        run,
+        data={"discarded_fix_commits": run.fix_commits if force else []},
+        next_instruction="Run aborted. Start a fresh one when ready.",
+        next_command="agentic-cli start",
+    )
+
+
+def gc(session: Session, *, force: bool = False) -> Envelope:
+    """Reconcile three sources of truth: run dirs, git worktrees, and ac/* branches.
+
+    Anything still holding unmerged fix commits is *reported*, never removed
+    without ``--force``. Reclaiming disk is not worth destroying work.
+    """
+    store = session.store
+    repo = session.repo_root
+
+    known_runs = set(store.list_runs())
+    live_worktrees = {
+        Path(record["worktree"]).name: record["worktree"]
+        for record in gitx.list_worktrees(repo)
+        if "worktree" in record and Path(record["worktree"]).parent == store.worktrees_dir
+    }
+    ac_branches = {
+        line.strip().lstrip("* ").strip()
+        for line in gitx.out(repo, "branch", "--list", "ac/*").splitlines()
+        if line.strip()
+    }
+
+    removed: list[str] = []
+    retained: list[dict] = []
+    orphans: list[str] = []
+
+    for run_id in sorted(known_runs):
+        run = store.load_run(run_id)
+        terminal = run.state in (State.ABORTED, State.DONE, State.ORPHANED)
+        if not terminal:
+            # An active run is never a reclamation candidate, but one holding
+            # fix commits is worth surfacing so it is not forgotten about.
+            if run.fix_commits:
+                retained.append(
+                    {
+                        "run_id": run_id,
+                        "reason": "run still active with unmerged fix commits",
+                        "fix_commits": run.fix_commits,
+                    }
+                )
+            continue
+        if run.fix_commits and not force:
+            retained.append({"run_id": run_id, "reason": "unmerged fix commits"})
+            continue
+        if run.worktree_path and Path(run.worktree_path).exists():
+            worktree.remove(repo, run.worktree_path, branch=run.worktree_branch)
+        removed.append(run_id)
+
+    # A worktree or branch git knows about but the store does not: reconcile by
+    # reporting, so a half-created run is visible rather than silently leaked.
+    for name, path in live_worktrees.items():
+        if name not in known_runs:
+            orphans.append(name)
+    for branch in ac_branches:
+        run_id = branch.removeprefix("ac/")
+        if run_id not in known_runs and run_id not in orphans:
+            orphans.append(run_id)
+
+    current = store.get_current()
+    if current and current not in known_runs:
+        store.set_current(None)
+
+    return Envelope(
+        data={
+            "removed": removed,
+            "retained": retained,
+            "orphans": orphans,
+            "runs_known": sorted(known_runs),
+        },
+        next_instruction=(
+            "Orphans were found; inspect them before removing." if orphans else None
+        ),
+        next_command="agentic-cli gc --force" if orphans and not force else None,
+    )
+
+
 def status(session: Session) -> Envelope:
     """Legal in every state, and the universal recovery entry point.
 
@@ -511,6 +765,10 @@ def status(session: Session) -> Envelope:
             "current_tip": tip or run.head_sha,
             "stale": stale,
             "worktree_path": run.worktree_path,
+            "worktree_branch": run.worktree_branch,
+            "fix_commits": run.fix_commits,
+            # Names only — contents are never read, logged, or echoed anywhere.
+            "copied_files": run.copied_files,
             "findings": [f.model_dump(mode="json") for f in findings],
             "findings_summary": summary,
         },
