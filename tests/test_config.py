@@ -1,0 +1,85 @@
+import pytest
+
+from agentic_cli.config import Config, ConfigError, load_config
+
+
+def test_defaults_apply_when_no_config_file_exists(tmp_repo, tmp_path):
+    cfg = load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert cfg.general.base_ref == "main"
+    assert cfg.review.blocking_severities == ["critical", "high"]
+    assert cfg.docs.enabled is True
+    assert cfg.worktree.copy_files == [".env"]
+    assert cfg.gate.mode == "token"
+    assert cfg.diff.max_bytes == 200_000
+    assert "*.lock" in cfg.diff.exclude
+
+
+def test_repo_config_is_read(tmp_repo, tmp_path):
+    (tmp_repo / ".agentic-cli.toml").write_text(
+        "[general]\nbase_ref = 'develop'\n\n[commands]\ntest = 'pytest -q'\n"
+    )
+    cfg = load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert cfg.general.base_ref == "develop"
+    assert cfg.commands.test == "pytest -q"
+
+
+def test_repo_config_wins_over_user_config(tmp_repo, tmp_path):
+    user_dir = tmp_path / "userconf"
+    user_dir.mkdir()
+    (user_dir / "config.toml").write_text("[general]\nbase_ref = 'from-user'\n")
+    (tmp_repo / ".agentic-cli.toml").write_text("[general]\nbase_ref = 'from-repo'\n")
+
+    cfg = load_config(tmp_repo, user_config_dir=user_dir)
+    assert cfg.general.base_ref == "from-repo"
+
+
+def test_user_config_fills_sections_the_repo_omits(tmp_repo, tmp_path):
+    user_dir = tmp_path / "userconf"
+    user_dir.mkdir()
+    (user_dir / "config.toml").write_text("[stage]\ntimeout_seconds = 900\n")
+    (tmp_repo / ".agentic-cli.toml").write_text("[general]\nbase_ref = 'develop'\n")
+
+    cfg = load_config(tmp_repo, user_config_dir=user_dir)
+    assert cfg.general.base_ref == "develop"
+    assert cfg.stage.timeout_seconds == 900
+
+
+def test_an_unknown_key_is_an_error_naming_the_key(tmp_repo, tmp_path):
+    (tmp_repo / ".agentic-cli.toml").write_text("[general]\nbase_reff = 'main'\n")
+    with pytest.raises(ConfigError) as exc:
+        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert "base_reff" in str(exc.value)
+
+
+def test_an_unknown_section_is_an_error_naming_the_section(tmp_repo, tmp_path):
+    (tmp_repo / ".agentic-cli.toml").write_text("[nonsense]\nx = 1\n")
+    with pytest.raises(ConfigError) as exc:
+        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert "nonsense" in str(exc.value)
+
+
+def test_malformed_toml_is_a_config_error_not_a_traceback(tmp_repo, tmp_path):
+    (tmp_repo / ".agentic-cli.toml").write_text("[general\nbase_ref = 'main'\n")
+    with pytest.raises(ConfigError) as exc:
+        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert ".agentic-cli.toml" in str(exc.value)
+
+
+def test_blocking_severities_reject_a_bogus_severity(tmp_repo, tmp_path):
+    (tmp_repo / ".agentic-cli.toml").write_text(
+        "[review]\nblocking_severities = ['critical', 'spicy']\n"
+    )
+    with pytest.raises(ConfigError) as exc:
+        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert "spicy" in str(exc.value)
+
+
+def test_gate_mode_rejects_an_unknown_mode(tmp_repo, tmp_path):
+    (tmp_repo / ".agentic-cli.toml").write_text("[gate]\nmode = 'yolo'\n")
+    with pytest.raises(ConfigError):
+        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+
+
+def test_config_is_constructible_with_no_arguments():
+    """Defaults must stand alone so tests and `init` can build one cheaply."""
+    assert Config().general.base_ref == "main"
