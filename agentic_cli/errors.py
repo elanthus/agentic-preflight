@@ -142,6 +142,18 @@ class MaxAttempts(AgenticError):
     exit_code = ExitCode.NEEDS_HUMAN
 
 
+class MergebackConflictError(AgenticError):
+    """A cherry-pick conflicted and was cleanly aborted.
+
+    Exits 4 (human resolution required) rather than 2: no amount of agent
+    retrying resolves a genuine content conflict, and an agent that tries will
+    make a code decision nobody asked it to make.
+    """
+
+    code = "mergeback_conflict"
+    exit_code = ExitCode.NEEDS_HUMAN
+
+
 class NoLog(AgenticError):
     code = "no_log"
     exit_code = ExitCode.PRECONDITION
