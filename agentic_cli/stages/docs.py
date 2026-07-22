@@ -33,6 +33,10 @@ STANDARD_DOC_PATTERNS: tuple[str, ...] = (
     "CONTRIBUTING*",
     "CHANGELOG*",
     "docs/**",
+    ".claude/rules/**",
+    ".github/instructions/**",
+    "PRODUCT.md",
+    "DESIGN.md",
 )
 
 CHANGELOG_PATTERNS: tuple[str, ...] = ("CHANGELOG*", "docs/CHANGELOG*")

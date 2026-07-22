@@ -52,6 +52,20 @@ def test_an_explicit_command_flag_overrides_config(docs_green):
     assert env["state"] == "LINT_GREEN"
 
 
+def test_a_run_keeps_its_config_when_the_main_tree_config_changes(
+    docs_green, feature_repo
+):
+    agent = docs_green("[docs]\nenabled = false\n\n[commands]\nlint = 'true'\n")
+    write(
+        feature_repo,
+        ".agentic-cli.toml",
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'false'\n",
+    )
+    env = agent.run("stage", "run", "lint")
+    assert env["state"] == "LINT_GREEN"
+    assert env["data"]["command"] == "true"
+
+
 def test_with_no_command_configured_detection_asks_the_agent_to_choose(docs_green):
     agent = docs_green()
     env = agent.run("stage", "run", "lint", expect=ExitCode.STAGE_FAILED)

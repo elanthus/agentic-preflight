@@ -14,7 +14,7 @@ Outcome: a standalone, pip-installable repo named **`agentic-cli`** whose `SKILL
 
 | Decision | Choice |
 |---|---|
-| Name | `agentic-cli`. Package `agentic_cli`, console script `agentic-cli` (alias `ac`), skill `/agentic-cli`, config `.agentic-cli.toml`, state under `$GIT_COMMON_DIR/agentic-cli/`, worktree branches `ac/<run_id>`. |
+| Name | `agentic-cli`. Package `agentic_cli`, console script `agentic-cli` (alias `ac`), skill `/agentic-cli`, config `.agentic-cli.toml`, state under `$GIT_COMMON_DIR/agentic-cli/`, external worktrees on branches `ac/<run_id>`. |
 | Home | Standalone new repo. Does not depend on `appkit`. |
 | Trigger | On-demand skill (`/agentic-cli`) **plus** optional pre-push hook installed by `init`. |
 | v1 stages | review, **docs**, lint, test, push+PR. (intent, rebase, CI monitoring are out.) |
@@ -67,10 +67,12 @@ Run dir lives under `$GIT_COMMON_DIR/agentic-cli/` (use `GIT_COMMON_DIR`, not `G
 
 ```
 ledger.json · current · runs/<run_id>/{run.json,events.jsonl,findings.json,diff/,stages/,logs/}
-worktrees/<run_id>/
 ```
 
-`run.json` is the state document: `run_id, seq, state, branch, base_ref, merge_base_sha, head_sha, worktree_path, worktree_branch, fix_commits[], stages{}, gate_token, pushed_sha, pr_url`.
+Worktrees live outside `.git` in a per-clone hidden sibling directory by default. This
+is required for tools such as Jest that hard-ignore every real path beneath `.git`.
+
+`run.json` is the state document: `run_id, seq, state, branch, base_ref, merge_base_sha, head_sha, worktree_path, worktree_branch, config_snapshot, config_digest, fix_commits[], stages{}, gate_token, pushed_sha, pr_url`.
 
 Persistence discipline: every mutation is `load → guard → mutate → write tmp → os.replace`, under an `fcntl.flock` for the read-modify-write window (two parallel Bash calls in one agent turn are a real hazard). `--expect-seq N` rejects stale writes with exit 3.
 
@@ -104,7 +106,7 @@ Review and docs share one findings pipeline. `FindingSubmission` (what the agent
 
 Agent-driven, no shell command — it reuses the findings machinery entirely, which is why it's cheap to add.
 
-`context --section docs` returns: the diff, plus a **code-built inventory** of the repo's documentation surface — `README*`, `CLAUDE.md`/`AGENTS.md`, `docs/**`, `CHANGELOG*`, and (from `[docs] paths` config) anything else — each with existence, size, and last-modified-vs-diff status. Code assembles this; the agent does not go hunting.
+`context --section docs` returns: the diff, plus a **code-built inventory** of the repo's documentation surface — `README*`, `CLAUDE.md`/`AGENTS.md`, `.claude/rules/**`, `.github/instructions/**`, `PRODUCT.md`, `DESIGN.md`, `docs/**`, `CHANGELOG*`, and (from `[docs] paths` config) anything else — each with existence, size, and last-modified-vs-diff status. Code assembles this; the agent does not go hunting.
 
 The agent judges whether the diff obligates a doc change and submits findings against doc files. Typical shape: a new CLI flag with no README entry (`auto_fix`), a changed public API with a stale usage example (`auto_fix`), a behavior change whose documented contract is now ambiguous (`ask_user`). Zero findings → `DOCS_GREEN`; a docs-clean diff is the common case and must be cheap.
 
@@ -134,16 +136,16 @@ Copies are made with `shutil.copy2` and mode `0600`, recorded in `run.json` as `
 
 ### Merge-back (cherry-pick, strict)
 
-1. Preflight: user's tree clean **and** branch tip == `run.head_sha`, else exit 3. Never cherry-pick onto a dirty tree.
+1. Preflight: branch tip == `run.head_sha` and paths touched by fix commits have no local modifications, else exit 3. Unrelated tracked edits and untracked files are preserved.
 2. Record `pre_sha`. `git cherry-pick <fix_commits...>` in order.
-3. **On conflict:** immediately `--abort`, verify `HEAD == pre_sha` and tree clean. State → `MERGEBACK_CONFLICT`, exit 4, emit resolution block (worktree path, fix commit SHAs — kept, conflicting files, literal commands). **No `-X ours/theirs`, no rerere, no automatic resolution, ever.** Hard invariant with a dedicated test.
+3. **On conflict:** immediately `--abort`, verify `HEAD == pre_sha` and the complete pre-existing working-tree status is restored. State → `MERGEBACK_CONFLICT`, exit 4, persist and emit the resolution block (worktree path, fix commit SHAs — kept, conflicting files, literal commands). **No `-X ours/theirs`, no rerere, no automatic resolution, ever.** `mergeback` becomes legal again after human resolution; exact verified trees are attested without repeating prior stages.
 4. **On success — tree-equivalence attestation:** compare `HEAD^{tree}` on the local branch vs the worktree branch tip tree. Equal ⇒ verified content is byte-identical, green transfers, write ledger for the post-cherry-pick tip. Not equal ⇒ re-verify; do not transfer green. *This is the single mechanism reconciling "ledger keyed on exact SHA" with "cherry-pick changes the SHA."*
 
 ### Lint / test
 
 Command resolution: `--command` flag → `commands.<name>` config → **detect path** (exit 2, `data.mode="needs_command"`, candidates from `pyproject.toml`, `package.json` scripts, `Makefile`, `justfile`, `.github/workflows/*`). Agent picks and re-invokes with `--command ... --record`.
 
-Pass/fail is **exit code only** — never parse stdout for "0 errors". Run as `bash -lc` with `cwd=worktree`, `timeout_seconds` (600) killing the process group. Full output to `logs/<stage>.txt`; envelope carries head 50 + tail 200 lines with a `truncated` flag. `stage.max_attempts` (5) stops infinite agent fix loops.
+Pass/fail is **exit code only** — never parse stdout for "0 errors". Run as `bash -lc` with `cwd=worktree`, `timeout_seconds` (600) killing the process group. Committed Node pins are explicitly activated for supported version managers before setup and stages. Full output goes to `logs/<stage>.txt`; the envelope carries head 50 + tail 200 lines with a `truncated` flag. `stage.max_attempts` (5) stops infinite agent fix loops.
 
 ### Push / PR / gate
 
@@ -196,10 +198,11 @@ Anti-skip is layered: state guards make skipping impossible, `next` makes the ri
 [stage] timeout_seconds, max_attempts
 [review] blocking_severities, max_findings, require_fix_commits
 [docs] paths, require_changelog, blocking_severities, enabled
-[worktree] ttl_hours, copy_files, setup_command
+[worktree] ttl_hours, root, copy_files, setup_command
+[runtime] manager, strict
 [gate] mode
 [hook] enabled, allow_force_push
-[publish] provider, draft_pr
+[publish] provider, draft_pr, pr_title
 ```
 
 `[docs] enabled = false` exists for repos with no meaningful doc surface — the stage is skipped as a legal transition, not silently passed.

@@ -71,8 +71,14 @@ class DiffSection(_Section):
 
 class WorktreeSection(_Section):
     ttl_hours: int = Field(default=48, ge=1)
+    root: str | None = None
     copy_files: list[str] = Field(default_factory=lambda: [".env"])
     setup_command: str | None = None
+
+
+class RuntimeSection(_Section):
+    manager: str = "auto"
+    strict: bool = True
 
 
 class GateSection(_Section):
@@ -87,10 +93,21 @@ class HookSection(_Section):
 class PublishSection(_Section):
     provider: str = "auto"
     draft_pr: bool = False
+    pr_title: str | None = None
 
 
 VALID_SEVERITIES = {"critical", "high", "medium", "low"}
 VALID_GATE_MODES = {"token", "manual"}
+VALID_RUNTIME_MANAGERS = {
+    "auto",
+    "none",
+    "nvm",
+    "volta",
+    "asdf",
+    "mise",
+    "fnm",
+    "nodenv",
+}
 
 
 class Config(BaseModel):
@@ -103,6 +120,7 @@ class Config(BaseModel):
     docs: DocsSection = Field(default_factory=DocsSection)
     diff: DiffSection = Field(default_factory=DiffSection)
     worktree: WorktreeSection = Field(default_factory=WorktreeSection)
+    runtime: RuntimeSection = Field(default_factory=RuntimeSection)
     gate: GateSection = Field(default_factory=GateSection)
     hook: HookSection = Field(default_factory=HookSection)
     publish: PublishSection = Field(default_factory=PublishSection)
@@ -132,6 +150,11 @@ def _validate_enums(cfg: Config) -> None:
         raise ConfigError(
             f"[gate] mode: unknown mode {cfg.gate.mode!r}; "
             f"valid values are {sorted(VALID_GATE_MODES)}"
+        )
+    if cfg.runtime.manager not in VALID_RUNTIME_MANAGERS:
+        raise ConfigError(
+            f"[runtime] manager: unknown manager {cfg.runtime.manager!r}; "
+            f"valid values are {sorted(VALID_RUNTIME_MANAGERS)}"
         )
 
 

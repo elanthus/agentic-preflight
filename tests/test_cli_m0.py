@@ -1,6 +1,7 @@
 """M0 walking skeleton: start -> context -> submit-findings -> verify -> status."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -34,6 +35,14 @@ def test_start_creates_a_run_and_points_at_context(agent):
 def test_start_reports_an_absolute_worktree_path(agent):
     env = agent.run("start")
     assert env["data"]["worktree_path"].startswith("/")
+
+
+def test_start_places_the_worktree_outside_git(agent, feature_repo):
+    env = agent.run("start")
+    worktree_path = Path(env["data"]["worktree_path"])
+    git_dir = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo))
+    assert not worktree_path.is_relative_to(git_dir)
+    assert not worktree_path.is_relative_to(feature_repo)
 
 
 def test_start_leaves_the_users_tree_on_its_own_branch(agent, feature_repo):
@@ -268,6 +277,14 @@ def test_status_still_works_on_a_stale_run(agent, feature_repo):
     commit_all(feature_repo, "move the head")
     env = agent.run("status")
     assert env["data"]["stale"] is True
+
+
+def test_status_uses_the_snapshot_when_working_copy_config_breaks(agent, feature_repo):
+    started = agent.run("start")
+    write(feature_repo, ".agentic-cli.toml", "[broken\n")
+    env = agent.run("status")
+    assert env["run_id"] == started["run_id"]
+    assert env["data"]["config_digest"]
 
 
 # -- the contract itself ----------------------------------------------------

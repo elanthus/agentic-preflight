@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import gitx, hook
-from .config import REPO_CONFIG_NAME
+from . import gitx, hook, runtime, worktree
+from .config import REPO_CONFIG_NAME, load_config
 from .envelope import Envelope
 
 DEFAULT_CONFIG = """# agentic-cli configuration. Committed, so the gate is the same for everyone.
@@ -18,11 +18,23 @@ base_ref = "main"
 
 [docs]
 enabled = true
+# Add repository-specific documentation surfaces here. Common agent rule files,
+# PRODUCT.md, and DESIGN.md are included automatically.
+# paths = ["architecture/**"]
 
 [worktree]
+# Worktrees default to a hidden sibling directory, outside .git, so Jest can
+# discover tests.
+# root = "/absolute/path/to/agentic-cli-worktrees"
 # Copied into the disposable worktree. Must already be gitignored.
 copy_files = [".env"]
 # setup_command = "uv sync"
+
+# Detect committed pins for nvm, Volta, asdf, mise, fnm, and nodenv. Strict mode
+# fails clearly instead of silently running a different system runtime.
+# [runtime]
+# manager = "auto"
+# strict = true
 
 [gate]
 # "token" mints a confirmation token; "manual" refuses to push at all, so a
@@ -53,6 +65,23 @@ def init(repo_root: Path | str, *, force: bool = False, install_hook: bool = Tru
         hook_installed = True
         _ = written
 
+    cfg = load_config(repo_root)
+    runtime_info = runtime.inspect_project(repo_root, cfg.runtime.manager)
+    warnings: list[str] = []
+    if runtime_info.reason:
+        warnings.append(runtime_info.reason)
+
+    instruction = (
+        "Set [commands] lint and test in .agentic-cli.toml so stages do not have "
+        "to be detected on every run, then start a run."
+    )
+    if runtime_info.node_project and not runtime_info.pin_file:
+        instruction = (
+            "Pin Node with .nvmrc, .node-version, Volta, asdf, or mise so agentic-cli "
+            "can reproduce the runtime in non-interactive stages. Then set [commands] "
+            "lint and test and start a run."
+        )
+
     return Envelope(
         data={
             "repo_root": str(repo_root),
@@ -60,10 +89,10 @@ def init(repo_root: Path | str, *, force: bool = False, install_hook: bool = Tru
             "config_written": config_written,
             "hook_path": hook_path,
             "hook_installed": hook_installed,
+            "worktree_root": str(worktree.resolve_root(repo_root, cfg.worktree.root)),
+            "runtime": runtime_info.as_dict(),
+            "warnings": warnings,
         },
-        next_instruction=(
-            "Set [commands] lint and test in .agentic-cli.toml so stages do not have "
-            "to be detected on every run, then start a run."
-        ),
+        next_instruction=instruction,
         next_command="agentic-cli start",
     )

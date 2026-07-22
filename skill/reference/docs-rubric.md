@@ -56,6 +56,8 @@ the code-built inventory of this repo's documentation:
 - `README*`, `CONTRIBUTING*`, `CHANGELOG*`
 - `CLAUDE.md`, `AGENTS.md`
 - `docs/**`
+- `.claude/rules/**`, `.github/instructions/**`
+- `PRODUCT.md`, `DESIGN.md`
 - anything in `[docs] paths`
 
 A finding against a source file is rejected. If you found a code problem during the

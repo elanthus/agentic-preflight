@@ -9,6 +9,9 @@ def test_defaults_apply_when_no_config_file_exists(tmp_repo, tmp_path):
     assert cfg.review.blocking_severities == ["critical", "high"]
     assert cfg.docs.enabled is True
     assert cfg.worktree.copy_files == [".env"]
+    assert cfg.worktree.root is None
+    assert cfg.runtime.manager == "auto"
+    assert cfg.runtime.strict is True
     assert cfg.gate.mode == "token"
     assert cfg.diff.max_bytes == 200_000
     assert "*.lock" in cfg.diff.exclude
@@ -78,6 +81,13 @@ def test_gate_mode_rejects_an_unknown_mode(tmp_repo, tmp_path):
     (tmp_repo / ".agentic-cli.toml").write_text("[gate]\nmode = 'yolo'\n")
     with pytest.raises(ConfigError):
         load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+
+
+def test_runtime_manager_rejects_an_unknown_value(tmp_repo, tmp_path):
+    (tmp_repo / ".agentic-cli.toml").write_text("[runtime]\nmanager = 'magic'\n")
+    with pytest.raises(ConfigError) as exc:
+        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert "magic" in str(exc.value)
 
 
 def test_config_is_constructible_with_no_arguments():

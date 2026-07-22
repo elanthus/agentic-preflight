@@ -46,7 +46,10 @@ def code_regions(text: str) -> str:
 def documented_commands(text: str) -> set[str]:
     """Every `agentic-cli <command>` invocation appearing in a doc's code."""
     found = set()
-    for match in re.finditer(r"agentic-cli ([a-z][a-z-]*)(?: (run))?", code_regions(text)):
+    for match in re.finditer(
+        r"(?<![$/])agentic-cli ([a-z][a-z-]*)(?: ([a-z][a-z-]*))?",
+        code_regions(text),
+    ):
         name, sub = match.group(1), match.group(2)
         found.add(f"{name} {sub}" if sub else name)
         if sub:
@@ -80,7 +83,7 @@ def test_every_real_command_is_documented_somewhere():
     documented = set()
     for doc in (SKILL, REFERENCE / "commands.md"):
         documented |= documented_commands(doc.read_text())
-    missing = {c for c in real_commands() if " " not in c and c not in documented}
+    missing = real_commands() - documented
     assert missing == set(), f"undocumented commands: {missing}"
 
 

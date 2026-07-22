@@ -7,8 +7,8 @@ every push.
 
 The hook cannot call back up to the agent — it is a subprocess of the agent's
 own ``git push``. So its only lever is to fail with a message written *for an
-agent to read*, naming ``/agentic-cli`` so the block doubles as a skill trigger
-that loops the agent back into the gate.
+agent to read*, naming the Claude and Codex invocations so the block doubles as
+a skill trigger that loops the agent back into the gate.
 """
 
 from __future__ import annotations
@@ -114,7 +114,10 @@ def evaluate(
                     update.local_sha,
                     headline="no green run recorded for this exact SHA",
                     reason=_explain(ledger, update),
-                    fix="run /agentic-cli",
+                    fix=(
+                        "invoke the skill (/agentic-cli in Claude Code, "
+                        "$agentic-cli in Codex)"
+                    ),
                 ),
             )
 

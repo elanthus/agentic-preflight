@@ -19,7 +19,10 @@ from .config import ConfigError
 from .envelope import Envelope, ExitCode, emit, error_envelope
 from .errors import AgenticError
 from .gitx import GitError
+from .integrations import SUPPORTED_INTEGRATIONS
 from .worktree import CopiedFileInCommit, CopyRefused, WorktreeError
+
+INTEGRATION_NAMES = tuple(SUPPORTED_INTEGRATIONS)
 
 
 def _finish(envelope: Envelope, code: int = ExitCode.OK) -> None:
@@ -173,6 +176,180 @@ def events(limit: int | None) -> None:
     _finish(runs.events(session, limit=limit))
 
 
+@main.group()
+def integrations() -> None:
+    """Install the bundled skill into supported coding agents."""
+
+
+def _integration_project_root(scope: str) -> Path | None:
+    if scope != "project":
+        return None
+    from . import gitx
+
+    return gitx.repo_root(Path.cwd())
+
+
+def _require_integration_targets(agents: tuple[str, ...], targets: tuple[Path, ...]) -> None:
+    if agents or targets:
+        return
+    _fail(
+        _as_error(
+            "integration_target_required",
+            "name at least one integration, or pass --target with a skills directory",
+            ExitCode.USAGE,
+        )
+    )
+
+
+def _integration_envelope(scope: str, results: list[dict]) -> Envelope:
+    lines = [
+        f"{item['integration']}: {item.get('action', item['status'])} ({item['path']})"
+        for item in results
+    ]
+    if any(item.get("action") in {"installed", "updated", "replaced"} for item in results):
+        lines.append("Restart a running agent if the skill does not appear automatically.")
+    return Envelope(
+        data={"scope": scope, "integrations": results},
+        human="\n".join(lines),
+    )
+
+
+@integrations.command("install")
+@click.argument("agents", nargs=-1, type=click.Choice(INTEGRATION_NAMES))
+@click.option(
+    "--scope",
+    type=click.Choice(["user", "project"]),
+    default="user",
+    show_default=True,
+    help="Install for this user or the current repository.",
+)
+@click.option(
+    "--target",
+    "targets",
+    multiple=True,
+    type=click.Path(path_type=Path, file_okay=False),
+    help="Also install under this custom skills directory.",
+)
+@click.option("--force", is_flag=True, help="Replace unmanaged or locally modified copies.")
+@command
+def integrations_install(
+    agents: tuple[str, ...], scope: str, targets: tuple[Path, ...], force: bool
+) -> None:
+    """Install or refresh the skill for AGENTS."""
+    from . import integrations as integrations_module
+
+    _require_integration_targets(agents, targets)
+    results = integrations_module.install_integrations(
+        agents,
+        scope=scope,
+        custom_roots=targets,
+        force=force,
+        project_root=_integration_project_root(scope),
+    )
+    _finish(_integration_envelope(scope, results))
+
+
+@integrations.command("status")
+@click.argument("agents", nargs=-1, type=click.Choice(INTEGRATION_NAMES))
+@click.option(
+    "--scope",
+    type=click.Choice(["user", "project"]),
+    default="user",
+    show_default=True,
+)
+@click.option(
+    "--target",
+    "targets",
+    multiple=True,
+    type=click.Path(path_type=Path, file_okay=False),
+    help="Also inspect this custom skills directory.",
+)
+@command
+def integrations_status(
+    agents: tuple[str, ...], scope: str, targets: tuple[Path, ...]
+) -> None:
+    """Report whether installed skills are current or modified."""
+    from . import integrations as integrations_module
+
+    selected = agents or (() if targets else INTEGRATION_NAMES)
+    results = integrations_module.integration_status(
+        selected,
+        scope=scope,
+        custom_roots=targets,
+        project_root=_integration_project_root(scope),
+    )
+    _finish(_integration_envelope(scope, results))
+
+
+@integrations.command("update")
+@click.argument("agents", nargs=-1, type=click.Choice(INTEGRATION_NAMES))
+@click.option(
+    "--scope",
+    type=click.Choice(["user", "project"]),
+    default="user",
+    show_default=True,
+)
+@click.option(
+    "--target",
+    "targets",
+    multiple=True,
+    type=click.Path(path_type=Path, file_okay=False),
+    help="Also update under this custom skills directory.",
+)
+@click.option("--force", is_flag=True, help="Replace unmanaged or locally modified copies.")
+@command
+def integrations_update(
+    agents: tuple[str, ...], scope: str, targets: tuple[Path, ...], force: bool
+) -> None:
+    """Update installed skills, skipping integrations that are absent."""
+    from . import integrations as integrations_module
+
+    selected = agents or (() if targets else INTEGRATION_NAMES)
+    results = integrations_module.install_integrations(
+        selected,
+        scope=scope,
+        custom_roots=targets,
+        force=force,
+        update_only=True,
+        project_root=_integration_project_root(scope),
+    )
+    _finish(_integration_envelope(scope, results))
+
+
+@integrations.command("uninstall")
+@click.argument("agents", nargs=-1, type=click.Choice(INTEGRATION_NAMES))
+@click.option(
+    "--scope",
+    type=click.Choice(["user", "project"]),
+    default="user",
+    show_default=True,
+)
+@click.option(
+    "--target",
+    "targets",
+    multiple=True,
+    type=click.Path(path_type=Path, file_okay=False),
+    help="Also remove from this custom skills directory.",
+)
+@click.option("--force", is_flag=True, help="Remove unmanaged or locally modified copies.")
+@command
+def integrations_uninstall(
+    agents: tuple[str, ...], scope: str, targets: tuple[Path, ...], force: bool
+) -> None:
+    """Remove agentic-cli-managed skill copies for AGENTS."""
+    from . import integrations as integrations_module
+
+    _require_integration_targets(agents, targets)
+    results = integrations_module.uninstall_integrations(
+        agents,
+        scope=scope,
+        custom_roots=targets,
+        force=force,
+        project_root=_integration_project_root(scope),
+    )
+    _finish(_integration_envelope(scope, results))
+
+
 @main.command()
 @click.option("--force", is_flag=True, help="Replace an existing pre-push hook.")
 @click.option("--no-hook", is_flag=True, help="Write config only, skip the hook.")
@@ -264,11 +441,12 @@ def push(confirm: str | None, dry_run: bool) -> None:
 
 @main.command()
 @click.option("--draft/--no-draft", default=None, help="Override [publish] draft_pr.")
+@click.option("--title", default=None, help="Override the pull request title.")
 @command
-def pr(draft: bool | None) -> None:
+def pr(draft: bool | None, title: str | None) -> None:
     """Open a pull request via the gh CLI. No credentials are ever handled here."""
     session = runs.open_session()
-    _finish(runs.pull_request(session, draft=draft))
+    _finish(runs.pull_request(session, draft=draft, title=title))
 
 
 @main.group()
