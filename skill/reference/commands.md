@@ -63,9 +63,12 @@ than in the user's tree, that is almost always the cause — not a hanging comma
 worktree is a clean checkout, so every gitignored artifact directory the toolchain
 relies on is absent and gets rebuilt from nothing on the first run.
 
-Use `[worktree] setup_command` to install dependencies or prepare build caches. Use
-`copy_files` only for ignored files such as `.env`; directories are refused with a
-clear setup instruction. Do not raise `[stage] max_attempts` to mask a cold checkout.
+With `[worktree] dependency_setup = "auto"`, a pnpm lockfile triggers
+`pnpm install --frozen-lockfile`. For npm, unchanged `package.json`,
+`package-lock.json`, and `.npmrc` plus a matching activated Node major allow the main
+checkout's `node_modules` to be symlinked; otherwise the worktree runs `npm ci`.
+`setup_command` overrides this automatic setup. Use `copy_files` only for ignored files
+such as `.env`; directories are refused with a clear setup instruction.
 
 Note the interaction with `respond`: a fix commit containing a `copy_files` path is
 rejected. Copied caches are inputs to the run, never part of the change.
@@ -168,6 +171,18 @@ is missing or unauthenticated, exits 4 with a prefilled `compare_url`.
 Title precedence is `--title`, `[publish] pr_title`, branch name, then the first commit
 subject when no branch name is available.
 
+### `agentic-cli finish`
+Marks a pushed run with no pull request `DONE`. It preserves the run directory and
+audit logs, clears the current-run pointer, and directs the next step to `gc`.
+
+### `agentic-cli cleanup [--confirm TOKEN]`
+For a run in `PR_OPEN`, verifies through `gh` that the PR is merged. Without a token it
+returns a deletion preview and confirmation token but changes nothing. After the user
+approves that exact preview, `--confirm` re-checks merge status, switches a clean PR
+source checkout to the base branch if necessary, and removes that run's worktree,
+local `ac/*` branch, local PR source branch, and remote PR source branch. A wrong or
+missing approval never deletes anything.
+
 ## Inspection and recovery
 
 ### `agentic-cli status`
@@ -187,8 +202,11 @@ Ends the run and reclaims the worktree. Exits 5 if unmerged fix commits would be
 `--force` discards them.
 
 ### `agentic-cli gc [--force]`
-Reconciles run directories, git worktrees, and `ac/*` branches. Anything holding
-unmerged work is reported, never removed without `--force`.
+Reconciles run directories, git worktrees, and `ac/*` branches. For a terminal run,
+each fix commit is compared by stable patch ID with commits in that run's
+post-mergeback history. Patch-equivalent cherry-picks are safe to reclaim; anything
+with no equivalent remains reported as unmerged and is never removed without
+`--force`. Run directories and their audit logs are retained.
 
 ### `agentic-cli hook-check`
 The pre-push predicate. Reads git's stdin protocol, consults only `ledger.json`, and

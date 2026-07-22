@@ -449,6 +449,23 @@ def pr(draft: bool | None, title: str | None) -> None:
     _finish(runs.pull_request(session, draft=draft, title=title))
 
 
+@main.command()
+@command
+def finish() -> None:
+    """Mark a pushed run without a pull request complete."""
+    session = runs.open_session()
+    _finish(runs.finish(session))
+
+
+@main.command()
+@click.option("--confirm", default=None, help="Confirmation token from cleanup preview.")
+@command
+def cleanup(confirm: str | None) -> None:
+    """Clean a merged PR's worktree and local/remote branches."""
+    session = runs.open_session()
+    _finish(runs.cleanup(session, confirm=confirm))
+
+
 @main.group()
 def stage() -> None:
     """Deterministic shell stages."""

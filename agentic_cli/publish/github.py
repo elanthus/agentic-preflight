@@ -9,6 +9,7 @@ security posture.
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -23,6 +24,19 @@ class GhUnavailable(Exception):
 class PullRequest:
     url: str
     created: bool
+
+
+@dataclass
+class PullRequestStatus:
+    url: str
+    state: str
+    merged_at: str | None
+    head: str
+    base: str
+
+    @property
+    def merged(self) -> bool:
+        return self.state.upper() == "MERGED" and self.merged_at is not None
 
 
 def gh_available() -> bool:
@@ -72,3 +86,38 @@ def create_pull_request(
         "",
     )
     return PullRequest(url=url, created=True)
+
+
+def pull_request_status(cwd: Path | str, url: str) -> PullRequestStatus:
+    """Read merge state through ``gh``; authentication remains entirely gh's."""
+    if not gh_available():
+        raise GhUnavailable("gh is not installed or not on PATH")
+    if not gh_authenticated(cwd):
+        raise GhUnavailable("gh is installed but not authenticated (`gh auth login`)")
+
+    result = subprocess.run(
+        [
+            "gh",
+            "pr",
+            "view",
+            url,
+            "--json",
+            "url,state,mergedAt,headRefName,baseRefName",
+        ],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise GhUnavailable(f"gh pr view failed: {result.stderr.strip()}")
+    try:
+        payload = json.loads(result.stdout)
+        return PullRequestStatus(
+            url=str(payload.get("url") or url),
+            state=str(payload["state"]),
+            merged_at=payload.get("mergedAt"),
+            head=str(payload["headRefName"]),
+            base=str(payload["baseRefName"]),
+        )
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise GhUnavailable("gh pr view returned invalid merge status") from exc

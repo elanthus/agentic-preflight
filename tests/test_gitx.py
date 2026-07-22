@@ -84,6 +84,23 @@ def test_is_ancestor_reflects_history(feature_repo):
     assert gitx.is_ancestor(feature_repo, head, base) is False
 
 
+def test_stable_patch_id_matches_a_cherry_pick_with_a_different_sha(tmp_repo):
+    git("switch", "-c", "fix", cwd=tmp_repo)
+    write(tmp_repo, "src/app.py", "def greet(name):\n    return f'hello {name}'\n")
+    original = commit_all(tmp_repo, "improve greeting")
+
+    git("switch", "main", cwd=tmp_repo)
+    write(tmp_repo, "README.md", "# demo\n\nUnrelated history.\n")
+    commit_all(tmp_repo, "update readme")
+    git("cherry-pick", original, cwd=tmp_repo)
+    picked = git("rev-parse", "HEAD", cwd=tmp_repo)
+
+    assert original != picked
+    assert gitx.commit_patch_id(tmp_repo, original) == gitx.commit_patch_id(
+        tmp_repo, picked
+    )
+
+
 def test_tree_sha_is_stable_for_identical_content(tmp_repo):
     first = gitx.tree_sha(tmp_repo, "HEAD")
     write(tmp_repo, "extra.txt", "x\n")

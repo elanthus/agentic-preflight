@@ -74,6 +74,7 @@ class WorktreeSection(_Section):
     root: str | None = None
     copy_files: list[str] = Field(default_factory=lambda: [".env"])
     setup_command: str | None = None
+    dependency_setup: str = "auto"
 
 
 class RuntimeSection(_Section):
@@ -108,6 +109,7 @@ VALID_RUNTIME_MANAGERS = {
     "fnm",
     "nodenv",
 }
+VALID_DEPENDENCY_SETUP = {"auto", "off"}
 
 
 class Config(BaseModel):
@@ -155,6 +157,12 @@ def _validate_enums(cfg: Config) -> None:
         raise ConfigError(
             f"[runtime] manager: unknown manager {cfg.runtime.manager!r}; "
             f"valid values are {sorted(VALID_RUNTIME_MANAGERS)}"
+        )
+    if cfg.worktree.dependency_setup not in VALID_DEPENDENCY_SETUP:
+        raise ConfigError(
+            f"[worktree] dependency_setup: unknown mode "
+            f"{cfg.worktree.dependency_setup!r}; "
+            f"valid values are {sorted(VALID_DEPENDENCY_SETUP)}"
         )
 
 

@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,6 +41,26 @@ class RuntimeInfo:
 class PreparedCommand:
     command: str
     runtime: RuntimeInfo
+
+
+@dataclass(frozen=True)
+class NodeProbe:
+    available: bool
+    version: str | None
+    major: int | None
+    modules_abi: str | None
+    runtime: RuntimeInfo
+    reason: str | None = None
+
+    def as_dict(self) -> dict:
+        return {
+            "available": self.available,
+            "version": self.version,
+            "major": self.major,
+            "modules_abi": self.modules_abi,
+            "runtime": self.runtime.as_dict(),
+            "reason": self.reason,
+        }
 
 
 def _package_json(repo: Path) -> dict:
@@ -228,3 +250,62 @@ def prepare_command(
     if not info.available and not strict:
         wrapped = command
     return PreparedCommand(wrapped, info)
+
+
+def expected_node_major(info: RuntimeInfo) -> int | None:
+    """Extract the first requested major from a pin or a one-major engine range."""
+    if not info.requested:
+        return None
+    match = re.search(r"(?:^|[^0-9])(\d{1,3})(?:\.|\b)", info.requested)
+    return int(match.group(1)) if match else None
+
+
+def probe_node(
+    repo: Path | str,
+    *,
+    manager: str = "auto",
+    strict: bool = True,
+) -> NodeProbe:
+    """Read the activated Node version and module ABI without running project code."""
+    command = (
+        "node -p \"JSON.stringify({version: process.versions.node, "
+        "modules: process.versions.modules})\""
+    )
+    prepared = prepare_command(repo, command, manager=manager, strict=strict)
+    result = subprocess.run(
+        ["bash", "-lc", prepared.command],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        reason = result.stderr.strip() or result.stdout.strip() or "node is unavailable"
+        return NodeProbe(False, None, None, None, prepared.runtime, reason)
+
+    for line in reversed(result.stdout.splitlines()):
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict) or not payload.get("version"):
+            continue
+        version = str(payload["version"])
+        try:
+            major = int(version.split(".", 1)[0])
+        except ValueError:
+            major = None
+        return NodeProbe(
+            True,
+            version,
+            major,
+            str(payload.get("modules")) if payload.get("modules") else None,
+            prepared.runtime,
+        )
+    return NodeProbe(
+        False,
+        None,
+        None,
+        None,
+        prepared.runtime,
+        "node returned no version information",
+    )
