@@ -25,17 +25,38 @@ forbidden by documentation; it is **structurally unrepresentable**, because no
 transition exists from a review state to a push state. That property is proved by
 enumerating every path through the machine, not by testing a few.
 
-Work happens in a disposable git worktree. Your working tree is never touched.
+Work happens in a disposable git worktree. By default it lives in a hidden sibling
+directory, outside `.git`, so Jest and other tools that ignore VCS directories can see
+the checkout. Your working tree is never touched.
 
 ## Install
 
 ```bash
-pip install agentic-cli      # or: uv tool install agentic-cli
+uv tool install agentic-cli
+agentic-cli integrations install codex claude
 cd your-repo
 agentic-cli init             # installs the pre-push hook, writes .agentic-cli.toml
 ```
 
-Then, in your agent: `/agentic-cli`.
+Install only the agents you use if you do not need both. Then invoke the skill with
+`$agentic-cli` in Codex or `/agentic-cli` in Claude Code. If `uv` reports that its tool
+directory is not on `PATH`, run `uv tool update-shell` and open a new shell first.
+Restart a running agent if the newly created skill directory is not detected immediately.
+
+The integration installer copies the same bundled skill to each agent's documented
+discovery directory. It refuses to overwrite local edits unless you pass `--force`.
+After upgrading the CLI, refresh any installed copies:
+
+```bash
+uv tool upgrade agentic-cli
+agentic-cli integrations update
+```
+
+User scope is the default. To check a skill into one repository instead, run
+`agentic-cli integrations install codex claude --scope project`. For another agent
+that supports Agent Skills, `--target PATH` installs beneath a custom skills directory.
+Use `agentic-cli integrations status` to inspect installed copies and
+`agentic-cli integrations uninstall codex claude` to remove managed user copies.
 
 ## The pre-push hook
 
@@ -46,7 +67,7 @@ that **exact SHA**:
 agentic-cli: push blocked.
   commit: abc1234 (no green run recorded for this exact SHA)
   reason: ledger has 9f2c1de; you amended or added a commit since
-  fix:    run /agentic-cli
+  fix:    invoke the skill (/agentic-cli in Claude Code, $agentic-cli in Codex)
   bypass: git push --no-verify   (documented escape hatch)
 ```
 
@@ -76,8 +97,15 @@ attestation; rebase tolerance is planned for v2 (the ledger already records `tre
 for it).
 
 **Worktrees can differ from your environment.** A fresh worktree has no `.venv`, no
-`node_modules`, no `.env`. Configure `[worktree] setup_command` and `copy_files`, and
-use `--baseline` so a pre-existing failure is reported rather than blamed on your diff.
+`node_modules`, no `.env`. Configure `[worktree] setup_command` for dependencies and
+`copy_files` for ignored files such as `.env`. Use `--baseline` so a pre-existing
+failure is reported rather than blamed on your diff.
+
+**Runtime pins are activated explicitly.** Non-interactive agent shells often miss
+interactive version-manager shims. Stages detect committed Node pins for NVM, Volta,
+asdf, mise, fnm, and nodenv. A missing pinned manager fails clearly instead of silently
+running a different system Node. `init` reports unpinned Node projects so a fresh clone,
+CI, and the gate can agree on the version.
 
 ## Configuration
 
@@ -110,8 +138,13 @@ max_bytes = 200000
 exclude = ["*.lock", "*-lock.json", "vendor/**", "**/*.min.js"]
 
 [worktree]
+root = "/optional/external/path" # default: hidden sibling directory outside .git
 copy_files = [".env"]        # must already be gitignored
 setup_command = "uv sync"
+
+[runtime]
+manager = "auto"             # or "none", "nvm", "volta", "asdf", "mise", ...
+strict = true                 # never fall back when a pin cannot be activated
 
 [gate]
 mode = "token"               # or "manual"
@@ -123,7 +156,17 @@ allow_force_push = false
 [publish]
 provider = "auto"
 draft_pr = false
+pr_title = "Optional fixed title"
 ```
+
+The resolved configuration is snapshotted when `start` creates a run. Editing
+`.agentic-cli.toml` afterward does not change that run; the snapshot and its digest are
+recorded with the run events. Commit configuration changes before starting the run they
+should affect.
+
+The docs stage includes `README*`, `docs/**`, agent instructions such as
+`.claude/rules/**` and `.github/instructions/**`, plus `PRODUCT.md` and `DESIGN.md`.
+Use `[docs] paths` for repository-specific documentation surfaces.
 
 ### Large diffs
 

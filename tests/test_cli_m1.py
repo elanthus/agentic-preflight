@@ -218,6 +218,13 @@ def test_events_are_ordered_oldest_first(blocked):
     assert env["data"]["events"][0]["event"] == "run_created"
 
 
+def test_run_created_event_carries_the_resolved_config_snapshot(blocked):
+    agent, _ = blocked
+    created = agent.run("events")["data"]["events"][0]
+    assert created["config_snapshot"]["runtime"]["manager"] == "auto"
+    assert len(created["config_digest"]) == 64
+
+
 # -- abort ------------------------------------------------------------------
 
 

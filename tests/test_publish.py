@@ -126,6 +126,7 @@ def test_the_gate_summary_names_the_branch_and_commit_subjects(verified):
     assert env["data"]["branch"] == "feature/x"
     subjects = json.dumps(env["data"]["commits"])
     assert "add loud flag" in subjects
+    assert env["data"]["pr_title"] == "feature/x"
 
 
 def test_push_without_a_token_is_refused(verified):
@@ -205,6 +206,32 @@ def test_pr_shells_out_to_gh(verified, gh_stub, feature_repo):
     assert env["state"] == "PR_OPEN"
     assert env["data"]["pr_url"].endswith("/pull/1")
     assert "pr create" in gh_stub.read_text()
+
+
+def test_pr_title_flag_overrides_the_default(verified, gh_stub, feature_repo):
+    token = verified.run("gate")["data"]["token"]
+    verified.run("push", "--confirm", token)
+    as_github_origin(feature_repo)
+    verified.run("pr", "--title", "A useful title")
+    assert "--title A useful title" in gh_stub.read_text()
+
+
+def test_publish_config_sets_the_gate_pr_title(feature_repo, bare_remote, tmp_path):
+    write(
+        feature_repo,
+        ".agentic-cli.toml",
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+        "\n[publish]\npr_title = 'Configured title'\n",
+    )
+    commit_all(feature_repo, "configure agentic-cli")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
+    agent.run("mergeback")
+    assert agent.run("gate")["data"]["pr_title"] == "Configured title"
 
 
 def test_we_never_pass_a_token_to_gh(verified, gh_stub, feature_repo):

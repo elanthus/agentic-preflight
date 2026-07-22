@@ -26,6 +26,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from hashlib import sha256
 from pathlib import Path
 
 from . import gitx
@@ -41,6 +42,33 @@ class CopyRefused(Exception):
 
 class CopiedFileInCommit(Exception):
     """A commit touches a path that was copied into the worktree."""
+
+
+def default_root(repo: Path | str) -> Path:
+    """Return a stable per-clone sibling directory outside ``.git``.
+
+    Keeping worktrees under the git common directory makes Jest ignore the
+    entire checkout. A sibling directory also avoids making the repository
+    itself dirty and keeps identically named clones separate.
+    """
+    repo = Path(repo).resolve()
+    identity = sha256(str(gitx.git_common_dir(repo).resolve()).encode()).hexdigest()[:12]
+    return repo.parent / ".agentic-cli-worktrees" / f"{repo.name}-{identity}"
+
+
+def resolve_root(repo: Path | str, configured: str | None = None) -> Path:
+    """Resolve an optional root while preserving external-worktree isolation."""
+    repo = Path(repo).resolve()
+    if not configured:
+        return default_root(repo)
+    path = Path(configured).expanduser()
+    resolved = (path if path.is_absolute() else repo.parent / path).resolve()
+    if resolved.is_relative_to(repo):
+        raise WorktreeError(
+            f"[worktree] root must be outside the repository; got {resolved}. "
+            "An external path keeps git status clean and lets Jest discover tests."
+        )
+    return resolved
 
 
 def create(repo: Path | str, *, path: Path | str, branch: str, head_sha: str) -> Path:
@@ -108,6 +136,11 @@ def copy_files(
         source = repo / entry
         if not source.exists():
             continue
+        if source.is_dir():
+            raise CopyRefused(
+                f"refusing to copy directory {entry!r}: [worktree] copy_files accepts "
+                "files only. Use setup_command to install dependencies or prepare caches."
+            )
         if not gitx.is_ignored(worktree_path, entry):
             raise CopyRefused(
                 f"refusing to copy {entry!r} into the worktree: git is not ignoring it "

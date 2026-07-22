@@ -11,7 +11,7 @@ code may assign.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -120,6 +120,8 @@ class RunDoc(BaseModel):
     worktree_path: str | None = None
     worktree_branch: str | None = None
     copied_files: list[str] = Field(default_factory=list)
+    config_snapshot: dict[str, Any] | None = None
+    config_digest: str | None = None
 
     fix_commits: list[str] = Field(default_factory=list)
     stages: dict[Stage, StageRecord] = Field(default_factory=dict)

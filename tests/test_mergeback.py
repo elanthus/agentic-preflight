@@ -1,6 +1,7 @@
 """M4 merge-back: cherry-pick, the clean-abort contract, tree-equivalence."""
 
 import json
+import subprocess
 
 import pytest
 
@@ -107,12 +108,28 @@ def test_mergeback_records_the_new_tip(ready, feature_repo):
 # -- preconditions ----------------------------------------------------------
 
 
-def test_mergeback_refuses_a_dirty_tree(ready, feature_repo):
-    """Never cherry-pick onto a dirty tree."""
+def test_mergeback_allows_an_unrelated_untracked_file(ready, feature_repo):
     agent, _ = ready()
     write(feature_repo, "scratch.txt", "uncommitted\n")
+    env = agent.run("mergeback")
+    assert env["state"] == "VERIFIED"
+    assert (feature_repo / "scratch.txt").read_text() == "uncommitted\n"
+
+
+def test_mergeback_allows_an_unrelated_tracked_edit(ready, feature_repo):
+    agent, _ = ready()
+    write(feature_repo, "README.md", "uncommitted documentation\n")
+    env = agent.run("mergeback")
+    assert env["state"] == "VERIFIED"
+    assert (feature_repo / "README.md").read_text() == "uncommitted documentation\n"
+
+
+def test_mergeback_refuses_a_change_to_an_affected_path(ready, feature_repo):
+    agent, _ = ready()
+    write(feature_repo, "src/app.py", "uncommitted overlap\n")
     env = agent.run("mergeback", expect=ExitCode.PRECONDITION)
     assert env["error"]["code"] == "dirty_tree"
+    assert "src/app.py" in env["data"]["affected_paths"]
 
 
 def test_mergeback_refuses_when_the_branch_moved(ready, feature_repo):
@@ -188,6 +205,28 @@ def test_conflict_aborts_and_restores_the_branch_exactly(feature_repo, tmp_path)
     assert env["data"]["conflicting_files"] == ["src/app.py"]
     assert "git cherry-pick" in json.dumps(env["data"]["resolution"])
 
+    # The report survives the failed process and status points at a legal retry.
+    status = agent.run("status")
+    assert status["data"]["mergeback_conflict"]["conflicting_commit"] == fix_sha
+    assert status["next"]["command"] == "agentic-cli mergeback"
+
+    # Repeating mergeback is legal; a still-unresolved conflict remains durable.
+    retry = agent.run("mergeback", expect=ExitCode.NEEDS_HUMAN)
+    assert retry["state"] == "MERGEBACK_CONFLICT"
+
+    # A human can apply the exact verified content, then retry only the
+    # attestation instead of discarding every completed stage.
+    result = subprocess.run(
+        ["git", "cherry-pick", fix_sha], cwd=feature_repo, capture_output=True, text=True
+    )
+    assert result.returncode != 0
+    write(feature_repo, "src/app.py", "TOTALLY DIFFERENT WORKTREE CONTENT\n")
+    git("add", "src/app.py", cwd=feature_repo)
+    git("cherry-pick", "--continue", cwd=feature_repo)
+    verified = agent.run("mergeback")
+    assert verified["state"] == "VERIFIED"
+    assert verified["data"]["tree_equivalent"] is True
+
 
 def test_conflict_never_auto_resolves(tmp_repo, monkeypatch):
     """No -X ours/theirs, no rerere, ever — asserted against real git argv.
@@ -251,3 +290,32 @@ def test_conflict_leaves_no_cherry_pick_in_progress(tmp_repo):
     assert git("rev-parse", "HEAD", cwd=tmp_repo) == pre_sha
     assert git("status", "--porcelain", cwd=tmp_repo) == ""
     assert not (tmp_repo / ".git" / "CHERRY_PICK_HEAD").exists()
+
+
+def test_conflict_aborts_the_entire_fix_stack_and_preserves_unrelated_work(tmp_repo):
+    from agentic_cli import mergeback
+
+    git("switch", "-c", "fix-stack", cwd=tmp_repo)
+    write(tmp_repo, "README.md", "first fix\n")
+    first = commit_all(tmp_repo, "first fix")
+    write(tmp_repo, "src/app.py", "FIX STACK\n")
+    second = commit_all(tmp_repo, "second conflicting fix")
+
+    git("switch", "main", cwd=tmp_repo)
+    write(tmp_repo, "src/app.py", "MAIN CONFLICT\n")
+    commit_all(tmp_repo, "main conflict")
+    pre_sha = git("rev-parse", "HEAD", cwd=tmp_repo)
+    write(tmp_repo, "unrelated.txt", "keep me\n")
+
+    with pytest.raises(mergeback.MergebackConflict) as exc:
+        mergeback.cherry_pick_fixes(
+            tmp_repo,
+            [first, second],
+            worktree_branch="ac/x",
+            worktree_path=str(tmp_repo),
+        )
+
+    assert exc.value.report.restored is True
+    assert git("rev-parse", "HEAD", cwd=tmp_repo) == pre_sha
+    assert (tmp_repo / "README.md").read_text().startswith("# demo")
+    assert (tmp_repo / "unrelated.txt").read_text() == "keep me\n"

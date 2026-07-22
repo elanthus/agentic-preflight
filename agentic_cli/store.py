@@ -77,8 +77,9 @@ def _atomic_write(path: Path, payload: str) -> None:
 class Store:
     """Everything under ``$GIT_COMMON_DIR/agentic-cli/``."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, worktrees_root: Path | None = None) -> None:
         self.root = Path(root)
+        self._worktrees_root = Path(worktrees_root) if worktrees_root else None
 
     # -- paths ---------------------------------------------------------------
 
@@ -110,7 +111,16 @@ class Store:
 
     @property
     def worktrees_dir(self) -> Path:
+        # ``None`` preserves the v1 location for callers constructing Store
+        # directly. Normal sessions pass the external cache location.
+        return self._worktrees_root or self.root / "worktrees"
+
+    @property
+    def legacy_worktrees_dir(self) -> Path:
         return self.root / "worktrees"
+
+    def set_worktrees_root(self, path: Path) -> None:
+        self._worktrees_root = Path(path)
 
     # -- runs ----------------------------------------------------------------
 

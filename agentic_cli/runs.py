@@ -9,6 +9,8 @@ in one place.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -18,7 +20,7 @@ from pydantic import ValidationError
 
 from . import diff as diffmod
 from . import findings as findingsmod
-from . import gitx, worktree
+from . import gitx, runtime, worktree
 from . import ledger as ledgermod
 from . import mergeback as mergebackmod
 from .publish import gate as gatemod
@@ -70,11 +72,23 @@ def open_session(cwd: Path | str | None = None) -> Session:
     # GIT_COMMON_DIR, not GIT_DIR: these differ when the caller is already
     # inside a worktree, and run state must be one namespace per clone.
     state_root = gitx.git_common_dir(cwd) / STATE_DIR_NAME
-    return Session(
-        repo_root=repo_root,
-        store=Store(state_root),
-        config=load_config(repo_root),
-    )
+    store = Store(state_root)
+
+    # Once a run exists, its resolved snapshot is authoritative. This also
+    # keeps a malformed or edited working-copy config from stranding `status`
+    # or silently reshaping an in-flight gate.
+    cfg = None
+    current = store.get_current()
+    if current:
+        try:
+            active = store.load_run(current)
+            if active.config_snapshot is not None:
+                cfg = Config.model_validate(active.config_snapshot)
+        except Exception:
+            pass
+    cfg = cfg or load_config(repo_root)
+    store.set_worktrees_root(worktree.resolve_root(repo_root, cfg.worktree.root))
+    return Session(repo_root=repo_root, store=store, config=cfg)
 
 
 def _now() -> str:
@@ -132,6 +146,10 @@ def _next_hint(state: State) -> tuple[str | None, str | None]:
         State.DOCS_GREEN: ("Docs are green. Run lint.", "agentic-cli stage run lint"),
         State.LINT_GREEN: ("Lint is green. Run tests.", "agentic-cli stage run test"),
         State.TEST_GREEN: ("Tests are green. Merge the fixes back.", "agentic-cli mergeback"),
+        State.MERGEBACK_CONFLICT: (
+            "Resolve the reported conflict or restore the affected paths, then retry mergeback.",
+            "agentic-cli mergeback",
+        ),
         State.VERIFIED: ("Everything is green. Open the gate.", "agentic-cli gate"),
         State.AWAITING_PUSH_CONFIRM: (
             "Show the user the gate summary and ask before pushing.",
@@ -194,7 +212,11 @@ def _assert_fresh(session: Session, run: RunDoc) -> None:
 
 def start(session: Session, *, base_ref: str | None = None) -> Envelope:
     repo = session.repo_root
-    cfg = session.config
+    # Starting is the one command that deliberately reads the working copy.
+    # Every later command uses the snapshot persisted below.
+    cfg = load_config(repo)
+    session.config = cfg
+    session.store.set_worktrees_root(worktree.resolve_root(repo, cfg.worktree.root))
 
     if not gitx.is_clean(repo):
         raise DirtyTree(
@@ -219,6 +241,10 @@ def start(session: Session, *, base_ref: str | None = None) -> Envelope:
         )
 
     run_id = _new_run_id()
+    snapshot = cfg.model_dump(mode="json")
+    config_digest = hashlib.sha256(
+        json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
     run = RunDoc(
         run_id=run_id,
         state=State.CREATED,
@@ -226,13 +252,23 @@ def start(session: Session, *, base_ref: str | None = None) -> Envelope:
         base_ref=base_ref,
         merge_base_sha=merge_base,
         head_sha=head_sha,
+        config_snapshot=snapshot,
+        config_digest=config_digest,
         created_at=_now(),
     )
     # Persist the intent *before* the git call, so a crash mid-create leaves a
     # record for `gc` to reconcile rather than an orphan nobody knows about.
     session.store.create_run(run)
     session.store.set_current(run_id)
-    session.store.append_event(run_id, {"event": "run_created", "head_sha": head_sha})
+    session.store.append_event(
+        run_id,
+        {
+            "event": "run_created",
+            "head_sha": head_sha,
+            "config_digest": config_digest,
+            "config_snapshot": snapshot,
+        },
+    )
 
     wt_path = session.store.worktrees_dir / run_id
     wt_branch = f"ac/{run_id}"
@@ -242,12 +278,19 @@ def start(session: Session, *, base_ref: str | None = None) -> Envelope:
 
     setup_result = None
     if cfg.worktree.setup_command:
+        prepared = runtime.prepare_command(
+            wt_path,
+            cfg.worktree.setup_command,
+            manager=cfg.runtime.manager,
+            strict=cfg.runtime.strict,
+        )
         completed = worktree.run_setup(
-            wt_path, cfg.worktree.setup_command, timeout_seconds=cfg.stage.timeout_seconds
+            wt_path, prepared.command, timeout_seconds=cfg.stage.timeout_seconds
         )
         setup_result = {
             "command": cfg.worktree.setup_command,
             "exit_code": completed.returncode,
+            "runtime": prepared.runtime.as_dict(),
         }
 
     with session.store.transaction(run_id) as doc:
@@ -652,8 +695,16 @@ def run_stage(
     if baseline:
         baseline_red = _baseline_is_red(session, run, resolved)
 
+    prepared = runtime.prepare_command(
+        run.worktree_path,
+        resolved,
+        manager=session.config.runtime.manager,
+        strict=session.config.runtime.strict,
+    )
     result = shellstage.run_stage(
-        run.worktree_path, resolved, timeout_seconds=session.config.stage.timeout_seconds
+        run.worktree_path,
+        prepared.command,
+        timeout_seconds=session.config.stage.timeout_seconds,
     )
 
     secrets = shellstage.read_secrets(run.worktree_path, run.copied_files)
@@ -689,6 +740,7 @@ def run_stage(
         "exit_code": result.exit_code,
         "log_path": str(log_path),
         "timed_out": result.timed_out,
+        "runtime": prepared.runtime.as_dict(),
         **summary,
     }
     if baseline_red is not None:
@@ -728,7 +780,7 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
     Answers the question that otherwise sends an agent chasing phantoms: is this
     failure ours, or was the base already broken?
     """
-    scratch = session.store.worktrees_dir / f"{run.run_id}-baseline"
+    scratch = Path(run.worktree_path).parent / f"{run.run_id}-baseline"
     branch = f"ac/{run.run_id}-baseline"
     try:
         worktree.create(
@@ -739,13 +791,25 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
         except worktree.CopyRefused:
             pass
         if session.config.worktree.setup_command:
-            worktree.run_setup(
+            setup = runtime.prepare_command(
                 scratch,
                 session.config.worktree.setup_command,
+                manager=session.config.runtime.manager,
+                strict=session.config.runtime.strict,
+            )
+            worktree.run_setup(
+                scratch,
+                setup.command,
                 timeout_seconds=session.config.stage.timeout_seconds,
             )
+        prepared = runtime.prepare_command(
+            scratch,
+            command,
+            manager=session.config.runtime.manager,
+            strict=session.config.runtime.strict,
+        )
         result = shellstage.run_stage(
-            scratch, command, timeout_seconds=session.config.stage.timeout_seconds
+            scratch, prepared.command, timeout_seconds=session.config.stage.timeout_seconds
         )
         return not result.passed
     except worktree.WorktreeError:
@@ -757,16 +821,32 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
 def mergeback(session: Session) -> Envelope:
     """Cherry-pick the verified fixes onto the user's branch, strictly."""
     run = _load_current(session)
-    _assert_fresh(session, run)
-    _require_state(run, State.TEST_GREEN, State.MERGEBACK_PENDING, command="mergeback")
+    retrying_conflict = run.state is State.MERGEBACK_CONFLICT
+    if not retrying_conflict:
+        _assert_fresh(session, run)
+    _require_state(
+        run,
+        State.TEST_GREEN,
+        State.MERGEBACK_PENDING,
+        State.MERGEBACK_CONFLICT,
+        command="mergeback",
+    )
 
     repo = session.repo_root
-    if not gitx.is_clean(repo):
+    affected_paths = gitx.changed_paths_in_commits(
+        run.worktree_path or repo, run.fix_commits
+    )
+    overlapping = gitx.status_for_paths(repo, affected_paths)
+    if overlapping:
         raise DirtyTree(
-            "the working tree has uncommitted changes; never cherry-pick onto a dirty tree",
+            "the working tree has changes on paths mergeback would overwrite",
             state=run.state.value,
             run_id=run.run_id,
-            next_instruction="Commit or stash your changes, then merge back.",
+            data={"affected_paths": affected_paths, "overlapping_status": overlapping},
+            next_instruction=(
+                "Commit or stash the reported overlapping paths, then merge back. "
+                "Unrelated tracked and untracked files may remain."
+            ),
             next_command="git status",
         )
 
@@ -774,30 +854,49 @@ def mergeback(session: Session) -> Envelope:
         with session.store.transaction(run.run_id) as doc:
             _apply(doc, Action.BEGIN_MERGEBACK)
             run = doc
+    elif run.state is State.MERGEBACK_CONFLICT:
+        with session.store.transaction(run.run_id) as doc:
+            _apply(doc, Action.MERGEBACK_RETRY)
+            run = doc
 
     try:
-        result = mergebackmod.cherry_pick_fixes(
-            repo,
-            run.fix_commits,
-            worktree_branch=run.worktree_branch,
-            worktree_path=run.worktree_path,
-        )
+        local_tree = gitx.tree_sha(repo)
+        verified_tree = gitx.tree_sha(run.worktree_path)
+        branch_moved = gitx.rev_parse(repo, "HEAD") != run.head_sha
+        if retrying_conflict and (local_tree == verified_tree or branch_moved):
+            result = mergebackmod.MergebackResult(
+                pre_sha=gitx.rev_parse(repo, "HEAD"),
+                post_sha=gitx.rev_parse(repo, "HEAD"),
+                applied=[],
+                local_tree_sha=local_tree,
+                worktree_tree_sha=verified_tree,
+            )
+        else:
+            result = mergebackmod.cherry_pick_fixes(
+                repo,
+                run.fix_commits,
+                worktree_branch=run.worktree_branch,
+                worktree_path=run.worktree_path,
+            )
     except mergebackmod.MergebackConflict as exc:
         with session.store.transaction(run.run_id) as doc:
             _apply(doc, Action.MERGEBACK_FAILED)
             run = doc
-        session.store.append_event(run.run_id, {"event": "mergeback_conflict"})
+        report = exc.report.as_dict()
+        session.store.append_event(
+            run.run_id, {"event": "mergeback_conflict", **report}
+        )
         raise MergebackConflictError(
             str(exc),
             state=run.state.value,
             run_id=run.run_id,
-            data=exc.report.as_dict(),
+            data=report,
             next_instruction=(
-                "Do not attempt to resolve this yourself. Show the user the resolution "
-                "block verbatim and stop. The fix commits are intact in the worktree and "
-                "the branch is exactly where it was."
+                "Show the user the resolution block verbatim. The fix commits remain "
+                "intact; after the reported paths are resolved, `mergeback` can retry "
+                "without rerunning the completed stages."
             ),
-            next_command="agentic-cli status",
+            next_command="agentic-cli mergeback",
         ) from exc
 
     # Green transfers only when the content is provably identical.
@@ -871,7 +970,7 @@ def gate(session: Session) -> Envelope:
         branch=run.branch,
         base_ref=run.base_ref,
         commits=commits,
-        pr_title=commits[-1]["subject"] if commits else run.branch,
+        pr_title=_default_pr_title(session, run, commits),
     )
 
     if session.config.gate.mode == "manual":
@@ -942,7 +1041,20 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
     )
 
 
-def pull_request(session: Session, *, draft: bool | None = None) -> Envelope:
+def _default_pr_title(
+    session: Session, run: RunDoc, commits: list[dict] | None = None
+) -> str:
+    if session.config.publish.pr_title:
+        return session.config.publish.pr_title
+    if run.branch:
+        return run.branch
+    commits = commits or []
+    return commits[0]["subject"] if commits else "agentic-cli verified change"
+
+
+def pull_request(
+    session: Session, *, draft: bool | None = None, title: str | None = None
+) -> Envelope:
     run = _load_current(session)
     _require_state(run, State.PUSHED, command="pr")
 
@@ -956,8 +1068,12 @@ def pull_request(session: Session, *, draft: bool | None = None) -> Envelope:
             next_instruction="Open the pull request manually.",
         )
 
-    commits = gitx.commits_between(session.repo_root, run.merge_base_sha, run.head_sha)
-    title = gitx.commit_subject(session.repo_root, commits[-1]) if commits else run.branch
+    commit_shas = gitx.commits_between(session.repo_root, run.merge_base_sha, run.head_sha)
+    commits = [
+        {"sha": sha, "subject": gitx.commit_subject(session.repo_root, sha)}
+        for sha in commit_shas
+    ]
+    title = title or _default_pr_title(session, run, commits)
     draft_pr = session.config.publish.draft_pr if draft is None else draft
 
     try:
@@ -1209,9 +1325,10 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
 
     known_runs = set(store.list_runs())
     live_worktrees = {
-        Path(record["worktree"]).name: record["worktree"]
+        record["branch"].removeprefix("refs/heads/ac/"): record["worktree"]
         for record in gitx.list_worktrees(repo)
-        if "worktree" in record and Path(record["worktree"]).parent == store.worktrees_dir
+        if "worktree" in record
+        and record.get("branch", "").startswith("refs/heads/ac/")
     }
     ac_branches = {
         line.strip().lstrip("* ").strip()
@@ -1302,7 +1419,7 @@ def status(session: Session) -> Envelope:
         summary[finding.status.value] += 1
 
     tip = _head_moved(session, run)
-    stale = run.stale or tip is not None
+    stale = run.state is not State.MERGEBACK_CONFLICT and (run.stale or tip is not None)
 
     envelope = _envelope_for(
         run,
@@ -1316,6 +1433,7 @@ def status(session: Session) -> Envelope:
             "stale": stale,
             "worktree_path": run.worktree_path,
             "worktree_branch": run.worktree_branch,
+            "config_digest": run.config_digest,
             "gate_token": run.gate_token,
             "pushed_sha": run.pushed_sha,
             "pr_url": run.pr_url,
@@ -1331,4 +1449,19 @@ def status(session: Session) -> Envelope:
             "This run is stale: the branch moved after review began. Start a fresh run."
         )
         envelope.next_command = "agentic-cli start"
+    elif run.state is State.MERGEBACK_CONFLICT:
+        conflict = next(
+            (
+                event
+                for event in reversed(session.store.load_events(run_id))
+                if event.get("event") == "mergeback_conflict"
+            ),
+            None,
+        )
+        envelope.data["mergeback_conflict"] = conflict
+        envelope.next_instruction = (
+            "Use the durable conflict report below, resolve the affected paths, "
+            "then retry mergeback; completed verification stages are retained."
+        )
+        envelope.next_command = "agentic-cli mergeback"
     return envelope

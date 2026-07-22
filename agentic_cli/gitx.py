@@ -132,6 +132,25 @@ def is_clean(cwd: Path | str) -> bool:
     return out(cwd, "status", "--porcelain") == ""
 
 
+def status_for_paths(cwd: Path | str, paths: list[str] | tuple[str, ...]) -> str:
+    """Porcelain status limited to paths an operation may overwrite."""
+    if not paths:
+        return ""
+    return run(
+        cwd,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--",
+        *sorted(set(paths)),
+    ).stdout
+
+
+def changed_paths_in_commits(cwd: Path | str, commits: list[str]) -> list[str]:
+    """The stable union of paths touched across a commit stack."""
+    return sorted({path for sha in commits for path in commit_files(cwd, sha)})
+
+
 def is_ignored(cwd: Path | str, path: str) -> bool:
     result = run(cwd, "check-ignore", "-q", "--", path, check=False)
     return result.returncode == 0

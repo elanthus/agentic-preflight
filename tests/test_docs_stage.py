@@ -86,6 +86,22 @@ def test_configured_docs_paths_join_the_inventory(agent, feature_repo, tmp_path)
     assert "handbook/usage.md" in paths
 
 
+def test_common_agent_rules_and_product_docs_are_included_by_default(
+    agent, feature_repo, tmp_path
+):
+    write(feature_repo, ".claude/rules/state.md", "# state rules\n")
+    write(feature_repo, "PRODUCT.md", "# product\n")
+    write(feature_repo, "DESIGN.md", "# design\n")
+    commit_all(feature_repo, "add project contracts")
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+
+    env = agent.run("context", "--section", "docs")
+    paths = {item["path"] for item in env["data"]["doc_surface"]}
+    assert {".claude/rules/state.md", "PRODUCT.md", "DESIGN.md"} <= paths
+
+
 def test_docs_context_still_carries_the_diff(review_green):
     env = review_green.run("context", "--section", "docs")
     assert "loud=False" in env["data"]["diff"]

@@ -41,6 +41,12 @@ def test_create_does_not_clobber_an_existing_branch_name(feature_repo, tmp_path)
         )
 
 
+def test_configured_root_must_remain_outside_the_repository(feature_repo):
+    with pytest.raises(worktree.WorktreeError) as exc:
+        worktree.resolve_root(feature_repo, str(feature_repo / ".worktrees"))
+    assert "outside" in str(exc.value)
+
+
 # -- copied-file containment (secret-leak class) ----------------------------
 
 
@@ -96,6 +102,13 @@ def test_copies_are_written_owner_only(feature_repo, wt):
 
 def test_a_missing_copy_file_is_skipped_silently(feature_repo, wt):
     assert worktree.copy_files(feature_repo, wt, [".env"]) == []
+
+
+def test_a_copy_directory_gets_a_helpful_setup_command_error(feature_repo, wt):
+    write(feature_repo, "cache/artifact", "cached\n")
+    with pytest.raises(worktree.CopyRefused) as exc:
+        worktree.copy_files(feature_repo, wt, ["cache"])
+    assert "setup_command" in str(exc.value)
 
 
 def test_commit_content_invariant_rejects_a_commit_touching_a_copied_path(feature_repo, wt):
