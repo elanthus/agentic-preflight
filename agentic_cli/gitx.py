@@ -104,6 +104,34 @@ def commit_subject(cwd: Path | str, sha: str) -> str:
     return out(cwd, "log", "-1", "--format=%s", sha)
 
 
+def commit_patch_id(cwd: Path | str, sha: str) -> str | None:
+    """Return git's stable patch identity for one commit.
+
+    Patch IDs deliberately ignore commit metadata, so an ordinary cherry-pick
+    compares equal to its source even though the commit SHA changes. Empty
+    commits have no patch identity and return ``None``.
+    """
+    patch = run(
+        cwd,
+        "show",
+        "--format=",
+        "--no-ext-diff",
+        "--binary",
+        sha,
+    ).stdout
+    result = subprocess.run(
+        ["git", "patch-id", "--stable"],
+        cwd=str(cwd),
+        input=patch,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise GitError(["patch-id", "--stable"], result.returncode, result.stderr)
+    fields = result.stdout.split()
+    return fields[0] if fields else None
+
+
 # -- diff -------------------------------------------------------------------
 
 
@@ -164,6 +192,23 @@ def remote_url(cwd: Path | str, remote: str = "origin") -> str | None:
     if result.returncode != 0:
         return None
     return result.stdout.strip() or None
+
+
+def local_branch_exists(cwd: Path | str, branch: str) -> bool:
+    return run(
+        cwd, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}", check=False
+    ).returncode == 0
+
+
+def delete_remote_branch(cwd: Path | str, branch: str, remote: str = "origin") -> bool:
+    """Delete a remote branch, treating an already-absent ref as idempotent."""
+    result = run(cwd, "push", remote, "--delete", branch, check=False)
+    if result.returncode == 0:
+        return True
+    missing_markers = ("remote ref does not exist", "unable to delete")
+    if any(marker in result.stderr.lower() for marker in missing_markers):
+        return False
+    raise GitError(["push", remote, "--delete", branch], result.returncode, result.stderr)
 
 
 def list_worktrees(cwd: Path | str) -> list[dict[str, str]]:

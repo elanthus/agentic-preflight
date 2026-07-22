@@ -28,6 +28,10 @@ enabled = true
 # root = "/absolute/path/to/agentic-cli-worktrees"
 # Copied into the disposable worktree. Must already be gitignored.
 copy_files = [".env"]
+# Auto-detect pnpm/npm lockfiles. pnpm gets a frozen install backed by its
+# shared store; npm safely shares node_modules only when dependency inputs and
+# the activated Node ABI match, otherwise it runs npm ci.
+dependency_setup = "auto"
 # setup_command = "uv sync"
 
 # Detect committed pins for nvm, Volta, asdf, mise, fnm, and nodenv. Strict mode

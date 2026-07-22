@@ -16,7 +16,8 @@ HTTP client.
 start → context → submit-findings → respond → verify        (review)
       → context --section docs → submit-findings → verify   (docs)
       → stage run lint → stage run test
-      → mergeback → gate → push → pr
+      → mergeback → gate → push → finish → gc               (no PR)
+      → mergeback → gate → push → pr → [merge] → cleanup    (PR)
 ```
 
 The agent drives that loop. Every command returns one JSON object containing `next` —
@@ -27,7 +28,9 @@ enumerating every path through the machine, not by testing a few.
 
 Work happens in a disposable git worktree. By default it lives in a hidden sibling
 directory, outside `.git`, so Jest and other tools that ignore VCS directories can see
-the checkout. Your working tree is never touched.
+the checkout. Your working tree is never touched during verification. `finish` closes
+a pushed run with no PR, while `cleanup` waits for a merged PR and explicit user
+confirmation before removing its worktree and local/remote branches.
 
 ## Install
 
@@ -96,10 +99,13 @@ or squash forces a fresh run. Cherry-picked merge-back is handled via tree-equiv
 attestation; rebase tolerance is planned for v2 (the ledger already records `tree_sha`
 for it).
 
-**Worktrees can differ from your environment.** A fresh worktree has no `.venv`, no
-`node_modules`, no `.env`. Configure `[worktree] setup_command` for dependencies and
-`copy_files` for ignored files such as `.env`. Use `--baseline` so a pre-existing
-failure is reported rather than blamed on your diff.
+**Worktrees can differ from your environment.** A fresh worktree has no `.venv` or
+`.env`. Configure `[worktree] setup_command` for non-Node dependencies and
+`copy_files` for ignored files such as `.env`. Node lockfiles are handled
+automatically: pnpm gets a frozen install backed by its shared content-addressable
+store; npm reuses the main checkout's `node_modules` only when dependency inputs are
+unchanged and the activated Node ABI matches, otherwise it runs an isolated `npm ci`.
+Use `--baseline` so a pre-existing failure is reported rather than blamed on your diff.
 
 **Runtime pins are activated explicitly.** Non-interactive agent shells often miss
 interactive version-manager shims. Stages detect committed Node pins for NVM, Volta,
@@ -140,7 +146,8 @@ exclude = ["*.lock", "*-lock.json", "vendor/**", "**/*.min.js"]
 [worktree]
 root = "/optional/external/path" # default: hidden sibling directory outside .git
 copy_files = [".env"]        # must already be gitignored
-setup_command = "uv sync"
+dependency_setup = "auto"    # pnpm/npm lockfile-aware; use "off" to disable
+# setup_command = "uv sync"  # overrides automatic dependency setup
 
 [runtime]
 manager = "auto"             # or "none", "nvm", "volta", "asdf", "mise", ...
@@ -189,6 +196,21 @@ protected by two independent guards:
 
 Copies are mode `0600`, die with the worktree, and their contents are redacted from stage
 logs and never placed in any envelope.
+
+### Node dependencies in worktrees
+
+With `dependency_setup = "auto"`, a committed `pnpm-lock.yaml` runs
+`pnpm install --frozen-lockfile`. pnpm hard-links package contents from its shared
+content-addressable store while creating the lockfile-specific layout inside each
+worktree, avoiding cross-worktree package duplication. See the
+[pnpm storage model](https://pnpm.io/motivation).
+
+For npm, `package.json`, `package-lock.json`, and `.npmrc` must be unchanged from the
+run's base and byte-identical to the main checkout before its `node_modules` can be
+symlinked. A committed Node requirement must also match the activated Node major; this
+prevents sharing native modules across incompatible Node ABIs. Any mismatch runs
+`npm ci`, which installs the branch's frozen dependency graph in isolation. The
+symlink belongs to the disposable worktree, so normal cleanup removes only the link.
 
 ## Exit codes
 

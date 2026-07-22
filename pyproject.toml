@@ -1,6 +1,6 @@
 [project]
 name = "agentic-cli"
-version = "0.1.0"
+version = "0.1.1"
 description = "Agent-driven quality gate: a deterministic state machine with a JSON-over-stdout CLI. Calls no LLM, ever."
 readme = "README.md"
 requires-python = ">=3.11"

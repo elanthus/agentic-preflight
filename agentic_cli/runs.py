@@ -18,6 +18,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from . import dependencies as dependenciesmod
 from . import diff as diffmod
 from . import findings as findingsmod
 from . import gitx, runtime, worktree
@@ -156,6 +157,10 @@ def _next_hint(state: State) -> tuple[str | None, str | None]:
             "agentic-cli push --confirm <token>",
         ),
         State.PUSHED: ("Open the pull request.", "agentic-cli pr"),
+        State.PR_OPEN: (
+            "After the pull request is merged, preview cleanup and ask the user.",
+            "agentic-cli cleanup",
+        ),
     }.get(state, (None, None))
 
 
@@ -288,9 +293,22 @@ def start(session: Session, *, base_ref: str | None = None) -> Envelope:
             wt_path, prepared.command, timeout_seconds=cfg.stage.timeout_seconds
         )
         setup_result = {
+            "kind": "custom",
             "command": cfg.worktree.setup_command,
             "exit_code": completed.returncode,
             "runtime": prepared.runtime.as_dict(),
+        }
+    elif cfg.worktree.dependency_setup == "auto":
+        setup_result = {
+            "kind": "dependencies",
+            **dependenciesmod.setup(
+                repo,
+                wt_path,
+                base_sha=merge_base,
+                runtime_manager=cfg.runtime.manager,
+                runtime_strict=cfg.runtime.strict,
+                timeout_seconds=cfg.stage.timeout_seconds,
+            ).as_dict(),
         }
 
     with session.store.transaction(run_id) as doc:
@@ -802,6 +820,15 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
                 setup.command,
                 timeout_seconds=session.config.stage.timeout_seconds,
             )
+        elif session.config.worktree.dependency_setup == "auto":
+            dependenciesmod.setup(
+                session.repo_root,
+                scratch,
+                base_sha=run.merge_base_sha,
+                runtime_manager=session.config.runtime.manager,
+                runtime_strict=session.config.runtime.strict,
+                timeout_seconds=session.config.stage.timeout_seconds,
+            )
         prepared = runtime.prepare_command(
             scratch,
             command,
@@ -1110,6 +1137,192 @@ def pull_request(
     return _envelope_for(run, data={"pr_url": result.url})
 
 
+def finish(session: Session) -> Envelope:
+    """Mark a pushed run with no pull request complete."""
+    run = _load_current(session)
+    _require_state(run, State.PUSHED, command="finish")
+
+    with session.store.transaction(run.run_id) as doc:
+        _apply(doc, Action.FINISH)
+        run = doc
+
+    session.store.set_current(None)
+    session.store.append_event(run.run_id, {"event": "finished"})
+    return _envelope_for(
+        run,
+        data={"pushed_sha": run.pushed_sha, "pr_url": run.pr_url},
+        next_instruction="Run complete. Garbage collection can reclaim its worktree.",
+        next_command="agentic-cli gc",
+    )
+
+
+def _cleanup_base_branch(repo: Path, base_ref: str) -> str | None:
+    candidates = [base_ref]
+    if "/" in base_ref:
+        candidates.append(base_ref.split("/", 1)[1])
+    return next(
+        (branch for branch in candidates if gitx.local_branch_exists(repo, branch)),
+        None,
+    )
+
+
+def cleanup(session: Session, *, confirm: str | None = None) -> Envelope:
+    """Reclaim one merged PR's worktree and local/remote branches after consent."""
+    run = _load_current(session)
+    _require_state(run, State.PR_OPEN, command="cleanup")
+    if not run.pr_url:
+        raise NeedsHuman(
+            "this run has no recorded pull request URL",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+
+    try:
+        pr = githubmod.pull_request_status(session.repo_root, run.pr_url)
+    except githubmod.GhUnavailable as exc:
+        raise GhUnavailableError(
+            str(exc),
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction="Check the pull request with gh, then retry cleanup.",
+            next_command="agentic-cli cleanup",
+        ) from exc
+
+    if not pr.merged:
+        raise NeedsHuman(
+            f"pull request is {pr.state.lower()}, not merged",
+            state=run.state.value,
+            run_id=run.run_id,
+            data={"pr_url": pr.url, "pr_state": pr.state},
+            next_instruction="Wait until the pull request is merged, then retry cleanup.",
+            next_command="agentic-cli cleanup",
+        )
+    if pr.head != run.branch:
+        raise NeedsHuman(
+            f"pull request head {pr.head!r} does not match run branch {run.branch!r}",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+    expected_base = run.base_ref.rsplit("/", 1)[-1]
+    if pr.base != expected_base:
+        raise NeedsHuman(
+            f"pull request base {pr.base!r} does not match run base {run.base_ref!r}",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+
+    base_branch = _cleanup_base_branch(session.repo_root, run.base_ref)
+    current_branch = gitx.current_branch(session.repo_root)
+    preview = {
+        "pr_url": pr.url,
+        "merged_at": pr.merged_at,
+        "worktree_path": run.worktree_path,
+        "worktree_branch": run.worktree_branch,
+        "local_branch": run.branch,
+        "remote_branch": f"origin/{run.branch}",
+        "switch_to": base_branch if current_branch == run.branch else None,
+    }
+
+    checked_out_elsewhere = [
+        record["worktree"]
+        for record in gitx.list_worktrees(session.repo_root)
+        if record.get("branch") == f"refs/heads/{run.branch}"
+        and Path(record["worktree"]).resolve() != session.repo_root.resolve()
+    ]
+    if checked_out_elsewhere:
+        raise NeedsHuman(
+            f"local branch {run.branch!r} is checked out in another worktree",
+            state=run.state.value,
+            run_id=run.run_id,
+            data={**preview, "checked_out_elsewhere": checked_out_elsewhere},
+        )
+
+    if confirm is not None and not gatemod.token_matches(run.cleanup_token, confirm):
+        raise NeedsConfirm(
+            "cleanup requires the confirmation token from the latest preview",
+            state=run.state.value,
+            run_id=run.run_id,
+            data=preview,
+            next_instruction=(
+                "Preview cleanup again, show it to the user, and use its token only "
+                "after they agree."
+            ),
+            next_command="agentic-cli cleanup",
+        )
+    if confirm is not None and run.cleanup_preview != preview:
+        raise NeedsConfirm(
+            "cleanup targets changed after the latest preview",
+            state=run.state.value,
+            run_id=run.run_id,
+            data=preview,
+            next_instruction=(
+                "Preview cleanup again and ask the user to approve the updated targets."
+            ),
+            next_command="agentic-cli cleanup",
+        )
+
+    if confirm is None:
+        token = gatemod.mint_token()
+        with session.store.transaction(run.run_id) as doc:
+            doc.cleanup_token = token
+            doc.cleanup_preview = preview
+            run = doc
+        return _envelope_for(
+            run,
+            data={**preview, "token": token},
+            next_instruction=(
+                "Show the user every worktree and branch in this cleanup preview. "
+                "Only run the confirmation command after they agree."
+            ),
+            next_command=f"agentic-cli cleanup --confirm {token}",
+        )
+
+    if current_branch == run.branch:
+        if not gitx.is_clean(session.repo_root):
+            raise DirtyTree(
+                "the PR branch checkout has uncommitted changes; cleanup would switch branches",
+                state=run.state.value,
+                run_id=run.run_id,
+                data=preview,
+                next_instruction="Commit or stash the changes, then preview cleanup again.",
+                next_command="git status",
+            )
+        if base_branch is None:
+            raise NeedsHuman(
+                f"no local branch exists for base ref {run.base_ref!r}",
+                state=run.state.value,
+                run_id=run.run_id,
+                data=preview,
+            )
+
+    remote_deleted = gitx.delete_remote_branch(session.repo_root, run.branch)
+    if current_branch == run.branch:
+        gitx.run(session.repo_root, "switch", base_branch)
+    if gitx.local_branch_exists(session.repo_root, run.branch):
+        gitx.run(session.repo_root, "branch", "-D", run.branch)
+    if run.worktree_path:
+        worktree.remove(
+            session.repo_root, run.worktree_path, branch=run.worktree_branch
+        )
+
+    with session.store.transaction(run.run_id) as doc:
+        _apply(doc, Action.CLEANUP)
+        doc.cleanup_token = None
+        doc.cleanup_preview = None
+        run = doc
+    session.store.set_current(None)
+    session.store.append_event(
+        run.run_id,
+        {"event": "merged_pr_cleaned", "remote_deleted": remote_deleted},
+    )
+    return _envelope_for(
+        run,
+        data={**preview, "remote_deleted": remote_deleted, "cleaned": True},
+        next_instruction="Merged pull request cleanup is complete.",
+        next_command=None,
+    )
+
+
 def _pr_body(session: Session, run: RunDoc) -> str:
     findings = session.store.load_findings(run.run_id)
     lines = [
@@ -1356,8 +1569,23 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
                 )
             continue
         if run.fix_commits and not force:
-            retained.append({"run_id": run_id, "reason": "unmerged fix commits"})
-            continue
+            # Only DONE proves mergeback and publication completed. Aborted or
+            # orphaned runs must retain every fix even if an unrelated commit
+            # in branch history happens to share its patch ID.
+            unlanded = (
+                _unlanded_fix_commits(repo, run)
+                if run.state is State.DONE
+                else list(run.fix_commits)
+            )
+            if unlanded:
+                retained.append(
+                    {
+                        "run_id": run_id,
+                        "reason": "unmerged fix commits",
+                        "fix_commits": unlanded,
+                    }
+                )
+                continue
         if run.worktree_path and Path(run.worktree_path).exists():
             worktree.remove(repo, run.worktree_path, branch=run.worktree_branch)
         removed.append(run_id)
@@ -1388,6 +1616,32 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
         ),
         next_command="agentic-cli gc --force" if orphans and not force else None,
     )
+
+
+def _unlanded_fix_commits(repo: Path, run: RunDoc) -> list[str]:
+    """Return fixes with no patch-equivalent commit in merged run history.
+
+    Mergeback cherry-picks, so source SHA ancestry cannot prove that a fix
+    landed. The run's post-mergeback ``head_sha`` is durable even after its
+    branch moves; compare stable patch IDs within that reviewed history.
+    """
+    try:
+        candidates = gitx.commits_between(repo, run.merge_base_sha, run.head_sha)
+        landed_patch_ids = {
+            patch_id
+            for sha in candidates
+            if (patch_id := gitx.commit_patch_id(repo, sha)) is not None
+        }
+        return [
+            sha
+            for sha in run.fix_commits
+            if (patch_id := gitx.commit_patch_id(repo, sha)) is None
+            or patch_id not in landed_patch_ids
+        ]
+    except gitx.GitError:
+        # Missing or corrupt history is not permission to destroy the only
+        # remaining ref to a fix. Report it as unmerged and require --force.
+        return list(run.fix_commits)
 
 
 def status(session: Session) -> Envelope:
@@ -1435,6 +1689,7 @@ def status(session: Session) -> Envelope:
             "worktree_branch": run.worktree_branch,
             "config_digest": run.config_digest,
             "gate_token": run.gate_token,
+            "cleanup_token": run.cleanup_token,
             "pushed_sha": run.pushed_sha,
             "pr_url": run.pr_url,
             "fix_commits": run.fix_commits,

@@ -81,6 +81,12 @@ def gh_stub(tmp_path, monkeypatch):
     script.write_text(
         "#!/bin/sh\n"
         f'printf "%s\\n" "$*" >> "{log}"\n'
+        'if [ "$1" = "pr" ] && [ "$2" = "view" ]; then\n'
+        '  echo \'{"url":"https://github.com/owner/repo/pull/1",'
+        '"state":"MERGED","mergedAt":"2026-07-22T12:00:00Z",'
+        '"headRefName":"feature/x","baseRefName":"main"}\'\n'
+        '  exit 0\n'
+        'fi\n'
         'case "$1" in\n'
         '  auth) exit 0 ;;\n'
         '  pr) echo "https://github.com/owner/repo/pull/1" ; exit 0 ;;\n'
@@ -107,6 +113,41 @@ def verified(feature_repo, bare_remote, tmp_path):
     env = agent.run("mergeback")
     assert env["state"] == "VERIFIED"
     return agent
+
+
+@pytest.fixture
+def verified_with_cherry_picked_fix(feature_repo, bare_remote, tmp_path, monkeypatch):
+    """A verified fix whose cherry-picked SHA deliberately differs."""
+    write(feature_repo, ".agentic-cli.toml",
+          "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n")
+    commit_all(feature_repo, "configure agentic-cli")
+    agent = ScriptedAgent(feature_repo)
+    start = agent.run("start")
+    run_id = start["run_id"]
+    wt = Path(start["data"]["worktree_path"])
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, [{
+        "path": "src/app.py",
+        "line": 1,
+        "severity": "high",
+        "action": "auto_fix",
+        "title": "use the loud flag",
+    }]))
+
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-01-01T00:00:00+00:00")
+    write(wt, "src/app.py",
+          "def greet(name, loud=False):\n    return 'HI' if loud else f'hi {name}'\n")
+    original = commit_all(wt, "use the loud flag")
+    agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", original)
+    agent.run("verify")
+    agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
+
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-01-02T00:00:00+00:00")
+    agent.run("mergeback")
+    picked = git("rev-parse", "HEAD", cwd=feature_repo)
+    assert original != picked
+    return agent, run_id, wt, original, picked
 
 
 # -- the gate ---------------------------------------------------------------
@@ -149,6 +190,20 @@ def test_push_with_the_right_token_succeeds(verified, feature_repo, bare_remote)
     assert remote_sha == git("rev-parse", "HEAD", cwd=feature_repo)
 
 
+def test_finish_closes_a_pushed_run_without_a_pull_request(verified):
+    token = verified.run("gate")["data"]["token"]
+    verified.run("push", "--confirm", token)
+    env = verified.run("finish")
+    assert env["state"] == "DONE"
+    assert env["next"]["command"] == "agentic-cli gc"
+    assert verified.run("status")["data"]["has_run"] is False
+
+
+def test_finish_is_illegal_before_push(verified):
+    env = verified.run("finish", expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "wrong_state"
+
+
 def test_gate_is_illegal_before_everything_is_verified(feature_repo, tmp_path):
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
@@ -188,7 +243,7 @@ def test_dry_run_push_changes_nothing(verified, bare_remote):
 # -- pull requests via gh ---------------------------------------------------
 
 
-def as_github_origin(repo):
+def as_github_origin(repo, push_url=None):
     """Point origin at a GitHub URL after pushing.
 
     The bare remote is a filesystem path, which is correctly detected as
@@ -196,6 +251,8 @@ def as_github_origin(repo):
     nothing real is contacted.
     """
     git("remote", "set-url", "origin", "https://github.com/owner/repo.git", cwd=repo)
+    if push_url is not None:
+        git("remote", "set-url", "--add", "--push", "origin", str(push_url), cwd=repo)
 
 
 def test_pr_shells_out_to_gh(verified, gh_stub, feature_repo):
@@ -206,6 +263,100 @@ def test_pr_shells_out_to_gh(verified, gh_stub, feature_repo):
     assert env["state"] == "PR_OPEN"
     assert env["data"]["pr_url"].endswith("/pull/1")
     assert "pr create" in gh_stub.read_text()
+
+
+def test_finish_refuses_to_close_a_run_with_an_unmerged_cleanup_lifecycle(
+    verified, gh_stub, feature_repo
+):
+    token = verified.run("gate")["data"]["token"]
+    verified.run("push", "--confirm", token)
+    as_github_origin(feature_repo)
+    assert verified.run("pr")["state"] == "PR_OPEN"
+    env = verified.run("finish", expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "wrong_state"
+
+
+def test_cleanup_previews_every_related_resource_before_deleting(
+    verified, gh_stub, feature_repo, bare_remote
+):
+    token = verified.run("gate")["data"]["token"]
+    verified.run("push", "--confirm", token)
+    as_github_origin(feature_repo, bare_remote)
+    verified.run("pr")
+
+    env = verified.run("cleanup")
+
+    assert env["state"] == "PR_OPEN"
+    assert env["data"]["token"]
+    assert env["data"]["worktree_branch"].startswith("ac/")
+    assert env["data"]["local_branch"] == "feature/x"
+    assert env["data"]["remote_branch"] == "origin/feature/x"
+    assert env["data"]["switch_to"] == "main"
+    assert git("branch", "--list", "feature/x", cwd=feature_repo)
+    assert git("branch", "--list", env["data"]["worktree_branch"], cwd=feature_repo)
+
+
+def test_cleanup_rejects_a_wrong_confirmation_token(
+    verified, gh_stub, feature_repo, bare_remote
+):
+    token = verified.run("gate")["data"]["token"]
+    verified.run("push", "--confirm", token)
+    as_github_origin(feature_repo, bare_remote)
+    verified.run("pr")
+    verified.run("cleanup")
+
+    env = verified.run(
+        "cleanup", "--confirm", "wrong-token", expect=ExitCode.NEEDS_CONFIRM
+    )
+
+    assert env["error"]["code"] == "needs_confirm"
+    assert git("branch", "--list", "feature/x", cwd=feature_repo)
+
+
+def test_cleanup_refuses_until_github_reports_the_pr_merged(
+    verified, gh_stub, feature_repo, bare_remote, monkeypatch
+):
+    from agentic_cli.publish.github import PullRequestStatus
+    from agentic_cli.publish import github as githubmod
+
+    token = verified.run("gate")["data"]["token"]
+    verified.run("push", "--confirm", token)
+    as_github_origin(feature_repo, bare_remote)
+    verified.run("pr")
+    monkeypatch.setattr(
+        githubmod,
+        "pull_request_status",
+        lambda cwd, url: PullRequestStatus(url, "OPEN", None, "feature/x", "main"),
+    )
+
+    env = verified.run("cleanup", expect=ExitCode.NEEDS_HUMAN)
+
+    assert env["error"]["code"] == "needs_human"
+    assert env["data"]["pr_state"] == "OPEN"
+    assert git("branch", "--list", "feature/x", cwd=feature_repo)
+
+
+def test_confirmed_cleanup_removes_worktree_and_local_and_remote_branches(
+    verified, gh_stub, feature_repo, bare_remote
+):
+    token = verified.run("gate")["data"]["token"]
+    verified.run("push", "--confirm", token)
+    as_github_origin(feature_repo, bare_remote)
+    verified.run("pr")
+    preview = verified.run("cleanup")
+    worktree_path = Path(preview["data"]["worktree_path"])
+
+    env = verified.run("cleanup", "--confirm", preview["data"]["token"])
+
+    assert env["state"] == "DONE"
+    assert env["data"]["cleaned"] is True
+    assert git("branch", "--show-current", cwd=feature_repo) == "main"
+    assert git("branch", "--list", "feature/x", cwd=feature_repo) == ""
+    assert git("branch", "--list", preview["data"]["worktree_branch"], cwd=feature_repo) == ""
+    assert git("branch", "--list", "feature/x", cwd=bare_remote) == ""
+    assert not worktree_path.exists()
+    assert preview["data"]["token"] not in gh_stub.read_text()
+    assert verified.run("status")["data"]["has_run"] is False
 
 
 def test_pr_title_flag_overrides_the_default(verified, gh_stub, feature_repo):
@@ -281,6 +432,27 @@ def test_a_missing_gh_falls_back_to_a_prefilled_compare_url(
 def test_pr_is_illegal_before_pushing(verified):
     env = verified.run("pr", expect=ExitCode.PRECONDITION)
     assert env["error"]["code"] == "wrong_state"
+
+
+def test_gc_reclaims_a_finished_run_whose_fixes_were_cherry_picked(
+    verified_with_cherry_picked_fix, feature_repo
+):
+    from agentic_cli import gitx
+
+    agent, run_id, wt, original, picked = verified_with_cherry_picked_fix
+    assert gitx.commit_patch_id(feature_repo, original) == gitx.commit_patch_id(
+        feature_repo, picked
+    )
+
+    token = agent.run("gate")["data"]["token"]
+    agent.run("push", "--confirm", token)
+    agent.run("finish")
+    env = agent.run("gc")
+
+    assert run_id in env["data"]["removed"]
+    assert env["data"]["retained"] == []
+    assert not wt.exists()
+    assert git("branch", "--list", f"ac/{run_id}", cwd=feature_repo) == ""
 
 
 # -- the honest caveat ------------------------------------------------------

@@ -130,6 +130,8 @@ class RunDoc(BaseModel):
     gate_token: str | None = None
     pushed_sha: str | None = None
     pr_url: str | None = None
+    cleanup_token: str | None = None
+    cleanup_preview: dict[str, Any] | None = None
 
     created_at: str | None = None
     updated_at: str | None = None

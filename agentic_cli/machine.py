@@ -86,6 +86,7 @@ class Action(str, Enum):
     PUSH = "PUSH"
     OPEN_PR = "OPEN_PR"
     FINISH = "FINISH"
+    CLEANUP = "CLEANUP"
 
     ABORT = "ABORT"
     ORPHAN = "ORPHAN"
@@ -161,7 +162,7 @@ TRANSITIONS: dict[tuple[State, Action], State] = {
     (State.AWAITING_PUSH_CONFIRM, Action.PUSH): State.PUSHED,
     (State.PUSHED, Action.OPEN_PR): State.PR_OPEN,
     (State.PUSHED, Action.FINISH): State.DONE,
-    (State.PR_OPEN, Action.FINISH): State.DONE,
+    (State.PR_OPEN, Action.CLEANUP): State.DONE,
 }
 
 #: A run may be abandoned from any state that is not already terminal.
