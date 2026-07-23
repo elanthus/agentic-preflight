@@ -72,7 +72,7 @@ class DiffSection(_Section):
 class WorktreeSection(_Section):
     ttl_hours: int = Field(default=48, ge=1)
     root: str | None = None
-    mode: str = "reusable"
+    mode: str = "in_place"
     copy_files: list[str] = Field(default_factory=lambda: [".env"])
     setup_command: str | None = None
     dependency_setup: str = "auto"
@@ -116,7 +116,7 @@ VALID_RUNTIME_MANAGERS = {
     "nodenv",
 }
 VALID_DEPENDENCY_SETUP = {"auto", "off"}
-VALID_WORKTREE_MODES = {"reusable", "strict"}
+VALID_WORKTREE_MODES = {"in_place", "reusable", "strict"}
 
 
 class Config(BaseModel):

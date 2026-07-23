@@ -108,7 +108,7 @@ def main() -> None:
 )
 @command
 def start(base_ref: str | None, intent: str | None) -> None:
-    """Create a run and lease its isolated validation worktree."""
+    """Create a run and prepare its validation checkout."""
     session = runs.open_session()
     _finish(runs.start(session, base_ref=base_ref, intent=intent))
 

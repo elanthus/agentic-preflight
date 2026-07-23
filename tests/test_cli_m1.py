@@ -229,12 +229,12 @@ def test_run_created_event_carries_the_resolved_config_snapshot(blocked):
 # -- abort ------------------------------------------------------------------
 
 
-def test_abort_ends_the_run_and_releases_the_runner(blocked):
+def test_abort_ends_an_in_place_run_without_changing_the_checkout(blocked):
     agent, wt = blocked
     env = agent.run("abort")
     assert env["state"] == "ABORTED"
     assert Path(wt).exists()
-    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=Path(wt)) == "HEAD"
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=Path(wt)) == "feature/x"
 
 
 def test_abort_clears_the_current_pointer(blocked):
@@ -244,15 +244,15 @@ def test_abort_clears_the_current_pointer(blocked):
     assert env["data"]["has_run"] is False
 
 
-def test_abort_warns_when_fix_commits_would_be_lost(blocked):
-    """Unmerged work is reported, never silently discarded."""
+def test_abort_preserves_in_place_fix_commits(blocked):
     agent, wt = blocked
     sha = fix_commit(wt)
     agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", sha)
 
-    env = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
-    assert env["error"]["code"] == "unmerged_work"
-    assert sha in env["error"]["message"]
+    env = agent.run("abort")
+    assert env["data"]["discarded_fix_commits"] == []
+    assert env["data"]["preserved_in_place_commits"] == [sha]
+    assert git("rev-parse", "HEAD", cwd=Path(wt)) == sha
 
 
 def test_abort_force_discards_unmerged_work(blocked):
@@ -263,9 +263,11 @@ def test_abort_force_discards_unmerged_work(blocked):
     assert env["state"] == "ABORTED"
 
 
-def test_default_runner_is_reused_but_secrets_and_nonignored_files_are_not(
+def test_reusable_runner_is_reused_but_secrets_and_nonignored_files_are_not(
     agent, feature_repo
 ):
+    write(feature_repo, ".agentic-cli.toml", "[worktree]\nmode = 'reusable'\n")
+    commit_all(feature_repo, "use reusable validation runner")
     write(feature_repo, ".gitignore", ".env\nnode_modules/\n")
     commit_all(feature_repo, "ignore dependency cache")
     write(feature_repo, ".env", "SECRET=first\n")
@@ -299,6 +301,8 @@ def test_strict_mode_removes_each_run_worktree(feature_repo):
 
 
 def test_switching_to_strict_retires_the_idle_reusable_runner(agent, feature_repo):
+    write(feature_repo, ".agentic-cli.toml", "[worktree]\nmode = 'reusable'\n")
+    commit_all(feature_repo, "use reusable validation runner")
     reusable = Path(agent.run("start")["data"]["worktree_path"])
     agent.run("abort")
     assert reusable.exists()
@@ -350,6 +354,8 @@ def test_gc_reconciles_a_worktree_with_no_run_directory(agent, feature_repo):
     import shutil
     from pathlib import Path
 
+    write(feature_repo, ".agentic-cli.toml", "[worktree]\nmode = 'reusable'\n")
+    commit_all(feature_repo, "use reusable validation runner")
     env = agent.run("start")
     run_id = env["run_id"]
     state_root = Path(

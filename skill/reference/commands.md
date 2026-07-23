@@ -49,20 +49,23 @@ preserved unless `--force` is explicit. At least one agent or custom target is r
 ## Running a gate
 
 ### `agentic-cli start --intent TEXT [--base-ref REF]`
-Creates a run and leases an isolated worktree at the current HEAD on branch `ac/<run_id>`.
-The default `[worktree] mode = "reusable"` uses one serial runner and preserves ignored
-caches between leases. `mode = "strict"` creates and removes a fresh worktree per run.
+Creates a run and prepares its validation checkout. The default `[worktree] mode =
+"in_place"` validates directly in the current clean PR checkout. `mode = "reusable"`
+uses one serial isolated runner and preserves ignored caches between leases. `mode =
+"strict"` creates and removes a fresh isolated worktree per run.
 The intent is required and persisted as the user's objective and acceptance criteria.
 Before review, the command fetches the configured base from `origin` when available and
-rebases the validation worktree onto that exact fresh base. A sync conflict is aborted
+rebases the validation checkout onto that exact fresh base. In-place mode therefore
+rebases the PR branch itself. A sync conflict is aborted
 cleanly and reported; no conflicted rebase is left in progress.
 Refuses a dirty tree (exit 3, `dirty_tree`) and a branch with no changes over the base
-(exit 3, `empty_diff`). Copies `[worktree] copy_files` into the worktree, refusing any
-entry git is not already ignoring there.
+(exit 3, `empty_diff`). In-place mode protects `[worktree] copy_files` where they are;
+isolated modes copy them. Every mode refuses an entry git is not already ignoring.
 
 Returns `data.worktree_path` — **absolute**. Use it; do not rely on `cd` persisting.
-The default is outside both the repository and its `.git` directory, which avoids
-Jest's hard-coded VCS-directory exclusion. Override it with `[worktree] root`.
+For isolated modes the path is outside both the repository and its `.git` directory,
+which avoids Jest's hard-coded VCS-directory exclusion. Override that location with
+`[worktree] root`.
 
 **Strict mode has no build cache.** If a lint or test stage is far slower there
 than in the user's tree, that is almost always the cause — not a hanging command. The
@@ -72,7 +75,9 @@ relies on is absent and gets rebuilt from nothing on the first run.
 With `[worktree] dependency_setup = "auto"`, a pnpm lockfile uses
 `pnpm install --frozen-lockfile`; npm uses `npm ci`. Reusable mode skips the install
 while its dependency/runtime fingerprint matches and `node_modules` remains present.
-Strict mode installs on every run. The main checkout's `node_modules` is never linked.
+Strict mode installs on every run. In-place mode uses the checkout's existing
+dependencies and performs no automatic install. The source checkout's `node_modules`
+is never linked into an isolated mode.
 `setup_command` overrides this automatic setup. Use `copy_files` only for ignored files
 such as `.env`; directories are refused with a clear setup instruction.
 
@@ -148,9 +153,10 @@ asdf, mise, fnm, or nodenv. `[runtime] manager = "auto"` is the default. With
 falling back to a different system Node. `manager = "none"` disables activation.
 
 ### `agentic-cli mergeback`
-Cherry-picks the fix commits onto the user's branch. It blocks only working-tree paths
-the fix commits may overwrite; unrelated tracked edits and untracked files are left
-alone. The strict clean-tree requirement still applies to `start`.
+In in-place mode, attests the already-verified current SHA without creating or
+cherry-picking a commit. The checkout must remain clean. In isolated modes, cherry-picks
+the fix commits onto the source branch; only paths those commits may overwrite are
+blocked, while unrelated tracked edits and untracked files are left alone.
 
 On conflict: aborts immediately, verifies the branch is byte-for-byte restored, exits 4
 with `data.resolution`, and stores that full report in the event log. **Never
@@ -192,8 +198,8 @@ audit logs, clears the current-run pointer, and directs the next step to `gc`.
 For a run in the PR/CI lifecycle, verifies through `gh` that the PR is merged. Without a token it
 returns a deletion preview and confirmation token but changes nothing. After the user
 approves that exact preview, `--confirm` re-checks merge status, switches a clean PR
-source checkout to the base branch if necessary, releases the reusable runner (or
-removes a strict worktree),
+source checkout to the base branch if necessary, leaves an in-place checkout intact,
+releases the reusable runner, or removes a strict worktree, then deletes the
 local `ac/*` branch, local PR source branch, and remote PR source branch. A wrong or
 missing approval never deletes anything.
 

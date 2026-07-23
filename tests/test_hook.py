@@ -85,7 +85,7 @@ def test_init_is_idempotent(feature_repo):
     assert env["ok"] is True
 
 
-def test_init_reports_an_unpinned_node_project_and_external_worktree_root(feature_repo):
+def test_init_reports_an_unpinned_node_project_and_in_place_default(feature_repo):
     write(
         feature_repo,
         "package.json",
@@ -95,7 +95,8 @@ def test_init_reports_an_unpinned_node_project_and_external_worktree_root(featur
     assert env["data"]["runtime"]["node_project"] is True
     assert ">=24 <25" in env["data"]["warnings"][0]
     assert "Pin Node" in env["next"]["instruction"]
-    assert not Path(env["data"]["worktree_root"]).is_relative_to(feature_repo)
+    assert env["data"]["worktree_mode"] == "in_place"
+    assert env["data"]["worktree_root"] is None
 
 
 # -- hook-check as a pure predicate -----------------------------------------
