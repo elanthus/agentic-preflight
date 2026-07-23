@@ -60,7 +60,7 @@ from .publish import github as githubmod
 from .publish import provider as providermod
 from .stages import detect, shellstage
 from .stages import docs as docsstage
-from .store import Store
+from .store import CurrentRunExists, Store
 
 STATE_DIR_NAME = "agentic-cli"
 
@@ -355,7 +355,18 @@ def start(
     # Persist the intent *before* the git call, so a crash mid-create leaves a
     # record for `gc` to reconcile rather than an orphan nobody knows about.
     session.store.create_run(run)
-    session.store.set_current(run_id)
+    try:
+        session.store.claim_current(run_id)
+    except CurrentRunExists as exc:
+        with session.store.transaction(run_id) as doc:
+            _apply(doc, Action.ABORT)
+            doc.worktree_released = True
+        raise WrongState(
+            f"run {exc.run_id} is already active; the validation runner has a single lease",
+            run_id=exc.run_id,
+            next_instruction="Finish, clean up, or abort the active run before starting another.",
+            next_command="agentic-cli status",
+        ) from exc
     session.store.append_event(
         run_id,
         {
@@ -391,7 +402,7 @@ def start(
         with session.store.transaction(run_id) as doc:
             _apply(doc, Action.ABORT)
             doc.worktree_released = True
-        session.store.set_current(None)
+        session.store.clear_current_if(run_id)
         raise NeedsHuman(
             str(exc),
             run_id=run_id,

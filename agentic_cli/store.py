@@ -50,6 +50,14 @@ class StaleWrite(StoreError):
         self.actual = actual
 
 
+class CurrentRunExists(StoreError):
+    """A repository-wide run lease is already held."""
+
+    def __init__(self, run_id: str) -> None:
+        super().__init__(f"run {run_id} is already active")
+        self.run_id = run_id
+
+
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -218,11 +226,41 @@ class Store:
 
     # -- current pointer -----------------------------------------------------
 
-    def set_current(self, run_id: str | None) -> None:
+    @contextmanager
+    def _current_lock(self) -> Iterator[None]:
+        self.root.mkdir(parents=True, exist_ok=True)
+        with open(self.root / ".current.lock", "w") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+    def _set_current_unlocked(self, run_id: str | None) -> None:
         if run_id is None:
             self.current_path.unlink(missing_ok=True)
             return
         _atomic_write(self.current_path, run_id + "\n")
+
+    def set_current(self, run_id: str | None) -> None:
+        with self._current_lock():
+            self._set_current_unlocked(run_id)
+
+    def claim_current(self, run_id: str) -> None:
+        """Atomically claim the repository's single active-run lease."""
+        with self._current_lock():
+            current = self.get_current()
+            if current:
+                raise CurrentRunExists(current)
+            self._set_current_unlocked(run_id)
+
+    def clear_current_if(self, run_id: str) -> bool:
+        """Release only the caller's lease, never a newer run's pointer."""
+        with self._current_lock():
+            if self.get_current() != run_id:
+                return False
+            self._set_current_unlocked(None)
+            return True
 
     def get_current(self) -> str | None:
         if not self.current_path.exists():
