@@ -23,18 +23,22 @@ enabled = true
 # paths = ["architecture/**"]
 
 [worktree]
-# The default reuses one isolated runner and its ignored caches between runs.
-# Set mode = "strict" to create and remove a clean worktree for every run.
-mode = "reusable"
-# Worktrees live in a hidden sibling directory, outside .git, so Jest can
-# discover tests without touching the user's checkout.
+# The default validates directly in this checkout. It requires a clean tree and
+# records each accepted repair commit before allowing the workflow to continue.
+# Use "reusable" for one serial isolated runner with retained ignored caches, or
+# "strict" for a fresh isolated worktree on every run.
+mode = "in_place"
+# Isolated modes put worktrees in a hidden sibling directory, outside .git, so
+# Jest can discover tests without touching this checkout.
 # root = "/absolute/path/to/agentic-cli-worktrees"
-# Copied into the validation worktree. Must already be gitignored and is
-# explicitly removed whenever a reusable runner is released.
+# In isolated modes these files are copied into the validation worktree. In
+# in-place mode they stay where they are. In every mode they must already be
+# gitignored, are redacted from logs, and are forbidden from repair commits.
 copy_files = [".env"]
 # Auto-detect pnpm/npm lockfiles. pnpm gets a frozen install backed by its
-# shared store; reusable mode retains a fingerprint-matched install while
-# strict mode runs a clean install in every new worktree.
+# shared store; in-place mode uses this checkout's existing dependencies,
+# reusable mode retains a fingerprint-matched install, and strict mode runs a
+# clean install in every new worktree.
 dependency_setup = "auto"
 # setup_command = "uv sync"
 
@@ -101,7 +105,11 @@ def init(repo_root: Path | str, *, force: bool = False, install_hook: bool = Tru
             "config_written": config_written,
             "hook_path": hook_path,
             "hook_installed": hook_installed,
-            "worktree_root": str(worktree.resolve_root(repo_root, cfg.worktree.root)),
+            "worktree_root": (
+                None
+                if cfg.worktree.mode == "in_place"
+                else str(worktree.resolve_root(repo_root, cfg.worktree.root))
+            ),
             "worktree_mode": cfg.worktree.mode,
             "runtime": runtime_info.as_dict(),
             "warnings": warnings,
