@@ -4,7 +4,7 @@ import pytest
 
 from agentic_cli.machine import State
 from agentic_cli.models import RunDoc
-from agentic_cli.store import StaleWrite, Store, UnknownRun
+from agentic_cli.store import CurrentRunExists, StaleWrite, Store, UnknownRun
 
 
 @pytest.fixture
@@ -100,4 +100,23 @@ def test_current_run_pointer_round_trips(store):
 
 
 def test_current_is_none_when_never_set(store):
+    assert store.get_current() is None
+
+
+def test_current_run_lease_can_only_be_claimed_once(store):
+    store.claim_current("r_first")
+
+    with pytest.raises(CurrentRunExists) as exc:
+        store.claim_current("r_second")
+
+    assert exc.value.run_id == "r_first"
+    assert store.get_current() == "r_first"
+
+
+def test_failed_start_cannot_clear_another_runs_lease(store):
+    store.claim_current("r_winner")
+
+    assert store.clear_current_if("r_loser") is False
+    assert store.get_current() == "r_winner"
+    assert store.clear_current_if("r_winner") is True
     assert store.get_current() is None
