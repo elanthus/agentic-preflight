@@ -23,13 +23,18 @@ enabled = true
 # paths = ["architecture/**"]
 
 [worktree]
-# Worktrees default to a hidden sibling directory, outside .git, so Jest can
-# discover tests.
+# The default reuses one isolated runner and its ignored caches between runs.
+# Set mode = "strict" to create and remove a clean worktree for every run.
+mode = "reusable"
+# Worktrees live in a hidden sibling directory, outside .git, so Jest can
+# discover tests without touching the user's checkout.
 # root = "/absolute/path/to/agentic-cli-worktrees"
-# Copied into the disposable worktree. Must already be gitignored.
+# Copied into the validation worktree. Must already be gitignored and is
+# explicitly removed whenever a reusable runner is released.
 copy_files = [".env"]
 # Auto-detect pnpm/npm lockfiles. pnpm gets a frozen install backed by its
-# shared store; npm runs npm ci in each worktree for an isolated install.
+# shared store; reusable mode retains a fingerprint-matched install while
+# strict mode runs a clean install in every new worktree.
 dependency_setup = "auto"
 # setup_command = "uv sync"
 
@@ -97,6 +102,7 @@ def init(repo_root: Path | str, *, force: bool = False, install_hook: bool = Tru
             "hook_path": hook_path,
             "hook_installed": hook_installed,
             "worktree_root": str(worktree.resolve_root(repo_root, cfg.worktree.root)),
+            "worktree_mode": cfg.worktree.mode,
             "runtime": runtime_info.as_dict(),
             "warnings": warnings,
         },

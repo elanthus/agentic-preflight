@@ -108,7 +108,7 @@ def main() -> None:
 )
 @command
 def start(base_ref: str | None, intent: str | None) -> None:
-    """Create a run and its disposable worktree."""
+    """Create a run and lease its isolated validation worktree."""
     session = runs.open_session()
     _finish(runs.start(session, base_ref=base_ref, intent=intent))
 
@@ -537,7 +537,7 @@ def logs(stage_name: str) -> None:
 @click.option("--force", is_flag=True, help="Discard unmerged fix commits.")
 @command
 def abort(force: bool) -> None:
-    """End the run and reclaim its worktree."""
+    """End the run and release its validation worktree."""
     session = runs.open_session()
     _finish(runs.abort(session, force=force))
 

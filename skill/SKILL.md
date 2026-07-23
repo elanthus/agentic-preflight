@@ -219,13 +219,13 @@ instead of costing a retry. Confirm the run actually did work (a test count, a r
 file, a non-empty log) before believing it. The trap is usually a flag: `-quit` on a
 Unity `-runTests` invocation exits 0 having run zero tests.
 
-**Stage far slower in the worktree than in the user's tree.** Not a hang — the worktree
-is a clean checkout with no build cache, so the toolchain rebuilds from nothing. Node
-projects with pnpm/npm lockfiles are prepared automatically. npm runs an isolated
-`npm ci` in every worktree rather than sharing the main checkout's `node_modules`; use
-`[worktree] setup_command` to override that or prepare other caches. `copy_files` is
-for ignored files such as `.env`, not directories. Do not raise `[stage] max_attempts`
-to paper over it.
+**Stage far slower in the worktree than in the user's tree.** Check `[worktree] mode`.
+The default reusable runner retains ignored build caches and skips Node installation
+while its dependency/runtime fingerprint matches. Strict mode is a clean checkout with
+no build cache and runs the frozen install every time. Neither mode shares the main
+checkout's `node_modules`; use `[worktree] setup_command` to prepare non-Node caches.
+`copy_files` is for ignored files such as `.env`, not directories. Do not raise
+`[stage] max_attempts` to paper over it.
 
 **Copy refused (exit 3).** A `copy_files` entry is not gitignored. Do not work around
 it — tell the user to gitignore and commit it first. This guard prevents a secret

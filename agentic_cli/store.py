@@ -119,6 +119,10 @@ class Store:
     def legacy_worktrees_dir(self) -> Path:
         return self.root / "worktrees"
 
+    @property
+    def runner_dependency_state_path(self) -> Path:
+        return self.root / "runner-dependencies.json"
+
     def set_worktrees_root(self, path: Path) -> None:
         self._worktrees_root = Path(path)
 
