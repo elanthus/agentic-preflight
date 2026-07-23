@@ -31,6 +31,7 @@ from . import sync as syncmod
 from .config import Config, load_config
 from .envelope import Envelope
 from .errors import (
+    START_COMMAND,
     DiffTooLarge,
     DirtyTree,
     EmptyDiff,
@@ -134,7 +135,7 @@ def _next_hint(state: State) -> tuple[str | None, str | None]:
     versus judge the diff you now hold — so those commands override this.
     """
     return {
-        State.CREATED: ("Create the worktree.", "agentic-cli start"),
+        State.CREATED: ("Create the worktree.", START_COMMAND),
         State.WORKTREE_READY: ("Synchronize with the fresh remote base.", None),
         State.SYNC_RUNNING: ("Remote synchronization is running.", None),
         State.SYNC_CONFLICT: (
@@ -239,6 +240,14 @@ def _assert_fresh(session: Session, run: RunDoc) -> None:
         f"branch {run.branch} has moved to {tip[:8]}; this run reviewed {run.head_sha[:8]}",
         state=run.state.value,
         run_id=run.run_id,
+        next_command=shlex.join(
+            [
+                "agentic-cli",
+                "start",
+                "--intent",
+                run.intent or "<objective and acceptance criteria>",
+            ]
+        ),
     )
 
 
@@ -1154,7 +1163,14 @@ def mergeback(session: Session) -> Envelope:
             "The merged tree does not match what was verified, so green did not "
             "transfer. Start a fresh run against the new tip."
         )
-        envelope.next_command = "agentic-cli start"
+        envelope.next_command = shlex.join(
+            [
+                "agentic-cli",
+                "start",
+                "--intent",
+                run.intent or "<objective and acceptance criteria>",
+            ]
+        )
     return envelope
 
 
@@ -1847,7 +1863,14 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
         run,
         data={"discarded_fix_commits": run.fix_commits if force else []},
         next_instruction="Run aborted. Start a fresh one when ready.",
-        next_command="agentic-cli start",
+        next_command=shlex.join(
+            [
+                "agentic-cli",
+                "start",
+                "--intent",
+                run.intent or "<objective and acceptance criteria>",
+            ]
+        ),
     )
 
 
@@ -1979,7 +2002,7 @@ def status(session: Session) -> Envelope:
         return Envelope(
             data={"has_run": False},
             next_instruction="No run is active. Start one.",
-            next_command="agentic-cli start",
+            next_command=START_COMMAND,
         )
 
     try:
@@ -1988,7 +2011,7 @@ def status(session: Session) -> Envelope:
         return Envelope(
             data={"has_run": False, "dangling_run_id": run_id},
             next_instruction="The recorded run is missing. Start a fresh one.",
-            next_command="agentic-cli start",
+            next_command=START_COMMAND,
         )
 
     findings = session.store.load_findings(run_id)
@@ -2042,7 +2065,14 @@ def status(session: Session) -> Envelope:
         envelope.next_instruction = (
             "This run is stale: the branch moved after review began. Start a fresh run."
         )
-        envelope.next_command = "agentic-cli start"
+        envelope.next_command = shlex.join(
+            [
+                "agentic-cli",
+                "start",
+                "--intent",
+                run.intent or "<objective and acceptance criteria>",
+            ]
+        )
     elif run.state is State.MERGEBACK_CONFLICT:
         conflict = next(
             (

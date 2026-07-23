@@ -13,6 +13,8 @@ from typing import Any
 
 from .envelope import ExitCode
 
+START_COMMAND = 'agentic-cli start --intent "<objective and acceptance criteria>"'
+
 
 class AgenticError(Exception):
     code = "internal"
@@ -56,7 +58,7 @@ class NoRun(AgenticError):
         super().__init__(
             message,
             next_instruction="Start a run first.",
-            next_command="agentic-cli start",
+            next_command=START_COMMAND,
         )
 
 
@@ -82,7 +84,7 @@ class StaleRun(AgenticError):
             "The commit under review changed, so everything verified so far "
             "refers to a tree that no longer exists. Start a fresh run.",
         )
-        kwargs.setdefault("next_command", "agentic-cli start")
+        kwargs.setdefault("next_command", START_COMMAND)
         super().__init__(message, **kwargs)
 
 

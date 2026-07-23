@@ -247,6 +247,7 @@ def test_status_is_legal_before_any_run_exists(feature_repo):
     assert env["ok"] is True
     assert env["data"]["has_run"] is False
     assert "start" in env["next"]["command"]
+    assert "--intent" in env["next"]["command"]
 
 
 def test_status_reports_state_and_findings_summary(agent, tmp_path):
@@ -289,6 +290,8 @@ def test_a_moved_head_marks_the_run_stale_and_refuses_to_continue(agent, feature
     )
     assert env["error"]["code"] == "stale_run"
     assert "start" in env["next"]["command"]
+    assert "--intent" in env["next"]["command"]
+    assert "exercise the requested behavior safely" in env["next"]["command"]
 
 
 def test_status_still_works_on_a_stale_run(agent, feature_repo):
@@ -297,6 +300,7 @@ def test_status_still_works_on_a_stale_run(agent, feature_repo):
     commit_all(feature_repo, "move the head")
     env = agent.run("status")
     assert env["data"]["stale"] is True
+    assert "--intent" in env["next"]["command"]
 
 
 def test_status_uses_the_snapshot_when_working_copy_config_breaks(agent, feature_repo):
