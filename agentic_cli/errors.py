@@ -96,6 +96,16 @@ class EmptyDiff(AgenticError):
     exit_code = ExitCode.PRECONDITION
 
 
+class IntentRequired(AgenticError):
+    code = "intent_required"
+    exit_code = ExitCode.PRECONDITION
+
+
+class SyncConflictError(AgenticError):
+    code = "sync_conflict"
+    exit_code = ExitCode.NEEDS_HUMAN
+
+
 class InvalidFindings(AgenticError):
     code = "invalid_findings"
     exit_code = ExitCode.PRECONDITION

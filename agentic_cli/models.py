@@ -100,6 +100,7 @@ class StageRecord(BaseModel):
     exit_code: int | None = None
     log_path: str | None = None
     finished_at: str | None = None
+    head_sha: str | None = None
 
 
 class RunDoc(BaseModel):
@@ -116,6 +117,12 @@ class RunDoc(BaseModel):
     base_ref: str
     merge_base_sha: str
     head_sha: str
+    source_head_sha: str | None = None
+    sync_base_sha: str | None = None
+    sync_base_ref: str | None = None
+    sync_remote: str | None = None
+    intent: str | None = None
+    intent_source: str | None = None
 
     worktree_path: str | None = None
     worktree_branch: str | None = None
@@ -130,6 +137,11 @@ class RunDoc(BaseModel):
     gate_token: str | None = None
     pushed_sha: str | None = None
     pr_url: str | None = None
+    ci_started_at: str | None = None
+    ci_last_checked_at: str | None = None
+    ci_status: str | None = None
+    ci_failures: list[dict[str, Any]] = Field(default_factory=list)
+    ci_logs: dict[str, str] = Field(default_factory=dict)
     cleanup_token: str | None = None
     cleanup_preview: dict[str, Any] | None = None
 
