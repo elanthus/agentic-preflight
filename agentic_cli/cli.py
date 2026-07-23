@@ -101,11 +101,16 @@ def main() -> None:
 
 @main.command()
 @click.option("--base-ref", default=None, help="Branch to diff against (default: config).")
+@click.option(
+    "--intent",
+    default=None,
+    help="The user's objective and acceptance criteria, in their own terms.",
+)
 @command
-def start(base_ref: str | None) -> None:
+def start(base_ref: str | None, intent: str | None) -> None:
     """Create a run and its disposable worktree."""
     session = runs.open_session()
-    _finish(runs.start(session, base_ref=base_ref))
+    _finish(runs.start(session, base_ref=base_ref, intent=intent))
 
 
 @main.command()
@@ -382,7 +387,8 @@ def hook_check() -> None:
     Deliberately not wrapped in the envelope contract: its consumer is git, not
     the agent, and git judges it by exit code alone.
     """
-    from . import gitx, hook as hookmod
+    from . import gitx
+    from . import hook as hookmod
     from .config import load_config
     from .store import Store
 
@@ -447,6 +453,37 @@ def pr(draft: bool | None, title: str | None) -> None:
     """Open a pull request via the gh CLI. No credentials are ever handled here."""
     session = runs.open_session()
     _finish(runs.pull_request(session, draft=draft, title=title))
+
+
+@main.command()
+@click.option(
+    "--once",
+    is_flag=True,
+    help="Check once and return even when checks are still pending.",
+)
+@click.option("--timeout-seconds", type=int, default=None, help="Override [ci] timeout.")
+@click.option(
+    "--poll-interval-seconds",
+    type=int,
+    default=None,
+    help="Override [ci] polling interval.",
+)
+@command
+def ci(
+    once: bool,
+    timeout_seconds: int | None,
+    poll_interval_seconds: int | None,
+) -> None:
+    """Monitor PR checks and mergeability; repairs remain host-driven."""
+    session = runs.open_session()
+    _finish(
+        runs.monitor_ci(
+            session,
+            once=once,
+            timeout_seconds=timeout_seconds,
+            poll_interval_seconds=poll_interval_seconds,
+        )
+    )
 
 
 @main.command()

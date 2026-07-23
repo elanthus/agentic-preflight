@@ -25,15 +25,16 @@ def review_green(agent, tmp_path):
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "test", "--command", "true", "--record")
     return agent
 
 
 # -- reaching the docs stage ------------------------------------------------
 
 
-def test_review_green_points_at_the_docs_stage(review_green):
+def test_test_green_points_at_the_docs_stage(review_green):
     env = review_green.run("status")
-    assert env["state"] == "REVIEW_GREEN"
+    assert env["state"] == "TEST_GREEN"
     assert "docs" in env["next"]["command"]
 
 
@@ -67,6 +68,7 @@ def test_inventory_flags_a_doc_the_diff_already_touched(agent, feature_repo, tmp
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "test", "--command", "true", "--record")
 
     env = agent.run("context", "--section", "docs")
     readme = next(i for i in env["data"]["doc_surface"] if i["path"] == "README.md")
@@ -80,6 +82,7 @@ def test_configured_docs_paths_join_the_inventory(agent, feature_repo, tmp_path)
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "test", "--command", "true", "--record")
 
     env = agent.run("context", "--section", "docs")
     paths = {item["path"] for item in env["data"]["doc_surface"]}
@@ -96,6 +99,7 @@ def test_common_agent_rules_and_product_docs_are_included_by_default(
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "test", "--command", "true", "--record")
 
     env = agent.run("context", "--section", "docs")
     paths = {item["path"] for item in env["data"]["doc_surface"]}
@@ -152,6 +156,7 @@ def test_docs_finding_ids_continue_the_run_numbering(agent, feature_repo, tmp_pa
     agent.run("submit-findings", "--file", findings_json(tmp_path, [{
         "path": "src/app.py", "severity": "low", "action": "no_op", "title": "nit",
     }]))
+    agent.run("stage", "run", "test", "--command", "true", "--record")
     agent.run("context", "--section", "docs")
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, [{
         "path": "README.md", "severity": "low", "action": "no_op", "title": "doc nit",
@@ -210,6 +215,7 @@ def test_require_changelog_injects_a_code_owned_finding(changelog_repo, tmp_path
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "test", "--command", "true", "--record")
     agent.run("context", "--section", "docs")
 
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
@@ -227,6 +233,7 @@ def test_the_injected_changelog_finding_is_owned_by_code_not_the_agent(
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "test", "--command", "true", "--record")
     agent.run("context", "--section", "docs")
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     assert env["data"]["accepted"][0]["id"] == "F001"
@@ -243,6 +250,7 @@ def test_require_changelog_is_satisfied_when_the_changelog_was_touched(
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "test", "--command", "true", "--record")
     agent.run("context", "--section", "docs")
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     assert env["state"] == "DOCS_GREEN"
@@ -264,6 +272,8 @@ def test_disabled_docs_stage_is_skipped_as_a_legal_transition(agent, feature_rep
     agent.run("start")
     agent.run("context")
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    assert env["state"] == "REVIEW_GREEN"
+    env = agent.run("stage", "run", "test", "--command", "true", "--record")
     assert env["state"] == "DOCS_GREEN"
     assert "lint" in env["next"]["command"]
 
@@ -274,6 +284,7 @@ def test_docs_context_is_refused_when_the_stage_is_disabled(agent, feature_repo,
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "test", "--command", "true", "--record")
     env = agent.run("context", "--section", "docs", expect=ExitCode.PRECONDITION)
     assert env["error"]["code"] == "wrong_state"
 

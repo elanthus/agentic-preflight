@@ -1,0 +1,13 @@
+[general]
+base_ref = "main"
+
+[commands]
+test = "uv run pytest -q"
+lint = "uv run ruff check . && uv run mypy agentic_cli"
+
+[docs]
+enabled = true
+
+[ci]
+timeout_seconds = 3600
+poll_interval_seconds = 30

@@ -44,6 +44,10 @@ def test_pushed_is_unreachable_without_review_green():
     assert not _reachable_paths(State.CREATED, State.PUSHED, avoid={State.REVIEW_GREEN})
 
 
+def test_pushed_is_unreachable_without_fresh_remote_sync():
+    assert not _reachable_paths(State.CREATED, State.PUSHED, avoid={State.SYNC_GREEN})
+
+
 def test_pushed_is_unreachable_without_docs_green():
     """Even when the docs stage is disabled, DOCS_GREEN is passed through via
     the explicit SKIP_DOCS transition — skipped, never bypassed."""
@@ -76,6 +80,7 @@ def test_pushed_is_reachable_at_all():
 def test_every_stage_gate_is_individually_load_bearing():
     """No single stage can be removed and still leave PUSHED reachable."""
     for gate in (
+        State.SYNC_GREEN,
         State.REVIEW_GREEN,
         State.DOCS_GREEN,
         State.LINT_GREEN,

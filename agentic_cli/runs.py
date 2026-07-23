@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -24,35 +27,39 @@ from . import findings as findingsmod
 from . import gitx, runtime, worktree
 from . import ledger as ledgermod
 from . import mergeback as mergebackmod
-from .publish import gate as gatemod
-from .publish import github as githubmod
-from .publish import provider as providermod
-from .stages import detect, shellstage
-from .stages import docs as docsstage
+from . import sync as syncmod
 from .config import Config, load_config
 from .envelope import Envelope
 from .errors import (
-    DirtyTree,
+    START_COMMAND,
     DiffTooLarge,
+    DirtyTree,
     EmptyDiff,
+    GhUnavailableError,
+    IntentRequired,
     InvalidFindings,
     InvalidResponse,
-    NoRun,
-    StaleRun,
-    MaxAttempts,
-    GhUnavailableError,
     ManualGate,
+    MaxAttempts,
     MergebackConflictError,
     NeedsConfirm,
     NeedsHuman,
     NoLog,
+    NoRun,
     StageFailed,
+    StaleRun,
+    SyncConflictError,
     UnknownFinding,
     UnmergedWork,
     WrongState,
 )
 from .machine import Action, IllegalTransition, State, next_state
 from .models import FindingStatus, FindingSubmission, RunDoc, Stage, StageRecord
+from .publish import gate as gatemod
+from .publish import github as githubmod
+from .publish import provider as providermod
+from .stages import detect, shellstage
+from .stages import docs as docsstage
 from .store import Store
 
 STATE_DIR_NAME = "agentic-cli"
@@ -128,8 +135,14 @@ def _next_hint(state: State) -> tuple[str | None, str | None]:
     versus judge the diff you now hold — so those commands override this.
     """
     return {
-        State.CREATED: ("Create the worktree.", "agentic-cli start"),
-        State.WORKTREE_READY: ("Fetch the diff to review.", "agentic-cli context"),
+        State.CREATED: ("Create the worktree.", START_COMMAND),
+        State.WORKTREE_READY: ("Synchronize with the fresh remote base.", None),
+        State.SYNC_RUNNING: ("Remote synchronization is running.", None),
+        State.SYNC_CONFLICT: (
+            "The fresh-base rebase conflicted. Preserve the report and restart after resolution.",
+            "agentic-cli abort --force",
+        ),
+        State.SYNC_GREEN: ("Begin review of the synchronized diff.", "agentic-cli context"),
         State.REVIEW_AWAITING_FINDINGS: (
             "Review the diff, then submit findings (an empty list is a valid outcome).",
             "agentic-cli submit-findings --file findings.json",
@@ -143,10 +156,13 @@ def _next_hint(state: State) -> tuple[str | None, str | None]:
             "Keep responding until nothing blocks, then verify.",
             "agentic-cli verify",
         ),
-        State.REVIEW_GREEN: ("Review is green. Move to the docs stage.", "agentic-cli context --section docs"),
+        State.REVIEW_GREEN: ("Review is green. Run targeted tests.", "agentic-cli stage run test"),
+        State.TEST_GREEN: (
+            "Tests are green. Check whether documentation is now stale.",
+            "agentic-cli context --section docs",
+        ),
         State.DOCS_GREEN: ("Docs are green. Run lint.", "agentic-cli stage run lint"),
-        State.LINT_GREEN: ("Lint is green. Run tests.", "agentic-cli stage run test"),
-        State.TEST_GREEN: ("Tests are green. Merge the fixes back.", "agentic-cli mergeback"),
+        State.LINT_GREEN: ("Lint is green. Merge the fixes back.", "agentic-cli mergeback"),
         State.MERGEBACK_CONFLICT: (
             "Resolve the reported conflict or restore the affected paths, then retry mergeback.",
             "agentic-cli mergeback",
@@ -157,8 +173,22 @@ def _next_hint(state: State) -> tuple[str | None, str | None]:
             "agentic-cli push --confirm <token>",
         ),
         State.PUSHED: ("Open the pull request.", "agentic-cli pr"),
-        State.PR_OPEN: (
-            "After the pull request is merged, preview cleanup and ask the user.",
+        State.PR_OPEN: ("Monitor pull-request checks and mergeability.", "agentic-cli ci"),
+        State.CI_MONITORING: ("Continue monitoring pull-request checks.", "agentic-cli ci"),
+        State.CI_FAILED: (
+            "Use the failed logs to fix the branch, then run a fresh full validation.",
+            None,
+        ),
+        State.CHECKS_PASSED: (
+            "Checks passed. Ask the user to review and merge; check again later.",
+            "agentic-cli ci --once",
+        ),
+        State.CI_TIMED_OUT: (
+            "CI monitoring timed out. Check again when ready.",
+            "agentic-cli ci",
+        ),
+        State.PR_MERGED: (
+            "The pull request merged. Preview cleanup and ask the user.",
             "agentic-cli cleanup",
         ),
     }.get(state, (None, None))
@@ -166,7 +196,7 @@ def _next_hint(state: State) -> tuple[str | None, str | None]:
 
 def _envelope_for(run: RunDoc, **overrides) -> Envelope:
     instruction, command = _next_hint(run.state)
-    fields = dict(
+    fields: dict[str, Any] = dict(
         run_id=run.run_id,
         state=run.state.value,
         next_instruction=instruction,
@@ -195,7 +225,8 @@ def _head_moved(session: Session, run: RunDoc) -> str | None:
         tip = gitx.rev_parse(session.repo_root, run.branch)
     except gitx.GitError:
         return None
-    return None if tip == run.head_sha else tip
+    expected = run.source_head_sha or run.head_sha
+    return None if tip == expected else tip
 
 
 def _assert_fresh(session: Session, run: RunDoc) -> None:
@@ -209,19 +240,43 @@ def _assert_fresh(session: Session, run: RunDoc) -> None:
         f"branch {run.branch} has moved to {tip[:8]}; this run reviewed {run.head_sha[:8]}",
         state=run.state.value,
         run_id=run.run_id,
+        next_command=shlex.join(
+            [
+                "agentic-cli",
+                "start",
+                "--intent",
+                run.intent or "<objective and acceptance criteria>",
+            ]
+        ),
     )
 
 
 # -- start ------------------------------------------------------------------
 
 
-def start(session: Session, *, base_ref: str | None = None) -> Envelope:
+def start(
+    session: Session,
+    *,
+    base_ref: str | None = None,
+    intent: str | None = None,
+) -> Envelope:
     repo = session.repo_root
     # Starting is the one command that deliberately reads the working copy.
     # Every later command uses the snapshot persisted below.
     cfg = load_config(repo)
     session.config = cfg
     session.store.set_worktrees_root(worktree.resolve_root(repo, cfg.worktree.root))
+
+    intent = (intent or "").strip()
+    if not intent:
+        raise IntentRequired(
+            "start requires the user's objective and acceptance criteria",
+            next_instruction=(
+                "Pass what the user asked for in their own terms, including important "
+                "constraints and deliberate tradeoffs. Do not substitute a diff summary."
+            ),
+            next_command='agentic-cli start --intent "<user objective and acceptance criteria>"',
+        )
 
     if not gitx.is_clean(repo):
         raise DirtyTree(
@@ -257,6 +312,9 @@ def start(session: Session, *, base_ref: str | None = None) -> Envelope:
         base_ref=base_ref,
         merge_base_sha=merge_base,
         head_sha=head_sha,
+        source_head_sha=head_sha,
+        intent=intent,
+        intent_source="user",
         config_snapshot=snapshot,
         config_digest=config_digest,
         created_at=_now(),
@@ -272,12 +330,60 @@ def start(session: Session, *, base_ref: str | None = None) -> Envelope:
             "head_sha": head_sha,
             "config_digest": config_digest,
             "config_snapshot": snapshot,
+            "intent": intent,
+            "intent_source": "user",
         },
     )
 
     wt_path = session.store.worktrees_dir / run_id
     wt_branch = f"ac/{run_id}"
     worktree.create(repo, path=wt_path, branch=wt_branch, head_sha=head_sha)
+
+    with session.store.transaction(run_id) as doc:
+        doc.worktree_path = str(wt_path)
+        doc.worktree_branch = wt_branch
+        _apply(doc, Action.CREATE_WORKTREE)
+        _apply(doc, Action.BEGIN_SYNC)
+
+    try:
+        sync_result = syncmod.synchronize(repo, wt_path, base_ref=base_ref)
+    except syncmod.SyncConflict as exc:
+        with session.store.transaction(run_id) as doc:
+            doc.sync_base_sha = exc.base_sha
+            doc.sync_base_ref = exc.base_ref
+            _apply(doc, Action.SYNC_FAILED)
+            run = doc
+        report = {
+            "base_ref": exc.base_ref,
+            "base_sha": exc.base_sha,
+            "head_before": exc.head_before,
+            "conflicting_files": exc.conflicting_files,
+            "worktree_path": str(wt_path),
+        }
+        session.store.append_event(run_id, {"event": "sync_conflict", **report})
+        raise SyncConflictError(
+            str(exc),
+            state=run.state.value,
+            run_id=run_id,
+            data=report,
+            next_instruction=(
+                "The disposable-worktree rebase was aborted cleanly. Show the conflict "
+                "report to the user, resolve or rebase the source branch deliberately, "
+                "then abort this run and start again with the same intent."
+            ),
+            next_command="agentic-cli abort --force",
+        ) from exc
+
+    changed = gitx.changed_files(wt_path, sync_result.base_sha, "HEAD")
+    if not changed:
+        worktree.remove(repo, wt_path, branch=wt_branch)
+        with session.store.transaction(run_id) as doc:
+            _apply(doc, Action.ABORT)
+        session.store.set_current(None)
+        raise EmptyDiff(
+            "the branch has no changes after synchronizing with the fresh remote base",
+            next_instruction="The requested change is already present upstream.",
+        )
 
     copied = worktree.copy_files(repo, wt_path, cfg.worktree.copy_files)
 
@@ -302,9 +408,7 @@ def start(session: Session, *, base_ref: str | None = None) -> Envelope:
         setup_result = {
             "kind": "dependencies",
             **dependenciesmod.setup(
-                repo,
                 wt_path,
-                base_sha=merge_base,
                 runtime_manager=cfg.runtime.manager,
                 runtime_strict=cfg.runtime.strict,
                 timeout_seconds=cfg.stage.timeout_seconds,
@@ -315,11 +419,19 @@ def start(session: Session, *, base_ref: str | None = None) -> Envelope:
         doc.worktree_path = str(wt_path)
         doc.worktree_branch = wt_branch
         doc.copied_files = copied
-        _apply(doc, Action.CREATE_WORKTREE)
+        doc.head_sha = sync_result.head_after
+        doc.merge_base_sha = sync_result.base_sha
+        doc.sync_base_sha = sync_result.base_sha
+        doc.sync_base_ref = sync_result.base_ref
+        doc.sync_remote = sync_result.remote
+        _apply(doc, Action.SYNC_PASSED)
         _apply(doc, Action.BEGIN_REVIEW)
         run = doc
 
-    session.store.append_event(run_id, {"event": "worktree_ready", "path": str(wt_path)})
+    session.store.append_event(
+        run_id,
+        {"event": "worktree_ready", "path": str(wt_path), "sync": sync_result.as_dict()},
+    )
 
     return _envelope_for(
         run,
@@ -330,8 +442,12 @@ def start(session: Session, *, base_ref: str | None = None) -> Envelope:
             "worktree_branch": wt_branch,
             "branch": branch,
             "base_ref": base_ref,
-            "head_sha": head_sha,
-            "merge_base_sha": merge_base,
+            "head_sha": sync_result.head_after,
+            "source_head_sha": head_sha,
+            "merge_base_sha": sync_result.base_sha,
+            "intent": intent,
+            "intent_source": "user",
+            "sync": sync_result.as_dict(),
             "changed_files": changed,
             # Names only. Contents are never read, logged, or echoed.
             "copied_files": copied,
@@ -353,7 +469,7 @@ def _bundle_for(session: Session, run: RunDoc) -> diffmod.DiffBundle:
 
 
 def _open_docs_stage(session: Session, run: RunDoc) -> RunDoc:
-    """Move REVIEW_GREEN into the docs sub-machine."""
+    """Move TEST_GREEN into the docs sub-machine."""
     with session.store.transaction(run.run_id) as doc:
         _apply(doc, Action.BEGIN_DOCS)
         return doc
@@ -367,7 +483,7 @@ def _skip_docs_if_disabled(session: Session, run: RunDoc) -> RunDoc:
     the stage was skipped by configuration, and that is a recorded fact rather
     than an absence.
     """
-    if session.config.docs.enabled or run.state is not State.REVIEW_GREEN:
+    if session.config.docs.enabled or run.state is not State.TEST_GREEN:
         return run
     with session.store.transaction(run.run_id) as doc:
         _apply(doc, Action.SKIP_DOCS)
@@ -383,11 +499,11 @@ def context(session: Session, *, section: str = "review") -> Envelope:
     if section == "docs":
         _require_state(
             run,
-            State.REVIEW_GREEN,
+            State.TEST_GREEN,
             State.DOCS_AWAITING_FINDINGS,
             command="context --section docs",
         )
-        if run.state is State.REVIEW_GREEN:
+        if run.state is State.TEST_GREEN:
             run = _open_docs_stage(session, run)
     else:
         _require_state(
@@ -425,6 +541,8 @@ def context(session: Session, *, section: str = "review") -> Envelope:
         "worktree_path": run.worktree_path,
         "base": run.merge_base_sha,
         "head": run.head_sha,
+        "intent": run.intent,
+        "intent_source": run.intent_source,
         "changed_files": bundle.files,
         "excluded_files": bundle.excluded,
         "diff": bundle.text,
@@ -630,7 +748,7 @@ _STAGE_STATES = {
         "red": State.LINT_RED,
     },
     "test": {
-        "ready": (State.LINT_GREEN, State.TEST_RED),
+        "ready": (State.REVIEW_GREEN, State.TEST_RED),
         "run": Action.RUN_TEST,
         "retry": Action.RETRY_TEST,
         "passed": Action.TEST_PASSED,
@@ -638,6 +756,34 @@ _STAGE_STATES = {
         "red": State.TEST_RED,
     },
 }
+
+
+def _register_stage_fix_commits(
+    session: Session, run: RunDoc, stage: Stage, record_entry: StageRecord
+) -> tuple[RunDoc, bool]:
+    """Register committed repairs made after a red stage attempt."""
+    wt = run.worktree_path or session.repo_root
+    current_head = gitx.rev_parse(wt, "HEAD")
+    if record_entry.head_sha and record_entry.head_sha != current_head:
+        commits = gitx.commits_between(wt, record_entry.head_sha, current_head)
+        for commit in commits:
+            worktree.assert_commit_is_clean_of(wt, commit, run.copied_files)
+        with session.store.transaction(run.run_id) as doc:
+            for commit in commits:
+                if commit not in doc.fix_commits:
+                    doc.fix_commits.append(commit)
+            entry = doc.stages.get(stage) or StageRecord()
+            entry.head_sha = current_head
+            doc.stages[stage] = entry
+            if stage is Stage.LINT:
+                _apply(doc, Action.LINT_FIX_RESTART)
+            run = doc
+        session.store.append_event(
+            run.run_id,
+            {"event": "stage_fix_commits_registered", "stage": stage.value, "commits": commits},
+        )
+        return run, stage is Stage.LINT
+    return run, False
 
 
 def _resolve_command(session: Session, run: RunDoc, stage_name: str, override: str | None):
@@ -703,6 +849,28 @@ def run_stage(
             next_command=f"agentic-cli logs --stage {stage_name}",
         )
 
+    if not gitx.is_clean(run.worktree_path):
+        raise DirtyTree(
+            "the validation worktree has uncommitted changes",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=stage_name,
+            next_instruction="Commit the intended repair, or discard incidental output, then retry.",
+            next_command="git status",
+        )
+
+    run, restarted = _register_stage_fix_commits(session, run, stage, record_entry)
+    if restarted:
+        return _envelope_for(
+            run,
+            stage=stage_name,
+            data={"stage": stage_name, "validation_restarted": True},
+            next_instruction=(
+                "The lint repair changed the verified tree. Run tests, docs, and lint "
+                "again so every result describes the repaired commit."
+            ),
+            next_command="agentic-cli stage run test",
+        )
     resolved = _resolve_command(session, run, stage_name, command)
 
     with session.store.transaction(run.run_id) as doc:
@@ -724,6 +892,16 @@ def run_stage(
         prepared.command,
         timeout_seconds=session.config.stage.timeout_seconds,
     )
+    if not gitx.is_clean(run.worktree_path):
+        result = shellstage.StageResult(
+            command=result.command,
+            exit_code=result.exit_code or 1,
+            output=(
+                result.output
+                + "\n[agentic-cli] stage changed the worktree; validation results are stale"
+            ),
+            timed_out=result.timed_out,
+        )
 
     secrets = shellstage.read_secrets(run.worktree_path, run.copied_files)
     clean_output = shellstage.redact(result.output, secrets)
@@ -741,6 +919,7 @@ def run_stage(
         entry.log_path = str(log_path)
         entry.status = "green" if result.passed else "red"
         entry.finished_at = _now()
+        entry.head_sha = gitx.rev_parse(run.worktree_path, "HEAD")
         if not result.passed:
             entry.attempts += 1
         doc.stages[stage] = entry
@@ -765,11 +944,13 @@ def run_stage(
         data["baseline_red"] = baseline_red
 
     if result.passed:
+        if stage is Stage.TEST:
+            run = _skip_docs_if_disabled(session, run)
         return _envelope_for(run, stage=stage_name, data=data)
 
     message = f"the {stage_name} stage failed (exit {result.exit_code})"
     instruction = (
-        f"Read the log, fix the cause in the worktree, commit, then re-run the stage."
+        "Read the log, fix the cause in the worktree, commit, then re-run the stage."
     )
     if baseline_red:
         message = (
@@ -822,9 +1003,7 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
             )
         elif session.config.worktree.dependency_setup == "auto":
             dependenciesmod.setup(
-                session.repo_root,
                 scratch,
-                base_sha=run.merge_base_sha,
                 runtime_manager=session.config.runtime.manager,
                 runtime_strict=session.config.runtime.strict,
                 timeout_seconds=session.config.stage.timeout_seconds,
@@ -853,7 +1032,7 @@ def mergeback(session: Session) -> Envelope:
         _assert_fresh(session, run)
     _require_state(
         run,
-        State.TEST_GREEN,
+        State.LINT_GREEN,
         State.MERGEBACK_PENDING,
         State.MERGEBACK_CONFLICT,
         command="mergeback",
@@ -877,7 +1056,7 @@ def mergeback(session: Session) -> Envelope:
             next_command="git status",
         )
 
-    if run.state is State.TEST_GREEN:
+    if run.state is State.LINT_GREEN:
         with session.store.transaction(run.run_id) as doc:
             _apply(doc, Action.BEGIN_MERGEBACK)
             run = doc
@@ -887,9 +1066,20 @@ def mergeback(session: Session) -> Envelope:
             run = doc
 
     try:
+        sync_base = run.sync_base_sha or run.merge_base_sha
+        if not gitx.is_ancestor(repo, sync_base, "HEAD"):
+            if not gitx.is_clean(repo):
+                raise DirtyTree(
+                    "the source worktree must be clean before rebasing onto the synchronized base",
+                    state=run.state.value,
+                    run_id=run.run_id,
+                    next_instruction="Commit or stash the changes, then retry mergeback.",
+                    next_command="git status",
+                )
+            syncmod.rebase_onto(repo, sync_base)
         local_tree = gitx.tree_sha(repo)
         verified_tree = gitx.tree_sha(run.worktree_path)
-        branch_moved = gitx.rev_parse(repo, "HEAD") != run.head_sha
+        branch_moved = gitx.rev_parse(repo, "HEAD") != (run.source_head_sha or run.head_sha)
         if retrying_conflict and (local_tree == verified_tree or branch_moved):
             result = mergebackmod.MergebackResult(
                 pre_sha=gitx.rev_parse(repo, "HEAD"),
@@ -905,11 +1095,20 @@ def mergeback(session: Session) -> Envelope:
                 worktree_branch=run.worktree_branch,
                 worktree_path=run.worktree_path,
             )
-    except mergebackmod.MergebackConflict as exc:
+    except (mergebackmod.MergebackConflict, syncmod.SyncConflict) as exc:
         with session.store.transaction(run.run_id) as doc:
             _apply(doc, Action.MERGEBACK_FAILED)
             run = doc
-        report = exc.report.as_dict()
+        report = (
+            exc.report.as_dict()
+            if isinstance(exc, mergebackmod.MergebackConflict)
+            else {
+                "mode": "fresh_base_rebase_conflict",
+                "base_ref": exc.base_ref,
+                "base_sha": exc.base_sha,
+                "conflicting_files": exc.conflicting_files,
+            }
+        )
         session.store.append_event(
             run.run_id, {"event": "mergeback_conflict", **report}
         )
@@ -948,6 +1147,7 @@ def mergeback(session: Session) -> Envelope:
 
     with session.store.transaction(run.run_id) as doc:
         doc.head_sha = result.post_sha
+        doc.source_head_sha = result.post_sha
         _apply(doc, Action.MERGEBACK_OK)
         run = doc
 
@@ -963,7 +1163,14 @@ def mergeback(session: Session) -> Envelope:
             "The merged tree does not match what was verified, so green did not "
             "transfer. Start a fresh run against the new tip."
         )
-        envelope.next_command = "agentic-cli start"
+        envelope.next_command = shlex.join(
+            [
+                "agentic-cli",
+                "start",
+                "--intent",
+                run.intent or "<objective and acceptance criteria>",
+            ]
+        )
     return envelope
 
 
@@ -986,7 +1193,7 @@ def gate(session: Session) -> Envelope:
     _assert_fresh(session, run)
     _require_state(run, State.VERIFIED, State.AWAITING_PUSH_CONFIRM, command="gate")
 
-    remote = _remote_for(session, run)
+    _remote_for(session, run)
     commits = [
         {"sha": sha, "subject": gitx.commit_subject(session.repo_root, sha)}
         for sha in gitx.commits_between(session.repo_root, run.merge_base_sha, run.head_sha)
@@ -1104,7 +1311,7 @@ def pull_request(
     draft_pr = session.config.publish.draft_pr if draft is None else draft
 
     try:
-        result = githubmod.create_pull_request(
+        result = githubmod.create_or_update_pull_request(
             session.repo_root,
             base=run.base_ref,
             head=run.branch,
@@ -1133,8 +1340,126 @@ def pull_request(
         _apply(doc, Action.OPEN_PR)
         run = doc
 
-    session.store.append_event(run.run_id, {"event": "pr_opened", "url": result.url})
-    return _envelope_for(run, data={"pr_url": result.url})
+    session.store.append_event(
+        run.run_id,
+        {"event": "pr_opened" if result.created else "pr_updated", "url": result.url},
+    )
+    return _envelope_for(run, data={"pr_url": result.url, "created": result.created})
+
+
+def monitor_ci(
+    session: Session,
+    *,
+    once: bool = False,
+    timeout_seconds: int | None = None,
+    poll_interval_seconds: int | None = None,
+) -> Envelope:
+    """Monitor GitHub checks; return repair work to the host, never an in-process LLM."""
+    run = _load_current(session)
+    _require_state(
+        run,
+        State.PR_OPEN,
+        State.CI_MONITORING,
+        State.CI_FAILED,
+        State.CHECKS_PASSED,
+        State.CI_TIMED_OUT,
+        command="ci",
+    )
+    if not run.pr_url:
+        raise NeedsHuman("this run has no recorded pull request URL", run_id=run.run_id)
+
+    timeout = timeout_seconds or session.config.ci.timeout_seconds
+    poll = poll_interval_seconds or session.config.ci.poll_interval_seconds
+    if timeout < 1 or poll < 1:
+        raise NeedsHuman("CI timeout and polling interval must both be positive")
+
+    with session.store.transaction(run.run_id) as doc:
+        if doc.state is State.PR_OPEN:
+            _apply(doc, Action.BEGIN_CI)
+        elif doc.state is not State.CI_MONITORING:
+            _apply(doc, Action.RETRY_CI)
+        if doc.ci_started_at is None:
+            doc.ci_started_at = _now()
+        run = doc
+
+    try:
+        started_at = datetime.fromisoformat(run.ci_started_at or _now())
+        elapsed = max(0.0, (datetime.now(timezone.utc) - started_at).total_seconds())
+    except ValueError:
+        elapsed = 0.0
+    deadline = time.monotonic() + max(0.0, timeout - elapsed)
+    while True:
+        try:
+            health = githubmod.pull_request_health(session.repo_root, run.pr_url)
+            logs = (
+                githubmod.failed_check_logs(session.repo_root, health.failed_checks)
+                if health.outcome == "failed"
+                else {}
+            )
+        except githubmod.GhUnavailable as exc:
+            raise GhUnavailableError(
+                str(exc),
+                state=run.state.value,
+                run_id=run.run_id,
+                next_instruction="Restore gh authentication, then resume CI monitoring.",
+                next_command="agentic-cli ci",
+            ) from exc
+
+        if health.outcome == "pending" and not once and time.monotonic() >= deadline:
+            outcome = "timed_out"
+            action = Action.CI_TIMEOUT
+        else:
+            outcome = health.outcome
+            action = {
+                "pending": Action.CI_PENDING,
+                "failed": Action.CI_FAILURE,
+                "checks_passed": Action.CI_PASSED,
+                "merged": Action.CI_MERGED,
+                "closed": Action.CI_CLOSED,
+            }[outcome]
+
+        with session.store.transaction(run.run_id) as doc:
+            doc.ci_last_checked_at = _now()
+            doc.ci_status = outcome
+            doc.ci_failures = [item.as_dict() for item in health.failed_checks]
+            doc.ci_logs = logs
+            _apply(doc, action)
+            run = doc
+        data = {
+            "pr": health.as_dict(),
+            "outcome": outcome,
+            "failed_logs": logs,
+            "intent": run.intent,
+            "intent_source": run.intent_source,
+            "host_driven": True,
+        }
+        session.store.append_event(run.run_id, {"event": "ci_checked", **data})
+
+        if outcome == "closed":
+            session.store.set_current(None)
+            return _envelope_for(
+                run,
+                data=data,
+                next_instruction="The pull request closed without merging; the run is complete.",
+                next_command=None,
+            )
+        if outcome == "failed":
+            restart = shlex.join(["agentic-cli", "start", "--intent", run.intent or ""])
+            return _envelope_for(
+                run,
+                data={**data, "restart_command": restart},
+                next_instruction=(
+                    "Inspect the failed logs and repair the source branch as the host agent. "
+                    "Do not invoke an LLM from agentic-cli. Preserve the recorded intent, abort "
+                    "this completed validation run, commit the repair, then start the supplied "
+                    "fresh validation command. Only push after that entire run is green."
+                ),
+                next_command="agentic-cli abort --force",
+            )
+        if outcome in {"checks_passed", "merged", "timed_out"} or once:
+            return _envelope_for(run, data=data)
+
+        time.sleep(poll)
 
 
 def finish(session: Session) -> Envelope:
@@ -1169,7 +1494,16 @@ def _cleanup_base_branch(repo: Path, base_ref: str) -> str | None:
 def cleanup(session: Session, *, confirm: str | None = None) -> Envelope:
     """Reclaim one merged PR's worktree and local/remote branches after consent."""
     run = _load_current(session)
-    _require_state(run, State.PR_OPEN, command="cleanup")
+    _require_state(
+        run,
+        State.PR_OPEN,
+        State.CI_MONITORING,
+        State.CI_FAILED,
+        State.CHECKS_PASSED,
+        State.CI_TIMED_OUT,
+        State.PR_MERGED,
+        command="cleanup",
+    )
     if not run.pr_url:
         raise NeedsHuman(
             "this run has no recorded pull request URL",
@@ -1328,6 +1662,12 @@ def _pr_body(session: Session, run: RunDoc) -> str:
     lines = [
         "Verified by agentic-cli.",
         "",
+        "## Intent and acceptance criteria",
+        "",
+        run.intent or "(not recorded by this legacy run)",
+        "",
+        "## Validation",
+        "",
         f"- review: {len([f for f in findings if f.stage is Stage.REVIEW])} finding(s)",
         f"- docs: {len([f for f in findings if f.stage is Stage.DOCS])} finding(s)",
     ]
@@ -1344,7 +1684,7 @@ def logs(session: Session, *, stage_name: str) -> Envelope:
             f"the {stage_name} stage has not run in this run, so there is no log",
             state=run.state.value,
             run_id=run.run_id,
-            next_instruction=f"Run the stage first.",
+            next_instruction="Run the stage first.",
             next_command=f"agentic-cli stage run {stage_name}",
         )
     return _envelope_for(
@@ -1523,7 +1863,14 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
         run,
         data={"discarded_fix_commits": run.fix_commits if force else []},
         next_instruction="Run aborted. Start a fresh one when ready.",
-        next_command="agentic-cli start",
+        next_command=shlex.join(
+            [
+                "agentic-cli",
+                "start",
+                "--intent",
+                run.intent or "<objective and acceptance criteria>",
+            ]
+        ),
     )
 
 
@@ -1592,7 +1939,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
 
     # A worktree or branch git knows about but the store does not: reconcile by
     # reporting, so a half-created run is visible rather than silently leaked.
-    for name, path in live_worktrees.items():
+    for name, _path in live_worktrees.items():
         if name not in known_runs:
             orphans.append(name)
     for branch in ac_branches:
@@ -1655,7 +2002,7 @@ def status(session: Session) -> Envelope:
         return Envelope(
             data={"has_run": False},
             next_instruction="No run is active. Start one.",
-            next_command="agentic-cli start",
+            next_command=START_COMMAND,
         )
 
     try:
@@ -1664,7 +2011,7 @@ def status(session: Session) -> Envelope:
         return Envelope(
             data={"has_run": False, "dangling_run_id": run_id},
             next_instruction="The recorded run is missing. Start a fresh one.",
-            next_command="agentic-cli start",
+            next_command=START_COMMAND,
         )
 
     findings = session.store.load_findings(run_id)
@@ -1683,6 +2030,14 @@ def status(session: Session) -> Envelope:
             "branch": run.branch,
             "base_ref": run.base_ref,
             "head_sha": run.head_sha,
+            "source_head_sha": run.source_head_sha,
+            "intent": run.intent,
+            "intent_source": run.intent_source,
+            "sync": {
+                "remote": run.sync_remote,
+                "base_ref": run.sync_base_ref,
+                "base_sha": run.sync_base_sha,
+            },
             "current_tip": tip or run.head_sha,
             "stale": stale,
             "worktree_path": run.worktree_path,
@@ -1692,6 +2047,13 @@ def status(session: Session) -> Envelope:
             "cleanup_token": run.cleanup_token,
             "pushed_sha": run.pushed_sha,
             "pr_url": run.pr_url,
+            "ci": {
+                "started_at": run.ci_started_at,
+                "last_checked_at": run.ci_last_checked_at,
+                "status": run.ci_status,
+                "failures": run.ci_failures,
+                "logs": run.ci_logs,
+            },
             "fix_commits": run.fix_commits,
             # Names only — contents are never read, logged, or echoed anywhere.
             "copied_files": run.copied_files,
@@ -1703,7 +2065,14 @@ def status(session: Session) -> Envelope:
         envelope.next_instruction = (
             "This run is stale: the branch moved after review began. Start a fresh run."
         )
-        envelope.next_command = "agentic-cli start"
+        envelope.next_command = shlex.join(
+            [
+                "agentic-cli",
+                "start",
+                "--intent",
+                run.intent or "<objective and acceptance criteria>",
+            ]
+        )
     elif run.state is State.MERGEBACK_CONFLICT:
         conflict = next(
             (

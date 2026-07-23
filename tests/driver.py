@@ -50,6 +50,10 @@ class ScriptedAgent:
         self.steps: list[Step] = []
 
     def run(self, *argv: str, expect: int = 0) -> dict:
+        # Intent is a production precondition. Test scenarios use one stable,
+        # explicit intent unless a test supplies its own value.
+        if argv and argv[0] == "start" and "--intent" not in argv:
+            argv = (*argv, "--intent", "exercise the requested behavior safely")
         if self.transport == "subprocess":
             payload, code = self._run_subprocess(list(argv))
         else:

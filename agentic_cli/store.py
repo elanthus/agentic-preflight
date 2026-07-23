@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import Ledger, Finding, RunDoc
+from .models import Finding, Ledger, RunDoc
 
 
 class StoreError(Exception):

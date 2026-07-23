@@ -35,7 +35,7 @@ Python here never calls a model — every judgment in this workflow is yours.
 ## The loop
 
 ```
-$ agentic-cli start
+$ agentic-cli start --intent "<the user's objective and acceptance criteria>"
 {"ok":true,"run_id":"r_4f2a","state":"REVIEW_AWAITING_FINDINGS",
  "data":{"worktree_path":"/repos/.agentic-cli-worktrees/repo-a1b2/r_4f2a","changed_files":["src/auth.py"]},
  "next":{"instruction":"Fetch the diff before judging it.","command":"agentic-cli context"}}
@@ -56,7 +56,10 @@ $ agentic-cli respond --id F001 --action fixed --commit 9c3d1ab
 {"ok":true,"state":"REVIEW_FIXING","next":{"command":"agentic-cli verify"}}
 
 $ agentic-cli verify
-{"ok":true,"state":"REVIEW_GREEN","next":{"command":"agentic-cli context --section docs"}}
+{"ok":true,"state":"REVIEW_GREEN","next":{"command":"agentic-cli stage run test"}}
+
+$ agentic-cli stage run test
+{"ok":true,"state":"TEST_GREEN","next":{"command":"agentic-cli context --section docs"}}
 
 $ agentic-cli context --section docs
 {"ok":true,"state":"DOCS_AWAITING_FINDINGS","data":{"doc_surface":[{"path":"README.md",...}]},
@@ -66,10 +69,7 @@ $ agentic-cli submit-findings --file findings.json     # often just {"findings":
 {"ok":true,"state":"DOCS_GREEN","next":{"command":"agentic-cli stage run lint"}}
 
 $ agentic-cli stage run lint
-{"ok":true,"state":"LINT_GREEN","next":{"command":"agentic-cli stage run test"}}
-
-$ agentic-cli stage run test
-{"ok":true,"state":"TEST_GREEN","next":{"command":"agentic-cli mergeback"}}
+{"ok":true,"state":"LINT_GREEN","next":{"command":"agentic-cli mergeback"}}
 
 $ agentic-cli mergeback
 {"ok":true,"state":"VERIFIED","data":{"tree_equivalent":true},
@@ -84,6 +84,7 @@ $ agentic-cli push --confirm a1b2c3d4
 
 # Open the PR when the workflow calls for one. After it merges, preview cleanup:
 $ agentic-cli pr --title "Use constant-time password comparison"
+$ agentic-cli ci
 $ agentic-cli cleanup
 
 # STOP. Show every worktree and local/remote branch in the preview. Ask. Only then:
@@ -166,7 +167,7 @@ not restart. Full field reference: `reference/findings-schema.md`.
 | 3 | Precondition violated | **Run `status`, then obey `next`** |
 | 4 | Human resolution required | Stop. Show the user. Do not improvise |
 | 5 | Confirmation required | Ask the user, then re-run with the token |
-| 10 | Hook blocked a push | Run the gate: `agentic-cli start` |
+| 10 | Hook blocked a push | Run the gate: `agentic-cli start --intent "..."` |
 
 **Universal recovery rule: any exit 3 → run `status` → obey `next`.** `status` is legal
 in every state. If you are ever unsure where you are, that is always the right call.
@@ -189,9 +190,17 @@ conflict is real, check the user's tree was clean — see non-negotiable 7.
 `max_attempts` times and the tool is telling you the loop is not converging. Show the
 user `agentic-cli logs --stage <name>` output and ask how to proceed.
 
+**CI failed (`CI_FAILED`).** Read every entry in `data.failed_logs`. Repairs are
+host-driven: fix the source branch yourself; agentic-cli must never invoke a model.
+Preserve `data.intent`, abort the completed run, commit the repair, and execute the
+provided fresh-start command. Do not push the repair until the new synchronized
+review → test → docs → lint run reaches green. Then update the PR and run
+`agentic-cli ci` again. Continue until the PR merges, closes, or monitoring times out.
+
 **Stale head (exit 3, `stale_run`).** The branch moved after review began, so
 everything verified so far describes a tree that no longer exists. There is no partial
-recovery: run `agentic-cli start` for a fresh run.
+recovery: run `agentic-cli start --intent "<the user's objective and acceptance criteria>"`
+for a fresh run.
 
 **Diff too large (exit 2, `diff_too_large`).** The diff is never truncated, so
 reviewing part of it is not an option. Look at `data.by_file`; if the bulk is generated
@@ -212,7 +221,8 @@ Unity `-runTests` invocation exits 0 having run zero tests.
 
 **Stage far slower in the worktree than in the user's tree.** Not a hang — the worktree
 is a clean checkout with no build cache, so the toolchain rebuilds from nothing. Node
-projects with pnpm/npm lockfiles are prepared automatically; use
+projects with pnpm/npm lockfiles are prepared automatically. npm runs an isolated
+`npm ci` in every worktree rather than sharing the main checkout's `node_modules`; use
 `[worktree] setup_command` to override that or prepare other caches. `copy_files` is
 for ignored files such as `.env`, not directories. Do not raise `[stage] max_attempts`
 to paper over it.

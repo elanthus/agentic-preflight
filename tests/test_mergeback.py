@@ -24,7 +24,7 @@ BLOCKING = [{
 
 @pytest.fixture
 def ready(feature_repo, tmp_path):
-    """Drive a run to TEST_GREEN, optionally with a fix commit in the worktree."""
+    """Drive a run to LINT_GREEN, optionally with a fix commit in the worktree."""
 
     def build(*, with_fix=True, fix_content=None):
         write(feature_repo, ".agentic-cli.toml",
@@ -47,9 +47,9 @@ def ready(feature_repo, tmp_path):
         else:
             agent.run("submit-findings", "--file", findings_json(tmp_path, []))
 
-        agent.run("stage", "run", "lint")
-        env = agent.run("stage", "run", "test")
-        assert env["state"] == "TEST_GREEN"
+        agent.run("stage", "run", "test")
+        env = agent.run("stage", "run", "lint")
+        assert env["state"] == "LINT_GREEN"
         return agent, wt
 
     return build
@@ -170,8 +170,8 @@ def test_conflict_aborts_and_restores_the_branch_exactly(feature_repo, tmp_path)
     fix_sha = git("rev-parse", "HEAD", cwd=wt)
     agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", fix_sha)
     agent.run("verify")
-    agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")
+    agent.run("stage", "run", "lint")
 
     # Now make the branch diverge on the same content, and re-point the run's
     # recorded head so the staleness guard does not fire first.
@@ -186,6 +186,7 @@ def test_conflict_aborts_and_restores_the_branch_exactly(feature_repo, tmp_path)
     run_path = state_root / "runs" / run_id / "run.json"
     doc = json.loads(run_path.read_text())
     doc["head_sha"] = new_head
+    doc["source_head_sha"] = new_head
     run_path.write_text(json.dumps(doc))
 
     pre_sha = new_head
@@ -268,8 +269,8 @@ def test_conflict_never_auto_resolves(tmp_repo, monkeypatch):
 
 def test_conflict_leaves_no_cherry_pick_in_progress(tmp_repo):
     """CHERRY_PICK_HEAD must be gone: a half-finished pick wedges the repo."""
+
     from agentic_cli import mergeback
-    from pathlib import Path
 
     git("switch", "-c", "side", cwd=tmp_repo)
     write(tmp_repo, "src/app.py", "SIDE\n")
