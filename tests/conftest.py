@@ -8,7 +8,6 @@ made deterministic with fixed identity and timestamp environment instead.
 
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
 

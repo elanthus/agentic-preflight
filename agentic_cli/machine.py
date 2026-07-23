@@ -21,6 +21,9 @@ from enum import Enum
 class State(str, Enum):
     CREATED = "CREATED"
     WORKTREE_READY = "WORKTREE_READY"
+    SYNC_RUNNING = "SYNC_RUNNING"
+    SYNC_CONFLICT = "SYNC_CONFLICT"
+    SYNC_GREEN = "SYNC_GREEN"
 
     REVIEW_AWAITING_FINDINGS = "REVIEW_AWAITING_FINDINGS"
     REVIEW_SUBMITTED = "REVIEW_SUBMITTED"
@@ -48,6 +51,11 @@ class State(str, Enum):
     AWAITING_PUSH_CONFIRM = "AWAITING_PUSH_CONFIRM"
     PUSHED = "PUSHED"
     PR_OPEN = "PR_OPEN"
+    CI_MONITORING = "CI_MONITORING"
+    CI_FAILED = "CI_FAILED"
+    CHECKS_PASSED = "CHECKS_PASSED"
+    CI_TIMED_OUT = "CI_TIMED_OUT"
+    PR_MERGED = "PR_MERGED"
     DONE = "DONE"
 
     ABORTED = "ABORTED"
@@ -56,6 +64,9 @@ class State(str, Enum):
 
 class Action(str, Enum):
     CREATE_WORKTREE = "CREATE_WORKTREE"
+    BEGIN_SYNC = "BEGIN_SYNC"
+    SYNC_PASSED = "SYNC_PASSED"
+    SYNC_FAILED = "SYNC_FAILED"
     BEGIN_REVIEW = "BEGIN_REVIEW"
 
     SUBMIT_FINDINGS = "SUBMIT_FINDINGS"
@@ -71,6 +82,7 @@ class Action(str, Enum):
     LINT_PASSED = "LINT_PASSED"
     LINT_FAILED = "LINT_FAILED"
     RETRY_LINT = "RETRY_LINT"
+    LINT_FIX_RESTART = "LINT_FIX_RESTART"
 
     RUN_TEST = "RUN_TEST"
     TEST_PASSED = "TEST_PASSED"
@@ -85,6 +97,14 @@ class Action(str, Enum):
     GATE = "GATE"
     PUSH = "PUSH"
     OPEN_PR = "OPEN_PR"
+    BEGIN_CI = "BEGIN_CI"
+    RETRY_CI = "RETRY_CI"
+    CI_PENDING = "CI_PENDING"
+    CI_FAILURE = "CI_FAILURE"
+    CI_PASSED = "CI_PASSED"
+    CI_TIMEOUT = "CI_TIMEOUT"
+    CI_MERGED = "CI_MERGED"
+    CI_CLOSED = "CI_CLOSED"
     FINISH = "FINISH"
     CLEANUP = "CLEANUP"
 
@@ -127,7 +147,10 @@ def _stage_cycle(
 
 TRANSITIONS: dict[tuple[State, Action], State] = {
     (State.CREATED, Action.CREATE_WORKTREE): State.WORKTREE_READY,
-    (State.WORKTREE_READY, Action.BEGIN_REVIEW): State.REVIEW_AWAITING_FINDINGS,
+    (State.WORKTREE_READY, Action.BEGIN_SYNC): State.SYNC_RUNNING,
+    (State.SYNC_RUNNING, Action.SYNC_PASSED): State.SYNC_GREEN,
+    (State.SYNC_RUNNING, Action.SYNC_FAILED): State.SYNC_CONFLICT,
+    (State.SYNC_GREEN, Action.BEGIN_REVIEW): State.REVIEW_AWAITING_FINDINGS,
     **_stage_cycle(
         "review",
         State.REVIEW_AWAITING_FINDINGS,
@@ -136,8 +159,12 @@ TRANSITIONS: dict[tuple[State, Action], State] = {
         State.REVIEW_FIXING,
         State.REVIEW_GREEN,
     ),
-    (State.REVIEW_GREEN, Action.BEGIN_DOCS): State.DOCS_AWAITING_FINDINGS,
-    (State.REVIEW_GREEN, Action.SKIP_DOCS): State.DOCS_GREEN,
+    (State.REVIEW_GREEN, Action.RUN_TEST): State.TEST_RUNNING,
+    (State.TEST_RUNNING, Action.TEST_PASSED): State.TEST_GREEN,
+    (State.TEST_RUNNING, Action.TEST_FAILED): State.TEST_RED,
+    (State.TEST_RED, Action.RETRY_TEST): State.TEST_RUNNING,
+    (State.TEST_GREEN, Action.BEGIN_DOCS): State.DOCS_AWAITING_FINDINGS,
+    (State.TEST_GREEN, Action.SKIP_DOCS): State.DOCS_GREEN,
     **_stage_cycle(
         "docs",
         State.DOCS_AWAITING_FINDINGS,
@@ -150,11 +177,8 @@ TRANSITIONS: dict[tuple[State, Action], State] = {
     (State.LINT_RUNNING, Action.LINT_PASSED): State.LINT_GREEN,
     (State.LINT_RUNNING, Action.LINT_FAILED): State.LINT_RED,
     (State.LINT_RED, Action.RETRY_LINT): State.LINT_RUNNING,
-    (State.LINT_GREEN, Action.RUN_TEST): State.TEST_RUNNING,
-    (State.TEST_RUNNING, Action.TEST_PASSED): State.TEST_GREEN,
-    (State.TEST_RUNNING, Action.TEST_FAILED): State.TEST_RED,
-    (State.TEST_RED, Action.RETRY_TEST): State.TEST_RUNNING,
-    (State.TEST_GREEN, Action.BEGIN_MERGEBACK): State.MERGEBACK_PENDING,
+    (State.LINT_RED, Action.LINT_FIX_RESTART): State.REVIEW_GREEN,
+    (State.LINT_GREEN, Action.BEGIN_MERGEBACK): State.MERGEBACK_PENDING,
     (State.MERGEBACK_PENDING, Action.MERGEBACK_OK): State.VERIFIED,
     (State.MERGEBACK_PENDING, Action.MERGEBACK_FAILED): State.MERGEBACK_CONFLICT,
     (State.MERGEBACK_CONFLICT, Action.MERGEBACK_RETRY): State.MERGEBACK_PENDING,
@@ -162,7 +186,22 @@ TRANSITIONS: dict[tuple[State, Action], State] = {
     (State.AWAITING_PUSH_CONFIRM, Action.PUSH): State.PUSHED,
     (State.PUSHED, Action.OPEN_PR): State.PR_OPEN,
     (State.PUSHED, Action.FINISH): State.DONE,
+    (State.PR_OPEN, Action.BEGIN_CI): State.CI_MONITORING,
+    (State.CI_MONITORING, Action.CI_PENDING): State.CI_MONITORING,
+    (State.CI_MONITORING, Action.CI_FAILURE): State.CI_FAILED,
+    (State.CI_MONITORING, Action.CI_PASSED): State.CHECKS_PASSED,
+    (State.CI_MONITORING, Action.CI_TIMEOUT): State.CI_TIMED_OUT,
+    (State.CI_MONITORING, Action.CI_MERGED): State.PR_MERGED,
+    (State.CI_MONITORING, Action.CI_CLOSED): State.DONE,
+    (State.CI_FAILED, Action.RETRY_CI): State.CI_MONITORING,
+    (State.CHECKS_PASSED, Action.RETRY_CI): State.CI_MONITORING,
+    (State.CI_TIMED_OUT, Action.RETRY_CI): State.CI_MONITORING,
     (State.PR_OPEN, Action.CLEANUP): State.DONE,
+    (State.CI_MONITORING, Action.CLEANUP): State.DONE,
+    (State.CI_FAILED, Action.CLEANUP): State.DONE,
+    (State.CHECKS_PASSED, Action.CLEANUP): State.DONE,
+    (State.CI_TIMED_OUT, Action.CLEANUP): State.DONE,
+    (State.PR_MERGED, Action.CLEANUP): State.DONE,
 }
 
 #: A run may be abandoned from any state that is not already terminal.

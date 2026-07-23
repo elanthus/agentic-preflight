@@ -101,6 +101,7 @@ def resolve_targets(
         if project_root is None:
             raise IntegrationError("project scope requires a repository root")
         project_root = _absolute(project_root)
+    assert scope == "user" or project_root is not None
 
     targets: list[InstallTarget] = []
     seen_paths: set[Path] = set()
@@ -109,9 +110,11 @@ def resolve_targets(
         if spec is None:
             valid = ", ".join(sorted(SUPPORTED_INTEGRATIONS))
             raise IntegrationError(f"unsupported integration {agent!r}; choose from {valid}")
-        root = home.joinpath(*spec.user_parts) if scope == "user" else project_root.joinpath(
-            *spec.project_parts
-        )
+        if scope == "user":
+            root = home.joinpath(*spec.user_parts)
+        else:
+            assert project_root is not None
+            root = project_root.joinpath(*spec.project_parts)
         destination = _absolute(root / SKILL_NAME)
         if destination not in seen_paths:
             targets.append(InstallTarget(agent, destination))

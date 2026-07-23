@@ -119,7 +119,7 @@ def validate_and_assign(
     running = list(existing)
 
     for submission in submissions:
-        resolved = _resolve_within(worktree_path, submission.path)
+        resolved = _resolve_within(Path(worktree_path), submission.path)
 
         if submission.path not in allowed_paths:
             hint = (
