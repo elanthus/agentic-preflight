@@ -1,7 +1,8 @@
-"""Disposable worktree lifecycle, and the containment of files copied into it.
+"""Validation worktree lifecycle, and containment of files copied into it.
 
 The user's tree is never touched: all agent work happens on ``ac/<run_id>`` in a
-throwaway worktree that dies at the end of the run.
+isolated worktree. Strict worktrees die at the end of a run; the default runner
+is reset and detached while retaining ignored caches for its next serial lease.
 
 The copied-file guards deserve their own note, because they defend against a
 *secret leak*, not an inconvenience. The agent commits inside the worktree, so
@@ -100,6 +101,73 @@ def create(repo: Path | str, *, path: Path | str, branch: str, head_sha: str) ->
         raise WorktreeError(str(exc)) from exc
 
     return path
+
+
+def acquire_reusable(
+    repo: Path | str, *, path: Path | str, branch: str, head_sha: str
+) -> Path:
+    """Create or lease the repository's single persistent validation runner.
+
+    A released runner is always detached. Finding it on a branch means a prior
+    run may still own commits there, so acquisition refuses instead of guessing
+    that the branch is disposable.
+    """
+    repo = Path(repo)
+    path = Path(path)
+    if not path.exists():
+        return create(repo, path=path, branch=branch, head_sha=head_sha)
+
+    if not (path / ".git").is_file():
+        raise WorktreeError(
+            f"reusable runner path exists but is not a linked worktree: {path}"
+        )
+    current = gitx.current_branch(path)
+    if current != "HEAD":
+        raise WorktreeError(
+            f"reusable runner {path} is still leased on branch {current!r}; "
+            "run `agentic-cli status` and finish, abort, or recover that run first"
+        )
+    if gitx.run(repo, "rev-parse", "--verify", branch, check=False).returncode == 0:
+        raise WorktreeError(
+            f"branch {branch} already exists; refusing to reuse it for a new run"
+        )
+
+    # Non-ignored leftovers are never caches. Ignored directories deliberately
+    # survive so dependency and build caches do not churn between validations.
+    gitx.run(path, "reset", "--hard", head_sha)
+    gitx.run(path, "clean", "-fd")
+    gitx.run(path, "switch", "-c", branch, head_sha)
+    return path
+
+
+def release_reusable(
+    repo: Path | str,
+    path: Path | str,
+    *,
+    branch: str | None,
+    copied_files: list[str] | tuple[str, ...] = (),
+) -> None:
+    """Release a persistent runner while retaining only ignored caches.
+
+    Copied secret-bearing files are removed explicitly because ``git clean``
+    correctly preserves ignored files. The run branch is deleted only after the
+    checkout is detached, leaving commits protected by the caller's lifecycle
+    checks until the final release step.
+    """
+    repo = Path(repo)
+    path = Path(path)
+    if not path.exists():
+        return
+    for entry in copied_files:
+        candidate = path / entry
+        if candidate.is_symlink() or candidate.is_file():
+            candidate.unlink(missing_ok=True)
+
+    gitx.run(path, "reset", "--hard")
+    gitx.run(path, "clean", "-fd")
+    gitx.run(path, "switch", "--detach")
+    if branch:
+        gitx.run(repo, "branch", "-D", branch, check=False)
 
 
 def remove(repo: Path | str, path: Path | str, *, branch: str | None = None) -> None:

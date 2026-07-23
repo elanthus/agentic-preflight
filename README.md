@@ -22,18 +22,26 @@ start --intent "..." → fetch/rebase → context → submit-findings → verify
 ```
 
 `start` requires the user's objective and acceptance criteria, fetches `origin`, and
-rebases the disposable validation worktree onto the fresh base before review. The agent
+rebases the isolated validation worktree onto the fresh base before review. The agent
 drives the loop. Every command returns one JSON object containing `next` —
 the single next legal command — so the agent never has to guess. Stage-skipping is not
 forbidden by documentation; it is **structurally unrepresentable**, because no
 transition exists from a review state to a push state. That property is proved by
 enumerating every path through the machine, not by testing a few.
 
-Work happens in a disposable git worktree. By default it lives in a hidden sibling
-directory, outside `.git`, so Jest and other tools that ignore VCS directories can see
-the checkout. Your working tree is never touched during verification. `finish` closes
-a pushed run with no PR, while `cleanup` waits for a merged PR and explicit user
-confirmation before removing its worktree and local/remote branches.
+Work happens in an isolated git worktree. By default, one runner in a hidden sibling
+directory is reused serially across runs, so ignored dependency and build caches do not
+need to be rewritten for every pull request. The runner is outside `.git`, so Jest and
+other tools that ignore VCS directories can see it, and your working tree is never
+touched during verification. Set `[worktree] mode = "strict"` to create a fresh
+worktree for every run and remove it afterward.
+
+Reusable mode resets tracked files, removes non-ignored untracked files, explicitly
+removes every `[worktree] copy_files` entry, and then detaches the runner before its
+lease ends. Other ignored files survive deliberately. This reduces local disk churn but
+is not a hermetic environment: a test can mutate an ignored cache. Use strict mode when
+each local validation must begin with no retained artifacts; remote CI should remain the
+clean verification boundary in either mode.
 
 ## Install
 
@@ -102,12 +110,12 @@ or squash forces a fresh run. Cherry-picked merge-back is handled via tree-equiv
 attestation; rebase tolerance is planned for v2 (the ledger already records `tree_sha`
 for it).
 
-**Worktrees can differ from your environment.** A fresh worktree has no `.venv` or
-`.env`. Configure `[worktree] setup_command` for non-Node dependencies and
-`copy_files` for ignored files such as `.env`. Node lockfiles are handled
-automatically: pnpm gets a frozen install backed by its shared content-addressable
-store; npm runs `npm ci` in each worktree so the verified dependency tree is isolated
-from the main checkout.
+**Worktrees can differ from your environment.** The runner does not inherit the main
+checkout's `.venv` or `.env`. Configure `[worktree] setup_command` for non-Node
+dependencies and `copy_files` for ignored files such as `.env`. Node lockfiles are
+handled automatically: reusable mode retains a fingerprint-matched install, while
+strict mode installs the frozen dependency tree in every fresh worktree. Neither mode
+uses the main checkout's `node_modules`.
 Use `--baseline` so a pre-existing failure is reported rather than blamed on your diff.
 
 **Runtime pins are activated explicitly.** Non-interactive agent shells often miss
@@ -147,6 +155,7 @@ max_bytes = 200000
 exclude = ["*.lock", "*-lock.json", "vendor/**", "**/*.min.js"]
 
 [worktree]
+mode = "reusable"            # default; use "strict" for a fresh worktree per run
 root = "/optional/external/path" # default: hidden sibling directory outside .git
 copy_files = [".env"]        # must already be gitignored
 dependency_setup = "auto"    # pnpm/npm lockfile-aware; use "off" to disable
@@ -208,21 +217,41 @@ protected by two independent guards:
    `respond` and `mergeback`, checked against commit content rather than ignore rules, so
    a `.gitignore` edited mid-run cannot open the hole.
 
-Copies are mode `0600`, die with the worktree, and their contents are redacted from stage
-logs and never placed in any envelope.
+Copies are mode `0600`, are removed explicitly when a reusable runner is released (or
+die with a strict worktree), and their contents are redacted from stage logs and never
+placed in any envelope.
 
 ### Node dependencies in worktrees
 
-With `dependency_setup = "auto"`, a committed `pnpm-lock.yaml` runs
+With `dependency_setup = "auto"`, a committed `pnpm-lock.yaml` uses
 `pnpm install --frozen-lockfile`. pnpm hard-links package contents from its shared
-content-addressable store while creating the lockfile-specific layout inside each
-worktree, avoiding cross-worktree package duplication. See the
+content-addressable store. In reusable mode, the install is retained and skipped when
+its fingerprint still matches. See the
 [pnpm storage model](https://pnpm.io/motivation).
 
-For npm, a committed `package-lock.json` always runs `npm ci` inside the disposable
-worktree. The install uses npm's cache but never symlinks the main checkout's
-`node_modules`, so verification cannot mutate or accidentally commit the source
-checkout's dependency tree.
+For npm, strict mode runs `npm ci` in every fresh worktree. Reusable mode runs it the
+first time and whenever the dependency fingerprint changes; otherwise it retains the
+runner's existing `node_modules`. The fingerprint covers dependency and runtime pin
+files, the activated Node version and modules ABI, package-manager version, platform,
+architecture, and install command. The main checkout's `node_modules` is never linked
+or modified.
+
+To switch modes, commit one of these settings and start a new run (an active run keeps
+the configuration snapshot it started with):
+
+```toml
+[worktree]
+mode = "reusable" # one serial runner; lower disk churn, retained ignored caches
+```
+
+```toml
+[worktree]
+mode = "strict"   # fresh worktree and dependency install for every run
+```
+
+The first strict run removes any idle reusable runner and its retained dependency
+fingerprint. Switching back to reusable mode therefore begins with one clean install.
+Mode changes never reshape an active run because its configuration is snapshotted.
 
 ## Exit codes
 

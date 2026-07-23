@@ -77,6 +77,16 @@ def test_start_refuses_a_dirty_tree(agent, feature_repo):
     assert env["error"]["code"] == "dirty_tree"
 
 
+def test_start_refuses_a_second_lease_while_a_run_is_active(agent):
+    first = agent.run("start")
+
+    env = agent.run("start", expect=ExitCode.PRECONDITION)
+
+    assert env["error"]["code"] == "wrong_state"
+    assert env["run_id"] == first["run_id"]
+    assert env["next"]["command"] == "agentic-cli status"
+
+
 def test_start_refuses_when_the_branch_has_no_commits_over_base(tmp_repo):
     agent = ScriptedAgent(tmp_repo)
     env = agent.run("start", expect=ExitCode.PRECONDITION)

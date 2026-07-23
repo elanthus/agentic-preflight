@@ -251,6 +251,30 @@ def _assert_fresh(session: Session, run: RunDoc) -> None:
     )
 
 
+def _worktree_mode(run: RunDoc, fallback: Config) -> str:
+    """Return the snapshotted lifecycle, treating pre-feature runs as strict."""
+    if run.config_snapshot is None:
+        return fallback.worktree.mode
+    section = run.config_snapshot.get("worktree", {})
+    return section.get("mode", "strict")
+
+
+def _release_run_worktree(session: Session, run: RunDoc) -> None:
+    if not run.worktree_path or run.worktree_released:
+        return
+    if _worktree_mode(run, session.config) == "reusable":
+        worktree.release_reusable(
+            session.repo_root,
+            run.worktree_path,
+            branch=run.worktree_branch,
+            copied_files=run.copied_files,
+        )
+    else:
+        worktree.remove(
+            session.repo_root, run.worktree_path, branch=run.worktree_branch
+        )
+
+
 # -- start ------------------------------------------------------------------
 
 
@@ -266,6 +290,15 @@ def start(
     cfg = load_config(repo)
     session.config = cfg
     session.store.set_worktrees_root(worktree.resolve_root(repo, cfg.worktree.root))
+
+    current = session.store.get_current()
+    if current:
+        raise WrongState(
+            f"run {current} is already active; the validation runner has a single lease",
+            run_id=current,
+            next_instruction="Finish, clean up, or abort the active run before starting another.",
+            next_command="agentic-cli status",
+        )
 
     intent = (intent or "").strip()
     if not intent:
@@ -335,9 +368,40 @@ def start(
         },
     )
 
-    wt_path = session.store.worktrees_dir / run_id
+    reusable = cfg.worktree.mode == "reusable"
+    wt_path = session.store.worktrees_dir / ("runner" if reusable else run_id)
     wt_branch = f"ac/{run_id}"
-    worktree.create(repo, path=wt_path, branch=wt_branch, head_sha=head_sha)
+    try:
+        if reusable:
+            worktree.acquire_reusable(
+                repo, path=wt_path, branch=wt_branch, head_sha=head_sha
+            )
+        else:
+            retained_runner = session.store.worktrees_dir / "runner"
+            if retained_runner.exists():
+                if gitx.current_branch(retained_runner) != "HEAD":
+                    raise worktree.WorktreeError(
+                        f"cannot enter strict mode: reusable runner {retained_runner} "
+                        "is still leased; recover or release its run first"
+                    )
+                worktree.remove(repo, retained_runner)
+                session.store.runner_dependency_state_path.unlink(missing_ok=True)
+            worktree.create(repo, path=wt_path, branch=wt_branch, head_sha=head_sha)
+    except worktree.WorktreeError as exc:
+        with session.store.transaction(run_id) as doc:
+            _apply(doc, Action.ABORT)
+            doc.worktree_released = True
+        session.store.set_current(None)
+        raise NeedsHuman(
+            str(exc),
+            run_id=run_id,
+            data={"worktree_path": str(wt_path)},
+            next_instruction=(
+                "Inspect the existing validation worktrees and run records before "
+                "reclaiming anything; an interrupted run may still own commits."
+            ),
+            next_command="agentic-cli gc",
+        ) from exc
 
     with session.store.transaction(run_id) as doc:
         doc.worktree_path = str(wt_path)
@@ -367,7 +431,7 @@ def start(
             run_id=run_id,
             data=report,
             next_instruction=(
-                "The disposable-worktree rebase was aborted cleanly. Show the conflict "
+                "The validation-worktree rebase was aborted cleanly. Show the conflict "
                 "report to the user, resolve or rebase the source branch deliberately, "
                 "then abort this run and start again with the same intent."
             ),
@@ -376,9 +440,15 @@ def start(
 
     changed = gitx.changed_files(wt_path, sync_result.base_sha, "HEAD")
     if not changed:
-        worktree.remove(repo, wt_path, branch=wt_branch)
+        if reusable:
+            worktree.release_reusable(
+                repo, wt_path, branch=wt_branch, copied_files=[]
+            )
+        else:
+            worktree.remove(repo, wt_path, branch=wt_branch)
         with session.store.transaction(run_id) as doc:
             _apply(doc, Action.ABORT)
+            doc.worktree_released = True
         session.store.set_current(None)
         raise EmptyDiff(
             "the branch has no changes after synchronizing with the fresh remote base",
@@ -409,6 +479,9 @@ def start(
             "kind": "dependencies",
             **dependenciesmod.setup(
                 wt_path,
+                cache_state_path=(
+                    session.store.runner_dependency_state_path if reusable else None
+                ),
                 runtime_manager=cfg.runtime.manager,
                 runtime_strict=cfg.runtime.strict,
                 timeout_seconds=cfg.stage.timeout_seconds,
@@ -440,6 +513,7 @@ def start(
         data={
             "worktree_path": str(wt_path),
             "worktree_branch": wt_branch,
+            "worktree_mode": cfg.worktree.mode,
             "branch": branch,
             "base_ref": base_ref,
             "head_sha": sync_result.head_after,
@@ -1436,6 +1510,10 @@ def monitor_ci(
         session.store.append_event(run.run_id, {"event": "ci_checked", **data})
 
         if outcome == "closed":
+            _release_run_worktree(session, run)
+            with session.store.transaction(run.run_id) as doc:
+                doc.worktree_released = True
+                run = doc
             session.store.set_current(None)
             return _envelope_for(
                 run,
@@ -1467,8 +1545,10 @@ def finish(session: Session) -> Envelope:
     run = _load_current(session)
     _require_state(run, State.PUSHED, command="finish")
 
+    _release_run_worktree(session, run)
     with session.store.transaction(run.run_id) as doc:
         _apply(doc, Action.FINISH)
+        doc.worktree_released = True
         run = doc
 
     session.store.set_current(None)
@@ -1476,7 +1556,11 @@ def finish(session: Session) -> Envelope:
     return _envelope_for(
         run,
         data={"pushed_sha": run.pushed_sha, "pr_url": run.pr_url},
-        next_instruction="Run complete. Garbage collection can reclaim its worktree.",
+        next_instruction=(
+            "Run complete. The reusable runner is released for the next run."
+            if _worktree_mode(run, session.config) == "reusable"
+            else "Run complete. The strict worktree was removed."
+        ),
         next_command="agentic-cli gc",
     )
 
@@ -1552,6 +1636,11 @@ def cleanup(session: Session, *, confirm: str | None = None) -> Envelope:
         "merged_at": pr.merged_at,
         "worktree_path": run.worktree_path,
         "worktree_branch": run.worktree_branch,
+        "worktree_action": (
+            "release reusable runner"
+            if _worktree_mode(run, session.config) == "reusable"
+            else "remove strict worktree"
+        ),
         "local_branch": run.branch,
         "remote_branch": f"origin/{run.branch}",
         "switch_to": base_branch if current_branch == run.branch else None,
@@ -1634,13 +1723,11 @@ def cleanup(session: Session, *, confirm: str | None = None) -> Envelope:
         gitx.run(session.repo_root, "switch", base_branch)
     if gitx.local_branch_exists(session.repo_root, run.branch):
         gitx.run(session.repo_root, "branch", "-D", run.branch)
-    if run.worktree_path:
-        worktree.remove(
-            session.repo_root, run.worktree_path, branch=run.worktree_branch
-        )
+    _release_run_worktree(session, run)
 
     with session.store.transaction(run.run_id) as doc:
         _apply(doc, Action.CLEANUP)
+        doc.worktree_released = True
         doc.cleanup_token = None
         doc.cleanup_preview = None
         run = doc
@@ -1652,7 +1739,11 @@ def cleanup(session: Session, *, confirm: str | None = None) -> Envelope:
     return _envelope_for(
         run,
         data={**preview, "remote_deleted": remote_deleted, "cleaned": True},
-        next_instruction="Merged pull request cleanup is complete.",
+        next_instruction=(
+            "Merged pull request cleanup is complete; the reusable runner is ready."
+            if _worktree_mode(run, session.config) == "reusable"
+            else "Merged pull request cleanup is complete; the strict worktree was removed."
+        ),
         next_command=None,
     )
 
@@ -1849,11 +1940,11 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
             next_command="agentic-cli abort --force",
         )
 
-    if run.worktree_path:
-        worktree.remove(session.repo_root, run.worktree_path, branch=run.worktree_branch)
+    _release_run_worktree(session, run)
 
     with session.store.transaction(run.run_id) as doc:
         _apply(doc, Action.ABORT)
+        doc.worktree_released = True
         run = doc
 
     session.store.set_current(None)
@@ -1933,8 +2024,14 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
                     }
                 )
                 continue
-        if run.worktree_path and Path(run.worktree_path).exists():
-            worktree.remove(repo, run.worktree_path, branch=run.worktree_branch)
+        if (
+            not run.worktree_released
+            and run.worktree_path
+            and Path(run.worktree_path).exists()
+        ):
+            _release_run_worktree(session, run)
+            with store.transaction(run_id) as doc:
+                doc.worktree_released = True
         removed.append(run_id)
 
     # A worktree or branch git knows about but the store does not: reconcile by
@@ -2042,6 +2139,8 @@ def status(session: Session) -> Envelope:
             "stale": stale,
             "worktree_path": run.worktree_path,
             "worktree_branch": run.worktree_branch,
+            "worktree_mode": _worktree_mode(run, session.config),
+            "worktree_released": run.worktree_released,
             "config_digest": run.config_digest,
             "gate_token": run.gate_token,
             "cleanup_token": run.cleanup_token,

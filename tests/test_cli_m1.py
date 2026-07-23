@@ -1,11 +1,12 @@
 """M1 resolution loop: respond, fix-commit verification, abort, gc, events."""
 
 import json
+from pathlib import Path
 
 import pytest
 
 from agentic_cli.envelope import ExitCode
-from tests.conftest import git, write
+from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
 
@@ -228,12 +229,12 @@ def test_run_created_event_carries_the_resolved_config_snapshot(blocked):
 # -- abort ------------------------------------------------------------------
 
 
-def test_abort_ends_the_run_and_removes_the_worktree(blocked):
+def test_abort_ends_the_run_and_releases_the_runner(blocked):
     agent, wt = blocked
     env = agent.run("abort")
     assert env["state"] == "ABORTED"
-    from pathlib import Path
-    assert not Path(wt).exists()
+    assert Path(wt).exists()
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=Path(wt)) == "HEAD"
 
 
 def test_abort_clears_the_current_pointer(blocked):
@@ -260,6 +261,54 @@ def test_abort_force_discards_unmerged_work(blocked):
     agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", sha)
     env = agent.run("abort", "--force")
     assert env["state"] == "ABORTED"
+
+
+def test_default_runner_is_reused_but_secrets_and_nonignored_files_are_not(
+    agent, feature_repo
+):
+    write(feature_repo, ".gitignore", ".env\nnode_modules/\n")
+    commit_all(feature_repo, "ignore dependency cache")
+    write(feature_repo, ".env", "SECRET=first\n")
+    first = agent.run("start")
+    runner = Path(first["data"]["worktree_path"])
+    write(runner, "node_modules/cache/index.js", "cached\n")
+    write(runner, "scratch.txt", "not a cache\n")
+
+    agent.run("abort")
+
+    assert runner.exists()
+    assert not (runner / ".env").exists()
+    assert not (runner / "scratch.txt").exists()
+    assert (runner / "node_modules/cache/index.js").is_file()
+
+    second = agent.run("start")
+    assert Path(second["data"]["worktree_path"]) == runner
+    assert (runner / "node_modules/cache/index.js").is_file()
+
+
+def test_strict_mode_removes_each_run_worktree(feature_repo):
+    write(feature_repo, ".agentic-cli.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(feature_repo, "use strict worktrees")
+    strict_agent = ScriptedAgent(feature_repo)
+
+    started = strict_agent.run("start")
+    path = Path(started["data"]["worktree_path"])
+    strict_agent.run("abort")
+
+    assert not path.exists()
+
+
+def test_switching_to_strict_retires_the_idle_reusable_runner(agent, feature_repo):
+    reusable = Path(agent.run("start")["data"]["worktree_path"])
+    agent.run("abort")
+    assert reusable.exists()
+
+    write(feature_repo, ".agentic-cli.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(feature_repo, "switch validation to strict mode")
+    strict = agent.run("start")
+
+    assert not reusable.exists()
+    assert Path(strict["data"]["worktree_path"]).name == strict["run_id"]
 
 
 def test_abort_is_legal_with_no_run(feature_repo):

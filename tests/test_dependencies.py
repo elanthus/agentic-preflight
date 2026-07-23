@@ -95,3 +95,53 @@ def test_no_node_lockfile_skips_dependency_setup(tmp_repo, tmp_path):
 
     assert result.manager == "none"
     assert result.action == "skip"
+
+
+def test_reusable_runner_skips_install_when_fingerprint_matches(
+    tmp_repo, tmp_path, monkeypatch
+):
+    repo = _npm_repo(tmp_repo)
+    wt = _worktree(repo, tmp_path, "npm-reuse")
+    state = tmp_path / "runner-dependencies.json"
+    calls = []
+    monkeypatch.setattr(dependencies, "_dependency_fingerprint", lambda *a, **k: "same")
+
+    def fake_install(target, command, **kwargs):
+        calls.append(command)
+        (target / "node_modules").mkdir()
+        return 0, {"manager": "nvm"}
+
+    monkeypatch.setattr(dependencies, "_run_install", fake_install)
+
+    first = dependencies.setup(wt, cache_state_path=state)
+    second = dependencies.setup(wt, cache_state_path=state)
+
+    assert first.action == "install"
+    assert second.action == "reuse"
+    assert calls == ["npm ci"]
+
+
+def test_reusable_runner_reinstalls_when_fingerprint_changes(
+    tmp_repo, tmp_path, monkeypatch
+):
+    repo = _npm_repo(tmp_repo)
+    wt = _worktree(repo, tmp_path, "npm-refresh")
+    state = tmp_path / "runner-dependencies.json"
+    fingerprints = iter(["before", "after"])
+    calls = []
+    monkeypatch.setattr(
+        dependencies, "_dependency_fingerprint", lambda *a, **k: next(fingerprints)
+    )
+
+    def fake_install(target, command, **kwargs):
+        calls.append(command)
+        (target / "node_modules").mkdir(exist_ok=True)
+        return 0, {}
+
+    monkeypatch.setattr(dependencies, "_run_install", fake_install)
+
+    dependencies.setup(wt, cache_state_path=state)
+    result = dependencies.setup(wt, cache_state_path=state)
+
+    assert result.action == "install"
+    assert calls == ["npm ci", "npm ci"]

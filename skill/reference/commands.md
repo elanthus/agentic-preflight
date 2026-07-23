@@ -49,10 +49,12 @@ preserved unless `--force` is explicit. At least one agent or custom target is r
 ## Running a gate
 
 ### `agentic-cli start --intent TEXT [--base-ref REF]`
-Creates a run and a disposable worktree at the current HEAD on branch `ac/<run_id>`.
+Creates a run and leases an isolated worktree at the current HEAD on branch `ac/<run_id>`.
+The default `[worktree] mode = "reusable"` uses one serial runner and preserves ignored
+caches between leases. `mode = "strict"` creates and removes a fresh worktree per run.
 The intent is required and persisted as the user's objective and acceptance criteria.
 Before review, the command fetches the configured base from `origin` when available and
-rebases the disposable worktree onto that exact fresh base. A sync conflict is aborted
+rebases the validation worktree onto that exact fresh base. A sync conflict is aborted
 cleanly and reported; no conflicted rebase is left in progress.
 Refuses a dirty tree (exit 3, `dirty_tree`) and a branch with no changes over the base
 (exit 3, `empty_diff`). Copies `[worktree] copy_files` into the worktree, refusing any
@@ -62,14 +64,15 @@ Returns `data.worktree_path` — **absolute**. Use it; do not rely on `cd` persi
 The default is outside both the repository and its `.git` directory, which avoids
 Jest's hard-coded VCS-directory exclusion. Override it with `[worktree] root`.
 
-**A fresh worktree has no build cache.** If a lint or test stage is far slower here
+**Strict mode has no build cache.** If a lint or test stage is far slower there
 than in the user's tree, that is almost always the cause — not a hanging command. The
 worktree is a clean checkout, so every gitignored artifact directory the toolchain
 relies on is absent and gets rebuilt from nothing on the first run.
 
-With `[worktree] dependency_setup = "auto"`, a pnpm lockfile triggers
-`pnpm install --frozen-lockfile`. A committed npm `package-lock.json` always triggers
-`npm ci` inside the worktree; the main checkout's `node_modules` is never symlinked.
+With `[worktree] dependency_setup = "auto"`, a pnpm lockfile uses
+`pnpm install --frozen-lockfile`; npm uses `npm ci`. Reusable mode skips the install
+while its dependency/runtime fingerprint matches and `node_modules` remains present.
+Strict mode installs on every run. The main checkout's `node_modules` is never linked.
 `setup_command` overrides this automatic setup. Use `copy_files` only for ignored files
 such as `.env`; directories are refused with a clear setup instruction.
 
@@ -189,7 +192,8 @@ audit logs, clears the current-run pointer, and directs the next step to `gc`.
 For a run in the PR/CI lifecycle, verifies through `gh` that the PR is merged. Without a token it
 returns a deletion preview and confirmation token but changes nothing. After the user
 approves that exact preview, `--confirm` re-checks merge status, switches a clean PR
-source checkout to the base branch if necessary, and removes that run's worktree,
+source checkout to the base branch if necessary, releases the reusable runner (or
+removes a strict worktree),
 local `ac/*` branch, local PR source branch, and remote PR source branch. A wrong or
 missing approval never deletes anything.
 
@@ -208,7 +212,7 @@ Full captured output. Copied-file contents are redacted.
 Run history, oldest first.
 
 ### `agentic-cli abort [--force]`
-Ends the run and reclaims the worktree. Exits 5 if unmerged fix commits would be lost;
+Ends the run and releases the worktree. Exits 5 if unmerged fix commits would be lost;
 `--force` discards them.
 
 ### `agentic-cli gc [--force]`

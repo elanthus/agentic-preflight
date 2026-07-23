@@ -1,4 +1,4 @@
-"""Fresh-base synchronization for the disposable validation worktree."""
+"""Fresh-base synchronization for the isolated validation worktree."""
 
 from __future__ import annotations
 

@@ -126,6 +126,7 @@ class RunDoc(BaseModel):
 
     worktree_path: str | None = None
     worktree_branch: str | None = None
+    worktree_released: bool = False
     copied_files: list[str] = Field(default_factory=list)
     config_snapshot: dict[str, Any] | None = None
     config_digest: str | None = None

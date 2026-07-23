@@ -376,7 +376,7 @@ def test_cleanup_refuses_until_github_reports_the_pr_merged(
     assert git("branch", "--list", "feature/x", cwd=feature_repo)
 
 
-def test_confirmed_cleanup_removes_worktree_and_local_and_remote_branches(
+def test_confirmed_cleanup_releases_runner_and_removes_local_and_remote_branches(
     verified, gh_stub, feature_repo, bare_remote
 ):
     token = verified.run("gate")["data"]["token"]
@@ -394,7 +394,8 @@ def test_confirmed_cleanup_removes_worktree_and_local_and_remote_branches(
     assert git("branch", "--list", "feature/x", cwd=feature_repo) == ""
     assert git("branch", "--list", preview["data"]["worktree_branch"], cwd=feature_repo) == ""
     assert git("branch", "--list", "feature/x", cwd=bare_remote) == ""
-    assert not worktree_path.exists()
+    assert worktree_path.exists()
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=worktree_path) == "HEAD"
     assert preview["data"]["token"] not in gh_stub.read_text()
     assert verified.run("status")["data"]["has_run"] is False
 
@@ -491,7 +492,8 @@ def test_gc_reclaims_a_finished_run_whose_fixes_were_cherry_picked(
 
     assert run_id in env["data"]["removed"]
     assert env["data"]["retained"] == []
-    assert not wt.exists()
+    assert wt.exists()
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=wt) == "HEAD"
     assert git("branch", "--list", f"ac/{run_id}", cwd=feature_repo) == ""
 
 

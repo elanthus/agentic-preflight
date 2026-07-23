@@ -72,6 +72,7 @@ class DiffSection(_Section):
 class WorktreeSection(_Section):
     ttl_hours: int = Field(default=48, ge=1)
     root: str | None = None
+    mode: str = "reusable"
     copy_files: list[str] = Field(default_factory=lambda: [".env"])
     setup_command: str | None = None
     dependency_setup: str = "auto"
@@ -115,6 +116,7 @@ VALID_RUNTIME_MANAGERS = {
     "nodenv",
 }
 VALID_DEPENDENCY_SETUP = {"auto", "off"}
+VALID_WORKTREE_MODES = {"reusable", "strict"}
 
 
 class Config(BaseModel):
@@ -169,6 +171,11 @@ def _validate_enums(cfg: Config) -> None:
             f"[worktree] dependency_setup: unknown mode "
             f"{cfg.worktree.dependency_setup!r}; "
             f"valid values are {sorted(VALID_DEPENDENCY_SETUP)}"
+        )
+    if cfg.worktree.mode not in VALID_WORKTREE_MODES:
+        raise ConfigError(
+            f"[worktree] mode: unknown mode {cfg.worktree.mode!r}; "
+            f"valid values are {sorted(VALID_WORKTREE_MODES)}"
         )
 
 
