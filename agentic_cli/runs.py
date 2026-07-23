@@ -95,7 +95,8 @@ def open_session(cwd: Path | str | None = None) -> Session:
         except Exception:
             pass
     cfg = cfg or load_config(repo_root)
-    store.set_worktrees_root(worktree.resolve_root(repo_root, cfg.worktree.root))
+    if cfg.worktree.mode != "in_place":
+        store.set_worktrees_root(worktree.resolve_root(repo_root, cfg.worktree.root))
     return Session(repo_root=repo_root, store=store, config=cfg)
 
 
@@ -259,10 +260,34 @@ def _worktree_mode(run: RunDoc, fallback: Config) -> str:
     return section.get("mode", "strict")
 
 
+def _is_in_place(run: RunDoc, fallback: Config) -> bool:
+    return _worktree_mode(run, fallback) == "in_place"
+
+
+def _worktree_completion(mode: str, *, merged_pr: bool = False) -> str:
+    prefix = "Merged pull request cleanup is complete; " if merged_pr else "Run complete. "
+    if mode == "in_place":
+        return prefix + "the in-place checkout was left intact."
+    if mode == "reusable":
+        return prefix + "the reusable runner is ready for the next run."
+    return prefix + "the strict worktree was removed."
+
+
+def _worktree_cleanup_action(mode: str) -> str:
+    if mode == "in_place":
+        return "leave in-place checkout intact"
+    if mode == "reusable":
+        return "release reusable runner"
+    return "remove strict worktree"
+
+
 def _release_run_worktree(session: Session, run: RunDoc) -> None:
     if not run.worktree_path or run.worktree_released:
         return
-    if _worktree_mode(run, session.config) == "reusable":
+    mode = _worktree_mode(run, session.config)
+    if mode == "in_place":
+        return
+    if mode == "reusable":
         worktree.release_reusable(
             session.repo_root,
             run.worktree_path,
@@ -289,7 +314,8 @@ def start(
     # Every later command uses the snapshot persisted below.
     cfg = load_config(repo)
     session.config = cfg
-    session.store.set_worktrees_root(worktree.resolve_root(repo, cfg.worktree.root))
+    if cfg.worktree.mode != "in_place":
+        session.store.set_worktrees_root(worktree.resolve_root(repo, cfg.worktree.root))
 
     current = session.store.get_current()
     if current:
@@ -379,15 +405,22 @@ def start(
         },
     )
 
+    in_place = cfg.worktree.mode == "in_place"
     reusable = cfg.worktree.mode == "reusable"
-    wt_path = session.store.worktrees_dir / ("runner" if reusable else run_id)
-    wt_branch = f"ac/{run_id}"
+    wt_path = (
+        repo
+        if in_place
+        else session.store.worktrees_dir / ("runner" if reusable else run_id)
+    )
+    wt_branch = branch if in_place else f"ac/{run_id}"
     try:
-        if reusable:
+        if in_place:
+            pass
+        elif reusable:
             worktree.acquire_reusable(
                 repo, path=wt_path, branch=wt_branch, head_sha=head_sha
             )
-        else:
+        else:  # strict
             retained_runner = session.store.worktrees_dir / "runner"
             if retained_runner.exists():
                 if gitx.current_branch(retained_runner) != "HEAD":
@@ -408,7 +441,7 @@ def start(
             run_id=run_id,
             data={"worktree_path": str(wt_path)},
             next_instruction=(
-                "Inspect the existing validation worktrees and run records before "
+                "Inspect the existing validation checkout and run records before "
                 "reclaiming anything; an interrupted run may still own commits."
             ),
             next_command="agentic-cli gc",
@@ -442,7 +475,7 @@ def start(
             run_id=run_id,
             data=report,
             next_instruction=(
-                "The validation-worktree rebase was aborted cleanly. Show the conflict "
+                "The validation-checkout rebase was aborted cleanly. Show the conflict "
                 "report to the user, resolve or rebase the source branch deliberately, "
                 "then abort this run and start again with the same intent."
             ),
@@ -451,7 +484,9 @@ def start(
 
     changed = gitx.changed_files(wt_path, sync_result.base_sha, "HEAD")
     if not changed:
-        if reusable:
+        if in_place:
+            pass
+        elif reusable:
             worktree.release_reusable(
                 repo, wt_path, branch=wt_branch, copied_files=[]
             )
@@ -466,7 +501,11 @@ def start(
             next_instruction="The requested change is already present upstream.",
         )
 
-    copied = worktree.copy_files(repo, wt_path, cfg.worktree.copy_files)
+    copied = (
+        worktree.protect_in_place_files(repo, cfg.worktree.copy_files)
+        if in_place
+        else worktree.copy_files(repo, wt_path, cfg.worktree.copy_files)
+    )
 
     setup_result = None
     if cfg.worktree.setup_command:
@@ -484,6 +523,17 @@ def start(
             "command": cfg.worktree.setup_command,
             "exit_code": completed.returncode,
             "runtime": prepared.runtime.as_dict(),
+        }
+    elif cfg.worktree.dependency_setup == "auto" and in_place:
+        setup_result = {
+            "kind": "dependencies",
+            "manager": "checkout",
+            "action": "reuse",
+            "command": None,
+            "reason": "in-place mode uses the checkout's existing dependency environment",
+            "node": None,
+            "exit_code": 0,
+            "fingerprint": None,
         }
     elif cfg.worktree.dependency_setup == "auto":
         setup_result = {
@@ -504,6 +554,7 @@ def start(
         doc.worktree_branch = wt_branch
         doc.copied_files = copied
         doc.head_sha = sync_result.head_after
+        doc.source_head_sha = sync_result.head_after if in_place else head_sha
         doc.merge_base_sha = sync_result.base_sha
         doc.sync_base_sha = sync_result.base_sha
         doc.sync_base_ref = sync_result.base_ref
@@ -514,7 +565,12 @@ def start(
 
     session.store.append_event(
         run_id,
-        {"event": "worktree_ready", "path": str(wt_path), "sync": sync_result.as_dict()},
+        {
+            "event": "worktree_ready",
+            "path": str(wt_path),
+            "mode": cfg.worktree.mode,
+            "sync": sync_result.as_dict(),
+        },
     )
 
     return _envelope_for(
@@ -850,6 +906,21 @@ def _register_stage_fix_commits(
     wt = run.worktree_path or session.repo_root
     current_head = gitx.rev_parse(wt, "HEAD")
     if record_entry.head_sha and record_entry.head_sha != current_head:
+        if not gitx.is_ancestor(wt, record_entry.head_sha, current_head):
+            raise StaleRun(
+                f"the validation branch no longer descends from the {stage.value} "
+                "stage's recorded head",
+                state=run.state.value,
+                run_id=run.run_id,
+                next_command=shlex.join(
+                    [
+                        "agentic-cli",
+                        "start",
+                        "--intent",
+                        run.intent or "<objective and acceptance criteria>",
+                    ]
+                ),
+            )
         commits = gitx.commits_between(wt, record_entry.head_sha, current_head)
         for commit in commits:
             worktree.assert_commit_is_clean_of(wt, commit, run.copied_files)
@@ -860,6 +931,9 @@ def _register_stage_fix_commits(
             entry = doc.stages.get(stage) or StageRecord()
             entry.head_sha = current_head
             doc.stages[stage] = entry
+            if _is_in_place(doc, session.config):
+                doc.head_sha = current_head
+                doc.source_head_sha = current_head
             if stage is Stage.LINT:
                 _apply(doc, Action.LINT_FIX_RESTART)
             run = doc
@@ -912,12 +986,18 @@ def run_stage(
 ) -> Envelope:
     """Run a deterministic shell stage. Pass/fail is the exit code, nothing else."""
     run = _load_current(session)
-    _assert_fresh(session, run)
     spec = _STAGE_STATES[stage_name]
-    _require_state(run, *spec["ready"], command=f"stage run {stage_name}")
-
     stage = Stage(stage_name)
     record_entry = run.stages.get(stage) or StageRecord()
+    accepting_repair = (
+        _is_in_place(run, session.config)
+        and run.state is spec["red"]
+        and record_entry.head_sha is not None
+    )
+    if not accepting_repair:
+        _assert_fresh(session, run)
+    _require_state(run, *spec["ready"], command=f"stage run {stage_name}")
+
     if record_entry.attempts >= session.config.stage.max_attempts:
         raise MaxAttempts(
             f"the {stage_name} stage has failed {record_entry.attempts} times "
@@ -1110,8 +1190,9 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
 
 
 def mergeback(session: Session) -> Envelope:
-    """Cherry-pick the verified fixes onto the user's branch, strictly."""
+    """Attest in-place validation or merge isolated fixes onto the source branch."""
     run = _load_current(session)
+    in_place = _is_in_place(run, session.config)
     retrying_conflict = run.state is State.MERGEBACK_CONFLICT
     if not retrying_conflict:
         _assert_fresh(session, run)
@@ -1124,22 +1205,32 @@ def mergeback(session: Session) -> Envelope:
     )
 
     repo = session.repo_root
-    affected_paths = gitx.changed_paths_in_commits(
-        run.worktree_path or repo, run.fix_commits
-    )
-    overlapping = gitx.status_for_paths(repo, affected_paths)
-    if overlapping:
-        raise DirtyTree(
-            "the working tree has changes on paths mergeback would overwrite",
-            state=run.state.value,
-            run_id=run.run_id,
-            data={"affected_paths": affected_paths, "overlapping_status": overlapping},
-            next_instruction=(
-                "Commit or stash the reported overlapping paths, then merge back. "
-                "Unrelated tracked and untracked files may remain."
-            ),
-            next_command="git status",
+    if in_place:
+        if not gitx.is_clean(repo):
+            raise DirtyTree(
+                "the in-place validation checkout has uncommitted changes",
+                state=run.state.value,
+                run_id=run.run_id,
+                next_instruction="Commit an intended repair and re-run the affected stages.",
+                next_command="git status",
+            )
+    else:
+        affected_paths = gitx.changed_paths_in_commits(
+            run.worktree_path or repo, run.fix_commits
         )
+        overlapping = gitx.status_for_paths(repo, affected_paths)
+        if overlapping:
+            raise DirtyTree(
+                "the working tree has changes on paths mergeback would overwrite",
+                state=run.state.value,
+                run_id=run.run_id,
+                data={"affected_paths": affected_paths, "overlapping_status": overlapping},
+                next_instruction=(
+                    "Commit or stash the reported overlapping paths, then merge back. "
+                    "Unrelated tracked and untracked files may remain."
+                ),
+                next_command="git status",
+            )
 
     if run.state is State.LINT_GREEN:
         with session.store.transaction(run.run_id) as doc:
@@ -1151,35 +1242,48 @@ def mergeback(session: Session) -> Envelope:
             run = doc
 
     try:
-        sync_base = run.sync_base_sha or run.merge_base_sha
-        if not gitx.is_ancestor(repo, sync_base, "HEAD"):
-            if not gitx.is_clean(repo):
-                raise DirtyTree(
-                    "the source worktree must be clean before rebasing onto the synchronized base",
-                    state=run.state.value,
-                    run_id=run.run_id,
-                    next_instruction="Commit or stash the changes, then retry mergeback.",
-                    next_command="git status",
-                )
-            syncmod.rebase_onto(repo, sync_base)
-        local_tree = gitx.tree_sha(repo)
-        verified_tree = gitx.tree_sha(run.worktree_path)
-        branch_moved = gitx.rev_parse(repo, "HEAD") != (run.source_head_sha or run.head_sha)
-        if retrying_conflict and (local_tree == verified_tree or branch_moved):
+        if in_place:
+            current = gitx.rev_parse(repo, "HEAD")
+            tree = gitx.tree_sha(repo, "HEAD")
             result = mergebackmod.MergebackResult(
-                pre_sha=gitx.rev_parse(repo, "HEAD"),
-                post_sha=gitx.rev_parse(repo, "HEAD"),
+                pre_sha=current,
+                post_sha=current,
                 applied=[],
-                local_tree_sha=local_tree,
-                worktree_tree_sha=verified_tree,
+                local_tree_sha=tree,
+                worktree_tree_sha=tree,
             )
         else:
-            result = mergebackmod.cherry_pick_fixes(
-                repo,
-                run.fix_commits,
-                worktree_branch=run.worktree_branch,
-                worktree_path=run.worktree_path,
+            sync_base = run.sync_base_sha or run.merge_base_sha
+            if not gitx.is_ancestor(repo, sync_base, "HEAD"):
+                if not gitx.is_clean(repo):
+                    raise DirtyTree(
+                        "the source worktree must be clean before rebasing onto the synchronized base",
+                        state=run.state.value,
+                        run_id=run.run_id,
+                        next_instruction="Commit or stash the changes, then retry mergeback.",
+                        next_command="git status",
+                    )
+                syncmod.rebase_onto(repo, sync_base)
+            local_tree = gitx.tree_sha(repo)
+            verified_tree = gitx.tree_sha(run.worktree_path)
+            branch_moved = gitx.rev_parse(repo, "HEAD") != (
+                run.source_head_sha or run.head_sha
             )
+            if retrying_conflict and (local_tree == verified_tree or branch_moved):
+                result = mergebackmod.MergebackResult(
+                    pre_sha=gitx.rev_parse(repo, "HEAD"),
+                    post_sha=gitx.rev_parse(repo, "HEAD"),
+                    applied=[],
+                    local_tree_sha=local_tree,
+                    worktree_tree_sha=verified_tree,
+                )
+            else:
+                result = mergebackmod.cherry_pick_fixes(
+                    repo,
+                    run.fix_commits,
+                    worktree_branch=run.worktree_branch,
+                    worktree_path=run.worktree_path,
+                )
     except (mergebackmod.MergebackConflict, syncmod.SyncConflict) as exc:
         with session.store.transaction(run.run_id) as doc:
             _apply(doc, Action.MERGEBACK_FAILED)
@@ -1242,7 +1346,9 @@ def mergeback(session: Session) -> Envelope:
          "tree_equivalent": result.tree_equivalent},
     )
 
-    envelope = _envelope_for(run, data=result.as_dict())
+    envelope = _envelope_for(
+        run, data={**result.as_dict(), "worktree_mode": _worktree_mode(run, session.config)}
+    )
     if not result.tree_equivalent:
         envelope.next_instruction = (
             "The merged tree does not match what was verified, so green did not "
@@ -1567,11 +1673,7 @@ def finish(session: Session) -> Envelope:
     return _envelope_for(
         run,
         data={"pushed_sha": run.pushed_sha, "pr_url": run.pr_url},
-        next_instruction=(
-            "Run complete. The reusable runner is released for the next run."
-            if _worktree_mode(run, session.config) == "reusable"
-            else "Run complete. The strict worktree was removed."
-        ),
+        next_instruction=_worktree_completion(_worktree_mode(run, session.config)),
         next_command="agentic-cli gc",
     )
 
@@ -1647,10 +1749,8 @@ def cleanup(session: Session, *, confirm: str | None = None) -> Envelope:
         "merged_at": pr.merged_at,
         "worktree_path": run.worktree_path,
         "worktree_branch": run.worktree_branch,
-        "worktree_action": (
-            "release reusable runner"
-            if _worktree_mode(run, session.config) == "reusable"
-            else "remove strict worktree"
+        "worktree_action": _worktree_cleanup_action(
+            _worktree_mode(run, session.config)
         ),
         "local_branch": run.branch,
         "remote_branch": f"origin/{run.branch}",
@@ -1750,10 +1850,8 @@ def cleanup(session: Session, *, confirm: str | None = None) -> Envelope:
     return _envelope_for(
         run,
         data={**preview, "remote_deleted": remote_deleted, "cleaned": True},
-        next_instruction=(
-            "Merged pull request cleanup is complete; the reusable runner is ready."
-            if _worktree_mode(run, session.config) == "reusable"
-            else "Merged pull request cleanup is complete; the strict worktree was removed."
+        next_instruction=_worktree_completion(
+            _worktree_mode(run, session.config), merged_pr=True
         ),
         next_command=None,
     )
@@ -1812,7 +1910,11 @@ def respond(
     check and expensive to miss, so none of them are taken on trust.
     """
     run = _load_current(session)
-    _assert_fresh(session, run)
+    accepting_in_place_fix = (
+        _is_in_place(run, session.config) and action == "fixed" and commit is not None
+    )
+    if not accepting_in_place_fix:
+        _assert_fresh(session, run)
     _require_state(
         run,
         State.REVIEW_AWAITING_RESPONSES,
@@ -1857,9 +1959,19 @@ def respond(
             run_id=run.run_id,
         )
 
+    new_commits = (
+        _in_place_fix_commits(session, run, commit)
+        if accepting_in_place_fix and commit
+        else ([commit] if commit else [])
+    )
+
     with session.store.transaction(run.run_id) as doc:
-        if commit and commit not in doc.fix_commits:
-            doc.fix_commits.append(commit)
+        for fix_commit in new_commits:
+            if fix_commit not in doc.fix_commits:
+                doc.fix_commits.append(fix_commit)
+        if accepting_in_place_fix:
+            doc.head_sha = new_commits[-1]
+            doc.source_head_sha = new_commits[-1]
         if doc.state in (State.REVIEW_AWAITING_RESPONSES, State.DOCS_AWAITING_RESPONSES):
             _apply(doc, Action.RESPOND)
         run = doc
@@ -1899,7 +2011,7 @@ def _verify_fix_commit(session: Session, run: RunDoc, target, commit: str) -> st
     wt = run.worktree_path
     if not gitx.commit_exists(wt, commit):
         raise InvalidResponse(
-            f"commit {commit} does not exist on the worktree branch",
+            f"commit {commit} does not exist in the validation checkout",
             state=run.state.value,
             run_id=run.run_id,
         )
@@ -1920,6 +2032,51 @@ def _verify_fix_commit(session: Session, run: RunDoc, target, commit: str) -> st
     return full_sha
 
 
+def _in_place_fix_commits(session: Session, run: RunDoc, commit: str) -> list[str]:
+    """Account for every direct repair commit before advancing the exact SHA."""
+    repo = session.repo_root
+    if not gitx.is_clean(repo):
+        raise DirtyTree(
+            "the in-place validation checkout has uncommitted changes",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction="Commit the intended repair, then respond again.",
+            next_command="git status",
+        )
+    current = gitx.rev_parse(repo, "HEAD")
+    if commit != current:
+        raise InvalidResponse(
+            f"in-place repair commit {commit[:8]} is not the current branch tip "
+            f"{current[:8]}; every intervening commit must be accounted for",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+    if not gitx.is_ancestor(repo, run.head_sha, current):
+        raise StaleRun(
+            "the in-place validation branch was rewritten instead of advanced by repair commits",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_command=shlex.join(
+                [
+                    "agentic-cli",
+                    "start",
+                    "--intent",
+                    run.intent or "<objective and acceptance criteria>",
+                ]
+            ),
+        )
+    commits = gitx.commits_between(repo, run.head_sha, current)
+    if not commits:
+        raise InvalidResponse(
+            "in-place resolution requires a new repair commit after findings were submitted",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+    for sha in commits:
+        worktree.assert_commit_is_clean_of(repo, sha, run.copied_files)
+    return commits
+
+
 def events(session: Session, *, limit: int | None = None) -> Envelope:
     run = _load_current(session)
     history = session.store.load_events(run.run_id)
@@ -1937,7 +2094,8 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
     """
     run = _load_current(session)
 
-    if run.fix_commits and not force:
+    isolated = not _is_in_place(run, session.config)
+    if isolated and run.fix_commits and not force:
         raise UnmergedWork(
             f"this run has {len(run.fix_commits)} fix commit(s) that were never merged "
             f"back: {', '.join(run.fix_commits)}",
@@ -1963,7 +2121,10 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
 
     return _envelope_for(
         run,
-        data={"discarded_fix_commits": run.fix_commits if force else []},
+        data={
+            "discarded_fix_commits": run.fix_commits if isolated and force else [],
+            "preserved_in_place_commits": run.fix_commits if not isolated else [],
+        },
         next_instruction="Run aborted. Start a fresh one when ready.",
         next_command=shlex.join(
             [
@@ -2017,7 +2178,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
                     }
                 )
             continue
-        if run.fix_commits and not force:
+        if run.fix_commits and not force and not _is_in_place(run, session.config):
             # Only DONE proves mergeback and publication completed. Aborted or
             # orphaned runs must retain every fix even if an unrelated commit
             # in branch history happens to share its patch ID.

@@ -1,8 +1,8 @@
-"""Validation worktree lifecycle, and containment of files copied into it.
+"""Validation checkout lifecycle, and containment of local environment files.
 
-The user's tree is never touched: all agent work happens on ``ac/<run_id>`` in a
-isolated worktree. Strict worktrees die at the end of a run; the default runner
-is reset and detached while retaining ignored caches for its next serial lease.
+In-place runs use the caller's already-dedicated checkout. Isolated runs happen
+on ``ac/<run_id>``: strict worktrees die at the end of a run, while the reusable
+runner is reset and detached while retaining ignored caches for its next lease.
 
 The copied-file guards deserve their own note, because they defend against a
 *secret leak*, not an inconvenience. The agent commits inside the worktree, so
@@ -223,6 +223,37 @@ def copy_files(
         copied.append(entry)
 
     return copied
+
+
+def protect_in_place_files(
+    repo: Path | str,
+    entries: list[str] | tuple[str, ...],
+) -> list[str]:
+    """Validate and register local environment files without copying them.
+
+    In-place validation already has access to the checkout's ignored files. We
+    still apply the same preflight and commit-content invariants as isolated
+    modes so their contents can be redacted and can never enter a repair commit.
+    """
+    repo = Path(repo)
+    protected: list[str] = []
+    for entry in entries:
+        source = repo / entry
+        if not source.exists():
+            continue
+        if source.is_dir():
+            raise CopyRefused(
+                f"refusing to protect directory {entry!r}: [worktree] copy_files "
+                "accepts files only. Use setup_command to prepare directories."
+            )
+        if not gitx.is_ignored(repo, entry):
+            raise CopyRefused(
+                f"refusing to use {entry!r} during in-place validation: git is not "
+                "ignoring it, so a `git add -A` could commit and push it. "
+                f"Add {entry!r} to .gitignore and commit that before running."
+            )
+        protected.append(entry)
+    return protected
 
 
 def assert_commit_is_clean_of(

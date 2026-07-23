@@ -3,7 +3,8 @@
 Strict worktrees install from the lockfile every time. A reusable runner retains
 ``node_modules`` only while dependency inputs, runtime, platform, architecture,
 package-manager version, and install command have the same fingerprint. Nothing
-is linked from the user's main checkout.
+is linked from the source checkout. In-place mode bypasses this module and uses
+the checkout's existing dependency environment.
 """
 
 from __future__ import annotations

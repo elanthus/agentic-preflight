@@ -103,7 +103,8 @@ def gh_stub(tmp_path, monkeypatch):
 def verified(feature_repo, bare_remote, tmp_path):
     """A run driven all the way to VERIFIED with a real remote configured."""
     write(feature_repo, ".agentic-cli.toml",
-          "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n")
+          "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+          "\n[worktree]\nmode = 'reusable'\n")
     commit_all(feature_repo, "configure agentic-cli")
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
@@ -120,7 +121,8 @@ def verified(feature_repo, bare_remote, tmp_path):
 def verified_with_cherry_picked_fix(feature_repo, bare_remote, tmp_path, monkeypatch):
     """A verified fix whose cherry-picked SHA deliberately differs."""
     write(feature_repo, ".agentic-cli.toml",
-          "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n")
+          "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+          "\n[worktree]\nmode = 'reusable'\n")
     commit_all(feature_repo, "configure agentic-cli")
     agent = ScriptedAgent(feature_repo)
     start = agent.run("start")
