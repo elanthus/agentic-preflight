@@ -1,7 +1,7 @@
 # agentic-cli
 
 An agent-driven quality gate. Nothing reaches your remote until review, tests, docs,
-lint, and type checking are all green for that exact commit.
+and lint are all green for that exact commit.
 
 **Python here is a deterministic state machine with a JSON-over-stdout CLI. It never
 calls an LLM.** No API keys, no model configuration, no token budgets. The coding agent
