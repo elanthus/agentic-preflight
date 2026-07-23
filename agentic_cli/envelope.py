@@ -56,7 +56,7 @@ class Envelope:
                 "command": self.next_command,
             }
 
-        error_block = None
+        error_block: dict[str, Any] | None = None
         if self.error_code:
             error_block = {
                 "code": self.error_code,

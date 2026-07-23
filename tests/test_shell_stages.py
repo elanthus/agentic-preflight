@@ -1,6 +1,7 @@
 """M3 shell stages: lint and test, resolved by config or detection."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -29,7 +30,8 @@ def docs_green(feature_repo, tmp_path):
         agent = ScriptedAgent(feature_repo)
         agent.run("start")
         agent.run("context")
-        env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+        agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+        env = agent.run("stage", "run", "test", "--command", "true", "--record")
         assert env["state"] == "DOCS_GREEN"
         return agent
 
@@ -115,18 +117,20 @@ def test_a_non_zero_exit_is_red_regardless_of_output(docs_green):
 # -- ordering ---------------------------------------------------------------
 
 
-def test_lint_must_pass_before_tests_run(docs_green):
-    agent = docs_green()
-    env = agent.run("stage", "run", "test", "--command", "true", "--record",
+def test_tests_must_pass_before_lint_runs(feature_repo, tmp_path):
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    env = agent.run("stage", "run", "lint", "--command", "true", "--record",
                     expect=ExitCode.PRECONDITION)
     assert env["error"]["code"] == "wrong_state"
 
 
-def test_tests_run_once_lint_is_green(docs_green):
+def test_lint_runs_once_tests_and_docs_are_green(docs_green):
     agent = docs_green()
-    agent.run("stage", "run", "lint", "--command", "true", "--record")
-    env = agent.run("stage", "run", "test", "--command", "true", "--record")
-    assert env["state"] == "TEST_GREEN"
+    env = agent.run("stage", "run", "lint", "--command", "true", "--record")
+    assert env["state"] == "LINT_GREEN"
     assert "mergeback" in env["next"]["command"]
 
 
@@ -136,6 +140,35 @@ def test_a_red_stage_can_be_retried_after_a_fix(docs_green):
               expect=ExitCode.STAGE_FAILED)
     env = agent.run("stage", "run", "lint", "--command", "true", "--record")
     assert env["state"] == "LINT_GREEN"
+
+
+def test_a_committed_lint_repair_invalidates_tests_and_docs(docs_green):
+    agent = docs_green()
+    failed = agent.run(
+        "stage", "run", "lint", "--command", "exit 1", "--record",
+        expect=ExitCode.STAGE_FAILED,
+    )
+    worktree = failed["data"].get("worktree_path") or agent.run("status")["data"][
+        "worktree_path"
+    ]
+    write(
+        Path(worktree),
+        "src/app.py",
+        "def greet(name, loud=False):\n    return f'hi {name}'.strip()\n",
+    )
+    commit_all(Path(worktree), "repair lint failure")
+
+    env = agent.run("stage", "run", "lint", "--command", "true", "--record")
+    assert env["state"] == "REVIEW_GREEN"
+    assert env["data"]["validation_restarted"] is True
+    assert env["next"]["command"] == "agentic-cli stage run test"
+
+    assert agent.run("stage", "run", "test", "--command", "true", "--record")[
+        "state"
+    ] == "DOCS_GREEN"
+    assert agent.run("stage", "run", "lint", "--command", "true", "--record")[
+        "state"
+    ] == "LINT_GREEN"
 
 
 # -- attempt limits ---------------------------------------------------------
@@ -221,6 +254,7 @@ def test_copied_file_contents_never_reach_a_stage_log(feature_repo, tmp_path):
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "test", "--command", "true", "--record")
 
     env = agent.run("stage", "run", "lint", "--command", "cat .env", "--record")
     from pathlib import Path

@@ -81,6 +81,7 @@ def gh_stub(tmp_path, monkeypatch):
     script.write_text(
         "#!/bin/sh\n"
         f'printf "%s\\n" "$*" >> "{log}"\n'
+        'if [ "$1" = "pr" ] && [ "$2" = "list" ]; then echo "[]"; exit 0; fi\n'
         'if [ "$1" = "pr" ] && [ "$2" = "view" ]; then\n'
         '  echo \'{"url":"https://github.com/owner/repo/pull/1",'
         '"state":"MERGED","mergedAt":"2026-07-22T12:00:00Z",'
@@ -108,8 +109,8 @@ def verified(feature_repo, bare_remote, tmp_path):
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")
+    agent.run("stage", "run", "lint")
     env = agent.run("mergeback")
     assert env["state"] == "VERIFIED"
     return agent
@@ -140,8 +141,8 @@ def verified_with_cherry_picked_fix(feature_repo, bare_remote, tmp_path, monkeyp
     original = commit_all(wt, "use the loud flag")
     agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", original)
     agent.run("verify")
-    agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")
+    agent.run("stage", "run", "lint")
 
     monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-01-02T00:00:00+00:00")
     agent.run("mergeback")
@@ -221,8 +222,8 @@ def test_manual_gate_mode_refuses_to_proceed_at_all(feature_repo, bare_remote, t
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")
+    agent.run("stage", "run", "lint")
     agent.run("mergeback")
 
     env = agent.run("gate", expect=ExitCode.NEEDS_HUMAN)
@@ -263,6 +264,45 @@ def test_pr_shells_out_to_gh(verified, gh_stub, feature_repo):
     assert env["state"] == "PR_OPEN"
     assert env["data"]["pr_url"].endswith("/pull/1")
     assert "pr create" in gh_stub.read_text()
+
+
+def test_ci_failure_returns_logs_and_intent_to_the_host(
+    verified, gh_stub, feature_repo, monkeypatch
+):
+    from agentic_cli.publish import github as githubmod
+
+    token = verified.run("gate")["data"]["token"]
+    verified.run("push", "--confirm", token)
+    as_github_origin(feature_repo)
+    verified.run("pr")
+    failed = githubmod.CheckResult(
+        name="tests",
+        status="COMPLETED",
+        conclusion="FAILURE",
+        run_id="123",
+    )
+    monkeypatch.setattr(
+        githubmod,
+        "pull_request_health",
+        lambda *_: githubmod.PullRequestHealth(
+            url="https://github.com/owner/repo/pull/1",
+            state="OPEN",
+            merge_state="BLOCKED",
+            outcome="failed",
+            checks=[failed],
+            failed_checks=[failed],
+        ),
+    )
+    monkeypatch.setattr(
+        githubmod, "failed_check_logs", lambda *_: {"123": "tests/test_api.py failed"}
+    )
+
+    env = verified.run("ci", "--once")
+    assert env["state"] == "CI_FAILED"
+    assert env["data"]["host_driven"] is True
+    assert env["data"]["failed_logs"]["123"] == "tests/test_api.py failed"
+    assert env["data"]["intent"]
+    assert env["next"]["command"] == "agentic-cli abort --force"
 
 
 def test_finish_refuses_to_close_a_run_with_an_unmerged_cleanup_lifecycle(
@@ -316,8 +356,8 @@ def test_cleanup_rejects_a_wrong_confirmation_token(
 def test_cleanup_refuses_until_github_reports_the_pr_merged(
     verified, gh_stub, feature_repo, bare_remote, monkeypatch
 ):
-    from agentic_cli.publish.github import PullRequestStatus
     from agentic_cli.publish import github as githubmod
+    from agentic_cli.publish.github import PullRequestStatus
 
     token = verified.run("gate")["data"]["token"]
     verified.run("push", "--confirm", token)
@@ -379,8 +419,8 @@ def test_publish_config_sets_the_gate_pr_title(feature_repo, bare_remote, tmp_pa
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")
+    agent.run("stage", "run", "lint")
     agent.run("mergeback")
     assert agent.run("gate")["data"]["pr_title"] == "Configured title"
 
@@ -405,8 +445,8 @@ def test_draft_pr_config_is_honoured(feature_repo, bare_remote, tmp_path, gh_stu
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")
+    agent.run("stage", "run", "lint")
     agent.run("mergeback")
     token = agent.run("gate")["data"]["token"]
     agent.run("push", "--confirm", token)

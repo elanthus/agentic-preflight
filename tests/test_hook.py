@@ -6,8 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 from agentic_cli.envelope import ExitCode
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
@@ -127,7 +125,7 @@ def test_the_block_message_goes_to_stderr_and_names_the_skill(feature_repo):
 
 def test_the_block_message_explains_an_amend(feature_repo, tmp_path):
     """The most common cause deserves the most specific message."""
-    agent = _green_run(feature_repo, tmp_path)
+    _green_run(feature_repo, tmp_path)
     green_sha = git("rev-parse", "HEAD", cwd=feature_repo)
 
     write(feature_repo, "src/app.py", "def greet(n):\n    return 'amended'\n")
@@ -152,8 +150,8 @@ def _green_run(repo, tmp_path):
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")
+    agent.run("stage", "run", "lint")
     agent.run("mergeback")
     return agent
 
@@ -221,7 +219,6 @@ def test_a_force_push_is_blocked_even_when_green(feature_repo, tmp_path):
     """Non-fast-forward rewrites history the remote already has."""
     _green_run(feature_repo, tmp_path)
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
-    unrelated = git("rev-parse", "HEAD~1", cwd=feature_repo)
     # remote_sha that is not an ancestor of local_sha would be a force push;
     # here we use a sha the local tip does not descend from.
     result = hook_check(

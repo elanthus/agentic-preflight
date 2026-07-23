@@ -1,7 +1,7 @@
 # agentic-cli
 
-An agent-driven quality gate. Nothing reaches your remote until review, docs, lint, and
-tests are all green for that exact commit.
+An agent-driven quality gate. Nothing reaches your remote until review, tests, docs,
+and lint are all green for that exact commit.
 
 **Python here is a deterministic state machine with a JSON-over-stdout CLI. It never
 calls an LLM.** No API keys, no model configuration, no token budgets. The coding agent
@@ -13,14 +13,17 @@ HTTP client.
 ## How it works
 
 ```
-start → context → submit-findings → respond → verify        (review)
+start --intent "..." → fetch/rebase → context → submit-findings → verify (review)
+      → stage run test
       → context --section docs → submit-findings → verify   (docs)
-      → stage run lint → stage run test
+      → stage run lint
       → mergeback → gate → push → finish → gc               (no PR)
-      → mergeback → gate → push → pr → [merge] → cleanup    (PR)
+      → mergeback → gate → push → pr → ci → cleanup         (PR)
 ```
 
-The agent drives that loop. Every command returns one JSON object containing `next` —
+`start` requires the user's objective and acceptance criteria, fetches `origin`, and
+rebases the disposable validation worktree onto the fresh base before review. The agent
+drives the loop. Every command returns one JSON object containing `next` —
 the single next legal command — so the agent never has to guess. Stage-skipping is not
 forbidden by documentation; it is **structurally unrepresentable**, because no
 transition exists from a review state to a push state. That property is proved by
@@ -103,8 +106,8 @@ for it).
 `.env`. Configure `[worktree] setup_command` for non-Node dependencies and
 `copy_files` for ignored files such as `.env`. Node lockfiles are handled
 automatically: pnpm gets a frozen install backed by its shared content-addressable
-store; npm reuses the main checkout's `node_modules` only when dependency inputs are
-unchanged and the activated Node ABI matches, otherwise it runs an isolated `npm ci`.
+store; npm runs `npm ci` in each worktree so the verified dependency tree is isolated
+from the main checkout.
 Use `--baseline` so a pre-existing failure is reported rather than blamed on your diff.
 
 **Runtime pins are activated explicitly.** Non-interactive agent shells often miss
@@ -164,7 +167,18 @@ allow_force_push = false
 provider = "auto"
 draft_pr = false
 pr_title = "Optional fixed title"
+
+[ci]
+timeout_seconds = 3600
+poll_interval_seconds = 30
 ```
+
+After a PR opens, `agentic-cli ci` monitors checks and mergeability. It reports passed
+checks, fetches failed GitHub Actions logs, and persists the failure with the original
+intent. Repairs are host-driven: agentic-cli never calls a model. The host agent fixes
+and commits the source branch, then starts a fresh synchronized full validation before
+another push. Monitoring continues through host invocations until merge, close, or
+timeout.
 
 The resolved configuration is snapshotted when `start` creates a run. Editing
 `.agentic-cli.toml` afterward does not change that run; the snapshot and its digest are
@@ -205,12 +219,10 @@ content-addressable store while creating the lockfile-specific layout inside eac
 worktree, avoiding cross-worktree package duplication. See the
 [pnpm storage model](https://pnpm.io/motivation).
 
-For npm, `package.json`, `package-lock.json`, and `.npmrc` must be unchanged from the
-run's base and byte-identical to the main checkout before its `node_modules` can be
-symlinked. A committed Node requirement must also match the activated Node major; this
-prevents sharing native modules across incompatible Node ABIs. Any mismatch runs
-`npm ci`, which installs the branch's frozen dependency graph in isolation. The
-symlink belongs to the disposable worktree, so normal cleanup removes only the link.
+For npm, a committed `package-lock.json` always runs `npm ci` inside the disposable
+worktree. The install uses npm's cache but never symlinks the main checkout's
+`node_modules`, so verification cannot mutate or accidentally commit the source
+checkout's dependency tree.
 
 ## Exit codes
 

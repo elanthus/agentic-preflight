@@ -1,5 +1,10 @@
 # agentic-cli — agent-driven quality gate
 
+> Historical design record. Fresh-base synchronization, persisted user intent,
+> review → test → docs → lint ordering, and host-driven CI monitoring were implemented
+> after this plan; statements below that defer those capabilities describe the original
+> v1 scope, not the current CLI.
+
 ## Context
 
 The Go tool [`no-mistakes`](https://github.com/kunchenguid/no-mistakes) gates pushes behind an AI validation pipeline (review → test → docs → lint → push → PR → CI) by running a **local git proxy remote**: you `git push no-mistakes`, a daemon intercepts, validates in a disposable worktree, and only then forwards to the real remote.
@@ -230,6 +235,7 @@ M0 and M4 are the substantial milestones; M2, M5, and M6 are hours each.
 - **Cherry-pick conflict test — the single most important test.** Construct a guaranteed conflict; assert exit 4, `HEAD == pre_sha`, clean tree, fix commits and worktree still present, `.git/CHERRY_PICK_HEAD` gone.
 - **Docs stage tests:** a code-only diff yields zero docs findings and reaches `DOCS_GREEN`; a docs finding against a source file is rejected; `require_changelog = true` with an untouched changelog injects the code-owned blocking finding; `[docs] enabled = false` transitions straight to lint.
 - **Copied-file containment tests** (secret-leak class, treat as blocking): a gitignored `.env` is copied and `git status --porcelain` in the worktree stays empty; a **non**-ignored `.env` is refused with exit 3 and is not copied; a fix commit that adds a `copy_files` path is rejected by `respond` *and* by merge-back independently; `.env` contents never appear in `context` output, stage logs, or any envelope; worktree cleanup removes the copies.
+- **Node dependency isolation tests:** pnpm uses a frozen install backed by its content-addressable store; npm always runs `npm ci` in the disposable worktree and never symlinks the main checkout's `node_modules`.
 - **Crash atomicity:** monkeypatch `os.replace` to raise → `run.json` still valid, `gc` recovers.
 - **`gh` stub** on `PATH` recording argv; assert we never pass a token and never hit the network. Same trick for lint/test via `--command "exit 1"`.
 - **Hook tests** run a real `git push` against the bare remote, including: green run → `git commit --amend` → push blocked.
@@ -238,7 +244,7 @@ M0 and M4 are the substantial milestones; M2, M5, and M6 are hours each.
 
 ## Known risks
 
-1. **Worktree environment gap** (highest). Fresh worktree lacks `.venv`/`node_modules`/`.env`; tests fail for reasons unrelated to the diff and the agent fixes phantom problems. Mitigated by `setup_command` + `copy_files` + base-commit baseline check. If this proves insufficient in practice, the escape hatch is a non-default `general.worktree = false` in-place mode — explicitly deferred, not in v1.
+1. **Worktree environment gap** (highest). Fresh worktree lacks `.venv`/`node_modules`/`.env`; tests fail for reasons unrelated to the diff and the agent fixes phantom problems. Mitigated by isolated lockfile-aware Node setup, `setup_command` + `copy_files` + base-commit baseline check. If this proves insufficient in practice, the escape hatch is a non-default `general.worktree = false` in-place mode — explicitly deferred, not in v1.
 2. **SHA identity churn.** People amend, rebase, and squash constantly; each invalidates the green and forces a full re-run, which may push users to `--no-verify` permanently. Tree-equivalence covers the cherry-pick case; accepting a `tree_sha` match (rebase with no content change) is the planned v2 relief, which is why `LedgerEntry` carries it now.
 3. **The gate is advisory.** The agent can read its own token; `--no-verify` defeats the hook. No cryptographic answer exists here — the README must state plainly that this guards against mistakes, not against a careless or misaligned agent. `gate.mode = "manual"` is the honest fix for those who need one.
 4. **Docs-stage noise.** A docs check with a loose rubric generates low-value findings on every run ("consider documenting this helper"), and stage fatigue is what gets a gate disabled. Mitigations: docs findings default to non-blocking below `high`, zero findings is explicitly framed as the normal outcome in SKILL.md, and the rubric is written around a single obligation test — *would a reader following the current docs now be wrong?* — rather than an aspirational completeness standard.

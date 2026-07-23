@@ -48,8 +48,12 @@ preserved unless `--force` is explicit. At least one agent or custom target is r
 
 ## Running a gate
 
-### `agentic-cli start [--base-ref REF]`
+### `agentic-cli start --intent TEXT [--base-ref REF]`
 Creates a run and a disposable worktree at the current HEAD on branch `ac/<run_id>`.
+The intent is required and persisted as the user's objective and acceptance criteria.
+Before review, the command fetches the configured base from `origin` when available and
+rebases the disposable worktree onto that exact fresh base. A sync conflict is aborted
+cleanly and reported; no conflicted rebase is left in progress.
 Refuses a dirty tree (exit 3, `dirty_tree`) and a branch with no changes over the base
 (exit 3, `empty_diff`). Copies `[worktree] copy_files` into the worktree, refusing any
 entry git is not already ignoring there.
@@ -64,9 +68,8 @@ worktree is a clean checkout, so every gitignored artifact directory the toolcha
 relies on is absent and gets rebuilt from nothing on the first run.
 
 With `[worktree] dependency_setup = "auto"`, a pnpm lockfile triggers
-`pnpm install --frozen-lockfile`. For npm, unchanged `package.json`,
-`package-lock.json`, and `.npmrc` plus a matching activated Node major allow the main
-checkout's `node_modules` to be symlinked; otherwise the worktree runs `npm ci`.
+`pnpm install --frozen-lockfile`. A committed npm `package-lock.json` always triggers
+`npm ci` inside the worktree; the main checkout's `node_modules` is never symlinked.
 `setup_command` overrides this automatic setup. Use `copy_files` only for ignored files
 such as `.env`; directories are refused with a clear setup instruction.
 
@@ -79,7 +82,7 @@ call twice.
 
 - Both sections: `diff`, `changed_files`, `excluded_files`, `worktree_path`.
 - `--section docs` adds `doc_surface`: every documentation file with `exists`, `size`,
-  and `touched_by_diff`. From `REVIEW_GREEN` this opens the docs stage.
+  and `touched_by_diff`. From `TEST_GREEN` this opens the docs stage.
 
 Exits 2 with `data.mode = "diff_too_large"` when the diff exceeds `[diff] max_bytes`.
 The diff is never truncated — narrow it with `[diff] exclude` or raise the limit.
@@ -171,12 +174,19 @@ is missing or unauthenticated, exits 4 with a prefilled `compare_url`.
 Title precedence is `--title`, `[publish] pr_title`, branch name, then the first commit
 subject when no branch name is available.
 
+### `agentic-cli ci [--once] [--timeout-seconds N] [--poll-interval-seconds N]`
+Monitors PR checks and mergeability through `gh`. It reports `checks_passed`, merge,
+close, or timeout, and fetches failed GitHub Actions logs when run IDs are available.
+On failure it returns the logs, preserved intent, and a fresh-run command to the host.
+The CLI never invokes a model: the host agent makes the repair, commits it, and drives a
+new synchronized review → test → docs → lint validation before pushing again.
+
 ### `agentic-cli finish`
 Marks a pushed run with no pull request `DONE`. It preserves the run directory and
 audit logs, clears the current-run pointer, and directs the next step to `gc`.
 
 ### `agentic-cli cleanup [--confirm TOKEN]`
-For a run in `PR_OPEN`, verifies through `gh` that the PR is merged. Without a token it
+For a run in the PR/CI lifecycle, verifies through `gh` that the PR is merged. Without a token it
 returns a deletion preview and confirmation token but changes nothing. After the user
 approves that exact preview, `--confirm` re-checks merge status, switches a clean PR
 source checkout to the base branch if necessary, and removes that run's worktree,

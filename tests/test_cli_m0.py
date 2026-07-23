@@ -32,6 +32,26 @@ def test_start_creates_a_run_and_points_at_context(agent):
     assert "context" in env["next"]["command"]
 
 
+def test_start_requires_explicit_user_intent(agent):
+    env = agent.run("start", "--intent", "", expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "intent_required"
+    assert "--intent" in env["next"]["command"]
+
+
+def test_start_persists_intent_in_context_and_status(agent):
+    intent = "add a loud greeting without changing the default response"
+    started = agent.run("start", "--intent", intent)
+    assert started["data"]["intent"] == intent
+    assert agent.run("context")["data"]["intent"] == intent
+    assert agent.run("status")["data"]["intent"] == intent
+
+
+def test_start_records_fresh_sync_metadata(agent):
+    env = agent.run("start")
+    assert env["data"]["sync"]["base_sha"]
+    assert env["data"]["sync"]["head_after"] == env["data"]["head_sha"]
+
+
 def test_start_reports_an_absolute_worktree_path(agent):
     env = agent.run("start")
     assert env["data"]["worktree_path"].startswith("/")
@@ -227,6 +247,7 @@ def test_status_is_legal_before_any_run_exists(feature_repo):
     assert env["ok"] is True
     assert env["data"]["has_run"] is False
     assert "start" in env["next"]["command"]
+    assert "--intent" in env["next"]["command"]
 
 
 def test_status_reports_state_and_findings_summary(agent, tmp_path):
@@ -269,6 +290,8 @@ def test_a_moved_head_marks_the_run_stale_and_refuses_to_continue(agent, feature
     )
     assert env["error"]["code"] == "stale_run"
     assert "start" in env["next"]["command"]
+    assert "--intent" in env["next"]["command"]
+    assert "exercise the requested behavior safely" in env["next"]["command"]
 
 
 def test_status_still_works_on_a_stale_run(agent, feature_repo):
@@ -277,6 +300,7 @@ def test_status_still_works_on_a_stale_run(agent, feature_repo):
     commit_all(feature_repo, "move the head")
     env = agent.run("status")
     assert env["data"]["stale"] is True
+    assert "--intent" in env["next"]["command"]
 
 
 def test_status_uses_the_snapshot_when_working_copy_config_breaks(agent, feature_repo):

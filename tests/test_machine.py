@@ -13,6 +13,19 @@ def test_start_moves_created_to_worktree_ready():
     assert next_state(State.CREATED, Action.CREATE_WORKTREE) == State.WORKTREE_READY
 
 
+def test_sync_is_load_bearing_before_review():
+    assert next_state(State.WORKTREE_READY, Action.BEGIN_SYNC) == State.SYNC_RUNNING
+    assert next_state(State.SYNC_RUNNING, Action.SYNC_PASSED) == State.SYNC_GREEN
+    assert next_state(State.SYNC_GREEN, Action.BEGIN_REVIEW) == State.REVIEW_AWAITING_FINDINGS
+
+
+def test_local_checks_run_review_then_test_then_docs_then_lint():
+    assert next_state(State.REVIEW_GREEN, Action.RUN_TEST) == State.TEST_RUNNING
+    assert next_state(State.TEST_GREEN, Action.BEGIN_DOCS) == State.DOCS_AWAITING_FINDINGS
+    assert next_state(State.DOCS_GREEN, Action.RUN_LINT) == State.LINT_RUNNING
+    assert next_state(State.LINT_GREEN, Action.BEGIN_MERGEBACK) == State.MERGEBACK_PENDING
+
+
 def test_illegal_transition_raises_with_the_legal_actions_named():
     with pytest.raises(IllegalTransition) as exc:
         next_state(State.CREATED, Action.SUBMIT_FINDINGS)

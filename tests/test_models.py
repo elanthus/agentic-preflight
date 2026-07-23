@@ -63,8 +63,11 @@ def test_run_doc_round_trips_through_json():
         base_ref="main",
         merge_base_sha="a" * 40,
         head_sha="b" * 40,
+        source_head_sha="b" * 40,
+        intent="preserve the public behavior",
     )
     restored = RunDoc.model_validate_json(run.model_dump_json())
     assert restored == run
     assert restored.seq == 0
     assert restored.fix_commits == []
+    assert restored.intent == "preserve the public behavior"
