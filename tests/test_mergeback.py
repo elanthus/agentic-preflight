@@ -28,7 +28,8 @@ def ready(feature_repo, tmp_path):
 
     def build(*, with_fix=True, fix_content=None):
         write(feature_repo, ".agentic-cli.toml",
-              "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n")
+              "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+              "\n[worktree]\nmode = 'reusable'\n")
         commit_all(feature_repo, "configure agentic-cli")
         agent = ScriptedAgent(feature_repo)
         env = agent.run("start")
@@ -56,6 +57,40 @@ def ready(feature_repo, tmp_path):
 
 
 # -- the happy path ---------------------------------------------------------
+
+
+def test_default_in_place_mode_records_repairs_and_attests_without_cherry_pick(
+    feature_repo, tmp_path
+):
+    write(
+        feature_repo,
+        ".agentic-cli.toml",
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n",
+    )
+    commit_all(feature_repo, "configure agentic-cli")
+    agent = ScriptedAgent(feature_repo)
+    started = agent.run("start")
+    assert started["data"]["worktree_mode"] == "in_place"
+    assert started["data"]["worktree_path"] == str(feature_repo)
+
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, BLOCKING))
+    write(feature_repo, "src/app.py", "def greet(name, loud=False):\n    return 'FIXED'\n")
+    fix_sha = commit_all(feature_repo, "apply the fix directly")
+    agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", fix_sha)
+    status = agent.run("status")
+    assert status["data"]["head_sha"] == fix_sha
+    assert status["data"]["source_head_sha"] == fix_sha
+
+    agent.run("verify")
+    agent.run("stage", "run", "test")
+    agent.run("stage", "run", "lint")
+    merged = agent.run("mergeback")
+
+    assert merged["data"]["worktree_mode"] == "in_place"
+    assert merged["data"]["pre_sha"] == merged["data"]["post_sha"] == fix_sha
+    assert merged["data"]["applied"] == []
+    assert merged["data"]["tree_equivalent"] is True
 
 
 def test_mergeback_applies_fix_commits_to_the_branch(ready, feature_repo):
@@ -153,7 +188,8 @@ def test_mergeback_is_illegal_before_tests_pass(feature_repo, tmp_path):
 def test_conflict_aborts_and_restores_the_branch_exactly(feature_repo, tmp_path):
     """Construct a guaranteed conflict and assert the full abort contract."""
     write(feature_repo, ".agentic-cli.toml",
-          "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n")
+          "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+          "\n[worktree]\nmode = 'reusable'\n")
     commit_all(feature_repo, "configure agentic-cli")
 
     agent = ScriptedAgent(feature_repo)

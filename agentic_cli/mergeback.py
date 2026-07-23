@@ -1,4 +1,4 @@
-"""Cherry-picking verified fix commits back onto the user's branch.
+"""Cherry-picking isolated fix commits back onto the source branch.
 
 Strict by design. Two invariants dominate this module:
 
@@ -8,6 +8,9 @@ exactly where it started, and hand back an explicit resolution path. No
 tool that silently picks a side during a conflict has quietly made a code
 decision nobody reviewed — which is the precise opposite of what this exists to
 do.
+
+In-place validation bypasses this module's cherry-pick operation because its
+verified commits already live on the source branch.
 
 **Tree-equivalence attestation.** The ledger is keyed on exact commit SHA, but
 cherry-picking *changes* the SHA, so what was verified is not literally what

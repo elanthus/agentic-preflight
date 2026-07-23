@@ -57,12 +57,11 @@ def test_start_reports_an_absolute_worktree_path(agent):
     assert env["data"]["worktree_path"].startswith("/")
 
 
-def test_start_places_the_worktree_outside_git(agent, feature_repo):
+def test_start_uses_the_current_checkout_by_default(agent, feature_repo):
     env = agent.run("start")
     worktree_path = Path(env["data"]["worktree_path"])
-    git_dir = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo))
-    assert not worktree_path.is_relative_to(git_dir)
-    assert not worktree_path.is_relative_to(feature_repo)
+    assert worktree_path == feature_repo
+    assert env["data"]["worktree_mode"] == "in_place"
 
 
 def test_start_leaves_the_users_tree_on_its_own_branch(agent, feature_repo):

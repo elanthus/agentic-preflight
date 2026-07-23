@@ -24,20 +24,19 @@ Python here never calls a model — every judgment in this workflow is yours.
 5. **Never push or open a PR without asking the user in plain language first.**
    Show them what will happen and wait for an actual answer.
 6. **Never resolve a merge-back conflict.** Paste the resolution block and stop.
-7. **Keep the user's working tree clean for the whole run.** `mergeback` refuses on
-   *any* dirt, including untracked files with nothing to do with the diff. And
-   `.agentic-cli.toml` is read from the working copy, not the commit under test, so
-   a `[commands]` change must be committed **before `start`** — never edited
-   mid-run. An uncommitted edit there surfaces later as a cherry-pick conflict that
-   looks like a content conflict and is not one. If you must touch the tree, say so
-   and hand it back to the user.
+7. **Keep the validation checkout clean for the whole run.** The default
+   `in_place` mode uses the current checkout, so only deliberate repair commits may
+   move its branch; uncommitted changes or an unaccounted commit stop the run.
+   `.agentic-cli.toml` must be committed **before `start`** and must not be edited
+   mid-run. In `reusable` or `strict` mode, make repairs only in the absolute
+   `worktree_path` returned by the CLI.
 
 ## The loop
 
 ```
 $ agentic-cli start --intent "<the user's objective and acceptance criteria>"
 {"ok":true,"run_id":"r_4f2a","state":"REVIEW_AWAITING_FINDINGS",
- "data":{"worktree_path":"/repos/.agentic-cli-worktrees/repo-a1b2/r_4f2a","changed_files":["src/auth.py"]},
+ "data":{"worktree_path":"/repos/my-project","worktree_mode":"in_place","changed_files":["src/auth.py"]},
  "next":{"instruction":"Fetch the diff before judging it.","command":"agentic-cli context"}}
 
 $ agentic-cli context
@@ -50,8 +49,8 @@ $ agentic-cli submit-findings --file findings.json
 {"ok":true,"state":"REVIEW_AWAITING_RESPONSES","blocking":[{"id":"F001","severity":"high",...}],
  "next":{"command":"agentic-cli respond --id F001 --action fixed --commit <sha>"}}
 
-# Fix it IN THE WORKTREE (data.worktree_path), commit there, then:
-$ cd /repos/.agentic-cli-worktrees/repo-a1b2/r_4f2a && git add -A && git commit -m "use constant-time compare"
+# Fix it in data.worktree_path, commit there, then:
+$ cd /repos/my-project && git add -A && git commit -m "use constant-time compare"
 $ agentic-cli respond --id F001 --action fixed --commit 9c3d1ab
 {"ok":true,"state":"REVIEW_FIXING","next":{"command":"agentic-cli verify"}}
 
@@ -72,7 +71,7 @@ $ agentic-cli stage run lint
 {"ok":true,"state":"LINT_GREEN","next":{"command":"agentic-cli mergeback"}}
 
 $ agentic-cli mergeback
-{"ok":true,"state":"VERIFIED","data":{"tree_equivalent":true},
+{"ok":true,"state":"VERIFIED","data":{"worktree_mode":"in_place","applied":[],"tree_equivalent":true},
  "next":{"command":"agentic-cli gate"}}
 
 $ agentic-cli gate
@@ -95,8 +94,9 @@ $ agentic-cli finish
 $ agentic-cli gc
 ```
 
-Work happens in the **worktree**, never in the user's tree. Use the absolute
-`worktree_path` from `context`; do not assume `cd` persists between your tool calls.
+Work happens in the absolute **validation checkout** named by `worktree_path`. In the
+default `in_place` mode that is the current PR checkout; in `reusable` and `strict`
+modes it is an isolated worktree. Never assume `cd` persists between tool calls.
 
 ## How to review
 
@@ -174,7 +174,7 @@ in every state. If you are ever unsure where you are, that is always the right c
 
 ## Failure playbooks
 
-**Merge-back conflict (exit 4).** The branch has already been restored exactly and
+**Merge-back conflict (exit 4, isolated modes only).** The branch has already been restored exactly and
 your fix commits are safe in the worktree. Paste `data.resolution` to the user
 verbatim and **stop**. Do not cherry-pick, do not force, do not pick a side. A
 conflict is a content decision and it is not yours to make.
@@ -219,11 +219,12 @@ instead of costing a retry. Confirm the run actually did work (a test count, a r
 file, a non-empty log) before believing it. The trap is usually a flag: `-quit` on a
 Unity `-runTests` invocation exits 0 having run zero tests.
 
-**Stage far slower in the worktree than in the user's tree.** Check `[worktree] mode`.
-The default reusable runner retains ignored build caches and skips Node installation
-while its dependency/runtime fingerprint matches. Strict mode is a clean checkout with
-no build cache and runs the frozen install every time. Neither mode shares the main
-checkout's `node_modules`; use `[worktree] setup_command` to prepare non-Node caches.
+**Stage far slower than normal.** Check `[worktree] mode`. The default `in_place` mode
+uses the checkout's existing environment and does not run an automatic dependency
+install. The reusable runner retains ignored build caches and skips Node installation
+while its fingerprint matches. Strict mode has no build cache and runs the frozen
+install every time. Isolated modes do not share the source checkout's `node_modules`;
+use `[worktree] setup_command` to prepare non-Node caches.
 `copy_files` is for ignored files such as `.env`, not directories. Do not raise
 `[stage] max_attempts` to paper over it.
 
@@ -238,8 +239,8 @@ non-zero on an empty set, which reads as a red stage. Jest is the common case:
 override, so it finds zero test files no matter how healthy the code is. Symlinks do
 not help — real paths are resolved. Confirm by running the same command in a worktree
 outside `.git`; if that finds files, point the stage command at a script that checks
-the commit under test out to a non-`.git` path and runs there. Never point it at the
-user's tree: that reports on the wrong content and is a false green.
+the commit under test out to a non-`.git` path and runs there. Never point an isolated
+run at the source checkout: that reports on the wrong content and is a false green.
 
 **Green in your shell, red under the gate.** Stages run non-interactively, so
 version-manager shims (nvm, rbenv, pyenv, asdf) are absent and tools resolve to

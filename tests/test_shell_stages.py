@@ -42,7 +42,10 @@ def docs_green(feature_repo, tmp_path):
 
 
 def test_a_configured_command_is_used(docs_green):
-    agent = docs_green("[docs]\nenabled = false\n\n[commands]\nlint = 'true'\n")
+    agent = docs_green(
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\n"
+        "\n[worktree]\nmode = 'reusable'\n"
+    )
     env = agent.run("stage", "run", "lint")
     assert env["state"] == "LINT_GREEN"
     assert env["data"]["command"] == "true"
@@ -57,7 +60,10 @@ def test_an_explicit_command_flag_overrides_config(docs_green):
 def test_a_run_keeps_its_config_when_the_main_tree_config_changes(
     docs_green, feature_repo
 ):
-    agent = docs_green("[docs]\nenabled = false\n\n[commands]\nlint = 'true'\n")
+    agent = docs_green(
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\n"
+        "\n[worktree]\nmode = 'reusable'\n"
+    )
     write(
         feature_repo,
         ".agentic-cli.toml",

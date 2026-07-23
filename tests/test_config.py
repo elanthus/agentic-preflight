@@ -10,7 +10,7 @@ def test_defaults_apply_when_no_config_file_exists(tmp_repo, tmp_path):
     assert cfg.docs.enabled is True
     assert cfg.worktree.copy_files == [".env"]
     assert cfg.worktree.root is None
-    assert cfg.worktree.mode == "reusable"
+    assert cfg.worktree.mode == "in_place"
     assert cfg.worktree.dependency_setup == "auto"
     assert cfg.runtime.manager == "auto"
     assert cfg.runtime.strict is True
@@ -108,6 +108,17 @@ def test_worktree_mode_rejects_an_unknown_value(tmp_repo, tmp_path):
     with pytest.raises(ConfigError) as exc:
         load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
     assert "careless" in str(exc.value)
+
+
+@pytest.mark.parametrize("mode", ["in_place", "reusable", "strict"])
+def test_all_worktree_modes_are_explicit_configuration_options(
+    tmp_repo, tmp_path, mode
+):
+    (tmp_repo / ".agentic-cli.toml").write_text(
+        f"[worktree]\nmode = {mode!r}\n"
+    )
+    cfg = load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert cfg.worktree.mode == mode
 
 
 def test_config_is_constructible_with_no_arguments():

@@ -27,19 +27,24 @@ start --intent "..." → fetch/rebase → context → submit-findings → verify
 ```
 
 `start` requires the user's objective and acceptance criteria, fetches `origin`, and
-rebases the isolated validation worktree onto the fresh base before review. The agent
+rebases the validation checkout onto the fresh base before review. The agent
 drives the loop. Every command returns one JSON object containing `next` —
 the single next legal command — so the agent never has to guess. Stage-skipping is not
 forbidden by documentation; it is **structurally unrepresentable**, because no
 transition exists from a review state to a push state. That property is proved by
 enumerating every path through the machine, not by testing a few.
 
-Work happens in an isolated git worktree. By default, one runner in a hidden sibling
-directory is reused serially across runs, so ignored dependency and build caches do not
-need to be rewritten for every pull request. The runner is outside `.git`, so Jest and
-other tools that ignore VCS directories can see it, and your working tree is never
-touched during verification. Set `[worktree] mode = "strict"` to create a fresh
-worktree for every run and remove it afterward.
+By default, work happens directly in the current checkout (`[worktree] mode =
+"in_place"`). This is intended for a clean, dedicated one-agent/one-PR worktree: the
+fresh-base rebase and accepted repair commits land directly on the PR branch, and
+`mergeback` becomes a no-op attestation of the exact SHA that passed every stage. Any
+uncommitted change or unaccounted branch movement stops the run.
+
+Two isolated modes remain available. `mode = "reusable"` leases one runner in a hidden
+sibling directory serially across runs, preserving ignored dependency and build caches.
+`mode = "strict"` creates a fresh worktree for every run and removes it afterward. Both
+keep the source checkout untouched during verification; the runner is outside `.git`,
+so Jest and other tools that ignore VCS directories can see it.
 
 Reusable mode resets tracked files, removes non-ignored untracked files, explicitly
 removes every `[worktree] copy_files` entry, and then detaches the runner before its
@@ -115,12 +120,13 @@ or squash forces a fresh run. Cherry-picked merge-back is handled via tree-equiv
 attestation; rebase tolerance is planned for v2 (the ledger already records `tree_sha`
 for it).
 
-**Worktrees can differ from your environment.** The runner does not inherit the main
-checkout's `.venv` or `.env`. Configure `[worktree] setup_command` for non-Node
-dependencies and `copy_files` for ignored files such as `.env`. Node lockfiles are
-handled automatically: reusable mode retains a fingerprint-matched install, while
-strict mode installs the frozen dependency tree in every fresh worktree. Neither mode
-uses the main checkout's `node_modules`.
+**Isolated worktrees can differ from your environment.** In-place mode deliberately uses
+the checkout's existing dependencies and ignored files. An isolated runner does not
+inherit the source checkout's `.venv` or `.env`; configure `[worktree] setup_command`
+for non-Node dependencies and `copy_files` for ignored files such as `.env`. Node
+lockfiles are handled automatically: reusable mode retains a fingerprint-matched
+install, while strict mode installs the frozen dependency tree in every fresh worktree.
+Neither isolated mode uses the source checkout's `node_modules`.
 Use `--baseline` so a pre-existing failure is reported rather than blamed on your diff.
 
 **Runtime pins are activated explicitly.** Non-interactive agent shells often miss
@@ -160,9 +166,9 @@ max_bytes = 200000
 exclude = ["*.lock", "*-lock.json", "vendor/**", "**/*.min.js"]
 
 [worktree]
-mode = "reusable"            # default; use "strict" for a fresh worktree per run
-root = "/optional/external/path" # default: hidden sibling directory outside .git
-copy_files = [".env"]        # must already be gitignored
+mode = "in_place"            # default; or "reusable" / "strict"
+root = "/optional/external/path" # isolated modes only; defaults outside .git
+copy_files = [".env"]        # protected in place, copied when isolated; must be ignored
 dependency_setup = "auto"    # pnpm/npm lockfile-aware; use "off" to disable
 # setup_command = "uv sync"  # overrides automatic dependency setup
 
@@ -213,22 +219,25 @@ outright.
 
 ### Secrets in worktrees
 
-Files in `[worktree] copy_files` are copied into the worktree so tests can run, and are
-protected by two independent guards:
+Files in `[worktree] copy_files` are used in place or copied into an isolated worktree so
+tests can run, and are protected by two independent guards:
 
-1. **Preflight refusal** — a file git is not already ignoring *in the worktree* is never
-   copied. Add it to `.gitignore` and commit that first.
+1. **Preflight refusal** — a file git is not already ignoring in the validation checkout
+   is never used or copied. Add it to `.gitignore` and commit that first.
 2. **Commit-content invariant** — any commit touching a copied path is rejected by both
    `respond` and `mergeback`, checked against commit content rather than ignore rules, so
    a `.gitignore` edited mid-run cannot open the hole.
 
-Copies are mode `0600`, are removed explicitly when a reusable runner is released (or
-die with a strict worktree), and their contents are redacted from stage logs and never
-placed in any envelope.
+Isolated copies are mode `0600`, are removed explicitly when a reusable runner is
+released (or die with a strict worktree). In-place files are never moved or removed.
+Their contents are redacted from stage logs and never placed in any envelope.
 
 ### Node dependencies in worktrees
 
-With `dependency_setup = "auto"`, a committed `pnpm-lock.yaml` uses
+In-place mode reuses the checkout's existing dependency environment and does not run an
+automatic install. An explicit `setup_command` still runs.
+
+In isolated modes with `dependency_setup = "auto"`, a committed `pnpm-lock.yaml` uses
 `pnpm install --frozen-lockfile`. pnpm hard-links package contents from its shared
 content-addressable store. In reusable mode, the install is retained and skipped when
 its fingerprint still matches. See the
@@ -238,15 +247,20 @@ For npm, strict mode runs `npm ci` in every fresh worktree. Reusable mode runs i
 first time and whenever the dependency fingerprint changes; otherwise it retains the
 runner's existing `node_modules`. The fingerprint covers dependency and runtime pin
 files, the activated Node version and modules ABI, package-manager version, platform,
-architecture, and install command. The main checkout's `node_modules` is never linked
-or modified.
+architecture, and install command. The source checkout's `node_modules` is never linked
+or modified by isolated modes.
 
 To switch modes, commit one of these settings and start a new run (an active run keeps
 the configuration snapshot it started with):
 
 ```toml
 [worktree]
-mode = "reusable" # one serial runner; lower disk churn, retained ignored caches
+mode = "in_place" # default; validate and repair directly in this clean PR checkout
+```
+
+```toml
+[worktree]
+mode = "reusable" # one serial isolated runner; retained ignored caches
 ```
 
 ```toml
@@ -256,7 +270,8 @@ mode = "strict"   # fresh worktree and dependency install for every run
 
 The first strict run removes any idle reusable runner and its retained dependency
 fingerprint. Switching back to reusable mode therefore begins with one clean install.
-Mode changes never reshape an active run because its configuration is snapshotted.
+In-place mode leaves any idle reusable runner alone. Mode changes never reshape an
+active run because its configuration is snapshotted.
 
 ## Exit codes
 
