@@ -1,5 +1,10 @@
 # agentic-cli
 
+[![CI](https://github.com/elanthus/agentic-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/elanthus/agentic-cli/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen)](https://github.com/elanthus/agentic-cli/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](pyproject.toml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
 An agent-driven quality gate. Nothing reaches your remote until review, tests, docs,
 and lint are all green for that exact commit.
 
