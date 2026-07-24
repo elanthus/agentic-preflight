@@ -85,9 +85,3 @@ no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 warn_unreachable = true
-
-[[tool.mypy.overrides]]
-module = "agentic_cli.runs"
-# Persisted state narrows optional fields at runtime through state guards. Mypy
-# cannot yet express that cross-field relationship; retain every other check.
-disable_error_code = ["arg-type", "union-attr", "misc"]
