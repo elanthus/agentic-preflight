@@ -8,6 +8,9 @@ lint = "uv run ruff check . && uv run mypy agentic_preflight"
 [docs]
 enabled = true
 
+[diff]
+max_bytes = 500000
+
 [ci]
 timeout_seconds = 3600
 poll_interval_seconds = 30
