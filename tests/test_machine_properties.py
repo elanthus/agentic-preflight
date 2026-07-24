@@ -10,7 +10,7 @@ from __future__ import annotations
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from agentic_cli.machine import (
+from agentic_preflight.machine import (
     TRANSITIONS,
     Action,
     IllegalTransition,

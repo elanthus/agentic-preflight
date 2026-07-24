@@ -1,7 +1,7 @@
 """Validation checkout lifecycle, and containment of local environment files.
 
 In-place runs use the caller's already-dedicated checkout. Isolated runs happen
-on ``ac/<run_id>``: strict worktrees die at the end of a run, while the reusable
+on ``ap/<run_id>``: strict worktrees die at the end of a run, while the reusable
 runner is reset and detached while retaining ignored caches for its next lease.
 
 The copied-file guards deserve their own note, because they defend against a
@@ -54,7 +54,7 @@ def default_root(repo: Path | str) -> Path:
     """
     repo = Path(repo).resolve()
     identity = sha256(str(gitx.git_common_dir(repo).resolve()).encode()).hexdigest()[:12]
-    return repo.parent / ".agentic-cli-worktrees" / f"{repo.name}-{identity}"
+    return repo.parent / ".agentic-preflight-worktrees" / f"{repo.name}-{identity}"
 
 
 def resolve_root(repo: Path | str, configured: str | None = None) -> Path:
@@ -125,7 +125,7 @@ def acquire_reusable(
     if current != "HEAD":
         raise WorktreeError(
             f"reusable runner {path} is still leased on branch {current!r}; "
-            "run `agentic-cli status` and finish, abort, or recover that run first"
+            "run `agentic-preflight status` and finish, abort, or recover that run first"
         )
     if gitx.run(repo, "rev-parse", "--verify", branch, check=False).returncode == 0:
         raise WorktreeError(

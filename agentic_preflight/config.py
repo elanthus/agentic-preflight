@@ -1,7 +1,7 @@
-"""``.agentic-cli.toml`` loading.
+"""``.agentic-preflight.toml`` loading.
 
 Repo config (committed, at the repo root) layers over user config
-(``~/.config/agentic-cli/config.toml``). Merging is per *section*, one level
+(``~/.config/agentic-preflight/config.toml``). Merging is per *section*, one level
 deep: a section present in the repo file replaces the user's section wholesale
 rather than merging key-by-key, so a reader of the committed file can tell what
 is in force without knowing the reader's home directory.
@@ -19,7 +19,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-REPO_CONFIG_NAME = ".agentic-cli.toml"
+REPO_CONFIG_NAME = ".agentic-preflight.toml"
 USER_CONFIG_NAME = "config.toml"
 
 from .diff import DEFAULT_EXCLUDE  # noqa: E402  (kept next to its one consumer)
@@ -197,7 +197,7 @@ def load_config(
 ) -> Config:
     repo_root = Path(repo_root)
     if user_config_dir is None:
-        user_config_dir = Path.home() / ".config" / "agentic-cli"
+        user_config_dir = Path.home() / ".config" / "agentic-preflight"
     user_config_dir = Path(user_config_dir)
 
     merged: dict[str, Any] = {}

@@ -1,4 +1,4 @@
-# agentic-cli — agent-driven quality gate
+# agentic-preflight — agent-driven quality gate
 
 > Historical design record. Fresh-base synchronization, persisted user intent,
 > review → test → docs → lint ordering, and host-driven CI monitoring were implemented
@@ -13,15 +13,15 @@ We want the same guarantee — *nothing reaches the remote until every check is 
 
 The replacement architecture: **Python is a deterministic state machine with a JSON-over-stdout CLI; the host coding agent is the only thinking component; a pre-push git hook is a pure predicate over a SHA ledger.** Python never calls an LLM — no API keys, no model config, no token budgets — which makes the tool agent-agnostic for free and removes most of what would otherwise need building.
 
-Outcome: a standalone, pip-installable repo named **`agentic-cli`** whose `SKILL.md` any coding agent can drive to review, document, lint, test, and ship a branch, with a hook that makes skipping the gate hard to do by accident.
+Outcome: a standalone, pip-installable repo named **`agentic-preflight`** whose `SKILL.md` any coding agent can drive to review, document, lint, test, and ship a branch, with a hook that makes skipping the gate hard to do by accident.
 
 ## Decisions (settled during brainstorming)
 
 | Decision | Choice |
 |---|---|
-| Name | `agentic-cli`. Package `agentic_cli`, console script `agentic-cli` (alias `ac`), skill `/agentic-cli`, config `.agentic-cli.toml`, state under `$GIT_COMMON_DIR/agentic-cli/`, external worktrees on branches `ac/<run_id>`. |
+| Name | `agentic-preflight`. Package `agentic_preflight`, console script `agentic-preflight` (alias `ap`), skill `/agentic-preflight`, config `.agentic-preflight.toml`, state under `$GIT_COMMON_DIR/agentic-preflight/`, external worktrees on branches `ap/<run_id>`. |
 | Home | Standalone new repo. Does not depend on `appkit`. |
-| Trigger | On-demand skill (`/agentic-cli`) **plus** optional pre-push hook installed by `init`. |
+| Trigger | On-demand skill (`/agentic-preflight`) **plus** optional pre-push hook installed by `init`. |
 | v1 stages | review, **docs**, lint, test, push+PR. (intent, rebase, CI monitoring are out.) |
 | AI execution | **Host agent does all thinking.** Python calls no LLM, ever. |
 | Hook role | Pure predicate. It's a subprocess of the agent's own Bash call and cannot call back up, so it verifies and bounces the agent back with an instructional stderr message. |
@@ -32,13 +32,13 @@ Outcome: a standalone, pip-installable repo named **`agentic-cli`** whose `SKILL
 
 ## Architecture
 
-Package `agentic_cli`, console script `agentic-cli` (alias `ac`). Deps: `click`, `pydantic>=2.6`, `tomllib`. **No LLM SDKs — enforced by an import-graph test.**
+Package `agentic_preflight`, console script `agentic-preflight` (alias `ap`). Deps: `click`, `pydantic>=2.6`, `tomllib`. **No LLM SDKs — enforced by an import-graph test.**
 
 ```
-agentic-cli/
+agentic-preflight/
   skill/SKILL.md              # agent-facing contract
   skill/reference/            # commands.md, findings-schema.md, docs-rubric.md
-  agentic_cli/
+  agentic_preflight/
     cli.py                    # arg parsing + envelope emit ONLY, no logic
     envelope.py machine.py store.py models.py events.py
     gitx.py worktree.py diff.py findings.py mergeback.py ledger.py
@@ -56,7 +56,7 @@ Every command prints **exactly one JSON object** to stdout; human prose goes to 
 
 ```json
 {"ok": true, "run_id": "r_...", "state": "AWAITING_FINDINGS", "stage": "review",
- "data": {}, "blocking": [], "next": {"instruction": "...", "command": "agentic-cli ..."},
+ "data": {}, "blocking": [], "next": {"instruction": "...", "command": "agentic-preflight ..."},
  "error": null}
 ```
 
@@ -68,7 +68,7 @@ Exit codes: `0` ok · `1` usage/internal · `2` stage failed · `3` precondition
 
 A run spans **multiple agent turns** — Python cannot block waiting for the agent to think — so state persists to disk between CLI invocations.
 
-Run dir lives under `$GIT_COMMON_DIR/agentic-cli/` (use `GIT_COMMON_DIR`, not `GIT_DIR`, so it works when the user is already inside a worktree). Never committed, never in `git status`, one namespace per clone.
+Run dir lives under `$GIT_COMMON_DIR/agentic-preflight/` (use `GIT_COMMON_DIR`, not `GIT_DIR`, so it works when the user is already inside a worktree). Never committed, never in `git status`, one namespace per clone.
 
 ```
 ledger.json · current · runs/<run_id>/{run.json,events.jsonl,findings.json,diff/,stages/,logs/}
@@ -124,7 +124,7 @@ Rubric lives in `skill/reference/docs-rubric.md`, not in SKILL.md, so it's pulle
 
 ### Worktree lifecycle
 
-Create via `git worktree add --detach <path> <head_sha>` then `git switch -c ac/<run_id>` inside (detached-then-branch avoids clobbering an existing name). Write the intent record to `run.json` *before* the git call so a crash mid-create is recoverable.
+Create via `git worktree add --detach <path> <head_sha>` then `git switch -c ap/<run_id>` inside (detached-then-branch avoids clobbering an existing name). Write the intent record to `run.json` *before* the git call so a crash mid-create is recoverable.
 
 Agent gets an **absolute** `worktree_path` from `context`; don't rely on `cd` persisting across tool calls. `submit-findings`/`respond` reject paths resolving outside it.
 
@@ -137,7 +137,7 @@ Agent gets an **absolute** `worktree_path` from `context`; don't rely on `cd` pe
 
 Copies are made with `shutil.copy2` and mode `0600`, recorded in `run.json` as `copied_files[]`, and die with the worktree on cleanup. They are never read, logged, echoed into an envelope, or included in `context` output — `copy_files` paths are added to the redaction set for stage logs.
 
-`gc` reconciles three sources (run dirs, `git worktree list --porcelain`, `ac/*` branches); anything holding unmerged fix commits is reported, never auto-deleted without `--force`.
+`gc` reconciles three sources (run dirs, `git worktree list --porcelain`, `ap/*` branches); anything holding unmerged fix commits is reported, never auto-deleted without `--force`.
 
 ### Merge-back (cherry-pick, strict)
 
@@ -164,19 +164,19 @@ Be honest in the README: the token is **not a security boundary** — the agent 
 
 `ledger.json`: `{schema_version, entries: {<sha>: LedgerEntry}}`, pruned to 100. `LedgerEntry` carries `sha, tree_sha, branch, base_ref, merge_base_sha, run_id, green_at, stages{review,docs,lint,test}, findings_summary{}`. Written once per run for the final local tip. (`tree_sha` is unused in v1 but present so a v2 rebase-tolerant predicate is a one-line change.)
 
-`.git/hooks/pre-push` is ~5 lines of sh calling `agentic-cli hook-check`, reading the stdin protocol `<local_ref> <local_sha> <remote_ref> <remote_sha>`. Per line: all-zeros (deletion) → allow; `local_sha` green in ledger → allow; else block. Force-push (non-zero `remote_sha` not an ancestor) blocks regardless unless `hook.allow_force_push`.
+`.git/hooks/pre-push` is ~5 lines of sh calling `agentic-preflight hook-check`, reading the stdin protocol `<local_ref> <local_sha> <remote_ref> <remote_sha>`. Per line: all-zeros (deletion) → allow; `local_sha` green in ledger → allow; else block. Force-push (non-zero `remote_sha` not an ancestor) blocks regardless unless `hook.allow_force_push`.
 
-Block message → **stderr**, written for an agent to read, and it names `/agentic-cli` so it functions as a skill trigger that loops the agent back in:
+Block message → **stderr**, written for an agent to read, and it names `/agentic-preflight` so it functions as a skill trigger that loops the agent back in:
 
 ```
-agentic-cli: push blocked.
+agentic-preflight: push blocked.
   commit: abc1234 (no green run recorded for this exact SHA)
   reason: ledger has 9f2c1de; you amended or added a commit since
-  fix:    run /agentic-cli
+  fix:    run /agentic-preflight
   bypass: git push --no-verify   (documented escape hatch)
 ```
 
-Constraints: <50ms, no network, no mutation, reads `ledger.json` only. **If `agentic-cli` isn't on PATH the hook allows and warns** — a broken tool must not brick the repo.
+Constraints: <50ms, no network, no mutation, reads `ledger.json` only. **If `agentic-preflight` isn't on PATH the hook allows and warns** — a broken tool must not brick the repo.
 
 ### SKILL.md
 
@@ -195,7 +195,7 @@ Anti-skip is layered: state guards make skipping impossible, `next` makes the ri
 
 ### Config
 
-`.agentic-cli.toml` (repo root, committed) over `~/.config/agentic-cli/config.toml`. Unknown keys error, naming the key. Sections:
+`.agentic-preflight.toml` (repo root, committed) over `~/.config/agentic-preflight/config.toml`. Unknown keys error, naming the key. Sections:
 
 ```toml
 [general] base_ref
@@ -225,7 +225,7 @@ Anti-skip is layered: state guards make skipping impossible, `next` makes the ri
 
 M0 and M4 are the substantial milestones; M2, M5, and M6 are hours each.
 
-**Step 0:** write the validated design to `docs/plans/2026-07-20-agentic-cli-design.md` in the new repo and commit it (deferred from brainstorming, which cannot write files in plan mode).
+**Step 0:** write the validated design to `docs/plans/2026-07-20-agentic-preflight-design.md` in the new repo and commit it (deferred from brainstorming, which cannot write files in plan mode).
 
 ## Verification
 

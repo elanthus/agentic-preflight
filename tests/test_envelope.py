@@ -1,7 +1,7 @@
 import io
 import json
 
-from agentic_cli.envelope import Envelope, ExitCode, emit, error_envelope
+from agentic_preflight.envelope import Envelope, ExitCode, emit, error_envelope
 
 
 def test_envelope_has_every_contract_key_even_when_empty():
@@ -31,7 +31,7 @@ def test_next_carries_instruction_and_command():
     env = Envelope(
         state="REVIEW_AWAITING_FINDINGS",
         next_instruction="Review the diff and submit findings.",
-        next_command="agentic-cli submit-findings --file findings.json",
+        next_command="agentic-preflight submit-findings --file findings.json",
     )
     payload = json.loads(env.to_json())
     assert payload["next"]["instruction"].startswith("Review the diff")

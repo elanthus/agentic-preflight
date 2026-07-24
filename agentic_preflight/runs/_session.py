@@ -22,7 +22,7 @@ from ..machine import Action, IllegalTransition, State, next_state
 from ..models import RunDoc
 from ..store import Store
 
-STATE_DIR_NAME = "agentic-cli"
+STATE_DIR_NAME = "agentic-preflight"
 
 
 @dataclass
@@ -83,7 +83,7 @@ def _require_state(run: RunDoc, *allowed: State, command: str) -> None:
             state=run.state.value,
             run_id=run.run_id,
             next_instruction="Run `status` to see where the run actually is, then obey `next`.",
-            next_command="agentic-cli status",
+            next_command="agentic-preflight status",
         )
 
 
@@ -101,56 +101,56 @@ def _next_hint(state: State) -> tuple[str | None, str | None]:
         State.SYNC_RUNNING: ("Remote synchronization is running.", None),
         State.SYNC_CONFLICT: (
             "The fresh-base rebase conflicted. Preserve the report and restart after resolution.",
-            "agentic-cli abort --force",
+            "agentic-preflight abort --force",
         ),
-        State.SYNC_GREEN: ("Begin review of the synchronized diff.", "agentic-cli context"),
+        State.SYNC_GREEN: ("Begin review of the synchronized diff.", "agentic-preflight context"),
         State.REVIEW_AWAITING_FINDINGS: (
             "Review the diff, then submit findings (an empty list is a valid outcome).",
-            "agentic-cli submit-findings --file findings.json",
+            "agentic-preflight submit-findings --file findings.json",
         ),
-        State.REVIEW_SUBMITTED: ("Check the blocking set.", "agentic-cli verify"),
+        State.REVIEW_SUBMITTED: ("Check the blocking set.", "agentic-preflight verify"),
         State.REVIEW_AWAITING_RESPONSES: (
             "Resolve each blocking finding with `respond`.",
-            "agentic-cli respond --id F001 --action fixed --commit <sha>",
+            "agentic-preflight respond --id F001 --action fixed --commit <sha>",
         ),
         State.REVIEW_FIXING: (
             "Keep responding until nothing blocks, then verify.",
-            "agentic-cli verify",
+            "agentic-preflight verify",
         ),
-        State.REVIEW_GREEN: ("Review is green. Run targeted tests.", "agentic-cli stage run test"),
+        State.REVIEW_GREEN: ("Review is green. Run targeted tests.", "agentic-preflight stage run test"),
         State.TEST_GREEN: (
             "Tests are green. Check whether documentation is now stale.",
-            "agentic-cli context --section docs",
+            "agentic-preflight context --section docs",
         ),
-        State.DOCS_GREEN: ("Docs are green. Run lint.", "agentic-cli stage run lint"),
-        State.LINT_GREEN: ("Lint is green. Merge the fixes back.", "agentic-cli mergeback"),
+        State.DOCS_GREEN: ("Docs are green. Run lint.", "agentic-preflight stage run lint"),
+        State.LINT_GREEN: ("Lint is green. Merge the fixes back.", "agentic-preflight mergeback"),
         State.MERGEBACK_CONFLICT: (
             "Resolve the reported conflict or restore the affected paths, then retry mergeback.",
-            "agentic-cli mergeback",
+            "agentic-preflight mergeback",
         ),
-        State.VERIFIED: ("Everything is green. Open the gate.", "agentic-cli gate"),
+        State.VERIFIED: ("Everything is green. Open the gate.", "agentic-preflight gate"),
         State.AWAITING_PUSH_CONFIRM: (
             "Show the user the gate summary and ask before pushing.",
-            "agentic-cli push --confirm <token>",
+            "agentic-preflight push --confirm <token>",
         ),
-        State.PUSHED: ("Open the pull request.", "agentic-cli pr"),
-        State.PR_OPEN: ("Monitor pull-request checks and mergeability.", "agentic-cli ci"),
-        State.CI_MONITORING: ("Continue monitoring pull-request checks.", "agentic-cli ci"),
+        State.PUSHED: ("Open the pull request.", "agentic-preflight pr"),
+        State.PR_OPEN: ("Monitor pull-request checks and mergeability.", "agentic-preflight ci"),
+        State.CI_MONITORING: ("Continue monitoring pull-request checks.", "agentic-preflight ci"),
         State.CI_FAILED: (
             "Use the failed logs to fix the branch, then run a fresh full validation.",
             None,
         ),
         State.CHECKS_PASSED: (
             "Checks passed. Ask the user to review and merge; check again later.",
-            "agentic-cli ci --once",
+            "agentic-preflight ci --once",
         ),
         State.CI_TIMED_OUT: (
             "CI monitoring timed out. Check again when ready.",
-            "agentic-cli ci",
+            "agentic-preflight ci",
         ),
         State.PR_MERGED: (
             "The pull request merged. Preview cleanup and ask the user.",
-            "agentic-cli cleanup",
+            "agentic-preflight cleanup",
         ),
     }.get(state, (None, None))
 
@@ -200,7 +200,7 @@ def _assert_fresh(session: Session, run: RunDoc) -> None:
         run_id=run.run_id,
         next_command=shlex.join(
             [
-                "agentic-cli",
+                "agentic-preflight",
                 "start",
                 "--intent",
                 run.intent or "<objective and acceptance criteria>",

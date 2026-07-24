@@ -1,19 +1,64 @@
-# agentic-cli
+# agentic-preflight
 
-[![CI](https://github.com/elanthus/agentic-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/elanthus/agentic-cli/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen)](https://github.com/elanthus/agentic-cli/actions/workflows/ci.yml)
+[![CI](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml/badge.svg)](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen)](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](pyproject.toml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
-An agent-driven quality gate. Nothing reaches your remote until review, tests, docs,
-and lint are all green for that exact commit.
+An advisory guard against accidental unverified pushes by coding agents. It records an
+exact commit's review, tests, documentation check, and lint result, then makes the next
+legal action explicit. The default hook can be bypassed and fails open when the command
+is missing. Manual mode provides the stronger contract: Agentic Preflight will never
+push, and a person must perform the final push.
 
-**Python here is a deterministic state machine with a JSON-over-stdout CLI. It never
-calls an LLM.** No API keys, no model configuration, no token budgets. The coding agent
-you already use does all the thinking; this tool holds the state, checks the claims, and
-refuses to let a half-verified branch reach the remote. Being agent-agnostic falls out
-of that for free — and is enforced by a test that fails if any module imports an LLM or
-HTTP client.
+Agentic Preflight is a deterministic state machine with a JSON-over-stdout CLI. It does
+not call an LLM, require API keys, or choose what good code looks like. Your coding agent
+does the judgment; this package keeps the workflow state and verifies its claims.
+
+## 60-second walkthrough
+
+Agentic Preflight supports macOS and Linux. From a repository with Python 3.11+ and Git
+2.30+:
+
+```bash
+uv tool install agentic-preflight
+agentic-preflight integrations install codex claude
+cd your-repo
+agentic-preflight init
+```
+
+`init` writes `.agentic-preflight.toml` and installs an advisory pre-push hook. Make and
+commit a change, then try to push it before validation:
+
+```console
+$ git push
+agentic-preflight: push blocked.
+  commit: 4f15c2a (no green run recorded for this exact SHA)
+  reason: no green run recorded for this exact SHA
+  fix:    invoke the skill (/agentic-preflight in Claude Code, $agentic-preflight in Codex)
+  bypass: git push --no-verify   (documented escape hatch)
+error: failed to push some refs
+```
+
+Ask your coding agent to invoke `$agentic-preflight` in Codex or
+`/agentic-preflight` in Claude Code. A normal run follows the command in each JSON
+envelope. This output was captured from a local demo repository; `jq` limits each
+envelope to the fields relevant to the walkthrough:
+
+```console
+$ agentic-preflight start --intent "Add retries and document the failure policy" | jq -c '{ok,state,next}'
+{"ok":true,"state":"REVIEW_AWAITING_FINDINGS","next":{"command":"agentic-preflight context","instruction":"Fetch the diff before judging it."}}
+$ agentic-preflight context | jq -c '{ok,state,data:{changed_files:.data.changed_files},next}'
+{"ok":true,"state":"REVIEW_AWAITING_FINDINGS","data":{"changed_files":[".agentic-preflight.toml","change.txt"]},"next":{"command":"agentic-preflight submit-findings --file findings.json","instruction":"Review the diff, then submit findings (an empty list is a valid outcome)."}}
+... review, test, docs, and lint complete ...
+$ agentic-preflight gate | jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch},next}'
+{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"d8697c2068b4853b","remote":"origin","branch":"demo"},"next":{"command":"agentic-preflight push --confirm d8697c2068b4853b","instruction":"Show the user the remote, branch, and commit list in plain language and ask whether to push. Never push without asking."}}
+$ agentic-preflight push --confirm d8697c2068b4853b | jq -c '{ok,state,data:{remote:.data.remote,branch:.data.branch},next}'
+{"ok":true,"state":"PUSHED","data":{"remote":"origin","branch":null},"next":{"command":"agentic-preflight pr","instruction":"Open the pull request."}}
+```
+
+The agent must show you the target remote, branch, and commits and obtain fresh approval
+before the final command. For a human-only final push, set `[gate] mode = "manual"`.
 
 ## How it works
 
@@ -28,8 +73,8 @@ start --intent "..." → fetch/rebase → context → submit-findings → verify
 
 `start` requires the user's objective and acceptance criteria, fetches `origin`, and
 rebases the validation checkout onto the fresh base before review. The agent
-drives the loop. Every command returns one JSON object containing `next` —
-the single next legal command — so the agent never has to guess. Stage-skipping is not
+drives the loop. Every command returns one JSON object containing `next`,
+the single next legal command, so the agent never has to guess. Stage-skipping is not
 forbidden by documentation; it is **structurally unrepresentable**, because no
 transition exists from a review state to a push state. That property is proved by
 enumerating every path through the machine, not by testing a few.
@@ -56,14 +101,14 @@ clean verification boundary in either mode.
 ## Install
 
 ```bash
-uv tool install agentic-cli
-agentic-cli integrations install codex claude
+uv tool install agentic-preflight
+agentic-preflight integrations install codex claude
 cd your-repo
-agentic-cli init             # installs the pre-push hook, writes .agentic-cli.toml
+agentic-preflight init             # installs the pre-push hook, writes .agentic-preflight.toml
 ```
 
 Install only the agents you use if you do not need both. Then invoke the skill with
-`$agentic-cli` in Codex or `/agentic-cli` in Claude Code. If `uv` reports that its tool
+`$agentic-preflight` in Codex or `/agentic-preflight` in Claude Code. If `uv` reports that its tool
 directory is not on `PATH`, run `uv tool update-shell` and open a new shell first.
 Restart a running agent if the newly created skill directory is not detected immediately.
 
@@ -72,15 +117,15 @@ discovery directory. It refuses to overwrite local edits unless you pass `--forc
 After upgrading the CLI, refresh any installed copies:
 
 ```bash
-uv tool upgrade agentic-cli
-agentic-cli integrations update
+uv tool upgrade agentic-preflight
+agentic-preflight integrations update
 ```
 
 User scope is the default. To check a skill into one repository instead, run
-`agentic-cli integrations install codex claude --scope project`. For another agent
+`agentic-preflight integrations install codex claude --scope project`. For another agent
 that supports Agent Skills, `--target PATH` installs beneath a custom skills directory.
-Use `agentic-cli integrations status` to inspect installed copies and
-`agentic-cli integrations uninstall codex claude` to remove managed user copies.
+Use `agentic-preflight integrations status` to inspect installed copies and
+`agentic-preflight integrations uninstall codex claude` to remove managed user copies.
 
 ## The pre-push hook
 
@@ -88,29 +133,29 @@ Use `agentic-cli integrations status` to inspect installed copies and
 that **exact SHA**:
 
 ```
-agentic-cli: push blocked.
+agentic-preflight: push blocked.
   commit: abc1234 (no green run recorded for this exact SHA)
   reason: ledger has 9f2c1de; you amended or added a commit since
-  fix:    invoke the skill (/agentic-cli in Claude Code, $agentic-cli in Codex)
+  fix:    invoke the skill (/agentic-preflight in Claude Code, $agentic-preflight in Codex)
   bypass: git push --no-verify   (documented escape hatch)
 ```
 
 The hook reads one file (`ledger.json`), never touches the network, and never mutates
-anything. **If `agentic-cli` is not on `PATH`, the hook allows the push and warns.** That
+anything. **If `agentic-preflight` is not on `PATH`, the hook allows the push and warns.** That
 is deliberate: a teammate who clones your repo without installing this tool must not end
 up with a repository they cannot push from. A broken tool must not brick the repo.
 
-## Honest limitations
+## Limits
 
 **The gate is advisory, not a security boundary.** Three things follow from that, and
 you should know all three before relying on it:
 
-1. **`git push --no-verify` defeats the hook.** By design — it is the documented escape
+1. **`git push --no-verify` defeats the hook.** By design: it is the documented escape
    hatch for humans who need it.
 2. **The confirmation token is not a secret.** The agent can read it from `status`. It is
    deliberate ceremony that makes an *accidental* push impossible and makes an
    unconfirmed push a visible protocol violation. It does not stop a determined agent.
-   If you need a real boundary, set `[gate] mode = "manual"` — then agentic-cli refuses
+   If you need a real boundary, set `[gate] mode = "manual"`: then agentic-preflight refuses
    to push at all and a person must run the command themselves.
 3. **This guards against mistakes, not against a careless or misaligned agent.** There is
    no cryptographic answer here, and claiming otherwise would be worse than the gap.
@@ -137,8 +182,8 @@ CI, and the gate can agree on the version.
 
 ## Configuration
 
-`.agentic-cli.toml` in the repo root (committed), layered over
-`~/.config/agentic-cli/config.toml`. Unknown keys are errors that name the key.
+`.agentic-preflight.toml` in the repo root (committed), layered over
+`~/.config/agentic-preflight/config.toml`. Unknown keys are errors that name the key.
 
 ```toml
 [general]
@@ -193,15 +238,15 @@ timeout_seconds = 3600
 poll_interval_seconds = 30
 ```
 
-After a PR opens, `agentic-cli ci` monitors checks and mergeability. It reports passed
+After a PR opens, `agentic-preflight ci` monitors checks and mergeability. It reports passed
 checks, fetches failed GitHub Actions logs, and persists the failure with the original
-intent. Repairs are host-driven: agentic-cli never calls a model. The host agent fixes
+intent. Repairs are host-driven: agentic-preflight never calls a model. The host agent fixes
 and commits the source branch, then starts a fresh synchronized full validation before
 another push. Monitoring continues through host invocations until merge, close, or
 timeout.
 
 The resolved configuration is snapshotted when `start` creates a run. Editing
-`.agentic-cli.toml` afterward does not change that run; the snapshot and its digest are
+`.agentic-preflight.toml` afterward does not change that run; the snapshot and its digest are
 recorded with the run events. Commit configuration changes before starting the run they
 should affect.
 
@@ -211,7 +256,7 @@ Use `[docs] paths` for repository-specific documentation surfaces.
 
 ### Large diffs
 
-Over `[diff] max_bytes`, `context` **refuses** rather than truncating — an agent that
+Over `[diff] max_bytes`, `context` **refuses** rather than truncating: an agent that
 reviews half a diff believing it saw all of it is exactly how a false green happens. The
 envelope lists per-file sizes so the agent can narrow with `[diff] exclude`. Common
 generated-file globs are excluded by default, which resolves most oversized diffs
@@ -222,9 +267,9 @@ outright.
 Files in `[worktree] copy_files` are used in place or copied into an isolated worktree so
 tests can run, and are protected by two independent guards:
 
-1. **Preflight refusal** — a file git is not already ignoring in the validation checkout
+1. **Preflight refusal**: a file git is not already ignoring in the validation checkout
    is never used or copied. Add it to `.gitignore` and commit that first.
-2. **Commit-content invariant** — any commit touching a copied path is rejected by both
+2. **Commit-content invariant**: any commit touching a copied path is rejected by both
    `respond` and `mergeback`, checked against commit content rather than ignore rules, so
    a `.gitignore` edited mid-run cannot open the hole.
 
@@ -287,9 +332,11 @@ active run because its configuration is snapshotted.
 
 ## Requirements
 
+- macOS or Linux (Windows is not supported)
 - Python 3.11+
 - git 2.30+
-- `gh` (optional; only for opening pull requests — it owns auth, we never handle
+- Bash
+- `gh` (optional; only for opening pull requests: it owns auth, we never handle
   credentials)
 
 ## Development
