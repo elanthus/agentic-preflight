@@ -1,6 +1,6 @@
 import pytest
 
-from agentic_cli.machine import (
+from agentic_preflight.machine import (
     Action,
     IllegalTransition,
     State,

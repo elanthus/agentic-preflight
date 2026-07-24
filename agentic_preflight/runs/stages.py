@@ -76,7 +76,7 @@ def _register_stage_fix_commits(
                 run_id=run.run_id,
                 next_command=shlex.join(
                     [
-                        "agentic-cli",
+                        "agentic-preflight",
                         "start",
                         "--intent",
                         run.intent or "<objective and acceptance criteria>",
@@ -129,10 +129,10 @@ def _resolve_command(session: Session, run: RunDoc, stage_name: str, override: s
         next_instruction=(
             f"Pick the command that runs {stage_name} in this repo and re-invoke with "
             f"--command. Detection will not guess on your behalf. Add it to "
-            f"[commands] {stage_name} in .agentic-cli.toml to settle it permanently."
+            f"[commands] {stage_name} in .agentic-preflight.toml to settle it permanently."
         ),
         next_command=(
-            f"agentic-cli stage run {stage_name} "
+            f"agentic-preflight stage run {stage_name} "
             f"--command '{candidates[0].command if candidates else '<command>'}' --record"
         ),
     )
@@ -174,7 +174,7 @@ def run_stage(
                 "This needs a person. Show the user the stage log and the last failure, "
                 "and ask how to proceed."
             ),
-            next_command=f"agentic-cli logs --stage {stage_name}",
+            next_command=f"agentic-preflight logs --stage {stage_name}",
         )
 
     if not gitx.is_clean(run.worktree_path):
@@ -197,7 +197,7 @@ def run_stage(
                 "The lint repair changed the verified tree. Run tests, docs, and lint "
                 "again so every result describes the repaired commit."
             ),
-            next_command="agentic-cli stage run test",
+            next_command="agentic-preflight stage run test",
         )
     resolved = _resolve_command(session, run, stage_name, command)
 
@@ -228,7 +228,7 @@ def run_stage(
             exit_code=result.exit_code or 1,
             output=(
                 result.output
-                + "\n[agentic-cli] stage changed the worktree; validation results are stale"
+                + "\n[agentic-preflight] stage changed the worktree; validation results are stale"
             ),
             timed_out=result.timed_out,
         )
@@ -297,7 +297,7 @@ def run_stage(
         stage=stage_name,
         data=data,
         next_instruction=instruction,
-        next_command=f"agentic-cli logs --stage {stage_name}",
+        next_command=f"agentic-preflight logs --stage {stage_name}",
     )
 
 
@@ -309,7 +309,7 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
     """
     assert run.worktree_path is not None
     scratch = Path(run.worktree_path).parent / f"{run.run_id}-baseline"
-    branch = f"ac/{run.run_id}-baseline"
+    branch = f"ap/{run.run_id}-baseline"
     try:
         worktree.create(session.repo_root, path=scratch, branch=branch, head_sha=run.merge_base_sha)
         try:
@@ -360,7 +360,7 @@ def logs(session: Session, *, stage_name: str) -> Envelope:
             state=run.state.value,
             run_id=run.run_id,
             next_instruction="Run the stage first.",
-            next_command=f"agentic-cli stage run {stage_name}",
+            next_command=f"agentic-preflight stage run {stage_name}",
         )
     return _envelope_for(
         run,

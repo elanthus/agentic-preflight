@@ -149,7 +149,7 @@ def mergeback(session: Session) -> Envelope:
                 "intact; after the reported paths are resolved, `mergeback` can retry "
                 "without rerunning the completed stages."
             ),
-            next_command="agentic-cli mergeback",
+            next_command="agentic-preflight mergeback",
         ) from exc
 
     # Green transfers only when the content is provably identical.
@@ -197,7 +197,7 @@ def mergeback(session: Session) -> Envelope:
         )
         envelope.next_command = shlex.join(
             [
-                "agentic-cli",
+                "agentic-preflight",
                 "start",
                 "--intent",
                 run.intent or "<objective and acceptance criteria>",

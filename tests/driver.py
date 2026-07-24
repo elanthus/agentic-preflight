@@ -21,7 +21,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from agentic_cli.cli import main
+from agentic_preflight.cli import main
 
 
 @dataclass
@@ -60,7 +60,7 @@ class ScriptedAgent:
             payload, code = self._run_click(list(argv))
 
         assert code == expect, (
-            f"`agentic-cli {' '.join(argv)}` exited {code}, expected {expect}; "
+            f"`agentic-preflight {' '.join(argv)}` exited {code}, expected {expect}; "
             f"envelope: {json.dumps(payload, indent=2)}"
         )
         self.steps.append(Step(list(argv), code, payload))
@@ -83,7 +83,7 @@ class ScriptedAgent:
 
     def _run_subprocess(self, argv: list[str]) -> tuple[dict, int]:
         result = subprocess.run(
-            [sys.executable, "-m", "agentic_cli", *argv],
+            [sys.executable, "-m", "agentic_preflight", *argv],
             cwd=self.repo,
             capture_output=True,
             text=True,

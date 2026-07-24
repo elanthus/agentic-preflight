@@ -1,6 +1,6 @@
 import pytest
 
-from agentic_cli import gitx
+from agentic_preflight import gitx
 from tests.conftest import commit_all, git, write
 
 

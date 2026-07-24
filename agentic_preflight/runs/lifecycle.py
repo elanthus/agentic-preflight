@@ -54,7 +54,7 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
                 "Those commits exist only in the worktree. Cherry-pick anything worth "
                 "keeping, then abort again with --force to discard the rest."
             ),
-            next_command="agentic-cli abort --force",
+            next_command="agentic-preflight abort --force",
         )
 
     _release_run_worktree(session, run)
@@ -76,7 +76,7 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
         next_instruction="Run aborted. Start a fresh one when ready.",
         next_command=shlex.join(
             [
-                "agentic-cli",
+                "agentic-preflight",
                 "start",
                 "--intent",
                 run.intent or "<objective and acceptance criteria>",
@@ -86,7 +86,7 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
 
 
 def gc(session: Session, *, force: bool = False) -> Envelope:
-    """Reconcile three sources of truth: run dirs, git worktrees, and ac/* branches.
+    """Reconcile three sources of truth: run dirs, git worktrees, and ap/* branches.
 
     Anything still holding unmerged fix commits is *reported*, never removed
     without ``--force``. Reclaiming disk is not worth destroying work.
@@ -96,13 +96,13 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
 
     known_runs = set(store.list_runs())
     live_worktrees = {
-        record["branch"].removeprefix("refs/heads/ac/"): record["worktree"]
+        record["branch"].removeprefix("refs/heads/ap/"): record["worktree"]
         for record in gitx.list_worktrees(repo)
-        if "worktree" in record and record.get("branch", "").startswith("refs/heads/ac/")
+        if "worktree" in record and record.get("branch", "").startswith("refs/heads/ap/")
     }
     ac_branches = {
         line.strip().lstrip("* ").strip()
-        for line in gitx.out(repo, "branch", "--list", "ac/*").splitlines()
+        for line in gitx.out(repo, "branch", "--list", "ap/*").splitlines()
         if line.strip()
     }
 
@@ -155,7 +155,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
         if name not in known_runs:
             orphans.append(name)
     for branch in ac_branches:
-        run_id = branch.removeprefix("ac/")
+        run_id = branch.removeprefix("ap/")
         if run_id not in known_runs and run_id not in orphans:
             orphans.append(run_id)
 
@@ -171,7 +171,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
             "runs_known": sorted(known_runs),
         },
         next_instruction=("Orphans were found; inspect them before removing." if orphans else None),
-        next_command="agentic-cli gc --force" if orphans and not force else None,
+        next_command="agentic-preflight gc --force" if orphans and not force else None,
     )
 
 
@@ -275,16 +275,11 @@ def status(session: Session) -> Envelope:
     )
     if stale:
         envelope.next_instruction = (
-            "This run is stale: the branch moved after review began. Start a fresh run."
+            "This run is stale: the branch moved after review began. Abort it to release "
+            "the active-run lease; the abort response preserves the intent and returns "
+            "the legal fresh-start command."
         )
-        envelope.next_command = shlex.join(
-            [
-                "agentic-cli",
-                "start",
-                "--intent",
-                run.intent or "<objective and acceptance criteria>",
-            ]
-        )
+        envelope.next_command = "agentic-preflight abort --force"
     elif run.state is State.MERGEBACK_CONFLICT:
         conflict = next(
             (
@@ -299,5 +294,5 @@ def status(session: Session) -> Envelope:
             "Use the durable conflict report below, resolve the affected paths, "
             "then retry mergeback; completed verification stages are retained."
         )
-        envelope.next_command = "agentic-cli mergeback"
+        envelope.next_command = "agentic-preflight mergeback"
     return envelope

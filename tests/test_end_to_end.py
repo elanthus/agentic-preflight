@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agentic_cli.envelope import ExitCode
+from agentic_preflight.envelope import ExitCode
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
@@ -49,8 +49,8 @@ def gh_stub(tmp_path, monkeypatch):
 
 def test_the_full_happy_path(feature_repo, bare_remote, tmp_path, gh_stub):
     """review -> test -> docs -> lint -> mergeback -> gate -> push -> pr -> ledger."""
-    write(feature_repo, ".agentic-cli.toml", CONFIG)
-    commit_all(feature_repo, "configure agentic-cli")
+    write(feature_repo, ".agentic-preflight.toml", CONFIG)
+    commit_all(feature_repo, "configure agentic-preflight")
 
     agent = ScriptedAgent(feature_repo)
 
@@ -95,7 +95,7 @@ def test_the_full_happy_path(feature_repo, bare_remote, tmp_path, gh_stub):
     # The ledger records this exact tip as green across every enabled stage.
     state_root = Path(
         git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo)
-    ) / "agentic-cli"
+    ) / "agentic-preflight"
     ledger = json.loads((state_root / "ledger.json").read_text())
     head = git("rev-parse", "HEAD", cwd=feature_repo)
     assert head in ledger["entries"]
@@ -110,8 +110,8 @@ def test_every_step_obeys_the_next_pointer(feature_repo, tmp_path):
     This is the anti-wandering device working as intended: no independent
     knowledge of the workflow is required.
     """
-    write(feature_repo, ".agentic-cli.toml", CONFIG)
-    commit_all(feature_repo, "configure agentic-cli")
+    write(feature_repo, ".agentic-preflight.toml", CONFIG)
+    commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
 
     env = agent.run("start")
@@ -122,7 +122,7 @@ def test_every_step_obeys_the_next_pointer(feature_repo, tmp_path):
         command = env["next"]["command"]
         if command is None or "gate" in command:
             break
-        argv = command.replace("agentic-cli ", "").split()
+        argv = command.replace("agentic-preflight ", "").split()
         if argv[0] == "submit-findings":
             argv = ["submit-findings", "--file", empty]
         env = agent.run(*argv)
@@ -136,8 +136,8 @@ def test_every_step_obeys_the_next_pointer(feature_repo, tmp_path):
 
 
 def test_seq_increases_monotonically_across_a_run(feature_repo, tmp_path):
-    write(feature_repo, ".agentic-cli.toml", CONFIG)
-    commit_all(feature_repo, "configure agentic-cli")
+    write(feature_repo, ".agentic-preflight.toml", CONFIG)
+    commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
 
     agent.run("start")
@@ -155,8 +155,8 @@ def test_seq_increases_monotonically_across_a_run(feature_repo, tmp_path):
 
 
 def test_finding_ids_are_never_reused_across_stages(feature_repo, tmp_path):
-    write(feature_repo, ".agentic-cli.toml", CONFIG)
-    commit_all(feature_repo, "configure agentic-cli")
+    write(feature_repo, ".agentic-preflight.toml", CONFIG)
+    commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
 
     agent.run("start")
@@ -178,8 +178,8 @@ def test_finding_ids_are_never_reused_across_stages(feature_repo, tmp_path):
 
 def test_a_blocked_run_cannot_reach_the_gate(feature_repo, tmp_path):
     """The gate is unreachable while anything blocks — structurally, not by prose."""
-    write(feature_repo, ".agentic-cli.toml", CONFIG)
-    commit_all(feature_repo, "configure agentic-cli")
+    write(feature_repo, ".agentic-preflight.toml", CONFIG)
+    commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
 
     agent.run("start")

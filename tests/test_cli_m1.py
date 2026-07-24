@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from agentic_cli.envelope import ExitCode
+from agentic_preflight.envelope import ExitCode
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
@@ -266,7 +266,7 @@ def test_abort_force_discards_unmerged_work(blocked):
 def test_reusable_runner_is_reused_but_secrets_and_nonignored_files_are_not(
     agent, feature_repo
 ):
-    write(feature_repo, ".agentic-cli.toml", "[worktree]\nmode = 'reusable'\n")
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'reusable'\n")
     commit_all(feature_repo, "use reusable validation runner")
     write(feature_repo, ".gitignore", ".env\nnode_modules/\n")
     commit_all(feature_repo, "ignore dependency cache")
@@ -289,7 +289,7 @@ def test_reusable_runner_is_reused_but_secrets_and_nonignored_files_are_not(
 
 
 def test_strict_mode_removes_each_run_worktree(feature_repo):
-    write(feature_repo, ".agentic-cli.toml", "[worktree]\nmode = 'strict'\n")
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
     commit_all(feature_repo, "use strict worktrees")
     strict_agent = ScriptedAgent(feature_repo)
 
@@ -301,13 +301,13 @@ def test_strict_mode_removes_each_run_worktree(feature_repo):
 
 
 def test_switching_to_strict_retires_the_idle_reusable_runner(agent, feature_repo):
-    write(feature_repo, ".agentic-cli.toml", "[worktree]\nmode = 'reusable'\n")
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'reusable'\n")
     commit_all(feature_repo, "use reusable validation runner")
     reusable = Path(agent.run("start")["data"]["worktree_path"])
     agent.run("abort")
     assert reusable.exists()
 
-    write(feature_repo, ".agentic-cli.toml", "[worktree]\nmode = 'strict'\n")
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
     commit_all(feature_repo, "switch validation to strict mode")
     strict = agent.run("start")
 
@@ -354,13 +354,13 @@ def test_gc_reconciles_a_worktree_with_no_run_directory(agent, feature_repo):
     import shutil
     from pathlib import Path
 
-    write(feature_repo, ".agentic-cli.toml", "[worktree]\nmode = 'reusable'\n")
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'reusable'\n")
     commit_all(feature_repo, "use reusable validation runner")
     env = agent.run("start")
     run_id = env["run_id"]
     state_root = Path(
         git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo)
-    ) / "agentic-cli"
+    ) / "agentic-preflight"
 
     shutil.rmtree(state_root / "runs" / run_id)
     (state_root / "current").unlink()

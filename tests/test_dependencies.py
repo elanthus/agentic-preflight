@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from agentic_cli import dependencies, gitx, worktree
+from agentic_preflight import dependencies, gitx, worktree
 from tests.conftest import commit_all, write
 
 
@@ -21,7 +21,7 @@ def _worktree(repo: Path, tmp_path: Path, name: str = "deps") -> Path:
     return worktree.create(
         repo,
         path=tmp_path / name,
-        branch=f"ac/{name}",
+        branch=f"ap/{name}",
         head_sha=gitx.rev_parse(repo, "HEAD"),
     )
 

@@ -24,14 +24,14 @@ from .models import Ledger
 ZERO_SHA = "0" * 40
 
 HOOK_SCRIPT = """#!/bin/sh
-# Installed by agentic-cli. Blocks pushes of commits with no green run.
-# If agentic-cli is not on PATH this allows the push and warns: a broken tool
+# Installed by agentic-preflight. Blocks pushes of commits with no green run.
+# If agentic-preflight is not on PATH this allows the push and warns: a broken tool
 # must never leave a repository you cannot push from.
-if ! command -v agentic-cli >/dev/null 2>&1; then
-  echo "agentic-cli: not found on PATH, skipping the quality gate (warn only)" >&2
+if ! command -v agentic-preflight >/dev/null 2>&1; then
+  echo "agentic-preflight: not found on PATH, skipping the quality gate (warn only)" >&2
   exit 0
 fi
-exec agentic-cli hook-check
+exec agentic-preflight hook-check
 """
 
 
@@ -115,8 +115,8 @@ def evaluate(
                     headline="no green run recorded for this exact SHA",
                     reason=_explain(ledger, update),
                     fix=(
-                        "invoke the skill (/agentic-cli in Claude Code, "
-                        "$agentic-cli in Codex)"
+                        "invoke the skill (/agentic-preflight in Claude Code, "
+                        "$agentic-preflight in Codex)"
                     ),
                 ),
             )
@@ -133,7 +133,7 @@ def _block_message(sha: str, *, headline: str, reason: str, fix: str) -> str:
     """
     return "\n".join(
         [
-            "agentic-cli: push blocked.",
+            "agentic-preflight: push blocked.",
             f"  commit: {sha[:7]} ({headline})",
             f"  reason: {reason}",
             f"  fix:    {fix}",
@@ -146,7 +146,7 @@ def install(git_dir: Path | str, *, force: bool = False) -> tuple[Path, bool]:
     """Write the pre-push hook. Returns (path, newly_written).
 
     Refuses to clobber a hook we did not write: someone else's pre-push hook is
-    load-bearing for them, and silently replacing it would be exactly the kind
+    important to their workflow, and silently replacing it would be exactly the kind
     of unreviewed change this tool exists to prevent.
     """
     hooks_dir = Path(git_dir) / "hooks"
@@ -155,7 +155,7 @@ def install(git_dir: Path | str, *, force: bool = False) -> tuple[Path, bool]:
 
     if path.exists() and not force:
         existing = path.read_text()
-        if "agentic-cli hook-check" not in existing:
+        if "agentic-preflight hook-check" not in existing:
             raise FileExistsError(str(path))
         return path, False
 
@@ -165,7 +165,7 @@ def install(git_dir: Path | str, *, force: bool = False) -> tuple[Path, bool]:
 
 
 def tool_on_path() -> bool:
-    return shutil.which("agentic-cli") is not None
+    return shutil.which("agentic-preflight") is not None
 
 
 BLOCK_EXIT = ExitCode.HOOK_BLOCK

@@ -2,7 +2,7 @@ import stat
 
 import pytest
 
-from agentic_cli import gitx, worktree
+from agentic_preflight import gitx, worktree
 from tests.conftest import git, write
 
 
@@ -13,14 +13,14 @@ def wt(feature_repo, tmp_path):
     return worktree.create(
         feature_repo,
         path=tmp_path / "wt" / "r_abc123",
-        branch="ac/r_abc123",
+        branch="ap/r_abc123",
         head_sha=head,
     )
 
 
 def test_create_checks_out_the_head_sha_on_its_own_branch(feature_repo, wt):
     assert wt.exists()
-    assert gitx.current_branch(wt) == "ac/r_abc123"
+    assert gitx.current_branch(wt) == "ap/r_abc123"
     assert gitx.rev_parse(wt, "HEAD") == gitx.rev_parse(feature_repo, "HEAD")
 
 
@@ -30,13 +30,13 @@ def test_create_leaves_the_users_tree_untouched(feature_repo, wt):
 
 
 def test_create_does_not_clobber_an_existing_branch_name(feature_repo, tmp_path):
-    git("branch", "ac/taken", cwd=feature_repo)
+    git("branch", "ap/taken", cwd=feature_repo)
     head = gitx.rev_parse(feature_repo, "HEAD")
     with pytest.raises(worktree.WorktreeError):
         worktree.create(
             feature_repo,
             path=tmp_path / "wt" / "taken",
-            branch="ac/taken",
+            branch="ap/taken",
             head_sha=head,
         )
 
@@ -80,7 +80,7 @@ def test_ignore_status_is_judged_in_the_worktree_not_the_users_tree(feature_repo
     wt = worktree.create(
         feature_repo,
         path=tmp_path / "wt" / "r_late",
-        branch="ac/r_late",
+        branch="ap/r_late",
         head_sha=head,
     )
     # Ignored in the user's tree, but never committed — so not ignored at head_sha.
@@ -137,10 +137,10 @@ def test_remove_deletes_the_worktree_and_its_copies(feature_repo, wt):
     write(feature_repo, ".env", "SECRET=hunter2\n")
     worktree.copy_files(feature_repo, wt, [".env"])
 
-    worktree.remove(feature_repo, wt, branch="ac/r_abc123")
+    worktree.remove(feature_repo, wt, branch="ap/r_abc123")
 
     assert not wt.exists()
-    assert "ac/r_abc123" not in git("branch", "--list", cwd=feature_repo)
+    assert "ap/r_abc123" not in git("branch", "--list", cwd=feature_repo)
 
 
 def test_setup_command_runs_inside_the_worktree(feature_repo, wt):

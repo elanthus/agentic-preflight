@@ -44,7 +44,7 @@ def start(
             f"run {current} is already active; the validation runner has a single lease",
             run_id=current,
             next_instruction="Finish, clean up, or abort the active run before starting another.",
-            next_command="agentic-cli status",
+            next_command="agentic-preflight status",
         )
 
     intent = (intent or "").strip()
@@ -55,7 +55,7 @@ def start(
                 "Pass what the user asked for in their own terms, including important "
                 "constraints and deliberate tradeoffs. Do not substitute a diff summary."
             ),
-            next_command='agentic-cli start --intent "<user objective and acceptance criteria>"',
+            next_command='agentic-preflight start --intent "<user objective and acceptance criteria>"',
         )
 
     if not gitx.is_clean(repo):
@@ -112,7 +112,7 @@ def start(
             f"run {exc.run_id} is already active; the validation runner has a single lease",
             run_id=exc.run_id,
             next_instruction="Finish, clean up, or abort the active run before starting another.",
-            next_command="agentic-cli status",
+            next_command="agentic-preflight status",
         ) from exc
     session.store.append_event(
         run_id,
@@ -129,7 +129,7 @@ def start(
     in_place = cfg.worktree.mode == "in_place"
     reusable = cfg.worktree.mode == "reusable"
     wt_path = repo if in_place else session.store.worktrees_dir / ("runner" if reusable else run_id)
-    wt_branch = branch if in_place else f"ac/{run_id}"
+    wt_branch = branch if in_place else f"ap/{run_id}"
     try:
         if in_place:
             pass
@@ -159,7 +159,7 @@ def start(
                 "Inspect the existing validation checkout and run records before "
                 "reclaiming anything; an interrupted run may still own commits."
             ),
-            next_command="agentic-cli gc",
+            next_command="agentic-preflight gc",
         ) from exc
 
     with session.store.transaction(run_id) as doc:
@@ -194,7 +194,7 @@ def start(
                 "report to the user, resolve or rebase the source branch deliberately, "
                 "then abort this run and start again with the same intent."
             ),
-            next_command="agentic-cli abort --force",
+            next_command="agentic-preflight abort --force",
         ) from exc
 
     changed = gitx.changed_files(wt_path, sync_result.base_sha, "HEAD")
@@ -287,7 +287,7 @@ def start(
     return _envelope_for(
         run,
         next_instruction="Fetch the diff before judging it.",
-        next_command="agentic-cli context",
+        next_command="agentic-preflight context",
         data={
             "worktree_path": str(wt_path),
             "worktree_branch": wt_branch,

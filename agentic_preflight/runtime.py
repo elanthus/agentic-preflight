@@ -218,7 +218,7 @@ def prepare_command(
     info = inspect_project(repo, manager)
     if info.manager == "none" or not info.node_project:
         if strict and info.pin_file and not info.available:
-            message = shlex.quote(f"agentic-cli: {info.reason}")
+            message = shlex.quote(f"agentic-preflight: {info.reason}")
             return PreparedCommand(f"echo {message} >&2; exit 127", info)
         return PreparedCommand(command, info)
 
@@ -231,7 +231,7 @@ def prepare_command(
                 f"nvm use --silent && bash -c {quoted}"
             )
         else:
-            wrapped = f"echo {shlex.quote('agentic-cli: nvm was not found')} >&2; exit 127"
+            wrapped = f"echo {shlex.quote('agentic-preflight: nvm was not found')} >&2; exit 127"
     else:
         binary = _binary(info.manager)
         if binary and info.manager in {"volta", "asdf"}:
@@ -245,7 +245,7 @@ def prepare_command(
         elif binary and info.manager == "nodenv":
             wrapped = f"{shlex.quote(binary)} exec bash -c {quoted}"
         else:
-            wrapped = f"echo {shlex.quote(f'agentic-cli: {info.reason}')} >&2; exit 127"
+            wrapped = f"echo {shlex.quote(f'agentic-preflight: {info.reason}')} >&2; exit 127"
 
     if not info.available and not strict:
         wrapped = command
