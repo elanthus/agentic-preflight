@@ -275,16 +275,11 @@ def status(session: Session) -> Envelope:
     )
     if stale:
         envelope.next_instruction = (
-            "This run is stale: the branch moved after review began. Start a fresh run."
+            "This run is stale: the branch moved after review began. Abort it to release "
+            "the active-run lease; the abort response preserves the intent and returns "
+            "the legal fresh-start command."
         )
-        envelope.next_command = shlex.join(
-            [
-                "agentic-preflight",
-                "start",
-                "--intent",
-                run.intent or "<objective and acceptance criteria>",
-            ]
-        )
+        envelope.next_command = "agentic-preflight abort --force"
     elif run.state is State.MERGEBACK_CONFLICT:
         conflict = next(
             (
