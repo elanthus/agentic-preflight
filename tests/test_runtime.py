@@ -1,8 +1,8 @@
 import json
 import stat
 
-from agentic_cli import runtime
-from agentic_cli.stages import shellstage
+from agentic_preflight import runtime
+from agentic_preflight.stages import shellstage
 
 
 def test_node_project_without_a_pin_is_reported(tmp_path):

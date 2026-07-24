@@ -144,7 +144,7 @@ def cherry_pick_fixes(
                         f"git cherry-pick {' '.join(fix_commits)}",
                         "# resolve the conflict by hand, then:",
                         "git cherry-pick --continue",
-                        "agentic-cli mergeback   # attest the exact result or resume safely",
+                        "agentic-preflight mergeback   # attest the exact result or resume safely",
                     ],
                 ),
             )

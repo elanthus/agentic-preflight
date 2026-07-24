@@ -21,8 +21,8 @@ from typing import Iterable
 from .envelope import ExitCode
 from .errors import AgenticError
 
-SKILL_NAME = "agentic-cli"
-INSTALL_METADATA = ".agentic-cli-install.json"
+SKILL_NAME = "agentic-preflight"
+INSTALL_METADATA = ".agentic-preflight-install.json"
 INSTALL_SCHEMA = 1
 
 
@@ -57,7 +57,7 @@ class IntegrationConflict(IntegrationError):
 
 def package_version() -> str:
     try:
-        return version("agentic-cli")
+        return version("agentic-preflight")
     except PackageNotFoundError:
         return "0+unknown"
 
@@ -72,8 +72,8 @@ def bundled_skill_dir() -> Path:
         if (candidate / "SKILL.md").is_file():
             return candidate
     raise IntegrationError(
-        "the agentic-cli skill bundle is missing from this installation",
-        next_instruction="Reinstall agentic-cli, then retry the integration command.",
+        "the agentic-preflight skill bundle is missing from this installation",
+        next_instruction="Reinstall agentic-preflight, then retry the integration command.",
     )
 
 
@@ -171,7 +171,7 @@ def _read_install_metadata(destination: Path) -> dict | None:
         return None
     if payload.get("schema") != INSTALL_SCHEMA:
         return None
-    if payload.get("installed_by") != "agentic-cli":
+    if payload.get("installed_by") != "agentic-preflight":
         return None
     if not isinstance(payload.get("content_sha256"), str):
         return None
@@ -259,7 +259,7 @@ def _remove_path(path: Path) -> None:
 def _write_install_metadata(destination: Path, source_hash: str, source_version: str) -> None:
     payload = {
         "schema": INSTALL_SCHEMA,
-        "installed_by": "agentic-cli",
+        "installed_by": "agentic-preflight",
         "package_version": source_version,
         "content_sha256": source_hash,
     }

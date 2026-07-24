@@ -43,7 +43,7 @@ class StaleWrite(StoreError):
     def __init__(self, run_id: str, expected: int, actual: int) -> None:
         super().__init__(
             f"refusing stale write to {run_id}: expected seq {expected}, "
-            f"found seq {actual}; run `agentic-cli status` and retry"
+            f"found seq {actual}; run `agentic-preflight status` and retry"
         )
         self.run_id = run_id
         self.expected = expected
@@ -83,7 +83,7 @@ def _atomic_write(path: Path, payload: str) -> None:
 
 
 class Store:
-    """Everything under ``$GIT_COMMON_DIR/agentic-cli/``."""
+    """Everything under ``$GIT_COMMON_DIR/agentic-preflight/``."""
 
     def __init__(self, root: Path, *, worktrees_root: Path | None = None) -> None:
         self.root = Path(root)

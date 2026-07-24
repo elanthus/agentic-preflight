@@ -112,7 +112,7 @@ def validate_and_assign(
     if total > max_findings:
         raise FindingRejected(
             f"{total} findings exceeds max_findings ({max_findings}); "
-            f"raise the limit in .agentic-cli.toml or report only what blocks the change"
+            f"raise the limit in .agentic-preflight.toml or report only what blocks the change"
         )
 
     assigned: list[Finding] = []

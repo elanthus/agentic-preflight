@@ -13,7 +13,7 @@ from typing import Any
 
 from .envelope import ExitCode
 
-START_COMMAND = 'agentic-cli start --intent "<objective and acceptance criteria>"'
+START_COMMAND = 'agentic-preflight start --intent "<objective and acceptance criteria>"'
 
 
 class AgenticError(Exception):

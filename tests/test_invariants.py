@@ -6,9 +6,9 @@ import ast
 import pkgutil
 from pathlib import Path
 
-import agentic_cli
+import agentic_preflight
 
-PACKAGE_ROOT = Path(agentic_cli.__file__).parent
+PACKAGE_ROOT = Path(agentic_preflight.__file__).parent
 
 #: Python never calls an LLM. That is what makes the tool agent-agnostic for
 #: free, and what lets it promise no API keys, no model config, no token
@@ -49,14 +49,14 @@ def test_no_module_imports_an_llm_or_http_client():
             if name in FORBIDDEN_IMPORTS or root in FORBIDDEN_IMPORTS:
                 offenders.append(f"{path.relative_to(PACKAGE_ROOT)} imports {name}")
     assert offenders == [], (
-        "agentic-cli must never call an LLM or reach the network: " + "; ".join(offenders)
+        "agentic-preflight must never call an LLM or reach the network: " + "; ".join(offenders)
     )
 
 
 def test_every_module_is_importable():
     """A module that only fails at import time would break the JSON contract."""
     failures = []
-    for info in pkgutil.walk_packages([str(PACKAGE_ROOT)], prefix="agentic_cli."):
+    for info in pkgutil.walk_packages([str(PACKAGE_ROOT)], prefix="agentic_preflight."):
         try:
             __import__(info.name)
         except Exception as exc:  # noqa: BLE001 - reporting, not handling

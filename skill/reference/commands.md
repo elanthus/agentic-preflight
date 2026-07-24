@@ -14,8 +14,8 @@ when `ok` is `true`.
 
 ## Setup
 
-### `agentic-cli init [--force] [--no-hook]`
-Installs the pre-push hook and writes `.agentic-cli.toml` if absent. Refuses to
+### `agentic-preflight init [--force] [--no-hook]`
+Installs the pre-push hook and writes `.agentic-preflight.toml` if absent. Refuses to
 replace a pre-push hook it did not write (exit 3, `hook_exists`) — `--force`
 overrides. Does not clobber an existing config.
 
@@ -23,7 +23,7 @@ It also inspects runtime pins. For Node projects, the response names the detecte
 and manager, or warns that the repository is unpinned. Worktrees default to a hidden
 sibling directory outside `.git`; `data.worktree_root` reports the resolved location.
 
-### `agentic-cli integrations install codex|claude... [--scope user|project] [--target PATH] [--force]`
+### `agentic-preflight integrations install codex|claude... [--scope user|project] [--target PATH] [--force]`
 Copies the bundled skill and all of its references into each selected agent's discovery
 directory. User scope installs under `~/.agents/skills` for Codex and
 `~/.claude/skills` for Claude Code. Project scope uses the corresponding directory at
@@ -33,22 +33,22 @@ Existing unmanaged or locally modified copies are never overwritten unless `--fo
 is explicit. The operation preflights every destination, so a conflict cannot leave
 only half of the requested integrations installed.
 
-### `agentic-cli integrations status [codex|claude...] [--scope user|project] [--target PATH]`
+### `agentic-preflight integrations status [codex|claude...] [--scope user|project] [--target PATH]`
 Reports each copy as `missing`, `current`, `outdated`, `modified`, or `unmanaged`.
 With no agents named, checks Codex and Claude Code.
 
-### `agentic-cli integrations update [codex|claude...] [--scope user|project] [--target PATH] [--force]`
+### `agentic-preflight integrations update [codex|claude...] [--scope user|project] [--target PATH] [--force]`
 Refreshes installed copies after a CLI upgrade and skips agents where the skill is not
 installed. With no agents named, checks Codex and Claude Code. Refuses to replace local
 edits unless `--force` is explicit.
 
-### `agentic-cli integrations uninstall codex|claude... [--scope user|project] [--target PATH] [--force]`
-Removes copies managed by agentic-cli. Unmanaged or locally modified directories are
+### `agentic-preflight integrations uninstall codex|claude... [--scope user|project] [--target PATH] [--force]`
+Removes copies managed by agentic-preflight. Unmanaged or locally modified directories are
 preserved unless `--force` is explicit. At least one agent or custom target is required.
 
 ## Running a gate
 
-### `agentic-cli start --intent TEXT [--base-ref REF]`
+### `agentic-preflight start --intent TEXT [--base-ref REF]`
 Creates a run and prepares its validation checkout. The default `[worktree] mode =
 "in_place"` validates directly in the current clean PR checkout. `mode = "reusable"`
 uses one serial isolated runner and preserves ignored caches between leases. `mode =
@@ -84,7 +84,7 @@ such as `.env`; directories are refused with a clear setup instruction.
 Note the interaction with `respond`: a fix commit containing a `copy_files` path is
 rejected. Copied caches are inputs to the run, never part of the change.
 
-### `agentic-cli context [--section review|docs]`
+### `agentic-preflight context [--section review|docs]`
 Returns the material for the active stage. Does not change state, so it is safe to
 call twice.
 
@@ -95,7 +95,7 @@ call twice.
 Exits 2 with `data.mode = "diff_too_large"` when the diff exceeds `[diff] max_bytes`.
 The diff is never truncated — narrow it with `[diff] exclude` or raise the limit.
 
-### `agentic-cli submit-findings --file PATH`
+### `agentic-preflight submit-findings --file PATH`
 `PATH` may be `-` for stdin. Accepts `{"findings": [...]}` or a bare list. An empty
 list is valid and common.
 
@@ -104,17 +104,17 @@ worktree, paths outside the changed-file set (review) or documentation allowlist
 (docs), line numbers past end of file, and batches over `[review] max_findings`.
 All-or-nothing — one bad finding rejects the batch.
 
-### `agentic-cli respond --id F001 --action fixed|dismissed|accepted [--commit SHA] [--note TEXT]`
+### `agentic-preflight respond --id F001 --action fixed|dismissed|accepted [--commit SHA] [--note TEXT]`
 - `fixed` requires `--commit`. The commit is verified three ways: it exists, it touches
   the finding's file, and it contains no `copy_files` path.
 - `dismissed` and `accepted` require `--note`.
 - Unknown id exits 3 listing the valid ids. Each finding is resolved once.
 
-### `agentic-cli verify`
+### `agentic-preflight verify`
 Confirms nothing blocks the active stage and advances to green. Exits 2 listing the
 outstanding blocking set if anything remains.
 
-### `agentic-cli stage run lint|test [--command CMD] [--record] [--baseline]`
+### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
 Command resolution: `--command` → `[commands].<name>` → detection. Detection never
 guesses: it exits 2 with `data.mode = "needs_command"` and candidates from
 `pyproject.toml`, `package.json`, `Makefile`, `justfile`, and CI workflows.
@@ -152,7 +152,7 @@ asdf, mise, fnm, or nodenv. `[runtime] manager = "auto"` is the default. With
 `strict = true`, a pin whose manager is unavailable fails with exit 127 instead of
 falling back to a different system Node. `manager = "none"` disables activation.
 
-### `agentic-cli mergeback`
+### `agentic-preflight mergeback`
 In in-place mode, attests the already-verified current SHA without creating or
 cherry-picking a commit. The checkout must remain clean. In isolated modes, cherry-picks
 the fix commits onto the source branch; only paths those commits may overwrite are
@@ -168,67 +168,67 @@ On success: compares the branch tree against the worktree tree. `tree_equivalent
 means the verified content is byte-identical and green transfers to the ledger. False
 means re-verification is needed.
 
-### `agentic-cli gate`
+### `agentic-preflight gate`
 Mints a confirmation token and summarises the remote, refspec, branch, and commits.
 With `[gate] mode = "manual"` it exits 4 instead and hands over the literal `git push`
 command for a person to run.
 
-### `agentic-cli push --confirm TOKEN [--dry-run]`
+### `agentic-preflight push --confirm TOKEN [--dry-run]`
 Requires the token from `gate`. **Ask the user before running this.**
 
-### `agentic-cli pr [--draft/--no-draft] [--title TITLE]`
+### `agentic-preflight pr [--draft/--no-draft] [--title TITLE]`
 Opens a pull request via the `gh` CLI. No credentials are ever handled here — if `gh`
 is missing or unauthenticated, exits 4 with a prefilled `compare_url`.
 
 Title precedence is `--title`, `[publish] pr_title`, branch name, then the first commit
 subject when no branch name is available.
 
-### `agentic-cli ci [--once] [--timeout-seconds N] [--poll-interval-seconds N]`
+### `agentic-preflight ci [--once] [--timeout-seconds N] [--poll-interval-seconds N]`
 Monitors PR checks and mergeability through `gh`. It reports `checks_passed`, merge,
 close, or timeout, and fetches failed GitHub Actions logs when run IDs are available.
 On failure it returns the logs, preserved intent, and a fresh-run command to the host.
 The CLI never invokes a model: the host agent makes the repair, commits it, and drives a
 new synchronized review → test → docs → lint validation before pushing again.
 
-### `agentic-cli finish`
+### `agentic-preflight finish`
 Marks a pushed run with no pull request `DONE`. It preserves the run directory and
 audit logs, clears the current-run pointer, and directs the next step to `gc`.
 
-### `agentic-cli cleanup [--confirm TOKEN]`
+### `agentic-preflight cleanup [--confirm TOKEN]`
 For a run in the PR/CI lifecycle, verifies through `gh` that the PR is merged. Without a token it
 returns a deletion preview and confirmation token but changes nothing. After the user
 approves that exact preview, `--confirm` re-checks merge status, switches a clean PR
 source checkout to the base branch if necessary, leaves an in-place checkout intact,
 releases the reusable runner, or removes a strict worktree, then deletes the
-local `ac/*` branch, local PR source branch, and remote PR source branch. A wrong or
+local `ap/*` branch, local PR source branch, and remote PR source branch. A wrong or
 missing approval never deletes anything.
 
 ## Inspection and recovery
 
-### `agentic-cli status`
+### `agentic-preflight status`
 Legal in **every** state and the universal recovery entry point. Reports state, seq,
 findings, staleness, worktree path, and the gate token. Never raises for a wedged run.
 In `MERGEBACK_CONFLICT`, it replays the durable conflict report and points back to the
 legal `mergeback` retry.
 
-### `agentic-cli logs --stage lint|test`
+### `agentic-preflight logs --stage lint|test`
 Full captured output. Copied-file contents are redacted.
 
-### `agentic-cli events [--limit N]`
+### `agentic-preflight events [--limit N]`
 Run history, oldest first.
 
-### `agentic-cli abort [--force]`
+### `agentic-preflight abort [--force]`
 Ends the run and releases the worktree. Exits 5 if unmerged fix commits would be lost;
 `--force` discards them.
 
-### `agentic-cli gc [--force]`
-Reconciles run directories, git worktrees, and `ac/*` branches. For a terminal run,
+### `agentic-preflight gc [--force]`
+Reconciles run directories, git worktrees, and `ap/*` branches. For a terminal run,
 each fix commit is compared by stable patch ID with commits in that run's
 post-mergeback history. Patch-equivalent cherry-picks are safe to reclaim; anything
 with no equivalent remains reported as unmerged and is never removed without
 `--force`. Run directories and their audit logs are retained.
 
-### `agentic-cli hook-check`
+### `agentic-preflight hook-check`
 The pre-push predicate. Reads git's stdin protocol, consults only `ledger.json`, and
 exits 0 or 10. Not for you to call — git calls it.
 

@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from agentic_cli.envelope import ExitCode
-from agentic_cli.publish import provider as providermod
+from agentic_preflight.envelope import ExitCode
+from agentic_preflight.publish import provider as providermod
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
@@ -102,10 +102,10 @@ def gh_stub(tmp_path, monkeypatch):
 @pytest.fixture
 def verified(feature_repo, bare_remote, tmp_path):
     """A run driven all the way to VERIFIED with a real remote configured."""
-    write(feature_repo, ".agentic-cli.toml",
+    write(feature_repo, ".agentic-preflight.toml",
           "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
           "\n[worktree]\nmode = 'reusable'\n")
-    commit_all(feature_repo, "configure agentic-cli")
+    commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     agent.run("context")
@@ -120,10 +120,10 @@ def verified(feature_repo, bare_remote, tmp_path):
 @pytest.fixture
 def verified_with_cherry_picked_fix(feature_repo, bare_remote, tmp_path, monkeypatch):
     """A verified fix whose cherry-picked SHA deliberately differs."""
-    write(feature_repo, ".agentic-cli.toml",
+    write(feature_repo, ".agentic-preflight.toml",
           "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
           "\n[worktree]\nmode = 'reusable'\n")
-    commit_all(feature_repo, "configure agentic-cli")
+    commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
     start = agent.run("start")
     run_id = start["run_id"]
@@ -198,7 +198,7 @@ def test_finish_closes_a_pushed_run_without_a_pull_request(verified):
     verified.run("push", "--confirm", token)
     env = verified.run("finish")
     assert env["state"] == "DONE"
-    assert env["next"]["command"] == "agentic-cli gc"
+    assert env["next"]["command"] == "agentic-preflight gc"
     assert verified.run("status")["data"]["has_run"] is False
 
 
@@ -216,10 +216,10 @@ def test_gate_is_illegal_before_everything_is_verified(feature_repo, tmp_path):
 
 def test_manual_gate_mode_refuses_to_proceed_at_all(feature_repo, bare_remote, tmp_path):
     """For those who want a person to type the command themselves."""
-    write(feature_repo, ".agentic-cli.toml",
+    write(feature_repo, ".agentic-preflight.toml",
           "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
           "\n[gate]\nmode = 'manual'\n")
-    commit_all(feature_repo, "configure agentic-cli")
+    commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     agent.run("context")
@@ -271,7 +271,7 @@ def test_pr_shells_out_to_gh(verified, gh_stub, feature_repo):
 def test_ci_failure_returns_logs_and_intent_to_the_host(
     verified, gh_stub, feature_repo, monkeypatch
 ):
-    from agentic_cli.publish import github as githubmod
+    from agentic_preflight.publish import github as githubmod
 
     token = verified.run("gate")["data"]["token"]
     verified.run("push", "--confirm", token)
@@ -304,7 +304,7 @@ def test_ci_failure_returns_logs_and_intent_to_the_host(
     assert env["data"]["host_driven"] is True
     assert env["data"]["failed_logs"]["123"] == "tests/test_api.py failed"
     assert env["data"]["intent"]
-    assert env["next"]["command"] == "agentic-cli abort --force"
+    assert env["next"]["command"] == "agentic-preflight abort --force"
 
 
 def test_finish_refuses_to_close_a_run_with_an_unmerged_cleanup_lifecycle(
@@ -330,7 +330,7 @@ def test_cleanup_previews_every_related_resource_before_deleting(
 
     assert env["state"] == "PR_OPEN"
     assert env["data"]["token"]
-    assert env["data"]["worktree_branch"].startswith("ac/")
+    assert env["data"]["worktree_branch"].startswith("ap/")
     assert env["data"]["local_branch"] == "feature/x"
     assert env["data"]["remote_branch"] == "origin/feature/x"
     assert env["data"]["switch_to"] == "main"
@@ -358,8 +358,8 @@ def test_cleanup_rejects_a_wrong_confirmation_token(
 def test_cleanup_refuses_until_github_reports_the_pr_merged(
     verified, gh_stub, feature_repo, bare_remote, monkeypatch
 ):
-    from agentic_cli.publish import github as githubmod
-    from agentic_cli.publish.github import PullRequestStatus
+    from agentic_preflight.publish import github as githubmod
+    from agentic_preflight.publish.github import PullRequestStatus
 
     token = verified.run("gate")["data"]["token"]
     verified.run("push", "--confirm", token)
@@ -413,11 +413,11 @@ def test_pr_title_flag_overrides_the_default(verified, gh_stub, feature_repo):
 def test_publish_config_sets_the_gate_pr_title(feature_repo, bare_remote, tmp_path):
     write(
         feature_repo,
-        ".agentic-cli.toml",
+        ".agentic-preflight.toml",
         "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
         "\n[publish]\npr_title = 'Configured title'\n",
     )
-    commit_all(feature_repo, "configure agentic-cli")
+    commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     agent.run("context")
@@ -440,10 +440,10 @@ def test_we_never_pass_a_token_to_gh(verified, gh_stub, feature_repo):
 
 
 def test_draft_pr_config_is_honoured(feature_repo, bare_remote, tmp_path, gh_stub):
-    write(feature_repo, ".agentic-cli.toml",
+    write(feature_repo, ".agentic-preflight.toml",
           "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
           "\n[publish]\ndraft_pr = true\n")
-    commit_all(feature_repo, "configure agentic-cli")
+    commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     agent.run("context")
@@ -480,7 +480,7 @@ def test_pr_is_illegal_before_pushing(verified):
 def test_gc_reclaims_a_finished_run_whose_fixes_were_cherry_picked(
     verified_with_cherry_picked_fix, feature_repo
 ):
-    from agentic_cli import gitx
+    from agentic_preflight import gitx
 
     agent, run_id, wt, original, picked = verified_with_cherry_picked_fix
     assert gitx.commit_patch_id(feature_repo, original) == gitx.commit_patch_id(
@@ -496,7 +496,7 @@ def test_gc_reclaims_a_finished_run_whose_fixes_were_cherry_picked(
     assert env["data"]["retained"] == []
     assert wt.exists()
     assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=wt) == "HEAD"
-    assert git("branch", "--list", f"ac/{run_id}", cwd=feature_repo) == ""
+    assert git("branch", "--list", f"ap/{run_id}", cwd=feature_repo) == ""
 
 
 # -- the honest caveat ------------------------------------------------------

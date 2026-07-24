@@ -5,7 +5,7 @@ import subprocess
 
 import pytest
 
-from agentic_cli.envelope import ExitCode
+from agentic_preflight.envelope import ExitCode
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
@@ -27,10 +27,10 @@ def ready(feature_repo, tmp_path):
     """Drive a run to LINT_GREEN, optionally with a fix commit in the worktree."""
 
     def build(*, with_fix=True, fix_content=None):
-        write(feature_repo, ".agentic-cli.toml",
+        write(feature_repo, ".agentic-preflight.toml",
               "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
               "\n[worktree]\nmode = 'reusable'\n")
-        commit_all(feature_repo, "configure agentic-cli")
+        commit_all(feature_repo, "configure agentic-preflight")
         agent = ScriptedAgent(feature_repo)
         env = agent.run("start")
         wt = env["data"]["worktree_path"]
@@ -64,10 +64,10 @@ def test_default_in_place_mode_records_repairs_and_attests_without_cherry_pick(
 ):
     write(
         feature_repo,
-        ".agentic-cli.toml",
+        ".agentic-preflight.toml",
         "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n",
     )
-    commit_all(feature_repo, "configure agentic-cli")
+    commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
     started = agent.run("start")
     assert started["data"]["worktree_mode"] == "in_place"
@@ -187,10 +187,10 @@ def test_mergeback_is_illegal_before_tests_pass(feature_repo, tmp_path):
 
 def test_conflict_aborts_and_restores_the_branch_exactly(feature_repo, tmp_path):
     """Construct a guaranteed conflict and assert the full abort contract."""
-    write(feature_repo, ".agentic-cli.toml",
+    write(feature_repo, ".agentic-preflight.toml",
           "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
           "\n[worktree]\nmode = 'reusable'\n")
-    commit_all(feature_repo, "configure agentic-cli")
+    commit_all(feature_repo, "configure agentic-preflight")
 
     agent = ScriptedAgent(feature_repo)
     env = agent.run("start")
@@ -218,7 +218,7 @@ def test_conflict_aborts_and_restores_the_branch_exactly(feature_repo, tmp_path)
     from pathlib import Path
     state_root = Path(
         git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo)
-    ) / "agentic-cli"
+    ) / "agentic-preflight"
     run_path = state_root / "runs" / run_id / "run.json"
     doc = json.loads(run_path.read_text())
     doc["head_sha"] = new_head
@@ -245,7 +245,7 @@ def test_conflict_aborts_and_restores_the_branch_exactly(feature_repo, tmp_path)
     # The report survives the failed process and status points at a legal retry.
     status = agent.run("status")
     assert status["data"]["mergeback_conflict"]["conflicting_commit"] == fix_sha
-    assert status["next"]["command"] == "agentic-cli mergeback"
+    assert status["next"]["command"] == "agentic-preflight mergeback"
 
     # Repeating mergeback is legal; a still-unresolved conflict remains durable.
     retry = agent.run("mergeback", expect=ExitCode.NEEDS_HUMAN)
@@ -271,7 +271,7 @@ def test_conflict_never_auto_resolves(tmp_repo, monkeypatch):
     Checked behaviourally rather than by scanning the source, so it holds no
     matter how the module is refactored.
     """
-    from agentic_cli import gitx, mergeback
+    from agentic_preflight import gitx, mergeback
 
     # A guaranteed conflict: two branches rewriting the same line differently.
     git("switch", "-c", "side", cwd=tmp_repo)
@@ -294,7 +294,7 @@ def test_conflict_never_auto_resolves(tmp_repo, monkeypatch):
 
     with pytest.raises(mergeback.MergebackConflict):
         mergeback.cherry_pick_fixes(
-            tmp_repo, [side_sha], worktree_branch="ac/x", worktree_path=str(tmp_repo)
+            tmp_repo, [side_sha], worktree_branch="ap/x", worktree_path=str(tmp_repo)
         )
 
     flat = " ".join(" ".join(args) for args in recorded)
@@ -306,7 +306,7 @@ def test_conflict_never_auto_resolves(tmp_repo, monkeypatch):
 def test_conflict_leaves_no_cherry_pick_in_progress(tmp_repo):
     """CHERRY_PICK_HEAD must be gone: a half-finished pick wedges the repo."""
 
-    from agentic_cli import mergeback
+    from agentic_preflight import mergeback
 
     git("switch", "-c", "side", cwd=tmp_repo)
     write(tmp_repo, "src/app.py", "SIDE\n")
@@ -320,7 +320,7 @@ def test_conflict_leaves_no_cherry_pick_in_progress(tmp_repo):
 
     with pytest.raises(mergeback.MergebackConflict) as exc:
         mergeback.cherry_pick_fixes(
-            tmp_repo, [side_sha], worktree_branch="ac/x", worktree_path=str(tmp_repo)
+            tmp_repo, [side_sha], worktree_branch="ap/x", worktree_path=str(tmp_repo)
         )
 
     assert exc.value.report.restored is True
@@ -330,7 +330,7 @@ def test_conflict_leaves_no_cherry_pick_in_progress(tmp_repo):
 
 
 def test_conflict_aborts_the_entire_fix_stack_and_preserves_unrelated_work(tmp_repo):
-    from agentic_cli import mergeback
+    from agentic_preflight import mergeback
 
     git("switch", "-c", "fix-stack", cwd=tmp_repo)
     write(tmp_repo, "README.md", "first fix\n")
@@ -348,7 +348,7 @@ def test_conflict_aborts_the_entire_fix_stack_and_preserves_unrelated_work(tmp_r
         mergeback.cherry_pick_fixes(
             tmp_repo,
             [first, second],
-            worktree_branch="ac/x",
+            worktree_branch="ap/x",
             worktree_path=str(tmp_repo),
         )
 

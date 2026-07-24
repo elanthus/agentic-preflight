@@ -2,14 +2,14 @@ import json
 
 import pytest
 
-from agentic_cli.machine import State
-from agentic_cli.models import RunDoc
-from agentic_cli.store import CurrentRunExists, StaleWrite, Store, UnknownRun
+from agentic_preflight.machine import State
+from agentic_preflight.models import RunDoc
+from agentic_preflight.store import CurrentRunExists, StaleWrite, Store, UnknownRun
 
 
 @pytest.fixture
 def store(tmp_path):
-    return Store(tmp_path / "agentic-cli")
+    return Store(tmp_path / "agentic-preflight")
 
 
 def make_run(run_id="r_abc123"):
@@ -74,7 +74,7 @@ def test_a_crash_during_replace_leaves_a_valid_document(store, monkeypatch):
     def boom(*args, **kwargs):
         raise OSError("disk went away")
 
-    monkeypatch.setattr("agentic_cli.store.os.replace", boom)
+    monkeypatch.setattr("agentic_preflight.store.os.replace", boom)
     with pytest.raises(OSError):
         with store.transaction("r_abc123") as run:
             run.state = State.ABORTED

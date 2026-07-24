@@ -1,8 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from agentic_cli.machine import State
-from agentic_cli.models import (
+from agentic_preflight.machine import State
+from agentic_preflight.models import (
     Finding,
     FindingAction,
     FindingStatus,

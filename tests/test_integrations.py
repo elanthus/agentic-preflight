@@ -9,9 +9,9 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from agentic_cli import integrations
-from agentic_cli.cli import main
-from agentic_cli.envelope import ExitCode
+from agentic_preflight import integrations
+from agentic_preflight.cli import main
+from agentic_preflight.envelope import ExitCode
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def source_skill(tmp_path):
     source = tmp_path / "source-skill"
     (source / "reference").mkdir(parents=True)
     (source / "SKILL.md").write_text(
-        "---\nname: agentic-cli\ndescription: Test skill.\n---\n\nFollow the workflow.\n"
+        "---\nname: agentic-preflight\ndescription: Test skill.\n---\n\nFollow the workflow.\n"
     )
     (source / "reference" / "commands.md").write_text("# Commands\n")
     return source
@@ -31,10 +31,10 @@ def test_resolves_codex_and_claude_user_locations(tmp_path):
     )
     assert targets == [
         integrations.InstallTarget(
-            "codex", tmp_path / ".agents" / "skills" / "agentic-cli"
+            "codex", tmp_path / ".agents" / "skills" / "agentic-preflight"
         ),
         integrations.InstallTarget(
-            "claude", tmp_path / ".claude" / "skills" / "agentic-cli"
+            "claude", tmp_path / ".claude" / "skills" / "agentic-preflight"
         ),
     ]
 
@@ -44,8 +44,8 @@ def test_resolves_project_locations_at_the_repository_root(tmp_path):
         ["codex", "claude"], scope="project", project_root=tmp_path
     )
     assert [target.path for target in targets] == [
-        tmp_path / ".agents" / "skills" / "agentic-cli",
-        tmp_path / ".claude" / "skills" / "agentic-cli",
+        tmp_path / ".agents" / "skills" / "agentic-preflight",
+        tmp_path / ".claude" / "skills" / "agentic-preflight",
     ]
 
 
@@ -55,7 +55,7 @@ def test_custom_target_is_a_skills_root(tmp_path):
         [], scope="user", custom_roots=[custom_root], home=tmp_path
     )
     assert targets == [
-        integrations.InstallTarget("custom", custom_root / "agentic-cli")
+        integrations.InstallTarget("custom", custom_root / "agentic-preflight")
     ]
 
 
@@ -70,8 +70,8 @@ def test_install_copies_the_whole_skill_and_records_ownership(tmp_path, source_s
     assert [result["action"] for result in results] == ["installed", "installed"]
     assert all(result["status"] == "current" for result in results)
     for destination in (
-        tmp_path / ".agents" / "skills" / "agentic-cli",
-        tmp_path / ".claude" / "skills" / "agentic-cli",
+        tmp_path / ".agents" / "skills" / "agentic-preflight",
+        tmp_path / ".claude" / "skills" / "agentic-preflight",
     ):
         assert (destination / "SKILL.md").read_text() == (source_skill / "SKILL.md").read_text()
         assert (destination / "reference" / "commands.md").is_file()
@@ -94,7 +94,7 @@ def test_update_replaces_an_unmodified_outdated_copy(tmp_path, source_skill):
         ["codex"], home=tmp_path, source_dir=source_skill, source_version="1.0"
     )
     (source_skill / "SKILL.md").write_text(
-        "---\nname: agentic-cli\ndescription: Updated.\n---\n\nNew workflow.\n"
+        "---\nname: agentic-preflight\ndescription: Updated.\n---\n\nNew workflow.\n"
     )
 
     before = integrations.integration_status(
@@ -129,7 +129,7 @@ def test_modified_copy_is_preserved_unless_force_is_explicit(tmp_path, source_sk
     integrations.install_integrations(
         ["codex"], home=tmp_path, source_dir=source_skill, source_version="1.0"
     )
-    destination = tmp_path / ".agents" / "skills" / "agentic-cli"
+    destination = tmp_path / ".agents" / "skills" / "agentic-preflight"
     (destination / "SKILL.md").write_text("my local workflow\n")
 
     status = integrations.integration_status(
@@ -154,7 +154,7 @@ def test_modified_copy_is_preserved_unless_force_is_explicit(tmp_path, source_sk
 
 
 def test_conflicts_are_preflighted_before_any_destination_changes(tmp_path, source_skill):
-    codex = tmp_path / ".agents" / "skills" / "agentic-cli"
+    codex = tmp_path / ".agents" / "skills" / "agentic-preflight"
     codex.mkdir(parents=True)
     (codex / "SKILL.md").write_text("unmanaged\n")
 
@@ -165,14 +165,14 @@ def test_conflicts_are_preflighted_before_any_destination_changes(tmp_path, sour
             source_dir=source_skill,
             source_version="1.0",
         )
-    assert not (tmp_path / ".claude" / "skills" / "agentic-cli").exists()
+    assert not (tmp_path / ".claude" / "skills" / "agentic-preflight").exists()
 
 
 def test_uninstall_removes_managed_copy_but_preserves_modified_copy(tmp_path, source_skill):
     integrations.install_integrations(
         ["codex"], home=tmp_path, source_dir=source_skill, source_version="1.0"
     )
-    destination = tmp_path / ".agents" / "skills" / "agentic-cli"
+    destination = tmp_path / ".agents" / "skills" / "agentic-preflight"
     (destination / "SKILL.md").write_text("my local workflow\n")
 
     with pytest.raises(integrations.IntegrationConflict):
@@ -230,7 +230,7 @@ def test_cli_install_and_status_keep_the_single_json_contract(tmp_path):
 
 def test_cli_refuses_an_unmanaged_copy_with_a_structured_error(tmp_path):
     home = tmp_path / "home"
-    destination = home / ".agents" / "skills" / "agentic-cli"
+    destination = home / ".agents" / "skills" / "agentic-preflight"
     destination.mkdir(parents=True)
     (destination / "SKILL.md").write_text("unmanaged\n")
 
@@ -262,8 +262,8 @@ def test_cli_custom_target_does_not_implicitly_select_known_agents(tmp_path):
     assert [item["integration"] for item in payload["data"]["integrations"]] == [
         "custom"
     ]
-    assert not (home / ".agents" / "skills" / "agentic-cli").exists()
-    assert not (home / ".claude" / "skills" / "agentic-cli").exists()
+    assert not (home / ".agents" / "skills" / "agentic-preflight").exists()
+    assert not (home / ".claude" / "skills" / "agentic-preflight").exists()
 
     status = runner.invoke(
         main,
@@ -282,5 +282,5 @@ def test_wheel_force_includes_the_canonical_skill_directory():
     force_include = config["tool"]["hatch"]["build"]["targets"]["wheel"][
         "force-include"
     ]
-    assert force_include["skill"] == "agentic_cli/_bundled_skill"
+    assert force_include["skill"] == "agentic_preflight/_bundled_skill"
     assert integrations.bundled_skill_dir() == root / "skill"

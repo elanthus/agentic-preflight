@@ -13,9 +13,9 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from agentic_cli.cli import main
-from agentic_cli.config import Config
-from agentic_cli.envelope import ExitCode
+from agentic_preflight.cli import main
+from agentic_preflight.config import Config
+from agentic_preflight.envelope import ExitCode
 
 SKILL_DIR = Path(__file__).parent.parent / "skill"
 SKILL = SKILL_DIR / "SKILL.md"
@@ -34,7 +34,7 @@ def real_commands() -> set[str]:
 def code_regions(text: str) -> str:
     """Only fenced blocks and inline code spans.
 
-    Scanning raw prose would treat "agentic-cli refuses to push" as an
+    Scanning raw prose would treat "agentic-preflight refuses to push" as an
     invocation of a `refuses` command. Commands appear in code, so only code
     is searched.
     """
@@ -44,10 +44,10 @@ def code_regions(text: str) -> str:
 
 
 def documented_commands(text: str) -> set[str]:
-    """Every `agentic-cli <command>` invocation appearing in a doc's code."""
+    """Every `agentic-preflight <command>` invocation appearing in a doc's code."""
     found = set()
     for match in re.finditer(
-        r"(?<![$/])agentic-cli ([a-z][a-z-]*)(?: ([a-z][a-z-]*))?",
+        r"(?<![$/])agentic-preflight ([a-z][a-z-]*)(?: ([a-z][a-z-]*))?",
         code_regions(text),
     ):
         name, sub = match.group(1), match.group(2)
@@ -64,7 +64,7 @@ def documented_commands(text: str) -> set[str]:
 def test_skill_md_exists_with_front_matter():
     text = SKILL.read_text()
     assert text.startswith("---")
-    assert "name: agentic-cli" in text
+    assert "name: agentic-preflight" in text
     assert "description:" in text
 
 
