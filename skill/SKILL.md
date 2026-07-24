@@ -199,8 +199,8 @@ review → test → docs → lint run reaches green. Then update the PR and run
 
 **Stale head (exit 3, `stale_run`).** The branch moved after review began, so
 everything verified so far describes a tree that no longer exists. There is no partial
-recovery: run `agentic-preflight start --intent "<the user's objective and acceptance criteria>"`
-for a fresh run.
+recovery: run `agentic-preflight abort --force`, then run the fresh `start` command from
+the abort response. It preserves the original user intent.
 
 **Diff too large (exit 2, `diff_too_large`).** The diff is never truncated, so
 reviewing part of it is not an option. Look at `data.by_file`; if the bulk is generated

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shlex
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -198,14 +197,11 @@ def _assert_fresh(session: Session, run: RunDoc) -> None:
         f"branch {run.branch} has moved to {tip[:8]}; this run reviewed {run.head_sha[:8]}",
         state=run.state.value,
         run_id=run.run_id,
-        next_command=shlex.join(
-            [
-                "agentic-preflight",
-                "start",
-                "--intent",
-                run.intent or "<objective and acceptance criteria>",
-            ]
+        next_instruction=(
+            "Abort the stale run to release its lease. The abort response preserves the "
+            "intent and returns the legal fresh-start command."
         ),
+        next_command="agentic-preflight abort --force",
     )
 
 
