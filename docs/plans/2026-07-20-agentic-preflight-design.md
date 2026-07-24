@@ -9,7 +9,11 @@
 
 The Go tool [`no-mistakes`](https://github.com/kunchenguid/no-mistakes) gates pushes behind an AI validation pipeline (review → test → docs → lint → push → PR → CI) by running a **local git proxy remote**: you `git push no-mistakes`, a daemon intercepts, validates in a disposable worktree, and only then forwards to the real remote.
 
-We want the same guarantee — *nothing reaches the remote until every check is green* — without the proxy. Roughly half of the Go project's `internal/` (daemon, IPC, proxy, Windows process handling) exists only to support proxy interception. Dropping it removes that mass entirely.
+We want an advisory guard against accidental unverified pushes without the proxy. The
+default hook may be bypassed and fails open when the CLI is missing; manual mode is the
+stronger human-only push boundary. Roughly half of the Go project's `internal/` (daemon,
+IPC, proxy, Windows process handling) exists only to support proxy interception. Dropping
+it removes that mass entirely.
 
 The replacement architecture: **Python is a deterministic state machine with a JSON-over-stdout CLI; the host coding agent is the only thinking component; a pre-push git hook is a pure predicate over a SHA ledger.** Python never calls an LLM — no API keys, no model config, no token budgets — which makes the tool agent-agnostic for free and removes most of what would otherwise need building.
 
