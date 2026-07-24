@@ -137,7 +137,7 @@ def respond(
     )
     if not remaining:
         envelope.next_instruction = "Nothing blocks this stage any more. Verify it."
-        envelope.next_command = "agentic-cli verify"
+        envelope.next_command = "agentic-preflight verify"
     return envelope
 
 
@@ -193,7 +193,7 @@ def _in_place_fix_commits(session: Session, run: RunDoc, commit: str) -> list[st
             run_id=run.run_id,
             next_command=shlex.join(
                 [
-                    "agentic-cli",
+                    "agentic-preflight",
                     "start",
                     "--intent",
                     run.intent or "<objective and acceptance criteria>",

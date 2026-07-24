@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from agentic_cli.envelope import ExitCode
+from agentic_preflight.envelope import ExitCode
 from tests.conftest import commit_all, write
 from tests.driver import ScriptedAgent
 
@@ -77,7 +77,7 @@ def test_inventory_flags_a_doc_the_diff_already_touched(agent, feature_repo, tmp
 
 def test_configured_docs_paths_join_the_inventory(agent, feature_repo, tmp_path):
     write(feature_repo, "handbook/usage.md", "# usage\n")
-    write(feature_repo, ".agentic-cli.toml", "[docs]\npaths = ['handbook/**']\n")
+    write(feature_repo, ".agentic-preflight.toml", "[docs]\npaths = ['handbook/**']\n")
     commit_all(feature_repo, "add a handbook")
     agent.run("start")
     agent.run("context")
@@ -202,7 +202,7 @@ def changelog_repo(tmp_repo):
     from tests.conftest import git
 
     write(tmp_repo, "CHANGELOG.md", "# changelog\n")
-    write(tmp_repo, ".agentic-cli.toml", "[docs]\nrequire_changelog = true\n")
+    write(tmp_repo, ".agentic-preflight.toml", "[docs]\nrequire_changelog = true\n")
     commit_all(tmp_repo, "add changelog and require it")
     git("switch", "-c", "feature/x", cwd=tmp_repo)
     write(tmp_repo, "src/app.py", "def greet(name, loud=False):\n    return f'hi {name}'\n")
@@ -267,7 +267,7 @@ def test_require_changelog_is_off_by_default(review_green, tmp_path):
 
 def test_disabled_docs_stage_is_skipped_as_a_legal_transition(agent, feature_repo, tmp_path):
     """Skipped, not silently passed: the run really does reach DOCS_GREEN."""
-    write(feature_repo, ".agentic-cli.toml", "[docs]\nenabled = false\n")
+    write(feature_repo, ".agentic-preflight.toml", "[docs]\nenabled = false\n")
     commit_all(feature_repo, "disable the docs stage")
     agent.run("start")
     agent.run("context")
@@ -279,7 +279,7 @@ def test_disabled_docs_stage_is_skipped_as_a_legal_transition(agent, feature_rep
 
 
 def test_docs_context_is_refused_when_the_stage_is_disabled(agent, feature_repo, tmp_path):
-    write(feature_repo, ".agentic-cli.toml", "[docs]\nenabled = false\n")
+    write(feature_repo, ".agentic-preflight.toml", "[docs]\nenabled = false\n")
     commit_all(feature_repo, "disable the docs stage")
     agent.run("start")
     agent.run("context")

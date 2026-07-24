@@ -1,8 +1,8 @@
 import pytest
 
-from agentic_cli import findings as F
-from agentic_cli.machine import State
-from agentic_cli.models import (
+from agentic_preflight import findings as F
+from agentic_preflight.machine import State
+from agentic_preflight.models import (
     Finding,
     FindingAction,
     FindingStatus,

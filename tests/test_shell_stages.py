@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from agentic_cli.envelope import ExitCode
+from agentic_preflight.envelope import ExitCode
 from tests.conftest import commit_all, write
 from tests.driver import ScriptedAgent
 
@@ -17,8 +17,8 @@ def findings_json(tmp_path, items):
 
 
 def config(repo, body):
-    write(repo, ".agentic-cli.toml", body)
-    commit_all(repo, "configure agentic-cli")
+    write(repo, ".agentic-preflight.toml", body)
+    commit_all(repo, "configure agentic-preflight")
 
 
 @pytest.fixture
@@ -66,7 +66,7 @@ def test_a_run_keeps_its_config_when_the_main_tree_config_changes(
     )
     write(
         feature_repo,
-        ".agentic-cli.toml",
+        ".agentic-preflight.toml",
         "[docs]\nenabled = false\n\n[commands]\nlint = 'false'\n",
     )
     env = agent.run("stage", "run", "lint")
@@ -167,7 +167,7 @@ def test_a_committed_lint_repair_invalidates_tests_and_docs(docs_green):
     env = agent.run("stage", "run", "lint", "--command", "true", "--record")
     assert env["state"] == "REVIEW_GREEN"
     assert env["data"]["validation_restarted"] is True
-    assert env["next"]["command"] == "agentic-cli stage run test"
+    assert env["next"]["command"] == "agentic-preflight stage run test"
 
     assert agent.run("stage", "run", "test", "--command", "true", "--record")[
         "state"

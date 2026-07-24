@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from agentic_cli.envelope import ExitCode
+from agentic_preflight.envelope import ExitCode
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
@@ -21,7 +21,7 @@ def hook_check(repo, stdin_text, extra_env=None):
     """Invoke hook-check exactly as the hook does: a real subprocess with stdin."""
     env = {**os.environ, **(extra_env or {})}
     return subprocess.run(
-        [sys.executable, "-m", "agentic_cli", "hook-check"],
+        [sys.executable, "-m", "agentic_preflight", "hook-check"],
         cwd=repo,
         input=stdin_text,
         capture_output=True,
@@ -42,21 +42,21 @@ def test_init_installs_a_pre_push_hook(feature_repo):
     hook = Path(feature_repo) / ".git" / "hooks" / "pre-push"
     assert hook.exists()
     assert os.access(hook, os.X_OK)
-    assert "agentic-cli hook-check" in hook.read_text()
+    assert "agentic-preflight hook-check" in hook.read_text()
     assert env["data"]["hook_installed"] is True
 
 
 def test_init_writes_a_config_file_if_absent(feature_repo):
     agent = ScriptedAgent(feature_repo)
     agent.run("init")
-    assert (Path(feature_repo) / ".agentic-cli.toml").exists()
+    assert (Path(feature_repo) / ".agentic-preflight.toml").exists()
 
 
 def test_init_does_not_clobber_an_existing_config(feature_repo):
-    write(feature_repo, ".agentic-cli.toml", "[general]\nbase_ref = 'develop'\n")
+    write(feature_repo, ".agentic-preflight.toml", "[general]\nbase_ref = 'develop'\n")
     agent = ScriptedAgent(feature_repo)
     agent.run("init")
-    assert "develop" in (Path(feature_repo) / ".agentic-cli.toml").read_text()
+    assert "develop" in (Path(feature_repo) / ".agentic-preflight.toml").read_text()
 
 
 def test_init_refuses_to_overwrite_a_foreign_hook(feature_repo):
@@ -75,7 +75,7 @@ def test_init_force_replaces_a_foreign_hook(feature_repo):
     hook.write_text("#!/bin/sh\necho someone elses hook\n")
     agent = ScriptedAgent(feature_repo)
     agent.run("init", "--force")
-    assert "agentic-cli hook-check" in hook.read_text()
+    assert "agentic-preflight hook-check" in hook.read_text()
 
 
 def test_init_is_idempotent(feature_repo):
@@ -117,9 +117,9 @@ def test_an_unverified_commit_is_blocked(feature_repo):
 def test_the_block_message_goes_to_stderr_and_names_the_skill(feature_repo):
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
     result = hook_check(feature_repo, f"refs/heads/feature/x {sha} refs/heads/feature/x {ZERO}\n")
-    assert "agentic-cli: push blocked" in result.stderr
-    assert "/agentic-cli" in result.stderr
-    assert "$agentic-cli" in result.stderr
+    assert "agentic-preflight: push blocked" in result.stderr
+    assert "/agentic-preflight" in result.stderr
+    assert "$agentic-preflight" in result.stderr
     assert sha[:7] in result.stderr
     assert "--no-verify" in result.stderr
 
@@ -144,9 +144,9 @@ def test_the_block_message_explains_an_amend(feature_repo, tmp_path):
 
 def _green_run(repo, tmp_path):
     """Drive a full run to a recorded green ledger entry."""
-    write(repo, ".agentic-cli.toml",
+    write(repo, ".agentic-preflight.toml",
           "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n")
-    commit_all(repo, "configure agentic-cli")
+    commit_all(repo, "configure agentic-preflight")
     agent = ScriptedAgent(repo)
     agent.run("start")
     agent.run("context")
@@ -204,7 +204,7 @@ def test_the_installed_hook_allows_and_warns_when_the_tool_is_missing(feature_re
         input=f"refs/heads/feature/x {sha} refs/heads/feature/x {ZERO}\n",
         capture_output=True,
         text=True,
-        # A real shell is present, but agentic-cli (which lives in .venv/bin)
+        # A real shell is present, but agentic-preflight (which lives in .venv/bin)
         # is not — exactly the state of a fresh clone by someone who has not
         # installed the tool.
         env={"PATH": "/usr/bin:/bin", "HOME": os.environ.get("HOME", "")},
@@ -253,7 +253,7 @@ def test_an_unverified_block_still_says_so(feature_repo):
 
 def test_allow_force_push_config_permits_it(feature_repo, tmp_path):
     _green_run(feature_repo, tmp_path)
-    write(feature_repo, ".agentic-cli.toml",
+    write(feature_repo, ".agentic-preflight.toml",
           "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
           "\n[hook]\nallow_force_push = true\n")
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
@@ -334,7 +334,7 @@ def test_hook_check_reads_only_the_ledger(feature_repo, tmp_path):
     _green_run(feature_repo, tmp_path)
     state_root = Path(
         git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo)
-    ) / "agentic-cli"
+    ) / "agentic-preflight"
     import shutil
     shutil.rmtree(state_root / "runs")
     (state_root / "current").unlink(missing_ok=True)

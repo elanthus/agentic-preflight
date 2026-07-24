@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agentic_cli.publish import github
+from agentic_preflight.publish import github
 
 
 def test_pr_health_classifies_pending_failed_and_passed_checks():

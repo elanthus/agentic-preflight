@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from agentic_cli.envelope import ExitCode
+from agentic_preflight.envelope import ExitCode
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
@@ -83,7 +83,7 @@ def test_start_refuses_a_second_lease_while_a_run_is_active(agent):
 
     assert env["error"]["code"] == "wrong_state"
     assert env["run_id"] == first["run_id"]
-    assert env["next"]["command"] == "agentic-cli status"
+    assert env["next"]["command"] == "agentic-preflight status"
 
 
 def test_start_refuses_when_the_branch_has_no_commits_over_base(tmp_repo):
@@ -119,7 +119,7 @@ def test_context_refuses_before_a_run_exists(feature_repo):
 def test_context_trips_the_budget_rather_than_truncating(agent, feature_repo):
     write(feature_repo, "src/big.py", "x = 1\n" * 5000)
     commit_all(feature_repo, "add a big file")
-    write(feature_repo, ".agentic-cli.toml", "[diff]\nmax_bytes = 500\n")
+    write(feature_repo, ".agentic-preflight.toml", "[diff]\nmax_bytes = 500\n")
     commit_all(feature_repo, "tighten the diff budget")
 
     agent.run("start")
@@ -298,9 +298,12 @@ def test_a_moved_head_marks_the_run_stale_and_refuses_to_continue(agent, feature
         expect=ExitCode.PRECONDITION,
     )
     assert env["error"]["code"] == "stale_run"
-    assert "start" in env["next"]["command"]
-    assert "--intent" in env["next"]["command"]
-    assert "exercise the requested behavior safely" in env["next"]["command"]
+    assert env["next"]["command"] == "agentic-preflight abort --force"
+
+    aborted = agent.run("abort", "--force")
+    assert "start" in aborted["next"]["command"]
+    assert "--intent" in aborted["next"]["command"]
+    assert "exercise the requested behavior safely" in aborted["next"]["command"]
 
 
 def test_status_still_works_on_a_stale_run(agent, feature_repo):
@@ -309,12 +312,12 @@ def test_status_still_works_on_a_stale_run(agent, feature_repo):
     commit_all(feature_repo, "move the head")
     env = agent.run("status")
     assert env["data"]["stale"] is True
-    assert "--intent" in env["next"]["command"]
+    assert env["next"]["command"] == "agentic-preflight abort --force"
 
 
 def test_status_uses_the_snapshot_when_working_copy_config_breaks(agent, feature_repo):
     started = agent.run("start")
-    write(feature_repo, ".agentic-cli.toml", "[broken\n")
+    write(feature_repo, ".agentic-preflight.toml", "[broken\n")
     env = agent.run("status")
     assert env["run_id"] == started["run_id"]
     assert env["data"]["config_digest"]

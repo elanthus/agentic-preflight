@@ -73,7 +73,7 @@ def command(fn):
                 _as_error(
                     "copied_file_in_commit", str(exc), ExitCode.PRECONDITION,
                     "Rewrite the commit without that file, then retry.",
-                    "agentic-cli status",
+                    "agentic-preflight status",
                 )
             )
         except (WorktreeError, GitError) as exc:
@@ -94,7 +94,7 @@ def _as_error(code, message, exit_code, instruction=None, next_command=None) -> 
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
-@click.version_option(package_name="agentic-cli")
+@click.version_option(package_name="agentic-preflight")
 def main() -> None:
     """Agent-driven quality gate. Every command prints one JSON object."""
 
@@ -341,7 +341,7 @@ def integrations_update(
 def integrations_uninstall(
     agents: tuple[str, ...], scope: str, targets: tuple[Path, ...], force: bool
 ) -> None:
-    """Remove agentic-cli-managed skill copies for AGENTS."""
+    """Remove agentic-preflight-managed skill copies for AGENTS."""
     from . import integrations as integrations_module
 
     _require_integration_targets(agents, targets)
@@ -360,7 +360,7 @@ def integrations_uninstall(
 @click.option("--no-hook", is_flag=True, help="Write config only, skip the hook.")
 @command
 def init(force: bool, no_hook: bool) -> None:
-    """Install the pre-push hook and seed .agentic-cli.toml."""
+    """Install the pre-push hook and seed .agentic-preflight.toml."""
     from . import gitx, initcmd
 
     repo_root = gitx.repo_root(Path.cwd())
@@ -371,11 +371,11 @@ def init(force: bool, no_hook: bool) -> None:
             _as_error(
                 "hook_exists",
                 f"a pre-push hook already exists at {exc} and was not written by "
-                f"agentic-cli; refusing to replace it",
+                f"agentic-preflight; refusing to replace it",
                 ExitCode.PRECONDITION,
                 "Inspect the existing hook. Re-run with --force to replace it, or "
-                "merge the `agentic-cli hook-check` call into it by hand.",
-                "agentic-cli init --force",
+                "merge the `agentic-preflight hook-check` call into it by hand.",
+                "agentic-preflight init --force",
             )
         )
 
@@ -403,7 +403,7 @@ def hook_check() -> None:
         ledger = store.load_ledger()
         allow_force = load_config(repo_root).hook.allow_force_push
     except Exception as exc:  # never brick a repo over our own failure
-        sys.stderr.write(f"agentic-cli: hook check unavailable ({exc}); allowing push\n")
+        sys.stderr.write(f"agentic-preflight: hook check unavailable ({exc}); allowing push\n")
         sys.exit(int(ExitCode.OK))
 
     decision = hookmod.evaluate(
@@ -546,7 +546,7 @@ def abort(force: bool) -> None:
 @click.option("--force", is_flag=True, help="Remove even when work would be lost.")
 @command
 def gc(force: bool) -> None:
-    """Reconcile run directories, git worktrees, and ac/* branches."""
+    """Reconcile run directories, git worktrees, and ap/* branches."""
     session = runs.open_session()
     _finish(runs.gc(session, force=force))
 

@@ -90,11 +90,11 @@ def context(session: Session, *, section: str = "review") -> Envelope:
             },
             next_instruction=(
                 "Narrow the diff before reviewing it. Add generated or vendored paths "
-                "to `[diff] exclude` in .agentic-cli.toml, or raise `[diff] max_bytes` "
+                "to `[diff] exclude` in .agentic-preflight.toml, or raise `[diff] max_bytes` "
                 "if the change really is this large. The diff is never truncated, so "
                 "reviewing it partially is not an option."
             ),
-            next_command="agentic-cli context",
+            next_command="agentic-preflight context",
         )
 
     data: dict[str, Any] = {
@@ -125,7 +125,7 @@ def context(session: Session, *, section: str = "review") -> Envelope:
             "docs now be wrong? Submit findings against documentation files only. "
             "Zero findings is a normal and common outcome."
         )
-        envelope.next_command = "agentic-cli submit-findings --file findings.json"
+        envelope.next_command = "agentic-preflight submit-findings --file findings.json"
     return envelope
 
 
@@ -149,7 +149,7 @@ def _describe_validation(exc: ValidationError) -> str:
         if error["type"] == "extra_forbidden":
             parts.append(
                 f"{location}: not a field you may set — id and stage are assigned by "
-                f"agentic-cli, never supplied by the agent"
+                f"agentic-preflight, never supplied by the agent"
             )
         else:
             parts.append(f"{location}: {error['msg']}")
@@ -276,7 +276,7 @@ def verify(session: Session) -> Envelope:
             data={"stage": stage.value},
             blocking=[f.model_dump(mode="json") for f in outstanding],
             next_instruction="Resolve each blocking finding with `respond`, then verify again.",
-            next_command="agentic-cli respond --id <id> --action fixed --commit <sha>",
+            next_command="agentic-preflight respond --id <id> --action fixed --commit <sha>",
         )
 
     if run.state not in (State.REVIEW_GREEN, State.DOCS_GREEN):

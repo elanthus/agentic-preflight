@@ -59,7 +59,7 @@ def gate(session: Session) -> Envelope:
 
     if session.config.gate.mode == "manual":
         raise ManualGate(
-            "gate.mode is 'manual', so agentic-cli will not push on your behalf",
+            "gate.mode is 'manual', so agentic-preflight will not push on your behalf",
             state=run.state.value,
             run_id=run.run_id,
             data={**summary.as_dict(), "manual_command": f"git push origin {run.branch}"},
@@ -83,7 +83,7 @@ def gate(session: Session) -> Envelope:
             "Show the user the remote, branch, and commit list in plain language and "
             "ask whether to push. Never push without asking."
         ),
-        next_command=f"agentic-cli push --confirm {summary.token}",
+        next_command=f"agentic-preflight push --confirm {summary.token}",
     )
 
 
@@ -101,7 +101,7 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
                 "Run `gate`, show the user what would be pushed, ask for their "
                 "agreement, then push with the token."
             ),
-            next_command="agentic-cli gate",
+            next_command="agentic-preflight gate",
         )
 
     if dry_run:
@@ -109,7 +109,7 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
             run,
             data={"dry_run": True, "would_push": f"origin {run.branch}", "pushed": False},
             next_instruction="Dry run only; nothing was pushed.",
-            next_command=f"agentic-cli push --confirm {run.gate_token}",
+            next_command=f"agentic-preflight push --confirm {run.gate_token}",
         )
 
     gitx.run(session.repo_root, "push", "origin", f"{run.branch}:{run.branch}")
@@ -131,7 +131,7 @@ def _default_pr_title(session: Session, run: RunDoc, commits: list[dict] | None 
     if run.branch:
         return run.branch
     commits = commits or []
-    return commits[0]["subject"] if commits else "agentic-cli verified change"
+    return commits[0]["subject"] if commits else "agentic-preflight verified change"
 
 
 def pull_request(
@@ -176,7 +176,7 @@ def pull_request(
             },
             next_instruction=(
                 "Give the user the compare URL and let them open the PR themselves. "
-                "agentic-cli never handles credentials."
+                "agentic-preflight never handles credentials."
             ),
         ) from exc
 
@@ -248,7 +248,7 @@ def monitor_ci(
                 state=run.state.value,
                 run_id=run.run_id,
                 next_instruction="Restore gh authentication, then resume CI monitoring.",
-                next_command="agentic-cli ci",
+                next_command="agentic-preflight ci",
             ) from exc
 
         if health.outcome == "pending" and not once and time.monotonic() >= deadline:
@@ -294,17 +294,17 @@ def monitor_ci(
                 next_command=None,
             )
         if outcome == "failed":
-            restart = shlex.join(["agentic-cli", "start", "--intent", run.intent or ""])
+            restart = shlex.join(["agentic-preflight", "start", "--intent", run.intent or ""])
             return _envelope_for(
                 run,
                 data={**data, "restart_command": restart},
                 next_instruction=(
                     "Inspect the failed logs and repair the source branch as the host agent. "
-                    "Do not invoke an LLM from agentic-cli. Preserve the recorded intent, abort "
+                    "Do not invoke an LLM from agentic-preflight. Preserve the recorded intent, abort "
                     "this completed validation run, commit the repair, then start the supplied "
                     "fresh validation command. Only push after that entire run is green."
                 ),
-                next_command="agentic-cli abort --force",
+                next_command="agentic-preflight abort --force",
             )
         if outcome in {"checks_passed", "merged", "timed_out"} or once:
             return _envelope_for(run, data=data)
@@ -329,7 +329,7 @@ def finish(session: Session) -> Envelope:
         run,
         data={"pushed_sha": run.pushed_sha, "pr_url": run.pr_url},
         next_instruction=_worktree_completion(_worktree_mode(run, session.config)),
-        next_command="agentic-cli gc",
+        next_command="agentic-preflight gc",
     )
 
 
@@ -371,7 +371,7 @@ def cleanup(session: Session, *, confirm: str | None = None) -> Envelope:
             state=run.state.value,
             run_id=run.run_id,
             next_instruction="Check the pull request with gh, then retry cleanup.",
-            next_command="agentic-cli cleanup",
+            next_command="agentic-preflight cleanup",
         ) from exc
 
     if not pr.merged:
@@ -381,7 +381,7 @@ def cleanup(session: Session, *, confirm: str | None = None) -> Envelope:
             run_id=run.run_id,
             data={"pr_url": pr.url, "pr_state": pr.state},
             next_instruction="Wait until the pull request is merged, then retry cleanup.",
-            next_command="agentic-cli cleanup",
+            next_command="agentic-preflight cleanup",
         )
     if pr.head != run.branch:
         raise NeedsHuman(
@@ -434,7 +434,7 @@ def cleanup(session: Session, *, confirm: str | None = None) -> Envelope:
                 "Preview cleanup again, show it to the user, and use its token only "
                 "after they agree."
             ),
-            next_command="agentic-cli cleanup",
+            next_command="agentic-preflight cleanup",
         )
     if confirm is not None and run.cleanup_preview != preview:
         raise NeedsConfirm(
@@ -445,7 +445,7 @@ def cleanup(session: Session, *, confirm: str | None = None) -> Envelope:
             next_instruction=(
                 "Preview cleanup again and ask the user to approve the updated targets."
             ),
-            next_command="agentic-cli cleanup",
+            next_command="agentic-preflight cleanup",
         )
 
     if confirm is None:
@@ -461,7 +461,7 @@ def cleanup(session: Session, *, confirm: str | None = None) -> Envelope:
                 "Show the user every worktree and branch in this cleanup preview. "
                 "Only run the confirmation command after they agree."
             ),
-            next_command=f"agentic-cli cleanup --confirm {token}",
+            next_command=f"agentic-preflight cleanup --confirm {token}",
         )
 
     if current_branch == run.branch:
@@ -512,7 +512,7 @@ def cleanup(session: Session, *, confirm: str | None = None) -> Envelope:
 def _pr_body(session: Session, run: RunDoc) -> str:
     findings = session.store.load_findings(run.run_id)
     lines = [
-        "Verified by agentic-cli.",
+        "Verified by agentic-preflight.",
         "",
         "## Intent and acceptance criteria",
         "",

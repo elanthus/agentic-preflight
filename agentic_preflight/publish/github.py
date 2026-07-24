@@ -346,6 +346,6 @@ def failed_check_logs(
         )
         output = result.stdout if result.returncode == 0 else result.stderr
         if len(output) > max_chars:
-            output = output[:max_chars] + "\n[truncated by agentic-cli]"
+            output = output[:max_chars] + "\n[truncated by agentic-preflight]"
         logs[str(run_id)] = output.strip()
     return logs

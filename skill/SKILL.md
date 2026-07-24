@@ -1,9 +1,9 @@
 ---
-name: agentic-cli
-description: Use when shipping a branch — reviewing, documenting, linting, testing, and pushing work behind a quality gate. Also use when a push is blocked by the agentic-cli pre-push hook.
+name: agentic-preflight
+description: Use when shipping a branch — reviewing, documenting, linting, testing, and pushing work behind a quality gate. Also use when a push is blocked by the agentic-preflight pre-push hook.
 ---
 
-# agentic-cli
+# agentic-preflight
 
 You review, judge, and fix. The CLI holds all state and tells you what to do next.
 Python here never calls a model — every judgment in this workflow is yours.
@@ -27,71 +27,71 @@ Python here never calls a model — every judgment in this workflow is yours.
 7. **Keep the validation checkout clean for the whole run.** The default
    `in_place` mode uses the current checkout, so only deliberate repair commits may
    move its branch; uncommitted changes or an unaccounted commit stop the run.
-   `.agentic-cli.toml` must be committed **before `start`** and must not be edited
+   `.agentic-preflight.toml` must be committed **before `start`** and must not be edited
    mid-run. In `reusable` or `strict` mode, make repairs only in the absolute
    `worktree_path` returned by the CLI.
 
 ## The loop
 
 ```
-$ agentic-cli start --intent "<the user's objective and acceptance criteria>"
+$ agentic-preflight start --intent "<the user's objective and acceptance criteria>"
 {"ok":true,"run_id":"r_4f2a","state":"REVIEW_AWAITING_FINDINGS",
  "data":{"worktree_path":"/repos/my-project","worktree_mode":"in_place","changed_files":["src/auth.py"]},
- "next":{"instruction":"Fetch the diff before judging it.","command":"agentic-cli context"}}
+ "next":{"instruction":"Fetch the diff before judging it.","command":"agentic-preflight context"}}
 
-$ agentic-cli context
+$ agentic-preflight context
 {"ok":true,"state":"REVIEW_AWAITING_FINDINGS",
  "data":{"diff":"diff --git a/src/auth.py ...","changed_files":["src/auth.py"]},
- "next":{"command":"agentic-cli submit-findings --file findings.json"}}
+ "next":{"command":"agentic-preflight submit-findings --file findings.json"}}
 
 # You read the diff and decide. Write findings.json, then:
-$ agentic-cli submit-findings --file findings.json
+$ agentic-preflight submit-findings --file findings.json
 {"ok":true,"state":"REVIEW_AWAITING_RESPONSES","blocking":[{"id":"F001","severity":"high",...}],
- "next":{"command":"agentic-cli respond --id F001 --action fixed --commit <sha>"}}
+ "next":{"command":"agentic-preflight respond --id F001 --action fixed --commit <sha>"}}
 
 # Fix it in data.worktree_path, commit there, then:
 $ cd /repos/my-project && git add -A && git commit -m "use constant-time compare"
-$ agentic-cli respond --id F001 --action fixed --commit 9c3d1ab
-{"ok":true,"state":"REVIEW_FIXING","next":{"command":"agentic-cli verify"}}
+$ agentic-preflight respond --id F001 --action fixed --commit 9c3d1ab
+{"ok":true,"state":"REVIEW_FIXING","next":{"command":"agentic-preflight verify"}}
 
-$ agentic-cli verify
-{"ok":true,"state":"REVIEW_GREEN","next":{"command":"agentic-cli stage run test"}}
+$ agentic-preflight verify
+{"ok":true,"state":"REVIEW_GREEN","next":{"command":"agentic-preflight stage run test"}}
 
-$ agentic-cli stage run test
-{"ok":true,"state":"TEST_GREEN","next":{"command":"agentic-cli context --section docs"}}
+$ agentic-preflight stage run test
+{"ok":true,"state":"TEST_GREEN","next":{"command":"agentic-preflight context --section docs"}}
 
-$ agentic-cli context --section docs
+$ agentic-preflight context --section docs
 {"ok":true,"state":"DOCS_AWAITING_FINDINGS","data":{"doc_surface":[{"path":"README.md",...}]},
- "next":{"command":"agentic-cli submit-findings --file findings.json"}}
+ "next":{"command":"agentic-preflight submit-findings --file findings.json"}}
 
-$ agentic-cli submit-findings --file findings.json     # often just {"findings": []}
-{"ok":true,"state":"DOCS_GREEN","next":{"command":"agentic-cli stage run lint"}}
+$ agentic-preflight submit-findings --file findings.json     # often just {"findings": []}
+{"ok":true,"state":"DOCS_GREEN","next":{"command":"agentic-preflight stage run lint"}}
 
-$ agentic-cli stage run lint
-{"ok":true,"state":"LINT_GREEN","next":{"command":"agentic-cli mergeback"}}
+$ agentic-preflight stage run lint
+{"ok":true,"state":"LINT_GREEN","next":{"command":"agentic-preflight mergeback"}}
 
-$ agentic-cli mergeback
+$ agentic-preflight mergeback
 {"ok":true,"state":"VERIFIED","data":{"worktree_mode":"in_place","applied":[],"tree_equivalent":true},
- "next":{"command":"agentic-cli gate"}}
+ "next":{"command":"agentic-preflight gate"}}
 
-$ agentic-cli gate
+$ agentic-preflight gate
 {"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"a1b2c3d4","commits":[...]},
- "next":{"command":"agentic-cli push --confirm a1b2c3d4"}}
+ "next":{"command":"agentic-preflight push --confirm a1b2c3d4"}}
 
 # STOP. Show the user the remote, branch, and commits. Ask. Only then:
-$ agentic-cli push --confirm a1b2c3d4
+$ agentic-preflight push --confirm a1b2c3d4
 
 # Open the PR when the workflow calls for one. After it merges, preview cleanup:
-$ agentic-cli pr --title "Use constant-time password comparison"
-$ agentic-cli ci
-$ agentic-cli cleanup
+$ agentic-preflight pr --title "Use constant-time password comparison"
+$ agentic-preflight ci
+$ agentic-preflight cleanup
 
 # STOP. Show every worktree and local/remote branch in the preview. Ask. Only then:
-$ agentic-cli cleanup --confirm c4d5e6f7
+$ agentic-preflight cleanup --confirm c4d5e6f7
 
 # Without a PR, close and reclaim the run directly:
-$ agentic-cli finish
-$ agentic-cli gc
+$ agentic-preflight finish
+$ agentic-preflight gc
 ```
 
 Work happens in the absolute **validation checkout** named by `worktree_path`. In the
@@ -167,7 +167,7 @@ not restart. Full field reference: `reference/findings-schema.md`.
 | 3 | Precondition violated | **Run `status`, then obey `next`** |
 | 4 | Human resolution required | Stop. Show the user. Do not improvise |
 | 5 | Confirmation required | Ask the user, then re-run with the token |
-| 10 | Hook blocked a push | Run the gate: `agentic-cli start --intent "..."` |
+| 10 | Hook blocked a push | Run the gate: `agentic-preflight start --intent "..."` |
 
 **Universal recovery rule: any exit 3 → run `status` → obey `next`.** `status` is legal
 in every state. If you are ever unsure where you are, that is always the right call.
@@ -188,19 +188,19 @@ conflict is real, check the user's tree was clean — see non-negotiable 7.
 
 **Stage red after max attempts (exit 4).** Stop retrying — you have already tried
 `max_attempts` times and the tool is telling you the loop is not converging. Show the
-user `agentic-cli logs --stage <name>` output and ask how to proceed.
+user `agentic-preflight logs --stage <name>` output and ask how to proceed.
 
 **CI failed (`CI_FAILED`).** Read every entry in `data.failed_logs`. Repairs are
-host-driven: fix the source branch yourself; agentic-cli must never invoke a model.
+host-driven: fix the source branch yourself; agentic-preflight must never invoke a model.
 Preserve `data.intent`, abort the completed run, commit the repair, and execute the
 provided fresh-start command. Do not push the repair until the new synchronized
 review → test → docs → lint run reaches green. Then update the PR and run
-`agentic-cli ci` again. Continue until the PR merges, closes, or monitoring times out.
+`agentic-preflight ci` again. Continue until the PR merges, closes, or monitoring times out.
 
 **Stale head (exit 3, `stale_run`).** The branch moved after review began, so
 everything verified so far describes a tree that no longer exists. There is no partial
-recovery: run `agentic-cli start --intent "<the user's objective and acceptance criteria>"`
-for a fresh run.
+recovery: run `agentic-preflight abort --force`, then run the fresh `start` command from
+the abort response. It preserves the original user intent.
 
 **Diff too large (exit 2, `diff_too_large`).** The diff is never truncated, so
 reviewing part of it is not an option. Look at `data.by_file`; if the bulk is generated
@@ -292,11 +292,11 @@ human reviewer.
 ## Cleanup after a merge
 
 After a PR is merged, run `cleanup` without a token. It verifies the merge through
-`gh` and returns an exact preview of the worktree, `ac/*` branch, PR source branch, and
+`gh` and returns an exact preview of the worktree, `ap/*` branch, PR source branch, and
 remote branch. **Show that preview and ask the user.** Only after they agree, run the
 returned `cleanup --confirm TOKEN` command. Cleanup re-checks the merge, switches a
 clean source checkout to the base branch when necessary, then removes only that run's
-worktree and local/remote branches. It never performs a blanket `ac/*` deletion.
+worktree and local/remote branches. It never performs a blanket `ap/*` deletion.
 
 For a pushed run with no PR, follow `finish` with `gc`. `gc` compares original fixes
 with post-mergeback history using stable patch IDs. Only patch-equivalent fixes are

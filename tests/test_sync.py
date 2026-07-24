@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from agentic_cli import gitx
-from agentic_cli.sync import SyncConflict, synchronize
+from agentic_preflight import gitx
+from agentic_preflight.sync import SyncConflict, synchronize
 from tests.conftest import commit_all, git, write
 
 
