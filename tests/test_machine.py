@@ -21,6 +21,7 @@ def test_sync_is_load_bearing_before_review():
 
 def test_local_checks_run_review_then_test_then_docs_then_lint():
     assert next_state(State.REVIEW_GREEN, Action.RUN_TEST) == State.TEST_RUNNING
+    assert next_state(State.REVIEW_GREEN, Action.SKIP_TEST) == State.TEST_GREEN
     assert next_state(State.TEST_GREEN, Action.BEGIN_DOCS) == State.DOCS_AWAITING_FINDINGS
     assert next_state(State.DOCS_GREEN, Action.RUN_LINT) == State.LINT_RUNNING
     assert next_state(State.LINT_GREEN, Action.BEGIN_MERGEBACK) == State.MERGEBACK_PENDING

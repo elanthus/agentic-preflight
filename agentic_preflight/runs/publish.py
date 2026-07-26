@@ -524,5 +524,8 @@ def _pr_body(session: Session, run: RunDoc) -> str:
         f"- docs: {len([f for f in findings if f.stage is Stage.DOCS])} finding(s)",
     ]
     for stage_name, record in run.stages.items():
-        lines.append(f"- {stage_name.value}: {record.status} (`{record.command}`)")
+        if record.status == "skipped":
+            lines.append(f"- {stage_name.value}: skipped ({record.reason})")
+        else:
+            lines.append(f"- {stage_name.value}: {record.status} (`{record.command}`)")
     return "\n".join(lines)
