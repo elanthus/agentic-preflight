@@ -3,6 +3,13 @@
 All notable changes to Agentic Preflight are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- Documentation-only and CI-configuration-only changes now record the software test
+  stage as explicitly skipped instead of requiring a test command to run.
+
 ## [0.2.0] - 2026-07-23
 
 First tagged pre-release.

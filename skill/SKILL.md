@@ -57,6 +57,9 @@ $ agentic-preflight respond --id F001 --action fixed --commit 9c3d1ab
 $ agentic-preflight verify
 {"ok":true,"state":"REVIEW_GREEN","next":{"command":"agentic-preflight stage run test"}}
 
+# For a documentation/CI-configuration-only diff, verify instead records test as
+# skipped and returns TEST_GREEN with the docs command as next. Obey the envelope.
+
 $ agentic-preflight stage run test
 {"ok":true,"state":"TEST_GREEN","next":{"command":"agentic-preflight context --section docs"}}
 

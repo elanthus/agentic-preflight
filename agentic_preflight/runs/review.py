@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from .. import diff as diffmod
 from .. import findings as findingsmod
+from .. import gitx
 from ..envelope import Envelope
 from ..errors import (
     DiffTooLarge,
@@ -15,9 +16,18 @@ from ..errors import (
     StageFailed,
 )
 from ..machine import Action, State
-from ..models import FindingSubmission, RunDoc, Stage
+from ..models import FindingSubmission, RunDoc, Stage, StageRecord
+from ..stages import change_scope
 from ..stages import docs as docsstage
-from ._session import Session, _apply, _assert_fresh, _envelope_for, _load_current, _require_state
+from ._session import (
+    Session,
+    _apply,
+    _assert_fresh,
+    _envelope_for,
+    _load_current,
+    _now,
+    _require_state,
+)
 
 
 def _bundle_for(session: Session, run: RunDoc) -> diffmod.DiffBundle:
@@ -51,6 +61,39 @@ def _skip_docs_if_disabled(session: Session, run: RunDoc) -> RunDoc:
         run = doc
     session.store.append_event(run.run_id, {"event": "docs_skipped", "reason": "disabled"})
     return run
+
+
+def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
+    """Record an explicit test skip for documentation/CI-only diffs."""
+    if run.state is not State.REVIEW_GREEN:
+        return run
+    changed = gitx.changed_files(
+        run.worktree_path or session.repo_root, run.merge_base_sha, "HEAD"
+    )
+    if not change_scope.tests_are_not_applicable(
+        changed, extra_doc_paths=session.config.docs.paths
+    ):
+        return run
+    reason = "changes are limited to documentation and CI configuration"
+    with session.store.transaction(run.run_id) as doc:
+        doc.stages[Stage.TEST] = StageRecord(
+            status="skipped",
+            reason=reason,
+            finished_at=_now(),
+            head_sha=gitx.rev_parse(doc.worktree_path or session.repo_root, "HEAD"),
+        )
+        _apply(doc, Action.SKIP_TEST)
+        run = doc
+    session.store.append_event(
+        run.run_id,
+        {"event": "test_skipped", "reason": reason, "changed_files": changed},
+    )
+    return run
+
+
+def _advance_after_review(session: Session, run: RunDoc) -> RunDoc:
+    run = _skip_test_if_not_applicable(session, run)
+    return _skip_docs_if_disabled(session, run)
 
 
 def context(session: Session, *, section: str = "review") -> Envelope:
@@ -223,7 +266,7 @@ def submit_findings(session: Session, payload) -> Envelope:
         _apply(doc, Action.TRIAGE_BLOCKING if blocking else Action.TRIAGE_CLEAN)
         run = doc
 
-    run = _skip_docs_if_disabled(session, run)
+    run = _advance_after_review(session, run)
 
     session.store.append_event(
         run.run_id,
@@ -284,7 +327,7 @@ def verify(session: Session) -> Envelope:
             _apply(doc, Action.RESOLVE_GREEN)
             run = doc
 
-    run = _skip_docs_if_disabled(session, run)
+    run = _advance_after_review(session, run)
 
     return _envelope_for(
         run,

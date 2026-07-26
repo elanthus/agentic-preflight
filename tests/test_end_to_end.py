@@ -104,6 +104,29 @@ def test_the_full_happy_path(feature_repo, bare_remote, tmp_path, gh_stub):
     assert set(entry["stages"]) >= {"review", "docs", "lint", "test"}
 
 
+def test_documentation_only_gate_records_test_as_skipped(tmp_repo, tmp_path):
+    write(tmp_repo, ".agentic-preflight.toml", "[docs]\nenabled = false\n")
+    commit_all(tmp_repo, "configure agentic-preflight")
+    git("switch", "-c", "feature/docs", cwd=tmp_repo)
+    write(tmp_repo, "README.md", "# demo\n\nImproved documentation.\n")
+    commit_all(tmp_repo, "improve documentation")
+    agent = ScriptedAgent(tmp_repo)
+
+    agent.run("start")
+    agent.run("context")
+    env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    assert env["state"] == "DOCS_GREEN"
+    agent.run("stage", "run", "lint", "--command", "true", "--record")
+    agent.run("mergeback")
+
+    state_root = Path(
+        git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=tmp_repo)
+    ) / "agentic-preflight"
+    ledger = json.loads((state_root / "ledger.json").read_text())
+    head = git("rev-parse", "HEAD", cwd=tmp_repo)
+    assert ledger["entries"][head]["stages"]["test"] == "skipped"
+
+
 def test_every_step_obeys_the_next_pointer(feature_repo, tmp_path):
     """An agent that only ever runs `next.command` should reach the gate.
 
