@@ -85,6 +85,7 @@ class Action(str, Enum):
     LINT_FIX_RESTART = "LINT_FIX_RESTART"
 
     RUN_TEST = "RUN_TEST"
+    SKIP_TEST = "SKIP_TEST"
     TEST_PASSED = "TEST_PASSED"
     TEST_FAILED = "TEST_FAILED"
     RETRY_TEST = "RETRY_TEST"
@@ -160,6 +161,7 @@ TRANSITIONS: dict[tuple[State, Action], State] = {
         State.REVIEW_GREEN,
     ),
     (State.REVIEW_GREEN, Action.RUN_TEST): State.TEST_RUNNING,
+    (State.REVIEW_GREEN, Action.SKIP_TEST): State.TEST_GREEN,
     (State.TEST_RUNNING, Action.TEST_PASSED): State.TEST_GREEN,
     (State.TEST_RUNNING, Action.TEST_FAILED): State.TEST_RED,
     (State.TEST_RED, Action.RETRY_TEST): State.TEST_RUNNING,

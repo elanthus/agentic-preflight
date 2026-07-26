@@ -115,6 +115,13 @@ Confirms nothing blocks the active stage and advances to green. Exits 2 listing 
 outstanding blocking set if anything remains.
 
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
+After review becomes green, the CLI automatically skips the software test command when
+every changed path is documentation or standard CI configuration. This is an explicit
+state-machine transition, not an agent judgment: `status` and the final ledger record
+the test stage as `skipped`. A mixed diff containing any other path still requires the
+configured test command. Documentation includes common markup files, the standard docs
+surface, and `[docs] paths`; CI configuration includes common hosted-CI workflow paths.
+
 Command resolution: `--command` → `[commands].<name>` → detection. Detection never
 guesses: it exits 2 with `data.mode = "needs_command"` and candidates from
 `pyproject.toml`, `package.json`, `Makefile`, `justfile`, and CI workflows.

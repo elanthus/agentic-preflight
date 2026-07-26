@@ -133,6 +133,53 @@ def test_tests_must_pass_before_lint_runs(feature_repo, tmp_path):
     assert env["error"]["code"] == "wrong_state"
 
 
+def test_documentation_only_changes_skip_software_tests(tmp_repo, tmp_path):
+    from tests.conftest import git
+
+    git("switch", "-c", "feature/docs", cwd=tmp_repo)
+    write(tmp_repo, "README.md", "# demo\n\nUpdated documentation.\n")
+    commit_all(tmp_repo, "update docs")
+    agent = ScriptedAgent(tmp_repo)
+    agent.run("start")
+    agent.run("context")
+
+    env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+
+    assert env["state"] == "TEST_GREEN"
+    assert env["next"]["command"] == "agentic-preflight context --section docs"
+    test_record = agent.run("status")["data"]["stages"]["test"]
+    assert test_record["status"] == "skipped"
+    assert "documentation and CI configuration" in test_record["reason"]
+    assert test_record["command"] is None
+
+
+def test_ci_configuration_only_changes_skip_software_tests(tmp_repo, tmp_path):
+    from tests.conftest import git
+
+    git("switch", "-c", "feature/ci", cwd=tmp_repo)
+    write(tmp_repo, ".github/workflows/ci.yml", "name: CI\n")
+    commit_all(tmp_repo, "update CI")
+    agent = ScriptedAgent(tmp_repo)
+    agent.run("start")
+    agent.run("context")
+
+    env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+
+    assert env["state"] == "TEST_GREEN"
+    assert agent.run("status")["data"]["stages"]["test"]["status"] == "skipped"
+
+
+def test_source_changes_still_require_software_tests(feature_repo, tmp_path):
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+
+    env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+
+    assert env["state"] == "REVIEW_GREEN"
+    assert env["next"]["command"] == "agentic-preflight stage run test"
+
+
 def test_lint_runs_once_tests_and_docs_are_green(docs_green):
     agent = docs_green()
     env = agent.run("stage", "run", "lint", "--command", "true", "--record")
