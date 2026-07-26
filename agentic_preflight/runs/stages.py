@@ -29,7 +29,7 @@ from ._session import (
     _now,
     _require_state,
 )
-from .review import _skip_docs_if_disabled
+from .review import _advance_after_review, _skip_docs_if_disabled
 
 
 class _StageSpec(TypedDict):
@@ -189,15 +189,15 @@ def run_stage(
 
     run, restarted = _register_stage_fix_commits(session, run, stage, record_entry)
     if restarted:
+        run = _advance_after_review(session, run)
         return _envelope_for(
             run,
             stage=stage_name,
             data={"stage": stage_name, "validation_restarted": True},
             next_instruction=(
-                "The lint repair changed the verified tree. Run tests, docs, and lint "
-                "again so every result describes the repaired commit."
+                "The lint repair changed the verified tree. Re-run every applicable "
+                "stage so each result describes the repaired commit."
             ),
-            next_command="agentic-preflight stage run test",
         )
     resolved = _resolve_command(session, run, stage_name, command)
 

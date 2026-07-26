@@ -118,7 +118,7 @@ def _next_hint(state: State) -> tuple[str | None, str | None]:
         ),
         State.REVIEW_GREEN: ("Review is green. Run targeted tests.", "agentic-preflight stage run test"),
         State.TEST_GREEN: (
-            "Tests are green. Check whether documentation is now stale.",
+            "Tests passed or were not applicable. Check whether documentation is now stale.",
             "agentic-preflight context --section docs",
         ),
         State.DOCS_GREEN: ("Docs are green. Run lint.", "agentic-preflight stage run lint"),

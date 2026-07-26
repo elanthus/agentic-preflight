@@ -97,6 +97,7 @@ class StageRecord(BaseModel):
     status: str = "pending"
     attempts: int = 0
     command: str | None = None
+    reason: str | None = None
     exit_code: int | None = None
     log_path: str | None = None
     finished_at: str | None = None

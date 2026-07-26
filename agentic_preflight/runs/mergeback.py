@@ -159,7 +159,7 @@ def mergeback(session: Session) -> Envelope:
         summary[finding.status.value] = summary.get(finding.status.value, 0) + 1
 
     if result.tree_equivalent:
-        stages_recorded = {stage: "green" for stage in run.stages}
+        stages_recorded = {stage: record.status for stage, record in run.stages.items()}
         stages_recorded[Stage.REVIEW] = "green"
         if session.config.docs.enabled:
             stages_recorded[Stage.DOCS] = "green"

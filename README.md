@@ -64,7 +64,7 @@ before the final command. For a human-only final push, set `[gate] mode = "manua
 
 ```
 start --intent "..." → fetch/rebase → context → submit-findings → verify (review)
-      → stage run test
+      → stage run test (automatically skipped for documentation/CI-only changes)
       → context --section docs → submit-findings → verify   (docs)
       → stage run lint
       → mergeback → gate → push → finish → gc               (no PR)
@@ -78,6 +78,15 @@ the single next legal command, so the agent never has to guess. Stage-skipping i
 forbidden by documentation; it is **structurally unrepresentable**, because no
 transition exists from a review state to a push state. That property is proved by
 enumerating every path through the machine, not by testing a few.
+
+When every changed file is documentation or standard CI configuration, the gate does
+not run the software test command. It takes an explicit `SKIP_TEST` transition through
+`TEST_GREEN` and records the test stage as `skipped` with its reason, so the exception
+is visible in `status` and the ledger. Any source or otherwise unclassified file keeps
+tests mandatory. Documentation includes Markdown, MDX, reStructuredText, AsciiDoc, the
+standard documentation surface, and `[docs] paths`; CI configuration includes common
+GitHub Actions, CircleCI, GitLab CI, Azure Pipelines, Bitbucket Pipelines, Buildkite,
+Travis CI, AppVeyor, and Jenkins paths.
 
 By default, work happens directly in the current checkout (`[worktree] mode =
 "in_place"`). This is intended for a clean, dedicated one-agent/one-PR worktree: the

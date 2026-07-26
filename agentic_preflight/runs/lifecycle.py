@@ -267,6 +267,10 @@ def status(session: Session) -> Envelope:
                 "logs": run.ci_logs,
             },
             "fix_commits": run.fix_commits,
+            "stages": {
+                stage.value: record.model_dump(mode="json")
+                for stage, record in run.stages.items()
+            },
             # Names only — contents are never read, logged, or echoed anywhere.
             "copied_files": run.copied_files,
             "findings": [f.model_dump(mode="json") for f in findings],
