@@ -91,6 +91,7 @@ $ agentic-preflight cleanup
 
 # STOP. Show every worktree and local/remote branch in the preview. Ask. Only then:
 $ agentic-preflight cleanup --confirm c4d5e6f7
+$ git pull --ff-only
 
 # Without a PR, close and reclaim the run directly:
 $ agentic-preflight finish
@@ -300,6 +301,8 @@ remote branch. **Show that preview and ask the user.** Only after they agree, ru
 returned `cleanup --confirm TOKEN` command. Cleanup re-checks the merge, switches a
 clean source checkout to the base branch when necessary, then removes only that run's
 worktree and local/remote branches. It never performs a blanket `ap/*` deletion.
+After confirmed cleanup succeeds, always run `git pull --ff-only` in the source
+checkout so its base branch is fast-forwarded to the merged result.
 
 For a pushed run with no PR, follow `finish` with `gc`. `gc` compares original fixes
 with post-mergeback history using stable patch IDs. Only patch-equivalent fixes are
