@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build and verify artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+
+      - name: Verify tag matches project version
+        env:
+          GIT_TAG: ${{ github.ref_name }}
+        run: |
+          project_version="$(python3 -c '
+          import tomllib, pathlib
+          data = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
+          print(data["project"]["version"])
+          ')"
+          expected_tag="v${project_version}"
+          if [ "$GIT_TAG" != "$expected_tag" ]; then
+            echo "::error::Tag ${GIT_TAG} does not match pyproject.toml version ${project_version} (expected ${expected_tag})."
+            echo "PyPI version numbers cannot be reused. Delete the tag, fix the version, and re-tag."
+            exit 1
+          fi
+          echo "Tag ${GIT_TAG} matches pyproject.toml version ${project_version}."
+
+      - name: Build sdist and wheel
+        run: |
+          rm -rf dist
+          uv build
+
+      - name: Smoke test the built wheel
+        env:
+          UV_TOOL_DIR: ${{ runner.temp }}/uv-tools
+          UV_TOOL_BIN_DIR: ${{ runner.temp }}/uv-tools-bin
+        run: |
+          uv tool install --python 3.11 dist/*.whl
+          "$UV_TOOL_BIN_DIR/agentic-preflight" --version
+          "$UV_TOOL_DIR/agentic-preflight/bin/python" - <<'PY'
+          import importlib.resources as resources
+
+          package = resources.files("agentic_preflight")
+          assert package.joinpath("py.typed").is_file(), "py.typed missing from wheel"
+          assert package.joinpath("_bundled_skill").is_dir(), "bundled skill missing from wheel"
+          print("wheel contents verified")
+          PY
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/agentic-preflight
+    permissions:
+      id-token: write # required for PyPI Trusted Publishing (OIDC)
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # v1.14.1

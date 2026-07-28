@@ -5,10 +5,26 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Added
+
+- Tag-triggered release workflow that publishes to PyPI using Trusted Publishing, so
+  no long-lived API token is stored in the repository or in GitHub secrets. The upload
+  is bound to a `pypi` GitHub Environment and waits for reviewer approval, and the
+  build refuses to proceed when the pushed tag does not match the project version.
+- `docs/RELEASING.md`, covering the one-time PyPI publisher registration, the GitHub
+  environment setup, and the per-release checklist.
+
 ### Changed
 
 - Documentation-only and CI-configuration-only changes now record the software test
   stage as explicitly skipped instead of requiring a test command to run.
+
+### Fixed
+
+- The source distribution is now built from an explicit allowlist. It previously
+  included everything not matched by the root `.gitignore`, which made the published
+  artifact depend on the contents of the local working tree and could fail the build
+  outright when a stray virtual environment was present.
 
 ## [0.2.0] - 2026-07-23
 

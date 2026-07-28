@@ -49,6 +49,22 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.sdist]
+# Explicit allowlist: the published sdist must never depend on what happens to be
+# sitting in a local working tree (stray virtualenvs, caches, .env files).
+include = [
+    "/agentic_preflight",
+    "/skill",
+    "/tests",
+    "/CHANGELOG.md",
+    "/CONTRIBUTING.md",
+    "/LICENSE",
+    "/README.md",
+    "/SECURITY.md",
+    "/SUPPORT.md",
+    "/pyproject.toml",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["agentic_preflight"]
 
