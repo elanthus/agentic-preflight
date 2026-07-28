@@ -50,6 +50,24 @@ def test_pr_health_classifies_pending_failed_and_passed_checks():
     )
     assert passed.outcome == "checks_passed"
 
+    passed_with_skipped_job = github.parse_pr_health(
+        {
+            "url": "https://github.com/o/r/pull/1",
+            "state": "OPEN",
+            "mergeStateStatus": "CLEAN",
+            "statusCheckRollup": [
+                {"name": "tests", "status": "COMPLETED", "conclusion": "SUCCESS"},
+                {
+                    "name": "publish from main",
+                    "status": "COMPLETED",
+                    "conclusion": "SKIPPED",
+                },
+            ],
+        }
+    )
+    assert passed_with_skipped_job.outcome == "checks_passed"
+    assert passed_with_skipped_job.failed_checks == []
+
     legacy_context = github.parse_pr_health(
         {
             "url": "https://github.com/o/r/pull/1",

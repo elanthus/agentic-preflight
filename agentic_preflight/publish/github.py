@@ -83,12 +83,11 @@ FAILED_CONCLUSIONS = {
     "CANCELLED",
     "ERROR",
     "FAILURE",
-    "SKIPPED",
     "STALE",
     "STARTUP_FAILURE",
     "TIMED_OUT",
 }
-SUCCESS_CONCLUSIONS = {"NEUTRAL", "SUCCESS"}
+SUCCESS_CONCLUSIONS = {"NEUTRAL", "SKIPPED", "SUCCESS"}
 RUN_ID_PATTERN = re.compile(r"/actions/runs/(?P<run_id>\d+)(?:/|$)")
 
 
