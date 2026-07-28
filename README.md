@@ -1,7 +1,7 @@
 # agentic-preflight
 
 [![CI](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml/badge.svg)](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml)
-[![Coverage](https://codecov.io/gh/elanthus/agentic-preflight/branch/main/graph/badge.svg)](https://codecov.io/gh/elanthus/agentic-preflight)
+[![Coverage](/../badges/coverage.svg)](/../badges/coverage.svg)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](pyproject.toml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
@@ -170,6 +170,12 @@ The hook reads one file (`ledger.json`), never touches the network, and never mu
 anything. **If `agentic-preflight` is not on `PATH`, the hook allows the push and warns.** That
 is deliberate: a teammate who clones your repo without installing this tool must not end
 up with a repository they cannot push from. A broken tool must not brick the repo.
+
+`init` does not compose with an existing `pre-push` hook. If Husky, pre-commit, or a
+custom hook already owns that path, `init` refuses to change it. Add
+`agentic-preflight hook-check` to the existing hook manually if you need both. Treat
+`init --force` as replacement, not composition: it overwrites the existing hook and
+removes whatever behavior that hook previously provided.
 
 ## Limits
 
@@ -365,6 +371,10 @@ active run because its configuration is snapshotted.
   credentials)
 
 ## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow and
+[SUPPORT.md](SUPPORT.md) for help channels. CI rejects overall coverage below 85% and
+also installs the built wheel as a `uv` tool before invoking its CLI.
 
 ```bash
 uv sync --group dev

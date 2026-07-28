@@ -6,7 +6,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+from agentic_preflight import hook
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.models import Ledger, LedgerEntry
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
@@ -31,6 +35,18 @@ def hook_check(repo, stdin_text, extra_env=None):
 
 
 ZERO = "0" * 40
+
+
+def _ledger_entry(sha: str, *, branch: str = "feature/x") -> LedgerEntry:
+    return LedgerEntry(
+        sha=sha,
+        tree_sha="b" * 40,
+        branch=branch,
+        base_ref="main",
+        merge_base_sha="c" * 40,
+        run_id="r_test",
+        green_at="2026-01-01T00:00:00+00:00",
+    )
 
 
 # -- init -------------------------------------------------------------------
@@ -85,6 +101,24 @@ def test_init_is_idempotent(feature_repo):
     assert env["ok"] is True
 
 
+def test_hook_installer_directly_refuses_and_then_replaces_a_foreign_hook(tmp_path):
+    path = tmp_path / "hooks" / "pre-push"
+    path.parent.mkdir()
+    path.write_text("#!/bin/sh\necho existing\n")
+
+    with pytest.raises(FileExistsError):
+        hook.install(tmp_path)
+
+    installed, written = hook.install(tmp_path, force=True)
+    assert installed == path
+    assert written is True
+    assert "agentic-preflight hook-check" in path.read_text()
+
+    installed, written = hook.install(tmp_path)
+    assert installed == path
+    assert written is False
+
+
 def test_init_reports_an_unpinned_node_project_and_in_place_default(feature_repo):
     write(
         feature_repo,
@@ -100,6 +134,40 @@ def test_init_reports_an_unpinned_node_project_and_in_place_default(feature_repo
 
 
 # -- hook-check as a pure predicate -----------------------------------------
+
+
+def test_parse_stdin_ignores_malformed_lines_and_recognizes_deletions():
+    updates = hook.parse_stdin(
+        f"malformed\nrefs/heads/x {ZERO} refs/heads/x {'a' * 40}\n"
+    )
+    assert len(updates) == 1
+    assert updates[0].is_deletion is True
+
+
+def test_evaluate_directly_allows_green_and_explains_a_changed_tip():
+    green = "a" * 40
+    changed = "d" * 40
+    ledger = Ledger(entries={green: _ledger_entry(green)})
+    green_update = hook.RefUpdate("refs/heads/feature/x", green, "refs/heads/x", ZERO)
+    changed_update = hook.RefUpdate("refs/heads/feature/x", changed, "refs/heads/x", ZERO)
+
+    assert hook.evaluate(ledger, [green_update], is_ancestor=lambda *_: True).allowed
+    blocked = hook.evaluate(ledger, [changed_update], is_ancestor=lambda *_: True)
+    assert blocked.allowed is False
+    assert "amended or added a commit" in blocked.message
+
+
+def test_evaluate_directly_blocks_a_non_fast_forward_green_tip():
+    green = "a" * 40
+    ledger = Ledger(entries={green: _ledger_entry(green)})
+    update = hook.RefUpdate(
+        "refs/heads/feature/x", green, "refs/heads/feature/x", "e" * 40
+    )
+
+    blocked = hook.evaluate(ledger, [update], is_ancestor=lambda *_: False)
+    assert blocked.allowed is False
+    assert blocked.reason == "force push"
+    assert "rewrites history" in blocked.message
 
 
 def test_a_deletion_is_always_allowed(feature_repo):
