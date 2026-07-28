@@ -15,9 +15,6 @@ Agentic Preflight is a deterministic state machine with a JSON-over-stdout CLI. 
 your local coding agent for judgment rather than choosing what good code looks like
 itself; this package keeps the workflow state and verifies the agent's claims.
 
-Created by Michael Swailes with development contributions from OpenAI Codex and
-Anthropic Claude.
-
 ## Prior art and differentiation
 
 Agentic Preflight was inspired by [`no-mistakes`](https://github.com/kunchenguid/no-mistakes)
@@ -383,6 +380,11 @@ uv run pytest
 
 Git fixtures drive a real `git` binary rather than mocks: the product *is* git
 semantics, so mocking it would test our idea of git instead of git.
+
+## Credits
+
+Created by [@elanthus](https://github.com/elanthus) with development contributions from
+OpenAI Codex and Anthropic Claude.
 
 ## License
 
