@@ -5,6 +5,10 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+## [0.2.1] - 2026-07-28
+
+First release published to PyPI.
+
 ### Added
 
 - Tag-triggered release workflow that publishes to PyPI using Trusted Publishing, so
@@ -13,14 +17,26 @@ All notable changes to Agentic Preflight are documented here. This project follo
   build refuses to proceed when the pushed tag does not match the project version.
 - `docs/RELEASING.md`, covering the one-time PyPI publisher registration, the GitHub
   environment setup, and the per-release checklist.
+- Community health files: `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`, issue
+  templates, and a pull request template.
+- Inline type information: the package now ships `py.typed`, so type checkers read its
+  annotations directly.
+- A coverage badge produced and published by CI without a third-party service, and a
+  prior art section in the README.
 
 ### Changed
 
 - Documentation-only and CI-configuration-only changes now record the software test
   stage as explicitly skipped instead of requiring a test command to run.
+- The skill now instructs a `git pull --ff-only` on the base branch after a confirmed
+  cleanup, so the source checkout matches the merged result.
+- Attribution moved from the top of the README to a Credits section beside the license,
+  and the package author is now the GitHub handle rather than a legal name.
 
 ### Fixed
 
+- Skipped GitHub checks are no longer treated as failures. A pull request whose
+  workflow correctly skips a job was previously reported as a CI failure.
 - The source distribution is now built from an explicit allowlist. It previously
   included everything not matched by the root `.gitignore`, which made the published
   artifact depend on the contents of the local working tree and could fail the build
@@ -56,4 +72,5 @@ First tagged pre-release.
 Windows is not supported because the implementation requires `fcntl`, Bash, and POSIX
 process groups.
 
+[0.2.1]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.2.1
 [0.2.0]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.2.0
