@@ -42,12 +42,31 @@ jobs:
       - name: Test (pytest + coverage)
         run: uv run pytest --cov=agentic_preflight --cov-report=term-missing --cov-report=xml
 
-      - name: Upload coverage artifact
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+      - name: Generate coverage badge
+        if: github.event_name == 'push' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        run: |
+          coverage_percent="$(uv run coverage report --format=total)"
+          if [ "$coverage_percent" -ge 90 ]; then
+            color=brightgreen
+          elif [ "$coverage_percent" -ge 80 ]; then
+            color=green
+          elif [ "$coverage_percent" -ge 70 ]; then
+            color=yellowgreen
+          elif [ "$coverage_percent" -ge 60 ]; then
+            color=yellow
+          else
+            color=red
+          fi
+          curl --fail --silent --show-error --location \
+            "https://img.shields.io/badge/coverage-${coverage_percent}%25-${color}.svg" \
+            --output coverage.svg
+
+      - name: Upload coverage badge
+        if: github.event_name == 'push' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: coverage-xml
-          path: coverage.xml
+          name: coverage-badge
+          path: coverage.svg
           if-no-files-found: error
 
   package:
@@ -71,31 +90,30 @@ jobs:
           "$UV_TOOL_BIN_DIR/agentic-preflight" --version
           "$UV_TOOL_DIR/agentic-preflight/bin/python" -c "import importlib.resources as r; assert r.files('agentic_preflight').joinpath('py.typed').is_file()"
 
-  coverage:
-    name: upload coverage
+  publish-coverage-badge:
+    name: publish coverage badge
     needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      id-token: write
+      contents: write
     steps:
-      - name: Defer coverage upload until the trusted branch build
-        if: github.event_name == 'pull_request'
-        run: echo "Coverage uploads run after merge on the trusted branch build."
-
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        if: github.event_name != 'pull_request'
-
       - name: Download coverage artifact
-        if: github.event_name != 'pull_request'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: coverage-xml
+          name: coverage-badge
 
-      - name: Upload coverage to Codecov
-        if: github.event_name != 'pull_request'
-        uses: codecov/codecov-action@04b047e8bb82a0c002c8312c1c880fbc6a999d45 # v5
-        with:
-          files: ./coverage.xml
-          fail_ci_if_error: true
-          use_oidc: true
+      - name: Publish badge branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          publish_dir="$(mktemp -d)"
+          mv coverage.svg "$publish_dir/coverage.svg"
+          cd "$publish_dir"
+          git init --initial-branch=badges
+          git config user.name "github-actions[bot]"
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add coverage.svg
+          git commit -m "Update coverage badge"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin badges

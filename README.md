@@ -1,7 +1,7 @@
 # agentic-preflight
 
 [![CI](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml/badge.svg)](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml)
-[![Coverage](https://codecov.io/gh/elanthus/agentic-preflight/branch/main/graph/badge.svg)](https://codecov.io/gh/elanthus/agentic-preflight)
+[![Coverage](/../badges/coverage.svg)](/../badges/coverage.svg)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](pyproject.toml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
