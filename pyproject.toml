@@ -5,7 +5,7 @@ description = "Agent-driven quality gate: a deterministic state machine with a J
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
-authors = [{ name = "Michael Swailes", email = "tokenmagic33@gmail.com" }]
+authors = [{ name = "elanthus", email = "tokenmagic33@gmail.com" }]
 keywords = ["cli", "git", "state-machine", "quality-gate", "agent", "pre-push", "code-review"]
 classifiers = [
     "Development Status :: 4 - Beta",
