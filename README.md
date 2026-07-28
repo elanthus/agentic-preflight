@@ -1,7 +1,7 @@
 # agentic-preflight
 
 [![CI](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml/badge.svg)](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen)](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/elanthus/agentic-preflight/branch/main/graph/badge.svg)](https://codecov.io/gh/elanthus/agentic-preflight)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](pyproject.toml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
@@ -11,9 +11,26 @@ legal action explicit. The default hook can be bypassed and fails open when the 
 is missing. Manual mode provides the stronger contract: Agentic Preflight will never
 push, and a person must perform the final push.
 
-Agentic Preflight is a deterministic state machine with a JSON-over-stdout CLI. It does
-not call an LLM, require API keys, or choose what good code looks like. Your coding agent
-does the judgment; this package keeps the workflow state and verifies its claims.
+Agentic Preflight is a deterministic state machine with a JSON-over-stdout CLI. It uses
+your local coding agent for judgment rather than choosing what good code looks like
+itself; this package keeps the workflow state and verifies the agent's claims.
+
+Created by Michael Swailes with development contributions from OpenAI Codex and
+Anthropic Claude.
+
+## Prior art and differentiation
+
+Agentic Preflight was inspired by [`no-mistakes`](https://github.com/kunchenguid/no-mistakes)
+and its staged review, test, documentation, lint, push, pull-request, and CI workflow. It
+keeps that useful progression while exploring a different control model:
+
+| Area | `no-mistakes` | Agentic Preflight |
+|---|---|---|
+| Agent execution | Runs a configurable validation-agent pipeline | Uses local coding agents already active in your workspace |
+| Git integration | Routes pushes through a local proxy remote | Uses an advisory pre-push hook; manual mode keeps the final push human-only |
+| Interface | Provides a daemon, TUI, and agent skill | Provides a JSON-over-stdout CLI and agent skill |
+| Workflow control | Owns the end-to-end validation pipeline | Persists a deterministic state machine and returns the single next legal command |
+| Runtime | Ships as a Go application | Ships as a Python CLI package |
 
 ## 60-second walkthrough
 
@@ -249,10 +266,9 @@ poll_interval_seconds = 30
 
 After a PR opens, `agentic-preflight ci` monitors checks and mergeability. It reports passed
 checks, fetches failed GitHub Actions logs, and persists the failure with the original
-intent. Repairs are host-driven: agentic-preflight never calls a model. The host agent fixes
-and commits the source branch, then starts a fresh synchronized full validation before
-another push. Monitoring continues through host invocations until merge, close, or
-timeout.
+intent. Repairs use the local coding agent: the host agent fixes and commits the source
+branch, then starts a fresh synchronized full validation before another push. Monitoring
+continues through host invocations until merge, close, or timeout.
 
 The resolved configuration is snapshotted when `start` creates a run. Editing
 `.agentic-preflight.toml` afterward does not change that run; the snapshot and its digest are
