@@ -50,20 +50,26 @@ jobs:
   coverage:
     name: upload coverage
     needs: test
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
+      - name: Defer coverage upload until the trusted branch build
+        if: github.event_name == 'pull_request'
+        run: echo "Coverage uploads run after merge on the trusted branch build."
+
       - uses: actions/checkout@v4
+        if: github.event_name != 'pull_request'
 
       - name: Download coverage artifact
+        if: github.event_name != 'pull_request'
         uses: actions/download-artifact@v4
         with:
           name: coverage-xml
 
       - name: Upload coverage to Codecov
+        if: github.event_name != 'pull_request'
         uses: codecov/codecov-action@v5
         with:
           files: ./coverage.xml
