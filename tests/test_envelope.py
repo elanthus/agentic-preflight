@@ -1,6 +1,9 @@
 import io
 import json
 
+import pytest
+
+from agentic_preflight.cli import command
 from agentic_preflight.envelope import Envelope, ExitCode, emit, error_envelope
 
 
@@ -78,3 +81,25 @@ def test_exit_codes_match_the_published_contract():
     assert ExitCode.NEEDS_HUMAN == 4
     assert ExitCode.NEEDS_CONFIRM == 5
     assert ExitCode.HOOK_BLOCK == 10
+
+
+def test_unexpected_internal_error_keeps_the_json_stdout_contract(capsys):
+    @command
+    def explode():
+        raise RuntimeError("sensitive diagnostic detail")
+
+    with pytest.raises(SystemExit) as stopped:
+        explode()
+
+    captured = capsys.readouterr()
+    lines = captured.out.strip().splitlines()
+    assert stopped.value.code == ExitCode.USAGE
+    assert len(lines) == 1
+    payload = json.loads(lines[0])
+    assert payload["ok"] is False
+    assert payload["error"] == {
+        "code": "internal_error",
+        "message": "an unexpected internal error occurred",
+    }
+    assert "sensitive diagnostic detail" not in captured.out
+    assert "RuntimeError: sensitive diagnostic detail" in captured.err

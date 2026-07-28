@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Usage questions
+    url: https://github.com/elanthus/agentic-preflight/discussions
+    about: Ask for help or discuss workflows with the community.
+  - name: Private vulnerability report
+    url: https://github.com/elanthus/agentic-preflight/security/advisories/new
+    about: Report suspected security vulnerabilities privately.

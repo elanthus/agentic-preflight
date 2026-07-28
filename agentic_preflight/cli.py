@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
+import traceback
 from pathlib import Path
 
 import click
@@ -80,6 +81,15 @@ def command(fn):
             _fail(_as_error("git_error", str(exc), ExitCode.USAGE))
         except ConfigError as exc:
             _fail(_as_error("config_error", str(exc), ExitCode.USAGE))
+        except Exception:  # noqa: BLE001 - the JSON stdout contract is the boundary
+            traceback.print_exc(file=sys.stderr)
+            _fail(
+                _as_error(
+                    "internal_error",
+                    "an unexpected internal error occurred",
+                    ExitCode.USAGE,
+                )
+            )
 
     wrapper.__name__ = fn.__name__
     wrapper.__doc__ = fn.__doc__

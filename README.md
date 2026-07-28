@@ -171,6 +171,12 @@ anything. **If `agentic-preflight` is not on `PATH`, the hook allows the push an
 is deliberate: a teammate who clones your repo without installing this tool must not end
 up with a repository they cannot push from. A broken tool must not brick the repo.
 
+`init` does not compose with an existing `pre-push` hook. If Husky, pre-commit, or a
+custom hook already owns that path, `init` refuses to change it. Add
+`agentic-preflight hook-check` to the existing hook manually if you need both. Treat
+`init --force` as replacement, not composition: it overwrites the existing hook and
+removes whatever behavior that hook previously provided.
+
 ## Limits
 
 **The gate is advisory, not a security boundary.** Three things follow from that, and
@@ -365,6 +371,10 @@ active run because its configuration is snapshotted.
   credentials)
 
 ## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow and
+[SUPPORT.md](SUPPORT.md) for help channels. CI rejects overall coverage below 85% and
+also installs the built wheel as a `uv` tool before invoking its CLI.
 
 ```bash
 uv sync --group dev
