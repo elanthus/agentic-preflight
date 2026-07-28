@@ -5,6 +5,15 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Changed
+
+- Pull requests and pushes to `main` now run one test combination, `ubuntu-latest` on
+  Python 3.13, rather than the full six-way matrix. The matrix of Ubuntu and macOS
+  against Python 3.11, 3.12, and 3.13 still runs on release tags, where it now gates
+  the PyPI upload, and on demand by running the CI workflow manually from the Actions
+  tab. Supported platforms and Python versions are unchanged; only the point at which
+  every combination is exercised has moved.
+
 ## [0.2.1] - 2026-07-28
 
 First release published to PyPI.
