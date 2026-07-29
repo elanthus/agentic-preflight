@@ -153,4 +153,6 @@ def install(git_dir: Path | str, *, force: bool = False) -> tuple[Path, bool]:
     path.write_text(HOOK_SCRIPT)
     path.chmod(0o755)
     return path, True
+
+
 BLOCK_EXIT = ExitCode.HOOK_BLOCK
