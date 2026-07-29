@@ -7,7 +7,13 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Manual runs get a group of their own, keyed by run id, so nothing can
+  # supersede them. They are the documented pre-tag release check, and a
+  # cancelled run reports neither pass nor fail: a releaser who sees the jobs
+  # start and moves on to tagging would get the ceremony without the guarantee.
+  # Pushes and pull requests keep the useful behaviour, where a newer run on the
+  # same ref cancels the older one.
+  group: ci-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event_name }}
   cancel-in-progress: true
 
 permissions:
