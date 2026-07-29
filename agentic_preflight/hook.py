@@ -13,7 +13,6 @@ a skill trigger that loops the agent back into the gate.
 
 from __future__ import annotations
 
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -154,10 +153,4 @@ def install(git_dir: Path | str, *, force: bool = False) -> tuple[Path, bool]:
     path.write_text(HOOK_SCRIPT)
     path.chmod(0o755)
     return path, True
-
-
-def tool_on_path() -> bool:
-    return shutil.which("agentic-preflight") is not None
-
-
 BLOCK_EXIT = ExitCode.HOOK_BLOCK

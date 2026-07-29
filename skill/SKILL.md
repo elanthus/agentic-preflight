@@ -101,6 +101,8 @@ $ agentic-preflight gc
 Work happens in the absolute **validation checkout** named by `worktree_path`. In the
 default `in_place` mode that is the current PR checkout; in `reusable` and `strict`
 modes it is an isolated worktree. Never assume `cd` persists between tool calls.
+The complete command and option reference is in `reference/commands.md`; use it when
+an envelope calls for a command or recovery path not expanded in this playbook.
 
 ## How to review
 
@@ -178,17 +180,16 @@ in every state. If you are ever unsure where you are, that is always the right c
 
 ## Failure playbooks
 
-**Merge-back conflict (exit 4, isolated modes only).** The branch has already been restored exactly and
-your fix commits are safe in the worktree. Paste `data.resolution` to the user
-verbatim and **stop**. Do not cherry-pick, do not force, do not pick a side. A
-conflict is a content decision and it is not yours to make.
+**Merge-back conflict (exit 4, isolated modes only).** The branch has already been
+restored exactly and your fix commits are safe in the worktree. Paste
+`data.resolution` to the user verbatim and **stop**. Do not cherry-pick, do not force,
+do not pick a side. A conflict is a content decision and it is not yours to make.
 
-Capture that block **from the `mergeback` response itself** — the stored event has no
-payload, so `status` and `events` cannot replay it once the process exits. Miss it and
-the recovery path is gone. `MERGEBACK_CONFLICT` has no outbound transition either:
-`mergeback` becomes illegal, `status` returns `next: None`, and the only exit is
-`abort` plus a fresh run that discards every verified stage. Before concluding the
-conflict is real, check the user's tree was clean — see non-negotiable 7.
+The full conflict report is stored in the event log and replayed by `status`. After a
+person resolves or restores the reported paths, `mergeback` is the legal retry and
+completed verification remains intact when the resulting tree is still identical to
+the verified tree. A different tree must go through a fresh run. Before concluding
+the conflict is real, check the user's tree was clean — see non-negotiable 7.
 
 **Stage red after max attempts (exit 4).** Stop retrying — you have already tried
 `max_attempts` times and the tool is telling you the loop is not converging. Show the
@@ -269,9 +270,9 @@ answer. "Proceed" from a previous step is not consent for this one.
 For `ask_user` findings, present the trade-off and let them choose. Do not present a
 decision you have already made as if it were a question.
 
-The PR title defaults to the **tip** commit's subject — usually the least
-representative commit in the stack, since it is whatever you touched up last. Offer a
-better one at the gate.
+The PR title uses an explicit `--title` first, then `[publish] pr_title`, then the
+branch name, and only falls back to a commit subject when no branch is available.
+Branch names are often poor human-facing titles, so offer a better one at the gate.
 
 ## What to publish, and what it proves
 

@@ -272,3 +272,18 @@ def test_wheel_force_includes_the_canonical_skill_directory():
     force_include = config["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
     assert force_include["skill"] == "agentic_preflight/_bundled_skill"
     assert integrations.bundled_skill_dir() == root / "skill"
+
+
+@pytest.mark.parametrize("command", ["install", "status", "update", "uninstall"])
+def test_integration_commands_share_the_same_targeting_options(command):
+    result = CliRunner().invoke(main, ["integrations", command, "--help"])
+    assert result.exit_code == 0
+    assert "--scope [user|project]" in result.output
+    assert "--target DIRECTORY" in result.output
+
+
+@pytest.mark.parametrize("command", ["install", "update", "uninstall"])
+def test_mutating_integration_commands_keep_force_option(command):
+    result = CliRunner().invoke(main, ["integrations", command, "--help"])
+    assert result.exit_code == 0
+    assert "--force" in result.output

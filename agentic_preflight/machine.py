@@ -228,7 +228,3 @@ def legal_actions(state: State) -> list[Action]:
     """Every action the table allows from ``state``, in enum-declaration order."""
     allowed = {a for (s, a) in TRANSITIONS if s == state}
     return [a for a in Action if a in allowed]
-
-
-def is_legal(state: State, action: Action) -> bool:
-    return (state, action) in TRANSITIONS
