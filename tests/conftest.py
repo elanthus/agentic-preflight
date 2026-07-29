@@ -8,7 +8,9 @@ made deterministic with fixed identity and timestamp environment instead.
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -29,6 +31,12 @@ DETERMINISTIC_ENV = {
 def deterministic_git_env(monkeypatch):
     for key, value in DETERMINISTIC_ENV.items():
         monkeypatch.setenv(key, value)
+    # Real-push tests invoke the installed hook, which resolves
+    # ``agentic-preflight`` through PATH. Pin that lookup to the same environment
+    # running pytest so an unrelated user installation cannot test older code.
+    python_bin = str(Path(sys.executable).parent)
+    current_path = os.environ.get("PATH", "")
+    monkeypatch.setenv("PATH", os.pathsep.join(part for part in (python_bin, current_path) if part))
 
 
 def git(*args: str, cwd: Path) -> str:

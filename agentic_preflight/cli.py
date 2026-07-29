@@ -231,6 +231,31 @@ def integrations() -> None:
     """Install the bundled skill into supported coding agents."""
 
 
+def _integration_options(*, target_help: str, force_help: str | None = None):
+    """Shared Click surface for every integration lifecycle command."""
+
+    def decorate(fn):
+        if force_help is not None:
+            fn = click.option("--force", is_flag=True, help=force_help)(fn)
+        fn = click.option(
+            "--target",
+            "targets",
+            multiple=True,
+            type=click.Path(path_type=Path, file_okay=False),
+            help=target_help,
+        )(fn)
+        fn = click.option(
+            "--scope",
+            type=click.Choice(["user", "project"]),
+            default="user",
+            show_default=True,
+            help="Use this user's skills directory or the current repository.",
+        )(fn)
+        return click.argument("agents", nargs=-1, type=click.Choice(INTEGRATION_NAMES))(fn)
+
+    return decorate
+
+
 def _integration_project_root(scope: str) -> Path | None:
     if scope != "project":
         return None
@@ -265,22 +290,10 @@ def _integration_envelope(scope: str, results: list[dict]) -> Envelope:
 
 
 @integrations.command("install")
-@click.argument("agents", nargs=-1, type=click.Choice(INTEGRATION_NAMES))
-@click.option(
-    "--scope",
-    type=click.Choice(["user", "project"]),
-    default="user",
-    show_default=True,
-    help="Install for this user or the current repository.",
+@_integration_options(
+    target_help="Also install under this custom skills directory.",
+    force_help="Replace unmanaged or locally modified copies.",
 )
-@click.option(
-    "--target",
-    "targets",
-    multiple=True,
-    type=click.Path(path_type=Path, file_okay=False),
-    help="Also install under this custom skills directory.",
-)
-@click.option("--force", is_flag=True, help="Replace unmanaged or locally modified copies.")
 @command
 def integrations_install(
     agents: tuple[str, ...], scope: str, targets: tuple[Path, ...], force: bool
@@ -300,20 +313,7 @@ def integrations_install(
 
 
 @integrations.command("status")
-@click.argument("agents", nargs=-1, type=click.Choice(INTEGRATION_NAMES))
-@click.option(
-    "--scope",
-    type=click.Choice(["user", "project"]),
-    default="user",
-    show_default=True,
-)
-@click.option(
-    "--target",
-    "targets",
-    multiple=True,
-    type=click.Path(path_type=Path, file_okay=False),
-    help="Also inspect this custom skills directory.",
-)
+@_integration_options(target_help="Also inspect this custom skills directory.")
 @command
 def integrations_status(agents: tuple[str, ...], scope: str, targets: tuple[Path, ...]) -> None:
     """Report whether installed skills are current or modified."""
@@ -330,21 +330,10 @@ def integrations_status(agents: tuple[str, ...], scope: str, targets: tuple[Path
 
 
 @integrations.command("update")
-@click.argument("agents", nargs=-1, type=click.Choice(INTEGRATION_NAMES))
-@click.option(
-    "--scope",
-    type=click.Choice(["user", "project"]),
-    default="user",
-    show_default=True,
+@_integration_options(
+    target_help="Also update under this custom skills directory.",
+    force_help="Replace unmanaged or locally modified copies.",
 )
-@click.option(
-    "--target",
-    "targets",
-    multiple=True,
-    type=click.Path(path_type=Path, file_okay=False),
-    help="Also update under this custom skills directory.",
-)
-@click.option("--force", is_flag=True, help="Replace unmanaged or locally modified copies.")
 @command
 def integrations_update(
     agents: tuple[str, ...], scope: str, targets: tuple[Path, ...], force: bool
@@ -365,21 +354,10 @@ def integrations_update(
 
 
 @integrations.command("uninstall")
-@click.argument("agents", nargs=-1, type=click.Choice(INTEGRATION_NAMES))
-@click.option(
-    "--scope",
-    type=click.Choice(["user", "project"]),
-    default="user",
-    show_default=True,
+@_integration_options(
+    target_help="Also remove from this custom skills directory.",
+    force_help="Remove unmanaged or locally modified copies.",
 )
-@click.option(
-    "--target",
-    "targets",
-    multiple=True,
-    type=click.Path(path_type=Path, file_okay=False),
-    help="Also remove from this custom skills directory.",
-)
-@click.option("--force", is_flag=True, help="Remove unmanaged or locally modified copies.")
 @command
 def integrations_uninstall(
     agents: tuple[str, ...], scope: str, targets: tuple[Path, ...], force: bool

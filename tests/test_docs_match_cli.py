@@ -108,6 +108,25 @@ def test_skill_documents_the_universal_recovery_rule():
     assert "status" in text
 
 
+def test_skill_links_the_complete_command_reference():
+    text = SKILL.read_text()
+    assert "reference/commands.md" in text
+
+
+def test_skill_documents_mergeback_conflict_retry():
+    text = SKILL.read_text()
+    assert "`mergeback` is the legal retry" in text
+    assert "report is stored in the event log" in text
+    assert "no outbound transition" not in text
+
+
+def test_skill_documents_pr_title_precedence():
+    text = SKILL.read_text()
+    title_section = text[text.index("The PR title uses") :]
+    assert title_section.index("`--title`") < title_section.index("[publish] pr_title")
+    assert title_section.index("[publish] pr_title") < title_section.index("branch name")
+
+
 # -- config ---------------------------------------------------------------
 
 

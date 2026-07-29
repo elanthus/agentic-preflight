@@ -106,9 +106,6 @@ class Store:
     def logs_dir(self, run_id: str) -> Path:
         return self.run_dir(run_id) / "logs"
 
-    def diff_dir(self, run_id: str) -> Path:
-        return self.run_dir(run_id) / "diff"
-
     @property
     def current_path(self) -> Path:
         return self.root / "current"
@@ -118,10 +115,6 @@ class Store:
         # ``None`` preserves the v1 location for callers constructing Store
         # directly. Normal sessions pass the external cache location.
         return self._worktrees_root or self.root / "worktrees"
-
-    @property
-    def legacy_worktrees_dir(self) -> Path:
-        return self.root / "worktrees"
 
     @property
     def runner_dependency_state_path(self) -> Path:
