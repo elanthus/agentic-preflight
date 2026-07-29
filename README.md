@@ -13,7 +13,8 @@ push, and a person must perform the final push.
 
 Agentic Preflight is a deterministic state machine with a JSON-over-stdout CLI. It uses
 your local coding agent for judgment rather than choosing what good code looks like
-itself; this package keeps the workflow state and verifies the agent's claims.
+itself; this package keeps the workflow state and verifies the agent's claims. There is
+no API key and no second model: it drives the agent you already have.
 
 ## Prior art and differentiation
 

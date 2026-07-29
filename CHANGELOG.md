@@ -16,6 +16,12 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - The test matrix now lives in a single reusable workflow that both the CI and release
   workflows call, rather than being copied into each. Contributors will see the test
   checks reported under a nested name, `test / test (ubuntu-latest, py3.13)`.
+- The packaged description now states what the tool does rather than what it omits. The
+  previous summary led with "Calls no LLM, ever", which is true of this package and
+  misleading about a run, in which every judgment is produced by a model. PyPI renders
+  that field as the project summary with none of the surrounding explanation, so it has
+  to stand on its own. The README intro keeps the underlying point in the form that
+  survives being read alone: no API key and no second model.
 
 ### Fixed
 
