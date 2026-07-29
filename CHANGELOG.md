@@ -36,8 +36,17 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - The README now opens with a recorded demonstration of a run: a push blocked by the
   pre-push hook, a review that catches an unguarded division by zero, the fix verified,
   and the gate stopping to ask before pushing. The recording is real CLI output, and the
-  VHS tape that produces it is committed as `docs/demo.tape` so it can be regenerated
-  rather than trusted.
+  VHS tape that produces it is committed as `docs/demo.tape`, alongside
+  `docs/demo-fixture.sh`, which builds the throwaway repository the tape records
+  against. `./docs/demo-fixture.sh && vhs docs/demo.tape` regenerates the recording from
+  nothing, so the demonstration of a tool that verifies claims can itself be verified
+  rather than taken on trust.
+
+### Removed
+
+- `docs/plans/` and the design document it held. It described the architecture as it was
+  being decided rather than as it now is, and the parts still worth reading have since
+  been said in the README and the `docs/` pages. It remains in git history.
 
 ### Fixed
 

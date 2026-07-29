@@ -15,9 +15,11 @@ longer exists.
 ![A push blocked by the pre-push hook, a review that catches an unguarded division by
 zero, the fix verified, and the gate stopping to ask before it pushes](docs/demo.gif)
 
-Every frame above is real CLI output, recorded with [VHS](https://github.com/charmbracelet/vhs)
-from the tape in [`docs/demo.tape`](docs/demo.tape). The judgment between the commands is
-the agent's; the commands are all this package does.
+Every frame above is real CLI output, recorded with [VHS](https://github.com/charmbracelet/vhs).
+Regenerate it yourself with `./docs/demo-fixture.sh && vhs docs/demo.tape`: the script
+builds a throwaway repo with a genuine unguarded division in it, and the tape drives the
+run. The judgment between the commands is the agent's; the commands are all this package
+does.
 
 Three things separate it from a checklist in a prompt:
 

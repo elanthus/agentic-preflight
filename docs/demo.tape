@@ -1,9 +1,15 @@
 # demo.tape - VHS source for the agentic-preflight workflow GIF.
 #
-# This tape hardcodes a scratch path and expects a demo fixture already prepared
-# on disk before `vhs demo.tape` is run:
+# Build the fixture, then render:
 #
-#   <DEMO>/repo        a tiny python git repo:
+#     ./docs/demo-fixture.sh && vhs docs/demo.tape
+#
+# demo-fixture.sh creates everything described below from scratch under /tmp,
+# destroying and rebuilding it each run. The paths here are fixed rather than
+# configurable because the origin path is visible on screen in the blocked-push
+# frame; changing it would make the committed GIF disagree with this tape.
+#
+#   /tmp/ap-demo/repo        a tiny python git repo:
 #                        - branch `feature/percentage` checked out, no upstream set
 #                        - contains a real, uncommitted-free bug: calc.py's
 #                          percentage() divides by `whole` with no zero guard
@@ -16,17 +22,18 @@
 #                          deliberately so the blocked-push frame (the most-viewed
 #                          frame in the recording) doesn't render a long scratch path
 #                          or session UUID.
-#   <DEMO>/workspace   sibling directory (outside the repo) holding:
+#   /tmp/ap-demo/workspace   sibling directory (outside the repo) holding:
 #                        - findings.json       (the one genuine `high` finding, F001)
 #                        - findings-empty.json (`{"findings": []}`, used for the docs stage)
 #                        - fix_percentage.py    (patches calc.py + tests/test_calc.py
 #                                                to add the missing zero guard)
 #
+# The workspace is deliberately outside the repo: an untracked findings.json in
+# the validation checkout would dirty the tree and stop the run.
+#
 # The hidden setup step below defines short shell functions (jqs/jqc/jqb/jqd/jqg)
 # that wrap the `jq -c '{...}'` filters used throughout, purely so the commands
 # typed on screen stay short and readable within the recording's time budget.
-#
-# Replace <DEMO> below with the actual path to that prepared fixture.
 
 Output demo.gif
 
@@ -43,7 +50,7 @@ Set TypingSpeed 20ms
 Set Padding 20
 
 Hide
-Type "cd '/private/tmp/claude-501/-Users-mswailes-dev-agentic-preflight/75abc1f5-ef6a-4f24-9c86-f83d4c2a0f10/scratchpad/demo/repo' && clear && jqs() { jq -c '{ok,state,next}'; } && jqc() { jq -c '{ok,state,data:{changed_files:.data.changed_files},next}'; } && jqd() { jq -c '{ok,state,data:{doc_surface:.data.doc_surface},next}'; } && jqg() { jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch},next}'; } && jqb() { jq -c '{ok,state,blocking:[.blocking[]|{id,severity,title}],next}'; }"
+Type "cd '/tmp/ap-demo/repo' && clear && jqs() { jq -c '{ok,state,next}'; } && jqc() { jq -c '{ok,state,data:{changed_files:.data.changed_files},next}'; } && jqd() { jq -c '{ok,state,data:{doc_surface:.data.doc_surface},next}'; } && jqg() { jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch},next}'; } && jqb() { jq -c '{ok,state,blocking:[.blocking[]|{id,severity,title}],next}'; }"
 Enter
 Sleep 500ms
 Show
