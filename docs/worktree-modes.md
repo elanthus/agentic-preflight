@@ -1,0 +1,108 @@
+# Worktree modes
+
+Where a run validates, and what it is allowed to touch while doing so.
+
+## `in_place` (default)
+
+Work happens directly in the current checkout. This is intended for a clean, dedicated
+one-agent/one-PR worktree: the fresh-base rebase and accepted repair commits land
+directly on the PR branch, and `mergeback` becomes a no-op attestation of the exact SHA
+that passed every stage.
+
+Any uncommitted change or unaccounted branch movement stops the run. In-place mode reuses
+the checkout's existing dependency environment and does not run an automatic install; an
+explicit `setup_command` still runs.
+
+## `reusable`
+
+Leases one runner in a hidden sibling directory, serially across runs, preserving ignored
+dependency and build caches.
+
+Between leases it resets tracked files, removes non-ignored untracked files, explicitly
+removes every `[worktree] copy_files` entry, and then detaches the runner. Other ignored
+files survive deliberately.
+
+**This is not a hermetic environment**: a test can mutate an ignored cache. It reduces
+local disk churn, nothing more.
+
+## `strict`
+
+Creates a fresh worktree for every run and removes it afterward. Use it when each local
+validation must begin with no retained artifacts.
+
+Remote CI should remain the clean verification boundary in either isolated mode.
+
+## Why isolated runners live outside `.git`
+
+Both isolated modes keep the source checkout untouched during verification, and both put
+the runner outside `.git` so that tools ignoring VCS directories can still see it. Jest is
+the common case: `jest-haste-map` ORs a hardcoded `/.git/` ignore into its crawl with no
+config override, so a runner inside `.git` finds zero test files no matter how healthy the
+code is.
+
+## Switching modes
+
+Commit one of these and start a new run — an active run keeps the configuration snapshot
+it started with:
+
+```toml
+[worktree]
+mode = "in_place" # default; validate and repair directly in this clean PR checkout
+```
+
+```toml
+[worktree]
+mode = "reusable" # one serial isolated runner; retained ignored caches
+```
+
+```toml
+[worktree]
+mode = "strict"   # fresh worktree and dependency install for every run
+```
+
+The first strict run removes any idle reusable runner and its retained dependency
+fingerprint, so switching back to reusable mode begins with one clean install. In-place
+mode leaves an idle reusable runner alone.
+
+## Secrets in worktrees
+
+Files in `[worktree] copy_files` are used in place or copied into an isolated worktree so
+tests can run, and are protected by two independent guards:
+
+1. **Preflight refusal** — a file git is not already ignoring in the validation checkout
+   is never used or copied. Add it to `.gitignore` and commit that first.
+2. **Commit-content invariant** — any commit touching a copied path is rejected by both
+   `respond` and `mergeback`, checked against commit content rather than ignore rules, so
+   a `.gitignore` edited mid-run cannot open the hole.
+
+Isolated copies are mode `0600` and are removed explicitly when a reusable runner is
+released, or die with a strict worktree. In-place files are never moved or removed. Their
+contents are redacted from stage logs and never placed in any envelope.
+
+`copy_files` is for ignored files such as `.env`, not for directories.
+
+## Node dependencies
+
+Isolated modes never use the source checkout's `node_modules`; it is not linked and not
+modified.
+
+With `dependency_setup = "auto"`, a committed `pnpm-lock.yaml` uses
+`pnpm install --frozen-lockfile`. pnpm hard-links package contents from its shared
+content-addressable store — see the [pnpm storage model](https://pnpm.io/motivation). In
+reusable mode the install is retained and skipped while its fingerprint still matches.
+
+For npm, strict mode runs `npm ci` in every fresh worktree. Reusable mode runs it the
+first time and whenever the dependency fingerprint changes; otherwise it retains the
+runner's existing `node_modules`.
+
+The fingerprint covers dependency and runtime pin files, the activated Node version and
+modules ABI, package-manager version, platform, architecture, and install command.
+
+For non-Node dependencies, use `[worktree] setup_command`.
+
+## When a stage is much slower than expected
+
+Check the mode first. Strict mode has no build cache and runs the frozen install every
+time; reusable mode skips Node installation while its fingerprint matches; in-place mode
+runs no automatic install at all. Do not raise `[stage] max_attempts` to paper over a
+mode-shaped problem.

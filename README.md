@@ -5,35 +5,41 @@
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](pyproject.toml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
-An advisory guard against accidental unverified pushes by coding agents. It records an
-exact commit's review, tests, documentation check, and lint result, then makes the next
-legal action explicit. The default hook can be bypassed and fails open when the command
-is missing. Manual mode provides the stronger contract: Agentic Preflight will never
-push, and a person must perform the final push.
+**Stops your coding agent from pushing unverified work.**
 
-Agentic Preflight is a deterministic state machine with a JSON-over-stdout CLI. It uses
-your local coding agent for judgment rather than choosing what good code looks like
-itself; this package keeps the workflow state and verifies the agent's claims. There is
-no API key and no second model: it drives the agent you already have.
+Agentic Preflight records a review, test, documentation, and lint result against an
+exact commit SHA, and a pre-push hook refuses any commit with no green run of its own.
+Amend, rebase, or squash and the green is gone, because it described a tree that no
+longer exists.
 
-## Prior art and differentiation
+![A push blocked by the pre-push hook, a review that catches an unguarded division by
+zero, the fix verified, and the gate stopping to ask before it pushes](docs/demo.gif)
 
-Agentic Preflight was inspired by [`no-mistakes`](https://github.com/kunchenguid/no-mistakes)
-and its staged review, test, documentation, lint, push, pull-request, and CI workflow. It
-keeps that useful progression while exploring a different control model:
+Every frame above is real CLI output, recorded with [VHS](https://github.com/charmbracelet/vhs).
+Regenerate it yourself with `./docs/demo-fixture.sh && vhs docs/demo.tape`: the script
+builds a throwaway repo with a genuine unguarded division in it, and the tape drives the
+run. The judgment between the commands is the agent's; the commands are all this package
+does.
 
-| Area | `no-mistakes` | Agentic Preflight |
-|---|---|---|
-| Agent execution | Runs a configurable validation-agent pipeline | Uses local coding agents already active in your workspace |
-| Git integration | Routes pushes through a local proxy remote | Uses an advisory pre-push hook; manual mode keeps the final push human-only |
-| Interface | Provides a daemon, TUI, and agent skill | Provides a JSON-over-stdout CLI and agent skill |
-| Workflow control | Owns the end-to-end validation pipeline | Persists a deterministic state machine and returns the single next legal command |
-| Runtime | Ships as a Go application | Ships as a Python CLI package |
+Three things separate it from a checklist in a prompt:
 
-## 60-second walkthrough
+- **Skipping a stage is structurally unrepresentable.** Not discouraged by
+  documentation — no transition exists from a review state to a push state at all. That
+  property is proved by enumerating every path through the machine, not by testing a
+  few of them.
+- **Your agent judges; this keeps the record.** No API key and no second model, and no
+  opinion of its own about what good code looks like. It drives the agent you already
+  have.
+- **The record includes its own gaps.** A bypassed hook, a stage that could not run, a
+  SHA with no green run — each stays visible in `status` and the ledger. A record that
+  can only report success is marketing.
 
-Agentic Preflight supports macOS and Linux. From a repository with Python 3.11+ and Git
-2.30+:
+Agentic Preflight is a deterministic state machine with a JSON-over-stdout CLI. It runs
+on macOS and Linux.
+
+## Quickstart
+
+From a repository with Python 3.11+ and Git 2.30+:
 
 ```bash
 uv tool install agentic-preflight
@@ -55,10 +61,9 @@ agentic-preflight: push blocked.
 error: failed to push some refs
 ```
 
-Ask your coding agent to invoke `$agentic-preflight` in Codex or
-`/agentic-preflight` in Claude Code. A normal run follows the command in each JSON
-envelope. This output was captured from a local demo repository; `jq` limits each
-envelope to the fields relevant to the walkthrough:
+Ask your coding agent to invoke `$agentic-preflight` in Codex or `/agentic-preflight` in
+Claude Code. A run follows the command in each JSON envelope. This output was captured
+from a local demo repository; `jq` limits each envelope to the fields relevant here:
 
 ```console
 $ agentic-preflight start --intent "Add retries and document the failure policy" | jq -c '{ok,state,next}'
@@ -75,6 +80,10 @@ $ agentic-preflight push --confirm d8697c2068b4853b | jq -c '{ok,state,data:{rem
 The agent must show you the target remote, branch, and commits and obtain fresh approval
 before the final command. For a human-only final push, set `[gate] mode = "manual"`.
 
+Installing a single agent, checking a skill into one repository, upgrading, and using
+other Agent Skills clients are covered in
+[docs/installation.md](docs/installation.md).
+
 ## How it works
 
 ```
@@ -87,69 +96,20 @@ start --intent "..." → fetch/rebase → context → submit-findings → verify
 ```
 
 `start` requires the user's objective and acceptance criteria, fetches `origin`, and
-rebases the validation checkout onto the fresh base before review. The agent
-drives the loop. Every command returns one JSON object containing `next`,
-the single next legal command, so the agent never has to guess. Stage-skipping is not
-forbidden by documentation; it is **structurally unrepresentable**, because no
-transition exists from a review state to a push state. That property is proved by
-enumerating every path through the machine, not by testing a few.
+rebases the validation checkout onto the fresh base before review. The agent drives the
+loop. Every command returns one JSON object containing `next`, the single next legal
+command, so the agent never has to guess.
 
-When every changed file is documentation or standard CI configuration, the gate does
-not run the software test command. It takes an explicit `SKIP_TEST` transition through
-`TEST_GREEN` and records the test stage as `skipped` with its reason, so the exception
-is visible in `status` and the ledger. Any source or otherwise unclassified file keeps
-tests mandatory. Documentation includes Markdown, MDX, reStructuredText, AsciiDoc, the
-standard documentation surface, and `[docs] paths`; CI configuration includes common
-GitHub Actions, CircleCI, GitLab CI, Azure Pipelines, Bitbucket Pipelines, Buildkite,
-Travis CI, AppVeyor, and Jenkins paths.
+When every changed file is documentation or standard CI configuration, the gate does not
+run the software test command. It takes an explicit `SKIP_TEST` transition through
+`TEST_GREEN` and records the test stage as `skipped` with its reason, so the exception is
+visible in `status` and the ledger. Any source or otherwise unclassified file keeps tests
+mandatory. [docs/change-scope.md](docs/change-scope.md) lists the exact classification.
 
-By default, work happens directly in the current checkout (`[worktree] mode =
-"in_place"`). This is intended for a clean, dedicated one-agent/one-PR worktree: the
-fresh-base rebase and accepted repair commits land directly on the PR branch, and
-`mergeback` becomes a no-op attestation of the exact SHA that passed every stage. Any
-uncommitted change or unaccounted branch movement stops the run.
-
-Two isolated modes remain available. `mode = "reusable"` leases one runner in a hidden
-sibling directory serially across runs, preserving ignored dependency and build caches.
-`mode = "strict"` creates a fresh worktree for every run and removes it afterward. Both
-keep the source checkout untouched during verification; the runner is outside `.git`,
-so Jest and other tools that ignore VCS directories can see it.
-
-Reusable mode resets tracked files, removes non-ignored untracked files, explicitly
-removes every `[worktree] copy_files` entry, and then detaches the runner before its
-lease ends. Other ignored files survive deliberately. This reduces local disk churn but
-is not a hermetic environment: a test can mutate an ignored cache. Use strict mode when
-each local validation must begin with no retained artifacts; remote CI should remain the
-clean verification boundary in either mode.
-
-## Install
-
-```bash
-uv tool install agentic-preflight
-agentic-preflight integrations install codex claude
-cd your-repo
-agentic-preflight init             # installs the pre-push hook, writes .agentic-preflight.toml
-```
-
-Install only the agents you use if you do not need both. Then invoke the skill with
-`$agentic-preflight` in Codex or `/agentic-preflight` in Claude Code. If `uv` reports that its tool
-directory is not on `PATH`, run `uv tool update-shell` and open a new shell first.
-Restart a running agent if the newly created skill directory is not detected immediately.
-
-The integration installer copies the same bundled skill to each agent's documented
-discovery directory. It refuses to overwrite local edits unless you pass `--force`.
-After upgrading the CLI, refresh any installed copies:
-
-```bash
-uv tool upgrade agentic-preflight
-agentic-preflight integrations update
-```
-
-User scope is the default. To check a skill into one repository instead, run
-`agentic-preflight integrations install codex claude --scope project`. For another agent
-that supports Agent Skills, `--target PATH` installs beneath a custom skills directory.
-Use `agentic-preflight integrations status` to inspect installed copies and
-`agentic-preflight integrations uninstall codex claude` to remove managed user copies.
+By default the run happens directly in the current checkout, which suits a clean,
+dedicated one-agent/one-PR worktree. Two isolated modes keep the source checkout
+untouched during verification. All three, along with dependency handling and secret
+protection, are described in [docs/worktree-modes.md](docs/worktree-modes.md).
 
 ## The pre-push hook
 
@@ -165,9 +125,9 @@ agentic-preflight: push blocked.
 ```
 
 The hook reads one file (`ledger.json`), never touches the network, and never mutates
-anything. **If `agentic-preflight` is not on `PATH`, the hook allows the push and warns.** That
-is deliberate: a teammate who clones your repo without installing this tool must not end
-up with a repository they cannot push from. A broken tool must not brick the repo.
+anything. **If `agentic-preflight` is not on `PATH`, the hook allows the push and warns.**
+That is deliberate: a teammate who clones your repo without installing this tool must not
+end up with a repository they cannot push from. A broken tool must not brick the repo.
 
 `init` does not compose with an existing `pre-push` hook. If Husky, pre-commit, or a
 custom hook already owns that path, `init` refuses to change it. Add
@@ -177,38 +137,24 @@ removes whatever behavior that hook previously provided.
 
 ## Limits
 
-**The gate is advisory, not a security boundary.** Three things follow from that, and
-you should know all three before relying on it:
+**The gate is advisory, not a security boundary.** Three things follow, and you should
+know all three before relying on it:
 
 1. **`git push --no-verify` defeats the hook.** By design: it is the documented escape
    hatch for humans who need it.
 2. **The confirmation token is not a secret.** The agent can read it from `status`. It is
-   deliberate ceremony that makes an *accidental* push impossible and makes an
-   unconfirmed push a visible protocol violation. It does not stop a determined agent.
-   If you need a real boundary, set `[gate] mode = "manual"`: then agentic-preflight refuses
-   to push at all and a person must run the command themselves.
+   deliberate ceremony that makes an *accidental* push impossible and an unconfirmed push
+   a visible protocol violation. It does not stop a determined agent. If you need a real
+   boundary, set `[gate] mode = "manual"`: agentic-preflight then refuses to push at all
+   and a person must run the command themselves.
 3. **This guards against mistakes, not against a careless or misaligned agent.** There is
    no cryptographic answer here, and claiming otherwise would be worse than the gap.
 
 **Amending invalidates green.** The ledger is keyed on exact SHA, so any amend, rebase,
-or squash forces a fresh run. Cherry-picked merge-back is handled via tree-equivalence
-attestation; rebase tolerance is planned for v2 (the ledger already records `tree_sha`
-for it).
+or squash forces a fresh run.
 
-**Isolated worktrees can differ from your environment.** In-place mode deliberately uses
-the checkout's existing dependencies and ignored files. An isolated runner does not
-inherit the source checkout's `.venv` or `.env`; configure `[worktree] setup_command`
-for non-Node dependencies and `copy_files` for ignored files such as `.env`. Node
-lockfiles are handled automatically: reusable mode retains a fingerprint-matched
-install, while strict mode installs the frozen dependency tree in every fresh worktree.
-Neither isolated mode uses the source checkout's `node_modules`.
-Use `--baseline` so a pre-existing failure is reported rather than blamed on your diff.
-
-**Runtime pins are activated explicitly.** Non-interactive agent shells often miss
-interactive version-manager shims. Stages detect committed Node pins for NVM, Volta,
-asdf, mise, fnm, and nodenv. A missing pinned manager fails clearly instead of silently
-running a different system Node. `init` reports unpinned Node projects so a fresh clone,
-CI, and the gate can agree on the version.
+Environment drift between isolated worktrees and your shell, runtime pin activation, and
+the rebase-tolerance roadmap are covered in [docs/limits.md](docs/limits.md).
 
 ## Configuration
 
@@ -238,6 +184,8 @@ require_changelog = false
 
 [diff]
 max_bytes = 200000
+# Setting exclude REPLACES the eight built-in globs rather than adding to them.
+# Omit the key to keep them; see docs/configuration.md for the full default list.
 exclude = ["*.lock", "*-lock.json", "vendor/**", "**/*.min.js"]
 
 [worktree]
@@ -268,84 +216,12 @@ timeout_seconds = 3600
 poll_interval_seconds = 30
 ```
 
-After a PR opens, `agentic-preflight ci` monitors checks and mergeability. It reports passed
-checks, fetches failed GitHub Actions logs, and persists the failure with the original
-intent. Repairs use the local coding agent: the host agent fixes and commits the source
-branch, then starts a fresh synchronized full validation before another push. Monitoring
-continues through host invocations until merge, close, or timeout.
+The resolved configuration is snapshotted when `start` creates a run, so editing
+`.agentic-preflight.toml` afterward does not change that run. Commit configuration
+changes before starting the run they should affect.
 
-The resolved configuration is snapshotted when `start` creates a run. Editing
-`.agentic-preflight.toml` afterward does not change that run; the snapshot and its digest are
-recorded with the run events. Commit configuration changes before starting the run they
-should affect.
-
-The docs stage includes `README*`, `docs/**`, agent instructions such as
-`.claude/rules/**` and `.github/instructions/**`, plus `PRODUCT.md` and `DESIGN.md`.
-Use `[docs] paths` for repository-specific documentation surfaces.
-
-### Large diffs
-
-Over `[diff] max_bytes`, `context` **refuses** rather than truncating: an agent that
-reviews half a diff believing it saw all of it is exactly how a false green happens. The
-envelope lists per-file sizes so the agent can narrow with `[diff] exclude`. Common
-generated-file globs are excluded by default, which resolves most oversized diffs
-outright.
-
-### Secrets in worktrees
-
-Files in `[worktree] copy_files` are used in place or copied into an isolated worktree so
-tests can run, and are protected by two independent guards:
-
-1. **Preflight refusal**: a file git is not already ignoring in the validation checkout
-   is never used or copied. Add it to `.gitignore` and commit that first.
-2. **Commit-content invariant**: any commit touching a copied path is rejected by both
-   `respond` and `mergeback`, checked against commit content rather than ignore rules, so
-   a `.gitignore` edited mid-run cannot open the hole.
-
-Isolated copies are mode `0600`, are removed explicitly when a reusable runner is
-released (or die with a strict worktree). In-place files are never moved or removed.
-Their contents are redacted from stage logs and never placed in any envelope.
-
-### Node dependencies in worktrees
-
-In-place mode reuses the checkout's existing dependency environment and does not run an
-automatic install. An explicit `setup_command` still runs.
-
-In isolated modes with `dependency_setup = "auto"`, a committed `pnpm-lock.yaml` uses
-`pnpm install --frozen-lockfile`. pnpm hard-links package contents from its shared
-content-addressable store. In reusable mode, the install is retained and skipped when
-its fingerprint still matches. See the
-[pnpm storage model](https://pnpm.io/motivation).
-
-For npm, strict mode runs `npm ci` in every fresh worktree. Reusable mode runs it the
-first time and whenever the dependency fingerprint changes; otherwise it retains the
-runner's existing `node_modules`. The fingerprint covers dependency and runtime pin
-files, the activated Node version and modules ABI, package-manager version, platform,
-architecture, and install command. The source checkout's `node_modules` is never linked
-or modified by isolated modes.
-
-To switch modes, commit one of these settings and start a new run (an active run keeps
-the configuration snapshot it started with):
-
-```toml
-[worktree]
-mode = "in_place" # default; validate and repair directly in this clean PR checkout
-```
-
-```toml
-[worktree]
-mode = "reusable" # one serial isolated runner; retained ignored caches
-```
-
-```toml
-[worktree]
-mode = "strict"   # fresh worktree and dependency install for every run
-```
-
-The first strict run removes any idle reusable runner and its retained dependency
-fingerprint. Switching back to reusable mode therefore begins with one clean install.
-In-place mode leaves any idle reusable runner alone. Mode changes never reshape an
-active run because its configuration is snapshotted.
+The documentation surface, oversized-diff handling, and post-PR CI monitoring are
+described in [docs/configuration.md](docs/configuration.md).
 
 ## Exit codes
 
@@ -379,8 +255,22 @@ uv sync --group dev
 uv run pytest
 ```
 
-Git fixtures drive a real `git` binary rather than mocks: the product *is* git
-semantics, so mocking it would test our idea of git instead of git.
+Git fixtures drive a real `git` binary rather than mocks: the product *is* git semantics,
+so mocking it would test our idea of git instead of git.
+
+## Prior art and differentiation
+
+Agentic Preflight was inspired by [`no-mistakes`](https://github.com/kunchenguid/no-mistakes)
+and its staged review, test, documentation, lint, push, pull-request, and CI workflow. It
+keeps that useful progression while exploring a different control model:
+
+| Area | `no-mistakes` | Agentic Preflight |
+|---|---|---|
+| Agent execution | Runs a configurable validation-agent pipeline | Uses local coding agents already active in your workspace |
+| Git integration | Routes pushes through a local proxy remote | Uses an advisory pre-push hook; manual mode keeps the final push human-only |
+| Interface | Provides a daemon, TUI, and agent skill | Provides a JSON-over-stdout CLI and agent skill |
+| Workflow control | Owns the end-to-end validation pipeline | Persists a deterministic state machine and returns the single next legal command |
+| Runtime | Ships as a Go application | Ships as a Python CLI package |
 
 ## Credits
 

@@ -22,6 +22,31 @@ All notable changes to Agentic Preflight are documented here. This project follo
   that field as the project summary with none of the surrounding explanation, so it has
   to stand on its own. The README intro keeps the underlying point in the form that
   survives being read alone: no API key and no second model.
+- The README now leads with what the tool does and defers the detail to linked pages.
+  Reference material that a first-time reader does not need moved into `docs/`:
+  `installation.md`, `change-scope.md`, `worktree-modes.md`, `configuration.md`, and
+  `limits.md`. The prior-art comparison moved below the technical sections, since it
+  answers a question a reader has not yet asked. No documented behaviour changed, and
+  the configuration example stays in the README, where the test suite requires every
+  config section to appear.
+- The `[diff] exclude` example now says that setting the key replaces the eight built-in
+  globs rather than extending them. The example lists four of the eight, so copying it
+  verbatim silently dropped `**/*.min.css`, `**/__snapshots__/**`, `**/*.pb.go`, and
+  `**/*_pb2.py`. The full default list is now in `docs/configuration.md`.
+- The README now opens with a recorded demonstration of a run: a push blocked by the
+  pre-push hook, a review that catches an unguarded division by zero, the fix verified,
+  and the gate stopping to ask before pushing. The recording is real CLI output, and the
+  VHS tape that produces it is committed as `docs/demo.tape`, alongside
+  `docs/demo-fixture.sh`, which builds the throwaway repository the tape records
+  against. `./docs/demo-fixture.sh && vhs docs/demo.tape` regenerates the recording from
+  nothing, so the demonstration of a tool that verifies claims can itself be verified
+  rather than taken on trust.
+
+### Removed
+
+- `docs/plans/` and the design document it held. It described the architecture as it was
+  being decided rather than as it now is, and the parts still worth reading have since
+  been said in the README and the `docs/` pages. It remains in git history.
 
 ### Fixed
 
