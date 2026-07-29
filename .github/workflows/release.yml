@@ -12,6 +12,34 @@ permissions:
   contents: read
 
 jobs:
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --group dev --python ${{ matrix.python-version }}
+
+      - name: Lint (ruff)
+        run: uv run ruff check agentic_preflight tests
+
+      - name: Type check (mypy)
+        run: uv run mypy agentic_preflight
+
+      - name: Test (pytest)
+        run: uv run pytest
+
   build:
     name: build and verify artifacts
     runs-on: ubuntu-latest
@@ -68,7 +96,7 @@ jobs:
 
   publish:
     name: publish to PyPI
-    needs: build
+    needs: [test, build]
     runs-on: ubuntu-latest
     environment:
       name: pypi
