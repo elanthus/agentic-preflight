@@ -15,63 +15,15 @@ permissions:
 
 jobs:
   test:
-    name: test (${{ matrix.os }}, py${{ matrix.python-version }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # Single combo for fast PR feedback. Run this workflow manually
-        # (workflow_dispatch) to expand to the full matrix -- useful as a
-        # pre-tag check, since release.yml only gates publishing after the tag
-        # is already pushed.
-        os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["ubuntu-latest", "macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
-        python-version: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["3.11", "3.12", "3.13"]') || fromJSON('["3.13"]') }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
-        with:
-          enable-cache: true
-
-      - name: Sync dependencies
-        run: uv sync --group dev --python ${{ matrix.python-version }}
-
-      - name: Lint (ruff)
-        run: uv run ruff check agentic_preflight tests
-
-      - name: Type check (mypy)
-        run: uv run mypy agentic_preflight
-
-      - name: Test (pytest + coverage)
-        run: uv run pytest --cov=agentic_preflight --cov-report=term-missing --cov-report=xml
-
-      - name: Generate coverage badge
-        if: github.event_name == 'push' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
-        run: |
-          coverage_percent="$(uv run coverage report --format=total)"
-          if [ "$coverage_percent" -ge 90 ]; then
-            color=brightgreen
-          elif [ "$coverage_percent" -ge 80 ]; then
-            color=green
-          elif [ "$coverage_percent" -ge 70 ]; then
-            color=yellowgreen
-          elif [ "$coverage_percent" -ge 60 ]; then
-            color=yellow
-          else
-            color=red
-          fi
-          curl --fail --silent --show-error --location \
-            "https://img.shields.io/badge/coverage-${coverage_percent}%25-${color}.svg" \
-            --output coverage.svg
-
-      - name: Upload coverage badge
-        if: github.event_name == 'push' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: coverage-badge
-          path: coverage.svg
-          if-no-files-found: error
+    # Single combo for fast PR feedback. Run this workflow manually
+    # (workflow_dispatch) to expand to the full matrix -- useful as a pre-tag
+    # check, since release.yml only gates publishing after the tag is already
+    # pushed.
+    uses: ./.github/workflows/test.yml
+    with:
+      os: ${{ github.event_name == 'workflow_dispatch' && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]' }}
+      python-versions: ${{ github.event_name == 'workflow_dispatch' && '["3.11", "3.12", "3.13"]' || '["3.13"]' }}
+      coverage: true
 
   package:
     name: built wheel smoke test

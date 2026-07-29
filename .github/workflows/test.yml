@@ -1,0 +1,84 @@
+name: Test
+
+# Single definition of the test matrix, called by ci.yml and release.yml. Both
+# callers used to carry their own copy of these steps, including the pinned
+# action SHAs, with nothing keeping them in step. That mattered because the
+# release matrix is the only place macOS and Python 3.11/3.12 run at all, so
+# drift there would have degraded the release safety net invisibly.
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        description: JSON array of runner labels, e.g. '["ubuntu-latest"]'.
+        type: string
+        required: true
+      python-versions:
+        description: JSON array of Python versions, e.g. '["3.13"]'.
+        type: string
+        required: true
+      coverage:
+        description: >
+          Measure coverage, which also applies the fail_under floor from
+          pyproject.toml, and produce the badge artifact on push events.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.os) }}
+        python-version: ${{ fromJSON(inputs.python-versions) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --group dev --python ${{ matrix.python-version }}
+
+      - name: Lint (ruff)
+        run: uv run ruff check agentic_preflight tests
+
+      - name: Type check (mypy)
+        run: uv run mypy agentic_preflight
+
+      - name: Test (pytest)
+        run: uv run pytest ${{ inputs.coverage && '--cov=agentic_preflight --cov-report=term-missing --cov-report=xml' || '' }}
+
+      - name: Generate coverage badge
+        if: inputs.coverage && github.event_name == 'push' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        run: |
+          coverage_percent="$(uv run coverage report --format=total)"
+          if [ "$coverage_percent" -ge 90 ]; then
+            color=brightgreen
+          elif [ "$coverage_percent" -ge 80 ]; then
+            color=green
+          elif [ "$coverage_percent" -ge 70 ]; then
+            color=yellowgreen
+          elif [ "$coverage_percent" -ge 60 ]; then
+            color=yellow
+          else
+            color=red
+          fi
+          curl --fail --silent --show-error --location \
+            "https://img.shields.io/badge/coverage-${coverage_percent}%25-${color}.svg" \
+            --output coverage.svg
+
+      - name: Upload coverage badge
+        if: inputs.coverage && github.event_name == 'push' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-badge
+          path: coverage.svg
+          if-no-files-found: error

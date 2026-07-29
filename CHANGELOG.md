@@ -13,6 +13,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
   the PyPI upload, and on demand by running the CI workflow manually from the Actions
   tab. Supported platforms and Python versions are unchanged; only the point at which
   every combination is exercised has moved.
+- The test matrix now lives in a single reusable workflow that both the CI and release
+  workflows call, rather than being copied into each. Contributors will see the test
+  checks reported under a nested name, `test / test (ubuntu-latest, py3.13)`.
 
 ## [0.2.1] - 2026-07-28
 
