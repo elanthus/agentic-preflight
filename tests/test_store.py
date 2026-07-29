@@ -48,19 +48,22 @@ def test_transaction_with_a_stale_expect_seq_is_rejected(store):
     with store.transaction("r_abc123") as run:
         run.state = State.WORKTREE_READY
 
-    with pytest.raises(StaleWrite) as exc:
-        with store.transaction("r_abc123", expect_seq=0) as run:
-            run.state = State.ABORTED
+    with pytest.raises(StaleWrite) as exc, store.transaction("r_abc123", expect_seq=0) as run:
+        run.state = State.ABORTED
     assert "expected seq 0" in str(exc.value)
     assert store.load_run("r_abc123").state is State.WORKTREE_READY
 
 
 def test_a_failed_transaction_body_leaves_the_document_untouched(store):
     store.create_run(make_run())
-    with pytest.raises(RuntimeError):
+
+    def mutate_then_fail():
         with store.transaction("r_abc123") as run:
             run.state = State.ABORTED
             raise RuntimeError("agent exploded mid-mutation")
+
+    with pytest.raises(RuntimeError, match="agent exploded mid-mutation"):
+        mutate_then_fail()
 
     reloaded = store.load_run("r_abc123")
     assert reloaded.state is State.CREATED
@@ -75,9 +78,8 @@ def test_a_crash_during_replace_leaves_a_valid_document(store, monkeypatch):
         raise OSError("disk went away")
 
     monkeypatch.setattr("agentic_preflight.store.os.replace", boom)
-    with pytest.raises(OSError):
-        with store.transaction("r_abc123") as run:
-            run.state = State.ABORTED
+    with pytest.raises(OSError, match="disk went away"), store.transaction("r_abc123") as run:
+        run.state = State.ABORTED
     monkeypatch.undo()
 
     raw = json.loads(store.run_path("r_abc123").read_text())

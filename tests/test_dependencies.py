@@ -26,9 +26,7 @@ def _worktree(repo: Path, tmp_path: Path, name: str = "deps") -> Path:
     )
 
 
-def test_pnpm_uses_a_frozen_install_and_its_shared_store(
-    tmp_repo, tmp_path, monkeypatch
-):
+def test_pnpm_uses_a_frozen_install_and_its_shared_store(tmp_repo, tmp_path, monkeypatch):
     write(tmp_repo, "package.json", '{"packageManager":"pnpm@11.0.0"}\n')
     write(tmp_repo, "pnpm-lock.yaml", "lockfileVersion: '9.0'\n")
     commit_all(tmp_repo, "add pnpm project")
@@ -79,9 +77,7 @@ def test_npm_always_runs_an_isolated_ci_even_when_main_modules_exist(
 def test_npm_install_exit_code_is_reported(tmp_repo, tmp_path, monkeypatch):
     repo = _npm_repo(tmp_repo)
     wt = _worktree(repo, tmp_path, "npm-failure")
-    monkeypatch.setattr(
-        dependencies, "_run_install", lambda target, command, **kwargs: (17, {})
-    )
+    monkeypatch.setattr(dependencies, "_run_install", lambda target, command, **kwargs: (17, {}))
 
     result = dependencies.setup(wt)
 
@@ -97,9 +93,7 @@ def test_no_node_lockfile_skips_dependency_setup(tmp_repo, tmp_path):
     assert result.action == "skip"
 
 
-def test_reusable_runner_skips_install_when_fingerprint_matches(
-    tmp_repo, tmp_path, monkeypatch
-):
+def test_reusable_runner_skips_install_when_fingerprint_matches(tmp_repo, tmp_path, monkeypatch):
     repo = _npm_repo(tmp_repo)
     wt = _worktree(repo, tmp_path, "npm-reuse")
     state = tmp_path / "runner-dependencies.json"
@@ -121,17 +115,13 @@ def test_reusable_runner_skips_install_when_fingerprint_matches(
     assert calls == ["npm ci"]
 
 
-def test_reusable_runner_reinstalls_when_fingerprint_changes(
-    tmp_repo, tmp_path, monkeypatch
-):
+def test_reusable_runner_reinstalls_when_fingerprint_changes(tmp_repo, tmp_path, monkeypatch):
     repo = _npm_repo(tmp_repo)
     wt = _worktree(repo, tmp_path, "npm-refresh")
     state = tmp_path / "runner-dependencies.json"
     fingerprints = iter(["before", "after"])
     calls = []
-    monkeypatch.setattr(
-        dependencies, "_dependency_fingerprint", lambda *a, **k: next(fingerprints)
-    )
+    monkeypatch.setattr(dependencies, "_dependency_fingerprint", lambda *a, **k: next(fingerprints))
 
     def fake_install(target, command, **kwargs):
         calls.append(command)

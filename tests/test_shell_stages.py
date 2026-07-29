@@ -43,8 +43,7 @@ def docs_green(feature_repo, tmp_path):
 
 def test_a_configured_command_is_used(docs_green):
     agent = docs_green(
-        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\n"
-        "\n[worktree]\nmode = 'reusable'\n"
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\n\n[worktree]\nmode = 'reusable'\n"
     )
     env = agent.run("stage", "run", "lint")
     assert env["state"] == "LINT_GREEN"
@@ -57,12 +56,9 @@ def test_an_explicit_command_flag_overrides_config(docs_green):
     assert env["state"] == "LINT_GREEN"
 
 
-def test_a_run_keeps_its_config_when_the_main_tree_config_changes(
-    docs_green, feature_repo
-):
+def test_a_run_keeps_its_config_when_the_main_tree_config_changes(docs_green, feature_repo):
     agent = docs_green(
-        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\n"
-        "\n[worktree]\nmode = 'reusable'\n"
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\n\n[worktree]\nmode = 'reusable'\n"
     )
     write(
         feature_repo,
@@ -113,7 +109,12 @@ def test_a_zero_exit_is_green_regardless_of_output(docs_green):
 def test_a_non_zero_exit_is_red_regardless_of_output(docs_green):
     agent = docs_green()
     env = agent.run(
-        "stage", "run", "lint", "--command", "echo 'all good!'; exit 1", "--record",
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "echo 'all good!'; exit 1",
+        "--record",
         expect=ExitCode.STAGE_FAILED,
     )
     assert env["state"] == "LINT_RED"
@@ -128,8 +129,9 @@ def test_tests_must_pass_before_lint_runs(feature_repo, tmp_path):
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    env = agent.run("stage", "run", "lint", "--command", "true", "--record",
-                    expect=ExitCode.PRECONDITION)
+    env = agent.run(
+        "stage", "run", "lint", "--command", "true", "--record", expect=ExitCode.PRECONDITION
+    )
     assert env["error"]["code"] == "wrong_state"
 
 
@@ -189,8 +191,9 @@ def test_lint_runs_once_tests_and_docs_are_green(docs_green):
 
 def test_a_red_stage_can_be_retried_after_a_fix(docs_green):
     agent = docs_green()
-    agent.run("stage", "run", "lint", "--command", "exit 1", "--record",
-              expect=ExitCode.STAGE_FAILED)
+    agent.run(
+        "stage", "run", "lint", "--command", "exit 1", "--record", expect=ExitCode.STAGE_FAILED
+    )
     env = agent.run("stage", "run", "lint", "--command", "true", "--record")
     assert env["state"] == "LINT_GREEN"
 
@@ -198,12 +201,15 @@ def test_a_red_stage_can_be_retried_after_a_fix(docs_green):
 def test_a_committed_lint_repair_invalidates_tests_and_docs(docs_green):
     agent = docs_green()
     failed = agent.run(
-        "stage", "run", "lint", "--command", "exit 1", "--record",
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "exit 1",
+        "--record",
         expect=ExitCode.STAGE_FAILED,
     )
-    worktree = failed["data"].get("worktree_path") or agent.run("status")["data"][
-        "worktree_path"
-    ]
+    worktree = failed["data"].get("worktree_path") or agent.run("status")["data"]["worktree_path"]
     write(
         Path(worktree),
         "src/app.py",
@@ -216,12 +222,12 @@ def test_a_committed_lint_repair_invalidates_tests_and_docs(docs_green):
     assert env["data"]["validation_restarted"] is True
     assert env["next"]["command"] == "agentic-preflight stage run test"
 
-    assert agent.run("stage", "run", "test", "--command", "true", "--record")[
-        "state"
-    ] == "DOCS_GREEN"
-    assert agent.run("stage", "run", "lint", "--command", "true", "--record")[
-        "state"
-    ] == "LINT_GREEN"
+    assert (
+        agent.run("stage", "run", "test", "--command", "true", "--record")["state"] == "DOCS_GREEN"
+    )
+    assert (
+        agent.run("stage", "run", "lint", "--command", "true", "--record")["state"] == "LINT_GREEN"
+    )
 
 
 # -- attempt limits ---------------------------------------------------------
@@ -234,10 +240,12 @@ def test_repeated_failures_stop_at_max_attempts(docs_green):
     """
     agent = docs_green("[docs]\nenabled = false\n\n[stage]\nmax_attempts = 2\n")
     for _ in range(2):
-        agent.run("stage", "run", "lint", "--command", "exit 1", "--record",
-                  expect=ExitCode.STAGE_FAILED)
-    env = agent.run("stage", "run", "lint", "--command", "exit 1", "--record",
-                    expect=ExitCode.NEEDS_HUMAN)
+        agent.run(
+            "stage", "run", "lint", "--command", "exit 1", "--record", expect=ExitCode.STAGE_FAILED
+        )
+    env = agent.run(
+        "stage", "run", "lint", "--command", "exit 1", "--record", expect=ExitCode.NEEDS_HUMAN
+    )
     assert env["error"]["code"] == "max_attempts"
     assert env["data"]["attempts"] == 2
     assert "logs" in env["next"]["command"]
@@ -248,10 +256,9 @@ def test_repeated_failures_stop_at_max_attempts(docs_green):
 
 def test_full_output_is_written_to_a_log_file(docs_green):
     agent = docs_green()
-    env = agent.run(
-        "stage", "run", "lint", "--command", "echo hello-from-lint", "--record"
-    )
+    env = agent.run("stage", "run", "lint", "--command", "echo hello-from-lint", "--record")
     from pathlib import Path
+
     log = Path(env["data"]["log_path"])
     assert "hello-from-lint" in log.read_text()
 
@@ -259,9 +266,13 @@ def test_full_output_is_written_to_a_log_file(docs_green):
 def test_the_envelope_truncates_long_output_and_says_so(docs_green):
     agent = docs_green()
     env = agent.run(
-        "stage", "run", "lint",
-        "--command", "for i in $(seq 1 500); do echo line-$i; done; exit 1",
-        "--record", expect=ExitCode.STAGE_FAILED,
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "for i in $(seq 1 500); do echo line-$i; done; exit 1",
+        "--record",
+        expect=ExitCode.STAGE_FAILED,
     )
     assert env["data"]["truncated"] is True
     assert "line-1" in env["data"]["output_head"]
@@ -295,6 +306,7 @@ def test_the_command_runs_inside_the_worktree(docs_green):
     env = agent.run("stage", "run", "lint", "--command", "pwd", "--record")
     status = agent.run("status")
     from pathlib import Path
+
     log = Path(env["data"]["log_path"]).read_text()
     assert status["data"]["worktree_path"] in log
 
@@ -311,6 +323,7 @@ def test_copied_file_contents_never_reach_a_stage_log(feature_repo, tmp_path):
 
     env = agent.run("stage", "run", "lint", "--command", "cat .env", "--record")
     from pathlib import Path
+
     assert "hunter2" not in Path(env["data"]["log_path"]).read_text()
     assert "hunter2" not in json.dumps(env)
 
@@ -322,7 +335,13 @@ def test_a_red_baseline_is_reported_rather_than_blamed_on_the_diff(docs_green):
     """If the base commit is already failing, say so instead of blaming the change."""
     agent = docs_green()
     env = agent.run(
-        "stage", "run", "lint", "--command", "exit 1", "--record", "--baseline",
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "exit 1",
+        "--record",
+        "--baseline",
         expect=ExitCode.STAGE_FAILED,
     )
     assert env["data"]["baseline_red"] is True
@@ -334,8 +353,13 @@ def test_a_green_baseline_leaves_the_failure_attributed_to_the_diff(docs_green):
     agent = docs_green()
     # Passes on the base commit (no `loud`), fails at head (the flag was added).
     env = agent.run(
-        "stage", "run", "lint",
-        "--command", "! grep -q loud src/app.py", "--record", "--baseline",
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "! grep -q loud src/app.py",
+        "--record",
+        "--baseline",
         expect=ExitCode.STAGE_FAILED,
     )
     assert env["data"]["baseline_red"] is False

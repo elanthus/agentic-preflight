@@ -84,9 +84,7 @@ def create(repo: Path | str, *, path: Path | str, branch: str, head_sha: str) ->
 
     existing = gitx.run(repo, "rev-parse", "--verify", branch, check=False)
     if existing.returncode == 0:
-        raise WorktreeError(
-            f"branch {branch} already exists; refusing to reuse it for a new run"
-        )
+        raise WorktreeError(f"branch {branch} already exists; refusing to reuse it for a new run")
 
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -103,9 +101,7 @@ def create(repo: Path | str, *, path: Path | str, branch: str, head_sha: str) ->
     return path
 
 
-def acquire_reusable(
-    repo: Path | str, *, path: Path | str, branch: str, head_sha: str
-) -> Path:
+def acquire_reusable(repo: Path | str, *, path: Path | str, branch: str, head_sha: str) -> Path:
     """Create or lease the repository's single persistent validation runner.
 
     A released runner is always detached. Finding it on a branch means a prior
@@ -118,9 +114,7 @@ def acquire_reusable(
         return create(repo, path=path, branch=branch, head_sha=head_sha)
 
     if not (path / ".git").is_file():
-        raise WorktreeError(
-            f"reusable runner path exists but is not a linked worktree: {path}"
-        )
+        raise WorktreeError(f"reusable runner path exists but is not a linked worktree: {path}")
     current = gitx.current_branch(path)
     if current != "HEAD":
         raise WorktreeError(
@@ -128,9 +122,7 @@ def acquire_reusable(
             "run `agentic-preflight status` and finish, abort, or recover that run first"
         )
     if gitx.run(repo, "rev-parse", "--verify", branch, check=False).returncode == 0:
-        raise WorktreeError(
-            f"branch {branch} already exists; refusing to reuse it for a new run"
-        )
+        raise WorktreeError(f"branch {branch} already exists; refusing to reuse it for a new run")
 
     # Non-ignored leftovers are never caches. Ignored directories deliberately
     # survive so dependency and build caches do not churn between validations.

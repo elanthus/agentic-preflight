@@ -64,7 +64,9 @@ def command(fn):
         except CopyRefused as exc:
             _fail(
                 _as_error(
-                    "copy_refused", str(exc), ExitCode.PRECONDITION,
+                    "copy_refused",
+                    str(exc),
+                    ExitCode.PRECONDITION,
                     "Add the file to .gitignore and commit that, then start again.",
                     "git status",
                 )
@@ -72,7 +74,9 @@ def command(fn):
         except CopiedFileInCommit as exc:
             _fail(
                 _as_error(
-                    "copied_file_in_commit", str(exc), ExitCode.PRECONDITION,
+                    "copied_file_in_commit",
+                    str(exc),
+                    ExitCode.PRECONDITION,
                     "Rewrite the commit without that file, then retry.",
                     "agentic-preflight status",
                 )
@@ -146,8 +150,11 @@ def submit_findings(file_path: str) -> None:
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
-        _fail(_as_error("invalid_findings", f"findings file is not valid JSON: {exc}",
-                        ExitCode.PRECONDITION))
+        _fail(
+            _as_error(
+                "invalid_findings", f"findings file is not valid JSON: {exc}", ExitCode.PRECONDITION
+            )
+        )
         return
     session = runs.open_session()
     _finish(runs.submit_findings(session, payload))
@@ -175,11 +182,7 @@ def verify() -> None:
 def respond(finding_id: str, action: str, commit: str | None, note: str | None) -> None:
     """Resolve one finding. Claims about commits are verified, not trusted."""
     session = runs.open_session()
-    _finish(
-        runs.respond(
-            session, finding_id=finding_id, action=action, commit=commit, note=note
-        )
-    )
+    _finish(runs.respond(session, finding_id=finding_id, action=action, commit=commit, note=note))
 
 
 @main.command()
@@ -280,9 +283,7 @@ def integrations_install(
     help="Also inspect this custom skills directory.",
 )
 @command
-def integrations_status(
-    agents: tuple[str, ...], scope: str, targets: tuple[Path, ...]
-) -> None:
+def integrations_status(agents: tuple[str, ...], scope: str, targets: tuple[Path, ...]) -> None:
     """Report whether installed skills are current or modified."""
     from . import integrations as integrations_module
 
@@ -412,7 +413,7 @@ def hook_check() -> None:
         store = Store(gitx.git_common_dir(Path.cwd()) / runs.STATE_DIR_NAME)
         ledger = store.load_ledger()
         allow_force = load_config(repo_root).hook.allow_force_push
-    except Exception as exc:  # never brick a repo over our own failure
+    except Exception as exc:  # noqa: BLE001 - never brick a repo over our own failure
         sys.stderr.write(f"agentic-preflight: hook check unavailable ({exc}); allowing push\n")
         sys.exit(int(ExitCode.OK))
 
@@ -527,11 +528,7 @@ def stage() -> None:
 def stage_run(name: str, command_str: str | None, record: bool, baseline: bool) -> None:
     """Run a stage. Pass/fail is the exit code and nothing else."""
     session = runs.open_session()
-    _finish(
-        runs.run_stage(
-            session, name, command=command_str, record=record, baseline=baseline
-        )
-    )
+    _finish(runs.run_stage(session, name, command=command_str, record=record, baseline=baseline))
 
 
 @main.command()

@@ -25,6 +25,7 @@ from ._session import (
     _is_in_place,
     _load_current,
     _require_state,
+    _require_worktree,
     _worktree_mode,
 )
 
@@ -91,10 +92,14 @@ def mergeback(session: Session) -> Envelope:
                 worktree_tree_sha=tree,
             )
         else:
-            worktree_path = run.worktree_path
+            worktree_path = _require_worktree(run)
             worktree_branch = run.worktree_branch
-            assert worktree_path is not None
-            assert worktree_branch is not None
+            if worktree_branch is None:
+                raise NeedsHuman(
+                    "the active run has no validation branch",
+                    state=run.state.value,
+                    run_id=run.run_id,
+                )
             sync_base = run.sync_base_sha or run.merge_base_sha
             if not gitx.is_ancestor(repo, sync_base, "HEAD"):
                 if not gitx.is_clean(repo):

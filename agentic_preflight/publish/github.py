@@ -98,9 +98,7 @@ def gh_available() -> bool:
 def gh_authenticated(cwd: Path | str) -> bool:
     if not gh_available():
         return False
-    result = subprocess.run(
-        ["gh", "auth", "status"], cwd=str(cwd), capture_output=True, text=True
-    )
+    result = subprocess.run(["gh", "auth", "status"], cwd=str(cwd), capture_output=True, text=True)
     return result.returncode == 0
 
 
@@ -120,11 +118,17 @@ def create_pull_request(
         raise GhUnavailable("gh is installed but not authenticated (`gh auth login`)")
 
     argv = [
-        "gh", "pr", "create",
-        "--base", base,
-        "--head", head,
-        "--title", title,
-        "--body", body,
+        "gh",
+        "pr",
+        "create",
+        "--base",
+        base,
+        "--head",
+        head,
+        "--title",
+        title,
+        "--body",
+        body,
     ]
     if draft:
         argv.append("--draft")
@@ -183,9 +187,7 @@ def create_or_update_pull_request(
         raise GhUnavailable("gh pr list returned invalid data") from exc
 
     if not existing_url:
-        return create_pull_request(
-            cwd, base=base, head=head, title=title, body=body, draft=draft
-        )
+        return create_pull_request(cwd, base=base, head=head, title=title, body=body, draft=draft)
 
     edited = subprocess.run(
         ["gh", "pr", "edit", existing_url, "--title", title, "--body", body],

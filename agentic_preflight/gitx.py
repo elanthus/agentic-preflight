@@ -195,9 +195,10 @@ def remote_url(cwd: Path | str, remote: str = "origin") -> str | None:
 
 
 def local_branch_exists(cwd: Path | str, branch: str) -> bool:
-    return run(
-        cwd, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}", check=False
-    ).returncode == 0
+    return (
+        run(cwd, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}", check=False).returncode
+        == 0
+    )
 
 
 def delete_remote_branch(cwd: Path | str, branch: str, remote: str = "origin") -> bool:

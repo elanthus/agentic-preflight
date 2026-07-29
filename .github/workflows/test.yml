@@ -50,6 +50,9 @@ jobs:
       - name: Lint (ruff)
         run: uv run ruff check agentic_preflight tests
 
+      - name: Format check (ruff)
+        run: uv run ruff format --check agentic_preflight tests
+
       - name: Type check (mypy)
         run: uv run mypy agentic_preflight
 

@@ -137,9 +137,7 @@ def test_init_reports_an_unpinned_node_project_and_in_place_default(feature_repo
 
 
 def test_parse_stdin_ignores_malformed_lines_and_recognizes_deletions():
-    updates = hook.parse_stdin(
-        f"malformed\nrefs/heads/x {ZERO} refs/heads/x {'a' * 40}\n"
-    )
+    updates = hook.parse_stdin(f"malformed\nrefs/heads/x {ZERO} refs/heads/x {'a' * 40}\n")
     assert len(updates) == 1
     assert updates[0].is_deletion is True
 
@@ -160,9 +158,7 @@ def test_evaluate_directly_allows_green_and_explains_a_changed_tip():
 def test_evaluate_directly_blocks_a_non_fast_forward_green_tip():
     green = "a" * 40
     ledger = Ledger(entries={green: _ledger_entry(green)})
-    update = hook.RefUpdate(
-        "refs/heads/feature/x", green, "refs/heads/feature/x", "e" * 40
-    )
+    update = hook.RefUpdate("refs/heads/feature/x", green, "refs/heads/feature/x", "e" * 40)
 
     blocked = hook.evaluate(ledger, [update], is_ancestor=lambda *_: False)
     assert blocked.allowed is False
@@ -212,8 +208,11 @@ def test_the_block_message_explains_an_amend(feature_repo, tmp_path):
 
 def _green_run(repo, tmp_path):
     """Drive a full run to a recorded green ledger entry."""
-    write(repo, ".agentic-preflight.toml",
-          "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n")
+    write(
+        repo,
+        ".agentic-preflight.toml",
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n",
+    )
     commit_all(repo, "configure agentic-preflight")
     agent = ScriptedAgent(repo)
     agent.run("start")
@@ -245,8 +244,7 @@ def test_multiple_refs_block_if_any_is_unverified(feature_repo, tmp_path):
     _green_run(feature_repo, tmp_path)
     green = git("rev-parse", "HEAD", cwd=feature_repo)
     stdin = (
-        f"refs/heads/a {green} refs/heads/a {ZERO}\n"
-        f"refs/heads/b {'b' * 40} refs/heads/b {ZERO}\n"
+        f"refs/heads/a {green} refs/heads/a {ZERO}\nrefs/heads/b {'b' * 40} refs/heads/b {ZERO}\n"
     )
     result = hook_check(feature_repo, stdin)
     assert result.returncode == ExitCode.HOOK_BLOCK
@@ -321,9 +319,12 @@ def test_an_unverified_block_still_says_so(feature_repo):
 
 def test_allow_force_push_config_permits_it(feature_repo, tmp_path):
     _green_run(feature_repo, tmp_path)
-    write(feature_repo, ".agentic-preflight.toml",
-          "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
-          "\n[hook]\nallow_force_push = true\n")
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+        "\n[hook]\nallow_force_push = true\n",
+    )
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
     result = hook_check(
         feature_repo, f"refs/heads/feature/x {sha} refs/heads/feature/x {'c' * 40}\n"
@@ -339,7 +340,9 @@ def test_a_real_push_is_blocked_for_an_unverified_commit(feature_repo, bare_remo
     ScriptedAgent(feature_repo).run("init")
     result = subprocess.run(
         ["git", "push", "origin", "feature/x"],
-        cwd=feature_repo, capture_output=True, text=True,
+        cwd=feature_repo,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode != 0
     assert "push blocked" in result.stderr
@@ -350,7 +353,9 @@ def test_a_real_push_succeeds_after_a_green_run(feature_repo, bare_remote, tmp_p
     ScriptedAgent(feature_repo).run("init")
     result = subprocess.run(
         ["git", "push", "origin", "feature/x"],
-        cwd=feature_repo, capture_output=True, text=True,
+        cwd=feature_repo,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0, result.stderr
 
@@ -366,7 +371,9 @@ def test_amending_after_green_blocks_the_next_push(feature_repo, bare_remote, tm
 
     result = subprocess.run(
         ["git", "push", "--force", "origin", "feature/x"],
-        cwd=feature_repo, capture_output=True, text=True,
+        cwd=feature_repo,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode != 0
     assert "push blocked" in result.stderr
@@ -377,7 +384,9 @@ def test_no_verify_bypasses_the_hook(feature_repo, bare_remote, tmp_path):
     ScriptedAgent(feature_repo).run("init")
     result = subprocess.run(
         ["git", "push", "--no-verify", "origin", "feature/x"],
-        cwd=feature_repo, capture_output=True, text=True,
+        cwd=feature_repo,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0, result.stderr
 
@@ -400,10 +409,12 @@ def test_hook_check_is_fast(feature_repo, tmp_path):
 def test_hook_check_reads_only_the_ledger(feature_repo, tmp_path):
     """No run state, no network — just ledger.json."""
     _green_run(feature_repo, tmp_path)
-    state_root = Path(
-        git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo)
-    ) / "agentic-preflight"
+    state_root = (
+        Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo))
+        / "agentic-preflight"
+    )
     import shutil
+
     shutil.rmtree(state_root / "runs")
     (state_root / "current").unlink(missing_ok=True)
 

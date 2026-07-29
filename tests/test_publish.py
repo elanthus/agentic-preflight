@@ -24,7 +24,7 @@ def findings_json(tmp_path, items):
 
 
 @pytest.mark.parametrize(
-    "url,expected_host",
+    ("url", "expected_host"),
     [
         ("git@github.com:owner/repo.git", "github.com"),
         ("https://github.com/owner/repo.git", "github.com"),
@@ -86,13 +86,13 @@ def gh_stub(tmp_path, monkeypatch):
         '  echo \'{"url":"https://github.com/owner/repo/pull/1",'
         '"state":"MERGED","mergedAt":"2026-07-22T12:00:00Z",'
         '"headRefName":"feature/x","baseRefName":"main"}\'\n'
-        '  exit 0\n'
-        'fi\n'
+        "  exit 0\n"
+        "fi\n"
         'case "$1" in\n'
-        '  auth) exit 0 ;;\n'
+        "  auth) exit 0 ;;\n"
         '  pr) echo "https://github.com/owner/repo/pull/1" ; exit 0 ;;\n'
-        '  *) exit 0 ;;\n'
-        'esac\n'
+        "  *) exit 0 ;;\n"
+        "esac\n"
     )
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
@@ -102,9 +102,12 @@ def gh_stub(tmp_path, monkeypatch):
 @pytest.fixture
 def verified(feature_repo, bare_remote, tmp_path):
     """A run driven all the way to VERIFIED with a real remote configured."""
-    write(feature_repo, ".agentic-preflight.toml",
-          "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
-          "\n[worktree]\nmode = 'reusable'\n")
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+        "\n[worktree]\nmode = 'reusable'\n",
+    )
     commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
@@ -120,26 +123,41 @@ def verified(feature_repo, bare_remote, tmp_path):
 @pytest.fixture
 def verified_with_cherry_picked_fix(feature_repo, bare_remote, tmp_path, monkeypatch):
     """A verified fix whose cherry-picked SHA deliberately differs."""
-    write(feature_repo, ".agentic-preflight.toml",
-          "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
-          "\n[worktree]\nmode = 'reusable'\n")
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+        "\n[worktree]\nmode = 'reusable'\n",
+    )
     commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
     start = agent.run("start")
     run_id = start["run_id"]
     wt = Path(start["data"]["worktree_path"])
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, [{
-        "path": "src/app.py",
-        "line": 1,
-        "severity": "high",
-        "action": "auto_fix",
-        "title": "use the loud flag",
-    }]))
+    agent.run(
+        "submit-findings",
+        "--file",
+        findings_json(
+            tmp_path,
+            [
+                {
+                    "path": "src/app.py",
+                    "line": 1,
+                    "severity": "high",
+                    "action": "auto_fix",
+                    "title": "use the loud flag",
+                }
+            ],
+        ),
+    )
 
     monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-01-01T00:00:00+00:00")
-    write(wt, "src/app.py",
-          "def greet(name, loud=False):\n    return 'HI' if loud else f'hi {name}'\n")
+    write(
+        wt,
+        "src/app.py",
+        "def greet(name, loud=False):\n    return 'HI' if loud else f'hi {name}'\n",
+    )
     original = commit_all(wt, "use the loud flag")
     agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", original)
     agent.run("verify")
@@ -216,9 +234,12 @@ def test_gate_is_illegal_before_everything_is_verified(feature_repo, tmp_path):
 
 def test_manual_gate_mode_refuses_to_proceed_at_all(feature_repo, bare_remote, tmp_path):
     """For those who want a person to type the command themselves."""
-    write(feature_repo, ".agentic-preflight.toml",
-          "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
-          "\n[gate]\nmode = 'manual'\n")
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+        "\n[gate]\nmode = 'manual'\n",
+    )
     commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
@@ -338,18 +359,14 @@ def test_cleanup_previews_every_related_resource_before_deleting(
     assert git("branch", "--list", env["data"]["worktree_branch"], cwd=feature_repo)
 
 
-def test_cleanup_rejects_a_wrong_confirmation_token(
-    verified, gh_stub, feature_repo, bare_remote
-):
+def test_cleanup_rejects_a_wrong_confirmation_token(verified, gh_stub, feature_repo, bare_remote):
     token = verified.run("gate")["data"]["token"]
     verified.run("push", "--confirm", token)
     as_github_origin(feature_repo, bare_remote)
     verified.run("pr")
     verified.run("cleanup")
 
-    env = verified.run(
-        "cleanup", "--confirm", "wrong-token", expect=ExitCode.NEEDS_CONFIRM
-    )
+    env = verified.run("cleanup", "--confirm", "wrong-token", expect=ExitCode.NEEDS_CONFIRM)
 
     assert env["error"]["code"] == "needs_confirm"
     assert git("branch", "--list", "feature/x", cwd=feature_repo)
@@ -440,9 +457,12 @@ def test_we_never_pass_a_token_to_gh(verified, gh_stub, feature_repo):
 
 
 def test_draft_pr_config_is_honoured(feature_repo, bare_remote, tmp_path, gh_stub):
-    write(feature_repo, ".agentic-preflight.toml",
-          "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
-          "\n[publish]\ndraft_pr = true\n")
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+        "\n[publish]\ndraft_pr = true\n",
+    )
     commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
@@ -458,9 +478,7 @@ def test_draft_pr_config_is_honoured(feature_repo, bare_remote, tmp_path, gh_stu
     assert "--draft" in gh_stub.read_text()
 
 
-def test_a_missing_gh_falls_back_to_a_prefilled_compare_url(
-    verified, monkeypatch, feature_repo
-):
+def test_a_missing_gh_falls_back_to_a_prefilled_compare_url(verified, monkeypatch, feature_repo):
     token = verified.run("gate")["data"]["token"]
     verified.run("push", "--confirm", token)
     as_github_origin(feature_repo)

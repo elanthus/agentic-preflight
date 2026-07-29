@@ -111,12 +111,8 @@ def test_worktree_mode_rejects_an_unknown_value(tmp_repo, tmp_path):
 
 
 @pytest.mark.parametrize("mode", ["in_place", "reusable", "strict"])
-def test_all_worktree_modes_are_explicit_configuration_options(
-    tmp_repo, tmp_path, mode
-):
-    (tmp_repo / ".agentic-preflight.toml").write_text(
-        f"[worktree]\nmode = {mode!r}\n"
-    )
+def test_all_worktree_modes_are_explicit_configuration_options(tmp_repo, tmp_path, mode):
+    (tmp_repo / ".agentic-preflight.toml").write_text(f"[worktree]\nmode = {mode!r}\n")
     cfg = load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
     assert cfg.worktree.mode == mode
 

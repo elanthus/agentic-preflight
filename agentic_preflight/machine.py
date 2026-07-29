@@ -15,10 +15,10 @@ stays deterministic and therefore property-testable.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class State(str, Enum):
+class State(StrEnum):
     CREATED = "CREATED"
     WORKTREE_READY = "WORKTREE_READY"
     SYNC_RUNNING = "SYNC_RUNNING"
@@ -62,7 +62,7 @@ class State(str, Enum):
     ORPHANED = "ORPHANED"
 
 
-class Action(str, Enum):
+class Action(StrEnum):
     CREATE_WORKTREE = "CREATE_WORKTREE"
     BEGIN_SYNC = "BEGIN_SYNC"
     SYNC_PASSED = "SYNC_PASSED"

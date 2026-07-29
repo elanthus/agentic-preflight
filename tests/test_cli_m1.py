@@ -21,10 +21,15 @@ def findings_json(tmp_path, items):
     return str(path)
 
 
-BLOCKING = [{
-    "path": "src/app.py", "line": 1, "severity": "high",
-    "action": "auto_fix", "title": "loud flag is never used",
-}]
+BLOCKING = [
+    {
+        "path": "src/app.py",
+        "line": 1,
+        "severity": "high",
+        "action": "auto_fix",
+        "title": "loud flag is never used",
+    }
+]
 
 
 @pytest.fixture
@@ -74,7 +79,11 @@ def test_the_fix_commit_is_recorded_on_the_run(blocked):
 def test_dismissing_a_finding_requires_a_note(blocked):
     agent, _ = blocked
     env = agent.run(
-        "respond", "--id", "F001", "--action", "dismissed",
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        "dismissed",
         expect=ExitCode.PRECONDITION,
     )
     assert env["error"]["code"] == "invalid_response"
@@ -84,8 +93,13 @@ def test_dismissing_a_finding_requires_a_note(blocked):
 def test_dismissing_with_a_note_clears_the_finding(blocked):
     agent, _ = blocked
     env = agent.run(
-        "respond", "--id", "F001", "--action", "dismissed",
-        "--note", "intentional: the flag ships next PR",
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        "dismissed",
+        "--note",
+        "intentional: the flag ships next PR",
     )
     assert env["data"]["finding"]["status"] == "dismissed"
     agent.run("verify")
@@ -97,7 +111,13 @@ def test_dismissing_with_a_note_clears_the_finding(blocked):
 def test_an_invented_commit_sha_is_rejected(blocked):
     agent, _ = blocked
     env = agent.run(
-        "respond", "--id", "F001", "--action", "fixed", "--commit", "0" * 40,
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        "fixed",
+        "--commit",
+        "0" * 40,
         expect=ExitCode.PRECONDITION,
     )
     assert env["error"]["code"] == "invalid_response"
@@ -113,7 +133,13 @@ def test_a_commit_that_does_not_touch_the_findings_file_is_rejected(blocked):
     sha = git("rev-parse", "HEAD", cwd=wt)
 
     env = agent.run(
-        "respond", "--id", "F001", "--action", "fixed", "--commit", sha,
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        "fixed",
+        "--commit",
+        sha,
         expect=ExitCode.PRECONDITION,
     )
     assert "does not touch" in env["error"]["message"]
@@ -141,7 +167,13 @@ def test_a_fix_commit_containing_a_copied_file_is_rejected(agent, feature_repo, 
     sha = git("rev-parse", "HEAD", cwd=wt)
 
     env = agent.run(
-        "respond", "--id", "F001", "--action", "fixed", "--commit", sha,
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        "fixed",
+        "--commit",
+        sha,
         expect=ExitCode.PRECONDITION,
     )
     assert env["error"]["code"] == "copied_file_in_commit"
@@ -162,7 +194,11 @@ def test_copied_file_contents_never_appear_in_any_envelope(agent, feature_repo):
 def test_fixed_without_a_commit_is_rejected(blocked):
     agent, _ = blocked
     env = agent.run(
-        "respond", "--id", "F001", "--action", "fixed",
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        "fixed",
         expect=ExitCode.PRECONDITION,
     )
     assert "--commit" in env["error"]["message"]
@@ -171,7 +207,13 @@ def test_fixed_without_a_commit_is_rejected(blocked):
 def test_an_unknown_finding_id_lists_the_valid_ids(blocked):
     agent, _ = blocked
     env = agent.run(
-        "respond", "--id", "F999", "--action", "dismissed", "--note", "x",
+        "respond",
+        "--id",
+        "F999",
+        "--action",
+        "dismissed",
+        "--note",
+        "x",
         expect=ExitCode.PRECONDITION,
     )
     assert env["error"]["code"] == "unknown_finding"
@@ -183,7 +225,13 @@ def test_responding_twice_to_the_same_finding_is_rejected(blocked):
     sha = fix_commit(wt)
     agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", sha)
     env = agent.run(
-        "respond", "--id", "F001", "--action", "dismissed", "--note", "x",
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        "dismissed",
+        "--note",
+        "x",
         expect=ExitCode.PRECONDITION,
     )
     assert "already" in env["error"]["message"]
@@ -192,7 +240,13 @@ def test_responding_twice_to_the_same_finding_is_rejected(blocked):
 def test_respond_is_illegal_before_findings_are_submitted(agent):
     agent.run("start")
     env = agent.run(
-        "respond", "--id", "F001", "--action", "dismissed", "--note", "x",
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        "dismissed",
+        "--note",
+        "x",
         expect=ExitCode.PRECONDITION,
     )
     assert env["error"]["code"] == "wrong_state"
@@ -263,9 +317,7 @@ def test_abort_force_discards_unmerged_work(blocked):
     assert env["state"] == "ABORTED"
 
 
-def test_reusable_runner_is_reused_but_secrets_and_nonignored_files_are_not(
-    agent, feature_repo
-):
+def test_reusable_runner_is_reused_but_secrets_and_nonignored_files_are_not(agent, feature_repo):
     write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'reusable'\n")
     commit_all(feature_repo, "use reusable validation runner")
     write(feature_repo, ".gitignore", ".env\nnode_modules/\n")
@@ -346,6 +398,7 @@ def test_gc_never_deletes_unmerged_work_without_force(blocked, feature_repo):
     assert env["data"]["removed"] == []
     assert env["data"]["retained"]
     from pathlib import Path
+
     assert Path(wt).exists()
 
 
@@ -358,9 +411,10 @@ def test_gc_reconciles_a_worktree_with_no_run_directory(agent, feature_repo):
     commit_all(feature_repo, "use reusable validation runner")
     env = agent.run("start")
     run_id = env["run_id"]
-    state_root = Path(
-        git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo)
-    ) / "agentic-preflight"
+    state_root = (
+        Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo))
+        / "agentic-preflight"
+    )
 
     shutil.rmtree(state_root / "runs" / run_id)
     (state_root / "current").unlink()

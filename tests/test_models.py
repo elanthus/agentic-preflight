@@ -14,14 +14,14 @@ from agentic_preflight.models import (
 
 
 def _submission(**over):
-    base = dict(
-        path="src/auth.py",
-        line=12,
-        severity="high",
-        action="auto_fix",
-        title="Password compared with ==",
-        detail="Use a constant-time comparison.",
-    )
+    base = {
+        "path": "src/auth.py",
+        "line": 12,
+        "severity": "high",
+        "action": "auto_fix",
+        "title": "Password compared with ==",
+        "detail": "Use a constant-time comparison.",
+    }
     base.update(over)
     return base
 

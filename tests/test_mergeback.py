@@ -16,10 +16,15 @@ def findings_json(tmp_path, items):
     return str(path)
 
 
-BLOCKING = [{
-    "path": "src/app.py", "line": 1, "severity": "high",
-    "action": "auto_fix", "title": "needs a fix",
-}]
+BLOCKING = [
+    {
+        "path": "src/app.py",
+        "line": 1,
+        "severity": "high",
+        "action": "auto_fix",
+        "title": "needs a fix",
+    }
+]
 
 
 @pytest.fixture
@@ -27,9 +32,12 @@ def ready(feature_repo, tmp_path):
     """Drive a run to LINT_GREEN, optionally with a fix commit in the worktree."""
 
     def build(*, with_fix=True, fix_content=None):
-        write(feature_repo, ".agentic-preflight.toml",
-              "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
-              "\n[worktree]\nmode = 'reusable'\n")
+        write(
+            feature_repo,
+            ".agentic-preflight.toml",
+            "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+            "\n[worktree]\nmode = 'reusable'\n",
+        )
         commit_all(feature_repo, "configure agentic-preflight")
         agent = ScriptedAgent(feature_repo)
         env = agent.run("start")
@@ -38,8 +46,11 @@ def ready(feature_repo, tmp_path):
 
         if with_fix:
             agent.run("submit-findings", "--file", findings_json(tmp_path, BLOCKING))
-            write(wt, "src/app.py",
-                  fix_content or "def greet(name, loud=False):\n    return 'FIXED'\n")
+            write(
+                wt,
+                "src/app.py",
+                fix_content or "def greet(name, loud=False):\n    return 'FIXED'\n",
+            )
             git("add", "-A", cwd=wt)
             git("commit", "-m", "apply the fix", cwd=wt)
             sha = git("rev-parse", "HEAD", cwd=wt)
@@ -187,9 +198,12 @@ def test_mergeback_is_illegal_before_tests_pass(feature_repo, tmp_path):
 
 def test_conflict_aborts_and_restores_the_branch_exactly(feature_repo, tmp_path):
     """Construct a guaranteed conflict and assert the full abort contract."""
-    write(feature_repo, ".agentic-preflight.toml",
-          "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
-          "\n[worktree]\nmode = 'reusable'\n")
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+        "\n[worktree]\nmode = 'reusable'\n",
+    )
     commit_all(feature_repo, "configure agentic-preflight")
 
     agent = ScriptedAgent(feature_repo)
@@ -216,9 +230,11 @@ def test_conflict_aborts_and_restores_the_branch_exactly(feature_repo, tmp_path)
     new_head = git("rev-parse", "HEAD", cwd=feature_repo)
 
     from pathlib import Path
-    state_root = Path(
-        git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo)
-    ) / "agentic-preflight"
+
+    state_root = (
+        Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo))
+        / "agentic-preflight"
+    )
     run_path = state_root / "runs" / run_id / "run.json"
     doc = json.loads(run_path.read_text())
     doc["head_sha"] = new_head

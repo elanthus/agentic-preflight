@@ -67,10 +67,9 @@ def _iter_candidates(worktree_path: Path, patterns: tuple[str, ...] | list[str])
         rel = path.relative_to(worktree_path).as_posix()
         if rel.startswith(".git/"):
             continue
-        if any(_matches(rel, pattern) for pattern in patterns):
-            if rel not in seen:
-                seen.add(rel)
-                yield rel
+        if any(_matches(rel, pattern) for pattern in patterns) and rel not in seen:
+            seen.add(rel)
+            yield rel
 
 
 def _matches(rel: str, pattern: str) -> bool:

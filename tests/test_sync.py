@@ -36,9 +36,7 @@ def test_sync_uses_the_local_base_when_origin_is_absent(feature_repo: Path):
     assert result.base_sha == git("rev-parse", "main", cwd=feature_repo)
 
 
-def test_sync_aborts_and_reports_conflicts(
-    feature_repo: Path, bare_remote: Path, tmp_path: Path
-):
+def test_sync_aborts_and_reports_conflicts(feature_repo: Path, bare_remote: Path, tmp_path: Path):
     git("switch", "main", cwd=feature_repo)
     write(feature_repo, "src/app.py", "upstream\n")
     commit_all(feature_repo, "change app upstream")

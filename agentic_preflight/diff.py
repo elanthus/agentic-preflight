@@ -40,9 +40,7 @@ def path_matches(path: str, pattern: str) -> bool:
     """
     if fnmatch.fnmatchcase(path, pattern):
         return True
-    if pattern.startswith("**/") and fnmatch.fnmatchcase(path, pattern[3:]):
-        return True
-    return False
+    return pattern.startswith("**/") and fnmatch.fnmatchcase(path, pattern[3:])
 
 
 def is_excluded(path: str, patterns: list[str] | tuple[str, ...]) -> bool:

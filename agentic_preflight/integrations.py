@@ -13,10 +13,10 @@ import os
 import shutil
 import tempfile
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Iterable
 
 from .envelope import ExitCode
 from .errors import AgenticError
@@ -101,8 +101,6 @@ def resolve_targets(
         if project_root is None:
             raise IntegrationError("project scope requires a repository root")
         project_root = _absolute(project_root)
-    assert scope == "user" or project_root is not None
-
     targets: list[InstallTarget] = []
     seen_paths: set[Path] = set()
     for agent in agents:
@@ -113,7 +111,8 @@ def resolve_targets(
         if scope == "user":
             root = home.joinpath(*spec.user_parts)
         else:
-            assert project_root is not None
+            if project_root is None:
+                raise IntegrationError("project scope requires a repository root")
             root = project_root.joinpath(*spec.project_parts)
         destination = _absolute(root / SKILL_NAME)
         if destination not in seen_paths:
@@ -263,7 +262,9 @@ def _write_install_metadata(destination: Path, source_hash: str, source_version:
         "package_version": source_version,
         "content_sha256": source_hash,
     }
-    (destination / INSTALL_METADATA).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    (destination / INSTALL_METADATA).write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    )
 
 
 def _replace_target(
@@ -429,7 +430,9 @@ def uninstall_integrations(
             try:
                 _remove_path(target.path)
             except OSError as exc:
-                raise IntegrationError(f"could not remove the skill at {target.path}: {exc}") from exc
+                raise IntegrationError(
+                    f"could not remove the skill at {target.path}: {exc}"
+                ) from exc
             action = "removed"
         results.append(
             {

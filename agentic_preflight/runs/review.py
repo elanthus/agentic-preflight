@@ -26,7 +26,9 @@ from ._session import (
     _envelope_for,
     _load_current,
     _now,
+    _require_finding_stage,
     _require_state,
+    _require_worktree,
 )
 
 
@@ -67,9 +69,7 @@ def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
     """Record an explicit test skip for documentation/CI-only diffs."""
     if run.state is not State.REVIEW_GREEN:
         return run
-    changed = gitx.changed_files(
-        run.worktree_path or session.repo_root, run.merge_base_sha, "HEAD"
-    )
+    changed = gitx.changed_files(run.worktree_path or session.repo_root, run.merge_base_sha, "HEAD")
     if not change_scope.tests_are_not_applicable(
         changed, extra_doc_paths=session.config.docs.paths
     ):
@@ -154,9 +154,9 @@ def context(session: Session, *, section: str = "review") -> Envelope:
     }
 
     if section == "docs":
-        assert run.worktree_path is not None
+        worktree_path = _require_worktree(run)
         inventory = docsstage.build_inventory(
-            run.worktree_path, bundle.files, session.config.docs.paths
+            worktree_path, bundle.files, session.config.docs.paths
         )
         data["doc_surface"] = [entry.as_dict() for entry in inventory]
         data["require_changelog"] = session.config.docs.require_changelog
@@ -209,9 +209,8 @@ def submit_findings(session: Session, payload) -> Envelope:
         command="submit-findings",
     )
 
-    stage = findingsmod.stage_for_state(run.state)
-    assert stage is not None
-    assert run.worktree_path is not None
+    stage = _require_finding_stage(run)
+    worktree_path = _require_worktree(run)
     submissions = _parse_submissions(payload)
     bundle = _bundle_for(session, run)
     existing = session.store.load_findings(run.run_id)
@@ -222,7 +221,7 @@ def submit_findings(session: Session, payload) -> Envelope:
         # point of the stage — so the changed-file constraint relaxes to the
         # documentation allowlist rather than disappearing.
         inventory = docsstage.build_inventory(
-            run.worktree_path, bundle.files, session.config.docs.paths
+            worktree_path, bundle.files, session.config.docs.paths
         )
         allowed = docsstage.allowlist(inventory)
     else:
@@ -238,7 +237,7 @@ def submit_findings(session: Session, payload) -> Envelope:
         accepted = findingsmod.validate_and_assign(
             submissions,
             stage=stage,
-            worktree_path=run.worktree_path,
+            worktree_path=worktree_path,
             allowed_paths=allowed,
             existing=existing,
             max_findings=session.config.review.max_findings,
@@ -249,13 +248,14 @@ def submit_findings(session: Session, payload) -> Envelope:
     combined = existing + accepted
 
     if stage is Stage.DOCS and session.config.docs.require_changelog:
-        assert inventory is not None
+        if inventory is None:
+            raise InvalidFindings("documentation inventory is unavailable")
         injected = docsstage.changelog_finding(
             inventory, bundle.files, finding_id=findingsmod.next_id(combined)
         )
         if injected is not None:
-            accepted = accepted + [injected]
-            combined = combined + [injected]
+            accepted = [*accepted, injected]
+            combined = [*combined, injected]
     session.store.save_findings(run.run_id, combined)
 
     stage_findings = [f for f in combined if f.stage is stage]
@@ -300,8 +300,7 @@ def verify(session: Session) -> Envelope:
         command="verify",
     )
 
-    stage = findingsmod.stage_for_state(run.state)
-    assert stage is not None
+    stage = _require_finding_stage(run)
     blocking_severities = (
         session.config.review.blocking_severities
         if stage is Stage.REVIEW

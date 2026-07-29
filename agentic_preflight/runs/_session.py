@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .. import findings as findingsmod
 from .. import gitx, worktree
 from ..config import Config, load_config
 from ..envelope import Envelope
@@ -18,7 +19,7 @@ from ..errors import (
     WrongState,
 )
 from ..machine import Action, IllegalTransition, State, next_state
-from ..models import RunDoc
+from ..models import RunDoc, Stage
 from ..store import Store
 
 STATE_DIR_NAME = "agentic-preflight"
@@ -51,7 +52,7 @@ def open_session(cwd: Path | str | None = None) -> Session:
             active = store.load_run(current)
             if active.config_snapshot is not None:
                 cfg = Config.model_validate(active.config_snapshot)
-        except Exception:
+        except Exception:  # noqa: BLE001,S110 - a corrupt snapshot falls back to repo config
             pass
     cfg = cfg or load_config(repo_root)
     if cfg.worktree.mode != "in_place":
@@ -60,7 +61,7 @@ def open_session(cwd: Path | str | None = None) -> Session:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _new_run_id() -> str:
@@ -84,6 +85,29 @@ def _require_state(run: RunDoc, *allowed: State, command: str) -> None:
             next_instruction="Run `status` to see where the run actually is, then obey `next`.",
             next_command="agentic-preflight status",
         )
+
+
+def _require_worktree(run: RunDoc) -> str:
+    """Return the validation worktree or report a corrupt run document."""
+    if run.worktree_path is None:
+        raise WrongState(
+            "the active run has no validation worktree",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+    return run.worktree_path
+
+
+def _require_finding_stage(run: RunDoc) -> Stage:
+    """Return the finding stage implied by the current review/docs state."""
+    stage = findingsmod.stage_for_state(run.state)
+    if stage is None:
+        raise WrongState(
+            f"state {run.state.value} does not belong to a findings stage",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+    return stage
 
 
 def _next_hint(state: State) -> tuple[str | None, str | None]:
@@ -116,7 +140,10 @@ def _next_hint(state: State) -> tuple[str | None, str | None]:
             "Keep responding until nothing blocks, then verify.",
             "agentic-preflight verify",
         ),
-        State.REVIEW_GREEN: ("Review is green. Run targeted tests.", "agentic-preflight stage run test"),
+        State.REVIEW_GREEN: (
+            "Review is green. Run targeted tests.",
+            "agentic-preflight stage run test",
+        ),
         State.TEST_GREEN: (
             "Tests passed or were not applicable. Check whether documentation is now stale.",
             "agentic-preflight context --section docs",
@@ -156,12 +183,12 @@ def _next_hint(state: State) -> tuple[str | None, str | None]:
 
 def _envelope_for(run: RunDoc, **overrides) -> Envelope:
     instruction, command = _next_hint(run.state)
-    fields: dict[str, Any] = dict(
-        run_id=run.run_id,
-        state=run.state.value,
-        next_instruction=instruction,
-        next_command=command,
-    )
+    fields: dict[str, Any] = {
+        "run_id": run.run_id,
+        "state": run.state.value,
+        "next_instruction": instruction,
+        "next_command": command,
+    }
     fields.update(overrides)
     return Envelope(**fields)
 

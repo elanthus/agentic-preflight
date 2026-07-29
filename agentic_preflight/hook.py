@@ -69,9 +69,7 @@ def _explain(ledger: Ledger, update: RefUpdate) -> str:
     """Say *why* this exact sha is not green, as specifically as the ledger allows."""
     for entry in sorted(ledger.entries.values(), key=lambda e: e.green_at, reverse=True):
         if entry.branch and update.local_ref.endswith(entry.branch):
-            return (
-                f"ledger has {entry.sha[:7]}; you amended or added a commit since"
-            )
+            return f"ledger has {entry.sha[:7]}; you amended or added a commit since"
     return "no green run recorded for this exact SHA"
 
 
@@ -87,9 +85,8 @@ def evaluate(
         if update.is_deletion:
             continue
 
-        forced = (
-            update.remote_sha != ZERO_SHA
-            and not is_ancestor(update.remote_sha, update.local_sha)
+        forced = update.remote_sha != ZERO_SHA and not is_ancestor(
+            update.remote_sha, update.local_sha
         )
         if forced and not allow_force_push:
             return Decision(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shlex
+from contextlib import suppress
 from pathlib import Path
 from typing import TypedDict
 
@@ -28,6 +29,7 @@ from ._session import (
     _load_current,
     _now,
     _require_state,
+    _require_worktree,
 )
 from .review import _advance_after_review, _skip_docs_if_disabled
 
@@ -159,7 +161,7 @@ def run_stage(
     if not accepting_repair:
         _assert_fresh(session, run)
     _require_state(run, *spec["ready"], command=f"stage run {stage_name}")
-    assert run.worktree_path is not None
+    worktree_path = _require_worktree(run)
 
     if record_entry.attempts >= session.config.stage.max_attempts:
         raise MaxAttempts(
@@ -177,7 +179,7 @@ def run_stage(
             next_command=f"agentic-preflight logs --stage {stage_name}",
         )
 
-    if not gitx.is_clean(run.worktree_path):
+    if not gitx.is_clean(worktree_path):
         raise DirtyTree(
             "the validation worktree has uncommitted changes",
             state=run.state.value,
@@ -205,8 +207,7 @@ def run_stage(
         _apply(doc, spec["retry"] if doc.state is spec["red"] else spec["run"])
         run = doc
 
-    wt = run.worktree_path
-    assert wt is not None
+    wt = _require_worktree(run)
     baseline_red = None
     if baseline:
         baseline_red = _baseline_is_red(session, run, resolved)
@@ -307,15 +308,13 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
     Answers the question that otherwise sends an agent chasing phantoms: is this
     failure ours, or was the base already broken?
     """
-    assert run.worktree_path is not None
-    scratch = Path(run.worktree_path).parent / f"{run.run_id}-baseline"
+    worktree_path = _require_worktree(run)
+    scratch = Path(worktree_path).parent / f"{run.run_id}-baseline"
     branch = f"ap/{run.run_id}-baseline"
     try:
         worktree.create(session.repo_root, path=scratch, branch=branch, head_sha=run.merge_base_sha)
-        try:
+        with suppress(worktree.CopyRefused):
             worktree.copy_files(session.repo_root, scratch, session.config.worktree.copy_files)
-        except worktree.CopyRefused:
-            pass
         if session.config.worktree.setup_command:
             setup = runtime.prepare_command(
                 scratch,
