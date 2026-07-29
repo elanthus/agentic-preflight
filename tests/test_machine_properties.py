@@ -67,9 +67,7 @@ def test_pushed_is_unreachable_without_verified():
 
 
 def test_pushed_is_unreachable_without_the_gate():
-    assert not _reachable_paths(
-        State.CREATED, State.PUSHED, avoid={State.AWAITING_PUSH_CONFIRM}
-    )
+    assert not _reachable_paths(State.CREATED, State.PUSHED, avoid={State.AWAITING_PUSH_CONFIRM})
 
 
 def test_pushed_is_reachable_at_all():

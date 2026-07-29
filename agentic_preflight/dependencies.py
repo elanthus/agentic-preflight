@@ -81,9 +81,7 @@ def _dependency_fingerprint(
     inputs = {}
     for name in DEPENDENCY_INPUTS:
         path = target / name
-        inputs[name] = (
-            hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
-        )
+        inputs[name] = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
     probe = runtime.probe_node(target, manager=runtime_manager, strict=runtime_strict)
     payload = {
         "schema": 1,
@@ -98,9 +96,7 @@ def _dependency_fingerprint(
         "configuration_environment": {
             name: value
             for name, value in os.environ.items()
-            if name == "NODE_OPTIONS"
-            or name.startswith("NPM_CONFIG_")
-            or name.startswith("PNPM_")
+            if name == "NODE_OPTIONS" or name.startswith(("NPM_CONFIG_", "PNPM_"))
         },
         "inputs": inputs,
         "node": probe.as_dict(),
@@ -144,9 +140,7 @@ def _run_install(
     prepared = runtime.prepare_command(
         target, command, manager=runtime_manager, strict=runtime_strict
     )
-    completed = worktree.run_setup(
-        target, prepared.command, timeout_seconds=timeout_seconds
-    )
+    completed = worktree.run_setup(target, prepared.command, timeout_seconds=timeout_seconds)
     return completed.returncode, prepared.runtime.as_dict()
 
 

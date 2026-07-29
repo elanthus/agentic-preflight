@@ -96,9 +96,7 @@ def test_stable_patch_id_matches_a_cherry_pick_with_a_different_sha(tmp_repo):
     picked = git("rev-parse", "HEAD", cwd=tmp_repo)
 
     assert original != picked
-    assert gitx.commit_patch_id(tmp_repo, original) == gitx.commit_patch_id(
-        tmp_repo, picked
-    )
+    assert gitx.commit_patch_id(tmp_repo, original) == gitx.commit_patch_id(tmp_repo, picked)
 
 
 def test_tree_sha_is_stable_for_identical_content(tmp_repo):

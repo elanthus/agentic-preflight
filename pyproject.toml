@@ -42,7 +42,7 @@ dev = [
     "pytest-cov>=5.0",
     "hypothesis>=6.100",
     "mypy>=1.17",
-    "ruff>=0.12",
+    "ruff>=0.16",
 ]
 
 [build-system]
@@ -93,7 +93,33 @@ target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I", "B"]
+select = [
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    "I",
+    "B",
+    "UP",
+    "SIM",
+    "RUF",
+    "C4",
+    "PIE",
+    "PERF",
+    "PT",
+    "BLE",
+    "S",
+]
+ignore = [
+    # Executing programs is core functionality. Commands intentionally resolve
+    # git, gh, and bash using the user's PATH.
+    "S603",
+    "S607",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+"agentic_preflight/stages/change_scope.py" = ["PT028"]
 
 [tool.mypy]
 python_version = "3.11"

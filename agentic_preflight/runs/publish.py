@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shlex
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .. import gitx
@@ -212,6 +212,7 @@ def monitor_ci(
     )
     if not run.pr_url:
         raise NeedsHuman("this run has no recorded pull request URL", run_id=run.run_id)
+    pr_url = run.pr_url
 
     timeout = timeout_seconds or session.config.ci.timeout_seconds
     poll = poll_interval_seconds or session.config.ci.poll_interval_seconds
@@ -229,14 +230,13 @@ def monitor_ci(
 
     try:
         started_at = datetime.fromisoformat(run.ci_started_at or _now())
-        elapsed = max(0.0, (datetime.now(timezone.utc) - started_at).total_seconds())
+        elapsed = max(0.0, (datetime.now(UTC) - started_at).total_seconds())
     except ValueError:
         elapsed = 0.0
     deadline = time.monotonic() + max(0.0, timeout - elapsed)
-    assert run.pr_url is not None
     while True:
         try:
-            health = githubmod.pull_request_health(session.repo_root, run.pr_url)
+            health = githubmod.pull_request_health(session.repo_root, pr_url)
             logs = (
                 githubmod.failed_check_logs(session.repo_root, health.failed_checks)
                 if health.outcome == "failed"
@@ -484,7 +484,13 @@ def cleanup(session: Session, *, confirm: str | None = None) -> Envelope:
 
     remote_deleted = gitx.delete_remote_branch(session.repo_root, run.branch)
     if current_branch == run.branch:
-        assert base_branch is not None
+        if base_branch is None:
+            raise NeedsHuman(
+                f"no local branch exists for base ref {run.base_ref!r}",
+                state=run.state.value,
+                run_id=run.run_id,
+                data=preview,
+            )
         gitx.run(session.repo_root, "switch", base_branch)
     if gitx.local_branch_exists(session.repo_root, run.branch):
         gitx.run(session.repo_root, "branch", "-D", run.branch)

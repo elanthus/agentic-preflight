@@ -26,16 +26,10 @@ def source_skill(tmp_path):
 
 
 def test_resolves_codex_and_claude_user_locations(tmp_path):
-    targets = integrations.resolve_targets(
-        ["codex", "claude"], scope="user", home=tmp_path
-    )
+    targets = integrations.resolve_targets(["codex", "claude"], scope="user", home=tmp_path)
     assert targets == [
-        integrations.InstallTarget(
-            "codex", tmp_path / ".agents" / "skills" / "agentic-preflight"
-        ),
-        integrations.InstallTarget(
-            "claude", tmp_path / ".claude" / "skills" / "agentic-preflight"
-        ),
+        integrations.InstallTarget("codex", tmp_path / ".agents" / "skills" / "agentic-preflight"),
+        integrations.InstallTarget("claude", tmp_path / ".claude" / "skills" / "agentic-preflight"),
     ]
 
 
@@ -54,9 +48,7 @@ def test_custom_target_is_a_skills_root(tmp_path):
     targets = integrations.resolve_targets(
         [], scope="user", custom_roots=[custom_root], home=tmp_path
     )
-    assert targets == [
-        integrations.InstallTarget("custom", custom_root / "agentic-preflight")
-    ]
+    assert targets == [integrations.InstallTarget("custom", custom_root / "agentic-preflight")]
 
 
 def test_install_copies_the_whole_skill_and_records_ownership(tmp_path, source_skill):
@@ -259,9 +251,7 @@ def test_cli_custom_target_does_not_implicitly_select_known_agents(tmp_path):
     )
     assert installed.exit_code == 0
     payload = json.loads(installed.stdout)
-    assert [item["integration"] for item in payload["data"]["integrations"]] == [
-        "custom"
-    ]
+    assert [item["integration"] for item in payload["data"]["integrations"]] == ["custom"]
     assert not (home / ".agents" / "skills" / "agentic-preflight").exists()
     assert not (home / ".claude" / "skills" / "agentic-preflight").exists()
 
@@ -279,8 +269,6 @@ def test_cli_custom_target_does_not_implicitly_select_known_agents(tmp_path):
 def test_wheel_force_includes_the_canonical_skill_directory():
     root = Path(__file__).parent.parent
     config = tomllib.loads((root / "pyproject.toml").read_text())
-    force_include = config["tool"]["hatch"]["build"]["targets"]["wheel"][
-        "force-include"
-    ]
+    force_include = config["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
     assert force_include["skill"] == "agentic_preflight/_bundled_skill"
     assert integrations.bundled_skill_dir() == root / "skill"

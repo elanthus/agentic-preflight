@@ -13,7 +13,7 @@ migration.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .models import Ledger, LedgerEntry, RunDoc, Stage
 
@@ -21,7 +21,7 @@ MAX_ENTRIES = 100
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def build_entry(
@@ -40,7 +40,7 @@ def build_entry(
         merge_base_sha=run.merge_base_sha,
         run_id=run.run_id,
         green_at=_now(),
-        stages={k: v for k, v in stages.items()},
+        stages=dict(stages),
         findings_summary=findings_summary,
     )
 

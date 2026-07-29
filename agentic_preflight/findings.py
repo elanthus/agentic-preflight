@@ -82,9 +82,7 @@ def _check_line_bounds(resolved: Path, raw_path: str, line: int | None) -> None:
     except (UnicodeDecodeError, OSError):
         return  # binary or unreadable: bounds are not meaningful, skip the check
     if line > total:
-        raise FindingRejected(
-            f"{raw_path}:{line} is out of bounds; the file has {total} lines"
-        )
+        raise FindingRejected(f"{raw_path}:{line} is out of bounds; the file has {total} lines")
 
 
 def validate_and_assign(
@@ -134,9 +132,7 @@ def validate_and_assign(
 
         _check_line_bounds(resolved, submission.path, submission.line)
 
-        finding = Finding.from_submission(
-            submission, id=next_id(running), stage=stage
-        )
+        finding = Finding.from_submission(submission, id=next_id(running), stage=stage)
         assigned.append(finding)
         running.append(finding)
 

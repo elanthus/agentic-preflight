@@ -152,10 +152,18 @@ def test_a_clean_review_goes_straight_to_green(agent, tmp_path):
 def test_a_blocking_finding_holds_the_run_for_responses(agent, tmp_path):
     agent.run("start")
     agent.run("context")
-    path = findings_json(tmp_path, [{
-        "path": "src/app.py", "line": 1, "severity": "high",
-        "action": "auto_fix", "title": "loud flag is never used",
-    }])
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "path": "src/app.py",
+                "line": 1,
+                "severity": "high",
+                "action": "auto_fix",
+                "title": "loud flag is never used",
+            }
+        ],
+    )
     env = agent.run("submit-findings", "--file", path)
     assert env["state"] == "REVIEW_AWAITING_RESPONSES"
     assert [f["id"] for f in env["blocking"]] == ["F001"]
@@ -164,10 +172,18 @@ def test_a_blocking_finding_holds_the_run_for_responses(agent, tmp_path):
 def test_a_non_blocking_finding_still_reaches_green(agent, tmp_path):
     agent.run("start")
     agent.run("context")
-    path = findings_json(tmp_path, [{
-        "path": "src/app.py", "line": 1, "severity": "low",
-        "action": "no_op", "title": "nit: naming",
-    }])
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "path": "src/app.py",
+                "line": 1,
+                "severity": "low",
+                "action": "no_op",
+                "title": "nit: naming",
+            }
+        ],
+    )
     env = agent.run("submit-findings", "--file", path)
     assert env["state"] == "REVIEW_GREEN"
 
@@ -175,10 +191,18 @@ def test_a_non_blocking_finding_still_reaches_green(agent, tmp_path):
 def test_an_agent_supplied_id_is_a_hard_error(agent, tmp_path):
     agent.run("start")
     agent.run("context")
-    path = findings_json(tmp_path, [{
-        "id": "F001", "path": "src/app.py", "severity": "high",
-        "action": "auto_fix", "title": "invented an id",
-    }])
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "id": "F001",
+                "path": "src/app.py",
+                "severity": "high",
+                "action": "auto_fix",
+                "title": "invented an id",
+            }
+        ],
+    )
     env = agent.run("submit-findings", "--file", path, expect=ExitCode.PRECONDITION)
     assert env["error"]["code"] == "invalid_findings"
     assert "id" in env["error"]["message"]
@@ -187,10 +211,17 @@ def test_an_agent_supplied_id_is_a_hard_error(agent, tmp_path):
 def test_a_finding_against_an_untouched_file_is_rejected(agent, tmp_path):
     agent.run("start")
     agent.run("context")
-    path = findings_json(tmp_path, [{
-        "path": "README.md", "severity": "high",
-        "action": "auto_fix", "title": "not in the diff",
-    }])
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "path": "README.md",
+                "severity": "high",
+                "action": "auto_fix",
+                "title": "not in the diff",
+            }
+        ],
+    )
     env = agent.run("submit-findings", "--file", path, expect=ExitCode.PRECONDITION)
     assert env["error"]["code"] == "invalid_findings"
 
@@ -198,7 +229,9 @@ def test_a_finding_against_an_untouched_file_is_rejected(agent, tmp_path):
 def test_submit_findings_is_illegal_before_start(feature_repo, tmp_path):
     agent = ScriptedAgent(feature_repo)
     env = agent.run(
-        "submit-findings", "--file", findings_json(tmp_path, []),
+        "submit-findings",
+        "--file",
+        findings_json(tmp_path, []),
         expect=ExitCode.PRECONDITION,
     )
     assert env["error"]["code"] == "no_run"
@@ -229,10 +262,17 @@ def test_findings_accept_a_bare_list_as_well_as_a_wrapped_object(agent, tmp_path
 def test_verify_reports_the_outstanding_blocking_set(agent, tmp_path):
     agent.run("start")
     agent.run("context")
-    path = findings_json(tmp_path, [{
-        "path": "src/app.py", "severity": "critical",
-        "action": "ask_user", "title": "should this change the public API?",
-    }])
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "path": "src/app.py",
+                "severity": "critical",
+                "action": "ask_user",
+                "title": "should this change the public API?",
+            }
+        ],
+    )
     agent.run("submit-findings", "--file", path)
     env = agent.run("verify", expect=ExitCode.STAGE_FAILED)
     assert [f["id"] for f in env["blocking"]] == ["F001"]
@@ -262,10 +302,17 @@ def test_status_is_legal_before_any_run_exists(feature_repo):
 def test_status_reports_state_and_findings_summary(agent, tmp_path):
     agent.run("start")
     agent.run("context")
-    path = findings_json(tmp_path, [{
-        "path": "src/app.py", "severity": "high",
-        "action": "auto_fix", "title": "x",
-    }])
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "path": "src/app.py",
+                "severity": "high",
+                "action": "auto_fix",
+                "title": "x",
+            }
+        ],
+    )
     agent.run("submit-findings", "--file", path)
 
     env = agent.run("status")
@@ -294,7 +341,9 @@ def test_a_moved_head_marks_the_run_stale_and_refuses_to_continue(agent, feature
     commit_all(feature_repo, "amend the work after review started")
 
     env = agent.run(
-        "submit-findings", "--file", findings_json(tmp_path, []),
+        "submit-findings",
+        "--file",
+        findings_json(tmp_path, []),
         expect=ExitCode.PRECONDITION,
     )
     assert env["error"]["code"] == "stale_run"

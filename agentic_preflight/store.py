@@ -21,7 +21,7 @@ import os
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .models import Finding, Ledger, RunDoc
@@ -59,7 +59,7 @@ class CurrentRunExists(StoreError):
 
 
 def _utcnow() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _atomic_write(path: Path, payload: str) -> None:

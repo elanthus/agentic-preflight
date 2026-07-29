@@ -69,8 +69,14 @@ def test_skill_md_exists_with_front_matter():
 
 
 @pytest.mark.parametrize(
-    "doc", [SKILL, REFERENCE / "commands.md", REFERENCE / "findings-schema.md",
-            REFERENCE / "docs-rubric.md", README]
+    "doc",
+    [
+        SKILL,
+        REFERENCE / "commands.md",
+        REFERENCE / "findings-schema.md",
+        REFERENCE / "docs-rubric.md",
+        README,
+    ],
 )
 def test_every_documented_command_exists(doc):
     real = real_commands()

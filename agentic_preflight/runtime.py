@@ -100,12 +100,8 @@ def _binary(name: str) -> str | None:
     if found:
         return found
     candidates = {
-        "volta": [
-            Path(os.environ.get("VOLTA_HOME", Path.home() / ".volta")) / "bin/volta"
-        ],
-        "asdf": [
-            Path(os.environ.get("ASDF_DATA_DIR", Path.home() / ".asdf")) / "bin/asdf"
-        ],
+        "volta": [Path(os.environ.get("VOLTA_HOME", Path.home() / ".volta")) / "bin/volta"],
+        "asdf": [Path(os.environ.get("ASDF_DATA_DIR", Path.home() / ".asdf")) / "bin/asdf"],
         "mise": [Path.home() / ".local/bin/mise"],
         "fnm": [Path.home() / ".local/share/fnm/fnm"],
         "nodenv": [Path.home() / ".nodenv/bin/nodenv"],
@@ -132,9 +128,7 @@ def inspect_project(repo: Path | str, manager: str = "auto") -> RuntimeInfo:
         return RuntimeInfo("none", node_project=node_project)
 
     volta_node = (
-        (package.get("volta") or {}).get("node")
-        if isinstance(package.get("volta"), dict)
-        else None
+        (package.get("volta") or {}).get("node") if isinstance(package.get("volta"), dict) else None
     )
     engines_node = (
         (package.get("engines") or {}).get("node")
@@ -148,10 +142,11 @@ def inspect_project(repo: Path | str, manager: str = "auto") -> RuntimeInfo:
     if volta_node:
         detected, pin_file, requested = "volta", "package.json#volta.node", str(volta_node)
     elif (repo / ".mise.toml").is_file() or (repo / "mise.toml").is_file():
-        detected, pin_file = "mise", ".mise.toml" if (repo / ".mise.toml").is_file() else "mise.toml"
-    elif (repo / ".tool-versions").is_file() and _tool_version(
-        repo / ".tool-versions", "nodejs"
-    ):
+        detected, pin_file = (
+            "mise",
+            ".mise.toml" if (repo / ".mise.toml").is_file() else "mise.toml",
+        )
+    elif (repo / ".tool-versions").is_file() and _tool_version(repo / ".tool-versions", "nodejs"):
         detected, pin_file, requested = (
             "asdf",
             ".tool-versions",
@@ -188,11 +183,7 @@ def inspect_project(repo: Path | str, manager: str = "auto") -> RuntimeInfo:
             reason,
         )
 
-    available = (
-        _nvm_script() is not None
-        if detected == "nvm"
-        else _binary(detected) is not None
-    )
+    available = _nvm_script() is not None if detected == "nvm" else _binary(detected) is not None
     reason = (
         None
         if available
@@ -226,10 +217,7 @@ def prepare_command(
     if info.manager == "nvm":
         script = _nvm_script()
         if script:
-            wrapped = (
-                f". {shlex.quote(str(script))} && "
-                f"nvm use --silent && bash -c {quoted}"
-            )
+            wrapped = f". {shlex.quote(str(script))} && nvm use --silent && bash -c {quoted}"
         else:
             wrapped = f"echo {shlex.quote('agentic-preflight: nvm was not found')} >&2; exit 127"
     else:
@@ -268,8 +256,8 @@ def probe_node(
 ) -> NodeProbe:
     """Read the activated Node version and module ABI without running project code."""
     command = (
-        "node -p \"JSON.stringify({version: process.versions.node, "
-        "modules: process.versions.modules})\""
+        'node -p "JSON.stringify({version: process.versions.node, '
+        'modules: process.versions.modules})"'
     )
     prepared = prepare_command(repo, command, manager=manager, strict=strict)
     result = subprocess.run(

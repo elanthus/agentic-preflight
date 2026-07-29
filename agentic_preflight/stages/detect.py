@@ -98,7 +98,13 @@ def candidates_for(root: Path | str, stage: str) -> list[Candidate]:
     """Every plausible command for ``stage``, de-duplicated, best sources first."""
     root = Path(root)
     found: list[Candidate] = []
-    for source in (_from_pyproject, _from_package_json, _from_justfile, _from_makefile, _from_workflows):
+    for source in (
+        _from_pyproject,
+        _from_package_json,
+        _from_justfile,
+        _from_makefile,
+        _from_workflows,
+    ):
         found.extend(source(root, stage))
 
     seen: set[str] = set()

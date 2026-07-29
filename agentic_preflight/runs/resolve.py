@@ -22,7 +22,9 @@ from ._session import (
     _envelope_for,
     _is_in_place,
     _load_current,
+    _require_finding_stage,
     _require_state,
+    _require_worktree,
 )
 
 RESPONSE_ACTIONS = ("fixed", "dismissed", "accepted")
@@ -118,8 +120,7 @@ def respond(
         {"event": "finding_resolved", "id": finding_id, "action": action, "commit": commit},
     )
 
-    stage = findingsmod.stage_for_state(run.state)
-    assert stage is not None
+    stage = _require_finding_stage(run)
     severities = (
         session.config.review.blocking_severities
         if stage is Stage.REVIEW
@@ -142,8 +143,7 @@ def respond(
 
 
 def _verify_fix_commit(session: Session, run: RunDoc, target, commit: str) -> str:
-    wt = run.worktree_path
-    assert wt is not None
+    wt = _require_worktree(run)
     if not gitx.commit_exists(wt, commit):
         raise InvalidResponse(
             f"commit {commit} does not exist in the validation checkout",

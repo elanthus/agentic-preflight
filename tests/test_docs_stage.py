@@ -89,9 +89,7 @@ def test_configured_docs_paths_join_the_inventory(agent, feature_repo, tmp_path)
     assert "handbook/usage.md" in paths
 
 
-def test_common_agent_rules_and_product_docs_are_included_by_default(
-    agent, feature_repo, tmp_path
-):
+def test_common_agent_rules_and_product_docs_are_included_by_default(agent, feature_repo, tmp_path):
     write(feature_repo, ".claude/rules/state.md", "# state rules\n")
     write(feature_repo, "PRODUCT.md", "# product\n")
     write(feature_repo, "DESIGN.md", "# design\n")
@@ -129,10 +127,17 @@ def test_a_docs_finding_may_target_a_file_outside_the_diff(review_green, tmp_pat
     """The entire point of the stage: the code changed, the doc that should have
     changed did not."""
     review_green.run("context", "--section", "docs")
-    path = findings_json(tmp_path, [{
-        "path": "README.md", "severity": "medium", "action": "auto_fix",
-        "title": "the loud flag is undocumented",
-    }])
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "path": "README.md",
+                "severity": "medium",
+                "action": "auto_fix",
+                "title": "the loud flag is undocumented",
+            }
+        ],
+    )
     env = review_green.run("submit-findings", "--file", path)
     assert env["data"]["accepted"][0]["path"] == "README.md"
     assert env["data"]["accepted"][0]["stage"] == "docs"
@@ -141,10 +146,17 @@ def test_a_docs_finding_may_target_a_file_outside_the_diff(review_green, tmp_pat
 def test_a_docs_finding_against_a_source_file_is_rejected(review_green, tmp_path):
     """Relaxed to an allowlist, not made unconstrained."""
     review_green.run("context", "--section", "docs")
-    path = findings_json(tmp_path, [{
-        "path": "src/app.py", "severity": "high", "action": "auto_fix",
-        "title": "this is a code review finding wearing a docs hat",
-    }])
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "path": "src/app.py",
+                "severity": "high",
+                "action": "auto_fix",
+                "title": "this is a code review finding wearing a docs hat",
+            }
+        ],
+    )
     env = review_green.run("submit-findings", "--file", path, expect=ExitCode.PRECONDITION)
     assert env["error"]["code"] == "invalid_findings"
     assert "allowlist" in env["error"]["message"]
@@ -153,14 +165,38 @@ def test_a_docs_finding_against_a_source_file_is_rejected(review_green, tmp_path
 def test_docs_finding_ids_continue_the_run_numbering(agent, feature_repo, tmp_path):
     agent.run("start")
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, [{
-        "path": "src/app.py", "severity": "low", "action": "no_op", "title": "nit",
-    }]))
+    agent.run(
+        "submit-findings",
+        "--file",
+        findings_json(
+            tmp_path,
+            [
+                {
+                    "path": "src/app.py",
+                    "severity": "low",
+                    "action": "no_op",
+                    "title": "nit",
+                }
+            ],
+        ),
+    )
     agent.run("stage", "run", "test", "--command", "true", "--record")
     agent.run("context", "--section", "docs")
-    env = agent.run("submit-findings", "--file", findings_json(tmp_path, [{
-        "path": "README.md", "severity": "low", "action": "no_op", "title": "doc nit",
-    }]))
+    env = agent.run(
+        "submit-findings",
+        "--file",
+        findings_json(
+            tmp_path,
+            [
+                {
+                    "path": "README.md",
+                    "severity": "low",
+                    "action": "no_op",
+                    "title": "doc nit",
+                }
+            ],
+        ),
+    )
     assert env["data"]["accepted"][0]["id"] == "F002"
 
 
@@ -170,20 +206,34 @@ def test_docs_finding_ids_continue_the_run_numbering(agent, feature_repo, tmp_pa
 def test_a_medium_docs_finding_does_not_block(review_green, tmp_path):
     """Stage fatigue is what gets a gate disabled, so the bar is deliberately high."""
     review_green.run("context", "--section", "docs")
-    path = findings_json(tmp_path, [{
-        "path": "README.md", "severity": "medium", "action": "auto_fix",
-        "title": "could mention the flag",
-    }])
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "path": "README.md",
+                "severity": "medium",
+                "action": "auto_fix",
+                "title": "could mention the flag",
+            }
+        ],
+    )
     env = review_green.run("submit-findings", "--file", path)
     assert env["state"] == "DOCS_GREEN"
 
 
 def test_a_high_docs_finding_blocks(review_green, tmp_path):
     review_green.run("context", "--section", "docs")
-    path = findings_json(tmp_path, [{
-        "path": "README.md", "severity": "high", "action": "auto_fix",
-        "title": "documented behaviour is now wrong",
-    }])
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "path": "README.md",
+                "severity": "high",
+                "action": "auto_fix",
+                "title": "documented behaviour is now wrong",
+            }
+        ],
+    )
     env = review_green.run("submit-findings", "--file", path)
     assert env["state"] == "DOCS_AWAITING_RESPONSES"
 
@@ -225,9 +275,7 @@ def test_require_changelog_injects_a_code_owned_finding(changelog_repo, tmp_path
     assert injected["path"] == "CHANGELOG.md"
 
 
-def test_the_injected_changelog_finding_is_owned_by_code_not_the_agent(
-    changelog_repo, tmp_path
-):
+def test_the_injected_changelog_finding_is_owned_by_code_not_the_agent(changelog_repo, tmp_path):
     """The agent submitted nothing; the finding exists because code checked."""
     agent = ScriptedAgent(changelog_repo)
     agent.run("start")
@@ -240,9 +288,7 @@ def test_the_injected_changelog_finding_is_owned_by_code_not_the_agent(
     assert env["data"]["accepted"][0]["stage"] == "docs"
 
 
-def test_require_changelog_is_satisfied_when_the_changelog_was_touched(
-    changelog_repo, tmp_path
-):
+def test_require_changelog_is_satisfied_when_the_changelog_was_touched(changelog_repo, tmp_path):
     write(changelog_repo, "CHANGELOG.md", "# changelog\n\n- added the loud flag\n")
     commit_all(changelog_repo, "note the change")
 
@@ -296,10 +342,17 @@ def test_respond_works_the_same_way_in_the_docs_stage(review_green, tmp_path, fe
     from tests.conftest import git
 
     review_green.run("context", "--section", "docs")
-    path = findings_json(tmp_path, [{
-        "path": "README.md", "severity": "high", "action": "auto_fix",
-        "title": "documented behaviour is now wrong",
-    }])
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "path": "README.md",
+                "severity": "high",
+                "action": "auto_fix",
+                "title": "documented behaviour is now wrong",
+            }
+        ],
+    )
     review_green.run("submit-findings", "--file", path)
 
     status = review_green.run("status")

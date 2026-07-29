@@ -32,7 +32,7 @@ from . import gitx
 class MergebackConflict(Exception):
     """A cherry-pick conflicted. The branch has been restored."""
 
-    def __init__(self, message: str, report: "ConflictReport") -> None:
+    def __init__(self, message: str, report: ConflictReport) -> None:
         super().__init__(message)
         self.report = report
 
@@ -102,8 +102,7 @@ def _abort_and_restore(repo: Path | str, pre_sha: str, pre_status: str) -> bool:
     # reset would destroy exactly the work the scoped preflight preserved.
     return (
         gitx.rev_parse(repo, "HEAD") == pre_sha
-        and gitx.out(repo, "status", "--porcelain=v1", "--untracked-files=all")
-        == pre_status
+        and gitx.out(repo, "status", "--porcelain=v1", "--untracked-files=all") == pre_status
     )
 
 

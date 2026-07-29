@@ -13,9 +13,7 @@ def test_pr_health_classifies_pending_failed_and_passed_checks():
             "url": "https://github.com/o/r/pull/1",
             "state": "OPEN",
             "mergeStateStatus": "BLOCKED",
-            "statusCheckRollup": [
-                {"name": "tests", "status": "IN_PROGRESS", "conclusion": ""}
-            ],
+            "statusCheckRollup": [{"name": "tests", "status": "IN_PROGRESS", "conclusion": ""}],
         }
     )
     assert pending.outcome == "pending"
@@ -80,7 +78,7 @@ def test_pr_health_classifies_pending_failed_and_passed_checks():
 
 
 @pytest.mark.parametrize(
-    "state,outcome",
+    ("state", "outcome"),
     [("MERGED", "merged"), ("CLOSED", "closed")],
 )
 def test_pr_health_classifies_terminal_pr_states(state: str, outcome: str):

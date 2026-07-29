@@ -14,9 +14,7 @@ from tests.conftest import write
 
 
 def sub(path="src/app.py", line=1, severity="high", action="auto_fix", title="t"):
-    return FindingSubmission(
-        path=path, line=line, severity=severity, action=action, title=title
-    )
+    return FindingSubmission(path=path, line=line, severity=severity, action=action, title=title)
 
 
 @pytest.fixture
@@ -147,8 +145,13 @@ def test_the_existing_count_is_included_in_the_volume_check(wt):
 
 def _finding(id, severity, action, status=FindingStatus.OPEN):
     return Finding(
-        id=id, stage=Stage.REVIEW, status=status, path="src/app.py",
-        severity=severity, action=action, title="t",
+        id=id,
+        stage=Stage.REVIEW,
+        status=status,
+        path="src/app.py",
+        severity=severity,
+        action=action,
+        title="t",
     )
 
 
@@ -182,7 +185,7 @@ def test_blocking_severities_are_configurable():
 
 
 @pytest.mark.parametrize(
-    "state,expected",
+    ("state", "expected"),
     [
         (State.REVIEW_AWAITING_FINDINGS, Stage.REVIEW),
         (State.REVIEW_FIXING, Stage.REVIEW),

@@ -37,10 +37,10 @@ def gh_stub(tmp_path, monkeypatch):
     script.write_text(
         "#!/bin/sh\n"
         'case "$1" in\n'
-        '  auth) exit 0 ;;\n'
+        "  auth) exit 0 ;;\n"
         '  pr) if [ "$2" = "list" ]; then echo "[]"; else echo "https://github.com/owner/repo/pull/7"; fi; exit 0 ;;\n'
-        '  *) exit 0 ;;\n'
-        'esac\n'
+        "  *) exit 0 ;;\n"
+        "esac\n"
     )
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
@@ -93,9 +93,10 @@ def test_the_full_happy_path(feature_repo, bare_remote, tmp_path, gh_stub):
     assert env["data"]["pr_url"].endswith("/pull/7")
 
     # The ledger records this exact tip as green across every enabled stage.
-    state_root = Path(
-        git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo)
-    ) / "agentic-preflight"
+    state_root = (
+        Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo))
+        / "agentic-preflight"
+    )
     ledger = json.loads((state_root / "ledger.json").read_text())
     head = git("rev-parse", "HEAD", cwd=feature_repo)
     assert head in ledger["entries"]
@@ -119,9 +120,10 @@ def test_documentation_only_gate_records_test_as_skipped(tmp_repo, tmp_path):
     agent.run("stage", "run", "lint", "--command", "true", "--record")
     agent.run("mergeback")
 
-    state_root = Path(
-        git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=tmp_repo)
-    ) / "agentic-preflight"
+    state_root = (
+        Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=tmp_repo))
+        / "agentic-preflight"
+    )
     ledger = json.loads((state_root / "ledger.json").read_text())
     head = git("rev-parse", "HEAD", cwd=tmp_repo)
     assert ledger["entries"][head]["stages"]["test"] == "skipped"
@@ -184,15 +186,29 @@ def test_finding_ids_are_never_reused_across_stages(feature_repo, tmp_path):
 
     agent.run("start")
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, [
-        {"path": "src/app.py", "severity": "low", "action": "no_op", "title": "a"},
-        {"path": "src/app.py", "severity": "low", "action": "no_op", "title": "b"},
-    ]))
+    agent.run(
+        "submit-findings",
+        "--file",
+        findings_json(
+            tmp_path,
+            [
+                {"path": "src/app.py", "severity": "low", "action": "no_op", "title": "a"},
+                {"path": "src/app.py", "severity": "low", "action": "no_op", "title": "b"},
+            ],
+        ),
+    )
     agent.run("stage", "run", "test")
     agent.run("context", "--section", "docs")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, [
-        {"path": "README.md", "severity": "low", "action": "no_op", "title": "c"},
-    ]))
+    agent.run(
+        "submit-findings",
+        "--file",
+        findings_json(
+            tmp_path,
+            [
+                {"path": "README.md", "severity": "low", "action": "no_op", "title": "c"},
+            ],
+        ),
+    )
 
     ids = [f["id"] for f in agent.run("status")["data"]["findings"]]
     assert ids == ["F001", "F002", "F003"]
@@ -207,10 +223,21 @@ def test_a_blocked_run_cannot_reach_the_gate(feature_repo, tmp_path):
 
     agent.run("start")
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, [
-        {"path": "src/app.py", "severity": "critical", "action": "ask_user",
-         "title": "is this the intended public API?"},
-    ]))
+    agent.run(
+        "submit-findings",
+        "--file",
+        findings_json(
+            tmp_path,
+            [
+                {
+                    "path": "src/app.py",
+                    "severity": "critical",
+                    "action": "ask_user",
+                    "title": "is this the intended public API?",
+                },
+            ],
+        ),
+    )
 
     for argv in (("gate",), ("stage", "run", "lint"), ("mergeback",)):
         env = agent.run(*argv, expect=ExitCode.PRECONDITION)

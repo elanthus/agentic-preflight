@@ -46,7 +46,7 @@ def test_total_bytes_always_equals_the_sum_of_file_bytes(feature_repo):
 
 
 @pytest.mark.parametrize(
-    "path,pattern",
+    ("path", "pattern"),
     [
         ("uv.lock", "*.lock"),
         ("nested/dir/uv.lock", "*.lock"),
@@ -62,7 +62,7 @@ def test_patterns_that_should_match(path, pattern):
 
 
 @pytest.mark.parametrize(
-    "path,pattern",
+    ("path", "pattern"),
     [
         ("src/app.py", "*.lock"),
         ("src/locking.py", "*.lock"),

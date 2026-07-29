@@ -151,9 +151,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
 
     # A worktree or branch git knows about but the store does not: reconcile by
     # reporting, so a half-created run is visible rather than silently leaked.
-    for name, _path in live_worktrees.items():
-        if name not in known_runs:
-            orphans.append(name)
+    orphans.extend(name for name in live_worktrees if name not in known_runs)
     for branch in ac_branches:
         run_id = branch.removeprefix("ap/")
         if run_id not in known_runs and run_id not in orphans:
@@ -217,7 +215,7 @@ def status(session: Session) -> Envelope:
 
     try:
         run = session.store.load_run(run_id)
-    except Exception:
+    except Exception:  # noqa: BLE001 - status is the recovery path for corrupt state
         return Envelope(
             data={"has_run": False, "dangling_run_id": run_id},
             next_instruction="The recorded run is missing. Start a fresh one.",
@@ -268,8 +266,7 @@ def status(session: Session) -> Envelope:
             },
             "fix_commits": run.fix_commits,
             "stages": {
-                stage.value: record.model_dump(mode="json")
-                for stage, record in run.stages.items()
+                stage.value: record.model_dump(mode="json") for stage, record in run.stages.items()
             },
             # Names only — contents are never read, logged, or echoed anywhere.
             "copied_files": run.copied_files,

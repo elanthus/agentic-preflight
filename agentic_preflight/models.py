@@ -10,7 +10,7 @@ code may assign.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -22,27 +22,27 @@ SHA_PATTERN = r"^[0-9a-f]{7,40}$"
 Sha = Annotated[str, Field(pattern=SHA_PATTERN)]
 
 
-class Stage(str, Enum):
+class Stage(StrEnum):
     REVIEW = "review"
     DOCS = "docs"
     LINT = "lint"
     TEST = "test"
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     CRITICAL = "critical"
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
 
 
-class FindingAction(str, Enum):
+class FindingAction(StrEnum):
     AUTO_FIX = "auto_fix"
     ASK_USER = "ask_user"
     NO_OP = "no_op"
 
 
-class FindingStatus(str, Enum):
+class FindingStatus(StrEnum):
     OPEN = "open"
     FIXED = "fixed"
     DISMISSED = "dismissed"
@@ -83,9 +83,7 @@ class Finding(BaseModel):
     suggestion: str | None = None
 
     @classmethod
-    def from_submission(
-        cls, submission: FindingSubmission, *, id: str, stage: Stage
-    ) -> "Finding":
+    def from_submission(cls, submission: FindingSubmission, *, id: str, stage: Stage) -> Finding:
         return cls(id=id, stage=stage, **submission.model_dump())
 
 
