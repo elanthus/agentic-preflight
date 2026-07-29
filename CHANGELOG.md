@@ -33,6 +33,11 @@ All notable changes to Agentic Preflight are documented here. This project follo
   globs rather than extending them. The example lists four of the eight, so copying it
   verbatim silently dropped `**/*.min.css`, `**/__snapshots__/**`, `**/*.pb.go`, and
   `**/*_pb2.py`. The full default list is now in `docs/configuration.md`.
+- The README now opens with a recorded demonstration of a run: a push blocked by the
+  pre-push hook, a review that catches an unguarded division by zero, the fix verified,
+  and the gate stopping to ask before pushing. The recording is real CLI output, and the
+  VHS tape that produces it is committed as `docs/demo.tape` so it can be regenerated
+  rather than trusted.
 
 ### Fixed
 

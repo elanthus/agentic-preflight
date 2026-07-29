@@ -12,6 +12,13 @@ exact commit SHA, and a pre-push hook refuses any commit with no green run of it
 Amend, rebase, or squash and the green is gone, because it described a tree that no
 longer exists.
 
+![A push blocked by the pre-push hook, a review that catches an unguarded division by
+zero, the fix verified, and the gate stopping to ask before it pushes](docs/demo.gif)
+
+Every frame above is real CLI output, recorded with [VHS](https://github.com/charmbracelet/vhs)
+from the tape in [`docs/demo.tape`](docs/demo.tape). The judgment between the commands is
+the agent's; the commands are all this package does.
+
 Three things separate it from a checklist in a prompt:
 
 - **Skipping a stage is structurally unrepresentable.** Not discouraged by
