@@ -167,7 +167,10 @@ is:
     fetch-depth: 0
 - run: git fetch origin refs/notes/agentic-preflight:refs/notes/agentic-preflight
 - run: pipx install agentic-preflight
-- run: agentic-preflight verify "$GITHUB_SHA"
+- name: Verify the attested commit
+  env:
+    ATTESTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  run: agentic-preflight verify "$ATTESTED_SHA"
 ```
 
 Make that job a required status check in branch protection. The local hook remains
