@@ -474,61 +474,11 @@ def push(confirm: str | None, dry_run: bool) -> None:
 
 
 @main.command()
-@click.option("--draft/--no-draft", default=None, help="Override [publish] draft_pr.")
-@click.option("--title", default=None, help="Override the pull request title.")
-@command
-def pr(draft: bool | None, title: str | None) -> None:
-    """Open a pull request via the gh CLI. No credentials are ever handled here."""
-    session = runs.open_session()
-    _finish(runs.pull_request(session, draft=draft, title=title))
-
-
-@main.command()
-@click.option(
-    "--once",
-    is_flag=True,
-    help="Check once and return even when checks are still pending.",
-)
-@click.option("--timeout-seconds", type=int, default=None, help="Override [ci] timeout.")
-@click.option(
-    "--poll-interval-seconds",
-    type=int,
-    default=None,
-    help="Override [ci] polling interval.",
-)
-@command
-def ci(
-    once: bool,
-    timeout_seconds: int | None,
-    poll_interval_seconds: int | None,
-) -> None:
-    """Monitor PR checks and mergeability; repairs remain host-driven."""
-    session = runs.open_session()
-    _finish(
-        runs.monitor_ci(
-            session,
-            once=once,
-            timeout_seconds=timeout_seconds,
-            poll_interval_seconds=poll_interval_seconds,
-        )
-    )
-
-
-@main.command()
 @command
 def finish() -> None:
-    """Mark a pushed run without a pull request complete."""
+    """Mark a pushed validation run complete."""
     session = runs.open_session()
     _finish(runs.finish(session))
-
-
-@main.command()
-@click.option("--confirm", default=None, help="Confirmation token from cleanup preview.")
-@command
-def cleanup(confirm: str | None) -> None:
-    """Clean a merged PR's worktree and local/remote branches."""
-    session = runs.open_session()
-    _finish(runs.cleanup(session, confirm=confirm))
 
 
 @main.group()

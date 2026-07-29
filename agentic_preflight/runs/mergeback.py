@@ -16,7 +16,6 @@ from ..errors import (
 )
 from ..machine import Action, State
 from ..models import RunDoc
-from ..publish import provider as providermod
 from ._session import (
     Session,
     _apply,
@@ -207,7 +206,7 @@ def mergeback(session: Session) -> Envelope:
     return envelope
 
 
-def _remote_for(session: Session, run: RunDoc):
+def _remote_for(session: Session, run: RunDoc) -> str:
     url = gitx.remote_url(session.repo_root, "origin")
     if not url:
         raise NeedsHuman(
@@ -217,4 +216,4 @@ def _remote_for(session: Session, run: RunDoc):
             next_instruction="Add a remote, then run the gate again.",
             next_command="git remote add origin <url>",
         )
-    return providermod.parse_remote(url)
+    return url

@@ -137,14 +137,6 @@ class RunDoc(BaseModel):
     stale: bool = False
     gate_token: str | None = None
     pushed_sha: str | None = None
-    pr_url: str | None = None
-    ci_started_at: str | None = None
-    ci_last_checked_at: str | None = None
-    ci_status: str | None = None
-    ci_failures: list[dict[str, Any]] = Field(default_factory=list)
-    ci_logs: dict[str, str] = Field(default_factory=dict)
-    cleanup_token: str | None = None
-    cleanup_preview: dict[str, Any] | None = None
 
     created_at: str | None = None
     updated_at: str | None = None

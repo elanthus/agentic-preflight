@@ -159,25 +159,7 @@ def _next_hint(state: State) -> tuple[str | None, str | None]:
             "Show the user the gate summary and ask before pushing.",
             "agentic-preflight push --confirm <token>",
         ),
-        State.PUSHED: ("Open the pull request.", "agentic-preflight pr"),
-        State.PR_OPEN: ("Monitor pull-request checks and mergeability.", "agentic-preflight ci"),
-        State.CI_MONITORING: ("Continue monitoring pull-request checks.", "agentic-preflight ci"),
-        State.CI_FAILED: (
-            "Use the failed logs to fix the branch, then run a fresh full validation.",
-            None,
-        ),
-        State.CHECKS_PASSED: (
-            "Checks passed. Ask the user to review and merge; check again later.",
-            "agentic-preflight ci --once",
-        ),
-        State.CI_TIMED_OUT: (
-            "CI monitoring timed out. Check again when ready.",
-            "agentic-preflight ci",
-        ),
-        State.PR_MERGED: (
-            "The pull request merged. Preview cleanup and ask the user.",
-            "agentic-preflight cleanup",
-        ),
+        State.PUSHED: ("Close the pushed validation run.", "agentic-preflight finish"),
     }.get(state, (None, None))
 
 
@@ -244,21 +226,13 @@ def _is_in_place(run: RunDoc, fallback: Config) -> bool:
     return _worktree_mode(run, fallback) == "in_place"
 
 
-def _worktree_completion(mode: str, *, merged_pr: bool = False) -> str:
-    prefix = "Merged pull request cleanup is complete; " if merged_pr else "Run complete. "
+def _worktree_completion(mode: str) -> str:
+    prefix = "Run complete. "
     if mode == "in_place":
         return prefix + "the in-place checkout was left intact."
     if mode == "reusable":
         return prefix + "the reusable runner is ready for the next run."
     return prefix + "the strict worktree was removed."
-
-
-def _worktree_cleanup_action(mode: str) -> str:
-    if mode == "in_place":
-        return "leave in-place checkout intact"
-    if mode == "reusable":
-        return "release reusable runner"
-    return "remove strict worktree"
 
 
 def _release_run_worktree(session: Session, run: RunDoc) -> None:

@@ -83,19 +83,12 @@ $ agentic-preflight gate
 
 # STOP. Show the user the remote, branch, and commits. Ask. Only then:
 $ agentic-preflight push --confirm a1b2c3d4
-
-# Open the PR when the workflow calls for one. After it merges, preview cleanup:
-$ agentic-preflight pr --title "Use constant-time password comparison"
-$ agentic-preflight ci
-$ agentic-preflight cleanup
-
-# STOP. Show every worktree and local/remote branch in the preview. Ask. Only then:
-$ agentic-preflight cleanup --confirm c4d5e6f7
-$ git pull --ff-only
-
-# Without a PR, close and reclaim the run directly:
 $ agentic-preflight finish
 $ agentic-preflight gc
+
+# When the workflow calls for a GitHub PR, use gh directly after preflight finishes:
+$ gh pr create --title "Use constant-time password comparison" --body-file pr-body.md
+$ gh pr checks --watch
 ```
 
 Work happens in the absolute **validation checkout** named by `worktree_path`. In the
@@ -195,12 +188,11 @@ the conflict is real, check the user's tree was clean — see non-negotiable 7.
 `max_attempts` times and the tool is telling you the loop is not converging. Show the
 user `agentic-preflight logs --stage <name>` output and ask how to proceed.
 
-**CI failed (`CI_FAILED`).** Read every entry in `data.failed_logs`. Repairs are
-host-driven: fix the source branch yourself; agentic-preflight must never invoke a model.
-Preserve `data.intent`, abort the completed run, commit the repair, and execute the
-provided fresh-start command. Do not push the repair until the new synchronized
-review → test → docs → lint run reaches green. Then update the PR and run
-`agentic-preflight ci` again. Continue until the PR merges, closes, or monitoring times out.
+**Hosted CI failed.** Inspect the failed check with `gh pr checks` and `gh run view
+--log-failed`. Fix and commit the source branch, then start a fresh synchronized
+preflight run with the original intent. Do not push the repair until the new
+review → test → docs → lint run reaches green. Push through the gate again, then
+resume check monitoring with `gh`.
 
 **Stale head (exit 3, `stale_run`).** The branch moved after review began, so
 everything verified so far describes a tree that no longer exists. There is no partial
@@ -270,14 +262,13 @@ answer. "Proceed" from a previous step is not consent for this one.
 For `ask_user` findings, present the trade-off and let them choose. Do not present a
 decision you have already made as if it were a question.
 
-The PR title uses an explicit `--title` first, then `[publish] pr_title`, then the
-branch name, and only falls back to a commit subject when no branch is available.
-Branch names are often poor human-facing titles, so offer a better one at the gate.
+Branch names are often poor human-facing PR titles, so offer a concise title that
+describes the verified change before calling `gh pr create`.
 
 ## What to publish, and what it proves
 
-Publish the **findings** to the PR body (`pr` passes `--body`): id, severity, path,
-and the commit that resolved each. That is the part CI cannot reproduce — no test
+Publish the **findings** in the PR body passed to `gh`: id, severity, path, and the
+commit that resolved each. That is the part CI cannot reproduce — no test
 suite tells a reviewer which judgment calls were made — and it stops a human
 re-deriving what the gate already caught.
 

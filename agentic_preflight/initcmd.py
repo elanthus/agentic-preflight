@@ -56,10 +56,6 @@ mode = "token"
 [hook]
 enabled = true
 allow_force_push = false
-
-[ci]
-timeout_seconds = 3600
-poll_interval_seconds = 30
 """
 
 

@@ -28,6 +28,25 @@ def test_created_run_round_trips(store):
     assert store.load_run("r_abc123").branch == "feature/x"
 
 
+def test_removed_pr_lifecycle_documents_migrate_to_pushed(store):
+    store.create_run(make_run())
+    raw = json.loads(store.run_path("r_abc123").read_text())
+    raw.update(
+        {
+            "state": "CI_FAILED",
+            "pr_url": "https://github.com/owner/repo/pull/1",
+            "ci_status": "failed",
+            "cleanup_token": "legacy-token",
+        }
+    )
+    store.run_path("r_abc123").write_text(json.dumps(raw))
+
+    run = store.load_run("r_abc123")
+
+    assert run.state is State.PUSHED
+    assert "pr_url" not in run.model_fields_set
+
+
 def test_loading_an_unknown_run_raises(store):
     with pytest.raises(UnknownRun):
         store.load_run("r_nope")

@@ -190,32 +190,13 @@ command for a person to run.
 Requires the token from `gate` and atomically pushes both the branch and
 `refs/notes/agentic-preflight`. **Ask the user before running this.**
 
-### `agentic-preflight pr [--draft/--no-draft] [--title TITLE]`
-Opens a pull request via the `gh` CLI. No credentials are ever handled here — if `gh`
-is missing or unauthenticated, exits 4 with a prefilled `compare_url`.
-
-Title precedence is `--title`, `[publish] pr_title`, branch name, then the first commit
-subject when no branch name is available.
-
-### `agentic-preflight ci [--once] [--timeout-seconds N] [--poll-interval-seconds N]`
-Monitors PR checks and mergeability through `gh`. It reports `checks_passed`, merge,
-close, or timeout, and fetches failed GitHub Actions logs when run IDs are available.
-On failure it returns the logs, preserved intent, and a fresh-run command to the host.
-The CLI never invokes a model: the host agent makes the repair, commits it, and drives a
-new synchronized review → test → docs → lint validation before pushing again.
-
 ### `agentic-preflight finish`
-Marks a pushed run with no pull request `DONE`. It preserves the run directory and
+Marks a pushed validation run `DONE`. It preserves the run directory and
 audit logs, clears the current-run pointer, and directs the next step to `gc`.
 
-### `agentic-preflight cleanup [--confirm TOKEN]`
-For a run in the PR/CI lifecycle, verifies through `gh` that the PR is merged. Without a token it
-returns a deletion preview and confirmation token but changes nothing. After the user
-approves that exact preview, `--confirm` re-checks merge status, switches a clean PR
-source checkout to the base branch if necessary, leaves an in-place checkout intact,
-releases the reusable runner, or removes a strict worktree, then deletes the
-local `ap/*` branch, local PR source branch, and remote PR source branch. A wrong or
-missing approval never deletes anything.
+Pull-request creation and hosted CI monitoring are deliberately outside this CLI. On
+GitHub, use `gh pr create`, `gh pr checks`, and `gh run view` after `finish`; branch
+cleanup remains an explicit host or forge operation.
 
 ## Inspection and recovery
 

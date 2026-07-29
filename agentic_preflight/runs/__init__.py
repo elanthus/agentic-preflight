@@ -8,7 +8,7 @@ a :class:`Session` and return an :class:`Envelope` without printing or exiting.
 from ._session import STATE_DIR_NAME, Session, open_session
 from .lifecycle import abort, events, gc, status
 from .mergeback import mergeback
-from .publish import cleanup, finish, gate, monitor_ci, pull_request, push
+from .publish import finish, gate, push
 from .resolve import RESPONSE_ACTIONS, respond
 from .review import context, submit_findings, verify
 from .stages import logs, run_stage
@@ -19,7 +19,6 @@ __all__ = [
     "STATE_DIR_NAME",
     "Session",
     "abort",
-    "cleanup",
     "context",
     "events",
     "finish",
@@ -27,9 +26,7 @@ __all__ = [
     "gc",
     "logs",
     "mergeback",
-    "monitor_ci",
     "open_session",
-    "pull_request",
     "push",
     "respond",
     "run_stage",

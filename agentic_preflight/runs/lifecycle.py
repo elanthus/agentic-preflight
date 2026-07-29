@@ -254,16 +254,7 @@ def status(session: Session) -> Envelope:
             "worktree_released": run.worktree_released,
             "config_digest": run.config_digest,
             "gate_token": run.gate_token,
-            "cleanup_token": run.cleanup_token,
             "pushed_sha": run.pushed_sha,
-            "pr_url": run.pr_url,
-            "ci": {
-                "started_at": run.ci_started_at,
-                "last_checked_at": run.ci_last_checked_at,
-                "status": run.ci_status,
-                "failures": run.ci_failures,
-                "logs": run.ci_logs,
-            },
             "fix_commits": run.fix_commits,
             "stages": {
                 stage.value: record.model_dump(mode="json") for stage, record in run.stages.items()

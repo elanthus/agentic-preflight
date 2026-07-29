@@ -1,10 +1,6 @@
 """The whole gate, end to end, as a scripted agent would drive it."""
 
 import json
-import os
-import stat
-
-import pytest
 
 from agentic_preflight.attestation import NOTES_REF
 from agentic_preflight.envelope import ExitCode
@@ -29,26 +25,8 @@ def findings_json(tmp_path, items):
     return str(path)
 
 
-@pytest.fixture
-def gh_stub(tmp_path, monkeypatch):
-    bin_dir = tmp_path / "stubbin"
-    bin_dir.mkdir()
-    script = bin_dir / "gh"
-    script.write_text(
-        "#!/bin/sh\n"
-        'case "$1" in\n'
-        "  auth) exit 0 ;;\n"
-        '  pr) if [ "$2" = "list" ]; then echo "[]"; else echo "https://github.com/owner/repo/pull/7"; fi; exit 0 ;;\n'
-        "  *) exit 0 ;;\n"
-        "esac\n"
-    )
-    script.chmod(script.stat().st_mode | stat.S_IEXEC)
-    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-    return script
-
-
-def test_the_full_happy_path(feature_repo, bare_remote, tmp_path, gh_stub):
-    """review -> test -> docs -> lint -> mergeback -> gate -> push -> PR -> note."""
+def test_the_full_happy_path(feature_repo, bare_remote, tmp_path):
+    """review -> test -> docs -> lint -> mergeback -> gate -> push -> finish."""
     write(feature_repo, ".agentic-preflight.toml", CONFIG)
     commit_all(feature_repo, "configure agentic-preflight")
 
@@ -91,11 +69,7 @@ def test_the_full_happy_path(feature_repo, bare_remote, tmp_path, gh_stub):
 
     env = agent.run("push", "--confirm", token)
     assert env["state"] == "PUSHED"
-
-    git("remote", "set-url", "origin", "https://github.com/owner/repo.git", cwd=feature_repo)
-    env = agent.run("pr")
-    assert env["state"] == "PR_OPEN"
-    assert env["data"]["pr_url"].endswith("/pull/7")
+    assert env["next"]["command"] == "agentic-preflight finish"
 
     # A portable Git note records this exact tip and its shell-stage evidence.
     entry = json.loads(git("notes", f"--ref={NOTES_REF}", "show", head, cwd=feature_repo))
@@ -107,6 +81,9 @@ def test_the_full_happy_path(feature_repo, bare_remote, tmp_path, gh_stub):
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     )
     assert git("show-ref", "--verify", NOTES_REF, cwd=bare_remote)
+
+    env = agent.run("finish")
+    assert env["state"] == "DONE"
 
 
 def test_verify_sha_fails_closed_without_an_attestation(feature_repo):
