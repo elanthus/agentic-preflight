@@ -22,6 +22,17 @@ All notable changes to Agentic Preflight are documented here. This project follo
   that field as the project summary with none of the surrounding explanation, so it has
   to stand on its own. The README intro keeps the underlying point in the form that
   survives being read alone: no API key and no second model.
+- The README now leads with what the tool does and defers the detail to linked pages.
+  Reference material that a first-time reader does not need moved into `docs/`:
+  `installation.md`, `change-scope.md`, `worktree-modes.md`, `configuration.md`, and
+  `limits.md`. The prior-art comparison moved below the technical sections, since it
+  answers a question a reader has not yet asked. No documented behaviour changed, and
+  the configuration example stays in the README, where the test suite requires every
+  config section to appear.
+- The `[diff] exclude` example now says that setting the key replaces the eight built-in
+  globs rather than extending them. The example lists four of the eight, so copying it
+  verbatim silently dropped `**/*.min.css`, `**/__snapshots__/**`, `**/*.pb.go`, and
+  `**/*_pb2.py`. The full default list is now in `docs/configuration.md`.
 
 ### Fixed
 
