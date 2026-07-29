@@ -17,6 +17,16 @@ All notable changes to Agentic Preflight are documented here. This project follo
   workflows call, rather than being copied into each. Contributors will see the test
   checks reported under a nested name, `test / test (ubuntu-latest, py3.13)`.
 
+### Fixed
+
+- Manual CI runs are no longer cancelled by other CI activity. Every run on a ref
+  shared one concurrency group with `cancel-in-progress`, so a manual run of the full
+  matrix could be superseded by a push to `main` or by a second manual run. That is
+  the run the release process uses to check macOS and Python 3.11 and 3.12 before a
+  tag exists, and a cancelled run reports neither pass nor fail. Manual runs now get
+  a group of their own; pushes and pull requests still supersede older runs on the
+  same ref.
+
 ## [0.2.1] - 2026-07-28
 
 First release published to PyPI.

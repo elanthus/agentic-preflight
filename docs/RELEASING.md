@@ -51,6 +51,12 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
    step 6 covers these combinations too, but finding a failure here means fixing it
    before a tag exists.
 
+   Check that the run **completed**, not merely that it started. A cancelled run
+   reports neither pass nor fail, so six jobs appearing in the Actions tab is not
+   the same as six jobs passing. Manual runs are given their own concurrency group
+   precisely so nothing supersedes them, but a run can still be cancelled by hand or
+   time out.
+
 5. Tag and push:
 
    ```bash
