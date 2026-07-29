@@ -130,7 +130,7 @@ def test_the_users_branch_is_where_the_commits_land(ready, feature_repo):
 
 
 def test_a_clean_mergeback_attests_tree_equivalence(ready):
-    """The mechanism reconciling 'ledger keyed on exact SHA' with
+    """The mechanism reconciling 'attestation keyed on exact SHA' with
     'cherry-pick changes the SHA'."""
     agent, _ = ready()
     env = agent.run("mergeback")

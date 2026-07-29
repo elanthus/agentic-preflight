@@ -52,7 +52,7 @@ def _skip_docs_if_disabled(session: Session, run: RunDoc) -> RunDoc:
     """Skip the docs stage as an explicit transition, never a silent pass.
 
     ``[docs] enabled = false`` exists for repos with no meaningful doc surface.
-    Modelling it as a real transition to DOCS_GREEN keeps the ledger honest:
+    Modelling it as a real transition to DOCS_GREEN keeps the attestation honest:
     the stage was skipped by configuration, and that is a recorded fact rather
     than an absence.
     """

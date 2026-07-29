@@ -3,10 +3,10 @@
 import json
 import os
 import stat
-from pathlib import Path
 
 import pytest
 
+from agentic_preflight.attestation import NOTES_REF
 from agentic_preflight.envelope import ExitCode
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
@@ -48,7 +48,7 @@ def gh_stub(tmp_path, monkeypatch):
 
 
 def test_the_full_happy_path(feature_repo, bare_remote, tmp_path, gh_stub):
-    """review -> test -> docs -> lint -> mergeback -> gate -> push -> pr -> ledger."""
+    """review -> test -> docs -> lint -> mergeback -> gate -> push -> PR -> note."""
     write(feature_repo, ".agentic-preflight.toml", CONFIG)
     commit_all(feature_repo, "configure agentic-preflight")
 
@@ -81,6 +81,11 @@ def test_the_full_happy_path(feature_repo, bare_remote, tmp_path, gh_stub):
     assert env["state"] == "VERIFIED"
     assert env["data"]["tree_equivalent"] is True
 
+    head = git("rev-parse", "HEAD", cwd=feature_repo)
+    env = agent.run("verify", head)
+    assert env["data"]["verified"] is True
+    assert env["data"]["sha"] == head
+
     env = agent.run("gate")
     token = env["data"]["token"]
 
@@ -92,17 +97,24 @@ def test_the_full_happy_path(feature_repo, bare_remote, tmp_path, gh_stub):
     assert env["state"] == "PR_OPEN"
     assert env["data"]["pr_url"].endswith("/pull/7")
 
-    # The ledger records this exact tip as green across every enabled stage.
-    state_root = (
-        Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo))
-        / "agentic-preflight"
-    )
-    ledger = json.loads((state_root / "ledger.json").read_text())
-    head = git("rev-parse", "HEAD", cwd=feature_repo)
-    assert head in ledger["entries"]
-    entry = ledger["entries"][head]
+    # A portable Git note records this exact tip and its shell-stage evidence.
+    entry = json.loads(git("notes", f"--ref={NOTES_REF}", "show", head, cwd=feature_repo))
     assert entry["run_id"] == run_id
     assert set(entry["stages"]) >= {"review", "docs", "lint", "test"}
+    assert entry["stages"]["lint"]["command"] == "true"
+    assert entry["stages"]["lint"]["exit_code"] == 0
+    assert entry["stages"]["lint"]["output_sha256"] == (
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    )
+    assert git("show-ref", "--verify", NOTES_REF, cwd=bare_remote)
+
+
+def test_verify_sha_fails_closed_without_an_attestation(feature_repo):
+    head = git("rev-parse", "HEAD", cwd=feature_repo)
+    env = ScriptedAgent(feature_repo).run("verify", head, expect=ExitCode.STAGE_FAILED)
+    assert env["error"]["code"] == "attestation_failed"
+    assert env["data"]["notes_ref"] == NOTES_REF
+    assert "git fetch origin" in env["next"]["command"]
 
 
 def test_documentation_only_gate_records_test_as_skipped(tmp_repo, tmp_path):
@@ -120,13 +132,9 @@ def test_documentation_only_gate_records_test_as_skipped(tmp_repo, tmp_path):
     agent.run("stage", "run", "lint", "--command", "true", "--record")
     agent.run("mergeback")
 
-    state_root = (
-        Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=tmp_repo))
-        / "agentic-preflight"
-    )
-    ledger = json.loads((state_root / "ledger.json").read_text())
     head = git("rev-parse", "HEAD", cwd=tmp_repo)
-    assert ledger["entries"][head]["stages"]["test"] == "skipped"
+    entry = json.loads(git("notes", f"--ref={NOTES_REF}", "show", head, cwd=tmp_repo))
+    assert entry["stages"]["test"]["status"] == "skipped"
 
 
 def test_every_step_obeys_the_next_pointer(feature_repo, tmp_path):

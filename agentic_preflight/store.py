@@ -1,4 +1,4 @@
-"""Atomic, lock-guarded persistence for runs, events, findings, and the ledger.
+"""Atomic, lock-guarded persistence for runs, events, and findings.
 
 A run spans multiple agent turns, so Python cannot hold state in memory between
 invocations — it lives on disk and every mutation follows the same discipline:
@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .models import Finding, Ledger, RunDoc
+from .models import Finding, RunDoc
 
 
 class StoreError(Exception):
@@ -108,10 +108,6 @@ class Store:
 
     def diff_dir(self, run_id: str) -> Path:
         return self.run_dir(run_id) / "diff"
-
-    @property
-    def ledger_path(self) -> Path:
-        return self.root / "ledger.json"
 
     @property
     def current_path(self) -> Path:
@@ -213,16 +209,6 @@ class Store:
         if not path.exists():
             return []
         return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-
-    # -- ledger --------------------------------------------------------------
-
-    def load_ledger(self) -> Ledger:
-        if not self.ledger_path.exists():
-            return Ledger()
-        return Ledger.model_validate_json(self.ledger_path.read_text())
-
-    def save_ledger(self, ledger: Ledger) -> None:
-        _atomic_write(self.ledger_path, ledger.model_dump_json(indent=2))
 
     # -- current pointer -----------------------------------------------------
 

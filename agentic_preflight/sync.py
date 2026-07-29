@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import gitx
+from .attestation import NOTES_REF
 
 
 class SyncConflict(Exception):
@@ -100,6 +101,10 @@ def synchronize(
             "origin",
             f"+refs/heads/{branch}:{target_ref}",
         )
+        # Keep the shared notes history current before this run eventually adds
+        # its own attestation. A non-fast-forward is left as a loud Git error so
+        # concurrent notes are never overwritten.
+        gitx.fetch_notes(repo, "origin", NOTES_REF)
         remote = "origin"
 
     base_sha = gitx.rev_parse(repo, target_ref)

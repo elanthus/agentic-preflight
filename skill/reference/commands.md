@@ -110,14 +110,19 @@ All-or-nothing — one bad finding rejects the batch.
 - `dismissed` and `accepted` require `--note`.
 - Unknown id exits 3 listing the valid ids. Each finding is resolved once.
 
-### `agentic-preflight verify`
-Confirms nothing blocks the active stage and advances to green. Exits 2 listing the
-outstanding blocking set if anything remains.
+### `agentic-preflight verify [SHA]`
+Without an argument, confirms nothing blocks the active review/docs stage and advances
+it to green. Exits 2 listing the outstanding blocking set if anything remains.
+
+With a SHA, validates the portable attestation in `refs/notes/agentic-preflight` for
+CI. It checks the note schema, exact commit and tree binding, complete stage set, and
+process evidence for green lint/test stages. Fetch the notes ref before calling it in
+a fresh clone. A missing or invalid note exits 2.
 
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
 After review becomes green, the CLI automatically skips the software test command when
 every changed path is documentation or standard CI configuration. This is an explicit
-state-machine transition, not an agent judgment: `status` and the final ledger record
+state-machine transition, not an agent judgment: `status` and the final attestation note
 the test stage as `skipped`. A mixed diff containing any other path still requires the
 configured test command. Documentation includes common markup files, the standard docs
 surface, and `[docs] paths`; CI configuration includes common hosted-CI workflow paths.
@@ -172,7 +177,8 @@ is attested without rerunning completed stages; a different tree is retained but
 start a fresh verification run.
 
 On success: compares the branch tree against the worktree tree. `tree_equivalent: true`
-means the verified content is byte-identical and green transfers to the ledger. False
+means the verified content is byte-identical and a Git-note attestation is written for
+the exact commit. False
 means re-verification is needed.
 
 ### `agentic-preflight gate`
@@ -181,7 +187,8 @@ With `[gate] mode = "manual"` it exits 4 instead and hands over the literal `git
 command for a person to run.
 
 ### `agentic-preflight push --confirm TOKEN [--dry-run]`
-Requires the token from `gate`. **Ask the user before running this.**
+Requires the token from `gate` and atomically pushes both the branch and
+`refs/notes/agentic-preflight`. **Ask the user before running this.**
 
 ### `agentic-preflight pr [--draft/--no-draft] [--title TITLE]`
 Opens a pull request via the `gh` CLI. No credentials are ever handled here — if `gh`
@@ -236,8 +243,9 @@ with no equivalent remains reported as unmerged and is never removed without
 `--force`. Run directories and their audit logs are retained.
 
 ### `agentic-preflight hook-check`
-The pre-push predicate. Reads git's stdin protocol, consults only `ledger.json`, and
-exits 0 or 10. Not for you to call — git calls it.
+The pre-push predicate. Reads git's stdin protocol, consults only the commit's
+`refs/notes/agentic-preflight` note, and exits 0 or 10. Not for you to call — git calls
+it.
 
 ## Exit codes
 

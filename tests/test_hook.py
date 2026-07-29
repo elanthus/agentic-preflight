@@ -8,9 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from agentic_preflight import hook
+from agentic_preflight import attestation, hook
 from agentic_preflight.envelope import ExitCode
-from agentic_preflight.models import Ledger, LedgerEntry
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
@@ -35,18 +34,6 @@ def hook_check(repo, stdin_text, extra_env=None):
 
 
 ZERO = "0" * 40
-
-
-def _ledger_entry(sha: str, *, branch: str = "feature/x") -> LedgerEntry:
-    return LedgerEntry(
-        sha=sha,
-        tree_sha="b" * 40,
-        branch=branch,
-        base_ref="main",
-        merge_base_sha="c" * 40,
-        run_id="r_test",
-        green_at="2026-01-01T00:00:00+00:00",
-    )
 
 
 # -- init -------------------------------------------------------------------
@@ -145,22 +132,27 @@ def test_parse_stdin_ignores_malformed_lines_and_recognizes_deletions():
 def test_evaluate_directly_allows_green_and_explains_a_changed_tip():
     green = "a" * 40
     changed = "d" * 40
-    ledger = Ledger(entries={green: _ledger_entry(green)})
     green_update = hook.RefUpdate("refs/heads/feature/x", green, "refs/heads/x", ZERO)
     changed_update = hook.RefUpdate("refs/heads/feature/x", changed, "refs/heads/x", ZERO)
 
-    assert hook.evaluate(ledger, [green_update], is_ancestor=lambda *_: True).allowed
-    blocked = hook.evaluate(ledger, [changed_update], is_ancestor=lambda *_: True)
+    def has_attestation(sha):
+        return sha == green
+
+    assert hook.evaluate(
+        [green_update], is_ancestor=lambda *_: True, has_attestation=has_attestation
+    ).allowed
+    blocked = hook.evaluate(
+        [changed_update], is_ancestor=lambda *_: True, has_attestation=has_attestation
+    )
     assert blocked.allowed is False
-    assert "amended or added a commit" in blocked.message
+    assert "no valid attestation note" in blocked.message
 
 
 def test_evaluate_directly_blocks_a_non_fast_forward_green_tip():
     green = "a" * 40
-    ledger = Ledger(entries={green: _ledger_entry(green)})
     update = hook.RefUpdate("refs/heads/feature/x", green, "refs/heads/feature/x", "e" * 40)
 
-    blocked = hook.evaluate(ledger, [update], is_ancestor=lambda *_: False)
+    blocked = hook.evaluate([update], is_ancestor=lambda *_: False, has_attestation=lambda _: True)
     assert blocked.allowed is False
     assert blocked.reason == "force push"
     assert "rewrites history" in blocked.message
@@ -191,7 +183,6 @@ def test_the_block_message_goes_to_stderr_and_names_the_skill(feature_repo):
 def test_the_block_message_explains_an_amend(feature_repo, tmp_path):
     """The most common cause deserves the most specific message."""
     _green_run(feature_repo, tmp_path)
-    green_sha = git("rev-parse", "HEAD", cwd=feature_repo)
 
     write(feature_repo, "src/app.py", "def greet(n):\n    return 'amended'\n")
     git("add", "-A", cwd=feature_repo)
@@ -202,12 +193,12 @@ def test_the_block_message_explains_an_amend(feature_repo, tmp_path):
         feature_repo, f"refs/heads/feature/x {new_sha} refs/heads/feature/x {ZERO}\n"
     )
     assert result.returncode == ExitCode.HOOK_BLOCK
-    assert green_sha[:7] in result.stderr
-    assert "amended" in result.stderr or "added a commit" in result.stderr
+    assert new_sha[:7] in result.stderr
+    assert "no valid attestation note" in result.stderr
 
 
 def _green_run(repo, tmp_path):
-    """Drive a full run to a recorded green ledger entry."""
+    """Drive a full run to a green attestation note."""
     write(
         repo,
         ".agentic-preflight.toml",
@@ -229,6 +220,27 @@ def test_a_green_commit_is_allowed(feature_repo, tmp_path):
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
     result = hook_check(feature_repo, f"refs/heads/feature/x {sha} refs/heads/feature/x {ZERO}\n")
     assert result.returncode == 0, result.stderr
+
+
+def test_attestation_verification_rejects_a_note_for_another_tree(feature_repo, tmp_path):
+    _green_run(feature_repo, tmp_path)
+    sha = git("rev-parse", "HEAD", cwd=feature_repo)
+    value = attestation.verify(feature_repo, sha)
+    payload = value.model_dump(mode="json")
+    payload["tree_sha"] = "0" * 40
+    git(
+        "notes",
+        f"--ref={attestation.NOTES_REF}",
+        "add",
+        "-f",
+        "-m",
+        json.dumps(payload),
+        sha,
+        cwd=feature_repo,
+    )
+
+    with pytest.raises(attestation.InvalidAttestation, match="does not match commit tree"):
+        attestation.verify(feature_repo, sha)
 
 
 def test_the_predicate_does_not_mutate_anything(feature_repo, tmp_path):
@@ -361,7 +373,7 @@ def test_a_real_push_succeeds_after_a_green_run(feature_repo, bare_remote, tmp_p
 
 
 def test_amending_after_green_blocks_the_next_push(feature_repo, bare_remote, tmp_path):
-    """The scenario the SHA-keyed ledger exists to catch."""
+    """The scenario the SHA-bound attestation exists to catch."""
     _green_run(feature_repo, tmp_path)
     ScriptedAgent(feature_repo).run("init")
 
@@ -406,8 +418,8 @@ def test_hook_check_is_fast(feature_repo, tmp_path):
     assert time.monotonic() - start < 5.0
 
 
-def test_hook_check_reads_only_the_ledger(feature_repo, tmp_path):
-    """No run state, no network — just ledger.json."""
+def test_hook_check_reads_only_the_attestation_note(feature_repo, tmp_path):
+    """No run state or network — just the commit's Git note."""
     _green_run(feature_repo, tmp_path)
     state_root = (
         Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo))
@@ -421,3 +433,13 @@ def test_hook_check_reads_only_the_ledger(feature_repo, tmp_path):
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
     result = hook_check(feature_repo, f"refs/heads/feature/x {sha} refs/heads/feature/x {ZERO}\n")
     assert result.returncode == 0, result.stderr
+
+
+def test_attestation_note_ref_updates_are_not_treated_as_commit_pushes():
+    update = hook.RefUpdate(attestation.NOTES_REF, "a" * 40, attestation.NOTES_REF, ZERO)
+    decision = hook.evaluate(
+        [update],
+        is_ancestor=lambda *_: False,
+        has_attestation=lambda _: False,
+    )
+    assert decision.allowed is True

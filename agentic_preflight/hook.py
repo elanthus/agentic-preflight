@@ -1,7 +1,7 @@
 """The pre-push hook predicate.
 
-A pure function of the ledger and the push refs. It reads ``ledger.json`` and
-nothing else: no run state, no config beyond one flag, no network, no mutation.
+A pure function of Git notes and the push refs. It reads the attestation note
+on each commit and no run state: no network and no mutation.
 That is what keeps it inside its latency budget and what makes it safe to run on
 every push.
 
@@ -17,9 +17,8 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from .attestation import NOTES_REF
 from .envelope import ExitCode
-from .ledger import is_green
-from .models import Ledger
 
 ZERO_SHA = "0" * 40
 
@@ -46,6 +45,10 @@ class RefUpdate:
     def is_deletion(self) -> bool:
         return set(self.local_sha) == {"0"}
 
+    @property
+    def is_attestation_note(self) -> bool:
+        return self.local_ref == NOTES_REF
+
 
 def parse_stdin(text: str) -> list[RefUpdate]:
     """Parse git's pre-push stdin protocol: <local ref> <local sha> <remote ref> <remote sha>."""
@@ -65,24 +68,16 @@ class Decision:
     message: str = ""
 
 
-def _explain(ledger: Ledger, update: RefUpdate) -> str:
-    """Say *why* this exact sha is not green, as specifically as the ledger allows."""
-    for entry in sorted(ledger.entries.values(), key=lambda e: e.green_at, reverse=True):
-        if entry.branch and update.local_ref.endswith(entry.branch):
-            return f"ledger has {entry.sha[:7]}; you amended or added a commit since"
-    return "no green run recorded for this exact SHA"
-
-
 def evaluate(
-    ledger: Ledger,
     updates: list[RefUpdate],
     *,
     is_ancestor,
+    has_attestation,
     allow_force_push: bool = False,
 ) -> Decision:
     """Decide the push. ``is_ancestor(a, b)`` is injected so this stays pure."""
     for update in updates:
-        if update.is_deletion:
+        if update.is_deletion or update.is_attestation_note:
             continue
 
         forced = update.remote_sha != ZERO_SHA and not is_ancestor(
@@ -103,14 +98,14 @@ def evaluate(
                 ),
             )
 
-        if not is_green(ledger, update.local_sha):
+        if not has_attestation(update.local_sha):
             return Decision(
                 allowed=False,
                 reason="not green",
                 message=_block_message(
                     update.local_sha,
                     headline="no green run recorded for this exact SHA",
-                    reason=_explain(ledger, update),
+                    reason="no valid attestation note is attached to this exact SHA",
                     fix=(
                         "invoke the skill (/agentic-preflight in Claude Code, "
                         "$agentic-preflight in Codex)"
