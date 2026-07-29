@@ -132,6 +132,34 @@ def commit_patch_id(cwd: Path | str, sha: str) -> str | None:
     return fields[0] if fields else None
 
 
+# -- attestations -----------------------------------------------------------
+
+
+def read_note(cwd: Path | str, notes_ref: str, sha: str) -> str | None:
+    result = run(cwd, "notes", f"--ref={notes_ref}", "show", sha, check=False)
+    if result.returncode == 1:
+        return None
+    if result.returncode != 0:
+        raise GitError(
+            ["notes", f"--ref={notes_ref}", "show", sha], result.returncode, result.stderr
+        )
+    return result.stdout.rstrip("\n")
+
+
+def write_note(cwd: Path | str, notes_ref: str, sha: str, payload: str) -> None:
+    run(cwd, "notes", f"--ref={notes_ref}", "add", "-f", "-m", payload, sha)
+
+
+def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> bool:
+    """Fast-forward the local notes ref, tolerating a remote with no notes yet."""
+    result = run(cwd, "fetch", remote, f"{notes_ref}:{notes_ref}", check=False)
+    if result.returncode == 0:
+        return True
+    if "couldn't find remote ref" in result.stderr.lower():
+        return False
+    raise GitError(["fetch", remote, f"{notes_ref}:{notes_ref}"], result.returncode, result.stderr)
+
+
 # -- diff -------------------------------------------------------------------
 
 

@@ -18,7 +18,7 @@ import click
 from . import runs
 from .config import ConfigError
 from .envelope import Envelope, ExitCode, emit, error_envelope
-from .errors import AgenticError
+from .errors import AgenticError, AttestationFailed
 from .gitx import GitError
 from .integrations import SUPPORTED_INTEGRATIONS
 from .worktree import CopiedFileInCommit, CopyRefused, WorktreeError
@@ -161,9 +161,41 @@ def submit_findings(file_path: str) -> None:
 
 
 @main.command()
+@click.argument("sha", required=False)
 @command
-def verify() -> None:
-    """Confirm nothing blocks the active stage."""
+def verify(sha: str | None) -> None:
+    """Confirm an active review stage, or validate SHA's Git-note attestation."""
+    if sha is not None:
+        from . import attestation as attestationmod
+        from . import gitx
+
+        repo_root = gitx.repo_root(Path.cwd())
+        try:
+            value = attestationmod.verify(repo_root, sha)
+        except (attestationmod.InvalidAttestation, GitError) as exc:
+            raise AttestationFailed(
+                str(exc),
+                data={"sha": sha, "notes_ref": attestationmod.NOTES_REF},
+                next_instruction=(
+                    "Fetch refs/notes/agentic-preflight from the remote if CI does not "
+                    "have it; otherwise run a fresh preflight for this exact commit."
+                ),
+                next_command=(
+                    "git fetch origin refs/notes/agentic-preflight:refs/notes/agentic-preflight"
+                ),
+            ) from exc
+        _finish(
+            Envelope(
+                data={
+                    "verified": True,
+                    "sha": value.sha,
+                    "tree_sha": value.tree_sha,
+                    "notes_ref": attestationmod.NOTES_REF,
+                    "attestation": value.model_dump(mode="json"),
+                }
+            )
+        )
+        return
     session = runs.open_session()
     _finish(runs.verify(session))
 
@@ -393,7 +425,7 @@ def init(force: bool, no_hook: bool) -> None:
 
 @main.command("hook-check")
 def hook_check() -> None:
-    """Pre-push predicate over the ledger. Reads stdin, writes prose to stderr.
+    """Pre-push predicate over commit attestations. Reads stdin, writes prose to stderr.
 
     Deliberately not wrapped in the envelope contract: its consumer is git, not
     the agent, and git judges it by exit code alone.
@@ -401,7 +433,6 @@ def hook_check() -> None:
     from . import gitx
     from . import hook as hookmod
     from .config import load_config
-    from .store import Store
 
     raw = sys.stdin.read()
     updates = hookmod.parse_stdin(raw)
@@ -410,17 +441,15 @@ def hook_check() -> None:
 
     try:
         repo_root = gitx.repo_root(Path.cwd())
-        store = Store(gitx.git_common_dir(Path.cwd()) / runs.STATE_DIR_NAME)
-        ledger = store.load_ledger()
         allow_force = load_config(repo_root).hook.allow_force_push
     except Exception as exc:  # noqa: BLE001 - never brick a repo over our own failure
         sys.stderr.write(f"agentic-preflight: hook check unavailable ({exc}); allowing push\n")
         sys.exit(int(ExitCode.OK))
 
     decision = hookmod.evaluate(
-        ledger,
         updates,
         is_ancestor=lambda a, b: gitx.is_ancestor(repo_root, a, b),
+        has_attestation=lambda sha: _has_valid_attestation(repo_root, sha),
         allow_force_push=allow_force,
     )
     if decision.allowed:
@@ -428,6 +457,16 @@ def hook_check() -> None:
 
     sys.stderr.write(decision.message + "\n")
     sys.exit(int(ExitCode.HOOK_BLOCK))
+
+
+def _has_valid_attestation(repo_root: Path, sha: str) -> bool:
+    from . import attestation as attestationmod
+
+    try:
+        attestationmod.verify(repo_root, sha)
+    except (attestationmod.InvalidAttestation, GitError):
+        return False
+    return True
 
 
 @main.command()

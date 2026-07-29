@@ -9,6 +9,7 @@ from typing import TypedDict
 
 from .. import dependencies as dependenciesmod
 from .. import gitx, runtime, worktree
+from ..attestation import output_digest
 from ..envelope import Envelope
 from ..errors import (
     DirtyTree,
@@ -247,6 +248,7 @@ def run_stage(
         entry = doc.stages.get(stage) or StageRecord()
         entry.command = resolved
         entry.exit_code = result.exit_code
+        entry.output_sha256 = output_digest(clean_output)
         entry.log_path = str(log_path)
         entry.status = "green" if result.passed else "red"
         entry.finished_at = _now()

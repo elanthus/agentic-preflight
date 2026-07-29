@@ -11,9 +11,9 @@ code may assign.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .machine import State
 
@@ -97,6 +97,7 @@ class StageRecord(BaseModel):
     command: str | None = None
     reason: str | None = None
     exit_code: int | None = None
+    output_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     log_path: str | None = None
     finished_at: str | None = None
     head_sha: str | None = None
@@ -149,25 +150,63 @@ class RunDoc(BaseModel):
     updated_at: str | None = None
 
 
-class LedgerEntry(BaseModel):
-    """One green tip. ``tree_sha`` is unused in v1 but present so that a
-    rebase-tolerant v2 predicate is a one-line change."""
+class AttestedStage(BaseModel):
+    """Portable evidence for one stage.
+
+    Review, docs, and deliberately skipped shell stages have no process
+    evidence. Shell stages may only be called green when the command, zero exit
+    code, and digest of their redacted captured output are all present.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    sha: str
-    tree_sha: str
+    status: Literal["green", "skipped"]
+    command: str | None = None
+    exit_code: int | None = None
+    output_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    reason: str | None = None
+
+
+class Attestation(BaseModel):
+    """The JSON document stored in ``refs/notes/agentic-preflight``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["agentic-preflight-attestation"] = "agentic-preflight-attestation"
+    schema_version: Literal[1] = 1
+    sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    tree_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     branch: str
     base_ref: str
-    merge_base_sha: str
+    merge_base_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     run_id: str
     green_at: str
-    stages: dict[Stage, str] = Field(default_factory=dict)
+    stages: dict[Stage, AttestedStage]
     findings_summary: dict[str, int] = Field(default_factory=dict)
 
-
-class Ledger(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: int = 1
-    entries: dict[str, LedgerEntry] = Field(default_factory=dict)
+    @model_validator(mode="after")
+    def complete_evidence(self) -> Attestation:
+        required = set(Stage)
+        if set(self.stages) != required:
+            missing = sorted(stage.value for stage in required - set(self.stages))
+            extra = sorted(stage.value for stage in set(self.stages) - required)
+            raise ValueError(f"stage set must be complete (missing={missing}, extra={extra})")
+        if self.stages[Stage.REVIEW].status != "green":
+            raise ValueError("review stage must be green")
+        for stage, evidence in self.stages.items():
+            process_fields = (
+                evidence.command,
+                evidence.exit_code,
+                evidence.output_sha256,
+            )
+            if stage in {Stage.LINT, Stage.TEST} and evidence.status == "green":
+                if not evidence.command or evidence.exit_code != 0 or not evidence.output_sha256:
+                    raise ValueError(f"green {stage.value} stage lacks process evidence")
+            elif any(value is not None for value in process_fields):
+                raise ValueError(
+                    f"{stage.value} stage cannot carry process evidence with "
+                    f"status {evidence.status}"
+                )
+            if evidence.status == "skipped" and not evidence.reason:
+                raise ValueError(f"skipped {stage.value} stage lacks a reason")
+        return self

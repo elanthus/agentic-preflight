@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import shlex
 
+from .. import attestation as attestationmod
 from .. import gitx
-from .. import ledger as ledgermod
 from .. import mergeback as mergebackmod
 from .. import sync as syncmod
 from ..envelope import Envelope
@@ -15,7 +15,7 @@ from ..errors import (
     NeedsHuman,
 )
 from ..machine import Action, State
-from ..models import RunDoc, Stage
+from ..models import RunDoc
 from ..publish import provider as providermod
 from ._session import (
     Session,
@@ -164,18 +164,14 @@ def mergeback(session: Session) -> Envelope:
         summary[finding.status.value] = summary.get(finding.status.value, 0) + 1
 
     if result.tree_equivalent:
-        stages_recorded = {stage: record.status for stage, record in run.stages.items()}
-        stages_recorded[Stage.REVIEW] = "green"
-        if session.config.docs.enabled:
-            stages_recorded[Stage.DOCS] = "green"
-        entry = ledgermod.build_entry(
+        entry = attestationmod.build(
             run,
             sha=result.post_sha,
             tree_sha=result.local_tree_sha,
-            stages=stages_recorded,
+            docs_enabled=session.config.docs.enabled,
             findings_summary=summary,
         )
-        session.store.save_ledger(ledgermod.record(session.store.load_ledger(), entry))
+        attestationmod.write(session.repo_root, entry)
 
     with session.store.transaction(run.run_id) as doc:
         doc.head_sha = result.post_sha

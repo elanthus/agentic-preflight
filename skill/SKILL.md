@@ -280,12 +280,12 @@ and the commit that resolved each. That is the part CI cannot reproduce — no t
 suite tells a reviewer which judgment calls were made — and it stops a human
 re-deriving what the gate already caught.
 
-Do **not** republish stage results as evidence. If the repo runs CI, that executes on
-the forge from the pushed SHA and is strictly stronger than a locally produced claim
-that the same commands passed. Point at CI instead.
+The commit's Git-note attestation already carries the local stage commands, exit codes,
+and output hashes. Do not copy those into the PR body; if the repo runs CI, point at
+the forge's execution for stronger, remote evidence.
 
 Publish the gaps in the same breath: a bypassed hook, a stage that could not run, a
-SHA with no green run. A ledger that can only report success is marketing, and a
+SHA with no green run. An attestation that can only report success is marketing, and a
 partial record that reads as complete is worse than none.
 
 State the limit plainly when you show it: this proves what the gate *reported*, not

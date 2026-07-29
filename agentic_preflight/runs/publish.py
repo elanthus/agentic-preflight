@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .. import gitx
+from ..attestation import NOTES_REF
 from ..envelope import Envelope
 from ..errors import (
     DirtyTree,
@@ -50,7 +51,7 @@ def gate(session: Session) -> Envelope:
     ]
     summary = gatemod.GateSummary(
         remote="origin",
-        refspec=f"{run.branch}:{run.branch}",
+        refspec=f"{run.branch}:{run.branch} {NOTES_REF}:{NOTES_REF}",
         branch=run.branch,
         base_ref=run.base_ref,
         commits=commits,
@@ -62,11 +63,14 @@ def gate(session: Session) -> Envelope:
             "gate.mode is 'manual', so agentic-preflight will not push on your behalf",
             state=run.state.value,
             run_id=run.run_id,
-            data={**summary.as_dict(), "manual_command": f"git push origin {run.branch}"},
+            data={
+                **summary.as_dict(),
+                "manual_command": f"git push --atomic origin {run.branch} {NOTES_REF}",
+            },
             next_instruction=(
                 "Show the user this summary and ask them to run the push themselves."
             ),
-            next_command=f"git push origin {run.branch}",
+            next_command=f"git push --atomic origin {run.branch} {NOTES_REF}",
         )
 
     summary.token = gatemod.mint_token()
@@ -107,12 +111,23 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
     if dry_run:
         return _envelope_for(
             run,
-            data={"dry_run": True, "would_push": f"origin {run.branch}", "pushed": False},
+            data={
+                "dry_run": True,
+                "would_push": f"origin {run.branch} {NOTES_REF}",
+                "pushed": False,
+            },
             next_instruction="Dry run only; nothing was pushed.",
             next_command=f"agentic-preflight push --confirm {run.gate_token}",
         )
 
-    gitx.run(session.repo_root, "push", "origin", f"{run.branch}:{run.branch}")
+    gitx.run(
+        session.repo_root,
+        "push",
+        "--atomic",
+        "origin",
+        f"{run.branch}:{run.branch}",
+        f"{NOTES_REF}:{NOTES_REF}",
+    )
 
     with session.store.transaction(run.run_id) as doc:
         doc.pushed_sha = run.head_sha

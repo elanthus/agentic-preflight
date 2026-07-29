@@ -6,12 +6,11 @@ confirmation token is ceremony rather than a secret. This page covers the rest.
 
 ## Amending invalidates green
 
-The ledger is keyed on exact SHA, so any amend, rebase, or squash forces a fresh run. A
-green result describes one tree; once that tree no longer exists the result describes
-nothing.
+The attestation note is bound to an exact SHA, so any amend, rebase, or squash forces a
+fresh run. A green result describes one tree; once that tree no longer exists the result
+describes nothing.
 
-Cherry-picked merge-back is handled via tree-equivalence attestation. Rebase tolerance is
-planned for v2 — the ledger already records `tree_sha` for it.
+Cherry-picked merge-back is handled via tree-equivalence attestation.
 
 ## Isolated worktrees can differ from your environment
 
@@ -46,5 +45,6 @@ commands exited zero against that exact SHA, and which judgment calls were recor
 the way.
 
 It does not prove the review was good. The same diff reviewed twice can yield different
-findings. Treat the ledger as an audit trail, and note that it substitutes for neither CI
-nor a human reviewer.
+findings. Treat the Git note as an audit trail, and note that it substitutes for neither
+CI nor a human reviewer. It is not a signature: anyone allowed to update the notes ref
+can replace it.

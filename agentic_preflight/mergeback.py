@@ -12,12 +12,12 @@ do.
 In-place validation bypasses this module's cherry-pick operation because its
 verified commits already live on the source branch.
 
-**Tree-equivalence attestation.** The ledger is keyed on exact commit SHA, but
+**Tree-equivalence attestation.** The note is keyed on exact commit SHA, but
 cherry-picking *changes* the SHA, so what was verified is not literally what
 gets pushed. The reconciliation is to compare trees: if the branch tip's tree
 equals the worktree branch tip's tree, the verified content is byte-identical
 and green legitimately transfers. If not, green does not transfer and the run
-must be re-verified. This single check is what makes SHA-keyed ledger entries
+must be re-verified. This single check is what makes SHA-keyed attestations
 compatible with cherry-picked history.
 """
 

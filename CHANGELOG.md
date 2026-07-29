@@ -5,6 +5,15 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Added
+
+- Green records are now portable Git-note attestations in
+  `refs/notes/agentic-preflight`. Lint and test evidence includes the exact command,
+  exit code, and SHA-256 of redacted captured output, and the normal push path sends
+  the branch and attestation ref atomically.
+- `agentic-preflight verify <sha>` provides a fail-closed CI check for the note's
+  schema, exact commit/tree binding, complete stages, and shell-stage evidence.
+
 ### Changed
 
 - Pull requests and pushes to `main` now run one test combination, `ubuntu-latest` on

@@ -31,8 +31,8 @@ Three things separate it from a checklist in a prompt:
   opinion of its own about what good code looks like. It drives the agent you already
   have.
 - **The record includes its own gaps.** A bypassed hook, a stage that could not run, a
-  SHA with no green run — each stays visible in `status` and the ledger. A record that
-  can only report success is marketing.
+  SHA with no green run — each stays visible in `status` and the attestation. A record
+  that can only report success is marketing.
 
 Agentic Preflight is a deterministic state machine with a JSON-over-stdout CLI. It runs
 on macOS and Linux.
@@ -103,8 +103,9 @@ command, so the agent never has to guess.
 When every changed file is documentation or standard CI configuration, the gate does not
 run the software test command. It takes an explicit `SKIP_TEST` transition through
 `TEST_GREEN` and records the test stage as `skipped` with its reason, so the exception is
-visible in `status` and the ledger. Any source or otherwise unclassified file keeps tests
-mandatory. [docs/change-scope.md](docs/change-scope.md) lists the exact classification.
+visible in `status` and the commit's attestation note. Any source or otherwise
+unclassified file keeps tests mandatory. [docs/change-scope.md](docs/change-scope.md)
+lists the exact classification.
 
 By default the run happens directly in the current checkout, which suits a clean,
 dedicated one-agent/one-PR worktree. Two isolated modes keep the source checkout
@@ -119,21 +120,62 @@ that **exact SHA**:
 ```
 agentic-preflight: push blocked.
   commit: abc1234 (no green run recorded for this exact SHA)
-  reason: ledger has 9f2c1de; you amended or added a commit since
+  reason: no valid attestation note is attached to this exact SHA
   fix:    invoke the skill (/agentic-preflight in Claude Code, $agentic-preflight in Codex)
   bypass: git push --no-verify   (documented escape hatch)
 ```
 
-The hook reads one file (`ledger.json`), never touches the network, and never mutates
-anything. **If `agentic-preflight` is not on `PATH`, the hook allows the push and warns.**
-That is deliberate: a teammate who clones your repo without installing this tool must not
-end up with a repository they cannot push from. A broken tool must not brick the repo.
+The hook reads the commit's note in `refs/notes/agentic-preflight`, never touches the
+network, and never mutates anything. **If `agentic-preflight` is not on `PATH`, the hook
+allows the push and warns.** That is deliberate: a teammate who clones your repo without
+installing this tool must not end up with a repository they cannot push from. A broken
+tool must not brick the repo.
 
 `init` does not compose with an existing `pre-push` hook. If Husky, pre-commit, or a
 custom hook already owns that path, `init` refuses to change it. Add
 `agentic-preflight hook-check` to the existing hook manually if you need both. Treat
 `init --force` as replacement, not composition: it overwrites the existing hook and
 removes whatever behavior that hook previously provided.
+
+## Portable attestations and CI enforcement
+
+Successful merge-back writes a versioned JSON attestation as a Git note on the exact
+commit. The note includes the run identity, commit and tree hashes, finding summary,
+and a complete stage set. Green lint and test stages include the exact command, exit
+code, and SHA-256 of the redacted captured output. Explicitly skipped stages say why
+and carry no invented process evidence.
+
+`agentic-preflight push` atomically pushes the branch and
+`refs/notes/agentic-preflight`, so the attestation is not stranded in one clone. Git
+does not fetch notes in an ordinary checkout; fetch the dedicated ref before reading
+or verifying it:
+
+```bash
+git fetch origin refs/notes/agentic-preflight:refs/notes/agentic-preflight
+git notes --ref=refs/notes/agentic-preflight show HEAD
+agentic-preflight verify HEAD
+```
+
+`verify <sha>` exits non-zero when the note is missing or malformed, names another
+commit, describes another tree, omits a stage, or claims a green shell stage without
+its command, zero exit code, and output hash. A minimal GitHub Actions required check
+is:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
+- run: git fetch origin refs/notes/agentic-preflight:refs/notes/agentic-preflight
+- run: pipx install agentic-preflight
+- name: Verify the attested commit
+  env:
+    ATTESTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  run: agentic-preflight verify "$ATTESTED_SHA"
+```
+
+Make that job a required status check in branch protection. The local hook remains
+fail-open and bypassable so it cannot brick a repository; the required remote check
+is what rejects a branch tip without an attestation.
 
 ## Limits
 
@@ -150,8 +192,14 @@ know all three before relying on it:
 3. **This guards against mistakes, not against a careless or misaligned agent.** There is
    no cryptographic answer here, and claiming otherwise would be worse than the gap.
 
-**Amending invalidates green.** The ledger is keyed on exact SHA, so any amend, rebase,
-or squash forces a fresh run.
+**Amending invalidates green.** The note is bound to an exact SHA, so any amend, rebase,
+or squash forces a fresh run. Cherry-picked merge-back is handled via tree-equivalence
+attestation.
+
+**The note is an audit record, not a signature.** Anyone allowed to update the notes
+ref can replace it. Protect `refs/notes/agentic-preflight` on the remote if your forge
+supports ref-level policy, and treat `verify` as enforcement that a structurally valid,
+commit-bound record exists—not proof that the agent's review judgment was good.
 
 Environment drift between isolated worktrees and your shell, runtime pin activation, and
 the rebase-tolerance roadmap are covered in [docs/limits.md](docs/limits.md).
