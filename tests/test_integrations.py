@@ -117,6 +117,16 @@ def test_update_skips_an_integration_that_is_not_installed(tmp_path, source_skil
     assert results[0]["status"] == "missing"
 
 
+def test_lifecycle_operation_table_covers_every_inspection_status():
+    statuses = {"missing", "unmanaged", "modified", "outdated", "current"}
+    assert set(integrations.OPERATION_SPECS) == {
+        integrations.IntegrationOperation.INSTALL,
+        integrations.IntegrationOperation.UPDATE,
+        integrations.IntegrationOperation.UNINSTALL,
+    }
+    assert all(set(spec.actions) == statuses for spec in integrations.OPERATION_SPECS.values())
+
+
 def test_modified_copy_is_preserved_unless_force_is_explicit(tmp_path, source_skill):
     integrations.install_integrations(
         ["codex"], home=tmp_path, source_dir=source_skill, source_version="1.0"

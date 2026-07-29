@@ -12,15 +12,16 @@ import json
 import sys
 import traceback
 from pathlib import Path
+from typing import TypedDict
 
 import click
 
 from . import runs
 from .config import ConfigError
-from .envelope import Envelope, ExitCode, emit, error_envelope
+from .envelope import Envelope, ExitCode, emit
 from .errors import AgenticError, AttestationFailed
 from .gitx import GitError
-from .integrations import SUPPORTED_INTEGRATIONS
+from .integrations import SUPPORTED_INTEGRATIONS, IntegrationOperation
 from .worktree import CopiedFileInCommit, CopyRefused, WorktreeError
 
 INTEGRATION_NAMES = tuple(SUPPORTED_INTEGRATIONS)
@@ -32,21 +33,7 @@ def _finish(envelope: Envelope, code: int = ExitCode.OK) -> None:
 
 
 def _fail(exc: AgenticError) -> None:
-    _finish(
-        error_envelope(
-            code=exc.code,
-            message=exc.message,
-            detail=exc.detail,
-            data=exc.data,
-            blocking=exc.blocking,
-            state=exc.state,
-            run_id=exc.run_id,
-            stage=exc.stage,
-            next_instruction=exc.next_instruction,
-            next_command=exc.next_command,
-        ),
-        exc.exit_code,
-    )
+    _finish(exc.to_envelope(), exc.exit_code)
 
 
 def command(fn):
@@ -289,91 +276,79 @@ def _integration_envelope(scope: str, results: list[dict]) -> Envelope:
     )
 
 
-@integrations.command("install")
-@_integration_options(
-    target_help="Also install under this custom skills directory.",
-    force_help="Replace unmanaged or locally modified copies.",
-)
-@command
-def integrations_install(
-    agents: tuple[str, ...], scope: str, targets: tuple[Path, ...], force: bool
-) -> None:
-    """Install or refresh the skill for AGENTS."""
-    from . import integrations as integrations_module
-
-    _require_integration_targets(agents, targets)
-    results = integrations_module.install_integrations(
-        agents,
-        scope=scope,
-        custom_roots=targets,
-        force=force,
-        project_root=_integration_project_root(scope),
-    )
-    _finish(_integration_envelope(scope, results))
+class _IntegrationCommandSpec(TypedDict):
+    help: str
+    target_help: str
+    force_help: str | None
+    targets_required: bool
 
 
-@integrations.command("status")
-@_integration_options(target_help="Also inspect this custom skills directory.")
-@command
-def integrations_status(agents: tuple[str, ...], scope: str, targets: tuple[Path, ...]) -> None:
-    """Report whether installed skills are current or modified."""
-    from . import integrations as integrations_module
-
-    selected = agents or (() if targets else INTEGRATION_NAMES)
-    results = integrations_module.integration_status(
-        selected,
-        scope=scope,
-        custom_roots=targets,
-        project_root=_integration_project_root(scope),
-    )
-    _finish(_integration_envelope(scope, results))
-
-
-@integrations.command("update")
-@_integration_options(
-    target_help="Also update under this custom skills directory.",
-    force_help="Replace unmanaged or locally modified copies.",
-)
-@command
-def integrations_update(
-    agents: tuple[str, ...], scope: str, targets: tuple[Path, ...], force: bool
-) -> None:
-    """Update installed skills, skipping integrations that are absent."""
-    from . import integrations as integrations_module
-
-    selected = agents or (() if targets else INTEGRATION_NAMES)
-    results = integrations_module.install_integrations(
-        selected,
-        scope=scope,
-        custom_roots=targets,
-        force=force,
-        update_only=True,
-        project_root=_integration_project_root(scope),
-    )
-    _finish(_integration_envelope(scope, results))
+_INTEGRATION_COMMANDS: dict[IntegrationOperation, _IntegrationCommandSpec] = {
+    IntegrationOperation.INSTALL: {
+        "help": "Install or refresh the skill for AGENTS.",
+        "target_help": "Also install under this custom skills directory.",
+        "force_help": "Replace unmanaged or locally modified copies.",
+        "targets_required": True,
+    },
+    IntegrationOperation.STATUS: {
+        "help": "Report whether installed skills are current or modified.",
+        "target_help": "Also inspect this custom skills directory.",
+        "force_help": None,
+        "targets_required": False,
+    },
+    IntegrationOperation.UPDATE: {
+        "help": "Update installed skills, skipping integrations that are absent.",
+        "target_help": "Also update under this custom skills directory.",
+        "force_help": "Replace unmanaged or locally modified copies.",
+        "targets_required": False,
+    },
+    IntegrationOperation.UNINSTALL: {
+        "help": "Remove agentic-preflight-managed skill copies for AGENTS.",
+        "target_help": "Also remove from this custom skills directory.",
+        "force_help": "Remove unmanaged or locally modified copies.",
+        "targets_required": True,
+    },
+}
 
 
-@integrations.command("uninstall")
-@_integration_options(
-    target_help="Also remove from this custom skills directory.",
-    force_help="Remove unmanaged or locally modified copies.",
-)
-@command
-def integrations_uninstall(
-    agents: tuple[str, ...], scope: str, targets: tuple[Path, ...], force: bool
-) -> None:
-    """Remove agentic-preflight-managed skill copies for AGENTS."""
-    from . import integrations as integrations_module
+def _integration_lifecycle_command(
+    operation: IntegrationOperation, spec: _IntegrationCommandSpec
+) -> click.Command:
+    """Build the identical Click/result-shaping shell around one operation."""
 
-    _require_integration_targets(agents, targets)
-    results = integrations_module.uninstall_integrations(
-        agents,
-        scope=scope,
-        custom_roots=targets,
-        force=force,
-        project_root=_integration_project_root(scope),
-    )
-    _finish(_integration_envelope(scope, results))
+    def invoke(
+        agents: tuple[str, ...],
+        scope: str,
+        targets: tuple[Path, ...],
+        force: bool = False,
+    ) -> None:
+        from . import integrations as integrations_module
+
+        if spec["targets_required"]:
+            _require_integration_targets(agents, targets)
+        selected = agents or (() if targets else INTEGRATION_NAMES)
+        results = integrations_module.manage_integrations(
+            operation,
+            selected,
+            scope=scope,
+            custom_roots=targets,
+            force=force,
+            project_root=_integration_project_root(scope),
+        )
+        _finish(_integration_envelope(scope, results))
+
+    invoke.__name__ = f"integrations_{operation.value}"
+    invoke.__doc__ = spec["help"]
+    decorated = command(invoke)
+    decorated = _integration_options(
+        target_help=spec["target_help"], force_help=spec["force_help"]
+    )(decorated)
+    return click.command(operation.value)(decorated)
+
+
+for _operation, _spec in _INTEGRATION_COMMANDS.items():
+    integrations.add_command(_integration_lifecycle_command(_operation, _spec))
+del _operation, _spec
 
 
 @main.command()

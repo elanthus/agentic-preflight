@@ -13,12 +13,11 @@ from .. import gitx, worktree
 from ..config import Config, load_config
 from ..envelope import Envelope
 from ..errors import (
-    START_COMMAND,
     NoRun,
     StaleRun,
     WrongState,
 )
-from ..machine import Action, IllegalTransition, State, next_state
+from ..machine import Action, IllegalTransition, State, next_state, recovery_hint
 from ..models import RunDoc, Stage
 from ..store import Store
 
@@ -73,7 +72,11 @@ def _apply(run: RunDoc, action: Action) -> None:
     try:
         run.state = next_state(run.state, action)
     except IllegalTransition as exc:
-        raise WrongState(str(exc)) from exc
+        raise WrongState(
+            str(exc),
+            state=run.state.value,
+            run_id=run.run_id,
+        ) from exc
 
 
 def _require_state(run: RunDoc, *allowed: State, command: str) -> None:
@@ -82,8 +85,6 @@ def _require_state(run: RunDoc, *allowed: State, command: str) -> None:
             f"`{command}` is not legal in state {run.state.name}",
             state=run.state.value,
             run_id=run.run_id,
-            next_instruction="Run `status` to see where the run actually is, then obey `next`.",
-            next_command="agentic-preflight status",
         )
 
 
@@ -111,56 +112,9 @@ def _require_finding_stage(run: RunDoc) -> Stage:
 
 
 def _next_hint(state: State) -> tuple[str | None, str | None]:
-    """The default next legal command for a state, or nothing when terminal.
-
-    A default, not a rule: `next` is properly a function of *(state, what just
-    happened)*. ``start`` and ``context`` both land in
-    ``REVIEW_AWAITING_FINDINGS`` but call for different moves — fetch the diff
-    versus judge the diff you now hold — so those commands override this.
-    """
-    return {
-        State.CREATED: ("Create the worktree.", START_COMMAND),
-        State.WORKTREE_READY: ("Synchronize with the fresh remote base.", None),
-        State.SYNC_RUNNING: ("Remote synchronization is running.", None),
-        State.SYNC_CONFLICT: (
-            "The fresh-base rebase conflicted. Preserve the report and restart after resolution.",
-            "agentic-preflight abort --force",
-        ),
-        State.SYNC_GREEN: ("Begin review of the synchronized diff.", "agentic-preflight context"),
-        State.REVIEW_AWAITING_FINDINGS: (
-            "Review the diff, then submit findings (an empty list is a valid outcome).",
-            "agentic-preflight submit-findings --file findings.json",
-        ),
-        State.REVIEW_SUBMITTED: ("Check the blocking set.", "agentic-preflight verify"),
-        State.REVIEW_AWAITING_RESPONSES: (
-            "Resolve each blocking finding with `respond`.",
-            "agentic-preflight respond --id F001 --action fixed --commit <sha>",
-        ),
-        State.REVIEW_FIXING: (
-            "Keep responding until nothing blocks, then verify.",
-            "agentic-preflight verify",
-        ),
-        State.REVIEW_GREEN: (
-            "Review is green. Run targeted tests.",
-            "agentic-preflight stage run test",
-        ),
-        State.TEST_GREEN: (
-            "Tests passed or were not applicable. Check whether documentation is now stale.",
-            "agentic-preflight context --section docs",
-        ),
-        State.DOCS_GREEN: ("Docs are green. Run lint.", "agentic-preflight stage run lint"),
-        State.LINT_GREEN: ("Lint is green. Merge the fixes back.", "agentic-preflight mergeback"),
-        State.MERGEBACK_CONFLICT: (
-            "Resolve the reported conflict or restore the affected paths, then retry mergeback.",
-            "agentic-preflight mergeback",
-        ),
-        State.VERIFIED: ("Everything is green. Open the gate.", "agentic-preflight gate"),
-        State.AWAITING_PUSH_CONFIRM: (
-            "Show the user the gate summary and ask before pushing.",
-            "agentic-preflight push --confirm <token>",
-        ),
-        State.PUSHED: ("Close the pushed validation run.", "agentic-preflight finish"),
-    }.get(state, (None, None))
+    """The default next move declared beside the state's legal transitions."""
+    hint = recovery_hint(state)
+    return hint.instruction, hint.command
 
 
 def _envelope_for(run: RunDoc, **overrides) -> Envelope:

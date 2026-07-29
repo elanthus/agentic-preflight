@@ -1,11 +1,13 @@
 import pytest
 
 from agentic_preflight.machine import (
+    STATE_DESCRIPTIONS,
     Action,
     IllegalTransition,
     State,
     legal_actions,
     next_state,
+    recovery_hint,
 )
 
 
@@ -32,6 +34,26 @@ def test_illegal_transition_raises_with_the_legal_actions_named():
         next_state(State.CREATED, Action.SUBMIT_FINDINGS)
     assert "CREATED" in str(exc.value)
     assert "CREATE_WORKTREE" in str(exc.value)
+
+
+def test_transition_table_and_recovery_hints_share_one_description():
+    for state, description in STATE_DESCRIPTIONS.items():
+        assert recovery_hint(state) is description
+        for action, target in description.transitions.items():
+            assert next_state(state, action) is target
+
+
+def test_judgment_cycles_generate_equivalent_recovery_commands():
+    assert recovery_hint(State.REVIEW_AWAITING_FINDINGS).command == (
+        recovery_hint(State.DOCS_AWAITING_FINDINGS).command
+    )
+    assert recovery_hint(State.REVIEW_FIXING).command == recovery_hint(State.DOCS_FIXING).command
+
+
+def test_every_non_terminal_state_has_a_declarative_recovery_command():
+    for state in State:
+        if state not in {State.DONE, State.ABORTED, State.ORPHANED}:
+            assert recovery_hint(state).command
 
 
 def test_stage_skipping_is_not_expressible():

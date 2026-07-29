@@ -15,6 +15,7 @@ stays deterministic and therefore property-testable.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 
@@ -110,77 +111,191 @@ class IllegalTransition(Exception):
         self.action = action
 
 
+@dataclass(frozen=True)
+class StateDescription:
+    """Outbound transitions and the default recovery move for one state."""
+
+    transitions: dict[Action, State] = field(default_factory=dict)
+    instruction: str | None = None
+    command: str | None = None
+
+
+def _state(
+    instruction: str | None,
+    command: str | None,
+    *transitions: tuple[Action, State],
+) -> StateDescription:
+    return StateDescription(dict(transitions), instruction, command)
+
+
 def _stage_cycle(
-    prefix: str,
+    label: str,
     awaiting: State,
     submitted: State,
     awaiting_responses: State,
     fixing: State,
     green: State,
-) -> dict[tuple[State, Action], State]:
+) -> dict[State, StateDescription]:
     """The sub-machine shared by the two agent-judgment stages (review, docs)."""
     return {
-        (awaiting, Action.SUBMIT_FINDINGS): submitted,
-        (submitted, Action.TRIAGE_CLEAN): green,
-        (submitted, Action.TRIAGE_BLOCKING): awaiting_responses,
-        (awaiting_responses, Action.RESPOND): fixing,
-        (fixing, Action.RESPOND): fixing,
-        (fixing, Action.RESOLVE_GREEN): green,
-        (awaiting_responses, Action.RESOLVE_GREEN): green,
+        awaiting: _state(
+            f"Review the {label} diff, then submit findings (an empty list is a valid outcome).",
+            "agentic-preflight submit-findings --file findings.json",
+            (Action.SUBMIT_FINDINGS, submitted),
+        ),
+        submitted: _state(
+            "Check the blocking set.",
+            "agentic-preflight verify",
+            (Action.TRIAGE_CLEAN, green),
+            (Action.TRIAGE_BLOCKING, awaiting_responses),
+        ),
+        awaiting_responses: _state(
+            "Resolve each blocking finding with `respond`.",
+            "agentic-preflight respond --id F001 --action fixed --commit <sha>",
+            (Action.RESPOND, fixing),
+            (Action.RESOLVE_GREEN, green),
+        ),
+        fixing: _state(
+            "Keep responding until nothing blocks, then verify.",
+            "agentic-preflight verify",
+            (Action.RESPOND, fixing),
+            (Action.RESOLVE_GREEN, green),
+        ),
     }
 
 
-TRANSITIONS: dict[tuple[State, Action], State] = {
-    (State.CREATED, Action.CREATE_WORKTREE): State.WORKTREE_READY,
-    (State.WORKTREE_READY, Action.BEGIN_SYNC): State.SYNC_RUNNING,
-    (State.SYNC_RUNNING, Action.SYNC_PASSED): State.SYNC_GREEN,
-    (State.SYNC_RUNNING, Action.SYNC_FAILED): State.SYNC_CONFLICT,
-    (State.SYNC_GREEN, Action.BEGIN_REVIEW): State.REVIEW_AWAITING_FINDINGS,
+_S, _A = State, Action
+_STATUS = "agentic-preflight status"
+
+STATE_DESCRIPTIONS: dict[State, StateDescription] = {
+    _S.CREATED: _state(
+        "Create the worktree.",
+        'agentic-preflight start --intent "<objective and acceptance criteria>"',
+        (_A.CREATE_WORKTREE, _S.WORKTREE_READY),
+    ),
+    _S.WORKTREE_READY: _state(
+        "Synchronize with the fresh remote base.", _STATUS, (_A.BEGIN_SYNC, _S.SYNC_RUNNING)
+    ),
+    _S.SYNC_RUNNING: _state(
+        "Remote synchronization is running.",
+        _STATUS,
+        (_A.SYNC_PASSED, _S.SYNC_GREEN),
+        (_A.SYNC_FAILED, _S.SYNC_CONFLICT),
+    ),
+    _S.SYNC_CONFLICT: _state(
+        "The fresh-base rebase conflicted. Preserve the report and restart.",
+        "agentic-preflight abort --force",
+    ),
+    _S.SYNC_GREEN: _state(
+        "Begin review of the synchronized diff.",
+        "agentic-preflight context",
+        (_A.BEGIN_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
+    ),
     **_stage_cycle(
         "review",
-        State.REVIEW_AWAITING_FINDINGS,
-        State.REVIEW_SUBMITTED,
-        State.REVIEW_AWAITING_RESPONSES,
-        State.REVIEW_FIXING,
-        State.REVIEW_GREEN,
+        _S.REVIEW_AWAITING_FINDINGS,
+        _S.REVIEW_SUBMITTED,
+        _S.REVIEW_AWAITING_RESPONSES,
+        _S.REVIEW_FIXING,
+        _S.REVIEW_GREEN,
     ),
-    (State.REVIEW_GREEN, Action.RUN_TEST): State.TEST_RUNNING,
-    (State.REVIEW_GREEN, Action.SKIP_TEST): State.TEST_GREEN,
-    (State.TEST_RUNNING, Action.TEST_PASSED): State.TEST_GREEN,
-    (State.TEST_RUNNING, Action.TEST_FAILED): State.TEST_RED,
-    (State.TEST_RED, Action.RETRY_TEST): State.TEST_RUNNING,
-    (State.TEST_GREEN, Action.BEGIN_DOCS): State.DOCS_AWAITING_FINDINGS,
-    (State.TEST_GREEN, Action.SKIP_DOCS): State.DOCS_GREEN,
+    _S.REVIEW_GREEN: _state(
+        "Review is green. Run targeted tests.",
+        "agentic-preflight stage run test",
+        (_A.RUN_TEST, _S.TEST_RUNNING),
+        (_A.SKIP_TEST, _S.TEST_GREEN),
+    ),
+    _S.TEST_RUNNING: _state(
+        "Test execution was interrupted; inspect the recorded run.",
+        _STATUS,
+        (_A.TEST_PASSED, _S.TEST_GREEN),
+        (_A.TEST_FAILED, _S.TEST_RED),
+    ),
+    _S.TEST_RED: _state(
+        "Inspect the failed test stage before retrying.",
+        "agentic-preflight logs --stage test",
+        (_A.RETRY_TEST, _S.TEST_RUNNING),
+    ),
+    _S.TEST_GREEN: _state(
+        "Tests passed or were not applicable. Check whether documentation is now stale.",
+        "agentic-preflight context --section docs",
+        (_A.BEGIN_DOCS, _S.DOCS_AWAITING_FINDINGS),
+        (_A.SKIP_DOCS, _S.DOCS_GREEN),
+    ),
     **_stage_cycle(
         "docs",
-        State.DOCS_AWAITING_FINDINGS,
-        State.DOCS_SUBMITTED,
-        State.DOCS_AWAITING_RESPONSES,
-        State.DOCS_FIXING,
-        State.DOCS_GREEN,
+        _S.DOCS_AWAITING_FINDINGS,
+        _S.DOCS_SUBMITTED,
+        _S.DOCS_AWAITING_RESPONSES,
+        _S.DOCS_FIXING,
+        _S.DOCS_GREEN,
     ),
-    (State.DOCS_GREEN, Action.RUN_LINT): State.LINT_RUNNING,
-    (State.LINT_RUNNING, Action.LINT_PASSED): State.LINT_GREEN,
-    (State.LINT_RUNNING, Action.LINT_FAILED): State.LINT_RED,
-    (State.LINT_RED, Action.RETRY_LINT): State.LINT_RUNNING,
-    (State.LINT_RED, Action.LINT_FIX_RESTART): State.REVIEW_GREEN,
-    (State.LINT_GREEN, Action.BEGIN_MERGEBACK): State.MERGEBACK_PENDING,
-    (State.MERGEBACK_PENDING, Action.MERGEBACK_OK): State.VERIFIED,
-    (State.MERGEBACK_PENDING, Action.MERGEBACK_FAILED): State.MERGEBACK_CONFLICT,
-    (State.MERGEBACK_CONFLICT, Action.MERGEBACK_RETRY): State.MERGEBACK_PENDING,
-    (State.VERIFIED, Action.GATE): State.AWAITING_PUSH_CONFIRM,
-    (State.AWAITING_PUSH_CONFIRM, Action.PUSH): State.PUSHED,
-    (State.PUSHED, Action.FINISH): State.DONE,
+    _S.DOCS_GREEN: _state(
+        "Docs are green. Run lint.",
+        "agentic-preflight stage run lint",
+        (_A.RUN_LINT, _S.LINT_RUNNING),
+    ),
+    _S.LINT_RUNNING: _state(
+        "Lint execution was interrupted; inspect the recorded run.",
+        _STATUS,
+        (_A.LINT_PASSED, _S.LINT_GREEN),
+        (_A.LINT_FAILED, _S.LINT_RED),
+    ),
+    _S.LINT_RED: _state(
+        "Inspect the failed lint stage before retrying.",
+        "agentic-preflight logs --stage lint",
+        (_A.RETRY_LINT, _S.LINT_RUNNING),
+        (_A.LINT_FIX_RESTART, _S.REVIEW_GREEN),
+    ),
+    _S.LINT_GREEN: _state(
+        "Lint is green. Merge the fixes back.",
+        "agentic-preflight mergeback",
+        (_A.BEGIN_MERGEBACK, _S.MERGEBACK_PENDING),
+    ),
+    _S.MERGEBACK_PENDING: _state(
+        "Mergeback was interrupted; inspect the recorded run.",
+        _STATUS,
+        (_A.MERGEBACK_OK, _S.VERIFIED),
+        (_A.MERGEBACK_FAILED, _S.MERGEBACK_CONFLICT),
+    ),
+    _S.MERGEBACK_CONFLICT: _state(
+        "Resolve the reported conflict or restore the affected paths, then retry mergeback.",
+        "agentic-preflight mergeback",
+        (_A.MERGEBACK_RETRY, _S.MERGEBACK_PENDING),
+    ),
+    _S.VERIFIED: _state(
+        "Everything is green. Open the gate.",
+        "agentic-preflight gate",
+        (_A.GATE, _S.AWAITING_PUSH_CONFIRM),
+    ),
+    _S.AWAITING_PUSH_CONFIRM: _state(
+        "Show the user the gate summary and ask before pushing.",
+        "agentic-preflight push --confirm <token>",
+        (_A.PUSH, _S.PUSHED),
+    ),
+    _S.PUSHED: _state(
+        "Close the pushed validation run.", "agentic-preflight finish", (_A.FINISH, _S.DONE)
+    ),
+    _S.DONE: _state(None, None),
+    _S.ABORTED: _state(None, None),
+    _S.ORPHANED: _state(None, None),
+}
+del _S, _A, _STATUS
+
+TRANSITIONS: dict[tuple[State, Action], State] = {
+    (state, action): target
+    for state, description in STATE_DESCRIPTIONS.items()
+    for action, target in description.transitions.items()
 }
 
 #: A run may be abandoned from any state that is not already terminal.
 TERMINAL_STATES = frozenset({State.DONE, State.ABORTED, State.ORPHANED})
 
-for _state in State:
-    if _state not in TERMINAL_STATES:
-        TRANSITIONS[(_state, Action.ABORT)] = State.ABORTED
-        TRANSITIONS[(_state, Action.ORPHAN)] = State.ORPHANED
-del _state
+for _candidate in State:
+    if _candidate not in TERMINAL_STATES:
+        TRANSITIONS[(_candidate, Action.ABORT)] = State.ABORTED
+        TRANSITIONS[(_candidate, Action.ORPHAN)] = State.ORPHANED
+del _candidate
 
 
 def next_state(state: State, action: Action) -> State:
@@ -195,3 +310,8 @@ def legal_actions(state: State) -> list[Action]:
     """Every action the table allows from ``state``, in enum-declaration order."""
     allowed = {a for (s, a) in TRANSITIONS if s == state}
     return [a for a in Action if a in allowed]
+
+
+def recovery_hint(state: State) -> StateDescription:
+    """Return the recovery/default-next hint declared beside a state's transitions."""
+    return STATE_DESCRIPTIONS[state]

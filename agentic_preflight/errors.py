@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .envelope import ExitCode
+from .envelope import Envelope, ExitCode, error_envelope
+from .machine import State, recovery_hint
 
 START_COMMAND = 'agentic-preflight start --intent "<objective and acceptance criteria>"'
 
@@ -46,8 +47,31 @@ class AgenticError(Exception):
         #: A failure can still be informative. `verify` reports *which* findings
         #: block, so the agent can act rather than re-derive the list itself.
         self.blocking = blocking or []
+        if state is not None and next_instruction is None and next_command is None:
+            try:
+                hint = recovery_hint(State(state))
+            except ValueError:
+                pass
+            else:
+                next_instruction = hint.instruction
+                next_command = hint.command
         self.next_instruction = next_instruction
         self.next_command = next_command
+
+    def to_envelope(self) -> Envelope:
+        """Shape this failure through the same stable stdout contract as successes."""
+        return error_envelope(
+            code=self.code,
+            message=self.message,
+            detail=self.detail,
+            data=self.data,
+            blocking=self.blocking,
+            state=self.state,
+            run_id=self.run_id,
+            stage=self.stage,
+            next_instruction=self.next_instruction,
+            next_command=self.next_command,
+        )
 
 
 class NoRun(AgenticError):
