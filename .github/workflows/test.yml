@@ -56,8 +56,15 @@ jobs:
       - name: Test (pytest)
         run: uv run pytest ${{ inputs.coverage && '--cov=agentic_preflight --cov-report=term-missing --cov-report=xml' || '' }}
 
+      # Deliberately not pinned to a specific os/python-version. The callers
+      # choose the matrix, so naming a combination here would mean two files
+      # having to agree with nothing enforcing it. Relies instead on the
+      # invariant that the only caller passing coverage: true, ci.yml, passes a
+      # single combination on push events. If that ever stops being true, these
+      # steps would run more than once and upload-artifact would reject the
+      # duplicate name.
       - name: Generate coverage badge
-        if: inputs.coverage && github.event_name == 'push' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        if: inputs.coverage && github.event_name == 'push'
         run: |
           coverage_percent="$(uv run coverage report --format=total)"
           if [ "$coverage_percent" -ge 90 ]; then
@@ -76,7 +83,7 @@ jobs:
             --output coverage.svg
 
       - name: Upload coverage badge
-        if: inputs.coverage && github.event_name == 'push' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        if: inputs.coverage && github.event_name == 'push'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-badge
