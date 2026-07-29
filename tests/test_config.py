@@ -17,8 +17,6 @@ def test_defaults_apply_when_no_config_file_exists(tmp_repo, tmp_path):
     assert cfg.gate.mode == "token"
     assert cfg.diff.max_bytes == 200_000
     assert "*.lock" in cfg.diff.exclude
-    assert cfg.ci.timeout_seconds == 3600
-    assert cfg.ci.poll_interval_seconds == 30
 
 
 def test_repo_config_is_read(tmp_repo, tmp_path):

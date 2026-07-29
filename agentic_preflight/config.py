@@ -92,17 +92,6 @@ class HookSection(_Section):
     allow_force_push: bool = False
 
 
-class PublishSection(_Section):
-    provider: str = "auto"
-    draft_pr: bool = False
-    pr_title: str | None = None
-
-
-class CISection(_Section):
-    timeout_seconds: int = Field(default=3600, ge=1)
-    poll_interval_seconds: int = Field(default=30, ge=1)
-
-
 VALID_SEVERITIES = {"critical", "high", "medium", "low"}
 VALID_GATE_MODES = {"token", "manual"}
 VALID_RUNTIME_MANAGERS = {
@@ -132,8 +121,6 @@ class Config(BaseModel):
     runtime: RuntimeSection = Field(default_factory=RuntimeSection)
     gate: GateSection = Field(default_factory=GateSection)
     hook: HookSection = Field(default_factory=HookSection)
-    publish: PublishSection = Field(default_factory=PublishSection)
-    ci: CISection = Field(default_factory=CISection)
 
 
 def _read_toml(path: Path) -> dict[str, Any]:

@@ -53,6 +53,11 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Removed
 
+- Built-in GitHub pull-request creation, CI monitoring, and destructive post-merge
+  cleanup. The skill now hands these host-level tasks to `gh`; the core retains the
+  quality gate, atomic branch-and-attestation push, `finish`, and `gc`.
+- The `pr`, `ci`, and `cleanup` commands and their `[publish]` and `[ci]`
+  configuration sections.
 - `docs/plans/` and the design document it held. It described the architecture as it was
   being decided rather than as it now is, and the parts still worth reading have since
   been said in the README and the `docs/` pages. It remains in git history.

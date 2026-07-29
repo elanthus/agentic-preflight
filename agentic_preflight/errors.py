@@ -180,17 +180,6 @@ class ManualGate(AgenticError):
     exit_code = ExitCode.NEEDS_HUMAN
 
 
-class GhUnavailableError(AgenticError):
-    """`gh` is missing or unauthenticated.
-
-    We stop here rather than reaching for credentials ourselves: gh owning auth
-    is a design invariant, so the fallback is a prefilled URL and a human.
-    """
-
-    code = "gh_unavailable"
-    exit_code = ExitCode.NEEDS_HUMAN
-
-
 class NoLog(AgenticError):
     code = "no_log"
     exit_code = ExitCode.PRECONDITION

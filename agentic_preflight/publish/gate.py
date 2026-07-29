@@ -23,7 +23,6 @@ class GateSummary:
     branch: str
     base_ref: str
     commits: list[dict] = field(default_factory=list)
-    pr_title: str = ""
     token: str = ""
 
     def as_dict(self) -> dict:
@@ -33,7 +32,6 @@ class GateSummary:
             "branch": self.branch,
             "base_ref": self.base_ref,
             "commits": self.commits,
-            "pr_title": self.pr_title,
             "token": self.token,
         }
 

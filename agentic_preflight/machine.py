@@ -50,12 +50,6 @@ class State(StrEnum):
     VERIFIED = "VERIFIED"
     AWAITING_PUSH_CONFIRM = "AWAITING_PUSH_CONFIRM"
     PUSHED = "PUSHED"
-    PR_OPEN = "PR_OPEN"
-    CI_MONITORING = "CI_MONITORING"
-    CI_FAILED = "CI_FAILED"
-    CHECKS_PASSED = "CHECKS_PASSED"
-    CI_TIMED_OUT = "CI_TIMED_OUT"
-    PR_MERGED = "PR_MERGED"
     DONE = "DONE"
 
     ABORTED = "ABORTED"
@@ -97,17 +91,7 @@ class Action(StrEnum):
 
     GATE = "GATE"
     PUSH = "PUSH"
-    OPEN_PR = "OPEN_PR"
-    BEGIN_CI = "BEGIN_CI"
-    RETRY_CI = "RETRY_CI"
-    CI_PENDING = "CI_PENDING"
-    CI_FAILURE = "CI_FAILURE"
-    CI_PASSED = "CI_PASSED"
-    CI_TIMEOUT = "CI_TIMEOUT"
-    CI_MERGED = "CI_MERGED"
-    CI_CLOSED = "CI_CLOSED"
     FINISH = "FINISH"
-    CLEANUP = "CLEANUP"
 
     ABORT = "ABORT"
     ORPHAN = "ORPHAN"
@@ -186,24 +170,7 @@ TRANSITIONS: dict[tuple[State, Action], State] = {
     (State.MERGEBACK_CONFLICT, Action.MERGEBACK_RETRY): State.MERGEBACK_PENDING,
     (State.VERIFIED, Action.GATE): State.AWAITING_PUSH_CONFIRM,
     (State.AWAITING_PUSH_CONFIRM, Action.PUSH): State.PUSHED,
-    (State.PUSHED, Action.OPEN_PR): State.PR_OPEN,
     (State.PUSHED, Action.FINISH): State.DONE,
-    (State.PR_OPEN, Action.BEGIN_CI): State.CI_MONITORING,
-    (State.CI_MONITORING, Action.CI_PENDING): State.CI_MONITORING,
-    (State.CI_MONITORING, Action.CI_FAILURE): State.CI_FAILED,
-    (State.CI_MONITORING, Action.CI_PASSED): State.CHECKS_PASSED,
-    (State.CI_MONITORING, Action.CI_TIMEOUT): State.CI_TIMED_OUT,
-    (State.CI_MONITORING, Action.CI_MERGED): State.PR_MERGED,
-    (State.CI_MONITORING, Action.CI_CLOSED): State.DONE,
-    (State.CI_FAILED, Action.RETRY_CI): State.CI_MONITORING,
-    (State.CHECKS_PASSED, Action.RETRY_CI): State.CI_MONITORING,
-    (State.CI_TIMED_OUT, Action.RETRY_CI): State.CI_MONITORING,
-    (State.PR_OPEN, Action.CLEANUP): State.DONE,
-    (State.CI_MONITORING, Action.CLEANUP): State.DONE,
-    (State.CI_FAILED, Action.CLEANUP): State.DONE,
-    (State.CHECKS_PASSED, Action.CLEANUP): State.DONE,
-    (State.CI_TIMED_OUT, Action.CLEANUP): State.DONE,
-    (State.PR_MERGED, Action.CLEANUP): State.DONE,
 }
 
 #: A run may be abandoned from any state that is not already terminal.

@@ -56,17 +56,6 @@ Setting a shorter list â€” including the abbreviated one in the README example â
 globs you leave out. If you want to add a project-specific pattern, copy this list and
 append to it rather than writing a fresh one.
 
-## Post-PR CI monitoring (`[ci]`)
-
-After a PR opens, `agentic-preflight ci` monitors checks and mergeability. It reports
-passed checks, fetches failed GitHub Actions logs, and persists the failure alongside the
-original intent.
-
-Repairs are host-driven: the coding agent fixes and commits the source branch, then starts
-a fresh synchronized full validation before another push. agentic-preflight never invokes a
-model to repair anything itself. Monitoring continues across host invocations until the PR
-merges, closes, or the timeout elapses.
-
 ## Stage execution (`[stage]`)
 
 `timeout_seconds` bounds a single stage run and `max_attempts` bounds retries. When a

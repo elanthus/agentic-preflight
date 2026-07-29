@@ -26,6 +26,35 @@ from pathlib import Path
 
 from .models import Finding, RunDoc
 
+_REMOVED_LIFECYCLE_FIELDS = {
+    "pr_url",
+    "ci_started_at",
+    "ci_last_checked_at",
+    "ci_status",
+    "ci_failures",
+    "ci_logs",
+    "cleanup_token",
+    "cleanup_preview",
+}
+_REMOVED_LIFECYCLE_STATES = {
+    "PR_OPEN",
+    "CI_MONITORING",
+    "CI_FAILED",
+    "CHECKS_PASSED",
+    "CI_TIMED_OUT",
+    "PR_MERGED",
+}
+
+
+def _parse_run(payload: str) -> RunDoc:
+    """Read current documents and migrate the removed hosted-PR lifecycle."""
+    raw = json.loads(payload)
+    for field in _REMOVED_LIFECYCLE_FIELDS:
+        raw.pop(field, None)
+    if raw.get("state") in _REMOVED_LIFECYCLE_STATES:
+        raw["state"] = "PUSHED"
+    return RunDoc.model_validate(raw)
+
 
 class StoreError(Exception):
     """Base class for persistence failures."""
@@ -136,7 +165,7 @@ class Store:
         path = self.run_path(run_id)
         if not path.exists():
             raise UnknownRun(run_id)
-        return RunDoc.model_validate_json(path.read_text())
+        return _parse_run(path.read_text())
 
     def list_runs(self) -> list[str]:
         runs = self.root / "runs"
@@ -161,7 +190,7 @@ class Store:
         with open(lock_path, "w") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             try:
-                run = RunDoc.model_validate_json(path.read_text())
+                run = _parse_run(path.read_text())
                 if expect_seq is not None and run.seq != expect_seq:
                     raise StaleWrite(run_id, expect_seq, run.seq)
 

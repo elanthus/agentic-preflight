@@ -120,13 +120,6 @@ def test_skill_documents_mergeback_conflict_retry():
     assert "no outbound transition" not in text
 
 
-def test_skill_documents_pr_title_precedence():
-    text = SKILL.read_text()
-    title_section = text[text.index("The PR title uses") :]
-    assert title_section.index("`--title`") < title_section.index("[publish] pr_title")
-    assert title_section.index("[publish] pr_title") < title_section.index("branch name")
-
-
 # -- config ---------------------------------------------------------------
 
 

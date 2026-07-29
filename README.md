@@ -74,7 +74,7 @@ $ agentic-preflight context | jq -c '{ok,state,data:{changed_files:.data.changed
 $ agentic-preflight gate | jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch},next}'
 {"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"d8697c2068b4853b","remote":"origin","branch":"demo"},"next":{"command":"agentic-preflight push --confirm d8697c2068b4853b","instruction":"Show the user the remote, branch, and commit list in plain language and ask whether to push. Never push without asking."}}
 $ agentic-preflight push --confirm d8697c2068b4853b | jq -c '{ok,state,data:{remote:.data.remote,branch:.data.branch},next}'
-{"ok":true,"state":"PUSHED","data":{"remote":"origin","branch":null},"next":{"command":"agentic-preflight pr","instruction":"Open the pull request."}}
+{"ok":true,"state":"PUSHED","data":{"remote":"origin","branch":null},"next":{"command":"agentic-preflight finish","instruction":"Close the pushed validation run."}}
 ```
 
 The agent must show you the target remote, branch, and commits and obtain fresh approval
@@ -91,9 +91,12 @@ start --intent "..." → fetch/rebase → context → submit-findings → verify
       → stage run test (automatically skipped for documentation/CI-only changes)
       → context --section docs → submit-findings → verify   (docs)
       → stage run lint
-      → mergeback → gate → push → finish → gc               (no PR)
-      → mergeback → gate → push → pr → ci → cleanup         (PR)
+      → mergeback → gate → push → finish → gc
 ```
+
+After the atomic push, use the forge normally. For GitHub, the skill uses `gh` directly
+to create a pull request and inspect its checks; those hosted lifecycle operations are
+not part of the stateful preflight CLI.
 
 `start` requires the user's objective and acceptance criteria, fetches `origin`, and
 rebases the validation checkout onto the fresh base before review. The agent drives the
@@ -254,22 +257,14 @@ mode = "token"               # or "manual"
 enabled = true
 allow_force_push = false
 
-[publish]
-provider = "auto"
-draft_pr = false
-pr_title = "Optional fixed title"
-
-[ci]
-timeout_seconds = 3600
-poll_interval_seconds = 30
 ```
 
 The resolved configuration is snapshotted when `start` creates a run, so editing
 `.agentic-preflight.toml` afterward does not change that run. Commit configuration
 changes before starting the run they should affect.
 
-The documentation surface, oversized-diff handling, and post-PR CI monitoring are
-described in [docs/configuration.md](docs/configuration.md).
+The documentation surface and oversized-diff handling are described in
+[docs/configuration.md](docs/configuration.md).
 
 ## Exit codes
 

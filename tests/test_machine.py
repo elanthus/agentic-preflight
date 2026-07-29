@@ -41,7 +41,7 @@ def test_stage_skipping_is_not_expressible():
     of table entries, not by prose in SKILL.md.
     """
     review_states = [s for s in State if s.name.startswith("REVIEW_")]
-    forbidden = {State.LINT_RUNNING, State.TEST_RUNNING, State.PUSHED, State.PR_OPEN}
+    forbidden = {State.LINT_RUNNING, State.TEST_RUNNING, State.PUSHED}
     for state in review_states:
         if state is State.REVIEW_GREEN:
             continue
