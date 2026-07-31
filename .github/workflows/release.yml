@@ -59,7 +59,11 @@ jobs:
         run: |
           uv tool install --python 3.11 dist/*.whl
           "$UV_TOOL_BIN_DIR/agentic-preflight" --version
-          "$UV_TOOL_DIR/agentic-preflight/bin/python" - <<'PY'
+          # -P keeps the current directory off sys.path. Without it the step runs
+          # from the repository root, where the agentic_preflight source directory
+          # shadows the installed package and the assertions below inspect the
+          # checkout instead of the wheel.
+          "$UV_TOOL_DIR/agentic-preflight/bin/python" -P - <<'PY'
           import importlib.resources as resources
 
           package = resources.files("agentic_preflight")

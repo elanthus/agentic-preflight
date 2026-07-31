@@ -50,7 +50,18 @@ jobs:
         run: |
           uv tool install --python 3.11 dist/*.whl
           "$UV_TOOL_BIN_DIR/agentic-preflight" --version
-          "$UV_TOOL_DIR/agentic-preflight/bin/python" -c "import importlib.resources as r; assert r.files('agentic_preflight').joinpath('py.typed').is_file()"
+          # -P keeps the current directory off sys.path. Without it this runs from
+          # the repository root, where the agentic_preflight source directory
+          # shadows the installed package and the assertions inspect the checkout
+          # instead of the wheel, passing even when the wheel is incomplete.
+          "$UV_TOOL_DIR/agentic-preflight/bin/python" -P - <<'PY'
+          import importlib.resources as resources
+
+          package = resources.files("agentic_preflight")
+          assert package.joinpath("py.typed").is_file(), "py.typed missing from wheel"
+          assert package.joinpath("_bundled_skill").is_dir(), "bundled skill missing from wheel"
+          print("wheel contents verified")
+          PY
 
   publish-coverage-badge:
     name: publish coverage badge
