@@ -15,6 +15,7 @@ import tempfile
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
+from enum import StrEnum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -44,6 +45,59 @@ SUPPORTED_INTEGRATIONS: dict[str, IntegrationSpec] = {
 class InstallTarget:
     integration: str
     path: Path
+
+
+class IntegrationOperation(StrEnum):
+    """The four public lifecycle operations over an integration target."""
+
+    INSTALL = "install"
+    STATUS = "status"
+    UPDATE = "update"
+    UNINSTALL = "uninstall"
+
+
+@dataclass(frozen=True)
+class OperationSpec:
+    actions: dict[str, str]
+    result_status: str | None
+    conflict_verb: str
+
+
+OPERATION_SPECS = {
+    IntegrationOperation.INSTALL: OperationSpec(
+        actions={
+            "missing": "installed",
+            "current": "unchanged",
+            "outdated": "updated",
+            "modified": "replaced",
+            "unmanaged": "replaced",
+        },
+        result_status="current",
+        conflict_verb="overwrite",
+    ),
+    IntegrationOperation.UPDATE: OperationSpec(
+        actions={
+            "missing": "skipped_missing",
+            "current": "unchanged",
+            "outdated": "updated",
+            "modified": "replaced",
+            "unmanaged": "replaced",
+        },
+        result_status="current",
+        conflict_verb="overwrite",
+    ),
+    IntegrationOperation.UNINSTALL: OperationSpec(
+        actions={
+            "missing": "missing",
+            "current": "removed",
+            "outdated": "removed",
+            "modified": "removed",
+            "unmanaged": "removed",
+        },
+        result_status="missing",
+        conflict_verb="remove",
+    ),
+}
 
 
 class IntegrationError(AgenticError):
@@ -318,6 +372,85 @@ def _conflicts(reports: list[dict], *, force: bool) -> list[dict]:
     return [report for report in reports if report["status"] in {"modified", "unmanaged"}]
 
 
+def manage_integrations(
+    operation: IntegrationOperation | str,
+    agents: Iterable[str],
+    *,
+    scope: str = "user",
+    custom_roots: Iterable[Path] = (),
+    force: bool = False,
+    home: Path | None = None,
+    project_root: Path | None = None,
+    source_dir: Path | None = None,
+    source_version: str | None = None,
+) -> list[dict]:
+    """Inspect or apply one lifecycle operation to all resolved targets."""
+    operation = IntegrationOperation(operation)
+    source_dir = source_dir or bundled_skill_dir()
+    source_version = source_version or package_version()
+    targets = resolve_targets(
+        agents,
+        scope=scope,
+        custom_roots=custom_roots,
+        home=home,
+        project_root=project_root,
+    )
+    reports = [
+        inspect_target(target, source_dir=source_dir, source_version=source_version)
+        for target in targets
+    ]
+    if operation is IntegrationOperation.STATUS:
+        return reports
+
+    spec = OPERATION_SPECS[operation]
+    conflicts = _conflicts(reports, force=force)
+    if conflicts:
+        paths = ", ".join(report["path"] for report in conflicts)
+        raise IntegrationConflict(
+            f"refusing to {spec.conflict_verb} an unmanaged or modified skill: {paths}",
+            data={"conflicts": conflicts},
+            next_instruction=(
+                "Inspect those skill directories, or rerun with --force to "
+                f"{spec.conflict_verb} them."
+            ),
+        )
+
+    source_hash = _skill_hash(source_dir)
+    results: list[dict] = []
+    for target, report in zip(targets, reports, strict=True):
+        previous = report["status"]
+        action = spec.actions[previous]
+        if action in {"installed", "updated", "replaced"}:
+            _replace_target(
+                target.path,
+                source_dir=source_dir,
+                source_hash=source_hash,
+                source_version=source_version,
+            )
+        elif action == "removed":
+            try:
+                _remove_path(target.path)
+            except OSError as exc:
+                raise IntegrationError(
+                    f"could not remove the skill at {target.path}: {exc}"
+                ) from exc
+
+        resulting_status = previous if action == "skipped_missing" else spec.result_status
+        results.append(
+            {
+                **report,
+                "previous_status": previous,
+                "status": resulting_status,
+                "managed": resulting_status == "current",
+                "installed_version": (
+                    source_version if resulting_status == "current" else report["installed_version"]
+                ),
+                "action": action,
+            }
+        )
+    return results
+
+
 def install_integrations(
     agents: Iterable[str],
     *,
@@ -330,118 +463,23 @@ def install_integrations(
     source_dir: Path | None = None,
     source_version: str | None = None,
 ) -> list[dict]:
-    source_dir = source_dir or bundled_skill_dir()
-    source_version = source_version or package_version()
-    targets = resolve_targets(
+    """Compatibility API for install and update callers."""
+    return manage_integrations(
+        IntegrationOperation.UPDATE if update_only else IntegrationOperation.INSTALL,
         agents,
         scope=scope,
         custom_roots=custom_roots,
+        force=force,
         home=home,
         project_root=project_root,
+        source_dir=source_dir,
+        source_version=source_version,
     )
-    reports = [
-        inspect_target(target, source_dir=source_dir, source_version=source_version)
-        for target in targets
-    ]
-    conflicts = _conflicts(reports, force=force)
-    if conflicts:
-        paths = ", ".join(report["path"] for report in conflicts)
-        raise IntegrationConflict(
-            f"refusing to overwrite an unmanaged or modified skill: {paths}",
-            data={"conflicts": conflicts},
-            next_instruction="Inspect those skill directories, or rerun with --force to replace them.",
-        )
-
-    source_hash = _skill_hash(source_dir)
-    results: list[dict] = []
-    for target, report in zip(targets, reports, strict=True):
-        state = report["status"]
-        if state == "current":
-            action = "unchanged"
-        elif state == "missing" and update_only:
-            action = "skipped_missing"
-        else:
-            _replace_target(
-                target.path,
-                source_dir=source_dir,
-                source_hash=source_hash,
-                source_version=source_version,
-            )
-            if state == "missing":
-                action = "installed"
-            elif state == "outdated":
-                action = "updated"
-            else:
-                action = "replaced"
-        resulting_status = state if action == "skipped_missing" else "current"
-        results.append(
-            {
-                **report,
-                "previous_status": state,
-                "status": resulting_status,
-                "managed": resulting_status == "current",
-                "installed_version": (
-                    source_version if resulting_status == "current" else report["installed_version"]
-                ),
-                "action": action,
-            }
-        )
-    return results
 
 
 def uninstall_integrations(
     agents: Iterable[str],
-    *,
-    scope: str = "user",
-    custom_roots: Iterable[Path] = (),
-    force: bool = False,
-    home: Path | None = None,
-    project_root: Path | None = None,
-    source_dir: Path | None = None,
-    source_version: str | None = None,
+    **kwargs,
 ) -> list[dict]:
-    source_dir = source_dir or bundled_skill_dir()
-    source_version = source_version or package_version()
-    targets = resolve_targets(
-        agents,
-        scope=scope,
-        custom_roots=custom_roots,
-        home=home,
-        project_root=project_root,
-    )
-    reports = [
-        inspect_target(target, source_dir=source_dir, source_version=source_version)
-        for target in targets
-    ]
-    conflicts = _conflicts(reports, force=force)
-    if conflicts:
-        paths = ", ".join(report["path"] for report in conflicts)
-        raise IntegrationConflict(
-            f"refusing to remove an unmanaged or modified skill: {paths}",
-            data={"conflicts": conflicts},
-            next_instruction="Inspect those skill directories, or rerun with --force to remove them.",
-        )
-
-    results: list[dict] = []
-    for target, report in zip(targets, reports, strict=True):
-        if report["status"] == "missing":
-            action = "missing"
-        else:
-            try:
-                _remove_path(target.path)
-            except OSError as exc:
-                raise IntegrationError(
-                    f"could not remove the skill at {target.path}: {exc}"
-                ) from exc
-            action = "removed"
-        results.append(
-            {
-                **report,
-                "previous_status": report["status"],
-                "status": "missing",
-                "managed": False,
-                "installed_version": None,
-                "action": action,
-            }
-        )
-    return results
+    """Compatibility API for uninstall callers."""
+    return manage_integrations(IntegrationOperation.UNINSTALL, agents, **kwargs)

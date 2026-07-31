@@ -5,6 +5,7 @@ import pytest
 
 from agentic_preflight.cli import command
 from agentic_preflight.envelope import Envelope, ExitCode, emit, error_envelope
+from agentic_preflight.errors import WrongState
 
 
 def test_envelope_has_every_contract_key_even_when_empty():
@@ -56,6 +57,11 @@ def test_error_envelope_is_not_ok_and_names_the_code():
     assert payload["ok"] is False
     assert payload["error"]["code"] == "wrong_state"
     assert "not legal" in payload["error"]["message"]
+
+
+def test_stateful_errors_inherit_the_declarative_recovery_hint():
+    payload = WrongState("wrong command", state="REVIEW_GREEN").to_envelope().to_payload()
+    assert payload["next"]["command"] == "agentic-preflight stage run test"
 
 
 def test_emit_writes_exactly_one_json_object_and_nothing_else():
