@@ -184,8 +184,8 @@ def finish(session: Session) -> Envelope:
     session.store.set_current(None)
     session.store.append_event(run.run_id, {"event": "finished"})
     pr_instruction = (
-        " Run gc, then open or reuse the pull request with gh; the gate approval already "
-        "covered PR creation, so do not ask again."
+        " Run gc, then open or reuse the pull request with gh; auto PR mode is standing "
+        "authorization, so do not ask again."
         if session.config.pr.mode == "auto"
         else " Run gc, then give the user the compare URL; do not open the pull request."
     )

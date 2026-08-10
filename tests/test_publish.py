@@ -140,6 +140,8 @@ def test_finish_closes_a_pushed_run(verified):
     assert env["next"]["command"] == "agentic-preflight gc"
     assert env["data"]["pr_mode"] == "auto"
     assert "open or reuse the pull request" in env["next"]["instruction"]
+    assert "auto PR mode is standing authorization" in env["next"]["instruction"]
+    assert "gate approval" not in env["next"]["instruction"]
     assert "do not ask again" in env["next"]["instruction"]
     assert verified.run("status")["data"]["has_run"] is False
 
