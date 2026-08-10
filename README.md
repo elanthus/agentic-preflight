@@ -50,8 +50,10 @@ agentic-preflight init
 
 When working from this source checkout, `./install.sh` installs or updates the CLI and
 both bundled agent skills in one step. Pass `codex` or `claude` to install only one.
-Run `./uninstall.sh` to remove the managed skills and CLI while preserving repository
-configuration, Git hooks, run history, and attestations.
+Run `./uninstall.sh` to remove the managed skills and CLI. It pauses first so you can
+enter `agentic-preflight:uninstall` in every initialized repository; that trigger
+removes the repository configuration and managed hook logic while preserving unrelated
+hooks, run history, and attestations.
 
 `init` writes `.agentic-preflight.toml` and installs an advisory pre-push hook. Make and
 commit a change, then try to push it before validation:

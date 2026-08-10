@@ -180,6 +180,15 @@ def test_an_explicit_cleanup_request_needs_no_second_approval():
     assert "delete the local PR source branch and the remote PR source branch" in text
 
 
+def test_the_skill_documents_the_project_uninstall_trigger_and_scope():
+    text = SKILL.read_text()
+    assert "agentic-preflight:uninstall" in text
+    assert "without another confirmation" in text
+    assert ".agentic-preflight.toml" in text
+    assert "Do not remove other hook behavior" in text
+    assert "refs/notes/agentic-preflight" in text
+
+
 def test_the_docs_rubric_leads_with_the_obligation_test():
     text = (REFERENCE / "docs-rubric.md").read_text()
     assert "Would a reader following the current documentation now be wrong?" in text

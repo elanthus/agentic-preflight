@@ -74,7 +74,10 @@ From a source checkout, remove the managed Codex/Claude skills and CLI together 
 ```
 
 Pass agent names to limit skill removal, such as `./uninstall.sh codex`. The script
-refuses to remove locally modified or unmanaged skill directories. It deliberately
-leaves repository configuration, Git hooks, run history, and attestations intact, then
-prints the repository-by-repository steps for safely removing standalone or shared
-pre-push hooks.
+first asks you to enter `agentic-preflight:uninstall` in your coding agent for every
+repository where `agentic-preflight init` was run, and waits for Enter before it
+continues. That trigger removes the current repository's `.agentic-preflight.toml` and
+agentic-preflight hook logic while preserving unrelated hooks, run history, and
+attestations. The script then removes the managed skills and CLI, refusing to remove
+locally modified or unmanaged skill directories, and finishes by printing manual hook
+removal instructions for any repository you missed.

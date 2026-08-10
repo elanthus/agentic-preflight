@@ -85,6 +85,7 @@ def test_uninstaller_removes_managed_skills_before_the_uv_tool(tmp_path):
         [str(UNINSTALLER)],
         cwd=tmp_path,
         env=env,
+        input="\n",
         capture_output=True,
         text=True,
     )
@@ -96,9 +97,11 @@ def test_uninstaller_removes_managed_skills_before_the_uv_tool(tmp_path):
         "cli integrations uninstall codex claude",
         "uv tool uninstall agentic-preflight",
     ]
-    assert "Repository configs, Git hooks, run history, and attestations were left intact" in (
-        result.stdout
+    assert "agentic-preflight:uninstall" in result.stdout
+    assert result.stdout.index("agentic-preflight:uninstall") < result.stdout.index(
+        "Removing managed agent skills"
     )
+    assert "Run history and attestations were left intact" in result.stdout
     assert "git rev-parse --git-path hooks/pre-push" in result.stdout
     assert "Installed by" in result.stdout
     assert "exec agentic-preflight hook-check" in result.stdout
@@ -124,6 +127,7 @@ def test_uninstaller_still_prints_hook_instructions_when_the_cli_is_already_abse
         [str(UNINSTALLER)],
         cwd=tmp_path,
         env=env,
+        input="\n",
         capture_output=True,
         text=True,
     )
@@ -132,6 +136,34 @@ def test_uninstaller_still_prints_hook_instructions_when_the_cli_is_already_abse
     assert "no CLI or skills were changed" in result.stdout
     assert "git rev-parse --git-path hooks/pre-push" in result.stdout
     assert 'rm -- "$hook_path"' in result.stdout
+
+
+def test_uninstaller_refuses_to_continue_until_enter_is_received(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    operation_log = tmp_path / "operations.log"
+    _executable(
+        bin_dir / "uv",
+        '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$OPERATION_LOG"\n',
+    )
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "OPERATION_LOG": str(operation_log),
+    }
+
+    result = subprocess.run(
+        [str(UNINSTALLER)],
+        cwd=tmp_path,
+        env=env,
+        input="",
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "press Enter after project cleanup" in result.stderr
+    assert not operation_log.exists()
 
 
 def test_installers_are_executable_and_included_in_the_source_distribution():

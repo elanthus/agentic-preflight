@@ -2,6 +2,26 @@
 
 set -euo pipefail
 
+prompt_for_repository_cleanup() {
+    cat <<'EOF'
+Before uninstalling the agent skill and CLI, remove agentic-preflight from every
+repository where `agentic-preflight init` was run.
+
+For each repository, open it in your coding agent and enter this exact trigger phrase:
+
+  agentic-preflight:uninstall
+
+The skill will remove that repository's .agentic-preflight.toml and its managed
+pre-push hook logic while preserving run history, attestations, and unrelated hooks.
+
+Return here after doing this in every repository, then press Enter to continue.
+EOF
+    if ! IFS= read -r; then
+        echo "error: uninstall paused; press Enter after project cleanup to continue" >&2
+        exit 1
+    fi
+}
+
 print_hook_instructions() {
     cat <<'EOF'
 
@@ -25,10 +45,13 @@ To remove the pre-push hook from each repository that used agentic-preflight:
      the agentic-preflight hook-check invocation and its associated wrapper logic.
 
 Repeat these steps for every clone where `agentic-preflight init` installed a hook.
-The preserved .agentic-preflight.toml files, run history, and Git-note attestations may
-be kept for audit history or removed separately after review.
+Also remove that repository's .agentic-preflight.toml if it is still present. Run
+history and Git-note attestations are preserved for audit history unless removed
+separately after review.
 EOF
 }
+
+prompt_for_repository_cleanup
 
 if ! command -v uv >/dev/null 2>&1; then
     echo "error: uv is required to uninstall agentic-preflight" >&2
@@ -55,5 +78,5 @@ echo "Uninstalling the agentic-preflight CLI"
 uv tool uninstall agentic-preflight
 
 echo "agentic-preflight has been uninstalled."
-echo "Repository configs, Git hooks, run history, and attestations were left intact."
+echo "Run history and attestations were left intact."
 print_hook_instructions

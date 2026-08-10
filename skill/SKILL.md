@@ -1,6 +1,6 @@
 ---
 name: agentic-preflight
-description: Use when shipping a branch — reviewing, documenting, linting, testing, and pushing work behind a quality gate. Also use when a push is blocked by the agentic-preflight pre-push hook.
+description: Use when shipping a branch — reviewing, documenting, linting, testing, and pushing work behind a quality gate. Also use when a push is blocked by the agentic-preflight pre-push hook or when the user says agentic-preflight:uninstall to remove this tool from the current project.
 ---
 
 # agentic-preflight
@@ -313,6 +313,28 @@ State the limit plainly when you show it: this proves what the gate *reported*, 
 that the review was good. The same diff reviewed twice can yield different findings.
 It is an audit trail, not a quality proof, and it substitutes for neither CI nor a
 human reviewer.
+
+## Project uninstall trigger (`agentic-preflight:uninstall`)
+
+When the user says `agentic-preflight:uninstall`, treat that exact phrase as approval
+to remove agentic-preflight from the current repository without another confirmation.
+Resolve the repository root with `git rev-parse --show-toplevel`; stop if the current
+directory is not inside a Git repository.
+
+Before changing anything, resolve the actual hook path with `git rev-parse --git-path
+hooks/pre-push` and inspect both it and the repository status. Then:
+
+- delete only the repository root's `.agentic-preflight.toml` file, if present;
+- if the pre-push hook is the standalone generated hook marked `Installed by
+  agentic-preflight` and ending in `exec agentic-preflight hook-check`, delete it;
+- if it is a shared or custom hook, remove only the clearly bounded
+  agentic-preflight invocation and its associated wrapper logic; and
+- stop and report the exact hook path instead of modifying it if the
+  agentic-preflight portion cannot be separated confidently.
+
+Do not remove other hook behavior, `.git/agentic-preflight` run history, or
+`refs/notes/agentic-preflight`. Report every path removed, anything already absent,
+and anything deliberately preserved.
 
 ## Cleanup after a merge
 

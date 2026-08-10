@@ -9,8 +9,10 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 - An idempotent `install.sh` for installing or updating the CLI and managed Codex/Claude
   skill copies directly from a source checkout.
-- A conservative `uninstall.sh` that removes managed user-scoped skills and the CLI
-  while leaving every repository's configuration, hooks, run history, and attestations.
+- A conservative `uninstall.sh` that pauses for per-repository
+  `agentic-preflight:uninstall` cleanup before removing managed user-scoped skills and
+  the CLI. Project cleanup removes configuration and managed hook logic while preserving
+  unrelated hooks, run history, and attestations.
 - `[pr] mode = "auto" | "manual"`, defaulting to automatic pull-request creation after
   the user approves the push gate. Manual PR mode leaves creation to the user and reports
   a compare URL instead.
