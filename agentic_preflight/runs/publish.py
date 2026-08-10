@@ -60,14 +60,9 @@ def gate(session: Session) -> Envelope:
         risk=assessment.model_dump(mode="json"),
     )
 
-    if session.config.gate.mode == "manual" or assessment.requires_human_review:
-        reason = (
-            "deterministic path policy requires human review"
-            if assessment.requires_human_review
-            else "gate.mode is 'manual'"
-        )
+    if session.config.gate.mode == "manual":
         raise ManualGate(
-            f"{reason}, so agentic-preflight will not push on your behalf",
+            "gate.mode is 'manual', so agentic-preflight will not push on your behalf",
             state=run.state.value,
             run_id=run.run_id,
             data={
@@ -75,8 +70,8 @@ def gate(session: Session) -> Envelope:
                 "manual_command": f"git push --atomic origin {run.branch} {NOTES_REF}",
             },
             next_instruction=(
-                "Show the user this summary, including the matched policy paths, and "
-                "ask them to review the change and run the push themselves."
+                "Show the user this summary and ask them to review the change and run "
+                "the push themselves."
             ),
             next_command=f"git push --atomic origin {run.branch} {NOTES_REF}",
         )
@@ -92,8 +87,12 @@ def gate(session: Session) -> Envelope:
         run,
         data=summary.as_dict(),
         next_instruction=(
-            "Show the user the remote, branch, and commit list in plain language and "
-            "ask whether to push. Never push without asking."
+            "Show the user the remote, branch, commit list, and high-risk human-review "
+            "requirement in plain language, then ask whether to push. Never push "
+            "without asking."
+            if assessment.requires_human_review
+            else "Show the user the remote, branch, and commit list in plain language "
+            "and ask whether to push. Never push without asking."
         ),
         next_command=f"agentic-preflight push --confirm {summary.token}",
     )

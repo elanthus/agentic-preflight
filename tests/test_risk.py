@@ -54,7 +54,8 @@ def test_path_policy_classifies_risk_without_using_diff_size():
     high = _assess(["db/migrations/0042_add_index.sql"], policy=policy)
     medium = _assess(["dependencies/catalog.toml"], policy=policy)
     assert high.level is RiskLevel.HIGH
-    assert high.verdict is Verdict.CLEAR
+    assert high.verdict is Verdict.NEEDS_HUMAN
+    assert high.requires_human_review is True
     assert medium.level is RiskLevel.MEDIUM
 
 
@@ -81,7 +82,8 @@ def test_fixed_high_finding_keeps_high_risk_but_no_longer_blocks():
         [_finding(status=FindingStatus.FIXED)],
     )
     assert result.level is RiskLevel.HIGH
-    assert result.verdict is Verdict.CLEAR
+    assert result.verdict is Verdict.NEEDS_HUMAN
+    assert result.requires_human_review is True
     assert result.reasons[0].finding_id == "F001"
 
 
@@ -94,10 +96,10 @@ def test_ask_user_blocks_at_any_severity():
     assert result.verdict is Verdict.CHANGES_REQUIRED
 
 
-def test_human_policy_takes_precedence_over_an_open_finding():
+def test_changes_required_takes_precedence_until_the_finding_is_resolved():
     result = _assess(
         ["policy.yml"],
         [_finding()],
         PolicySection(human_review_paths=["policy.yml"]),
     )
-    assert result.verdict is Verdict.NEEDS_HUMAN
+    assert result.verdict is Verdict.CHANGES_REQUIRED

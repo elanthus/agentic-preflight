@@ -1,0 +1,64 @@
+name: Human approval policy
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  approval:
+    name: high-risk human approval
+    runs-on: ubuntu-latest
+    steps:
+      # pull_request_target is safe here because every executable comes from the
+      # protected base. The proposed branch is fetched only as inert Git data.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+
+      - name: Install the trusted policy checker
+        run: uv tool install --python 3.11 .
+
+      - name: Fetch the proposed head and its attestation
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REPOSITORY_URL: ${{ github.event.pull_request.head.repo.clone_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          source_remote=origin
+          if [ "$HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ]; then
+            git remote add preflight-contributor "$HEAD_REPOSITORY_URL"
+            source_remote=preflight-contributor
+          fi
+          git fetch --no-tags "$source_remote" \
+            "refs/heads/$HEAD_REF:refs/remotes/preflight/head"
+          test "$(git rev-parse refs/remotes/preflight/head)" = "$HEAD_SHA"
+          git fetch --force --no-tags "$source_remote" \
+            "refs/notes/agentic-preflight:refs/notes/agentic-preflight"
+
+      - name: Enforce approval for the exact high-risk head
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          reviews_file="$RUNNER_TEMP/pull-request-reviews.json"
+          gh api --paginate --slurp \
+            "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews?per_page=100" \
+            > "$reviews_file"
+          agentic-preflight approval-check "$HEAD_SHA" \
+            --base "$BASE_SHA" \
+            --reviews-file "$reviews_file" \
+            --author "$PR_AUTHOR"

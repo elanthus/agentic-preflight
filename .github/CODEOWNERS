@@ -4,6 +4,7 @@
 /.agentic-preflight.toml @elanthus
 /.github/CODEOWNERS @elanthus
 /.github/workflows/ @elanthus
+/agentic_preflight/ @elanthus
 /agentic_preflight/attestation.py @elanthus
 /agentic_preflight/config.py @elanthus
 /agentic_preflight/hook.py @elanthus

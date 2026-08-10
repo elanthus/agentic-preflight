@@ -7,6 +7,7 @@ pure query except where the name says otherwise.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -151,13 +152,37 @@ def write_note(cwd: Path | str, notes_ref: str, sha: str, payload: str) -> None:
 
 
 def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> bool:
-    """Fast-forward the local notes ref, tolerating a remote with no notes yet."""
-    result = run(cwd, "fetch", remote, f"{notes_ref}:{notes_ref}", check=False)
-    if result.returncode == 0:
+    """Reconcile remote notes without discarding locally-created attestations."""
+    fetched_ref = f"refs/agentic-preflight/fetched-notes-{os.getpid()}"
+    result = run(cwd, "fetch", remote, f"+{notes_ref}:{fetched_ref}", check=False)
+    if result.returncode != 0:
+        if "couldn't find remote ref" in result.stderr.lower():
+            return False
+        raise GitError(
+            ["fetch", remote, f"+{notes_ref}:{fetched_ref}"], result.returncode, result.stderr
+        )
+
+    try:
+        local = run(cwd, "rev-parse", "--verify", notes_ref, check=False)
+        if local.returncode != 0:
+            run(cwd, "update-ref", notes_ref, fetched_ref)
+        elif is_ancestor(cwd, fetched_ref, notes_ref):
+            # Local notes are already a strict superset of the remote history.
+            pass
+        elif is_ancestor(cwd, notes_ref, fetched_ref):
+            run(cwd, "update-ref", notes_ref, fetched_ref)
+        else:
+            merged = run(cwd, "notes", f"--ref={notes_ref}", "merge", fetched_ref, check=False)
+            if merged.returncode != 0:
+                run(cwd, "notes", f"--ref={notes_ref}", "merge", "--abort", check=False)
+                raise GitError(
+                    ["notes", f"--ref={notes_ref}", "merge", fetched_ref],
+                    merged.returncode,
+                    merged.stderr,
+                )
         return True
-    if "couldn't find remote ref" in result.stderr.lower():
-        return False
-    raise GitError(["fetch", remote, f"{notes_ref}:{notes_ref}"], result.returncode, result.stderr)
+    finally:
+        run(cwd, "update-ref", "-d", fetched_ref, check=False)
 
 
 # -- diff -------------------------------------------------------------------

@@ -85,7 +85,6 @@ def assess(
             )
         )
 
-    requires_human = any(reason.kind == "human_review_path" for reason in reasons)
     configured_blocking = {
         Stage.REVIEW: {Severity(value) for value in review_blocking_severities},
         Stage.DOCS: {Severity(value) for value in docs_blocking_severities},
@@ -104,11 +103,12 @@ def assess(
         key=lambda candidate: _RANK[candidate],
         default=RiskLevel.LOW,
     )
+    requires_human = level is RiskLevel.HIGH
     verdict = (
-        Verdict.NEEDS_HUMAN
-        if requires_human
-        else Verdict.CHANGES_REQUIRED
+        Verdict.CHANGES_REQUIRED
         if has_open_blocker
+        else Verdict.NEEDS_HUMAN
+        if requires_human
         else Verdict.CLEAR
     )
     return RiskAssessment(

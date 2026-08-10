@@ -8,11 +8,14 @@ All notable changes to Agentic Preflight are documented here. This project follo
 ### Added
 
 - Deterministic path-based risk classification with separate low, medium, and high
-  levels. `[policy] human_review_paths` forces a manual final gate, while high- and
-  medium-risk path rules classify without conflating risk with the diff byte budget.
+  levels. High risk requires human approval of the exact pull-request head before merge,
+  while publication still uses the normal confirmation-token gate. Risk remains separate
+  from the diff byte budget.
 - A pull-request attestation job that runs the verifier from the protected base commit
   and fetches attestations from same-repository branches or public forks. Governance
   surfaces now have a checked-in CODEOWNERS policy.
+- A trusted high-risk approval check that reruns on head and review changes and rejects
+  bot, self, stale-head, dismissed, and superseded approvals.
 - Green records are now portable Git-note attestations in
   `refs/notes/agentic-preflight`. Lint and test evidence includes the exact command,
   exit code, and SHA-256 of redacted captured output, and the normal push path sends
@@ -71,6 +74,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- Synchronizing attestations now preserves locally-ahead and disjoint remote note
+  histories. A valid local attestation no longer makes the next preflight start fail
+  with a non-fast-forward fetch; conflicting notes for the same commit still fail loud.
 - Manual CI runs are no longer cancelled by other CI activity. Every run on a ref
   shared one concurrency group with `cancel-in-progress`, so a manual run of the full
   matrix could be superseded by a push to `main` or by a second manual run. That is

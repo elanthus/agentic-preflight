@@ -102,8 +102,8 @@ def synchronize(
             f"+refs/heads/{branch}:{target_ref}",
         )
         # Keep the shared notes history current before this run eventually adds
-        # its own attestation. A non-fast-forward is left as a loud Git error so
-        # concurrent notes are never overwritten.
+        # its own attestation. Locally-ahead and disjoint histories are retained;
+        # a same-commit note conflict remains a loud Git error.
         gitx.fetch_notes(repo, "origin", NOTES_REF)
         remote = "origin"
 

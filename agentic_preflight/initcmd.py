@@ -24,7 +24,8 @@ enabled = true
 
 [policy]
 # These rules are evaluated by code, not by the reviewing model. Matching a
-# human-review path forces a manual final gate even when every stage is green.
+# human-review or high-risk path requires human approval before merge, while the
+# normal confirmation-token push remains available.
 human_review_paths = [
   ".agentic-preflight.toml",
   ".github/workflows/**",
@@ -62,7 +63,7 @@ dependency_setup = "auto"
 
 [gate]
 # "token" mints a confirmation token; "manual" refuses to push at all, so a
-# person must run the command themselves.
+# person must run the command themselves. Risk policy does not change this mode.
 mode = "token"
 
 [hook]

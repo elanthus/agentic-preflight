@@ -19,7 +19,7 @@ import click
 from . import runs
 from .config import ConfigError
 from .envelope import Envelope, ExitCode, emit
-from .errors import AgenticError, AttestationFailed
+from .errors import AgenticError, AttestationFailed, NeedsHuman
 from .gitx import GitError
 from .integrations import SUPPORTED_INTEGRATIONS, IntegrationOperation
 from .worktree import CopiedFileInCommit, CopyRefused, WorktreeError
@@ -185,6 +185,48 @@ def verify(sha: str | None) -> None:
         return
     session = runs.open_session()
     _finish(runs.verify(session))
+
+
+@main.command("approval-check")
+@click.argument("sha")
+@click.option("--base", "base_sha", required=True, help="Protected pull-request base SHA.")
+@click.option(
+    "--reviews-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=True,
+    help="JSON returned by GitHub's pull-request reviews API.",
+)
+@click.option("--author", required=True, help="Pull-request author's GitHub login.")
+@command
+def approval_check(sha: str, base_sha: str, reviews_file: Path, author: str) -> None:
+    """Require a current human approval when the attested change is high-risk."""
+    from . import approval as approvalmod
+    from . import gitx
+
+    try:
+        reviews = json.loads(reviews_file.read_text())
+        result = approvalmod.evaluate(
+            gitx.repo_root(Path.cwd()),
+            base_sha=base_sha,
+            head_sha=sha,
+            reviews=reviews,
+            pull_request_author=author,
+        )
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise AttestationFailed(
+            f"cannot evaluate human approval: {exc}",
+            data={"sha": sha, "base_sha": base_sha},
+        ) from exc
+    if result["requires_human_approval"] and not result["approved"]:
+        raise NeedsHuman(
+            "high-risk pull request requires a non-bot human approval for its exact head",
+            data=result,
+            next_instruction=(
+                "Ask an eligible human other than the pull-request author to review and "
+                "approve the current head, then rerun this check."
+            ),
+        )
+    _finish(Envelope(data=result))
 
 
 @main.command()

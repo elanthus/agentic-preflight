@@ -168,7 +168,7 @@ def test_manual_gate_mode_refuses_to_proceed_at_all(feature_repo, bare_remote, t
     assert "git push" in json.dumps(env["data"])
 
 
-def test_human_review_path_forces_manual_gate_even_in_token_mode(
+def test_human_review_path_allows_push_gate_and_marks_merge_review_requirement(
     feature_repo, bare_remote, tmp_path
 ):
     write(
@@ -187,9 +187,11 @@ def test_human_review_path_forces_manual_gate_even_in_token_mode(
     agent.run("stage", "run", "lint")
     agent.run("mergeback")
 
-    env = agent.run("gate", expect=ExitCode.NEEDS_HUMAN)
-    assert env["error"]["code"] == "manual_gate"
+    env = agent.run("gate")
+    assert env["state"] == "AWAITING_PUSH_CONFIRM"
+    assert env["data"]["token"]
     assert env["data"]["risk"]["verdict"] == "needs_human"
+    assert env["data"]["risk"]["requires_human_review"] is True
     assert env["data"]["risk"]["reasons"][0]["path"] == "src/app.py"
 
 

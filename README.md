@@ -112,9 +112,10 @@ lists the exact classification.
 
 Risk is classified separately from that execution scope and from diff size. Repository
 policy maps changed paths to `low`, `medium`, or `high`, and findings can raise the final
-risk. A match in `[policy] human_review_paths` produces the deterministic verdict
-`needs_human` and forces the final gate into manual mode even when every validation stage
-is green. The model reports findings; it cannot override the policy verdict.
+risk. Every high-risk result produces the deterministic verdict `needs_human`. It does
+not prevent an approved push: the hosted `high-risk human approval` check prevents the
+exact pull-request head from merging until a non-bot human other than the author approves
+it. The model reports findings; it cannot override the policy verdict.
 
 By default the run happens directly in the current checkout, which suits a clean,
 dedicated one-agent/one-PR worktree. Two isolated modes keep the source checkout
@@ -150,9 +151,9 @@ removes whatever behavior that hook previously provided.
 
 Successful merge-back writes a versioned JSON attestation as a Git note on the exact
 commit. The note includes the run identity, commit and tree hashes, finding summary,
-and a complete stage set. Green lint and test stages include the exact command, exit
-code, and SHA-256 of the redacted captured output. Explicitly skipped stages say why
-and carry no invented process evidence.
+finding status and severity totals, and a complete stage set. Green lint and test stages
+include the exact command, exit code, and SHA-256 of the redacted captured output.
+Explicitly skipped stages say why and carry no invented process evidence.
 
 `agentic-preflight push` atomically pushes the branch and
 `refs/notes/agentic-preflight`, so the attestation is not stranded in one clone. Git
@@ -191,6 +192,14 @@ base commit, then fetching the proposed commit and its note from the contributor
 remote. The pull request cannot change the verifier that judges it. Governance paths
 are also listed in `.github/CODEOWNERS`; enable **Require review from Code Owners** in
 the branch ruleset because the file alone only requests reviewers.
+
+High-risk merge approval is enforced by a separate `pull_request_target` workflow that
+also installs its policy checker from the protected base and never executes proposed
+branch content. It reruns when the head changes or a review is submitted or dismissed.
+For high-risk changes it accepts only an approval by a non-bot GitHub user other than the
+pull-request author, recorded against the exact current head. Make **high-risk human
+approval** a required status check on `main`; keep **Require review from Code Owners**
+enabled as the stricter ownership rule for sensitive paths.
 
 ## Limits
 
@@ -241,14 +250,14 @@ blocking_severities = ["critical", "high"]
 max_findings = 50
 
 [policy]
-# Matching these paths always forces the final gate to a person.
+# These ownership-sensitive paths are high-risk and require human merge approval.
 human_review_paths = [
   ".agentic-preflight.toml",
   ".github/workflows/**",
   ".github/CODEOWNERS",
   "CODEOWNERS",
 ]
-# These classify risk without forcing a manual gate.
+# Every high-risk result requires human merge approval; medium risk does not.
 high_risk_paths = ["db/migrations/**", "infra/**"]
 medium_risk_paths = ["dependencies/**"]
 

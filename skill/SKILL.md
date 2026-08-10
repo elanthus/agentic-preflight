@@ -261,9 +261,11 @@ At the gate, show the user — in plain prose, not JSON:
 Then ask, plainly: *"Ready to push this to `origin/feature-x`?"* Wait for a real
 answer. "Proceed" from a previous step is not consent for this one.
 
-If path policy returns `needs_human`, `gate` exits 4 and hands back a literal push
-command. Show the matched paths and stop. The person must review the change and run that
-command; a token-mode configuration cannot weaken the path policy.
+If risk returns `needs_human`, explain that the branch may be pushed after the usual user
+confirmation but must not merge until the hosted `high-risk human approval` check passes.
+That check accepts only a non-bot human other than the pull-request author and binds the
+approval to the exact current head. Only an explicit `[gate] mode = "manual"` hands the
+push itself to a person.
 
 For `ask_user` findings, present the trade-off and let them choose. Do not present a
 decision you have already made as if it were a question.
