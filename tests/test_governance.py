@@ -24,6 +24,17 @@ def test_high_risk_approval_runs_trusted_code_and_rechecks_on_reviews():
     assert "ref: ${{ github.event.pull_request.base.sha }}" in workflow
     assert "high-risk human approval" in workflow
     assert "agentic-preflight approval-check" in workflow
+    assert "--report-only" in workflow
+    assert "auto_merge_enabled" in workflow
+    assert "auto_merge_disabled" in workflow
+    assert ".auto_merge != null" in workflow
+    assert "Disable auto-merge" in workflow
+    assert "manual_merge" in workflow
+    assert "peer_review" in workflow
+    assert "owner environment approval" in workflow
+    assert "needs.policy.outputs.environment" in workflow
+    assert "actions: read" in workflow
+    assert "Environment $approval_environment must exist with a required reviewer." in workflow
 
 
 def test_codeowners_protects_the_policy_and_verifier_surfaces():

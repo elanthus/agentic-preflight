@@ -48,6 +48,13 @@ cd your-repo
 agentic-preflight init
 ```
 
+When working from this source checkout, `./install.sh` installs or updates the CLI and
+both bundled agent skills in one step. Pass `codex` or `claude` to install only one.
+Run `./uninstall.sh` to remove the managed skills and CLI. It pauses first so you can
+enter `agentic-preflight:uninstall` in every initialized repository; that trigger
+removes the repository configuration and managed hook logic while preserving unrelated
+hooks, run history, and attestations.
+
 `init` writes `.agentic-preflight.toml` and installs an advisory pre-push hook. Make and
 commit a change, then try to push it before validation:
 
@@ -71,14 +78,16 @@ $ agentic-preflight start --intent "Add retries and document the failure policy"
 $ agentic-preflight context | jq -c '{ok,state,data:{changed_files:.data.changed_files},next}'
 {"ok":true,"state":"REVIEW_AWAITING_FINDINGS","data":{"changed_files":[".agentic-preflight.toml","change.txt"]},"next":{"command":"agentic-preflight submit-findings --file findings.json","instruction":"Review the diff, then submit findings (an empty list is a valid outcome)."}}
 ... review, test, docs, and lint complete ...
-$ agentic-preflight gate | jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch},next}'
-{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"d8697c2068b4853b","remote":"origin","branch":"demo"},"next":{"command":"agentic-preflight push --confirm d8697c2068b4853b","instruction":"Show the user the remote, branch, and commit list in plain language and ask whether to push. Never push without asking."}}
-$ agentic-preflight push --confirm d8697c2068b4853b | jq -c '{ok,state,data:{remote:.data.remote,branch:.data.branch},next}'
-{"ok":true,"state":"PUSHED","data":{"remote":"origin","branch":null},"next":{"command":"agentic-preflight finish","instruction":"Close the pushed validation run."}}
+$ agentic-preflight gate | jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch,pr_mode:.data.pr_mode,approval_mode:.data.approval_mode},next}'
+{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"d8697c2068b4853b","remote":"origin","branch":"demo","pr_mode":"auto","approval_mode":"manual_merge"},"next":{"command":"agentic-preflight push --confirm d8697c2068b4853b","instruction":"Show the user the remote, branch, and commit list in plain language, then ask whether to push. Never push without asking. This high-risk change requires the user to merge the pull request manually; do not merge it or enable auto-merge. After the confirmed push and preflight finish, automatically open or reuse the pull request; auto mode is standing authorization, so do not ask again."}}
+$ agentic-preflight push --confirm d8697c2068b4853b | jq -c '{ok,state,data:{remote:.data.remote,branch:.data.branch,pr_mode:.data.pr_mode},next}'
+{"ok":true,"state":"PUSHED","data":{"remote":"origin","branch":"demo","pr_mode":"auto"},"next":{"command":"agentic-preflight finish","instruction":"Close the pushed validation run."}}
 ```
 
 The agent must show you the target remote, branch, and commits and obtain fresh approval
-before the final command. For a human-only final push, set `[gate] mode = "manual"`.
+before the final command. Automatic PR mode is standing authorization to open the PR
+after that push completes, so PR creation has no separate prompt. For a human-only final
+push, set `[gate] mode = "manual"`.
 
 Installing a single agent, checking a skill into one repository, upgrading, and using
 other Agent Skills clients are covered in
@@ -94,9 +103,10 @@ start --intent "..." → fetch/rebase → context → submit-findings → verify
       → mergeback → gate → push → finish → gc
 ```
 
-After the atomic push, use the forge normally. For GitHub, the skill uses `gh` directly
-to create a pull request and inspect its checks; those hosted lifecycle operations are
-not part of the stateful preflight CLI.
+After the atomic push, use the forge normally. In automatic PR mode, the skill uses `gh`
+directly to create a pull request and inspect its checks. In manual PR mode, it gives the
+user a compare URL instead. Those hosted lifecycle operations are not part of the
+stateful preflight CLI.
 
 `start` requires the user's objective and acceptance criteria, fetches `origin`, and
 rebases the validation checkout onto the fresh base before review. The agent drives the
@@ -113,10 +123,9 @@ lists the exact classification.
 Risk is classified separately from that execution scope and from diff size. Repository
 policy maps changed paths to `low`, `medium`, or `high`, and findings can raise the final
 risk. Every high-risk result produces the deterministic verdict `needs_human`. It does
-not prevent an approved push: the hosted `high-risk human approval` check prevents the
-exact pull-request head from merging until a repository owner, member, or collaborator
-other than the author approves it. The model reports findings; it cannot override the
-policy verdict.
+not prevent an approved push. The configured approval mode then requires a manual merge,
+a GitHub Environment approval, or an exact-head peer review before merge. The model
+reports findings; it cannot override the policy verdict.
 
 By default the run happens directly in the current checkout, which suits a clean,
 dedicated one-agent/one-PR worktree. Two isolated modes keep the source checkout
@@ -194,13 +203,17 @@ remote. The pull request cannot change the verifier that judges it. Governance p
 are also listed in `.github/CODEOWNERS`; enable **Require review from Code Owners** in
 the branch ruleset because the file alone only requests reviewers.
 
-High-risk merge approval is enforced by a separate `pull_request_target` workflow that
+High-risk merge handling is enforced by a separate `pull_request_target` workflow that
 also installs its policy checker from the protected base and never executes proposed
 branch content. It reruns when the head changes or a review is submitted or dismissed.
-For high-risk changes it accepts only an approval by a repository-associated, non-bot
-GitHub user other than the pull-request author, recorded against the exact current head.
-Make **high-risk human approval** a required status check on `main`; keep **Require review
-from Code Owners** enabled as the stricter ownership rule for sensitive paths.
+The default `manual_merge` mode reports success only while GitHub auto-merge is disabled,
+and instructs the agent never to merge or enable auto-merge. `environment` pauses a
+dedicated job at the configured GitHub Environment, and `peer_review` retains the
+exact-head approval rule for an eligible person other than the pull-request author. Make
+**high-risk human approval** a required status check on `main`; keep **Require review from
+Code Owners** enabled as the stricter ownership rule for sensitive paths. Because the
+workflow and policy are loaded from the protected base, a pull request that changes
+approval mode is judged by the old mode until that change is merged.
 
 ## Limits
 
@@ -287,6 +300,13 @@ strict = true                 # never fall back when a pin cannot be activated
 [gate]
 mode = "token"               # or "manual"
 
+[pr]
+mode = "auto"                # default; "manual" reports a compare URL instead
+
+[approval]
+mode = "manual_merge"        # default; or "environment" / "peer_review"
+environment = "high-risk-review" # GitHub Environment used by environment mode
+
 [hook]
 enabled = true
 allow_force_push = false
@@ -296,6 +316,18 @@ allow_force_push = false
 The resolved configuration is snapshotted when `start` creates a run, so editing
 `.agentic-preflight.toml` afterward does not change that run. Commit configuration
 changes before starting the run they should affect.
+
+`[gate] mode` and `[pr] mode` are independent. The gate decides who performs the push;
+PR mode decides what happens after an approved push. In `auto` mode, the committed
+configuration authorizes the agent to open the PR automatically after preflight finishes.
+In `manual` mode, the agent never opens the pull request and reports a compare URL for
+the user instead.
+
+`[approval] mode` controls high-risk merge handling. `manual_merge` makes the hosted
+check succeed only while auto-merge is disabled and requires the user to perform the
+merge; the agent must never merge or enable auto-merge. `environment` requires approval
+through the named GitHub Environment. `peer_review` preserves the eligible, non-author,
+exact-head pull-request review rule.
 
 The documentation surface and oversized-diff handling are described in
 [docs/configuration.md](docs/configuration.md).
@@ -318,8 +350,8 @@ The documentation surface and oversized-diff handling are described in
 - Python 3.11+
 - git 2.30+
 - Bash
-- `gh` (optional; only for opening pull requests: it owns auth, we never handle
-  credentials)
+- `gh` (optional; used for pull requests, hosted checks, and merge verification during
+  cleanup; it owns auth, we never handle credentials)
 
 ## Development
 

@@ -166,6 +166,40 @@ def test_the_skill_documents_the_findings_id_prohibition():
         assert "stage" in text
 
 
+def test_the_skill_documents_both_pr_modes_and_their_approval_boundary():
+    text = SKILL.read_text()
+    assert '[pr] mode = "auto"' in text
+    assert '[pr] mode = "manual"' in text
+    assert "standing authorization" in text
+    assert "never open the PR for them" in text
+
+
+def test_the_skill_documents_all_high_risk_approval_modes():
+    text = SKILL.read_text()
+    assert "`manual_merge`" in text
+    assert "`environment`" in text
+    assert "`peer_review`" in text
+    assert "never merge or enable auto-merge" in text
+
+    configuration = (README.parent / "docs" / "configuration.md").read_text()
+    assert '`mode = "manual_merge"` is the default' in configuration
+
+
+def test_an_explicit_cleanup_request_needs_no_second_approval():
+    text = SKILL.read_text()
+    assert "cleanup in the same turn without asking again" in text
+    assert "delete the local PR source branch and the remote PR source branch" in text
+
+
+def test_the_skill_documents_the_project_uninstall_trigger_and_scope():
+    text = SKILL.read_text()
+    assert "agentic-preflight:uninstall" in text
+    assert "without another confirmation" in text
+    assert ".agentic-preflight.toml" in text
+    assert "Do not remove other hook behavior" in text
+    assert "refs/notes/agentic-preflight" in text
+
+
 def test_the_docs_rubric_leads_with_the_obligation_test():
     text = (REFERENCE / "docs-rubric.md").read_text()
     assert "Would a reader following the current documentation now be wrong?" in text

@@ -261,6 +261,8 @@ def status(session: Session) -> Envelope:
             "worktree_mode": _worktree_mode(run, session.config),
             "worktree_released": run.worktree_released,
             "config_digest": run.config_digest,
+            "pr_mode": session.config.pr.mode,
+            "approval_mode": session.config.approval.mode,
             "gate_token": run.gate_token,
             "pushed_sha": run.pushed_sha,
             "fix_commits": run.fix_commits,

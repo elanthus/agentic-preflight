@@ -122,10 +122,14 @@ a fresh clone. A missing or invalid note exits 2.
 ### `agentic-preflight approval-check SHA --base SHA --reviews-file PATH --author LOGIN`
 CI-facing merge policy for an attested pull-request head. It recomputes path risk from
 the protected base configuration and uses attested finding-severity totals. Low- and
-medium-risk changes pass without a review. High-risk changes exit 4 until a repository
-owner, member, or collaborator other than the pull-request author has an `APPROVED`
-review for the exact current head. Later dismissal or changes-requested reviews revoke
-that person's approval.
+medium-risk changes pass without a review. High-risk handling follows `[approval] mode`:
+`manual_merge` reports success while requiring the user to merge manually (the trusted
+workflow separately rejects enabled GitHub auto-merge); `environment` exits 4 until
+`--environment-approved` is supplied by the trusted Environment job; and `peer_review`
+exits 4 until an eligible non-author has an `APPROVED` review for the exact current head.
+Later dismissal or changes-requested reviews revoke that person's peer approval.
+`--report-only` reports conditional Environment or peer-review state without failing, so
+a trusted workflow can dispatch the appropriate hosted job.
 
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
 After review becomes green, the CLI automatically skips the software test command when
@@ -191,23 +195,32 @@ means re-verification is needed.
 
 ### `agentic-preflight gate`
 Mints a confirmation token and summarises the remote, refspec, branch, and commits.
-The summary also includes the deterministic risk classification and verdict. High risk
-does not change publication: after user confirmation, token mode may push it. The hosted
-required check then blocks merge until a human approves the exact pull-request head.
-Only `[gate] mode = "manual"` exits 4 and hands over the literal `git push` command for
-a person to run.
+The summary also includes the configured PR mode and deterministic risk classification
+and verdict. Always ask only whether to push. In `[pr] mode = "auto"`, the committed
+configuration is standing authorization to open or reuse the pull request automatically
+after the confirmed push and preflight finish. In manual PR mode, provide a compare URL
+instead. High risk does not change publication: after user confirmation, token mode may
+push it. The summary's `approval_mode` says whether the user must merge manually, a
+GitHub Environment must approve, or an eligible peer must approve the exact head. In
+`manual_merge`, never merge or enable auto-merge even when the hosted check is green.
+Only `[gate] mode = "manual"` exits 4 and hands over the literal `git push` command for a
+person to run.
 
 ### `agentic-preflight push --confirm TOKEN [--dry-run]`
 Requires the token from `gate` and atomically pushes both the branch and
-`refs/notes/agentic-preflight`. **Ask the user before running this.**
+`refs/notes/agentic-preflight`. **Ask the user before running this.** The token is a
+non-secret, run-state nonce that prevents an accidental push; it is readable through
+`status`, grants no GitHub access, and is not a security boundary.
 
 ### `agentic-preflight finish`
 Marks a pushed validation run `DONE`. It preserves the run directory and
 audit logs, clears the current-run pointer, and directs the next step to `gc`.
 
 Pull-request creation and hosted CI monitoring are deliberately outside this CLI. On
-GitHub, use `gh pr create`, `gh pr checks`, and `gh run view` after `finish`; branch
-cleanup remains an explicit host or forge operation.
+GitHub, automatic PR mode uses `gh pr create`, `gh pr checks`, and `gh run view` after
+`finish`; manual PR mode provides a compare URL and never creates the PR. Branch cleanup
+remains an explicit, run-scoped host or forge operation authorized by the user's cleanup
+request.
 
 ## Inspection and recovery
 

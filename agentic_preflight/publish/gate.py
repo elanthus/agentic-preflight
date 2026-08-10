@@ -22,6 +22,8 @@ class GateSummary:
     refspec: str
     branch: str
     base_ref: str
+    pr_mode: str
+    approval_mode: str
     commits: list[dict] = field(default_factory=list)
     risk: dict = field(default_factory=dict)
     token: str = ""
@@ -32,6 +34,8 @@ class GateSummary:
             "refspec": self.refspec,
             "branch": self.branch,
             "base_ref": self.base_ref,
+            "pr_mode": self.pr_mode,
+            "approval_mode": self.approval_mode,
             "commits": self.commits,
             "risk": self.risk,
             "token": self.token,

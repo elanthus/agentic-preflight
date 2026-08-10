@@ -24,8 +24,8 @@ enabled = true
 
 [policy]
 # These rules are evaluated by code, not by the reviewing model. Matching a
-# human-review or high-risk path requires human approval before merge, while the
-# normal confirmation-token push remains available.
+# human-review or high-risk path invokes the configured approval mode before merge,
+# while the normal confirmation-token push remains available.
 human_review_paths = [
   ".agentic-preflight.toml",
   ".github/workflows/**",
@@ -65,6 +65,18 @@ dependency_setup = "auto"
 # "token" mints a confirmation token; "manual" refuses to push at all, so a
 # person must run the command themselves. Risk policy does not change this mode.
 mode = "token"
+
+[pr]
+# "auto" opens a pull request after the user approves the push gate. "manual"
+# leaves pull-request creation to the user and reports a compare URL instead.
+mode = "auto"
+
+[approval]
+# High-risk changes default to a successful hosted check that requires a person
+# to perform the merge. "environment" waits for the named GitHub Environment;
+# "peer_review" requires an eligible reviewer other than the pull-request author.
+mode = "manual_merge"
+environment = "high-risk-review"
 
 [hook]
 enabled = true

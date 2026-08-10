@@ -95,6 +95,15 @@ class GateSection(_Section):
     mode: str = "token"
 
 
+class PRSection(_Section):
+    mode: str = "auto"
+
+
+class ApprovalSection(_Section):
+    mode: str = "manual_merge"
+    environment: str = "high-risk-review"
+
+
 class HookSection(_Section):
     enabled: bool = True
     allow_force_push: bool = False
@@ -102,6 +111,8 @@ class HookSection(_Section):
 
 VALID_SEVERITIES = {"critical", "high", "medium", "low"}
 VALID_GATE_MODES = {"token", "manual"}
+VALID_PR_MODES = {"auto", "manual"}
+VALID_APPROVAL_MODES = {"manual_merge", "environment", "peer_review"}
 VALID_RUNTIME_MANAGERS = {
     "auto",
     "none",
@@ -129,6 +140,8 @@ class Config(BaseModel):
     worktree: WorktreeSection = Field(default_factory=WorktreeSection)
     runtime: RuntimeSection = Field(default_factory=RuntimeSection)
     gate: GateSection = Field(default_factory=GateSection)
+    pr: PRSection = Field(default_factory=PRSection)
+    approval: ApprovalSection = Field(default_factory=ApprovalSection)
     hook: HookSection = Field(default_factory=HookSection)
 
 
@@ -157,6 +170,17 @@ def _validate_enums(cfg: Config) -> None:
             f"[gate] mode: unknown mode {cfg.gate.mode!r}; "
             f"valid values are {sorted(VALID_GATE_MODES)}"
         )
+    if cfg.pr.mode not in VALID_PR_MODES:
+        raise ConfigError(
+            f"[pr] mode: unknown mode {cfg.pr.mode!r}; valid values are {sorted(VALID_PR_MODES)}"
+        )
+    if cfg.approval.mode not in VALID_APPROVAL_MODES:
+        raise ConfigError(
+            f"[approval] mode: unknown mode {cfg.approval.mode!r}; "
+            f"valid values are {sorted(VALID_APPROVAL_MODES)}"
+        )
+    if cfg.approval.mode == "environment" and not cfg.approval.environment.strip():
+        raise ConfigError("[approval] environment must not be empty")
     if cfg.runtime.manager not in VALID_RUNTIME_MANAGERS:
         raise ConfigError(
             f"[runtime] manager: unknown manager {cfg.runtime.manager!r}; "

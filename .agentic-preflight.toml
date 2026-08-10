@@ -31,3 +31,10 @@ medium_risk_paths = ["tests/**"]
 
 [diff]
 max_bytes = 500000
+
+[pr]
+mode = "auto"
+
+[approval]
+mode = "manual_merge"
+environment = "high-risk-review"

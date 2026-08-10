@@ -7,15 +7,29 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Added
 
+- An idempotent `install.sh` for installing or updating the CLI and managed Codex/Claude
+  skill copies directly from a source checkout.
+- A conservative `uninstall.sh` that pauses for per-repository
+  `agentic-preflight:uninstall` cleanup before removing managed user-scoped skills and
+  the CLI. Project cleanup removes configuration and managed hook logic while preserving
+  unrelated hooks, run history, and attestations.
+- `[pr] mode = "auto" | "manual"`, defaulting to automatic pull-request creation after
+  the user approves the push gate. Manual PR mode leaves creation to the user and reports
+  a compare URL instead.
+- `[approval] mode = "manual_merge" | "environment" | "peer_review"` for high-risk
+  pull requests. Manual merge is the default, Environment mode uses a configurable
+  GitHub Environment, and peer review retains the exact-head eligible-reviewer policy.
+  The trusted check rejects GitHub auto-merge while manual-merge mode is active.
 - Deterministic path-based risk classification with separate low, medium, and high
-  levels. High risk requires human approval of the exact pull-request head before merge,
-  while publication still uses the normal confirmation-token gate. Risk remains separate
-  from the diff byte budget.
+  levels. High risk invokes the configured merge-approval mode, while publication still
+  uses the normal confirmation-token gate. Risk remains separate from the diff byte
+  budget.
 - A pull-request attestation job that runs the verifier from the protected base commit
   and fetches attestations from same-repository branches or public forks. Governance
   surfaces now have a checked-in CODEOWNERS policy.
-- A trusted high-risk approval check that reruns on head and review changes and rejects
-  bot, unaffiliated, self, stale-head, dismissed, and superseded approvals.
+- A trusted high-risk approval check that dispatches manual-merge, Environment, and peer
+  review modes. Peer review rejects bot, unaffiliated, self, stale-head, dismissed, and
+  superseded approvals.
 - Green records are now portable Git-note attestations in
   `refs/notes/agentic-preflight`. Lint and test evidence includes the exact command,
   exit code, and SHA-256 of redacted captured output, and the normal push path sends
