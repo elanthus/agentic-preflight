@@ -35,7 +35,7 @@ def test_installer_reinstalls_the_checkout_and_refreshes_selected_skills(
     )
     _executable(
         bin_dir / "agentic-preflight",
-        "#!/bin/sh\n" 'printf \'%s\\n\' "$*" >> "$CLI_LOG"\n',
+        '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$CLI_LOG"\n',
     )
     env = {
         **os.environ,
@@ -72,7 +72,7 @@ def test_uninstaller_removes_managed_skills_before_the_uv_tool(tmp_path):
     )
     _executable(
         bin_dir / "agentic-preflight",
-        "#!/bin/sh\n" 'printf \'cli %s\\n\' "$*" >> "$OPERATION_LOG"\n',
+        '#!/bin/sh\nprintf \'cli %s\\n\' "$*" >> "$OPERATION_LOG"\n',
     )
     env = {
         **os.environ,

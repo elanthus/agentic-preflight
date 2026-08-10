@@ -165,8 +165,7 @@ def _validate_enums(cfg: Config) -> None:
         )
     if cfg.pr.mode not in VALID_PR_MODES:
         raise ConfigError(
-            f"[pr] mode: unknown mode {cfg.pr.mode!r}; "
-            f"valid values are {sorted(VALID_PR_MODES)}"
+            f"[pr] mode: unknown mode {cfg.pr.mode!r}; valid values are {sorted(VALID_PR_MODES)}"
         )
     if cfg.runtime.manager not in VALID_RUNTIME_MANAGERS:
         raise ConfigError(
