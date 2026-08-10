@@ -34,8 +34,8 @@ Python here never calls a model — every judgment in this workflow is yours.
    mid-run. In `reusable` or `strict` mode, make repairs only in the absolute
    `worktree_path` returned by the CLI.
 8. **Never merge a high-risk `manual_merge` pull request or enable auto-merge.** The
-   successful hosted check records that the user must perform the merge; it is not
-   authorization for the agent to merge.
+   hosted check fails while auto-merge is enabled; when successful, it records that the
+   user must perform the merge and is not authorization for the agent to merge.
 
 ## The loop
 
@@ -282,8 +282,9 @@ branch and give it to the user.
 If risk returns `needs_human`, explain that the branch may be pushed after the usual user
 confirmation, then follow the configured `[approval] mode`:
 
-- `manual_merge`: the hosted check reports success, but never merge or enable auto-merge;
-  tell the user that they must review and merge the pull request manually.
+- `manual_merge`: the hosted check reports success only while auto-merge is disabled;
+  never merge or enable auto-merge, and tell the user that they must review and merge the
+  pull request manually.
 - `environment`: wait for approval through the configured GitHub Environment before the
   hosted approval check can pass.
 - `peer_review`: require an eligible repository-associated person other than the author

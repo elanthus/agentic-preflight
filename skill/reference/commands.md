@@ -123,12 +123,13 @@ a fresh clone. A missing or invalid note exits 2.
 CI-facing merge policy for an attested pull-request head. It recomputes path risk from
 the protected base configuration and uses attested finding-severity totals. Low- and
 medium-risk changes pass without a review. High-risk handling follows `[approval] mode`:
-`manual_merge` reports success while requiring the user to merge manually; `environment`
-exits 4 until `--environment-approved` is supplied by the trusted Environment job; and
-`peer_review` exits 4 until an eligible non-author has an `APPROVED` review for the exact
-current head. Later dismissal or changes-requested reviews revoke that person's peer
-approval. `--report-only` reports conditional Environment or peer-review state without
-failing, so a trusted workflow can dispatch the appropriate hosted job.
+`manual_merge` reports success while requiring the user to merge manually (the trusted
+workflow separately rejects enabled GitHub auto-merge); `environment` exits 4 until
+`--environment-approved` is supplied by the trusted Environment job; and `peer_review`
+exits 4 until an eligible non-author has an `APPROVED` review for the exact current head.
+Later dismissal or changes-requested reviews revoke that person's peer approval.
+`--report-only` reports conditional Environment or peer-review state without failing, so
+a trusted workflow can dispatch the appropriate hosted job.
 
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
 After review becomes green, the CLI automatically skips the software test command when

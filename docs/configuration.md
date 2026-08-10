@@ -33,8 +33,9 @@ user agreement; the manual gate refuses to push and hands the command to a perso
 ## High-risk merge handling (`[approval]`)
 
 `mode = "manual_merge"` is the default. The hosted approval check reports success for a
-high-risk pull request, but the agent must never merge it or enable auto-merge. The user
-reviews and merges it manually.
+high-risk pull request only while GitHub auto-merge is disabled. It reruns when auto-merge
+is enabled or disabled. The agent must never merge the pull request or enable auto-merge;
+the user reviews and merges it manually.
 
 `mode = "environment"` routes high-risk approval through the GitHub Environment named by
 `environment` (default: `high-risk-review`). Configure that Environment's required

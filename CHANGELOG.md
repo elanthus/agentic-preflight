@@ -19,6 +19,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - `[approval] mode = "manual_merge" | "environment" | "peer_review"` for high-risk
   pull requests. Manual merge is the default, Environment mode uses a configurable
   GitHub Environment, and peer review retains the exact-head eligible-reviewer policy.
+  The trusted check rejects GitHub auto-merge while manual-merge mode is active.
 - Deterministic path-based risk classification with separate low, medium, and high
   levels. High risk invokes the configured merge-approval mode, while publication still
   uses the normal confirmation-token gate. Risk remains separate from the diff byte

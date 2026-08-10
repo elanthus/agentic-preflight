@@ -206,14 +206,14 @@ the branch ruleset because the file alone only requests reviewers.
 High-risk merge handling is enforced by a separate `pull_request_target` workflow that
 also installs its policy checker from the protected base and never executes proposed
 branch content. It reruns when the head changes or a review is submitted or dismissed.
-The default `manual_merge` mode reports success while instructing the agent never to
-merge or enable auto-merge. `environment` pauses a dedicated job at the configured
-GitHub Environment, and `peer_review` retains the exact-head approval rule for an
-eligible person other than the pull-request author. Make **high-risk human approval** a
-required status check on `main`; keep **Require review from Code Owners** enabled as the
-stricter ownership rule for sensitive paths. Because the workflow and policy are loaded
-from the protected base, a pull request that changes approval mode is judged by the old
-mode until that change is merged.
+The default `manual_merge` mode reports success only while GitHub auto-merge is disabled,
+and instructs the agent never to merge or enable auto-merge. `environment` pauses a
+dedicated job at the configured GitHub Environment, and `peer_review` retains the
+exact-head approval rule for an eligible person other than the pull-request author. Make
+**high-risk human approval** a required status check on `main`; keep **Require review from
+Code Owners** enabled as the stricter ownership rule for sensitive paths. Because the
+workflow and policy are loaded from the protected base, a pull request that changes
+approval mode is judged by the old mode until that change is merged.
 
 ## Limits
 
@@ -324,9 +324,10 @@ In `manual` mode, the agent never opens the pull request and reports a compare U
 the user instead.
 
 `[approval] mode` controls high-risk merge handling. `manual_merge` makes the hosted
-check succeed but requires the user to perform the merge; the agent must never merge or
-enable auto-merge. `environment` requires approval through the named GitHub Environment.
-`peer_review` preserves the eligible, non-author, exact-head pull-request review rule.
+check succeed only while auto-merge is disabled and requires the user to perform the
+merge; the agent must never merge or enable auto-merge. `environment` requires approval
+through the named GitHub Environment. `peer_review` preserves the eligible, non-author,
+exact-head pull-request review rule.
 
 The documentation surface and oversized-diff handling are described in
 [docs/configuration.md](docs/configuration.md).

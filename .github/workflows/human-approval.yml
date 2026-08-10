@@ -2,7 +2,8 @@ name: Human approval policy
 
 on:
   pull_request_target:
-    types: [opened, reopened, synchronize, ready_for_review]
+    types:
+      [opened, reopened, synchronize, ready_for_review, auto_merge_enabled, auto_merge_disabled]
   pull_request_review:
     types: [submitted, dismissed]
 
@@ -75,6 +76,15 @@ jobs:
           approval_mode=$(jq -r '.data.approval_mode' "$result_file")
           approval_environment=$(jq -r '.data.approval_environment' "$result_file")
           requires_approval=$(jq -r '.data.requires_human_approval' "$result_file")
+          if [ "$requires_approval" = "true" ] && [ "$approval_mode" = "manual_merge" ]; then
+            auto_merge=$(gh api \
+              "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+              --jq '.auto_merge != null')
+            if [ "$auto_merge" = "true" ]; then
+              echo "Disable auto-merge; this high-risk pull request requires a manual merge." >&2
+              exit 1
+            fi
+          fi
           if [ "$requires_approval" = "true" ] && [ "$approval_mode" = "environment" ]; then
             environments_file="$RUNNER_TEMP/environments.json"
             gh api --paginate --slurp \
