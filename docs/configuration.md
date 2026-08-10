@@ -30,6 +30,28 @@ compare URL instead.
 This is independent of `[gate] mode`. The token gate lets the agent push after explicit
 user agreement; the manual gate refuses to push and hands the command to a person.
 
+## High-risk merge handling (`[approval]`)
+
+`mode = "manual_merge"` is the default. The hosted approval check reports success for a
+high-risk pull request, but the agent must never merge it or enable auto-merge. The user
+reviews and merges it manually.
+
+`mode = "environment"` routes high-risk approval through the GitHub Environment named by
+`environment` (default: `high-risk-review`). Configure that Environment's required
+reviewers in the repository settings. The final hosted check passes only after the
+Environment job is approved and completes. The policy job fails closed if the Environment
+does not exist or has no required reviewer. For a solo repository, select the owner as
+the required reviewer and leave **Prevent self-review** disabled. GitHub plan restrictions
+may limit required reviewers for private repositories.
+
+`mode = "peer_review"` retains the original pull-request-review policy: an eligible
+repository owner, member, or collaborator other than the author must approve the exact
+current head.
+
+The policy checker reads trusted configuration from the protected base commit. A pull
+request that changes `[approval]` is therefore evaluated under the old base-branch mode;
+the new mode applies to subsequent pull requests after merge.
+
 ## The documentation surface (`[docs]`)
 
 The docs stage inspects `README*`, `docs/**`, agent instructions such as `.claude/rules/**`
@@ -97,8 +119,8 @@ a large change dangerous. `[policy]` classifies the paths changed by the branch:
 
 - `human_review_paths` marks ownership-sensitive paths as high risk and records the
   specific policy match for reviewers.
-- `high_risk_paths` assigns high risk. Every high-risk result requires human approval
-  before merge, but does not require a person to perform the push.
+- `high_risk_paths` assigns high risk. Every high-risk result uses the configured
+  approval mode before merge, but does not require a person to perform the push.
 - `medium_risk_paths` assigns medium risk. Unmatched changes start at low risk.
 
 Patterns are repo-relative and use the same gitignore-like glob matching as
@@ -112,6 +134,7 @@ The verdict is derived by ordinary code from the committed policy and stored fin
 the reviewing model cannot submit or override it. Protect the policy file with your
 forge's ownership rules so a change cannot quietly remove its own human-review rule. On
 GitHub, make the repository's `high-risk human approval` job a required status check and
-require Code Owner reviews for the protected paths. The job evaluates trusted base code,
-accepts only repository owners, members, or collaborators, rejects bots and the
-pull-request author, and requires approval of the exact current head.
+require Code Owner reviews for the protected paths. The job evaluates trusted base code.
+Depending on `[approval] mode`, it records the manual-merge requirement, waits for the
+configured Environment, or accepts only an eligible non-bot, non-author approval of the
+exact current head.

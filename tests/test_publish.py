@@ -97,6 +97,7 @@ def test_gate_mints_a_token_and_summarises_what_would_be_pushed(verified):
     assert env["data"]["refspec"]
     assert env["data"]["commits"]
     assert env["data"]["pr_mode"] == "auto"
+    assert env["data"]["approval_mode"] == "manual_merge"
     assert "whether to push" in env["next"]["instruction"]
     assert "automatically open or reuse" in env["next"]["instruction"]
     assert "standing authorization" in env["next"]["instruction"]
@@ -238,6 +239,9 @@ def test_human_review_path_allows_push_gate_and_marks_merge_review_requirement(
     assert env["data"]["risk"]["verdict"] == "needs_human"
     assert env["data"]["risk"]["requires_human_review"] is True
     assert env["data"]["risk"]["reasons"][0]["path"] == "src/app.py"
+    assert env["data"]["approval_mode"] == "manual_merge"
+    assert "must be merged manually by the user" in env["next"]["instruction"]
+    assert "must not merge it or enable auto-merge" in env["next"]["instruction"]
 
 
 def test_dry_run_push_changes_nothing(verified, bare_remote):

@@ -7,13 +7,19 @@ on:
     types: [submitted, dismissed]
 
 permissions:
+  actions: read
   contents: read
   pull-requests: read
 
 jobs:
-  approval:
-    name: high-risk human approval
+  policy:
+    name: evaluate high-risk approval policy
     runs-on: ubuntu-latest
+    outputs:
+      approved: ${{ steps.policy.outputs.approved }}
+      approval_mode: ${{ steps.policy.outputs.approval_mode }}
+      environment: ${{ steps.policy.outputs.environment }}
+      requires_approval: ${{ steps.policy.outputs.requires_approval }}
     steps:
       # pull_request_target is safe here because every executable comes from the
       # protected base. The proposed branch is fetched only as inert Git data.
@@ -46,7 +52,8 @@ jobs:
           git fetch --force --no-tags "$source_remote" \
             "refs/notes/agentic-preflight:refs/notes/agentic-preflight"
 
-      - name: Enforce approval for the exact high-risk head
+      - name: Evaluate approval policy for the exact head
+        id: policy
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GH_TOKEN: ${{ github.token }}
@@ -55,10 +62,78 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           reviews_file="$RUNNER_TEMP/pull-request-reviews.json"
+          result_file="$RUNNER_TEMP/approval-policy.json"
           gh api --paginate --slurp \
             "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews?per_page=100" \
             > "$reviews_file"
           agentic-preflight approval-check "$HEAD_SHA" \
             --base "$BASE_SHA" \
             --reviews-file "$reviews_file" \
-            --author "$PR_AUTHOR"
+            --author "$PR_AUTHOR" \
+            --report-only \
+            > "$result_file"
+          approval_mode=$(jq -r '.data.approval_mode' "$result_file")
+          approval_environment=$(jq -r '.data.approval_environment' "$result_file")
+          requires_approval=$(jq -r '.data.requires_human_approval' "$result_file")
+          if [ "$requires_approval" = "true" ] && [ "$approval_mode" = "environment" ]; then
+            environments_file="$RUNNER_TEMP/environments.json"
+            gh api --paginate --slurp \
+              "/repos/$GITHUB_REPOSITORY/environments?per_page=100" \
+              > "$environments_file"
+            jq -e --arg environment "$approval_environment" '
+              any(.[] | .environments[]?;
+                .name == $environment and
+                any(.protection_rules[]?;
+                  .type == "required_reviewers" and
+                  ((.reviewers // []) | length > 0)))
+            ' "$environments_file" > /dev/null || {
+              echo "Environment $approval_environment must exist with a required reviewer." >&2
+              exit 1
+            }
+          fi
+          echo "approved=$(jq -r '.data.approved' "$result_file")" >> "$GITHUB_OUTPUT"
+          echo "approval_mode=$approval_mode" >> "$GITHUB_OUTPUT"
+          echo "environment=$approval_environment" >> "$GITHUB_OUTPUT"
+          echo "requires_approval=$requires_approval" >> "$GITHUB_OUTPUT"
+
+  environment:
+    name: owner environment approval
+    needs: policy
+    if: >-
+      needs.policy.outputs.requires_approval == 'true' &&
+      needs.policy.outputs.approval_mode == 'environment'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ needs.policy.outputs.environment }}
+    steps:
+      - run: echo "Environment approval recorded for this workflow run."
+
+  approval:
+    name: high-risk human approval
+    needs: [policy, environment]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce the configured approval result
+        env:
+          APPROVED: ${{ needs.policy.outputs.approved }}
+          APPROVAL_MODE: ${{ needs.policy.outputs.approval_mode }}
+          ENVIRONMENT_RESULT: ${{ needs.environment.result }}
+          POLICY_RESULT: ${{ needs.policy.result }}
+          REQUIRES_APPROVAL: ${{ needs.policy.outputs.requires_approval }}
+        run: |
+          test "$POLICY_RESULT" = "success"
+          if [ "$REQUIRES_APPROVAL" != "true" ]; then
+            echo "No high-risk approval is required."
+          elif [ "$APPROVAL_MODE" = "manual_merge" ]; then
+            echo "High-risk change verified; a person must perform the merge manually."
+          elif [ "$APPROVAL_MODE" = "environment" ]; then
+            test "$ENVIRONMENT_RESULT" = "success"
+            echo "GitHub Environment approval recorded for the exact workflow run."
+          elif [ "$APPROVAL_MODE" = "peer_review" ]; then
+            test "$APPROVED" = "true"
+            echo "Eligible peer approval recorded for the exact head."
+          else
+            echo "Unknown approval mode: $APPROVAL_MODE" >&2
+            exit 1
+          fi

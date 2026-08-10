@@ -78,8 +78,8 @@ $ agentic-preflight start --intent "Add retries and document the failure policy"
 $ agentic-preflight context | jq -c '{ok,state,data:{changed_files:.data.changed_files},next}'
 {"ok":true,"state":"REVIEW_AWAITING_FINDINGS","data":{"changed_files":[".agentic-preflight.toml","change.txt"]},"next":{"command":"agentic-preflight submit-findings --file findings.json","instruction":"Review the diff, then submit findings (an empty list is a valid outcome)."}}
 ... review, test, docs, and lint complete ...
-$ agentic-preflight gate | jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch,pr_mode:.data.pr_mode},next}'
-{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"d8697c2068b4853b","remote":"origin","branch":"demo","pr_mode":"auto"},"next":{"command":"agentic-preflight push --confirm d8697c2068b4853b","instruction":"Show the user the remote, branch, and commit list in plain language, then ask whether to push. Never push without asking. Explain that merge still requires eligible human approval of the exact head. After the confirmed push and preflight finish, automatically open or reuse the pull request; auto mode is standing authorization, so do not ask again."}}
+$ agentic-preflight gate | jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch,pr_mode:.data.pr_mode,approval_mode:.data.approval_mode},next}'
+{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"d8697c2068b4853b","remote":"origin","branch":"demo","pr_mode":"auto","approval_mode":"manual_merge"},"next":{"command":"agentic-preflight push --confirm d8697c2068b4853b","instruction":"Show the user the remote, branch, and commit list in plain language, then ask whether to push. Never push without asking. This high-risk change requires the user to merge the pull request manually; do not merge it or enable auto-merge. After the confirmed push and preflight finish, automatically open or reuse the pull request; auto mode is standing authorization, so do not ask again."}}
 $ agentic-preflight push --confirm d8697c2068b4853b | jq -c '{ok,state,data:{remote:.data.remote,branch:.data.branch,pr_mode:.data.pr_mode},next}'
 {"ok":true,"state":"PUSHED","data":{"remote":"origin","branch":"demo","pr_mode":"auto"},"next":{"command":"agentic-preflight finish","instruction":"Close the pushed validation run."}}
 ```
@@ -123,10 +123,9 @@ lists the exact classification.
 Risk is classified separately from that execution scope and from diff size. Repository
 policy maps changed paths to `low`, `medium`, or `high`, and findings can raise the final
 risk. Every high-risk result produces the deterministic verdict `needs_human`. It does
-not prevent an approved push: the hosted `high-risk human approval` check prevents the
-exact pull-request head from merging until a repository owner, member, or collaborator
-other than the author approves it. The model reports findings; it cannot override the
-policy verdict.
+not prevent an approved push. The configured approval mode then requires a manual merge,
+a GitHub Environment approval, or an exact-head peer review before merge. The model
+reports findings; it cannot override the policy verdict.
 
 By default the run happens directly in the current checkout, which suits a clean,
 dedicated one-agent/one-PR worktree. Two isolated modes keep the source checkout
@@ -204,13 +203,17 @@ remote. The pull request cannot change the verifier that judges it. Governance p
 are also listed in `.github/CODEOWNERS`; enable **Require review from Code Owners** in
 the branch ruleset because the file alone only requests reviewers.
 
-High-risk merge approval is enforced by a separate `pull_request_target` workflow that
+High-risk merge handling is enforced by a separate `pull_request_target` workflow that
 also installs its policy checker from the protected base and never executes proposed
 branch content. It reruns when the head changes or a review is submitted or dismissed.
-For high-risk changes it accepts only an approval by a repository-associated, non-bot
-GitHub user other than the pull-request author, recorded against the exact current head.
-Make **high-risk human approval** a required status check on `main`; keep **Require review
-from Code Owners** enabled as the stricter ownership rule for sensitive paths.
+The default `manual_merge` mode reports success while instructing the agent never to
+merge or enable auto-merge. `environment` pauses a dedicated job at the configured
+GitHub Environment, and `peer_review` retains the exact-head approval rule for an
+eligible person other than the pull-request author. Make **high-risk human approval** a
+required status check on `main`; keep **Require review from Code Owners** enabled as the
+stricter ownership rule for sensitive paths. Because the workflow and policy are loaded
+from the protected base, a pull request that changes approval mode is judged by the old
+mode until that change is merged.
 
 ## Limits
 
@@ -300,6 +303,10 @@ mode = "token"               # or "manual"
 [pr]
 mode = "auto"                # default; "manual" reports a compare URL instead
 
+[approval]
+mode = "manual_merge"        # default; or "environment" / "peer_review"
+environment = "high-risk-review" # GitHub Environment used by environment mode
+
 [hook]
 enabled = true
 allow_force_push = false
@@ -315,6 +322,11 @@ PR mode decides what happens after an approved push. In `auto` mode, the committ
 configuration authorizes the agent to open the PR automatically after preflight finishes.
 In `manual` mode, the agent never opens the pull request and reports a compare URL for
 the user instead.
+
+`[approval] mode` controls high-risk merge handling. `manual_merge` makes the hosted
+check succeed but requires the user to perform the merge; the agent must never merge or
+enable auto-merge. `environment` requires approval through the named GitHub Environment.
+`peer_review` preserves the eligible, non-author, exact-head pull-request review rule.
 
 The documentation surface and oversized-diff handling are described in
 [docs/configuration.md](docs/configuration.md).

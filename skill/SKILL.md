@@ -33,6 +33,9 @@ Python here never calls a model — every judgment in this workflow is yours.
    `.agentic-preflight.toml` must be committed **before `start`** and must not be edited
    mid-run. In `reusable` or `strict` mode, make repairs only in the absolute
    `worktree_path` returned by the CLI.
+8. **Never merge a high-risk `manual_merge` pull request or enable auto-merge.** The
+   successful hosted check records that the user must perform the merge; it is not
+   authorization for the agent to merge.
 
 ## The loop
 
@@ -277,10 +280,16 @@ request; construct the forge compare URL from the repository URL, base branch, a
 branch and give it to the user.
 
 If risk returns `needs_human`, explain that the branch may be pushed after the usual user
-confirmation but must not merge until the hosted `high-risk human approval` check passes.
-That check accepts only a repository owner, member, or collaborator other than the
-pull-request author and binds the approval to the exact current head. Only an explicit
-`[gate] mode = "manual"` hands the push itself to a person.
+confirmation, then follow the configured `[approval] mode`:
+
+- `manual_merge`: the hosted check reports success, but never merge or enable auto-merge;
+  tell the user that they must review and merge the pull request manually.
+- `environment`: wait for approval through the configured GitHub Environment before the
+  hosted approval check can pass.
+- `peer_review`: require an eligible repository-associated person other than the author
+  to approve the exact current head.
+
+Only an explicit `[gate] mode = "manual"` hands the push itself to a person.
 
 For `ask_user` findings, present the trade-off and let them choose. Do not present a
 decision you have already made as if it were a question.

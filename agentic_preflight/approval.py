@@ -74,6 +74,7 @@ def evaluate(
     head_sha: str,
     reviews: object,
     pull_request_author: str,
+    environment_approved: bool = False,
 ) -> dict[str, Any]:
     """Evaluate whether the exact PR head satisfies its merge-review policy."""
     repo = Path(repo)
@@ -96,10 +97,21 @@ def evaluate(
         head_sha=value.sha,
         pull_request_author=pull_request_author,
     )
-    approved = not requires_approval or bool(approvers)
+    approval_mode = cfg.approval.mode
+    manual_merge_required = requires_approval and approval_mode == "manual_merge"
+    if not requires_approval or approval_mode == "manual_merge":
+        approved = True
+    elif approval_mode == "environment":
+        approved = environment_approved
+    else:
+        approved = bool(approvers)
     return {
         "approved": approved,
         "requires_human_approval": requires_approval,
+        "approval_mode": approval_mode,
+        "approval_environment": cfg.approval.environment,
+        "manual_merge_required": manual_merge_required,
+        "environment_approved": environment_approved,
         "risk_level": "high" if requires_approval else path_assessment.level.value,
         "head_sha": value.sha,
         "base_sha": gitx.rev_parse(repo, base_sha),

@@ -122,10 +122,13 @@ a fresh clone. A missing or invalid note exits 2.
 ### `agentic-preflight approval-check SHA --base SHA --reviews-file PATH --author LOGIN`
 CI-facing merge policy for an attested pull-request head. It recomputes path risk from
 the protected base configuration and uses attested finding-severity totals. Low- and
-medium-risk changes pass without a review. High-risk changes exit 4 until a repository
-owner, member, or collaborator other than the pull-request author has an `APPROVED`
-review for the exact current head. Later dismissal or changes-requested reviews revoke
-that person's approval.
+medium-risk changes pass without a review. High-risk handling follows `[approval] mode`:
+`manual_merge` reports success while requiring the user to merge manually; `environment`
+exits 4 until `--environment-approved` is supplied by the trusted Environment job; and
+`peer_review` exits 4 until an eligible non-author has an `APPROVED` review for the exact
+current head. Later dismissal or changes-requested reviews revoke that person's peer
+approval. `--report-only` reports conditional Environment or peer-review state without
+failing, so a trusted workflow can dispatch the appropriate hosted job.
 
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
 After review becomes green, the CLI automatically skips the software test command when
@@ -196,9 +199,11 @@ and verdict. Always ask only whether to push. In `[pr] mode = "auto"`, the commi
 configuration is standing authorization to open or reuse the pull request automatically
 after the confirmed push and preflight finish. In manual PR mode, provide a compare URL
 instead. High risk does not change publication: after user confirmation, token mode may
-push it. The hosted required check then blocks merge until a human approves the exact
-pull-request head. Only `[gate] mode = "manual"` exits 4 and hands over the literal
-`git push` command for a person to run.
+push it. The summary's `approval_mode` says whether the user must merge manually, a
+GitHub Environment must approve, or an eligible peer must approve the exact head. In
+`manual_merge`, never merge or enable auto-merge even when the hosted check is green.
+Only `[gate] mode = "manual"` exits 4 and hands over the literal `git push` command for a
+person to run.
 
 ### `agentic-preflight push --confirm TOKEN [--dry-run]`
 Requires the token from `gate` and atomically pushes both the branch and

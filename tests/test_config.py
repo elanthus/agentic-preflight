@@ -16,6 +16,8 @@ def test_defaults_apply_when_no_config_file_exists(tmp_repo, tmp_path):
     assert cfg.runtime.strict is True
     assert cfg.gate.mode == "token"
     assert cfg.pr.mode == "auto"
+    assert cfg.approval.mode == "manual_merge"
+    assert cfg.approval.environment == "high-risk-review"
     assert cfg.policy.human_review_paths == []
     assert cfg.policy.high_risk_paths == []
     assert cfg.policy.medium_risk_paths == []
@@ -101,6 +103,32 @@ def test_pr_modes_are_explicit_configuration_options(tmp_repo, tmp_path, mode):
     (tmp_repo / ".agentic-preflight.toml").write_text(f"[pr]\nmode = {mode!r}\n")
     cfg = load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
     assert cfg.pr.mode == mode
+
+
+def test_approval_mode_rejects_an_unknown_mode(tmp_repo, tmp_path):
+    (tmp_repo / ".agentic-preflight.toml").write_text("[approval]\nmode = 'hope'\n")
+    with pytest.raises(ConfigError) as exc:
+        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert "[approval] mode" in str(exc.value)
+
+
+@pytest.mark.parametrize("mode", ["manual_merge", "environment", "peer_review"])
+def test_approval_modes_are_explicit_configuration_options(tmp_repo, tmp_path, mode):
+    (tmp_repo / ".agentic-preflight.toml").write_text(
+        f"[approval]\nmode = {mode!r}\nenvironment = 'production-review'\n"
+    )
+    cfg = load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert cfg.approval.mode == mode
+    assert cfg.approval.environment == "production-review"
+
+
+def test_approval_environment_must_not_be_empty(tmp_repo, tmp_path):
+    (tmp_repo / ".agentic-preflight.toml").write_text(
+        "[approval]\nmode = 'environment'\nenvironment = '   '\n"
+    )
+    with pytest.raises(ConfigError) as exc:
+        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert "environment must not be empty" in str(exc.value)
 
 
 @pytest.mark.parametrize("pattern", ["", "/absolute/**", "src/../secrets/**"])

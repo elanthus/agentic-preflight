@@ -197,9 +197,26 @@ def verify(sha: str | None) -> None:
     help="JSON returned by GitHub's pull-request reviews API.",
 )
 @click.option("--author", required=True, help="Pull-request author's GitHub login.")
+@click.option(
+    "--environment-approved",
+    is_flag=True,
+    help="Record that the configured GitHub Environment gate released this job.",
+)
+@click.option(
+    "--report-only",
+    is_flag=True,
+    help="Report policy state without failing while a conditional approval job is pending.",
+)
 @command
-def approval_check(sha: str, base_sha: str, reviews_file: Path, author: str) -> None:
-    """Require a current human approval when the attested change is high-risk."""
+def approval_check(
+    sha: str,
+    base_sha: str,
+    reviews_file: Path,
+    author: str,
+    environment_approved: bool,
+    report_only: bool,
+) -> None:
+    """Enforce configured merge handling when the attested change is high-risk."""
     from . import approval as approvalmod
     from . import gitx
 
@@ -211,20 +228,36 @@ def approval_check(sha: str, base_sha: str, reviews_file: Path, author: str) -> 
             head_sha=sha,
             reviews=reviews,
             pull_request_author=author,
+            environment_approved=environment_approved,
         )
     except (ValueError, json.JSONDecodeError) as exc:
         raise AttestationFailed(
             f"cannot evaluate human approval: {exc}",
             data={"sha": sha, "base_sha": base_sha},
         ) from exc
-    if result["requires_human_approval"] and not result["approved"]:
-        raise NeedsHuman(
-            "high-risk pull request requires an eligible human approval for its exact head",
-            data=result,
-            next_instruction=(
+    if result["requires_human_approval"] and not result["approved"] and not report_only:
+        mode = result["approval_mode"]
+        if mode == "environment":
+            message = (
+                "high-risk pull request requires approval through GitHub Environment "
+                f"{result['approval_environment']!r}"
+            )
+            instruction = (
+                "Approve the waiting environment deployment for the exact current head, "
+                "then rerun this check with --environment-approved."
+            )
+        else:
+            message = (
+                "high-risk pull request requires an eligible human approval for its exact head"
+            )
+            instruction = (
                 "Ask an eligible human other than the pull-request author to review and "
                 "approve the current head, then rerun this check."
-            ),
+            )
+        raise NeedsHuman(
+            message,
+            data=result,
+            next_instruction=instruction,
         )
     _finish(Envelope(data=result))
 

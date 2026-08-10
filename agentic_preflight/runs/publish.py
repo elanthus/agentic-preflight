@@ -57,6 +57,7 @@ def gate(session: Session) -> Envelope:
         branch=run.branch,
         base_ref=run.base_ref,
         pr_mode=session.config.pr.mode,
+        approval_mode=session.config.approval.mode,
         commits=commits,
         risk=assessment.model_dump(mode="json"),
     )
@@ -85,11 +86,22 @@ def gate(session: Session) -> Envelope:
         run = doc
 
     opens_pr = session.config.pr.mode == "auto"
-    risk_instruction = (
-        " Explain that merge still requires eligible human approval of the exact head."
-        if assessment.requires_human_review
-        else ""
-    )
+    if not assessment.requires_human_review:
+        risk_instruction = ""
+    elif session.config.approval.mode == "manual_merge":
+        risk_instruction = (
+            " Explain that this high-risk pull request must be merged manually by the user; "
+            "the agent must not merge it or enable auto-merge."
+        )
+    elif session.config.approval.mode == "environment":
+        risk_instruction = (
+            " Explain that merge requires approval through GitHub Environment "
+            f"{session.config.approval.environment!r} for the exact workflow run."
+        )
+    else:
+        risk_instruction = (
+            " Explain that merge still requires eligible peer approval of the exact head."
+        )
     manual_pr_instruction = (
         " PR mode is manual, so do not open the pull request; give the user the compare URL "
         "after the push."

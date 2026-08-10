@@ -174,6 +174,17 @@ def test_the_skill_documents_both_pr_modes_and_their_approval_boundary():
     assert "never open the PR for them" in text
 
 
+def test_the_skill_documents_all_high_risk_approval_modes():
+    text = SKILL.read_text()
+    assert "`manual_merge`" in text
+    assert "`environment`" in text
+    assert "`peer_review`" in text
+    assert "never merge or enable auto-merge" in text
+
+    configuration = (README.parent / "docs" / "configuration.md").read_text()
+    assert '`mode = "manual_merge"` is the default' in configuration
+
+
 def test_an_explicit_cleanup_request_needs_no_second_approval():
     text = SKILL.read_text()
     assert "cleanup in the same turn without asking again" in text
