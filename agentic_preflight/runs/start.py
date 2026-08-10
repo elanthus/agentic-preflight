@@ -6,7 +6,7 @@ import hashlib
 import json
 
 from .. import dependencies as dependenciesmod
-from .. import gitx, runtime, worktree
+from .. import gitx, risk, runtime, worktree
 from .. import sync as syncmod
 from ..config import load_config
 from ..envelope import Envelope
@@ -219,6 +219,13 @@ def start(
         if in_place
         else worktree.copy_files(repo, wt_path, cfg.worktree.copy_files)
     )
+    assessment = risk.assess(
+        changed,
+        [],
+        policy=cfg.policy,
+        review_blocking_severities=cfg.review.blocking_severities,
+        docs_blocking_severities=cfg.docs.blocking_severities,
+    )
 
     setup_result = None
     if cfg.worktree.setup_command:
@@ -270,6 +277,8 @@ def start(
         doc.sync_base_sha = sync_result.base_sha
         doc.sync_base_ref = sync_result.base_ref
         doc.sync_remote = sync_result.remote
+        doc.changed_files = changed
+        doc.risk = assessment
         _apply(doc, Action.SYNC_PASSED)
         _apply(doc, Action.BEGIN_REVIEW)
         run = doc
@@ -281,6 +290,7 @@ def start(
             "path": str(wt_path),
             "mode": cfg.worktree.mode,
             "sync": sync_result.as_dict(),
+            "risk": assessment.model_dump(mode="json"),
         },
     )
 
@@ -301,6 +311,7 @@ def start(
             "intent_source": "user",
             "sync": sync_result.as_dict(),
             "changed_files": changed,
+            "risk": assessment.model_dump(mode="json"),
             # Names only. Contents are never read, logged, or echoed.
             "copied_files": copied,
             "setup": setup_result,

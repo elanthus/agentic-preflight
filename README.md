@@ -110,6 +110,12 @@ visible in `status` and the commit's attestation note. Any source or otherwise
 unclassified file keeps tests mandatory. [docs/change-scope.md](docs/change-scope.md)
 lists the exact classification.
 
+Risk is classified separately from that execution scope and from diff size. Repository
+policy maps changed paths to `low`, `medium`, or `high`, and findings can raise the final
+risk. A match in `[policy] human_review_paths` produces the deterministic verdict
+`needs_human` and forces the final gate into manual mode even when every validation stage
+is green. The model reports findings; it cannot override the policy verdict.
+
 By default the run happens directly in the current checkout, which suits a clean,
 dedicated one-agent/one-PR worktree. Two isolated modes keep the source checkout
 untouched during verification. All three, along with dependency handling and secret
@@ -180,6 +186,12 @@ Make that job a required status check in branch protection. The local hook remai
 fail-open and bypassable so it cannot brick a repository; the required remote check
 is what rejects a branch tip without an attestation.
 
+This repository dogfoods that check by installing the verifier from the protected PR
+base commit, then fetching the proposed commit and its note from the contributor's
+remote. The pull request cannot change the verifier that judges it. Governance paths
+are also listed in `.github/CODEOWNERS`; enable **Require review from Code Owners** in
+the branch ruleset because the file alone only requests reviewers.
+
 ## Limits
 
 **The gate is advisory, not a security boundary.** Three things follow, and you should
@@ -227,6 +239,18 @@ max_attempts = 5
 [review]
 blocking_severities = ["critical", "high"]
 max_findings = 50
+
+[policy]
+# Matching these paths always forces the final gate to a person.
+human_review_paths = [
+  ".agentic-preflight.toml",
+  ".github/workflows/**",
+  ".github/CODEOWNERS",
+  "CODEOWNERS",
+]
+# These classify risk without forcing a manual gate.
+high_risk_paths = ["db/migrations/**", "infra/**"]
+medium_risk_paths = ["dependencies/**"]
 
 [docs]
 enabled = true

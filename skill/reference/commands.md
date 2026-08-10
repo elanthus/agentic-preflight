@@ -183,8 +183,9 @@ means re-verification is needed.
 
 ### `agentic-preflight gate`
 Mints a confirmation token and summarises the remote, refspec, branch, and commits.
-With `[gate] mode = "manual"` it exits 4 instead and hands over the literal `git push`
-command for a person to run.
+The summary also includes the deterministic risk classification and verdict. With
+`[gate] mode = "manual"`, or when `[policy] human_review_paths` matches, it exits 4
+instead and hands over the literal `git push` command for a person to run.
 
 ### `agentic-preflight push --confirm TOKEN [--dry-run]`
 Requires the token from `gate` and atomically pushes both the branch and

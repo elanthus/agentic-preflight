@@ -23,6 +23,7 @@ class GateSummary:
     branch: str
     base_ref: str
     commits: list[dict] = field(default_factory=list)
+    risk: dict = field(default_factory=dict)
     token: str = ""
 
     def as_dict(self) -> dict:
@@ -32,6 +33,7 @@ class GateSummary:
             "branch": self.branch,
             "base_ref": self.base_ref,
             "commits": self.commits,
+            "risk": self.risk,
             "token": self.token,
         }
 

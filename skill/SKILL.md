@@ -253,11 +253,17 @@ At the gate, show the user — in plain prose, not JSON:
 
 - which **remote and branch** the push targets
 - the **commit subjects** being pushed
+- the deterministic **risk level and verdict**, including every matched
+  `human_review_path`
 - anything you resolved as `ask_user`, and what you decided
 - any finding you dismissed, and why
 
 Then ask, plainly: *"Ready to push this to `origin/feature-x`?"* Wait for a real
 answer. "Proceed" from a previous step is not consent for this one.
+
+If path policy returns `needs_human`, `gate` exits 4 and hands back a literal push
+command. Show the matched paths and stop. The person must review the change and run that
+command; a token-mode configuration cannot weaken the path policy.
 
 For `ask_user` findings, present the trade-off and let them choose. Do not present a
 decision you have already made as if it were a question.

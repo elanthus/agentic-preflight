@@ -9,6 +9,8 @@ from agentic_preflight.models import (
     FindingAction,
     FindingStatus,
     FindingSubmission,
+    RiskAssessment,
+    RiskLevel,
     RunDoc,
     Severity,
     Stage,
@@ -67,12 +69,17 @@ def test_run_doc_round_trips_through_json():
         head_sha="b" * 40,
         source_head_sha="b" * 40,
         intent="preserve the public behavior",
+        changed_files=["src/auth.py"],
+        risk=RiskAssessment(level=RiskLevel.HIGH),
     )
     restored = RunDoc.model_validate_json(run.model_dump_json())
     assert restored == run
     assert restored.seq == 0
     assert restored.fix_commits == []
     assert restored.intent == "preserve the public behavior"
+    assert restored.changed_files == ["src/auth.py"]
+    assert restored.risk is not None
+    assert restored.risk.level is RiskLevel.HIGH
 
 
 def _attestation_stages():

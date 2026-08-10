@@ -59,6 +59,7 @@ jobs:
         run: |
           uv tool install --python 3.11 dist/*.whl
           "$UV_TOOL_BIN_DIR/agentic-preflight" --version
+          test ! -e "$UV_TOOL_BIN_DIR/ap"
           # -P keeps the current directory off sys.path. Without it the step runs
           # from the repository root, where the agentic_preflight source directory
           # shadows the installed package and the assertions below inspect the

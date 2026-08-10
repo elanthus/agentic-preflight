@@ -49,6 +49,42 @@ class FindingStatus(StrEnum):
     ACCEPTED = "accepted"
 
 
+class RiskLevel(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class Verdict(StrEnum):
+    CLEAR = "pass"
+    CHANGES_REQUIRED = "changes_required"
+    NEEDS_HUMAN = "needs_human"
+
+
+class RiskReason(BaseModel):
+    """One deterministic input to a run's risk classification."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["human_review_path", "high_risk_path", "medium_risk_path", "finding"]
+    level: RiskLevel
+    path: str | None = None
+    pattern: str | None = None
+    finding_id: str | None = None
+    severity: Severity | None = None
+
+
+class RiskAssessment(BaseModel):
+    """Policy-derived risk and verdict; no model is allowed to set either."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    level: RiskLevel = RiskLevel.LOW
+    verdict: Verdict = Verdict.CLEAR
+    requires_human_review: bool = False
+    reasons: list[RiskReason] = Field(default_factory=list)
+
+
 class FindingSubmission(BaseModel):
     """What the agent sends. No identity fields — see module docstring."""
 
@@ -130,6 +166,8 @@ class RunDoc(BaseModel):
     copied_files: list[str] = Field(default_factory=list)
     config_snapshot: dict[str, Any] | None = None
     config_digest: str | None = None
+    changed_files: list[str] = Field(default_factory=list)
+    risk: RiskAssessment | None = None
 
     fix_commits: list[str] = Field(default_factory=list)
     stages: dict[Stage, StageRecord] = Field(default_factory=dict)

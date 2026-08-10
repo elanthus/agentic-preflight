@@ -7,6 +7,12 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Added
 
+- Deterministic path-based risk classification with separate low, medium, and high
+  levels. `[policy] human_review_paths` forces a manual final gate, while high- and
+  medium-risk path rules classify without conflating risk with the diff byte budget.
+- A pull-request attestation job that runs the verifier from the protected base commit
+  and fetches attestations from same-repository branches or public forks. Governance
+  surfaces now have a checked-in CODEOWNERS policy.
 - Green records are now portable Git-note attestations in
   `refs/notes/agentic-preflight`. Lint and test evidence includes the exact command,
   exit code, and SHA-256 of redacted captured output, and the normal push path sends
@@ -53,6 +59,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Removed
 
+- The `ap` console-script alias. The supported executable is `agentic-preflight`.
 - Built-in GitHub pull-request creation, CI monitoring, and destructive post-merge
   cleanup. The skill now hands these host-level tasks to `gh`; the core retains the
   quality gate, atomic branch-and-attestation push, `finish`, and `gc`.

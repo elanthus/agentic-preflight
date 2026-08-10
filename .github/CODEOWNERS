@@ -1,0 +1,18 @@
+# Changes that can weaken review, publication, or ownership policy require the
+# repository maintainer. Enforce this file with "Require review from Code Owners"
+# in the branch ruleset; CODEOWNERS alone only routes review requests.
+/.agentic-preflight.toml @elanthus
+/.github/CODEOWNERS @elanthus
+/.github/workflows/ @elanthus
+/agentic_preflight/attestation.py @elanthus
+/agentic_preflight/config.py @elanthus
+/agentic_preflight/hook.py @elanthus
+/agentic_preflight/machine.py @elanthus
+/agentic_preflight/models.py @elanthus
+/agentic_preflight/publish/ @elanthus
+/agentic_preflight/risk.py @elanthus
+/agentic_preflight/runs/publish.py @elanthus
+/docs/RELEASING.md @elanthus
+/pyproject.toml @elanthus
+/skill/ @elanthus
+/uv.lock @elanthus

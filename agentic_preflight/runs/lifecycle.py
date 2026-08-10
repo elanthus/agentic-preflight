@@ -6,6 +6,7 @@ import shlex
 from pathlib import Path
 
 from .. import gitx
+from .. import risk as riskmod
 from ..envelope import Envelope
 from ..errors import (
     START_COMMAND,
@@ -226,6 +227,13 @@ def status(session: Session) -> Envelope:
     summary = {status.value: 0 for status in FindingStatus}
     for finding in findings:
         summary[finding.status.value] += 1
+    assessment = riskmod.assess(
+        run.changed_files,
+        findings,
+        policy=session.config.policy,
+        review_blocking_severities=session.config.review.blocking_severities,
+        docs_blocking_severities=session.config.docs.blocking_severities,
+    )
 
     tip = _head_moved(session, run)
     stale = run.state is not State.MERGEBACK_CONFLICT and (run.stale or tip is not None)
@@ -263,6 +271,7 @@ def status(session: Session) -> Envelope:
             "copied_files": run.copied_files,
             "findings": [f.model_dump(mode="json") for f in findings],
             "findings_summary": summary,
+            "risk": assessment.model_dump(mode="json"),
         },
     )
     if stale:

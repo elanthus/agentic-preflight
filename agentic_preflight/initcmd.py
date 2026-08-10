@@ -22,6 +22,18 @@ enabled = true
 # PRODUCT.md, and DESIGN.md are included automatically.
 # paths = ["architecture/**"]
 
+[policy]
+# These rules are evaluated by code, not by the reviewing model. Matching a
+# human-review path forces a manual final gate even when every stage is green.
+human_review_paths = [
+  ".agentic-preflight.toml",
+  ".github/workflows/**",
+  ".github/CODEOWNERS",
+  "CODEOWNERS",
+]
+# high_risk_paths = ["db/migrations/**", "infra/**"]
+# medium_risk_paths = ["dependencies/**"]
+
 [worktree]
 # The default validates directly in this checkout. It requires a clean tree and
 # records each accepted repair commit before allowing the workflow to continue.

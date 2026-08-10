@@ -6,6 +6,7 @@ import shlex
 
 from .. import findings as findingsmod
 from .. import gitx, worktree
+from .. import risk as riskmod
 from ..envelope import Envelope
 from ..errors import (
     DirtyTree,
@@ -100,6 +101,22 @@ def respond(
         else ([commit] if commit else [])
     )
 
+    target.status = FindingStatus(action)
+    target.fix_commit = commit
+    target.response_note = note
+    changed_files = gitx.changed_files(
+        _require_worktree(run),
+        run.merge_base_sha,
+        "HEAD",
+    )
+    assessment = riskmod.assess(
+        changed_files,
+        stored,
+        policy=session.config.policy,
+        review_blocking_severities=session.config.review.blocking_severities,
+        docs_blocking_severities=session.config.docs.blocking_severities,
+    )
+
     with session.store.transaction(run.run_id) as doc:
         for fix_commit in new_commits:
             if fix_commit not in doc.fix_commits:
@@ -109,15 +126,20 @@ def respond(
             doc.source_head_sha = new_commits[-1]
         if doc.state in (State.REVIEW_AWAITING_RESPONSES, State.DOCS_AWAITING_RESPONSES):
             _apply(doc, Action.RESPOND)
+        doc.changed_files = changed_files
+        doc.risk = assessment
         run = doc
 
-    target.status = FindingStatus(action)
-    target.fix_commit = commit
-    target.response_note = note
     session.store.save_findings(run.run_id, stored)
     session.store.append_event(
         run.run_id,
-        {"event": "finding_resolved", "id": finding_id, "action": action, "commit": commit},
+        {
+            "event": "finding_resolved",
+            "id": finding_id,
+            "action": action,
+            "commit": commit,
+            "risk": assessment.model_dump(mode="json"),
+        },
     )
 
     stage = _require_finding_stage(run)
@@ -133,7 +155,11 @@ def respond(
     envelope = _envelope_for(
         run,
         stage=stage.value,
-        data={"finding": target.model_dump(mode="json"), "remaining_blocking": len(remaining)},
+        data={
+            "finding": target.model_dump(mode="json"),
+            "remaining_blocking": len(remaining),
+            "risk": assessment.model_dump(mode="json"),
+        },
         blocking=[f.model_dump(mode="json") for f in remaining],
     )
     if not remaining:

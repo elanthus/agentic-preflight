@@ -20,6 +20,43 @@ permissions:
   contents: read
 
 jobs:
+  attestation:
+    name: trusted preflight attestation
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # Check out the protected base commit, not the pull request, so a change
+      # cannot weaken the verifier that judges its own attestation.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+
+      - name: Install the trusted verifier
+        run: uv tool install --python 3.11 .
+
+      - name: Fetch and verify the pull request attestation
+        env:
+          ATTESTED_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REPOSITORY_URL: ${{ github.event.pull_request.head.repo.clone_url }}
+        run: |
+          source_remote=origin
+          if [ "$HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ]; then
+            git remote add preflight-contributor "$HEAD_REPOSITORY_URL"
+            source_remote=preflight-contributor
+          fi
+          git fetch --no-tags "$source_remote" \
+            "refs/heads/$HEAD_REF:refs/remotes/preflight/head"
+          test "$(git rev-parse refs/remotes/preflight/head)" = "$ATTESTED_SHA"
+          git fetch --force --no-tags "$source_remote" \
+            "refs/notes/agentic-preflight:refs/notes/agentic-preflight"
+          agentic-preflight verify "$ATTESTED_SHA"
+
   test:
     # Single combo for fast PR feedback. Run this workflow manually
     # (workflow_dispatch) to expand to the full matrix -- useful as a pre-tag
@@ -50,6 +87,7 @@ jobs:
         run: |
           uv tool install --python 3.11 dist/*.whl
           "$UV_TOOL_BIN_DIR/agentic-preflight" --version
+          test ! -e "$UV_TOOL_BIN_DIR/ap"
           # -P keeps the current directory off sys.path. Without it this runs from
           # the repository root, where the agentic_preflight source directory
           # shadows the installed package and the assertions inspect the checkout

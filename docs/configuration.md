@@ -74,3 +74,24 @@ test count, a results file, a non-empty log — before believing it.
 severity, because choosing on the user's behalf is the decision that was declined.
 
 `max_findings` caps how many findings a single submission may carry.
+
+## Deterministic risk policy (`[policy]`)
+
+Risk and review size answer different questions. `[diff] max_bytes` is only the maximum
+complete diff the agent may hold in review context; it never makes a small change safe or
+a large change dangerous. `[policy]` classifies the paths changed by the branch:
+
+- `human_review_paths` assigns high risk and the `needs_human` verdict. The CLI refuses
+  to perform the final push, regardless of `[gate] mode`.
+- `high_risk_paths` assigns high risk without requiring a person by itself.
+- `medium_risk_paths` assigns medium risk. Unmatched changes start at low risk.
+
+Patterns are repo-relative and use the same gitignore-like glob matching as
+`[diff] exclude`. Absolute paths and `..` are rejected. When several patterns match, the highest
+risk wins. Recorded `critical` and `high` findings also make the run high-risk, including
+after a fix; a `medium` finding makes it at least medium-risk. Open blocking findings
+produce `changes_required` until they are resolved.
+
+The verdict is derived by ordinary code from the committed policy and stored findings;
+the reviewing model cannot submit or override it. Protect the policy file with your
+forge's ownership rules so a change cannot quietly remove its own human-review rule.
