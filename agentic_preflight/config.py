@@ -53,6 +53,14 @@ class ReviewSection(_Section):
     require_fix_commits: bool = True
 
 
+class PolicySection(_Section):
+    """Deterministic risk rules layered underneath the agent's findings."""
+
+    human_review_paths: list[str] = Field(default_factory=list)
+    high_risk_paths: list[str] = Field(default_factory=list)
+    medium_risk_paths: list[str] = Field(default_factory=list)
+
+
 class DocsSection(_Section):
     enabled: bool = True
     paths: list[str] = Field(default_factory=list)
@@ -115,6 +123,7 @@ class Config(BaseModel):
     commands: CommandsSection = Field(default_factory=CommandsSection)
     stage: StageSection = Field(default_factory=StageSection)
     review: ReviewSection = Field(default_factory=ReviewSection)
+    policy: PolicySection = Field(default_factory=PolicySection)
     docs: DocsSection = Field(default_factory=DocsSection)
     diff: DiffSection = Field(default_factory=DiffSection)
     worktree: WorktreeSection = Field(default_factory=WorktreeSection)
@@ -164,6 +173,17 @@ def _validate_enums(cfg: Config) -> None:
             f"[worktree] mode: unknown mode {cfg.worktree.mode!r}; "
             f"valid values are {sorted(VALID_WORKTREE_MODES)}"
         )
+    for field, patterns in (
+        ("human_review_paths", cfg.policy.human_review_paths),
+        ("high_risk_paths", cfg.policy.high_risk_paths),
+        ("medium_risk_paths", cfg.policy.medium_risk_paths),
+    ):
+        for pattern in patterns:
+            if not pattern or pattern.startswith("/") or ".." in pattern.split("/"):
+                raise ConfigError(
+                    f"[policy] {field}: patterns must be non-empty, repo-relative, "
+                    f"and may not contain '..': {pattern!r}"
+                )
 
 
 def _describe(exc: ValidationError, source: Path) -> str:

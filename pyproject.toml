@@ -34,7 +34,6 @@ Issues = "https://github.com/elanthus/agentic-preflight/issues"
 
 [project.scripts]
 agentic-preflight = "agentic_preflight.cli:main"
-ap = "agentic_preflight.cli:main"
 
 [dependency-groups]
 dev = [

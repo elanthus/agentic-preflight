@@ -22,6 +22,19 @@ enabled = true
 # PRODUCT.md, and DESIGN.md are included automatically.
 # paths = ["architecture/**"]
 
+[policy]
+# These rules are evaluated by code, not by the reviewing model. Matching a
+# human-review or high-risk path requires human approval before merge, while the
+# normal confirmation-token push remains available.
+human_review_paths = [
+  ".agentic-preflight.toml",
+  ".github/workflows/**",
+  ".github/CODEOWNERS",
+  "CODEOWNERS",
+]
+# high_risk_paths = ["db/migrations/**", "infra/**"]
+# medium_risk_paths = ["dependencies/**"]
+
 [worktree]
 # The default validates directly in this checkout. It requires a clean tree and
 # records each accepted repair commit before allowing the workflow to continue.
@@ -50,7 +63,7 @@ dependency_setup = "auto"
 
 [gate]
 # "token" mints a confirmation token; "manual" refuses to push at all, so a
-# person must run the command themselves.
+# person must run the command themselves. Risk policy does not change this mode.
 mode = "token"
 
 [hook]

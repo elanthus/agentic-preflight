@@ -161,6 +161,11 @@ def mergeback(session: Session) -> Envelope:
     summary: dict[str, int] = {}
     for finding in findings:
         summary[finding.status.value] = summary.get(finding.status.value, 0) + 1
+        # Severity totals make the v1 attestation sufficient for a trusted merge
+        # policy to reconstruct whether review findings raised the final risk.
+        # Adding keys is backwards-compatible because the schema already models
+        # this as an open string-to-count summary.
+        summary[finding.severity.value] = summary.get(finding.severity.value, 0) + 1
 
     if result.tree_equivalent:
         entry = attestationmod.build(

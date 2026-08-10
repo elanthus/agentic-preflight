@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from .. import diff as diffmod
 from .. import findings as findingsmod
 from .. import gitx
+from .. import risk as riskmod
 from ..envelope import Envelope
 from ..errors import (
     DiffTooLarge,
@@ -151,6 +152,7 @@ def context(session: Session, *, section: str = "review") -> Envelope:
         "excluded_files": bundle.excluded,
         "diff": bundle.text,
         "diff_bytes": bundle.total_bytes,
+        "risk": (run.risk.model_dump(mode="json") if run.risk is not None else None),
     }
 
     if section == "docs":
@@ -260,8 +262,16 @@ def submit_findings(session: Session, payload) -> Envelope:
 
     stage_findings = [f for f in combined if f.stage is stage]
     blocking = findingsmod.blocking(stage_findings, blocking_severities=blocking_severities)
+    assessment = riskmod.assess(
+        run.changed_files or bundle.files,
+        combined,
+        policy=session.config.policy,
+        review_blocking_severities=session.config.review.blocking_severities,
+        docs_blocking_severities=session.config.docs.blocking_severities,
+    )
 
     with session.store.transaction(run.run_id) as doc:
+        doc.risk = assessment
         _apply(doc, Action.SUBMIT_FINDINGS)
         _apply(doc, Action.TRIAGE_BLOCKING if blocking else Action.TRIAGE_CLEAN)
         run = doc
@@ -270,7 +280,12 @@ def submit_findings(session: Session, payload) -> Envelope:
 
     session.store.append_event(
         run.run_id,
-        {"event": "findings_submitted", "stage": stage.value, "count": len(accepted)},
+        {
+            "event": "findings_submitted",
+            "stage": stage.value,
+            "count": len(accepted),
+            "risk": assessment.model_dump(mode="json"),
+        },
     )
 
     return _envelope_for(
@@ -279,6 +294,7 @@ def submit_findings(session: Session, payload) -> Envelope:
         data={
             "accepted": [f.model_dump(mode="json") for f in accepted],
             "total": len(combined),
+            "risk": assessment.model_dump(mode="json"),
         },
         blocking=[f.model_dump(mode="json") for f in blocking],
     )

@@ -253,11 +253,19 @@ At the gate, show the user — in plain prose, not JSON:
 
 - which **remote and branch** the push targets
 - the **commit subjects** being pushed
+- the deterministic **risk level and verdict**, including every matched
+  `human_review_path`
 - anything you resolved as `ask_user`, and what you decided
 - any finding you dismissed, and why
 
 Then ask, plainly: *"Ready to push this to `origin/feature-x`?"* Wait for a real
 answer. "Proceed" from a previous step is not consent for this one.
+
+If risk returns `needs_human`, explain that the branch may be pushed after the usual user
+confirmation but must not merge until the hosted `high-risk human approval` check passes.
+That check accepts only a repository owner, member, or collaborator other than the
+pull-request author and binds the approval to the exact current head. Only an explicit
+`[gate] mode = "manual"` hands the push itself to a person.
 
 For `ask_user` findings, present the trade-off and let them choose. Do not present a
 decision you have already made as if it were a question.

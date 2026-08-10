@@ -14,3 +14,9 @@
 ## Compatibility and risk
 
 <!-- Note CLI/JSON contract changes, migration needs, or known limitations. -->
+
+- **User impact if wrong:**
+- **Blast radius:**
+- **Detection/monitoring:**
+- **Rollback or recovery:**
+- **Human-review policy paths touched:**

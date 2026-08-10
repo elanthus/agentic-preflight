@@ -168,6 +168,33 @@ def test_manual_gate_mode_refuses_to_proceed_at_all(feature_repo, bare_remote, t
     assert "git push" in json.dumps(env["data"])
 
 
+def test_human_review_path_allows_push_gate_and_marks_merge_review_requirement(
+    feature_repo, bare_remote, tmp_path
+):
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+        "\n[policy]\nhuman_review_paths = ['src/app.py']\n",
+    )
+    commit_all(feature_repo, "configure human review policy")
+    agent = ScriptedAgent(feature_repo)
+    start = agent.run("start")
+    assert start["data"]["risk"]["verdict"] == "needs_human"
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "test")
+    agent.run("stage", "run", "lint")
+    agent.run("mergeback")
+
+    env = agent.run("gate")
+    assert env["state"] == "AWAITING_PUSH_CONFIRM"
+    assert env["data"]["token"]
+    assert env["data"]["risk"]["verdict"] == "needs_human"
+    assert env["data"]["risk"]["requires_human_review"] is True
+    assert env["data"]["risk"]["reasons"][0]["path"] == "src/app.py"
+
+
 def test_dry_run_push_changes_nothing(verified, bare_remote):
     token = verified.run("gate")["data"]["token"]
     env = verified.run("push", "--confirm", token, "--dry-run")

@@ -8,5 +8,26 @@ lint = "uv run ruff check . && uv run mypy agentic_preflight"
 [docs]
 enabled = true
 
+[policy]
+human_review_paths = [
+  ".agentic-preflight.toml",
+  ".github/CODEOWNERS",
+  ".github/workflows/**",
+  "agentic_preflight/attestation.py",
+  "agentic_preflight/config.py",
+  "agentic_preflight/hook.py",
+  "agentic_preflight/machine.py",
+  "agentic_preflight/models.py",
+  "agentic_preflight/publish/**",
+  "agentic_preflight/risk.py",
+  "agentic_preflight/runs/publish.py",
+  "docs/RELEASING.md",
+  "pyproject.toml",
+  "skill/**",
+  "uv.lock",
+]
+high_risk_paths = ["agentic_preflight/**"]
+medium_risk_paths = ["tests/**"]
+
 [diff]
 max_bytes = 500000
