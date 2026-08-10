@@ -15,6 +15,7 @@ def test_defaults_apply_when_no_config_file_exists(tmp_repo, tmp_path):
     assert cfg.runtime.manager == "auto"
     assert cfg.runtime.strict is True
     assert cfg.gate.mode == "token"
+    assert cfg.pr.mode == "auto"
     assert cfg.policy.human_review_paths == []
     assert cfg.policy.high_risk_paths == []
     assert cfg.policy.medium_risk_paths == []
@@ -86,6 +87,20 @@ def test_gate_mode_rejects_an_unknown_mode(tmp_repo, tmp_path):
     (tmp_repo / ".agentic-preflight.toml").write_text("[gate]\nmode = 'yolo'\n")
     with pytest.raises(ConfigError):
         load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+
+
+def test_pr_mode_rejects_an_unknown_mode(tmp_repo, tmp_path):
+    (tmp_repo / ".agentic-preflight.toml").write_text("[pr]\nmode = 'sometimes'\n")
+    with pytest.raises(ConfigError) as exc:
+        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert "[pr] mode" in str(exc.value)
+
+
+@pytest.mark.parametrize("mode", ["auto", "manual"])
+def test_pr_modes_are_explicit_configuration_options(tmp_repo, tmp_path, mode):
+    (tmp_repo / ".agentic-preflight.toml").write_text(f"[pr]\nmode = {mode!r}\n")
+    cfg = load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert cfg.pr.mode == mode
 
 
 @pytest.mark.parametrize("pattern", ["", "/absolute/**", "src/../secrets/**"])

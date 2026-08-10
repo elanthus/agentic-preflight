@@ -96,6 +96,11 @@ def test_gate_mints_a_token_and_summarises_what_would_be_pushed(verified):
     assert env["data"]["remote"] == "origin"
     assert env["data"]["refspec"]
     assert env["data"]["commits"]
+    assert env["data"]["pr_mode"] == "auto"
+    assert "whether to push" in env["next"]["instruction"]
+    assert "automatically open or reuse" in env["next"]["instruction"]
+    assert "standing authorization" in env["next"]["instruction"]
+    assert "push and open" not in env["next"]["instruction"]
 
 
 def test_the_gate_summary_names_the_branch_and_commit_subjects(verified):
@@ -122,6 +127,7 @@ def test_push_with_the_right_token_succeeds(verified, feature_repo, bare_remote)
     env = verified.run("push", "--confirm", token)
     assert env["state"] == "PUSHED"
     assert env["next"]["command"] == "agentic-preflight finish"
+    assert env["data"]["pr_mode"] == "auto"
     remote_sha = git("rev-parse", "feature/x", cwd=bare_remote)
     assert remote_sha == git("rev-parse", "HEAD", cwd=feature_repo)
 
@@ -132,6 +138,9 @@ def test_finish_closes_a_pushed_run(verified):
     env = verified.run("finish")
     assert env["state"] == "DONE"
     assert env["next"]["command"] == "agentic-preflight gc"
+    assert env["data"]["pr_mode"] == "auto"
+    assert "open or reuse the pull request" in env["next"]["instruction"]
+    assert "do not ask again" in env["next"]["instruction"]
     assert verified.run("status")["data"]["has_run"] is False
 
 
@@ -168,6 +177,40 @@ def test_manual_gate_mode_refuses_to_proceed_at_all(feature_repo, bare_remote, t
     assert "git push" in json.dumps(env["data"])
 
 
+def test_manual_pr_mode_pushes_but_hands_pr_creation_to_the_user(
+    feature_repo, bare_remote, tmp_path
+):
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+        "\n[pr]\nmode = 'manual'\n",
+    )
+    commit_all(feature_repo, "configure manual PR publication")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "test")
+    agent.run("stage", "run", "lint")
+    agent.run("mergeback")
+
+    env = agent.run("gate")
+    assert env["data"]["pr_mode"] == "manual"
+    assert "whether to push" in env["next"]["instruction"]
+    assert "compare URL" in env["next"]["instruction"]
+    assert "push and open" not in env["next"]["instruction"]
+
+    status = agent.run("status")
+    assert status["data"]["pr_mode"] == "manual"
+
+    token = env["data"]["token"]
+    agent.run("push", "--confirm", token)
+    finished = agent.run("finish")
+    assert "give the user the compare URL" in finished["next"]["instruction"]
+    assert "do not open the pull request" in finished["next"]["instruction"]
+
+
 def test_human_review_path_allows_push_gate_and_marks_merge_review_requirement(
     feature_repo, bare_remote, tmp_path
 ):
@@ -199,6 +242,7 @@ def test_dry_run_push_changes_nothing(verified, bare_remote):
     token = verified.run("gate")["data"]["token"]
     env = verified.run("push", "--confirm", token, "--dry-run")
     assert env["data"]["dry_run"] is True
+    assert env["data"]["pr_mode"] == "auto"
     result = subprocess.run(
         ["git", "rev-parse", "feature/x"], cwd=bare_remote, capture_output=True, text=True
     )

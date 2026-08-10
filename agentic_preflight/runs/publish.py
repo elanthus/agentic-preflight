@@ -56,6 +56,7 @@ def gate(session: Session) -> Envelope:
         refspec=f"{run.branch}:{run.branch} {NOTES_REF}:{NOTES_REF}",
         branch=run.branch,
         base_ref=run.base_ref,
+        pr_mode=session.config.pr.mode,
         commits=commits,
         risk=assessment.model_dump(mode="json"),
     )
@@ -83,16 +84,26 @@ def gate(session: Session) -> Envelope:
             _apply(doc, Action.GATE)
         run = doc
 
+    opens_pr = session.config.pr.mode == "auto"
+    risk_instruction = (
+        " Explain that merge still requires eligible human approval of the exact head."
+        if assessment.requires_human_review
+        else ""
+    )
+    manual_pr_instruction = (
+        " PR mode is manual, so do not open the pull request; give the user the compare URL "
+        "after the push."
+        if not opens_pr
+        else " After the confirmed push and preflight finish, automatically open or reuse "
+        "the pull request; auto mode is standing authorization, so do not ask again."
+    )
     return _envelope_for(
         run,
         data=summary.as_dict(),
         next_instruction=(
-            "Show the user the remote, branch, commit list, and high-risk human-review "
-            "requirement in plain language, then ask whether to push. Never push "
-            "without asking."
-            if assessment.requires_human_review
-            else "Show the user the remote, branch, and commit list in plain language "
-            "and ask whether to push. Never push without asking."
+            "Show the user the remote, branch, and commit list in plain language, then ask "
+            "whether to push. Never push without asking."
+            f"{risk_instruction}{manual_pr_instruction}"
         ),
         next_command=f"agentic-preflight push --confirm {summary.token}",
     )
@@ -121,6 +132,9 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
             data={
                 "dry_run": True,
                 "would_push": f"origin {run.branch} {NOTES_REF}",
+                "branch": run.branch,
+                "base_ref": run.base_ref,
+                "pr_mode": session.config.pr.mode,
                 "pushed": False,
             },
             next_instruction="Dry run only; nothing was pushed.",
@@ -143,7 +157,16 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
 
     session.store.append_event(run.run_id, {"event": "pushed", "sha": run.head_sha})
     return _envelope_for(
-        run, data={"pushed": True, "sha": run.head_sha, "remote": "origin", "dry_run": False}
+        run,
+        data={
+            "pushed": True,
+            "sha": run.head_sha,
+            "remote": "origin",
+            "branch": run.branch,
+            "base_ref": run.base_ref,
+            "pr_mode": session.config.pr.mode,
+            "dry_run": False,
+        },
     )
 
 
@@ -160,9 +183,22 @@ def finish(session: Session) -> Envelope:
 
     session.store.set_current(None)
     session.store.append_event(run.run_id, {"event": "finished"})
+    pr_instruction = (
+        " Run gc, then open or reuse the pull request with gh; the gate approval already "
+        "covered PR creation, so do not ask again."
+        if session.config.pr.mode == "auto"
+        else " Run gc, then give the user the compare URL; do not open the pull request."
+    )
     return _envelope_for(
         run,
-        data={"pushed_sha": run.pushed_sha},
-        next_instruction=_worktree_completion(_worktree_mode(run, session.config)),
+        data={
+            "pushed_sha": run.pushed_sha,
+            "branch": run.branch,
+            "base_ref": run.base_ref,
+            "pr_mode": session.config.pr.mode,
+        },
+        next_instruction=(
+            _worktree_completion(_worktree_mode(run, session.config)) + pr_instruction
+        ),
         next_command="agentic-preflight gc",
     )

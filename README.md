@@ -48,6 +48,11 @@ cd your-repo
 agentic-preflight init
 ```
 
+When working from this source checkout, `./install.sh` installs or updates the CLI and
+both bundled agent skills in one step. Pass `codex` or `claude` to install only one.
+Run `./uninstall.sh` to remove the managed skills and CLI while preserving repository
+configuration, Git hooks, run history, and attestations.
+
 `init` writes `.agentic-preflight.toml` and installs an advisory pre-push hook. Make and
 commit a change, then try to push it before validation:
 
@@ -71,14 +76,16 @@ $ agentic-preflight start --intent "Add retries and document the failure policy"
 $ agentic-preflight context | jq -c '{ok,state,data:{changed_files:.data.changed_files},next}'
 {"ok":true,"state":"REVIEW_AWAITING_FINDINGS","data":{"changed_files":[".agentic-preflight.toml","change.txt"]},"next":{"command":"agentic-preflight submit-findings --file findings.json","instruction":"Review the diff, then submit findings (an empty list is a valid outcome)."}}
 ... review, test, docs, and lint complete ...
-$ agentic-preflight gate | jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch},next}'
-{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"d8697c2068b4853b","remote":"origin","branch":"demo"},"next":{"command":"agentic-preflight push --confirm d8697c2068b4853b","instruction":"Show the user the remote, branch, and commit list in plain language and ask whether to push. Never push without asking."}}
-$ agentic-preflight push --confirm d8697c2068b4853b | jq -c '{ok,state,data:{remote:.data.remote,branch:.data.branch},next}'
-{"ok":true,"state":"PUSHED","data":{"remote":"origin","branch":null},"next":{"command":"agentic-preflight finish","instruction":"Close the pushed validation run."}}
+$ agentic-preflight gate | jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch,pr_mode:.data.pr_mode},next}'
+{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"d8697c2068b4853b","remote":"origin","branch":"demo","pr_mode":"auto"},"next":{"command":"agentic-preflight push --confirm d8697c2068b4853b","instruction":"Show the user the remote, branch, and commit list in plain language, then ask whether to push. Never push without asking. Explain that merge still requires eligible human approval of the exact head. After the confirmed push and preflight finish, automatically open or reuse the pull request; auto mode is standing authorization, so do not ask again."}}
+$ agentic-preflight push --confirm d8697c2068b4853b | jq -c '{ok,state,data:{remote:.data.remote,branch:.data.branch,pr_mode:.data.pr_mode},next}'
+{"ok":true,"state":"PUSHED","data":{"remote":"origin","branch":"demo","pr_mode":"auto"},"next":{"command":"agentic-preflight finish","instruction":"Close the pushed validation run."}}
 ```
 
 The agent must show you the target remote, branch, and commits and obtain fresh approval
-before the final command. For a human-only final push, set `[gate] mode = "manual"`.
+before the final command. Automatic PR mode is standing authorization to open the PR
+after that push completes, so PR creation has no separate prompt. For a human-only final
+push, set `[gate] mode = "manual"`.
 
 Installing a single agent, checking a skill into one repository, upgrading, and using
 other Agent Skills clients are covered in
@@ -94,9 +101,10 @@ start --intent "..." → fetch/rebase → context → submit-findings → verify
       → mergeback → gate → push → finish → gc
 ```
 
-After the atomic push, use the forge normally. For GitHub, the skill uses `gh` directly
-to create a pull request and inspect its checks; those hosted lifecycle operations are
-not part of the stateful preflight CLI.
+After the atomic push, use the forge normally. In automatic PR mode, the skill uses `gh`
+directly to create a pull request and inspect its checks. In manual PR mode, it gives the
+user a compare URL instead. Those hosted lifecycle operations are not part of the
+stateful preflight CLI.
 
 `start` requires the user's objective and acceptance criteria, fetches `origin`, and
 rebases the validation checkout onto the fresh base before review. The agent drives the
@@ -287,6 +295,9 @@ strict = true                 # never fall back when a pin cannot be activated
 [gate]
 mode = "token"               # or "manual"
 
+[pr]
+mode = "auto"                # default; "manual" reports a compare URL instead
+
 [hook]
 enabled = true
 allow_force_push = false
@@ -296,6 +307,12 @@ allow_force_push = false
 The resolved configuration is snapshotted when `start` creates a run, so editing
 `.agentic-preflight.toml` afterward does not change that run. Commit configuration
 changes before starting the run they should affect.
+
+`[gate] mode` and `[pr] mode` are independent. The gate decides who performs the push;
+PR mode decides what happens after an approved push. In `auto` mode, the committed
+configuration authorizes the agent to open the PR automatically after preflight finishes.
+In `manual` mode, the agent never opens the pull request and reports a compare URL for
+the user instead.
 
 The documentation surface and oversized-diff handling are described in
 [docs/configuration.md](docs/configuration.md).
@@ -318,8 +335,8 @@ The documentation surface and oversized-diff handling are described in
 - Python 3.11+
 - git 2.30+
 - Bash
-- `gh` (optional; only for opening pull requests: it owns auth, we never handle
-  credentials)
+- `gh` (optional; used for pull requests, hosted checks, and merge verification during
+  cleanup; it owns auth, we never handle credentials)
 
 ## Development
 

@@ -61,6 +61,8 @@ include = [
     "/README.md",
     "/SECURITY.md",
     "/SUPPORT.md",
+    "/install.sh",
+    "/uninstall.sh",
     "/pyproject.toml",
 ]
 

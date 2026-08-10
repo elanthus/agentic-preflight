@@ -21,8 +21,11 @@ Python here never calls a model — every judgment in this workflow is yours.
    `action`, `title`, `detail`, `suggestion`. Nothing else. Sending `id` or `stage`
    is a hard validation error, not a nudge.
 4. **Never run `git push --no-verify`.** It exists for humans, not for you.
-5. **Never push or open a PR without asking the user in plain language first.**
-   Show them what will happen and wait for an actual answer.
+5. **Never push without asking the user in plain language first.** Show them what
+   will be pushed and wait for an actual answer. `[pr] mode = "auto"` is standing
+   authorization to open or reuse the pull request after the confirmed push and
+   preflight finish, so do not ask separately about PR creation. With `mode =
+   "manual"`, never open the PR for them.
 6. **Never resolve a merge-back conflict.** Paste the resolution block and stop.
 7. **Keep the validation checkout clean for the whole run.** The default
    `in_place` mode uses the current checkout, so only deliberate repair commits may
@@ -78,17 +81,21 @@ $ agentic-preflight mergeback
  "next":{"command":"agentic-preflight gate"}}
 
 $ agentic-preflight gate
-{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"a1b2c3d4","commits":[...]},
+{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"a1b2c3d4","pr_mode":"auto","commits":[...]},
  "next":{"command":"agentic-preflight push --confirm a1b2c3d4"}}
 
-# STOP. Show the user the remote, branch, and commits. Ask. Only then:
+# STOP. Show the remote, branch, and commits, then ask whether to push.
+# Only after they agree:
 $ agentic-preflight push --confirm a1b2c3d4
 $ agentic-preflight finish
 $ agentic-preflight gc
 
-# When the workflow calls for a GitHub PR, use gh directly after preflight finishes:
+# Auto PR mode: after preflight finishes, reuse an existing PR for the branch or
+# create one automatically without asking about PR creation.
 $ gh pr create --title "Use constant-time password comparison" --body-file pr-body.md
 $ gh pr checks --watch
+
+# Manual PR mode: never create it. Give the user the repository compare URL instead.
 ```
 
 Work happens in the absolute **validation checkout** named by `worktree_path`. In the
@@ -258,8 +265,16 @@ At the gate, show the user — in plain prose, not JSON:
 - anything you resolved as `ask_user`, and what you decided
 - any finding you dismissed, and why
 
-Then ask, plainly: *"Ready to push this to `origin/feature-x`?"* Wait for a real
-answer. "Proceed" from a previous step is not consent for this one.
+Ask, plainly: *"Ready to push this to `origin/feature-x`?"* Wait for a real answer.
+"Proceed" from a previous step is not consent for the push gate.
+
+In `[pr] mode = "auto"`, the committed configuration is standing authorization for PR
+creation. After the approved push, `finish`, and `gc`, reuse an existing pull request
+for the branch or call `gh pr create` automatically without asking about the PR.
+
+In `[pr] mode = "manual"`, ask only whether to push. Afterward, never open a pull
+request; construct the forge compare URL from the repository URL, base branch, and head
+branch and give it to the user.
 
 If risk returns `needs_human`, explain that the branch may be pushed after the usual user
 confirmation but must not merge until the hosted `high-risk human approval` check passes.
@@ -272,6 +287,12 @@ decision you have already made as if it were a question.
 
 Branch names are often poor human-facing PR titles, so offer a concise title that
 describes the verified change before calling `gh pr create`.
+
+When an automatic pull request is opened or an existing one is reused, report its URL
+and tell the user exactly what a later cleanup request will do: verify that this PR was
+merged, switch a clean source checkout to the base branch when necessary, remove only
+this run's validation worktree and `ap/*` branch, delete the local PR branch and its
+remote branch, and fast-forward the base branch.
 
 ## What to publish, and what it proves
 
@@ -295,14 +316,18 @@ human reviewer.
 
 ## Cleanup after a merge
 
-After a PR is merged, run `cleanup` without a token. It verifies the merge through
-`gh` and returns an exact preview of the worktree, `ap/*` branch, PR source branch, and
-remote branch. **Show that preview and ask the user.** Only after they agree, run the
-returned `cleanup --confirm TOKEN` command. Cleanup re-checks the merge, switches a
-clean source checkout to the base branch when necessary, then removes only that run's
-worktree and local/remote branches. It never performs a blanket `ap/*` deletion.
-After confirmed cleanup succeeds, always run `git pull --ff-only` in the source
-checkout so its base branch is fast-forwarded to the merged result.
+An explicit user request to clean up a merged pull request is the approval for the
+whole run-scoped operation. Inspect the exact targets and verify through `gh` that the
+PR is merged, then perform the cleanup in the same turn without asking again. Re-check
+the merge and head/base branches immediately before mutation, switch a clean source
+checkout to the base branch when necessary, remove only that run's validation worktree
+and `ap/*` branch, delete the local PR source branch and the remote PR source branch,
+then run `git pull --ff-only` so the base checkout contains the merged result.
+
+Stop instead of deleting if the PR is not merged, the checkout is dirty, the PR head or
+base differs from the disclosed cleanup scope, or a branch is checked out in an
+unrelated worktree. Cleanup never performs a blanket `ap/*` deletion. Afterward, report
+the exact targets removed and whether the remote branch was already absent.
 
 For a pushed run with no PR, follow `finish` with `gc`. `gc` compares original fixes
 with post-mergeback history using stable patch IDs. Only patch-equivalent fixes are

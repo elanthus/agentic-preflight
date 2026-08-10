@@ -5,6 +5,18 @@ everything else.
 
 ## Installing the CLI
 
+From a source checkout, install or update both the CLI and the Codex/Claude skills with:
+
+```bash
+./install.sh
+```
+
+The script installs from that checkout and is safe to rerun after pulling changes. Pass
+one or more agent names to limit the skill installation, for example
+`./install.sh codex`. It refuses to overwrite locally modified or unmanaged skill copies.
+
+To install the published package instead:
+
 ```bash
 uv tool install agentic-preflight
 ```
@@ -28,7 +40,7 @@ discovery directory. It refuses to overwrite local edits unless you pass `--forc
 ## Upgrading
 
 The skill is copied, not linked, so upgrading the CLI does not refresh installed copies.
-Do both:
+From a source checkout, rerun `./install.sh`. For a published installation, do both:
 
 ```bash
 uv tool upgrade agentic-preflight
@@ -54,3 +66,15 @@ agentic-preflight integrations uninstall codex claude
 ```
 
 `status` inspects installed copies. `uninstall` removes managed user copies.
+
+From a source checkout, remove the managed Codex/Claude skills and CLI together with:
+
+```bash
+./uninstall.sh
+```
+
+Pass agent names to limit skill removal, such as `./uninstall.sh codex`. The script
+refuses to remove locally modified or unmanaged skill directories. It deliberately
+leaves repository configuration, Git hooks, run history, and attestations intact, then
+prints the repository-by-repository steps for safely removing standalone or shared
+pre-push hooks.

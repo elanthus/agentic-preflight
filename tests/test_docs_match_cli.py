@@ -166,6 +166,20 @@ def test_the_skill_documents_the_findings_id_prohibition():
         assert "stage" in text
 
 
+def test_the_skill_documents_both_pr_modes_and_their_approval_boundary():
+    text = SKILL.read_text()
+    assert '[pr] mode = "auto"' in text
+    assert '[pr] mode = "manual"' in text
+    assert "standing authorization" in text
+    assert "never open the PR for them" in text
+
+
+def test_an_explicit_cleanup_request_needs_no_second_approval():
+    text = SKILL.read_text()
+    assert "cleanup in the same turn without asking again" in text
+    assert "delete the local PR source branch and the remote PR source branch" in text
+
+
 def test_the_docs_rubric_leads_with_the_obligation_test():
     text = (REFERENCE / "docs-rubric.md").read_text()
     assert "Would a reader following the current documentation now be wrong?" in text

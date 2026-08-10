@@ -16,6 +16,20 @@ are recorded with the run events.
 Commit configuration changes **before** starting the run they should affect. This is also
 why the file must be committed before `start` and must not be edited mid-run.
 
+## Pull-request publication (`[pr]`)
+
+`mode = "auto"` is the default and is standing authorization for pull-request creation.
+The gate still asks only whether to push. After the user approves that push and preflight
+finishes, the agent automatically opens the pull request—or reuses one that already
+exists for the branch—without a PR-specific approval prompt.
+
+`mode = "manual"` keeps pull-request creation in the user's hands. The agent may still
+push through the configured gate, but it never opens the pull request and provides a
+compare URL instead.
+
+This is independent of `[gate] mode`. The token gate lets the agent push after explicit
+user agreement; the manual gate refuses to push and hands the command to a person.
+
 ## The documentation surface (`[docs]`)
 
 The docs stage inspects `README*`, `docs/**`, agent instructions such as `.claude/rules/**`

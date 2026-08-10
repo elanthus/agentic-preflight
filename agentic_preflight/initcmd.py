@@ -66,6 +66,11 @@ dependency_setup = "auto"
 # person must run the command themselves. Risk policy does not change this mode.
 mode = "token"
 
+[pr]
+# "auto" opens a pull request after the user approves the push gate. "manual"
+# leaves pull-request creation to the user and reports a compare URL instead.
+mode = "auto"
+
 [hook]
 enabled = true
 allow_force_push = false

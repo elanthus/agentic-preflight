@@ -50,7 +50,7 @@ Set TypingSpeed 20ms
 Set Padding 20
 
 Hide
-Type "cd '/tmp/ap-demo/repo' && clear && jqs() { jq -c '{ok,state,next}'; } && jqc() { jq -c '{ok,state,data:{changed_files:.data.changed_files},next}'; } && jqd() { jq -c '{ok,state,data:{doc_surface:.data.doc_surface},next}'; } && jqg() { jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch},next}'; } && jqb() { jq -c '{ok,state,blocking:[.blocking[]|{id,severity,title}],next}'; }"
+Type "export PYTHONPATH=$(pwd) && cd '/tmp/ap-demo/repo' && clear && jqs() { jq -c '{ok,state,next}'; } && jqc() { jq -c '{ok,state,data:{changed_files:.data.changed_files},next}'; } && jqd() { jq -c '{ok,state,data:{doc_surface:.data.doc_surface},next}'; } && jqg() { jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch,pr_mode:.data.pr_mode},next}'; } && jqb() { jq -c '{ok,state,blocking:[.blocking[]|{id,severity,title}],next}'; }"
 Enter
 Sleep 500ms
 Show
