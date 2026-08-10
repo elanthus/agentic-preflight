@@ -219,7 +219,7 @@ def approval_check(sha: str, base_sha: str, reviews_file: Path, author: str) -> 
         ) from exc
     if result["requires_human_approval"] and not result["approved"]:
         raise NeedsHuman(
-            "high-risk pull request requires a non-bot human approval for its exact head",
+            "high-risk pull request requires an eligible human approval for its exact head",
             data=result,
             next_instruction=(
                 "Ask an eligible human other than the pull-request author to review and "

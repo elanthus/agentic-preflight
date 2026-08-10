@@ -99,4 +99,5 @@ the reviewing model cannot submit or override it. Protect the policy file with y
 forge's ownership rules so a change cannot quietly remove its own human-review rule. On
 GitHub, make the repository's `high-risk human approval` job a required status check and
 require Code Owner reviews for the protected paths. The job evaluates trusted base code,
-rejects bots and the pull-request author, and requires approval of the exact current head.
+accepts only repository owners, members, or collaborators, rejects bots and the
+pull-request author, and requires approval of the exact current head.

@@ -172,11 +172,20 @@ def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> bool:
         elif is_ancestor(cwd, notes_ref, fetched_ref):
             run(cwd, "update-ref", notes_ref, fetched_ref)
         else:
-            merged = run(cwd, "notes", f"--ref={notes_ref}", "merge", fetched_ref, check=False)
+            merged = run(
+                cwd,
+                "notes",
+                f"--ref={notes_ref}",
+                "merge",
+                "-s",
+                "manual",
+                fetched_ref,
+                check=False,
+            )
             if merged.returncode != 0:
                 run(cwd, "notes", f"--ref={notes_ref}", "merge", "--abort", check=False)
                 raise GitError(
-                    ["notes", f"--ref={notes_ref}", "merge", fetched_ref],
+                    ["notes", f"--ref={notes_ref}", "merge", "-s", "manual", fetched_ref],
                     merged.returncode,
                     merged.stderr,
                 )

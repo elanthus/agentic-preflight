@@ -135,6 +135,7 @@ def test_sync_refuses_conflicting_attestations_for_the_same_commit(
         base_sha,
         cwd=feature_repo,
     )
+    git("config", "notes.mergeStrategy", "union", cwd=feature_repo)
 
     with pytest.raises(gitx.GitError, match="notes"):
         synchronize(feature_repo, feature_repo, base_ref="main")

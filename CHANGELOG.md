@@ -15,7 +15,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
   and fetches attestations from same-repository branches or public forks. Governance
   surfaces now have a checked-in CODEOWNERS policy.
 - A trusted high-risk approval check that reruns on head and review changes and rejects
-  bot, self, stale-head, dismissed, and superseded approvals.
+  bot, unaffiliated, self, stale-head, dismissed, and superseded approvals.
 - Green records are now portable Git-note attestations in
   `refs/notes/agentic-preflight`. Lint and test evidence includes the exact command,
   exit code, and SHA-256 of redacted captured output, and the normal push path sends

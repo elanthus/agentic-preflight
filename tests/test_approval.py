@@ -13,6 +13,7 @@ def _review(
     *,
     login="reviewer",
     user_type="User",
+    author_association="MEMBER",
     state="APPROVED",
     commit_id="a" * 40,
 ):
@@ -20,6 +21,7 @@ def _review(
         "id": review_id,
         "state": state,
         "commit_id": commit_id,
+        "author_association": author_association,
         "user": {"login": login, "type": user_type},
     }
 
@@ -37,13 +39,14 @@ def _stages():
     }
 
 
-def test_only_a_current_non_bot_non_author_approval_counts():
+def test_only_a_current_repository_associated_non_author_approval_counts():
     head = "a" * 40
     reviews = [
         _review(1, login="author", commit_id=head),
         _review(2, login="automation", user_type="Bot", commit_id=head),
         _review(3, login="stale", commit_id="b" * 40),
         _review(4, login="reviewer", commit_id=head),
+        _review(5, login="outsider", author_association="NONE", commit_id=head),
     ]
     assert current_human_approvers(reviews, head_sha=head, pull_request_author="author") == [
         "reviewer"

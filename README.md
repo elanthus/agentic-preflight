@@ -114,8 +114,9 @@ Risk is classified separately from that execution scope and from diff size. Repo
 policy maps changed paths to `low`, `medium`, or `high`, and findings can raise the final
 risk. Every high-risk result produces the deterministic verdict `needs_human`. It does
 not prevent an approved push: the hosted `high-risk human approval` check prevents the
-exact pull-request head from merging until a non-bot human other than the author approves
-it. The model reports findings; it cannot override the policy verdict.
+exact pull-request head from merging until a repository owner, member, or collaborator
+other than the author approves it. The model reports findings; it cannot override the
+policy verdict.
 
 By default the run happens directly in the current checkout, which suits a clean,
 dedicated one-agent/one-PR worktree. Two isolated modes keep the source checkout
@@ -196,10 +197,10 @@ the branch ruleset because the file alone only requests reviewers.
 High-risk merge approval is enforced by a separate `pull_request_target` workflow that
 also installs its policy checker from the protected base and never executes proposed
 branch content. It reruns when the head changes or a review is submitted or dismissed.
-For high-risk changes it accepts only an approval by a non-bot GitHub user other than the
-pull-request author, recorded against the exact current head. Make **high-risk human
-approval** a required status check on `main`; keep **Require review from Code Owners**
-enabled as the stricter ownership rule for sensitive paths.
+For high-risk changes it accepts only an approval by a repository-associated, non-bot
+GitHub user other than the pull-request author, recorded against the exact current head.
+Make **high-risk human approval** a required status check on `main`; keep **Require review
+from Code Owners** enabled as the stricter ownership rule for sensitive paths.
 
 ## Limits
 

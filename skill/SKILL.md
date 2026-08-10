@@ -263,9 +263,9 @@ answer. "Proceed" from a previous step is not consent for this one.
 
 If risk returns `needs_human`, explain that the branch may be pushed after the usual user
 confirmation but must not merge until the hosted `high-risk human approval` check passes.
-That check accepts only a non-bot human other than the pull-request author and binds the
-approval to the exact current head. Only an explicit `[gate] mode = "manual"` hands the
-push itself to a person.
+That check accepts only a repository owner, member, or collaborator other than the
+pull-request author and binds the approval to the exact current head. Only an explicit
+`[gate] mode = "manual"` hands the push itself to a person.
 
 For `ask_user` findings, present the trade-off and let them choose. Do not present a
 decision you have already made as if it were a question.

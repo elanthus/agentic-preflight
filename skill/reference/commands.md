@@ -122,9 +122,10 @@ a fresh clone. A missing or invalid note exits 2.
 ### `agentic-preflight approval-check SHA --base SHA --reviews-file PATH --author LOGIN`
 CI-facing merge policy for an attested pull-request head. It recomputes path risk from
 the protected base configuration and uses attested finding-severity totals. Low- and
-medium-risk changes pass without a review. High-risk changes exit 4 until a non-bot
-GitHub user other than the pull-request author has an `APPROVED` review for the exact
-current head. Later dismissal or changes-requested reviews revoke that person's approval.
+medium-risk changes pass without a review. High-risk changes exit 4 until a repository
+owner, member, or collaborator other than the pull-request author has an `APPROVED`
+review for the exact current head. Later dismissal or changes-requested reviews revoke
+that person's approval.
 
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
 After review becomes green, the CLI automatically skips the software test command when

@@ -11,6 +11,7 @@ from .config import load_config
 from .models import RiskLevel
 
 _DECISIVE_REVIEW_STATES = {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}
+_TRUSTED_AUTHOR_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 
 
 def _flatten_reviews(value: object) -> list[Mapping[str, Any]]:
@@ -36,7 +37,7 @@ def current_human_approvers(
     head_sha: str,
     pull_request_author: str,
 ) -> list[str]:
-    """Return non-bot, non-author approvals for the exact current head.
+    """Return repository-associated human approvals for the exact current head.
 
     Only the latest decisive review from each person counts. Comments do not
     erase an approval, while a later dismissal or changes-requested review does.
@@ -49,9 +50,11 @@ def current_human_approvers(
         login = user.get("login")
         user_type = user.get("type")
         state = str(review.get("state", "")).upper()
+        association = str(review.get("author_association", "")).upper()
         if (
             not isinstance(login, str)
             or user_type != "User"
+            or association not in _TRUSTED_AUTHOR_ASSOCIATIONS
             or login.casefold() == pull_request_author.casefold()
             or review.get("commit_id") != head_sha
             or state not in _DECISIVE_REVIEW_STATES
