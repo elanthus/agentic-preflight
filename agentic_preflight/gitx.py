@@ -207,9 +207,7 @@ def list_noted_objects(cwd: Path | str, notes_ref: str) -> list[str]:
     if result.returncode == 1:
         return []
     if result.returncode != 0:
-        raise GitError(
-            ["notes", f"--ref={notes_ref}", "list"], result.returncode, result.stderr
-        )
+        raise GitError(["notes", f"--ref={notes_ref}", "list"], result.returncode, result.stderr)
     return [line.split()[1] for line in _lines(result.stdout) if len(line.split()) == 2]
 
 

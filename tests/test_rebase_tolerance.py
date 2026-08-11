@@ -24,9 +24,7 @@ def _green_run(repo, tmp_path):
     return agent
 
 
-def test_start_preserves_green_across_a_tree_and_merge_equivalent_rebase(
-    feature_repo, tmp_path
-):
+def test_start_preserves_green_across_a_tree_and_merge_equivalent_rebase(feature_repo, tmp_path):
     agent = _green_run(feature_repo, tmp_path)
     old_head = git("rev-parse", "HEAD", cwd=feature_repo)
     old_tree = git("rev-parse", "HEAD^{tree}", cwd=feature_repo)
@@ -51,9 +49,7 @@ def test_start_preserves_green_across_a_tree_and_merge_equivalent_rebase(
     assert reused.merge_base_sha == new_main
 
 
-def test_identical_tree_is_rejected_when_ancestry_changes_the_merge_outcome(
-    feature_repo, tmp_path
-):
+def test_identical_tree_is_rejected_when_ancestry_changes_the_merge_outcome(feature_repo, tmp_path):
     agent = _green_run(feature_repo, tmp_path)
     source_tree = git("rev-parse", "HEAD^{tree}", cwd=feature_repo)
     agent.run("abort", "--force")
@@ -62,17 +58,26 @@ def test_identical_tree_is_rejected_when_ancestry_changes_the_merge_outcome(
     write(feature_repo, "README.md", "# changed upstream\n")
     base = commit_all(feature_repo, "change the merge outcome")
     target = git(
-        "commit-tree", source_tree, "-p", base, "-m", "same snapshot, new ancestry", cwd=feature_repo
+        "commit-tree",
+        source_tree,
+        "-p",
+        base,
+        "-m",
+        "same snapshot, new ancestry",
+        cwd=feature_repo,
     )
 
-    assert attestation.reuse_for_rebase(
-        feature_repo,
-        sha=target,
-        base_sha=base,
-        branch="feature/x",
-        base_ref="main",
-        intent="exercise the requested behavior safely",
-    ) is None
+    assert (
+        attestation.reuse_for_rebase(
+            feature_repo,
+            sha=target,
+            base_sha=base,
+            branch="feature/x",
+            base_ref="main",
+            intent="exercise the requested behavior safely",
+        )
+        is None
+    )
     assert attestation.read(feature_repo, target) is None
 
 
@@ -87,9 +92,7 @@ def test_a_different_user_intent_forces_a_fresh_review(feature_repo, tmp_path):
     new_main = git("commit-tree", main_tree, "-p", main, "-m", "empty upstream", cwd=feature_repo)
     git("update-ref", "refs/heads/main", new_main, main, cwd=feature_repo)
 
-    env = ScriptedAgent(feature_repo).run(
-        "start", "--intent", "review a different objective"
-    )
+    env = ScriptedAgent(feature_repo).run("start", "--intent", "review a different objective")
     assert env["state"] == "REVIEW_AWAITING_FINDINGS"
     new_head = git("rev-parse", "HEAD", cwd=feature_repo)
     assert new_head != old_head

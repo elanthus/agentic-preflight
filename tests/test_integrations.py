@@ -38,9 +38,7 @@ def test_resolves_cursor_opencode_and_amp_documented_locations(tmp_path):
         ["cursor", "opencode", "amp"], scope="user", home=tmp_path
     )
     assert targets == [
-        integrations.InstallTarget(
-            "cursor", tmp_path / ".cursor" / "skills" / "agentic-preflight"
-        ),
+        integrations.InstallTarget("cursor", tmp_path / ".cursor" / "skills" / "agentic-preflight"),
         integrations.InstallTarget(
             "opencode",
             tmp_path / ".config" / "opencode" / "skills" / "agentic-preflight",
@@ -58,18 +56,12 @@ def test_resolves_new_project_locations_and_preserves_shared_agent_targets(tmp_p
         project_root=tmp_path,
     )
     assert targets == [
-        integrations.InstallTarget(
-            "codex", tmp_path / ".agents" / "skills" / "agentic-preflight"
-        ),
-        integrations.InstallTarget(
-            "cursor", tmp_path / ".cursor" / "skills" / "agentic-preflight"
-        ),
+        integrations.InstallTarget("codex", tmp_path / ".agents" / "skills" / "agentic-preflight"),
+        integrations.InstallTarget("cursor", tmp_path / ".cursor" / "skills" / "agentic-preflight"),
         integrations.InstallTarget(
             "opencode", tmp_path / ".opencode" / "skills" / "agentic-preflight"
         ),
-        integrations.InstallTarget(
-            "amp", tmp_path / ".agents" / "skills" / "agentic-preflight"
-        ),
+        integrations.InstallTarget("amp", tmp_path / ".agents" / "skills" / "agentic-preflight"),
     ]
 
 
@@ -263,15 +255,12 @@ def test_cli_install_and_status_keep_the_single_json_contract(tmp_path):
     )
     assert status.exit_code == 0
     payload = json.loads(status.stdout)
-    by_integration = {
-        item["integration"]: item for item in payload["data"]["integrations"]
-    }
+    by_integration = {item["integration"]: item for item in payload["data"]["integrations"]}
     assert set(by_integration) == set(integrations.SUPPORTED_INTEGRATIONS)
     assert by_integration["codex"]["status"] == "current"
     assert by_integration["claude"]["status"] == "current"
     assert all(
-        by_integration[name]["status"] == "missing"
-        for name in {"cursor", "opencode", "amp"}
+        by_integration[name]["status"] == "missing" for name in {"cursor", "opencode", "amp"}
     )
 
 

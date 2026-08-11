@@ -234,9 +234,7 @@ def start(
             review_blocking_severities=cfg.review.blocking_severities,
             docs_blocking_severities=cfg.docs.blocking_severities,
         )
-        assessment = risk.include_attested_findings(
-            assessment, reused_attestation.findings_summary
-        )
+        assessment = risk.include_attested_findings(assessment, reused_attestation.findings_summary)
         with session.store.transaction(run_id) as doc:
             doc.head_sha = sync_result.head_after
             doc.source_head_sha = sync_result.head_after

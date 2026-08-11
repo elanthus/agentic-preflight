@@ -39,9 +39,7 @@ SUPPORTED_INTEGRATIONS: dict[str, IntegrationSpec] = {
     "codex": IntegrationSpec((".agents", "skills"), (".agents", "skills")),
     "claude": IntegrationSpec((".claude", "skills"), (".claude", "skills")),
     "cursor": IntegrationSpec((".cursor", "skills"), (".cursor", "skills")),
-    "opencode": IntegrationSpec(
-        (".config", "opencode", "skills"), (".opencode", "skills")
-    ),
+    "opencode": IntegrationSpec((".config", "opencode", "skills"), (".opencode", "skills")),
     "amp": IntegrationSpec((".config", "agents", "skills"), (".agents", "skills")),
 }
 

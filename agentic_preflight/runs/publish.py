@@ -52,9 +52,7 @@ def gate(session: Session) -> Envelope:
     except (attestationmod.InvalidAttestation, gitx.GitError):
         portable = None
     if portable is not None:
-        assessment = riskmod.include_attested_findings(
-            assessment, portable.findings_summary
-        )
+        assessment = riskmod.include_attested_findings(assessment, portable.findings_summary)
     if run.risk != assessment or run.changed_files != changed_files:
         with session.store.transaction(run.run_id) as doc:
             doc.changed_files = changed_files
