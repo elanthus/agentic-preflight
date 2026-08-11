@@ -18,7 +18,7 @@ digest; a new objective always starts a fresh review, even after local run recor
 been garbage-collected.
 
 Any content or effective-config change, merge conflict, different merge result, branch
-change, or base-ref change forces a fresh review, test, docs, and lint run. Isolated
+change, or base-ref change forces a fresh review, docs, lint, and test run. Isolated
 worktree modes do not reuse attestations because their synchronized commit is not the
 source branch that will be pushed.
 

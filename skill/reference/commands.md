@@ -95,7 +95,7 @@ call twice.
 
 - Both sections: `diff`, `changed_files`, `excluded_files`, `worktree_path`.
 - `--section docs` adds `doc_surface`: every documentation file with `exists`, `size`,
-  and `touched_by_diff`. From `TEST_GREEN` this opens the docs stage.
+  and `touched_by_diff`. From `REVIEW_GREEN` this opens the docs stage.
 
 Exits 2 with `data.mode = "diff_too_large"` when the diff exceeds `[diff] max_bytes`.
 The diff is never truncated — narrow it with `[diff] exclude` or raise the limit.
@@ -137,12 +137,15 @@ Later dismissal or changes-requested reviews revoke that person's peer approval.
 a trusted workflow can dispatch the appropriate hosted job.
 
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
-After review becomes green, the CLI automatically skips the software test command when
-every changed path is documentation or standard CI configuration. This is an explicit
-state-machine transition, not an agent judgment: `status` and the final attestation note
-the test stage as `skipped`. A mixed diff containing any other path still requires the
-configured test command. Documentation includes common markup files, the standard docs
-surface, and `[docs] paths`; CI configuration includes common hosted-CI workflow paths.
+Stages run in the fixed order docs → lint → test after review becomes green. Running lint
+before the potentially expensive test command means a committed mechanical lint repair
+cannot invalidate an already-green test result. After lint, the CLI automatically skips
+the software test command when every changed path is documentation or standard CI
+configuration. This is an explicit state-machine transition, not an agent judgment:
+`status` and the final attestation note the test stage as `skipped`. A mixed diff
+containing any other path still requires the configured test command. Documentation
+includes common markup files, the standard docs surface, and `[docs] paths`; CI
+configuration includes common hosted-CI workflow paths.
 
 Command resolution: `--command` → `[commands].<name>` → detection. Detection never
 guesses: it exits 2 with `data.mode = "needs_command"` and candidates from

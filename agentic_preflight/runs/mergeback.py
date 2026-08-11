@@ -38,7 +38,7 @@ def mergeback(session: Session) -> Envelope:
         _assert_fresh(session, run)
     _require_state(
         run,
-        State.LINT_GREEN,
+        State.TEST_GREEN,
         State.MERGEBACK_PENDING,
         State.MERGEBACK_CONFLICT,
         command="mergeback",
@@ -70,7 +70,7 @@ def mergeback(session: Session) -> Envelope:
                 next_command="git status",
             )
 
-    if run.state is State.LINT_GREEN:
+    if run.state is State.TEST_GREEN:
         with session.store.transaction(run.run_id) as doc:
             _apply(doc, Action.BEGIN_MERGEBACK)
             run = doc

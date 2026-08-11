@@ -32,7 +32,7 @@ from ._session import (
     _require_state,
     _require_worktree,
 )
-from .review import _advance_after_review, _skip_docs_if_disabled
+from .review import _advance_after_review, _skip_test_if_not_applicable
 
 
 class _StageSpec(TypedDict):
@@ -54,7 +54,7 @@ _STAGE_STATES: dict[str, _StageSpec] = {
         "red": State.LINT_RED,
     },
     "test": {
-        "ready": (State.REVIEW_GREEN, State.TEST_RED),
+        "ready": (State.LINT_GREEN, State.TEST_RED),
         "run": Action.RUN_TEST,
         "retry": Action.RETRY_TEST,
         "passed": Action.TEST_PASSED,
@@ -100,13 +100,24 @@ def _register_stage_fix_commits(
                 doc.head_sha = current_head
                 doc.source_head_sha = current_head
             if stage is Stage.LINT:
+                # A lint repair changes the tree a future test must describe. This
+                # also clears a prior red test when lint is being revalidated after
+                # a committed test repair, so the lint commit is not later mistaken
+                # for another test repair.
+                doc.stages.pop(Stage.TEST, None)
                 _apply(doc, Action.LINT_FIX_RESTART)
+            elif stage is Stage.TEST:
+                # The previously green lint result names the pre-repair tree. Drop
+                # it before returning to docs/lint so the next lint run starts clean
+                # rather than treating this test commit as a lint repair.
+                doc.stages.pop(Stage.LINT, None)
+                _apply(doc, Action.TEST_FIX_RESTART)
             run = doc
         session.store.append_event(
             run.run_id,
             {"event": "stage_fix_commits_registered", "stage": stage.value, "commits": commits},
         )
-        return run, stage is Stage.LINT
+        return run, stage in {Stage.LINT, Stage.TEST}
     return run, False
 
 
@@ -198,7 +209,7 @@ def run_stage(
             stage=stage_name,
             data={"stage": stage_name, "validation_restarted": True},
             next_instruction=(
-                "The lint repair changed the verified tree. Re-run every applicable "
+                f"The {stage_name} repair changed the verified tree. Re-run every applicable "
                 "stage so each result describes the repaired commit."
             ),
         )
@@ -277,8 +288,8 @@ def run_stage(
         data["baseline_red"] = baseline_red
 
     if result.passed:
-        if stage is Stage.TEST:
-            run = _skip_docs_if_disabled(session, run)
+        if stage is Stage.LINT:
+            run = _skip_test_if_not_applicable(session, run)
         return _envelope_for(run, stage=stage_name, data=data)
 
     message = f"the {stage_name} stage failed (exit {result.exit_code})"

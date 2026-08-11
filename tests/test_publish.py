@@ -31,8 +31,8 @@ def verified(feature_repo, bare_remote, tmp_path):
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("stage", "run", "test")
     agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
     env = agent.run("mergeback")
     assert env["state"] == "VERIFIED"
     return agent
@@ -79,8 +79,8 @@ def verified_with_cherry_picked_fix(feature_repo, bare_remote, tmp_path, monkeyp
     original = commit_all(wt, "use the loud flag")
     agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", original)
     agent.run("verify")
-    agent.run("stage", "run", "test")
     agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
 
     monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-01-02T00:00:00+00:00")
     agent.run("mergeback")
@@ -171,8 +171,8 @@ def test_manual_gate_mode_refuses_to_proceed_at_all(feature_repo, bare_remote, t
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("stage", "run", "test")
     agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
     agent.run("mergeback")
 
     env = agent.run("gate", expect=ExitCode.NEEDS_HUMAN)
@@ -194,8 +194,8 @@ def test_manual_pr_mode_pushes_but_hands_pr_creation_to_the_user(
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("stage", "run", "test")
     agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
     agent.run("mergeback")
 
     env = agent.run("gate")
@@ -229,8 +229,8 @@ def test_human_review_path_allows_push_gate_and_marks_merge_review_requirement(
     assert start["data"]["risk"]["verdict"] == "needs_human"
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("stage", "run", "test")
     agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
     agent.run("mergeback")
 
     env = agent.run("gate")

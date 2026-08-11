@@ -100,12 +100,7 @@ Type "agentic-preflight verify | jqs"
 Enter
 Sleep 1000ms
 
-# 6. Targeted tests, green.
-Type "agentic-preflight stage run test | jqs"
-Enter
-Sleep 1800ms
-
-# 7. Docs pass: nothing stale, zero findings is a valid outcome.
+# 6. Docs pass: nothing stale, zero findings is a valid outcome.
 Type "agentic-preflight context --section docs | jqd"
 Enter
 Sleep 1800ms
@@ -118,8 +113,13 @@ Type "clear"
 Enter
 Sleep 300ms
 
-# 8. Lint, green.
+# 7. Lint before the expensive tests, green.
 Type "agentic-preflight stage run lint | jqs"
+Enter
+Sleep 1800ms
+
+# 8. Targeted tests run once against the lint-clean tree.
+Type "agentic-preflight stage run test | jqs"
 Enter
 Sleep 1800ms
 

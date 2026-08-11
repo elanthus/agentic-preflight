@@ -18,8 +18,8 @@ def _green_run(repo, tmp_path):
     findings = tmp_path / "findings.json"
     findings.write_text('{"findings": []}\n')
     agent.run("submit-findings", "--file", str(findings))
-    agent.run("stage", "run", "test")
     agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
     agent.run("mergeback")
     return agent
 
@@ -149,8 +149,8 @@ def test_a_different_effective_config_forces_a_fresh_review(feature_repo, tmp_pa
     findings = tmp_path / "config-findings.json"
     findings.write_text('{"findings": []}\n')
     agent.run("submit-findings", "--file", str(findings))
-    agent.run("stage", "run", "test")
     agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
     agent.run("mergeback")
     old_head = git("rev-parse", "HEAD", cwd=feature_repo)
     agent.run("abort", "--force")

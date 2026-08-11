@@ -79,7 +79,7 @@ $ agentic-preflight start --intent "Add retries and document the failure policy"
 {"ok":true,"state":"REVIEW_AWAITING_FINDINGS","next":{"command":"agentic-preflight context","instruction":"Fetch the diff before judging it."}}
 $ agentic-preflight context | jq -c '{ok,state,data:{changed_files:.data.changed_files},next}'
 {"ok":true,"state":"REVIEW_AWAITING_FINDINGS","data":{"changed_files":[".agentic-preflight.toml","change.txt"]},"next":{"command":"agentic-preflight submit-findings --file findings.json","instruction":"Review the diff, then submit findings (an empty list is a valid outcome)."}}
-... review, test, docs, and lint complete ...
+... review, docs, lint, and tests complete ...
 $ agentic-preflight gate | jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch,pr_mode:.data.pr_mode,approval_mode:.data.approval_mode},next}'
 {"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"d8697c2068b4853b","remote":"origin","branch":"demo","pr_mode":"auto","approval_mode":"manual_merge"},"next":{"command":"agentic-preflight push --confirm d8697c2068b4853b","instruction":"Show the user the remote, branch, and commit list in plain language, then ask whether to push. Never push without asking. This high-risk change requires the user to merge the pull request manually; do not merge it or enable auto-merge. After the confirmed push and preflight finish, automatically open or reuse the pull request; auto mode is standing authorization, so do not ask again."}}
 $ agentic-preflight push --confirm d8697c2068b4853b | jq -c '{ok,state,data:{remote:.data.remote,branch:.data.branch,pr_mode:.data.pr_mode},next}'
@@ -99,9 +99,9 @@ other Agent Skills clients are covered in
 
 ```
 start --intent "..." → fetch/rebase → context → submit-findings → verify (review)
-      → stage run test (automatically skipped for documentation/CI-only changes)
       → context --section docs → submit-findings → verify   (docs)
       → stage run lint
+      → stage run test (automatically skipped for documentation/CI-only changes)
       → mergeback → gate → push → finish → gc
 ```
 
@@ -116,11 +116,11 @@ loop. Every command returns one JSON object containing `next`, the single next l
 command, so the agent never has to guess.
 
 When every changed file is documentation or standard CI configuration, the gate does not
-run the software test command. It takes an explicit `SKIP_TEST` transition through
-`TEST_GREEN` and records the test stage as `skipped` with its reason, so the exception is
-visible in `status` and the commit's attestation note. Any source or otherwise
-unclassified file keeps tests mandatory. [docs/change-scope.md](docs/change-scope.md)
-lists the exact classification.
+run the final software test command. After lint, it takes an explicit `SKIP_TEST`
+transition through `TEST_GREEN` and records the test stage as `skipped` with its reason,
+so the exception is visible in `status` and the commit's attestation note. Any source or
+otherwise unclassified file keeps tests mandatory.
+[docs/change-scope.md](docs/change-scope.md) lists the exact classification.
 
 Risk is classified separately from that execution scope and from diff size. Repository
 policy maps changed paths to `low`, `medium`, or `high`, and findings can raise the final

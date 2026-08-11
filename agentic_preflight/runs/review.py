@@ -43,7 +43,7 @@ def _bundle_for(session: Session, run: RunDoc) -> diffmod.DiffBundle:
 
 
 def _open_docs_stage(session: Session, run: RunDoc) -> RunDoc:
-    """Move TEST_GREEN into the docs sub-machine."""
+    """Move REVIEW_GREEN into the docs sub-machine."""
     with session.store.transaction(run.run_id) as doc:
         _apply(doc, Action.BEGIN_DOCS)
         return doc
@@ -57,7 +57,7 @@ def _skip_docs_if_disabled(session: Session, run: RunDoc) -> RunDoc:
     the stage was skipped by configuration, and that is a recorded fact rather
     than an absence.
     """
-    if session.config.docs.enabled or run.state is not State.TEST_GREEN:
+    if session.config.docs.enabled or run.state is not State.REVIEW_GREEN:
         return run
     with session.store.transaction(run.run_id) as doc:
         _apply(doc, Action.SKIP_DOCS)
@@ -68,7 +68,7 @@ def _skip_docs_if_disabled(session: Session, run: RunDoc) -> RunDoc:
 
 def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
     """Record an explicit test skip for documentation/CI-only diffs."""
-    if run.state is not State.REVIEW_GREEN:
+    if run.state is not State.LINT_GREEN:
         return run
     changed = gitx.changed_files(run.worktree_path or session.repo_root, run.merge_base_sha, "HEAD")
     if not change_scope.tests_are_not_applicable(
@@ -93,7 +93,6 @@ def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
 
 
 def _advance_after_review(session: Session, run: RunDoc) -> RunDoc:
-    run = _skip_test_if_not_applicable(session, run)
     return _skip_docs_if_disabled(session, run)
 
 
@@ -104,11 +103,11 @@ def context(session: Session, *, section: str = "review") -> Envelope:
     if section == "docs":
         _require_state(
             run,
-            State.TEST_GREEN,
+            State.REVIEW_GREEN,
             State.DOCS_AWAITING_FINDINGS,
             command="context --section docs",
         )
-        if run.state is State.TEST_GREEN:
+        if run.state is State.REVIEW_GREEN:
             run = _open_docs_stage(session, run)
     else:
         _require_state(

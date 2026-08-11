@@ -61,13 +61,7 @@ $ agentic-preflight respond --id F001 --action fixed --commit 9c3d1ab
 {"ok":true,"state":"REVIEW_FIXING","next":{"command":"agentic-preflight verify"}}
 
 $ agentic-preflight verify
-{"ok":true,"state":"REVIEW_GREEN","next":{"command":"agentic-preflight stage run test"}}
-
-# For a documentation/CI-configuration-only diff, verify instead records test as
-# skipped and returns TEST_GREEN with the docs command as next. Obey the envelope.
-
-$ agentic-preflight stage run test
-{"ok":true,"state":"TEST_GREEN","next":{"command":"agentic-preflight context --section docs"}}
+{"ok":true,"state":"REVIEW_GREEN","next":{"command":"agentic-preflight context --section docs"}}
 
 $ agentic-preflight context --section docs
 {"ok":true,"state":"DOCS_AWAITING_FINDINGS","data":{"doc_surface":[{"path":"README.md",...}]},
@@ -77,7 +71,13 @@ $ agentic-preflight submit-findings --file findings.json     # often just {"find
 {"ok":true,"state":"DOCS_GREEN","next":{"command":"agentic-preflight stage run lint"}}
 
 $ agentic-preflight stage run lint
-{"ok":true,"state":"LINT_GREEN","next":{"command":"agentic-preflight mergeback"}}
+{"ok":true,"state":"LINT_GREEN","next":{"command":"agentic-preflight stage run test"}}
+
+# For a documentation/CI-configuration-only diff, green lint instead records test
+# as skipped and returns TEST_GREEN with mergeback as next. Obey the envelope.
+
+$ agentic-preflight stage run test
+{"ok":true,"state":"TEST_GREEN","next":{"command":"agentic-preflight mergeback"}}
 
 $ agentic-preflight mergeback
 {"ok":true,"state":"VERIFIED","data":{"worktree_mode":"in_place","applied":[],"tree_equivalent":true},
@@ -201,7 +201,7 @@ user `agentic-preflight logs --stage <name>` output and ask how to proceed.
 **Hosted CI failed.** Inspect the failed check with `gh pr checks` and `gh run view
 --log-failed`. Fix and commit the source branch, then start a fresh synchronized
 preflight run with the original intent. Do not push the repair until the new
-review → test → docs → lint run reaches green. Push through the gate again, then
+review → docs → lint → test run reaches green. Push through the gate again, then
 resume check monitoring with `gh`.
 
 **Stale head (exit 3, `stale_run`).** The branch moved after review began, so

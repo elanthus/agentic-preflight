@@ -84,6 +84,7 @@ class Action(StrEnum):
     TEST_PASSED = "TEST_PASSED"
     TEST_FAILED = "TEST_FAILED"
     RETRY_TEST = "RETRY_TEST"
+    TEST_FIX_RESTART = "TEST_FIX_RESTART"
 
     BEGIN_MERGEBACK = "BEGIN_MERGEBACK"
     MERGEBACK_OK = "MERGEBACK_OK"
@@ -200,24 +201,7 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         _S.REVIEW_GREEN,
     ),
     _S.REVIEW_GREEN: _state(
-        "Review is green. Run targeted tests.",
-        "agentic-preflight stage run test",
-        (_A.RUN_TEST, _S.TEST_RUNNING),
-        (_A.SKIP_TEST, _S.TEST_GREEN),
-    ),
-    _S.TEST_RUNNING: _state(
-        "Test execution was interrupted; inspect the recorded run.",
-        _STATUS,
-        (_A.TEST_PASSED, _S.TEST_GREEN),
-        (_A.TEST_FAILED, _S.TEST_RED),
-    ),
-    _S.TEST_RED: _state(
-        "Inspect the failed test stage before retrying.",
-        "agentic-preflight logs --stage test",
-        (_A.RETRY_TEST, _S.TEST_RUNNING),
-    ),
-    _S.TEST_GREEN: _state(
-        "Tests passed or were not applicable. Check whether documentation is now stale.",
+        "Review is green. Check whether documentation is now stale.",
         "agentic-preflight context --section docs",
         (_A.BEGIN_DOCS, _S.DOCS_AWAITING_FINDINGS),
         (_A.SKIP_DOCS, _S.DOCS_GREEN),
@@ -248,7 +232,25 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         (_A.LINT_FIX_RESTART, _S.REVIEW_GREEN),
     ),
     _S.LINT_GREEN: _state(
-        "Lint is green. Merge the fixes back.",
+        "Lint is green. Run targeted tests.",
+        "agentic-preflight stage run test",
+        (_A.RUN_TEST, _S.TEST_RUNNING),
+        (_A.SKIP_TEST, _S.TEST_GREEN),
+    ),
+    _S.TEST_RUNNING: _state(
+        "Test execution was interrupted; inspect the recorded run.",
+        _STATUS,
+        (_A.TEST_PASSED, _S.TEST_GREEN),
+        (_A.TEST_FAILED, _S.TEST_RED),
+    ),
+    _S.TEST_RED: _state(
+        "Inspect the failed test stage before retrying.",
+        "agentic-preflight logs --stage test",
+        (_A.RETRY_TEST, _S.TEST_RUNNING),
+        (_A.TEST_FIX_RESTART, _S.REVIEW_GREEN),
+    ),
+    _S.TEST_GREEN: _state(
+        "Tests passed or were not applicable. Merge the fixes back.",
         "agentic-preflight mergeback",
         (_A.BEGIN_MERGEBACK, _S.MERGEBACK_PENDING),
     ),

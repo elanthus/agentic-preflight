@@ -259,11 +259,6 @@ def start(
             _apply(doc, Action.BEGIN_REVIEW)
             _apply(doc, Action.SUBMIT_FINDINGS)
             _apply(doc, Action.TRIAGE_CLEAN)
-            if reused_attestation.stages[Stage.TEST].status == "skipped":
-                _apply(doc, Action.SKIP_TEST)
-            else:
-                _apply(doc, Action.RUN_TEST)
-                _apply(doc, Action.TEST_PASSED)
             if reused_attestation.stages[Stage.DOCS].status == "skipped":
                 _apply(doc, Action.SKIP_DOCS)
             else:
@@ -272,6 +267,11 @@ def start(
                 _apply(doc, Action.TRIAGE_CLEAN)
             _apply(doc, Action.RUN_LINT)
             _apply(doc, Action.LINT_PASSED)
+            if reused_attestation.stages[Stage.TEST].status == "skipped":
+                _apply(doc, Action.SKIP_TEST)
+            else:
+                _apply(doc, Action.RUN_TEST)
+                _apply(doc, Action.TEST_PASSED)
             _apply(doc, Action.BEGIN_MERGEBACK)
             _apply(doc, Action.MERGEBACK_OK)
             run = doc

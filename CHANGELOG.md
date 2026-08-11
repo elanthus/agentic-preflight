@@ -45,6 +45,10 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Local validation now runs review → docs → lint → test, leaving the potentially
+  expensive test command until all review, documentation, and mechanical lint repairs
+  are committed. A lint-only repair therefore cannot force an otherwise unnecessary
+  second test run; committed test repairs still invalidate docs and lint before retry.
 - Pull requests and pushes to `main` now run one test combination, `ubuntu-latest` on
   Python 3.13, rather than the full six-way matrix. The matrix of Ubuntu and macOS
   against Python 3.11, 3.12, and 3.13 still runs on release tags, where it now gates

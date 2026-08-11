@@ -211,8 +211,8 @@ def _green_run(repo, tmp_path):
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("stage", "run", "test")
     agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
     agent.run("mergeback")
     return agent
 
