@@ -103,3 +103,70 @@ def verify(repo: Path | str, sha: str) -> Attestation:
             f"attestation tree {value.tree_sha} does not match commit tree {actual_tree}"
         )
     return value
+
+
+def reuse_for_rebase(
+    repo: Path | str,
+    *,
+    sha: str,
+    base_sha: str,
+    branch: str,
+    base_ref: str,
+) -> tuple[Attestation, str | None] | None:
+    """Transfer green to ``sha`` only for a merge-equivalent tree rewrite.
+
+    Matching trees alone are insufficient: Git's merge result also depends on
+    ancestry.  A candidate is reusable only when both commits have the same
+    complete tree and Git produces the same clean merge tree for each against
+    the freshly synchronized base.
+    """
+    repo = Path(repo)
+    target_sha = gitx.rev_parse(repo, sha)
+    target_tree = gitx.tree_sha(repo, target_sha)
+
+    exact = read(repo, target_sha)
+    if exact is not None:
+        try:
+            verified = verify(repo, target_sha)
+        except InvalidAttestation:
+            return None
+        reusable = (
+            verified.branch == branch
+            and verified.base_ref == base_ref
+            and verified.stages[Stage.LINT].status == "green"
+        )
+        return (verified, None) if reusable else None
+
+    target_merge_tree = gitx.merge_tree(repo, base_sha, target_sha)
+    if target_merge_tree is None:
+        return None
+
+    candidates: list[Attestation] = []
+    for noted_sha in gitx.list_noted_objects(repo, NOTES_REF):
+        if not gitx.commit_exists(repo, noted_sha):
+            continue
+        try:
+            candidate = verify(repo, noted_sha)
+        except (InvalidAttestation, gitx.GitError):
+            continue
+        if (
+            candidate.tree_sha == target_tree
+            and candidate.branch == branch
+            and candidate.base_ref == base_ref
+            and candidate.stages[Stage.LINT].status == "green"
+        ):
+            candidates.append(candidate)
+
+    for candidate in sorted(candidates, key=lambda value: value.green_at, reverse=True):
+        if gitx.merge_tree(repo, base_sha, candidate.sha) != target_merge_tree:
+            continue
+        reused = candidate.model_copy(
+            update={
+                "sha": target_sha,
+                "tree_sha": target_tree,
+                "merge_base_sha": gitx.rev_parse(repo, base_sha),
+            }
+        )
+        write(repo, reused)
+        return reused, candidate.sha
+    return None

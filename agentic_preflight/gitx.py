@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -83,6 +84,53 @@ def is_ancestor(cwd: Path | str, maybe_ancestor: str, descendant: str) -> bool:
     return result.returncode == 0
 
 
+def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
+    """Return Git's clean merge-result tree, or ``None`` for a conflict.
+
+    ``merge-tree --write-tree`` uses the commits' ancestry as well as their
+    snapshots.  That distinction is essential when deciding whether a green
+    result can survive a history rewrite.
+    """
+    result = run(cwd, "merge-tree", "--write-tree", left, right, check=False)
+    if result.returncode == 1:
+        return None
+    if result.returncode == 129 or "unknown option" in result.stderr.lower():
+        # Git 2.30-2.37 predates `merge-tree --write-tree`. Its index
+        # three-way merge is intentionally more conservative (it can reject a
+        # clean textual merge), but it cannot manufacture a false equivalence.
+        base = merge_base(cwd, left, right)
+        with tempfile.TemporaryDirectory(prefix="agentic-preflight-merge-") as temp_dir:
+            env = {**os.environ, "GIT_INDEX_FILE": str(Path(temp_dir) / "index")}
+            merged = subprocess.run(
+                ["git", "read-tree", "-m", base, left, right],
+                cwd=str(cwd),
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            if merged.returncode != 0:
+                return None
+            written = subprocess.run(
+                ["git", "write-tree"],
+                cwd=str(cwd),
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            if written.returncode != 0:
+                raise GitError(["write-tree"], written.returncode, written.stderr)
+            value = written.stdout.strip()
+            return value if len(value) == 40 else None
+    if result.returncode != 0:
+        raise GitError(
+            ["merge-tree", "--write-tree", left, right],
+            result.returncode,
+            result.stderr,
+        )
+    first_line = result.stdout.splitlines()[0] if result.stdout else ""
+    return first_line if len(first_line) == 40 else None
+
+
 def commit_exists(cwd: Path | str, sha: str) -> bool:
     result = run(cwd, "cat-file", "-e", f"{sha}^{{commit}}", check=False)
     return result.returncode == 0
@@ -149,6 +197,18 @@ def read_note(cwd: Path | str, notes_ref: str, sha: str) -> str | None:
 
 def write_note(cwd: Path | str, notes_ref: str, sha: str, payload: str) -> None:
     run(cwd, "notes", f"--ref={notes_ref}", "add", "-f", "-m", payload, sha)
+
+
+def list_noted_objects(cwd: Path | str, notes_ref: str) -> list[str]:
+    """Return the objects carrying notes, newest notes-ref state first."""
+    result = run(cwd, "notes", f"--ref={notes_ref}", "list", check=False)
+    if result.returncode == 1:
+        return []
+    if result.returncode != 0:
+        raise GitError(
+            ["notes", f"--ref={notes_ref}", "list"], result.returncode, result.stderr
+        )
+    return [line.split()[1] for line in _lines(result.stdout) if len(line.split()) == 2]
 
 
 def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> bool:

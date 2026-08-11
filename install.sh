@@ -11,7 +11,7 @@ fi
 
 agents=("$@")
 if [[ ${#agents[@]} -eq 0 ]]; then
-    agents=(codex claude)
+    agents=(codex claude cursor opencode amp)
 fi
 
 echo "Installing agentic-preflight from $repo_root"

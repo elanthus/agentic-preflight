@@ -38,6 +38,11 @@ class IntegrationSpec:
 SUPPORTED_INTEGRATIONS: dict[str, IntegrationSpec] = {
     "codex": IntegrationSpec((".agents", "skills"), (".agents", "skills")),
     "claude": IntegrationSpec((".claude", "skills"), (".claude", "skills")),
+    "cursor": IntegrationSpec((".cursor", "skills"), (".cursor", "skills")),
+    "opencode": IntegrationSpec(
+        (".config", "opencode", "skills"), (".opencode", "skills")
+    ),
+    "amp": IntegrationSpec((".config", "agents", "skills"), (".agents", "skills")),
 }
 
 
@@ -156,7 +161,7 @@ def resolve_targets(
             raise IntegrationError("project scope requires a repository root")
         project_root = _absolute(project_root)
     targets: list[InstallTarget] = []
-    seen_paths: set[Path] = set()
+    seen_targets: set[tuple[str, Path]] = set()
     for agent in agents:
         spec = SUPPORTED_INTEGRATIONS.get(agent)
         if spec is None:
@@ -169,16 +174,18 @@ def resolve_targets(
                 raise IntegrationError("project scope requires a repository root")
             root = project_root.joinpath(*spec.project_parts)
         destination = _absolute(root / SKILL_NAME)
-        if destination not in seen_paths:
+        key = (agent, destination)
+        if key not in seen_targets:
             targets.append(InstallTarget(agent, destination))
-            seen_paths.add(destination)
+            seen_targets.add(key)
 
     for custom_root in custom_roots:
         root = _absolute(custom_root)
         destination = _absolute(root / SKILL_NAME)
-        if destination not in seen_paths:
+        key = ("custom", destination)
+        if key not in seen_targets:
             targets.append(InstallTarget("custom", destination))
-            seen_paths.add(destination)
+            seen_targets.add(key)
     return targets
 
 

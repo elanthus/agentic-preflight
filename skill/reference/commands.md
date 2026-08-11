@@ -23,26 +23,27 @@ It also inspects runtime pins. For Node projects, the response names the detecte
 and manager, or warns that the repository is unpinned. Worktrees default to a hidden
 sibling directory outside `.git`; `data.worktree_root` reports the resolved location.
 
-### `agentic-preflight integrations install codex|claude... [--scope user|project] [--target PATH] [--force]`
+### `agentic-preflight integrations install AGENT... [--scope user|project] [--target PATH] [--force]`
 Copies the bundled skill and all of its references into each selected agent's discovery
-directory. User scope installs under `~/.agents/skills` for Codex and
-`~/.claude/skills` for Claude Code. Project scope uses the corresponding directory at
-the repository root. `--target` adds a custom skills root for another compatible agent.
+directory. `AGENT` is `codex`, `claude`, `cursor`, `opencode`, or `amp`. User scope uses
+their documented global directories; project scope uses `.agents/skills`,
+`.claude/skills`, `.cursor/skills`, or `.opencode/skills` as appropriate. `--target`
+adds a custom skills root for another compatible agent.
 
 Existing unmanaged or locally modified copies are never overwritten unless `--force`
 is explicit. The operation preflights every destination, so a conflict cannot leave
 only half of the requested integrations installed.
 
-### `agentic-preflight integrations status [codex|claude...] [--scope user|project] [--target PATH]`
+### `agentic-preflight integrations status [AGENT...] [--scope user|project] [--target PATH]`
 Reports each copy as `missing`, `current`, `outdated`, `modified`, or `unmanaged`.
-With no agents named, checks Codex and Claude Code.
+With no agents named, checks every supported integration.
 
-### `agentic-preflight integrations update [codex|claude...] [--scope user|project] [--target PATH] [--force]`
+### `agentic-preflight integrations update [AGENT...] [--scope user|project] [--target PATH] [--force]`
 Refreshes installed copies after a CLI upgrade and skips agents where the skill is not
-installed. With no agents named, checks Codex and Claude Code. Refuses to replace local
+installed. With no agents named, checks every supported integration. Refuses to replace local
 edits unless `--force` is explicit.
 
-### `agentic-preflight integrations uninstall codex|claude... [--scope user|project] [--target PATH] [--force]`
+### `agentic-preflight integrations uninstall AGENT... [--scope user|project] [--target PATH] [--force]`
 Removes copies managed by agentic-preflight. Unmanaged or locally modified directories are
 preserved unless `--force` is explicit. At least one agent or custom target is required.
 
@@ -58,6 +59,9 @@ Before review, the command fetches the configured base from `origin` when availa
 rebases the validation checkout onto that exact fresh base. In-place mode therefore
 rebases the PR branch itself. A sync conflict is aborted
 cleanly and reported; no conflicted rebase is left in progress.
+If the rebased commit has both the same complete tree and the same clean merge result as
+a prior attested commit for this branch and base ref, `start` transfers that evidence and
+returns `VERIFIED`. A tree match alone never transfers green.
 Refuses a dirty tree (exit 3, `dirty_tree`) and a branch with no changes over the base
 (exit 3, `empty_diff`). In-place mode protects `[worktree] copy_files` where they are;
 isolated modes copy them. Every mode refuses an entry git is not already ignoring.

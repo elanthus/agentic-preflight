@@ -60,7 +60,7 @@ fi
 
 agents=("$@")
 if [[ ${#agents[@]} -eq 0 ]]; then
-    agents=(codex claude)
+    agents=(codex claude cursor opencode amp)
 fi
 
 tool_bin_dir="$(uv tool dir --bin)"

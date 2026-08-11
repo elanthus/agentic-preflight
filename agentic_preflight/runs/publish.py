@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .. import attestation as attestationmod
 from .. import gitx
 from .. import risk as riskmod
 from ..attestation import NOTES_REF
@@ -46,6 +47,14 @@ def gate(session: Session) -> Envelope:
         review_blocking_severities=session.config.review.blocking_severities,
         docs_blocking_severities=session.config.docs.blocking_severities,
     )
+    try:
+        portable = attestationmod.verify(session.repo_root, run.head_sha)
+    except (attestationmod.InvalidAttestation, gitx.GitError):
+        portable = None
+    if portable is not None:
+        assessment = riskmod.include_attested_findings(
+            assessment, portable.findings_summary
+        )
     if run.risk != assessment or run.changed_files != changed_files:
         with session.store.transaction(run.run_id) as doc:
             doc.changed_files = changed_files
