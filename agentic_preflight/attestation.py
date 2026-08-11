@@ -112,6 +112,7 @@ def reuse_for_rebase(
     base_sha: str,
     branch: str,
     base_ref: str,
+    eligible_run_ids: set[str],
 ) -> tuple[Attestation, str | None] | None:
     """Transfer green to ``sha`` only for a merge-equivalent tree rewrite.
 
@@ -133,6 +134,7 @@ def reuse_for_rebase(
         reusable = (
             verified.branch == branch
             and verified.base_ref == base_ref
+            and verified.run_id in eligible_run_ids
             and verified.stages[Stage.LINT].status == "green"
         )
         return (verified, None) if reusable else None
@@ -153,6 +155,7 @@ def reuse_for_rebase(
             candidate.tree_sha == target_tree
             and candidate.branch == branch
             and candidate.base_ref == base_ref
+            and candidate.run_id in eligible_run_ids
             and candidate.stages[Stage.LINT].status == "green"
         ):
             candidates.append(candidate)

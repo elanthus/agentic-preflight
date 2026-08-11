@@ -118,7 +118,9 @@ def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
                 text=True,
             )
             if written.returncode != 0:
-                raise GitError(["write-tree"], written.returncode, written.stderr)
+                # An unmerged temporary index is an ordinary proof failure:
+                # decline reuse and let the normal validation run proceed.
+                return None
             value = written.stdout.strip()
             return value if len(value) == 40 else None
     if result.returncode != 0:
