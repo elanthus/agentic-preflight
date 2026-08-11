@@ -239,6 +239,12 @@ ref can replace it. Protect `refs/notes/agentic-preflight` on the remote if your
 supports ref-level policy, and treat `verify` as enforcement that a structurally valid,
 commit-bound record exists—not proof that the agent's review judgment was good.
 
+**Cryptographic unforgeability is future work.** It requires a signing authority whose
+key and execution path the evaluated agent cannot reach; putting an agent-accessible key
+around the current note would add ceremony, not a security boundary. The threat model,
+key lifecycle, replay protection, and transparency-ledger design are tracked in
+[issue #25](https://github.com/elanthus/agentic-preflight/issues/25).
+
 Environment drift between isolated worktrees and your shell, runtime pin activation, and
 the rebase-tolerance roadmap are covered in [docs/limits.md](docs/limits.md).
 
