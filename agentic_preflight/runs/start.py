@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-
 from .. import attestation as attestationmod
 from .. import dependencies as dependenciesmod
 from .. import gitx, risk, runtime, worktree
 from .. import sync as syncmod
-from ..config import load_config
+from ..config import config_digest, load_config
 from ..envelope import Envelope
 from ..errors import (
     DirtyTree,
@@ -83,9 +80,7 @@ def start(
 
     run_id = _new_run_id()
     snapshot = cfg.model_dump(mode="json")
-    config_digest = hashlib.sha256(
-        json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    resolved_config_digest = config_digest(snapshot)
     run = RunDoc(
         run_id=run_id,
         state=State.CREATED,
@@ -97,7 +92,7 @@ def start(
         intent=intent,
         intent_source="user",
         config_snapshot=snapshot,
-        config_digest=config_digest,
+        config_digest=resolved_config_digest,
         created_at=_now(),
     )
     # Persist the intent *before* the git call, so a crash mid-create leaves a
@@ -120,7 +115,7 @@ def start(
         {
             "event": "run_created",
             "head_sha": head_sha,
-            "config_digest": config_digest,
+            "config_digest": resolved_config_digest,
             "config_snapshot": snapshot,
             "intent": intent,
             "intent_source": "user",
@@ -224,6 +219,7 @@ def start(
             branch=branch,
             base_ref=base_ref,
             intent=intent,
+            config_digest=resolved_config_digest,
         )
     if reused is not None:
         reused_attestation, reused_from_sha = reused

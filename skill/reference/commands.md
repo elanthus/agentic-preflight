@@ -59,9 +59,10 @@ Before review, the command fetches the configured base from `origin` when availa
 rebases the validation checkout onto that exact fresh base. In-place mode therefore
 rebases the PR branch itself. A sync conflict is aborted
 cleanly and reported; no conflicted rebase is left in progress.
-If the rebased commit has both the same complete tree and the same clean merge result as
-a prior attested run with the same user intent, branch, and base ref, `start`
-transfers that evidence and returns `VERIFIED`. A tree match alone never transfers green.
+If the rebased commit has the same complete tree, effective preflight configuration, and
+clean merge result as a prior attested run with the same user intent, branch, and base
+ref, `start` transfers that evidence and returns `VERIFIED`. A tree match alone never
+transfers green.
 Refuses a dirty tree (exit 3, `dirty_tree`) and a branch with no changes over the base
 (exit 3, `empty_diff`). In-place mode protects `[worktree] copy_files` where they are;
 isolated modes copy them. Every mode refuses an entry git is not already ignoring.

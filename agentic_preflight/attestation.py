@@ -14,6 +14,7 @@ from .models import Attestation, AttestedStage, RunDoc, Stage
 
 NOTES_REF = "refs/notes/agentic-preflight"
 _INTENT_SUMMARY_PREFIX = "intent-sha256:"
+_CONFIG_SUMMARY_PREFIX = "config-sha256:"
 
 
 class InvalidAttestation(ValueError):
@@ -27,6 +28,11 @@ def output_digest(output: str) -> str:
 def intent_summary_key(intent: str) -> str:
     """Encode intent binding without changing the v1 attestation schema."""
     return _INTENT_SUMMARY_PREFIX + hashlib.sha256(intent.encode()).hexdigest()
+
+
+def config_summary_key(config_digest: str) -> str:
+    """Encode config binding without changing the v1 attestation schema."""
+    return _CONFIG_SUMMARY_PREFIX + config_digest
 
 
 def build(
@@ -59,6 +65,9 @@ def build(
             exit_code=record.exit_code,
             output_sha256=record.output_sha256,
         )
+    portable_bindings = {intent_summary_key(run.intent or ""): 1}
+    if run.config_digest is not None:
+        portable_bindings[config_summary_key(run.config_digest)] = 1
     return Attestation(
         sha=sha,
         tree_sha=tree_sha,
@@ -70,7 +79,7 @@ def build(
         stages=stages,
         findings_summary={
             **findings_summary,
-            intent_summary_key(run.intent or ""): 1,
+            **portable_bindings,
         },
     )
 
@@ -122,18 +131,21 @@ def reuse_for_rebase(
     branch: str,
     base_ref: str,
     intent: str,
+    config_digest: str,
 ) -> tuple[Attestation, str | None] | None:
     """Transfer green to ``sha`` only for a merge-equivalent tree rewrite.
 
     Matching trees alone are insufficient: Git's merge result also depends on
     ancestry.  A candidate is reusable only when both commits have the same
-    complete tree and Git produces the same clean merge tree for each against
-    the freshly synchronized base.
+    complete tree, effective configuration, and Git merge result against the
+    freshly synchronized base. An exact-note lookup additionally requires the
+    fresh base to be an ancestor of the target, making that merge a fast-forward.
     """
     repo = Path(repo)
     target_sha = gitx.rev_parse(repo, sha)
     target_tree = gitx.tree_sha(repo, target_sha)
     required_intent_key = intent_summary_key(intent)
+    required_config_key = config_summary_key(config_digest)
 
     exact = read(repo, target_sha)
     if exact is not None:
@@ -145,7 +157,9 @@ def reuse_for_rebase(
             verified.branch == branch
             and verified.base_ref == base_ref
             and verified.findings_summary.get(required_intent_key) == 1
+            and verified.findings_summary.get(required_config_key) == 1
             and verified.stages[Stage.LINT].status == "green"
+            and gitx.is_ancestor(repo, base_sha, target_sha)
         )
         return (verified, None) if reusable else None
 
@@ -166,6 +180,7 @@ def reuse_for_rebase(
             and candidate.branch == branch
             and candidate.base_ref == base_ref
             and candidate.findings_summary.get(required_intent_key) == 1
+            and candidate.findings_summary.get(required_config_key) == 1
             and candidate.stages[Stage.LINT].status == "green"
         ):
             candidates.append(candidate)

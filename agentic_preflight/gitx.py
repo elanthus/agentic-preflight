@@ -1,8 +1,9 @@
 """A thin, total wrapper over the ``git`` binary.
 
 Deliberately not a git library: the tool's contract is defined in terms of what
-git itself does, and shelling out keeps the semantics honest. Every helper is a
-pure query except where the name says otherwise.
+git itself does, and shelling out keeps the semantics honest. Query helpers do
+not update refs, the index, or the worktree. Git's merge-tree plumbing can still
+write unreachable tree objects, which normal object pruning may collect.
 """
 
 from __future__ import annotations
@@ -89,7 +90,8 @@ def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
 
     ``merge-tree --write-tree`` uses the commits' ancestry as well as their
     snapshots.  That distinction is essential when deciding whether a green
-    result can survive a history rewrite.
+    result can survive a history rewrite. Git may add unreachable tree objects
+    to the object database, but this does not update refs, the index, or files.
     """
     result = run(cwd, "merge-tree", "--write-tree", left, right, check=False)
     if result.returncode == 1:
@@ -202,7 +204,7 @@ def write_note(cwd: Path | str, notes_ref: str, sha: str, payload: str) -> None:
 
 
 def list_noted_objects(cwd: Path | str, notes_ref: str) -> list[str]:
-    """Return the objects carrying notes, newest notes-ref state first."""
+    """Return the objects carrying notes; callers must impose any ordering."""
     result = run(cwd, "notes", f"--ref={notes_ref}", "list", check=False)
     if result.returncode == 1:
         return []

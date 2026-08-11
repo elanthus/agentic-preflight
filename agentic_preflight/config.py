@@ -13,6 +13,8 @@ exists to prevent.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -143,6 +145,12 @@ class Config(BaseModel):
     pr: PRSection = Field(default_factory=PRSection)
     approval: ApprovalSection = Field(default_factory=ApprovalSection)
     hook: HookSection = Field(default_factory=HookSection)
+
+
+def config_digest(snapshot: dict[str, Any]) -> str:
+    """Return the stable digest used to bind validation evidence to config."""
+    payload = json.dumps(snapshot, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def _read_toml(path: Path) -> dict[str, Any]:

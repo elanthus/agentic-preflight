@@ -8,8 +8,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 ### Added
 
 - Conservative rebase tolerance for in-place runs. `start` preserves a prior green
-  attestation only when the rewritten commit has both an identical complete tree and an
-  identical clean Git merge result against the freshly synchronized base.
+  attestation only when the rewritten commit has an identical complete tree, effective
+  configuration, and clean Git merge result against the freshly synchronized base.
 - Managed Agent Skill integrations for Cursor, opencode, and Amp, alongside Codex and
   Claude Code.
 

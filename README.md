@@ -9,9 +9,9 @@
 
 Agentic Preflight records a review, test, documentation, and lint result against a
 commit, and a pre-push hook refuses a commit with no applicable green run. A
-history-only rebase keeps green only when both the complete tree and Git's clean merge
-result against the freshly fetched base are unchanged; content-changing rewrites still
-require a new run.
+history-only rebase keeps green only when the complete tree, effective preflight
+configuration, and Git's clean merge result against the freshly fetched base are
+unchanged; content-changing rewrites and config changes still require a new run.
 
 ![A push blocked by the pre-push hook, a review that catches an unguarded division by
 zero, the fix verified, and the gate stopping to ask before it pushes](docs/demo.gif)
@@ -234,9 +234,10 @@ know all three before relying on it:
 
 **Content-changing rewrites invalidate green.** A fresh run normally binds its note to
 an exact SHA. During `start`, an in-place history rewrite may reuse a prior note only if
-the old and new commits have identical complete trees and produce the same clean Git
-merge tree against the freshly fetched base, and the prior attestation has the same user
-intent. Amends, rebases, and squashes that fail those proofs require a fresh run.
+the old and new commits have identical complete trees, use the same effective preflight
+configuration, and produce the same clean Git merge tree against the freshly fetched
+base, and the prior attestation has the same user intent. Amends, rebases, and squashes
+that fail those proofs require a fresh run.
 Cherry-picked merge-back uses the same strict tree-equivalence principle.
 
 **The note is an audit record, not a signature.** Anyone allowed to update the notes
