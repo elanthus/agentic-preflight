@@ -11,8 +11,9 @@ The normal attestation note is bound to an exact SHA. In the default in-place mo
 checks: the complete Git tree must be identical, and `git merge-tree` must produce the
 same clean result for the old and new commits against the freshly synchronized base.
 The second check matters because identical snapshots with different parents can merge
-differently. Reuse also requires a local prior run with the same persisted user intent;
-a new objective always starts a fresh review.
+differently. Reuse also requires the portable attestation to carry the same persisted
+user-intent digest; a new objective always starts a fresh review, even after local run
+records have been garbage-collected.
 
 Any content change, merge conflict, different merge result, branch change, or base-ref
 change forces a fresh review, test, docs, and lint run. Isolated worktree modes do not

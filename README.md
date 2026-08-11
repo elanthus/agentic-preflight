@@ -235,7 +235,7 @@ know all three before relying on it:
 **Content-changing rewrites invalidate green.** A fresh run normally binds its note to
 an exact SHA. During `start`, an in-place history rewrite may reuse a prior note only if
 the old and new commits have identical complete trees and produce the same clean Git
-merge tree against the freshly fetched base, and the local prior run has the same user
+merge tree against the freshly fetched base, and the prior attestation has the same user
 intent. Amends, rebases, and squashes that fail those proofs require a fresh run.
 Cherry-picked merge-back uses the same strict tree-equivalence principle.
 

@@ -31,6 +31,7 @@ def test_start_preserves_green_across_a_tree_and_merge_equivalent_rebase(
     old_head = git("rev-parse", "HEAD", cwd=feature_repo)
     old_tree = git("rev-parse", "HEAD^{tree}", cwd=feature_repo)
     agent.run("abort", "--force")
+    agent.run("gc")
 
     main = git("rev-parse", "main", cwd=feature_repo)
     main_tree = git("rev-parse", "main^{tree}", cwd=feature_repo)
@@ -54,9 +55,7 @@ def test_identical_tree_is_rejected_when_ancestry_changes_the_merge_outcome(
     feature_repo, tmp_path
 ):
     agent = _green_run(feature_repo, tmp_path)
-    source = git("rev-parse", "HEAD", cwd=feature_repo)
     source_tree = git("rev-parse", "HEAD^{tree}", cwd=feature_repo)
-    source_run_id = attestation.verify(feature_repo, source).run_id
     agent.run("abort", "--force")
 
     git("switch", "main", cwd=feature_repo)
@@ -72,7 +71,7 @@ def test_identical_tree_is_rejected_when_ancestry_changes_the_merge_outcome(
         base_sha=base,
         branch="feature/x",
         base_ref="main",
-        eligible_run_ids={source_run_id},
+        intent="exercise the requested behavior safely",
     ) is None
     assert attestation.read(feature_repo, target) is None
 
@@ -81,6 +80,7 @@ def test_a_different_user_intent_forces_a_fresh_review(feature_repo, tmp_path):
     agent = _green_run(feature_repo, tmp_path)
     old_head = git("rev-parse", "HEAD", cwd=feature_repo)
     agent.run("abort", "--force")
+    agent.run("gc")
 
     main = git("rev-parse", "main", cwd=feature_repo)
     main_tree = git("rev-parse", "main^{tree}", cwd=feature_repo)

@@ -13,6 +13,7 @@ from . import gitx
 from .models import Attestation, AttestedStage, RunDoc, Stage
 
 NOTES_REF = "refs/notes/agentic-preflight"
+_INTENT_SUMMARY_PREFIX = "intent-sha256:"
 
 
 class InvalidAttestation(ValueError):
@@ -21,6 +22,11 @@ class InvalidAttestation(ValueError):
 
 def output_digest(output: str) -> str:
     return hashlib.sha256(output.encode()).hexdigest()
+
+
+def intent_summary_key(intent: str) -> str:
+    """Encode intent binding without changing the v1 attestation schema."""
+    return _INTENT_SUMMARY_PREFIX + hashlib.sha256(intent.encode()).hexdigest()
 
 
 def build(
@@ -62,7 +68,10 @@ def build(
         run_id=run.run_id,
         green_at=datetime.now(UTC).isoformat(timespec="seconds"),
         stages=stages,
-        findings_summary=findings_summary,
+        findings_summary={
+            **findings_summary,
+            intent_summary_key(run.intent or ""): 1,
+        },
     )
 
 
@@ -112,7 +121,7 @@ def reuse_for_rebase(
     base_sha: str,
     branch: str,
     base_ref: str,
-    eligible_run_ids: set[str],
+    intent: str,
 ) -> tuple[Attestation, str | None] | None:
     """Transfer green to ``sha`` only for a merge-equivalent tree rewrite.
 
@@ -124,6 +133,7 @@ def reuse_for_rebase(
     repo = Path(repo)
     target_sha = gitx.rev_parse(repo, sha)
     target_tree = gitx.tree_sha(repo, target_sha)
+    required_intent_key = intent_summary_key(intent)
 
     exact = read(repo, target_sha)
     if exact is not None:
@@ -134,7 +144,7 @@ def reuse_for_rebase(
         reusable = (
             verified.branch == branch
             and verified.base_ref == base_ref
-            and verified.run_id in eligible_run_ids
+            and verified.findings_summary.get(required_intent_key) == 1
             and verified.stages[Stage.LINT].status == "green"
         )
         return (verified, None) if reusable else None
@@ -155,7 +165,7 @@ def reuse_for_rebase(
             candidate.tree_sha == target_tree
             and candidate.branch == branch
             and candidate.base_ref == base_ref
-            and candidate.run_id in eligible_run_ids
+            and candidate.findings_summary.get(required_intent_key) == 1
             and candidate.stages[Stage.LINT].status == "green"
         ):
             candidates.append(candidate)

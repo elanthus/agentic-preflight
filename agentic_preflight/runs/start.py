@@ -21,7 +21,7 @@ from ..errors import (
 )
 from ..machine import Action, State
 from ..models import RunDoc, Stage, StageRecord
-from ..store import CurrentRunExists, StoreError
+from ..store import CurrentRunExists
 from ._session import Session, _apply, _envelope_for, _new_run_id, _now
 
 
@@ -217,23 +217,13 @@ def start(
 
     reused = None
     if in_place:
-        eligible_run_ids: set[str] = set()
-        for prior_run_id in session.store.list_runs():
-            if prior_run_id == run_id:
-                continue
-            try:
-                prior_run = session.store.load_run(prior_run_id)
-            except (OSError, ValueError, StoreError):
-                continue
-            if prior_run.intent == intent:
-                eligible_run_ids.add(prior_run_id)
         reused = attestationmod.reuse_for_rebase(
             repo,
             sha=sync_result.head_after,
             base_sha=sync_result.base_sha,
             branch=branch,
             base_ref=base_ref,
-            eligible_run_ids=eligible_run_ids,
+            intent=intent,
         )
     if reused is not None:
         reused_attestation, reused_from_sha = reused
