@@ -7,7 +7,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Added
 
-- An idempotent `install.sh` for installing or updating the CLI and managed Codex/Claude
+- Conservative rebase tolerance for in-place runs. `start` preserves a prior green
+  attestation only when the rewritten commit has an identical complete tree, effective
+  configuration, and clean Git merge result against the freshly synchronized base.
+- Managed Agent Skill integrations for Cursor, opencode, and Amp, alongside Codex and
+  Claude Code.
+
+- An idempotent `install.sh` for installing or updating the CLI and all managed agent
   skill copies directly from a source checkout.
 - A conservative `uninstall.sh` that pauses for per-repository
   `agentic-preflight:uninstall` cleanup before removing managed user-scoped skills and

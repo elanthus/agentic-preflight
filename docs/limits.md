@@ -4,11 +4,23 @@ The [README](../README.md#limits) states the three that matter most: the gate is
 rather than a security boundary, `git push --no-verify` defeats it by design, and the
 confirmation token is ceremony rather than a secret. This page covers the rest.
 
-## Amending invalidates green
+## Most history rewrites invalidate green
 
-The attestation note is bound to an exact SHA, so any amend, rebase, or squash forces a
-fresh run. A green result describes one tree; once that tree no longer exists the result
-describes nothing.
+The normal attestation note is bound to an exact SHA. In the default in-place mode,
+`start` can preserve green across a history-only rebase, but only when the complete Git
+tree and effective preflight configuration are identical and `git merge-tree` produces
+the same clean result for the old and new commits against the freshly synchronized base.
+The merge check matters because identical snapshots with different parents can merge
+differently. The config check includes the resolved user and repository configuration,
+so changing stage applicability, commands, policy, or another setting forces a fresh
+run. Reuse also requires the portable attestation to carry the same persisted user-intent
+digest; a new objective always starts a fresh review, even after local run records have
+been garbage-collected.
+
+Any content or effective-config change, merge conflict, different merge result, branch
+change, or base-ref change forces a fresh review, test, docs, and lint run. Isolated
+worktree modes do not reuse attestations because their synchronized commit is not the
+source branch that will be pushed.
 
 Cherry-picked merge-back is handled via tree-equivalence attestation.
 

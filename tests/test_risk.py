@@ -8,7 +8,7 @@ from agentic_preflight.models import (
     Stage,
     Verdict,
 )
-from agentic_preflight.risk import assess
+from agentic_preflight.risk import assess, include_attested_findings
 
 
 def _finding(
@@ -103,3 +103,19 @@ def test_changes_required_takes_precedence_until_the_finding_is_resolved():
         PolicySection(human_review_paths=["policy.yml"]),
     )
     assert result.verdict is Verdict.CHANGES_REQUIRED
+
+
+def test_imported_attestation_preserves_medium_and_high_finding_risk():
+    base = _assess(["src/app.py"])
+
+    medium = include_attested_findings(base, {"medium": 2})
+    assert medium.level is RiskLevel.MEDIUM
+    assert medium.verdict is Verdict.CLEAR
+    assert medium.requires_human_review is False
+    assert medium.reasons[-1].severity is Severity.MEDIUM
+
+    high = include_attested_findings(base, {"critical": 1})
+    assert high.level is RiskLevel.HIGH
+    assert high.verdict is Verdict.NEEDS_HUMAN
+    assert high.requires_human_review is True
+    assert high.reasons[-1].severity is Severity.CRITICAL

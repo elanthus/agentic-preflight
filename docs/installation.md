@@ -5,7 +5,7 @@ everything else.
 
 ## Installing the CLI
 
-From a source checkout, install or update both the CLI and the Codex/Claude skills with:
+From a source checkout, install or update the CLI and all supported agent skills with:
 
 ```bash
 ./install.sh
@@ -27,15 +27,18 @@ open a new shell before continuing.
 ## Installing the agent skill
 
 ```bash
-agentic-preflight integrations install codex claude
+agentic-preflight integrations install codex claude cursor opencode amp
 ```
 
-Install only the agents you use if you do not need both. Then invoke the skill with
+Install only the agents you use. Then invoke the skill with
 `$agentic-preflight` in Codex or `/agentic-preflight` in Claude Code. Restart a running
 agent if the newly created skill directory is not detected immediately.
 
 The integration installer copies the same bundled skill to each agent's documented
-discovery directory. It refuses to overwrite local edits unless you pass `--force`.
+discovery directory: `.agents/skills` for Codex, `.claude/skills` for Claude Code,
+`.cursor/skills` for Cursor, `.config/opencode/skills` for opencode, and
+`.config/agents/skills` for Amp. It refuses to overwrite local edits unless you pass
+`--force`.
 
 ## Upgrading
 
@@ -52,22 +55,24 @@ agentic-preflight integrations update
 User scope is the default. To check a skill into one repository instead:
 
 ```bash
-agentic-preflight integrations install codex claude --scope project
+agentic-preflight integrations install codex claude cursor opencode amp --scope project
 ```
 
-For another agent that supports Agent Skills, `--target PATH` installs beneath a custom
+Project scope uses each client's documented repository directory. Codex and Amp share
+`.agents/skills`; repeated operations on that shared location remain safe and
+idempotent. For another Agent Skills client, `--target PATH` installs beneath a custom
 skills directory.
 
 ## Inspecting and removing
 
 ```bash
 agentic-preflight integrations status
-agentic-preflight integrations uninstall codex claude
+agentic-preflight integrations uninstall codex claude cursor opencode amp
 ```
 
 `status` inspects installed copies. `uninstall` removes managed user copies.
 
-From a source checkout, remove the managed Codex/Claude skills and CLI together with:
+From a source checkout, remove all managed agent skills and the CLI together with:
 
 ```bash
 ./uninstall.sh

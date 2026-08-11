@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-
+from .. import attestation as attestationmod
 from .. import dependencies as dependenciesmod
 from .. import gitx, risk, runtime, worktree
 from .. import sync as syncmod
-from ..config import load_config
+from ..config import config_digest, load_config
 from ..envelope import Envelope
 from ..errors import (
     DirtyTree,
@@ -19,7 +17,7 @@ from ..errors import (
     WrongState,
 )
 from ..machine import Action, State
-from ..models import RunDoc
+from ..models import RunDoc, Stage, StageRecord
 from ..store import CurrentRunExists
 from ._session import Session, _apply, _envelope_for, _new_run_id, _now
 
@@ -82,9 +80,7 @@ def start(
 
     run_id = _new_run_id()
     snapshot = cfg.model_dump(mode="json")
-    config_digest = hashlib.sha256(
-        json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    resolved_config_digest = config_digest(snapshot)
     run = RunDoc(
         run_id=run_id,
         state=State.CREATED,
@@ -96,7 +92,7 @@ def start(
         intent=intent,
         intent_source="user",
         config_snapshot=snapshot,
-        config_digest=config_digest,
+        config_digest=resolved_config_digest,
         created_at=_now(),
     )
     # Persist the intent *before* the git call, so a crash mid-create leaves a
@@ -119,7 +115,7 @@ def start(
         {
             "event": "run_created",
             "head_sha": head_sha,
-            "config_digest": config_digest,
+            "config_digest": resolved_config_digest,
             "config_snapshot": snapshot,
             "intent": intent,
             "intent_source": "user",
@@ -212,6 +208,104 @@ def start(
         raise EmptyDiff(
             "the branch has no changes after synchronizing with the fresh remote base",
             next_instruction="The requested change is already present upstream.",
+        )
+
+    reused = None
+    if in_place:
+        reused = attestationmod.reuse_for_rebase(
+            repo,
+            sha=sync_result.head_after,
+            base_sha=sync_result.base_sha,
+            branch=branch,
+            base_ref=base_ref,
+            intent=intent,
+            config_digest=resolved_config_digest,
+        )
+    if reused is not None:
+        reused_attestation, reused_from_sha = reused
+        assessment = risk.assess(
+            changed,
+            [],
+            policy=cfg.policy,
+            review_blocking_severities=cfg.review.blocking_severities,
+            docs_blocking_severities=cfg.docs.blocking_severities,
+        )
+        assessment = risk.include_attested_findings(assessment, reused_attestation.findings_summary)
+        with session.store.transaction(run_id) as doc:
+            doc.head_sha = sync_result.head_after
+            doc.source_head_sha = sync_result.head_after
+            doc.merge_base_sha = sync_result.base_sha
+            doc.sync_base_sha = sync_result.base_sha
+            doc.sync_base_ref = sync_result.base_ref
+            doc.sync_remote = sync_result.remote
+            doc.changed_files = changed
+            doc.risk = assessment
+            doc.stages = {
+                stage: StageRecord(
+                    status=evidence.status,
+                    command=evidence.command,
+                    reason=evidence.reason,
+                    exit_code=evidence.exit_code,
+                    output_sha256=evidence.output_sha256,
+                    finished_at=reused_attestation.green_at,
+                    head_sha=sync_result.head_after,
+                )
+                for stage, evidence in reused_attestation.stages.items()
+            }
+            # Imported evidence traverses the same load-bearing green states as
+            # a fresh run. The transition graph therefore continues to prove
+            # that no stage gate is bypassable.
+            _apply(doc, Action.SYNC_PASSED)
+            _apply(doc, Action.BEGIN_REVIEW)
+            _apply(doc, Action.SUBMIT_FINDINGS)
+            _apply(doc, Action.TRIAGE_CLEAN)
+            if reused_attestation.stages[Stage.TEST].status == "skipped":
+                _apply(doc, Action.SKIP_TEST)
+            else:
+                _apply(doc, Action.RUN_TEST)
+                _apply(doc, Action.TEST_PASSED)
+            if reused_attestation.stages[Stage.DOCS].status == "skipped":
+                _apply(doc, Action.SKIP_DOCS)
+            else:
+                _apply(doc, Action.BEGIN_DOCS)
+                _apply(doc, Action.SUBMIT_FINDINGS)
+                _apply(doc, Action.TRIAGE_CLEAN)
+            _apply(doc, Action.RUN_LINT)
+            _apply(doc, Action.LINT_PASSED)
+            _apply(doc, Action.BEGIN_MERGEBACK)
+            _apply(doc, Action.MERGEBACK_OK)
+            run = doc
+        session.store.append_event(
+            run_id,
+            {
+                "event": "attestation_reused",
+                "sha": sync_result.head_after,
+                "reused_from_sha": reused_from_sha,
+                "base_sha": sync_result.base_sha,
+                "tree_sha": reused_attestation.tree_sha,
+            },
+        )
+        return _envelope_for(
+            run,
+            data={
+                "worktree_path": str(wt_path),
+                "worktree_branch": wt_branch,
+                "worktree_mode": cfg.worktree.mode,
+                "branch": branch,
+                "base_ref": base_ref,
+                "head_sha": sync_result.head_after,
+                "merge_base_sha": sync_result.base_sha,
+                "sync": sync_result.as_dict(),
+                "changed_files": changed,
+                "risk": assessment.model_dump(mode="json"),
+                "attestation_reused": True,
+                "reused_from_sha": reused_from_sha,
+            },
+            next_instruction=(
+                "The synchronized head has the same complete tree and clean merge outcome "
+                "as an attested head. Green was preserved; open the gate."
+            ),
+            next_command="agentic-preflight gate",
         )
 
     copied = (

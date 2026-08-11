@@ -17,7 +17,10 @@ def _executable(path: Path, body: str) -> None:
 
 @pytest.mark.parametrize(
     ("agents", "expected"),
-    [([], "integrations install codex claude"), (["codex"], "integrations install codex")],
+    [
+        ([], "integrations install codex claude cursor opencode amp"),
+        (["codex"], "integrations install codex"),
+    ],
 )
 def test_installer_reinstalls_the_checkout_and_refreshes_selected_skills(
     tmp_path, agents, expected
@@ -94,7 +97,7 @@ def test_uninstaller_removes_managed_skills_before_the_uv_tool(tmp_path):
     operations = operation_log.read_text().splitlines()
     assert operations == [
         "uv tool dir --bin",
-        "cli integrations uninstall codex claude",
+        "cli integrations uninstall codex claude cursor opencode amp",
         "uv tool uninstall agentic-preflight",
     ]
     assert "agentic-preflight:uninstall" in result.stdout

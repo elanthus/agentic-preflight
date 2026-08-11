@@ -117,3 +117,32 @@ def assess(
         requires_human_review=requires_human,
         reasons=reasons,
     )
+
+
+def include_attested_findings(
+    assessment: RiskAssessment, findings_summary: dict[str, int]
+) -> RiskAssessment:
+    """Preserve finding-derived risk when importing portable green evidence."""
+    severity = next(
+        (
+            severity
+            for severity in (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM)
+            if findings_summary.get(severity.value, 0) > 0
+        ),
+        None,
+    )
+    if severity is None:
+        return assessment
+    imported_level = _FINDING_RISK[severity]
+    if _RANK[assessment.level] >= _RANK[imported_level]:
+        return assessment
+    requires_human = imported_level is RiskLevel.HIGH
+    return RiskAssessment(
+        level=imported_level,
+        verdict=Verdict.NEEDS_HUMAN if requires_human else Verdict.CLEAR,
+        requires_human_review=requires_human,
+        reasons=[
+            *assessment.reasons,
+            RiskReason(kind="finding", level=imported_level, severity=severity),
+        ],
+    )

@@ -7,10 +7,11 @@
 
 **Stops your coding agent from pushing unverified work.**
 
-Agentic Preflight records a review, test, documentation, and lint result against an
-exact commit SHA, and a pre-push hook refuses any commit with no green run of its own.
-Amend, rebase, or squash and the green is gone, because it described a tree that no
-longer exists.
+Agentic Preflight records a review, test, documentation, and lint result against a
+commit, and a pre-push hook refuses a commit with no applicable green run. A
+history-only rebase keeps green only when the complete tree, effective preflight
+configuration, and Git's clean merge result against the freshly fetched base are
+unchanged; content-changing rewrites and config changes still require a new run.
 
 ![A push blocked by the pre-push hook, a review that catches an unguarded division by
 zero, the fix verified, and the gate stopping to ask before it pushes](docs/demo.gif)
@@ -43,13 +44,14 @@ From a repository with Python 3.11+ and Git 2.30+:
 
 ```bash
 uv tool install agentic-preflight
-agentic-preflight integrations install codex claude
+agentic-preflight integrations install codex claude cursor opencode amp
 cd your-repo
 agentic-preflight init
 ```
 
 When working from this source checkout, `./install.sh` installs or updates the CLI and
-both bundled agent skills in one step. Pass `codex` or `claude` to install only one.
+all five supported agent integrations in one step. Pass integration names to choose
+only the coding agents you use.
 Run `./uninstall.sh` to remove the managed skills and CLI. It pauses first so you can
 enter `agentic-preflight:uninstall` in every initialized repository; that trigger
 removes the repository configuration and managed hook logic while preserving unrelated
@@ -230,9 +232,13 @@ know all three before relying on it:
 3. **This guards against mistakes, not against a careless or misaligned agent.** There is
    no cryptographic answer here, and claiming otherwise would be worse than the gap.
 
-**Amending invalidates green.** The note is bound to an exact SHA, so any amend, rebase,
-or squash forces a fresh run. Cherry-picked merge-back is handled via tree-equivalence
-attestation.
+**Content-changing rewrites invalidate green.** A fresh run normally binds its note to
+an exact SHA. During `start`, an in-place history rewrite may reuse a prior note only if
+the old and new commits have identical complete trees, use the same effective preflight
+configuration, and produce the same clean Git merge tree against the freshly fetched
+base, and the prior attestation has the same user intent. Amends, rebases, and squashes
+that fail those proofs require a fresh run.
+Cherry-picked merge-back uses the same strict tree-equivalence principle.
 
 **The note is an audit record, not a signature.** Anyone allowed to update the notes
 ref can replace it. Protect `refs/notes/agentic-preflight` on the remote if your forge
@@ -246,7 +252,7 @@ key lifecycle, replay protection, and transparency-ledger design are tracked in
 [issue #25](https://github.com/elanthus/agentic-preflight/issues/25).
 
 Environment drift between isolated worktrees and your shell, runtime pin activation, and
-the rebase-tolerance roadmap are covered in [docs/limits.md](docs/limits.md).
+the exact rebase-reuse boundary are covered in [docs/limits.md](docs/limits.md).
 
 ## Configuration
 
