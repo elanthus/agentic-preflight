@@ -208,6 +208,35 @@ Make that job a required status check in branch protection. The local hook remai
 fail-open and bypassable so it cannot brick a repository; the required remote check
 is what rejects a branch tip without an attestation.
 
+### Dependabot and other bot-authored pull requests
+
+Dependabot creates commits on GitHub rather than through your local preflight workflow.
+Those commits therefore have no `refs/notes/agentic-preflight` note, and a required
+attestation check reports “has no agentic-preflight attestation.” If approval policy
+is derived from the same attestation, its checks fail too; those are downstream
+failures, not evidence that Dependabot found a vulnerability or that the update itself
+is bad.
+
+Do not broadly exempt Dependabot from the required check. Group its version updates to
+reduce review overhead, then attest each grouped pull request without rewriting its
+commit:
+
+1. Add a wildcard `groups` rule to each ecosystem in `.github/dependabot.yml`. This
+   repository groups Python dependencies separately from GitHub Actions because Actions
+   updates change trusted CI and release code.
+2. Check out the Dependabot pull request locally with `gh pr checkout <number>`.
+3. Run the normal Agentic Preflight workflow against that exact branch tip. Do not amend,
+   squash, or rebase it after review; any new SHA needs its own run.
+4. When the workflow reaches its publication gate, run `agentic-preflight push`; it
+   atomically pushes the unchanged branch and `refs/notes/agentic-preflight` together.
+5. Re-run the failed GitHub Actions workflows from the pull request. A notes-only push
+   does not create a new `pull_request` event, so the original failed runs will not
+   automatically notice the new attestation.
+
+Keep GitHub Actions updates under normal code-owner and manual-merge policy even when
+they are grouped. For a frequently changing dependency PR, finish review only after
+Dependabot has stopped rebasing it; every rebase changes the attested SHA.
+
 This repository dogfoods that check by installing the verifier from the protected PR
 base commit, then fetching the proposed commit and its note from the contributor's
 remote. The pull request cannot change the verifier that judges it. Governance paths
