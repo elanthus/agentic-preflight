@@ -104,8 +104,8 @@ $ agentic-preflight gate
 {"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"a1b2c3d4","pr_mode":"auto","commits":[...]},
  "next":{"command":"agentic-preflight push --confirm a1b2c3d4"}}
 
-# Show the remote, branch, and commits. If this task explicitly requested a push
-# or pull request and the summary matches, that request is the confirmation.
+# Show the remote, branch, and commits. If this task explicitly requested a push,
+# publish, or pull request and the summary matches, that request is the confirmation.
 # Otherwise STOP and ask whether to push. Once authorized:
 $ agentic-preflight push --confirm a1b2c3d4
 $ agentic-preflight finish
