@@ -174,6 +174,13 @@ def test_the_skill_documents_both_pr_modes_and_their_approval_boundary():
     assert "never open the PR for them" in text
 
 
+def test_explicit_publication_request_does_not_require_double_confirmation():
+    text = SKILL.read_text()
+    assert "create/open a pull request authorizes the matching push" in text
+    assert "Do not ask them to confirm the same publication twice" in text
+    assert 'generic "proceed"' in text
+
+
 def test_the_skill_documents_all_high_risk_approval_modes():
     text = SKILL.read_text()
     assert "`manual_merge`" in text

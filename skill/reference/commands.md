@@ -225,7 +225,10 @@ means re-verification is needed.
 ### `agentic-preflight gate`
 Mints a confirmation token and summarises the remote, refspec, branch, and commits.
 The summary also includes the configured PR mode and deterministic risk classification
-and verdict. Always ask only whether to push. In `[pr] mode = "auto"`, the committed
+and verdict. An explicit request in the current task to push, publish, or create/open a
+pull request authorizes the matching push; show the summary and proceed without a second
+confirmation. Otherwise ask whether to push, and ask again if the summary differs
+materially from what the user authorized. In `[pr] mode = "auto"`, the committed
 configuration is standing authorization to open or reuse the pull request automatically
 after the confirmed push and preflight finish. In manual PR mode, provide a compare URL
 instead. High risk does not change publication: after user confirmation, token mode may
@@ -237,9 +240,11 @@ person to run.
 
 ### `agentic-preflight push --confirm TOKEN [--dry-run]`
 Requires the token from `gate` and atomically pushes both the branch and
-`refs/notes/agentic-preflight`. **Ask the user before running this.** The token is a
-non-secret, run-state nonce that prevents an accidental push; it is readable through
-`status`, grants no GitHub access, and is not a security boundary.
+`refs/notes/agentic-preflight`. **Require user authorization before running this, but do
+not require a second confirmation when the user already explicitly requested the
+matching push or pull request in this task.** The token is a non-secret, run-state nonce
+that prevents an accidental push; it is readable through `status`, grants no GitHub
+access, and is not a security boundary.
 
 ### `agentic-preflight finish`
 Marks a pushed validation run `DONE`. It preserves the run directory and
