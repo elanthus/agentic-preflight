@@ -65,6 +65,11 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- CI and release workflows now use `actions/checkout` 7.0.1,
+  `actions/upload-artifact` 7.0.1, `actions/download-artifact` 8.0.1, and
+  `pypa/gh-action-pypi-publish` 1.14.2. Development dependency floors now require
+  Hypothesis 6.165.2 and Ruff 0.16.2, with the lockfile updated accordingly.
+
 - Dependabot version updates are grouped into one weekly Python dependency pull
   request and one weekly GitHub Actions pull request, reducing preflight review and
   attestation overhead without exempting bot-authored commits from the gate. The README
