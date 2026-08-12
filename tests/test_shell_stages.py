@@ -445,6 +445,7 @@ def test_dotenv_values_are_parsed_including_quotes_multiline_and_short_values(tm
         ".env",
         (
             "export SECRET=\"hunter2\"\nPIN=123\nSINGLE='quoted value'\n"
+            'APOSTROPHE="it\\\'s private"\n'
             'MULTILINE="first line\nsecond line"\n'
         ),
     )
@@ -454,6 +455,7 @@ def test_dotenv_values_are_parsed_including_quotes_multiline_and_short_values(tm
     assert "hunter2" in secrets
     assert "123" in secrets
     assert "quoted value" in secrets
+    assert "it's private" in secrets
     assert "first line\nsecond line" in secrets
 
 

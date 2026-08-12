@@ -28,6 +28,7 @@ _DOTENV_ASSIGNMENT = re.compile(r"(?m)^[ \t]*(?:export[ \t]+)?[^=\s#]+[ \t]*=[ \
 _DOUBLE_QUOTE_ESCAPES = {
     "\\": "\\",
     '"': '"',
+    "'": "'",
     "a": "\a",
     "b": "\b",
     "f": "\f",
