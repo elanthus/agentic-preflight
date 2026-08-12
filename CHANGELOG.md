@@ -74,8 +74,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 - Dependabot version updates are grouped into one weekly Python dependency pull
   request and one weekly GitHub Actions pull request, reducing preflight review and
-  attestation overhead without exempting bot-authored commits from the gate. The README
-  documents how to attest the exact bot-authored commit and re-run its hosted checks.
+  attestation overhead without exempting bot-authored commits from the gate. The
+  attestation and CI guide documents how to attest the exact bot-authored commit and
+  re-run its hosted checks.
 
 - The README now matches the 0.3.0 release surface, uses release-stable links when
   rendered on PyPI, and keeps only the quickstart and core safety contract. Detailed
