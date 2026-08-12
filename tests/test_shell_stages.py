@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.stages import shellstage
 from tests.conftest import commit_all, write
 from tests.driver import ScriptedAgent
 
@@ -438,20 +439,54 @@ def test_the_command_runs_inside_the_worktree(docs_green):
     assert status["data"]["worktree_path"] in log
 
 
-def test_copied_file_contents_never_reach_a_stage_log(feature_repo, tmp_path):
-    """copy_files paths are in the redaction set for stage logs."""
-    write(feature_repo, ".env", "SECRET=hunter2\n")
+def test_dotenv_values_are_parsed_including_quotes_multiline_and_short_values(tmp_path):
+    write(
+        tmp_path,
+        ".env",
+        (
+            "export SECRET=\"hunter2\"\nPIN=123\nSINGLE='quoted value'\n"
+            'APOSTROPHE="it\\\'s private"\n'
+            'MULTILINE="first line\nsecond line"\n'
+        ),
+    )
+
+    secrets = shellstage.read_secrets(tmp_path, [".env"])
+
+    assert "hunter2" in secrets
+    assert "123" in secrets
+    assert "quoted value" in secrets
+    assert "it's private" in secrets
+    assert "first line\nsecond line" in secrets
+
+
+def test_exported_dotenv_values_never_reach_stage_stdout_or_stderr(feature_repo, tmp_path):
+    """Parsed dotenv values are scrubbed from both captured output streams."""
+    write(
+        feature_repo,
+        ".env",
+        'export SECRET="hunter2"\nexport PIN=123\nexport MULTILINE="first line\nsecond line"\n',
+    )
     config(feature_repo, "[docs]\nenabled = false\n")
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
 
-    env = agent.run("stage", "run", "lint", "--command", "cat .env", "--record")
-    from pathlib import Path
+    env = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        ('. ./.env; printf "%s %s\\n" "$SECRET" "$PIN"; printf "%s\\n" "$MULTILINE" >&2'),
+        "--record",
+    )
+    captured_output = env["data"]["output_head"] + env["data"]["output_tail"]
+    log_output = Path(env["data"]["log_path"]).read_text()
 
-    assert "hunter2" not in Path(env["data"]["log_path"]).read_text()
-    assert "hunter2" not in json.dumps(env)
+    for secret in ("hunter2", "123", "first line", "second line"):
+        assert secret not in captured_output
+        assert secret not in log_output
+    assert log_output == "[redacted] [redacted]\n[redacted]\n"
 
 
 # -- baseline check ---------------------------------------------------------
