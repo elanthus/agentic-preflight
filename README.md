@@ -81,15 +81,18 @@ $ agentic-preflight context | jq -c '{ok,state,data:{changed_files:.data.changed
 {"ok":true,"state":"REVIEW_AWAITING_FINDINGS","data":{"changed_files":[".agentic-preflight.toml","change.txt"],"review_coverage":{"manifest":"…","total_units":2}},"next":{"command":"agentic-preflight submit-findings --file findings.json","instruction":"Review every delivered unit, then submit snapshot-bound coverage and findings."}}
 ... review, docs, lint, and tests complete ...
 $ agentic-preflight gate | jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch,pr_mode:.data.pr_mode,approval_mode:.data.approval_mode},next}'
-{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"d8697c2068b4853b","remote":"origin","branch":"demo","pr_mode":"auto","approval_mode":"manual_merge"},"next":{"command":"agentic-preflight push --confirm d8697c2068b4853b","instruction":"Show the user the remote, branch, and commit list in plain language, then ask whether to push. Never push without asking. This high-risk change requires the user to merge the pull request manually; do not merge it or enable auto-merge. After the confirmed push and preflight finish, automatically open or reuse the pull request; auto mode is standing authorization, so do not ask again."}}
+{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"d8697c2068b4853b","remote":"origin","branch":"demo","pr_mode":"auto","approval_mode":"manual_merge"},"next":{"command":"agentic-preflight push --confirm d8697c2068b4853b","instruction":"Show the user the remote, branch, and commit list in plain language. If the user explicitly requested a push or asked to create or open a pull request in this task, that request authorizes this push when the summary matches the requested work; proceed without asking again. Otherwise, ask whether to push and wait for their answer. This high-risk pull request must be merged manually by the user; the agent must not merge it or enable auto-merge. After the confirmed push and preflight finish, automatically open or reuse the pull request; auto mode is standing authorization, so do not ask again."}}
 $ agentic-preflight push --confirm d8697c2068b4853b | jq -c '{ok,state,data:{remote:.data.remote,branch:.data.branch,pr_mode:.data.pr_mode},next}'
 {"ok":true,"state":"PUSHED","data":{"remote":"origin","branch":"demo","pr_mode":"auto"},"next":{"command":"agentic-preflight finish","instruction":"Close the pushed validation run."}}
 ```
 
-The agent must show you the target remote, branch, and commits and obtain fresh approval
-before the final command. Automatic PR mode is standing authorization to open the PR
-after that push completes, so PR creation has no separate prompt. For a human-only final
-push, set `[gate] mode = "manual"`.
+The agent must show you the target remote, branch, and commits before the final command.
+If you explicitly asked it to push or create/open a pull request in the current task,
+that request is already approval for the matching push—there is no second confirmation
+after verification. If you requested only implementation or committing, or the summary
+contains an unexpected target or change, the agent asks before pushing. Automatic PR
+mode is standing authorization to open the PR after that push completes. For a
+human-only final push, set `[gate] mode = "manual"`.
 
 Installing a single agent, checking a skill into one repository, upgrading, and using
 other Agent Skills clients are covered in

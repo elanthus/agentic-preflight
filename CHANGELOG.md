@@ -56,6 +56,10 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- An explicit request to push or create/open a pull request now authorizes the matching
+  post-verification push. The gate still displays the exact remote, branch, commits, and
+  risk summary, but no longer forces a duplicate confirmation unless that summary
+  differs materially from what the user authorized.
 - Code-owned mechanical findings now block regardless of reviewer severity policy, so
   `[docs] require_changelog = true` cannot be silently weakened by excluding `high`
   from `[docs] blocking_severities`.

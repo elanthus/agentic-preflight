@@ -21,11 +21,15 @@ Python here never calls a model — every judgment in this workflow is yours.
    review `unit`, `line`, `severity`, `action`, `title`, `detail`, and `suggestion`.
    Sending `id`, `stage`, or `code_owned` is a hard validation error, not a nudge.
 4. **Never run `git push --no-verify`.** It exists for humans, not for you.
-5. **Never push without asking the user in plain language first.** Show them what
-   will be pushed and wait for an actual answer. `[pr] mode = "auto"` is standing
-   authorization to open or reuse the pull request after the confirmed push and
-   preflight finish, so do not ask separately about PR creation. With `mode =
-   "manual"`, never open the PR for them.
+5. **Never push without user authorization.** An explicit request to push, publish, or
+   create/open a pull request authorizes the matching push in that task; after `gate`,
+   show what will be pushed and proceed without asking a second time. If publication
+   was not explicitly requested, or the remote, branch, commits, or risk summary is
+   materially different from what the user authorized, show the summary and wait for
+   an actual answer. A generic request to implement, commit, or "proceed" is not push
+   authorization. `[pr] mode = "auto"` is standing authorization to open or reuse the
+   pull request after the authorized push and preflight finish. With `mode = "manual"`,
+   never open the PR for them.
 6. **Never resolve a merge-back conflict.** Paste the resolution block and stop.
 7. **Keep the validation checkout clean for the whole run.** The default
    `in_place` mode uses the current checkout, so only deliberate repair commits may
@@ -100,8 +104,9 @@ $ agentic-preflight gate
 {"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"a1b2c3d4","pr_mode":"auto","commits":[...]},
  "next":{"command":"agentic-preflight push --confirm a1b2c3d4"}}
 
-# STOP. Show the remote, branch, and commits, then ask whether to push.
-# Only after they agree:
+# Show the remote, branch, and commits. If this task explicitly requested a push
+# or pull request and the summary matches, that request is the confirmation.
+# Otherwise STOP and ask whether to push. Once authorized:
 $ agentic-preflight push --confirm a1b2c3d4
 $ agentic-preflight finish
 $ agentic-preflight gc
@@ -288,19 +293,26 @@ At the gate, show the user — in plain prose, not JSON:
 - anything you resolved as `ask_user`, and what you decided
 - any finding you dismissed, and why
 
-Ask, plainly: *"Ready to push this to `origin/feature-x`?"* Wait for a real answer.
-"Proceed" from a previous step is not consent for the push gate.
+If the user explicitly asked in this task to push, publish, or create/open a pull
+request, and this summary matches that request, display it as a progress update and
+continue with the token. Do not ask them to confirm the same publication twice.
+
+Otherwise ask, plainly: *"Ready to push this to `origin/feature-x`?"* Wait for a real
+answer. A request only to implement or commit, or a generic "proceed" from a previous
+step, is not consent for the push gate. Ask again if the summary reveals an unexpected
+remote, branch, commit, or risk decision.
 
 In `[pr] mode = "auto"`, the committed configuration is standing authorization for PR
-creation. After the approved push, `finish`, and `gc`, reuse an existing pull request
+creation. After the authorized push, `finish`, and `gc`, reuse an existing pull request
 for the branch or call `gh pr create` automatically without asking about the PR.
 
 In `[pr] mode = "manual"`, ask only whether to push. Afterward, never open a pull
 request; construct the forge compare URL from the repository URL, base branch, and head
 branch and give it to the user.
 
-If risk returns `needs_human`, explain that the branch may be pushed after the usual user
-confirmation, then follow the configured `[approval] mode`:
+If risk returns `needs_human`, explain the merge restriction before pushing, then follow
+the configured `[approval] mode`. An explicit request to create the pull request still
+authorizes publication when the gate summary matches:
 
 - `manual_merge`: the hosted check reports success only while auto-merge is disabled;
   never merge or enable auto-merge, and tell the user that they must review and merge the
