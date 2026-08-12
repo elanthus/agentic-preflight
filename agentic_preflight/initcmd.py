@@ -46,7 +46,8 @@ mode = "in_place"
 # root = "/absolute/path/to/agentic-preflight-worktrees"
 # In isolated modes these files are copied into the validation worktree. In
 # in-place mode they stay where they are. In every mode they must already be
-# gitignored, are redacted from logs, and are forbidden from repair commits.
+# gitignored and are forbidden from repair commits. Dotenv values that appear
+# verbatim in captured output are redacted; other formats are not guaranteed.
 copy_files = [".env"]
 # Auto-detect pnpm/npm lockfiles. pnpm gets a frozen install backed by its
 # shared store; in-place mode uses this checkout's existing dependencies,

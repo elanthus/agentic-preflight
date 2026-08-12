@@ -7,14 +7,15 @@ Output formats differ per tool and change between versions, so a parser that
 quietly stops matching turns a red stage green — the single worst failure this
 tool can have. Exit codes are the one signal every tool agrees on.
 
-**Copied files are redacted from logs.** ``copy_files`` paths hold local
-environment data, and a stage that cats one of them must not immortalise its
-contents in a log the agent will read back.
+**Dotenv values are redacted from logs.** ``copy_files`` paths commonly hold
+local environment data. Assignment values are parsed without executing the
+file, then scrubbed from captured output before an agent can read it back.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess
 from dataclasses import dataclass
@@ -22,6 +23,19 @@ from pathlib import Path
 
 HEAD_LINES = 50
 TAIL_LINES = 200
+
+_DOTENV_ASSIGNMENT = re.compile(r"(?m)^[ \t]*(?:export[ \t]+)?[^=\s#]+[ \t]*=[ \t]*")
+_DOUBLE_QUOTE_ESCAPES = {
+    "\\": "\\",
+    '"': '"',
+    "a": "\a",
+    "b": "\b",
+    "f": "\f",
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+    "v": "\v",
+}
 
 
 @dataclass
@@ -89,16 +103,100 @@ def run_stage(
 
 
 def redact(text: str, secrets: list[str]) -> str:
-    """Replace the contents of copied files wherever they appear."""
+    """Replace known copied-file values wherever they appear."""
     cleaned = text
     for secret in secrets:
-        if secret.strip():
+        if secret:
             cleaned = cleaned.replace(secret, "[redacted]")
     return cleaned
 
 
+def _decode_quoted_value(value: str, quote: str) -> str:
+    """Decode the escapes supported by common dotenv parsers.
+
+    The undecoded form is also retained by ``_dotenv_values``. Keeping both
+    covers programs that load dotenv syntax and shells that preserve escapes
+    such as ``\\n`` inside double quotes.
+    """
+    decoded: list[str] = []
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if char != "\\" or index + 1 == len(value):
+            decoded.append(char)
+            index += 1
+            continue
+
+        escaped = value[index + 1]
+        if quote == "'":
+            if escaped in {"\\", "'"}:
+                decoded.append(escaped)
+            else:
+                decoded.extend((char, escaped))
+        elif escaped in _DOUBLE_QUOTE_ESCAPES:
+            decoded.append(_DOUBLE_QUOTE_ESCAPES[escaped])
+        else:
+            decoded.extend((char, escaped))
+        index += 2
+    return "".join(decoded)
+
+
+def _dotenv_values(content: str) -> list[str]:
+    """Extract non-empty assignment values without evaluating the file.
+
+    Supports optional ``export``, unquoted values and single- or double-quoted
+    values spanning lines. There is no interpolation or command execution.
+    """
+    values: list[str] = []
+    position = 0
+    while match := _DOTENV_ASSIGNMENT.search(content, position):
+        value_start = match.end()
+        if value_start >= len(content):
+            break
+
+        quote = content[value_start]
+        if quote not in {"'", '"'}:
+            value_end = content.find("\n", value_start)
+            if value_end == -1:
+                value_end = len(content)
+            value = content[value_start:value_end].rstrip(" \t\r")
+            for index, char in enumerate(value):
+                if char == "#" and (index == 0 or value[index - 1].isspace()):
+                    value = value[:index].rstrip()
+                    break
+            if value:
+                values.append(value)
+            position = value_end + 1
+            continue
+
+        cursor = value_start + 1
+        while cursor < len(content):
+            char = content[cursor]
+            if char == "\\" and cursor + 1 < len(content):
+                cursor += 2
+                continue
+            if char == quote:
+                break
+            cursor += 1
+
+        raw_value = content[value_start + 1 : cursor]
+        if raw_value:
+            values.append(raw_value)
+            decoded_value = _decode_quoted_value(raw_value, quote)
+            if decoded_value:
+                values.append(decoded_value)
+
+        if cursor < len(content):
+            line_end = content.find("\n", cursor + 1)
+            position = len(content) if line_end == -1 else line_end + 1
+        else:
+            position = len(content)
+
+    return values
+
+
 def read_secrets(worktree_path: Path | str, copied_files: list[str]) -> list[str]:
-    """The literal contents of copied files, for redaction only.
+    """Dotenv values and literal copied-file contents, for redaction only.
 
     Read here and nowhere else, held only long enough to scrub a log, and never
     placed in an envelope.
@@ -112,6 +210,10 @@ def read_secrets(worktree_path: Path | str, copied_files: list[str]) -> list[str
             content = path.read_text()
         except (UnicodeDecodeError, OSError):
             continue
+        secrets.extend(_dotenv_values(content))
+        # Retain the previous literal fallback for copied files that are not
+        # dotenv-formatted. Short *values* above are intentionally included;
+        # short arbitrary lines are not, to avoid redacting common log text.
         secrets.extend(line.strip() for line in content.splitlines() if len(line.strip()) > 3)
         if content.strip():
             secrets.append(content.strip())

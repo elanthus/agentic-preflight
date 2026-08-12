@@ -77,7 +77,11 @@ tests can run, and are protected by two independent guards:
 
 Isolated copies are mode `0600` and are removed explicitly when a reusable runner is
 released, or die with a strict worktree. In-place files are never moved or removed. Their
-contents are redacted from stage logs and never placed in any envelope.
+dotenv assignment values (including exported, quoted, multiline, and short non-empty
+values) are redacted when they appear verbatim in captured stage output, before that
+output is written to a log or envelope. This is exact-value redaction, not a general
+secret scanner: arbitrary copied-file formats and transformed, encoded, interpolated,
+or derived values are outside this guarantee.
 
 `copy_files` is for ignored files such as `.env`, not for directories.
 
