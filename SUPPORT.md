@@ -10,4 +10,7 @@ Agentic Preflight version, operating system, Python and Git versions, the comman
 ran, and the complete JSON envelope. Remove secrets and private repository content
 before posting.
 
+See [COMPATIBILITY.md](COMPATIBILITY.md) for the supported Python and operating-system
+versions and the frequency with which each combination is exercised.
+
 Do not report vulnerabilities publicly. Follow [SECURITY.md](SECURITY.md) instead.

@@ -1,0 +1,23 @@
+name: macOS regression
+
+on:
+  schedule:
+    # Mondays and Thursdays at 09:17 UTC: a repeating 3-day/4-day cadence.
+    - cron: "17 9 * * 1,4"
+  workflow_dispatch:
+
+concurrency:
+  group: macos-regression
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  oldest-supported:
+    # Keep the minimum supported OS/runtime boundary under scheduled regression
+    # coverage without adding macOS runner cost to pull-request feedback.
+    uses: ./.github/workflows/test.yml
+    with:
+      os: '["macos-15"]'
+      python-versions: '["3.11"]'

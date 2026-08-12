@@ -7,6 +7,15 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Added
 
+- Supply-chain maintenance and verification: Dependabot updates Python and GitHub
+  Actions dependencies, locked runtime dependencies are audited for published
+  vulnerabilities, CodeQL performs Python static analysis, and release artifacts ship
+  with a CycloneDX SBOM plus signed build-provenance and SBOM attestations.
+- A compatibility policy and Monday/Thursday regression coverage for the oldest
+  supported boundary, macOS 15 with Python 3.11. Pull-request CI remains the fast
+  Ubuntu/Python 3.13 combination, while manual and release runs retain the broad
+  six-way matrix.
+
 - Configurable, attestable review independence. `[review] executor = "command"` runs an
   external reviewer over the same complete bundle returned by `context`, while
   `require_command_for` can require that executor for selected risk levels. Command

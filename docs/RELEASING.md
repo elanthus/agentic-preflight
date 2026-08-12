@@ -39,9 +39,9 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
 2. Update `CHANGELOG.md`.
 3. Commit and merge to `main`.
 4. Run the full test matrix before tagging. Pull requests and pushes to `main` run
-   only `ubuntu-latest` on Python 3.13, so this is the first point at which macOS and
-   Python 3.11 and 3.12 are exercised. A manual run of the CI workflow expands it to
-   all six combinations:
+   only `ubuntu-latest` on Python 3.13. Scheduled Monday/Thursday regression covers
+   macOS 15 with Python 3.11, but a manual run of the CI workflow is the pre-release
+   check across all six supported combinations:
 
    ```bash
    gh workflow run ci.yml --ref main
@@ -67,7 +67,8 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
    Ubuntu and macOS against Python 3.11, 3.12, and 3.13. `build` verifies the tag
    matches `pyproject.toml`, builds the sdist and wheel, and smoke-tests the wheel.
    `publish` requires both, so it stays pending until the matrix and the build are
-   green.
+   green. The build also produces a CycloneDX SBOM and GitHub build-provenance and SBOM
+   attestations for the sdist and wheel before uploading the release artifact.
 7. Approve the pending `publish` job in the Actions run. Upload happens after
    approval.
 
@@ -88,6 +89,11 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
   Hatchling would otherwise include everything not covered by `.gitignore`, which
   makes the published artifact depend on whatever happens to be in the working
   tree. Add new top-level files there if they belong in the sdist.
+- **Release attestations are verifiable.** Download a distribution from the workflow
+  artifact or PyPI and run
+  `gh attestation verify <file> -R elanthus/agentic-preflight`. Add the CycloneDX
+  predicate type when verifying the SBOM attestation. The separately downloadable SBOM
+  is included in the workflow artifact under `sbom/`.
 - **Testing the flow end to end** against TestPyPI requires a second pending
   publisher on <https://test.pypi.org> and a `repository-url` input on the
   publish step. Because the environment gate already prevents an accidental

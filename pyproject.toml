@@ -41,6 +41,7 @@ dev = [
     "pytest-cov>=5.0",
     "hypothesis>=6.100",
     "mypy>=1.17",
+    "pip-audit>=2.10",
     "ruff>=0.16",
 ]
 
@@ -56,6 +57,7 @@ include = [
     "/skill",
     "/tests",
     "/CHANGELOG.md",
+    "/COMPATIBILITY.md",
     "/CONTRIBUTING.md",
     "/LICENSE",
     "/README.md",

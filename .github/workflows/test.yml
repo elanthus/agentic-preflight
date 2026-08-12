@@ -2,9 +2,9 @@ name: Test
 
 # Single definition of the test matrix, called by ci.yml and release.yml. Both
 # callers used to carry their own copy of these steps, including the pinned
-# action SHAs, with nothing keeping them in step. That mattered because the
-# release matrix is the only place macOS and Python 3.11/3.12 run at all, so
-# drift there would have degraded the release safety net invisibly.
+# action SHAs, with nothing keeping them in step. Release, manual, and scheduled
+# callers now select their own compatibility coverage without duplicating the
+# test implementation.
 
 on:
   workflow_call:
