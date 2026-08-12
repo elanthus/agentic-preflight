@@ -12,7 +12,10 @@ enabled = true
 human_review_paths = [
   ".agentic-preflight.toml",
   ".github/CODEOWNERS",
+  ".github/dependabot.yml",
   ".github/workflows/**",
+  "COMPATIBILITY.md",
+  "SECURITY.md",
   "agentic_preflight/attestation.py",
   "agentic_preflight/config.py",
   "agentic_preflight/hook.py",

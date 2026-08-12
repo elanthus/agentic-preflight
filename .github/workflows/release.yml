@@ -13,9 +13,9 @@ permissions:
 
 jobs:
   test:
-    # The only place macOS and Python 3.11/3.12 are exercised. Coverage is left
-    # off so the fail_under floor cannot block a release on a platform-specific
-    # coverage difference; ci.yml enforces it on every push and pull request.
+    # Coverage is left off so the fail_under floor cannot block a release on a
+    # platform-specific coverage difference; ci.yml enforces it on every push
+    # and pull request.
     uses: ./.github/workflows/test.yml
     with:
       os: '["ubuntu-latest", "macos-latest"]'
@@ -24,6 +24,11 @@ jobs:
   build:
     name: build and verify artifacts
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -52,6 +57,13 @@ jobs:
           rm -rf dist
           uv build
 
+      - name: Generate CycloneDX SBOM
+        run: |
+          mkdir -p sbom
+          uv export --frozen --no-dev --preview-features sbom-export \
+            --format cyclonedx1.5 \
+            --output-file sbom/agentic-preflight-${{ github.ref_name }}.cdx.json
+
       - name: Smoke test the built wheel
         env:
           UV_TOOL_DIR: ${{ runner.temp }}/uv-tools
@@ -73,11 +85,24 @@ jobs:
           print("wheel contents verified")
           PY
 
-      - name: Upload distributions
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: dist/*
+
+      - name: Attest SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: dist/*
+          sbom-path: sbom/agentic-preflight-${{ github.ref_name }}.cdx.json
+
+      - name: Upload distributions and SBOM
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dist
-          path: dist/
+          path: |
+            dist/
+            sbom/
           if-no-files-found: error
 
   publish:
@@ -94,7 +119,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: dist
-          path: dist/
+          path: .
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # v1.14.1

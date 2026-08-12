@@ -40,7 +40,8 @@ on macOS and Linux.
 
 ## Quickstart
 
-From a repository with Python 3.11+ and Git 2.30+:
+From a repository using a supported Python version (currently 3.11 through 3.13) and
+Git 2.30+:
 
 ```bash
 uv tool install agentic-preflight
@@ -370,8 +371,8 @@ The documentation surface and oversized-diff handling are described in
 
 ## Requirements
 
-- macOS or Linux (Windows is not supported)
-- Python 3.11+
+- A supported macOS/Linux and Python combination from
+  [COMPATIBILITY.md](COMPATIBILITY.md) (Windows is not supported)
 - git 2.30+
 - Bash
 - `gh` (optional; used for pull requests, hosted checks, and merge verification during

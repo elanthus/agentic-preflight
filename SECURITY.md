@@ -3,7 +3,20 @@
 ## Supported versions
 
 Security fixes are applied to the latest published release and the `main` branch. Older
-releases are not maintained with backported security patches.
+releases are not maintained with backported security patches. Runtime and operating
+system support is defined in [COMPATIBILITY.md](COMPATIBILITY.md).
+
+## Automated security controls
+
+Pull requests and `main` are checked with CodeQL and an audit of the locked runtime
+dependency set. Scheduled scans catch newly published advisories even when the source
+tree has not changed. Dependabot proposes updates for Python and GitHub Actions
+dependencies.
+
+Release distributions include a CycloneDX SBOM and receive GitHub artifact attestations
+for build provenance and the SBOM. These preventive controls improve traceability and
+detection; their presence is not evidence of a current known vulnerability, and an
+attestation does not establish that an artifact is vulnerability-free.
 
 ## Reporting a vulnerability
 
