@@ -143,10 +143,11 @@ def test_the_existing_count_is_included_in_the_volume_check(wt):
 # -- the blocking set is code's to derive -----------------------------------
 
 
-def _finding(id, severity, action, status=FindingStatus.OPEN):
+def _finding(id, severity, action, status=FindingStatus.OPEN, *, code_owned=False):
     return Finding(
         id=id,
         stage=Stage.REVIEW,
+        code_owned=code_owned,
         status=status,
         path="src/app.py",
         severity=severity,
@@ -171,6 +172,18 @@ def test_ask_user_blocks_regardless_of_severity():
     assert [f.id for f in F.blocking(items, blocking_severities=["critical", "high"])] == ["F001"]
 
 
+def test_code_owned_blocks_regardless_of_severity_policy():
+    items = [
+        _finding(
+            "F001",
+            Severity.HIGH,
+            FindingAction.AUTO_FIX,
+            code_owned=True,
+        )
+    ]
+    assert [f.id for f in F.blocking(items, blocking_severities=["critical"])] == ["F001"]
+
+
 def test_resolved_findings_no_longer_block():
     items = [_finding("F001", Severity.CRITICAL, FindingAction.AUTO_FIX, FindingStatus.FIXED)]
     assert F.blocking(items, blocking_severities=["critical", "high"]) == []
@@ -179,6 +192,11 @@ def test_resolved_findings_no_longer_block():
 def test_blocking_severities_are_configurable():
     items = [_finding("F001", Severity.MEDIUM, FindingAction.AUTO_FIX)]
     assert len(F.blocking(items, blocking_severities=["critical", "high", "medium"])) == 1
+
+
+def test_non_code_owned_finding_excluded_by_policy_remains_non_blocking():
+    items = [_finding("F001", Severity.HIGH, FindingAction.AUTO_FIX)]
+    assert F.blocking(items, blocking_severities=["critical"]) == []
 
 
 # -- stage derivation from state --------------------------------------------

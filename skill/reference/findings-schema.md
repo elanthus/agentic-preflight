@@ -40,10 +40,11 @@ valid and is the most common correct answer. A findings-only review submission i
 
 ## What you must not send
 
-**`id` and `stage` are not yours to set.** They are assigned by the CLI, and sending
-either is a hard validation error rather than a silently ignored field. This is
-deliberate: a hallucinated ID that got quietly honoured would corrupt the
-`respond --id` protocol for the rest of the run.
+**`id`, `stage`, and `code_owned` are not yours to set.** They are assigned by the
+CLI, and sending any of them is a hard validation error rather than a silently ignored
+field. This is deliberate: a hallucinated ID that got quietly honoured would corrupt
+the `respond --id` protocol for the rest of the run, while spoofed ownership would
+bypass the repository's severity policy.
 
 Any other unrecognised field is also rejected.
 
@@ -53,6 +54,7 @@ Any other unrecognised field is also rejected.
 |---|---|
 | `id` | `F001`, `F002`, … append-only across the **whole run**. Docs findings continue review numbering; they do not restart |
 | `stage` | Derived from the run's state at submission time |
+| `code_owned` | `true` only for a mechanical requirement derived by the CLI; otherwise `false` |
 | `status` | Starts `open`; becomes `fixed` / `dismissed` / `accepted` via `respond` |
 | `fix_commit` | Set by `respond --commit`, after verification |
 
@@ -74,13 +76,17 @@ Rejected with exit 3 (`invalid_findings`), all-or-nothing for the batch:
 A finding blocks when it is **open** and either:
 
 - `severity` is in `[review] blocking_severities` (default `critical`, `high`), or
-- `action` is `ask_user` — **at any severity**
+- `action` is `ask_user` — **at any severity**, or
+- `code_owned` is `true` — **at any severity**
 
 `ask_user` blocking regardless of severity is the point of that action: you have
 declined to decide, so proceeding without a human would decide by default.
+Code-owned findings block regardless of severity because they record mechanical
+requirements established by the CLI, not reviewer judgment.
 
 Docs findings use `[docs] blocking_severities`, also `critical` and `high` by default,
-which keeps routine documentation nits non-blocking.
+which keeps routine documentation nits non-blocking without downgrading code-owned
+requirements such as a mandatory changelog update.
 
 ## Choosing an action
 

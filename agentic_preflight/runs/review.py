@@ -292,10 +292,14 @@ def _describe_validation(exc: ValidationError) -> str:
     parts = []
     for error in exc.errors():
         location = ".".join(str(item) for item in error["loc"])
-        if error["type"] == "extra_forbidden" and error["loc"][-1] in {"id", "stage"}:
+        if error["type"] == "extra_forbidden" and error["loc"][-1] in {
+            "id",
+            "stage",
+            "code_owned",
+        }:
             parts.append(
-                f"{location}: not a field you may set — id and stage are assigned by "
-                f"agentic-preflight, never supplied by the agent"
+                f"{location}: not a field you may set — id, stage, and code_owned are "
+                f"assigned by agentic-preflight, never supplied by the agent"
             )
         elif error["type"] == "extra_forbidden":
             parts.append(f"{location}: unrecognised field")

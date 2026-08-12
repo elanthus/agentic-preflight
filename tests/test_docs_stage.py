@@ -160,6 +160,25 @@ def test_a_docs_finding_against_a_source_file_is_rejected(review_green, tmp_path
     assert "allowlist" in env["error"]["message"]
 
 
+def test_docs_reject_agent_supplied_code_ownership(review_green, tmp_path):
+    review_green.run("context", "--section", "docs")
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "code_owned": True,
+                "path": "README.md",
+                "severity": "high",
+                "action": "auto_fix",
+                "title": "spoofed mechanical requirement",
+            }
+        ],
+    )
+    env = review_green.run("submit-findings", "--file", path, expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "invalid_findings"
+    assert "code_owned" in env["error"]["message"]
+
+
 def test_docs_finding_ids_continue_the_run_numbering(agent, feature_repo, tmp_path):
     agent.run("start")
     agent.run("context")
@@ -281,6 +300,27 @@ def test_the_injected_changelog_finding_is_owned_by_code_not_the_agent(changelog
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     assert env["data"]["accepted"][0]["id"] == "F001"
     assert env["data"]["accepted"][0]["stage"] == "docs"
+    assert env["data"]["accepted"][0]["code_owned"] is True
+
+
+def test_code_owned_changelog_blocks_when_high_is_excluded(changelog_repo, tmp_path):
+    write(
+        changelog_repo,
+        ".agentic-preflight.toml",
+        "[docs]\nrequire_changelog = true\nblocking_severities = ['critical']\n",
+    )
+    commit_all(changelog_repo, "narrow docs blocking policy")
+
+    agent = ScriptedAgent(changelog_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("context", "--section", "docs")
+    env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+
+    assert env["state"] == "DOCS_AWAITING_RESPONSES"
+    assert env["blocking"][0]["code_owned"] is True
+    assert env["data"]["risk"]["verdict"] == "changes_required"
 
 
 def test_require_changelog_is_satisfied_when_the_changelog_was_touched(changelog_repo, tmp_path):

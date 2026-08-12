@@ -252,6 +252,26 @@ def test_an_agent_supplied_id_is_a_hard_error(agent, tmp_path):
     assert "id" in env["error"]["message"]
 
 
+def test_review_rejects_agent_supplied_code_ownership(agent, tmp_path):
+    agent.run("start")
+    agent.run("context")
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "code_owned": True,
+                "path": "src/app.py",
+                "severity": "high",
+                "action": "auto_fix",
+                "title": "spoofed mechanical requirement",
+            }
+        ],
+    )
+    env = agent.run("submit-findings", "--file", path, expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "invalid_findings"
+    assert "code_owned" in env["error"]["message"]
+
+
 def test_a_finding_against_an_untouched_file_is_rejected(agent, tmp_path):
     agent.run("start")
     agent.run("context")

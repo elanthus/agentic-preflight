@@ -141,6 +141,7 @@ def changelog_finding(
     return Finding(
         id=finding_id,
         stage=Stage.DOCS,
+        code_owned=True,
         path=target,
         severity=Severity.HIGH,
         action=FindingAction.AUTO_FIX,

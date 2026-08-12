@@ -17,9 +17,9 @@ Python here never calls a model — every judgment in this workflow is yours.
    you expected. Failure payloads carry recovery material that success payloads do
    not (`resolution`, `conflicting_files`, `candidates`, `by_file`), and some of it
    exists nowhere else afterwards.
-3. **Never invent finding IDs or stages.** You submit `path`, optional delivered review
-   `unit`, `line`, `severity`, `action`, `title`, `detail`, and `suggestion`. Sending
-   `id` or `stage` is a hard validation error, not a nudge.
+3. **Never invent code-assigned finding fields.** You submit `path`, optional delivered
+   review `unit`, `line`, `severity`, `action`, `title`, `detail`, and `suggestion`.
+   Sending `id`, `stage`, or `code_owned` is a hard validation error, not a nudge.
 4. **Never run `git push --no-verify`.** It exists for humans, not for you.
 5. **Never push without asking the user in plain language first.** Show them what
    will be pushed and wait for an actual answer. `[pr] mode = "auto"` is standing
@@ -174,9 +174,10 @@ Full rubric: `reference/docs-rubric.md`.
 ]}
 ```
 
-**No `id`. No `stage`.** Both are assigned by the CLI. IDs run `F001`, `F002`, …
-continuously across the whole run — docs findings continue review numbering, they do
-not restart. Full field reference: `reference/findings-schema.md`.
+**No `id`. No `stage`. No `code_owned`.** All three are assigned by the CLI. IDs run
+`F001`, `F002`, … continuously across the whole run — docs findings continue review
+numbering, they do not restart. Full field reference:
+`reference/findings-schema.md`.
 
 ## Exit codes
 

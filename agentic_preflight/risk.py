@@ -9,12 +9,11 @@ from __future__ import annotations
 
 from typing import Literal
 
+from . import findings as findingsmod
 from .config import PolicySection
 from .diff import path_matches
 from .models import (
     Finding,
-    FindingAction,
-    FindingStatus,
     RiskAssessment,
     RiskLevel,
     RiskReason,
@@ -86,16 +85,15 @@ def assess(
         )
 
     configured_blocking = {
-        Stage.REVIEW: {Severity(value) for value in review_blocking_severities},
-        Stage.DOCS: {Severity(value) for value in docs_blocking_severities},
+        Stage.REVIEW: review_blocking_severities,
+        Stage.DOCS: docs_blocking_severities,
     }
     has_open_blocker = any(
-        finding.status is FindingStatus.OPEN
-        and (
-            finding.severity in configured_blocking[finding.stage]
-            or finding.action is FindingAction.ASK_USER
+        findingsmod.blocking(
+            [finding for finding in findings if finding.stage is stage],
+            blocking_severities=blocking_severities,
         )
-        for finding in findings
+        for stage, blocking_severities in configured_blocking.items()
     )
 
     level = max(

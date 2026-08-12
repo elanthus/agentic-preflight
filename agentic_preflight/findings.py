@@ -7,7 +7,8 @@ because every function below is an instance of it:
   bounds, enums, length caps, volume.
 - **The agent is trusted for** — severity, action, title, detail, suggestion.
   These are judgment, and judgment is the agent's job.
-- **Code derives** — id, stage, status, ordering, and the blocking set.
+- **Code derives** — id, stage, code ownership, status, ordering, and the
+  blocking set.
 
 Finding IDs are append-only across the *whole run*, not per stage. A docs
 finding following two review findings is ``F003``. Renumbering per stage would
@@ -144,15 +145,17 @@ def blocking(
     *,
     blocking_severities: list[str],
 ) -> list[Finding]:
-    """The blocking set: unresolved findings that are severe or need a human.
+    """The blocking set: unresolved findings required by code or policy.
 
     ``ask_user`` blocks at any severity — the whole point of that action is that
     the agent has declined to decide, so proceeding would be deciding by default.
+    ``code_owned`` also blocks at any severity because it records a mechanical
+    requirement derived by the CLI rather than reviewer judgment.
     """
     severities = {Severity(s) for s in blocking_severities}
     return [
         f
         for f in items
         if f.status is FindingStatus.OPEN
-        and (f.severity in severities or f.action is FindingAction.ASK_USER)
+        and (f.code_owned or f.severity in severities or f.action is FindingAction.ASK_USER)
     ]

@@ -50,6 +50,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Code-owned mechanical findings now block regardless of reviewer severity policy, so
+  `[docs] require_changelog = true` cannot be silently weakened by excluding `high`
+  from `[docs] blocking_severities`.
 - Local validation now runs review → docs → lint → test, leaving the potentially
   expensive test command until all review, documentation, and mechanical lint repairs
   are committed. A lint-only repair therefore cannot force an otherwise unnecessary

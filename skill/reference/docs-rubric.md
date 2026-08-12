@@ -69,7 +69,8 @@ smuggling it through here.
 If `[docs] require_changelog` is enabled and the diff does not touch the changelog, the
 CLI injects that finding itself. You do not need to check for it, and you should not
 submit a duplicate. Mechanical rules belong to code precisely because they are the ones
-a reviewer forgets on the twentieth run.
+a reviewer forgets on the twentieth run. The injected finding is code-owned and blocks
+until resolved even when `[docs] blocking_severities` excludes its severity.
 
 ## Writing a good docs finding
 
