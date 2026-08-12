@@ -21,6 +21,7 @@ SKILL_DIR = Path(__file__).parent.parent / "skill"
 SKILL = SKILL_DIR / "SKILL.md"
 REFERENCE = SKILL_DIR / "reference"
 README = Path(__file__).parent.parent / "README.md"
+CONFIGURATION = Path(__file__).parent.parent / "docs" / "configuration.md"
 
 
 def real_commands() -> set[str]:
@@ -123,26 +124,26 @@ def test_skill_documents_mergeback_conflict_retry():
 # -- config ---------------------------------------------------------------
 
 
-def test_readme_config_example_uses_only_real_sections():
-    text = README.read_text()
+def test_configuration_example_uses_only_real_sections():
+    text = CONFIGURATION.read_text()
     documented = set(re.findall(r"^\[([a-z]+)\]$", text, re.MULTILINE))
     real = set(Config.model_fields)
     unknown = documented - real
     assert unknown == set(), f"README documents config sections that do not exist: {unknown}"
 
 
-def test_every_config_section_is_documented_in_the_readme():
-    text = README.read_text()
+def test_every_config_section_is_documented_in_the_configuration_reference():
+    text = CONFIGURATION.read_text()
     documented = set(re.findall(r"^\[([a-z]+)\]$", text, re.MULTILINE))
     missing = set(Config.model_fields) - documented
     assert missing == set(), f"undocumented config sections: {missing}"
 
 
-def test_the_readme_config_example_actually_parses(tmp_path):
+def test_the_configuration_example_actually_parses(tmp_path):
     """The example must be valid config, not plausible-looking config."""
     import tomllib
 
-    text = README.read_text()
+    text = CONFIGURATION.read_text()
     block = re.search(r"```toml\n(.*?)```", text, re.DOTALL).group(1)
     parsed = tomllib.loads(block)
     Config.model_validate(parsed)

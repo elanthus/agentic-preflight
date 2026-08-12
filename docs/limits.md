@@ -62,3 +62,16 @@ It does not prove the review was good or that the agent understood every unit it
 clean. The same diff reviewed twice can yield different findings. Treat the Git note as
 an audit trail, and note that it substitutes for neither CI nor a human reviewer. It is
 not a signature: anyone allowed to update the notes ref can replace it.
+
+## Attestations are not signatures
+
+Anyone allowed to update `refs/notes/agentic-preflight` can replace an attestation.
+Protect the notes ref on the remote if the forge supports ref-level policy, and treat
+`verify` as enforcement that a structurally valid, commit-bound record exists—not proof
+that the agent's review judgment was good.
+
+Cryptographic unforgeability requires a signing authority whose key and execution path
+the evaluated agent cannot reach. Putting an agent-accessible key around the current
+note would add ceremony, not a security boundary. The threat model, key lifecycle,
+replay protection, and transparency-ledger design are tracked in
+[issue #25](https://github.com/elanthus/agentic-preflight/issues/25).

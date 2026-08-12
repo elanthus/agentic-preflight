@@ -9,8 +9,9 @@ short-lived OIDC token minted per run.
 
 ### 1. Register the publisher on PyPI
 
-The project does not exist on PyPI yet, so register a **pending** publisher at
-<https://pypi.org/manage/account/publishing/>:
+The project already uses this trusted publisher. If the project or publisher must be
+recreated, register it at
+<https://pypi.org/manage/project/agentic-preflight/settings/publishing/>:
 
 | Field           | Value                |
 | --------------- | -------------------- |
@@ -20,8 +21,8 @@ The project does not exist on PyPI yet, so register a **pending** publisher at
 | Workflow name   | `release.yml`        |
 | Environment     | `pypi`               |
 
-The pending publisher is converted into a real one automatically on the first
-successful upload.
+For a new project, register the same values as a pending publisher from the account
+publishing page before the first upload.
 
 ### 2. Create the `pypi` environment in GitHub
 
