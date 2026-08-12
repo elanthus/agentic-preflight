@@ -63,7 +63,9 @@ allowlist: a docs finding filed against a path outside it is rejected, which is 
 about the allowlist rather than a verdict on the finding. Repos often keep binding rules
 outside the default surface, so add them here rather than working around the rejection.
 
-`require_changelog` makes a changelog entry mandatory for the docs stage.
+`require_changelog` makes a changelog entry mandatory for the docs stage. The CLI
+records a missing entry as a code-owned finding, which remains blocking regardless of
+`[docs] blocking_severities`.
 
 ## Oversized diffs (`[diff]`)
 
@@ -104,11 +106,14 @@ code alone, so a command that no-ops and exits zero reads as a pass forever, and
 green retires the check instead of costing a retry. Confirm the run actually did work — a
 test count, a results file, a non-empty log — before believing it.
 
-## Review thresholds (`[review]`)
+## Finding thresholds (`[review]` and `[docs]`)
 
-`blocking_severities` decides which findings must be resolved before the run may proceed;
-`critical` and `high` block by default. A finding whose action is `ask_user` blocks at any
-severity, because choosing on the user's behalf is the decision that was declined.
+Each section's `blocking_severities` decides which reviewer-submitted findings must be
+resolved before the run may proceed; `critical` and `high` block by default. A finding
+whose action is `ask_user` blocks at any severity, because choosing on the user's behalf
+is the decision that was declined. Code-owned findings also block at every severity,
+because they record mechanical requirements established by the CLI rather than reviewer
+judgment.
 
 `max_findings` caps how many findings a single submission may carry.
 
