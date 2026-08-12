@@ -51,6 +51,11 @@ $ agentic-preflight context
          "review_coverage":{"manifest":"<digest>","total_units":1,"units":[{"id":"U0001",...}]}},
  "next":{"command":"agentic-preflight submit-findings --file findings.json"}}
 
+# If `next.command` is `agentic-preflight review run`, do not submit your own findings.
+# The configured independent reviewer receives this same data bundle and returns the
+# strict submission through the same validation path.
+$ agentic-preflight review run
+
 # You read the diff and decide. Write findings.json, then:
 $ agentic-preflight submit-findings --file findings.json
 {"ok":true,"state":"REVIEW_AWAITING_RESPONSES","blocking":[{"id":"F001","severity":"high",...}],
@@ -227,9 +232,11 @@ reviewing part of it is not an option. Look at `data.by_file`; if the bulk is ge
 (lockfiles, vendored code, snapshots), add those globs to `[diff] exclude`. Raise
 `[diff] max_bytes` only if the change genuinely is that large.
 
-**No command configured (exit 2, `needs_command`).** Pick from `data.candidates` and
-re-invoke with `--command`. Offer to write it into `[commands]` so it is settled. If
-`candidates` is empty, the repo simply has no manifest detection understands (Unity,
+**No command configured (exit 2, `needs_command`).** For lint/test, pick from
+`data.candidates` and re-invoke with `--command`; offer to write it into `[commands]` so
+it is settled. For review, configure `[review] command` and retry `review run` — reviewer
+commands are never detected. If lint/test `candidates` is empty, the repo simply has no
+manifest detection understands (Unity,
 Unreal, Xcode, most engine projects) — ask the user for the invocation instead of
 hunting for a build file that does not exist.
 

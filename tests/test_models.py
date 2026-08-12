@@ -94,6 +94,7 @@ def _attestation_stages():
     return {
         Stage.REVIEW: AttestedStage(
             status="green",
+            executor="in_harness",
             coverage=ReviewCoverage(
                 manifest="d" * 64,
                 head_sha="e" * 40,
@@ -124,7 +125,7 @@ def test_attestation_requires_a_complete_stage_set_and_shell_evidence():
         "stages": _attestation_stages(),
     }
     attestation = Attestation(**payload)
-    assert attestation.schema_version == 2
+    assert attestation.schema_version == 3
     assert attestation.stages[Stage.TEST].command == "pytest"
 
     payload["stages"] = {**_attestation_stages(), Stage.TEST: AttestedStage(status="green")}
@@ -162,3 +163,31 @@ def test_attestation_rejects_a_skip_without_a_reason():
             green_at="2026-01-01T00:00:00+00:00",
             stages=stages,
         )
+
+
+def test_command_review_attestation_requires_process_evidence():
+    stages = _attestation_stages()
+    review = stages[Stage.REVIEW]
+    stages[Stage.REVIEW] = review.model_copy(update={"executor": "command"})
+    payload = {
+        "sha": "a" * 40,
+        "tree_sha": "b" * 40,
+        "branch": "feature/x",
+        "base_ref": "main",
+        "merge_base_sha": "c" * 40,
+        "run_id": "r_test",
+        "green_at": "2026-01-01T00:00:00+00:00",
+        "stages": stages,
+    }
+    with pytest.raises(ValidationError, match="command review lacks process evidence"):
+        Attestation(**payload)
+
+    stages[Stage.REVIEW] = review.model_copy(
+        update={
+            "executor": "command",
+            "command": "reviewer --json",
+            "exit_code": 0,
+            "output_sha256": "f" * 64,
+        }
+    )
+    assert Attestation(**payload).stages[Stage.REVIEW].executor == "command"

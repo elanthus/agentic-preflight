@@ -147,6 +147,19 @@ def submit_findings(file_path: str) -> None:
     _finish(runs.submit_findings(session, payload))
 
 
+@main.group()
+def review() -> None:
+    """Independent review execution."""
+
+
+@review.command("run")
+@command
+def review_run() -> None:
+    """Run the configured reviewer over the current review bundle."""
+    session = runs.open_session()
+    _finish(runs.run_review_command(session))
+
+
 @main.command()
 @click.argument("sha", required=False)
 @command
@@ -549,7 +562,7 @@ def stage_run(name: str, command_str: str | None, record: bool, baseline: bool) 
 
 
 @main.command()
-@click.option("--stage", "stage_name", required=True, type=click.Choice(["lint", "test"]))
+@click.option("--stage", "stage_name", required=True, type=click.Choice(["review", "lint", "test"]))
 @command
 def logs(stage_name: str) -> None:
     """The full captured output of a stage."""

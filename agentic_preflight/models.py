@@ -187,6 +187,7 @@ class StageRecord(BaseModel):
 
     status: str = "pending"
     attempts: int = 0
+    executor: Literal["in_harness", "command"] | None = None
     command: str | None = None
     reason: str | None = None
     exit_code: int | None = None
@@ -250,6 +251,7 @@ class AttestedStage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["green", "skipped"]
+    executor: Literal["in_harness", "command"] | None = None
     command: str | None = None
     exit_code: int | None = None
     output_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
@@ -263,7 +265,7 @@ class Attestation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["agentic-preflight-attestation"] = "agentic-preflight-attestation"
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     tree_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     branch: str
@@ -291,7 +293,19 @@ class Attestation(BaseModel):
                 evidence.exit_code,
                 evidence.output_sha256,
             )
-            if stage in {Stage.LINT, Stage.TEST} and evidence.status == "green":
+            if stage is Stage.REVIEW:
+                if evidence.executor is None:
+                    raise ValueError("green review stage lacks executor evidence")
+                if evidence.executor == "command":
+                    if (
+                        not evidence.command
+                        or evidence.exit_code != 0
+                        or not evidence.output_sha256
+                    ):
+                        raise ValueError("command review lacks process evidence")
+                elif any(value is not None for value in process_fields):
+                    raise ValueError("in-harness review cannot carry process evidence")
+            elif stage in {Stage.LINT, Stage.TEST} and evidence.status == "green":
                 if not evidence.command or evidence.exit_code != 0 or not evidence.output_sha256:
                     raise ValueError(f"green {stage.value} stage lacks process evidence")
             elif any(value is not None for value in process_fields):
@@ -301,6 +315,8 @@ class Attestation(BaseModel):
                 )
             if stage is not Stage.REVIEW and evidence.coverage is not None:
                 raise ValueError(f"{stage.value} stage cannot carry review coverage")
+            if stage is not Stage.REVIEW and evidence.executor is not None:
+                raise ValueError(f"{stage.value} stage cannot carry review executor")
             if evidence.status == "skipped" and not evidence.reason:
                 raise ValueError(f"skipped {stage.value} stage lacks a reason")
         return self

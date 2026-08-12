@@ -52,10 +52,11 @@ as missing bindings, not as a version error.
 
 ## What a green run does and does not prove
 
-It proves what the gate reported: that the agent accounted for every included review unit
-in a snapshot-bound diff manifest, that the configured commands exited zero against that
-exact SHA, and which judgment calls were recorded along the way. Excluded files remain
-explicitly outside that coverage.
+It proves what the gate reported: that the configured in-harness or command executor
+accounted for every included review unit in a snapshot-bound diff manifest, that the
+configured commands exited zero against that exact SHA, and which judgment calls were
+recorded along the way. Command review additionally carries its command, zero exit code,
+and redacted output digest. Excluded files remain explicitly outside that coverage.
 
 It does not prove the review was good or that the agent understood every unit it marked
 clean. The same diff reviewed twice can yield different findings. Treat the Git note as

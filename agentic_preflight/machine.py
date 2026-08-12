@@ -27,6 +27,8 @@ class State(StrEnum):
     SYNC_GREEN = "SYNC_GREEN"
 
     REVIEW_AWAITING_FINDINGS = "REVIEW_AWAITING_FINDINGS"
+    REVIEW_COMMAND_RUNNING = "REVIEW_COMMAND_RUNNING"
+    REVIEW_COMMAND_RED = "REVIEW_COMMAND_RED"
     REVIEW_SUBMITTED = "REVIEW_SUBMITTED"
     REVIEW_AWAITING_RESPONSES = "REVIEW_AWAITING_RESPONSES"
     REVIEW_FIXING = "REVIEW_FIXING"
@@ -65,6 +67,10 @@ class Action(StrEnum):
     BEGIN_REVIEW = "BEGIN_REVIEW"
 
     SUBMIT_FINDINGS = "SUBMIT_FINDINGS"
+    RUN_REVIEW_COMMAND = "RUN_REVIEW_COMMAND"
+    REVIEW_COMMAND_PASSED = "REVIEW_COMMAND_PASSED"
+    REVIEW_COMMAND_FAILED = "REVIEW_COMMAND_FAILED"
+    RETRY_REVIEW_COMMAND = "RETRY_REVIEW_COMMAND"
     INVALIDATE_REVIEW = "INVALIDATE_REVIEW"
     TRIAGE_CLEAN = "TRIAGE_CLEAN"
     TRIAGE_BLOCKING = "TRIAGE_BLOCKING"
@@ -147,11 +153,14 @@ def _stage_cycle(
         if label == "review"
         else "Review the docs surface, then submit findings (an empty list is valid)."
     )
+    awaiting_transitions = [(Action.SUBMIT_FINDINGS, submitted)]
+    if label == "review":
+        awaiting_transitions.append((Action.RUN_REVIEW_COMMAND, State.REVIEW_COMMAND_RUNNING))
     return {
         awaiting: _state(
             awaiting_instruction,
             "agentic-preflight submit-findings --file findings.json",
-            (Action.SUBMIT_FINDINGS, submitted),
+            *awaiting_transitions,
             *invalidate,
         ),
         submitted: _state(
@@ -212,6 +221,17 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         _S.REVIEW_FIXING,
         _S.REVIEW_GREEN,
         invalidate_to=_S.REVIEW_AWAITING_FINDINGS,
+    ),
+    _S.REVIEW_COMMAND_RUNNING: _state(
+        "The independent review command is running.",
+        _STATUS,
+        (_A.REVIEW_COMMAND_PASSED, _S.REVIEW_AWAITING_FINDINGS),
+        (_A.REVIEW_COMMAND_FAILED, _S.REVIEW_COMMAND_RED),
+    ),
+    _S.REVIEW_COMMAND_RED: _state(
+        "Inspect the failed independent review command before retrying.",
+        "agentic-preflight logs --stage review",
+        (_A.RETRY_REVIEW_COMMAND, _S.REVIEW_COMMAND_RUNNING),
     ),
     _S.REVIEW_GREEN: _state(
         "Review is green. Check whether documentation is now stale.",

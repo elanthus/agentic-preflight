@@ -45,8 +45,18 @@ def build(
 ) -> Attestation:
     if run.review_coverage is None:
         raise InvalidAttestation("review stage has no coverage evidence")
+    review_record = run.stages.get(Stage.REVIEW)
+    if review_record is None or review_record.status != "green" or review_record.executor is None:
+        raise InvalidAttestation("review stage has no executor evidence")
     stages: dict[Stage, AttestedStage] = {
-        Stage.REVIEW: AttestedStage(status="green", coverage=run.review_coverage),
+        Stage.REVIEW: AttestedStage(
+            status="green",
+            executor=review_record.executor,
+            command=review_record.command,
+            exit_code=review_record.exit_code,
+            output_sha256=review_record.output_sha256,
+            coverage=run.review_coverage,
+        ),
         Stage.DOCS: AttestedStage(
             status="green" if docs_enabled else "skipped",
             reason=None if docs_enabled else "disabled by configuration",

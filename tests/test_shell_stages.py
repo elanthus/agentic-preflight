@@ -341,6 +341,7 @@ def test_cross_stage_repairs_preserve_attempt_limits(docs_green, tmp_path):
     assert agent.run("status")["data"]["stages"]["lint"] == {
         "attempts": 1,
         "command": None,
+        "executor": None,
         "exit_code": None,
         "finished_at": None,
         "head_sha": None,

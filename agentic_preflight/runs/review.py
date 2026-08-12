@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from typing import Any, Literal, cast
 
 from pydantic import ValidationError
 
 from .. import diff as diffmod
 from .. import findings as findingsmod
-from .. import gitx
+from .. import gitx, runtime
 from .. import risk as riskmod
+from ..attestation import output_digest
 from ..envelope import Envelope
 from ..errors import (
     DiffTooLarge,
     InvalidFindings,
+    MaxAttempts,
     StageFailed,
 )
 from ..machine import Action, State
@@ -25,7 +28,7 @@ from ..models import (
     Stage,
     StageRecord,
 )
-from ..stages import change_scope
+from ..stages import change_scope, shellstage
 from ..stages import docs as docsstage
 from ._session import (
     Session,
@@ -47,6 +50,47 @@ def _bundle_for(session: Session, run: RunDoc) -> diffmod.DiffBundle:
         "HEAD",
         exclude=session.config.diff.exclude,
     )
+
+
+ReviewExecutor = Literal["in_harness", "command"]
+
+
+def _effective_review_executor(session: Session, run: RunDoc) -> ReviewExecutor:
+    if run.risk is not None and run.risk.level.value in session.config.review.require_command_for:
+        return "command"
+    return cast(ReviewExecutor, session.config.review.executor)
+
+
+def _context_data(
+    session: Session, run: RunDoc, *, section: str, bundle: diffmod.DiffBundle
+) -> dict[str, Any]:
+    """Build the one canonical data bundle used by context and command review."""
+    worktree_path = _require_worktree(run)
+    review_manifest = (
+        diffmod.build_review_manifest(worktree_path, bundle) if section == "review" else None
+    )
+    data: dict[str, Any] = {
+        "section": section,
+        "worktree_path": run.worktree_path,
+        "base": run.merge_base_sha,
+        "head": gitx.rev_parse(worktree_path, "HEAD"),
+        "intent": run.intent,
+        "intent_source": run.intent_source,
+        "changed_files": bundle.files,
+        "excluded_files": bundle.excluded,
+        "diff": bundle.text,
+        "diff_bytes": bundle.total_bytes,
+        "risk": (run.risk.model_dump(mode="json") if run.risk is not None else None),
+    }
+    if review_manifest is not None:
+        data["review_coverage"] = review_manifest.as_dict()
+    if section == "docs":
+        inventory = docsstage.build_inventory(
+            worktree_path, bundle.files, session.config.docs.paths
+        )
+        data["doc_surface"] = [entry.as_dict() for entry in inventory]
+        data["require_changelog"] = session.config.docs.require_changelog
+    return data
 
 
 def _open_docs_stage(session: Session, run: RunDoc) -> RunDoc:
@@ -116,6 +160,7 @@ def _reopen_review_if_coverage_stale(session: Session, run: RunDoc) -> tuple[Run
     with session.store.transaction(run.run_id) as doc:
         reviewed_head = doc.review_coverage.head_sha if doc.review_coverage is not None else None
         doc.review_coverage = None
+        _invalidate_stage_result(doc, Stage.REVIEW)
         _invalidate_stage_result(doc, Stage.LINT)
         _invalidate_stage_result(doc, Stage.TEST)
         _apply(doc, Action.INVALIDATE_REVIEW)
@@ -183,33 +228,7 @@ def context(session: Session, *, section: str = "review") -> Envelope:
             next_command="agentic-preflight context",
         )
 
-    worktree_path = _require_worktree(run)
-    review_manifest = (
-        diffmod.build_review_manifest(worktree_path, bundle) if section == "review" else None
-    )
-    data: dict[str, Any] = {
-        "section": section,
-        "worktree_path": run.worktree_path,
-        "base": run.merge_base_sha,
-        "head": gitx.rev_parse(worktree_path, "HEAD"),
-        "intent": run.intent,
-        "intent_source": run.intent_source,
-        "changed_files": bundle.files,
-        "excluded_files": bundle.excluded,
-        "diff": bundle.text,
-        "diff_bytes": bundle.total_bytes,
-        "risk": (run.risk.model_dump(mode="json") if run.risk is not None else None),
-    }
-
-    if review_manifest is not None:
-        data["review_coverage"] = review_manifest.as_dict()
-
-    if section == "docs":
-        inventory = docsstage.build_inventory(
-            worktree_path, bundle.files, session.config.docs.paths
-        )
-        data["doc_surface"] = [entry.as_dict() for entry in inventory]
-        data["require_changelog"] = session.config.docs.require_changelog
+    data = _context_data(session, run, section=section, bundle=bundle)
 
     envelope = _envelope_for(run, stage=section, data=data)
     if section == "docs":
@@ -219,6 +238,12 @@ def context(session: Session, *, section: str = "review") -> Envelope:
             "Zero findings is a normal and common outcome."
         )
         envelope.next_command = "agentic-preflight submit-findings --file findings.json"
+    elif _effective_review_executor(session, run) == "command":
+        envelope.next_instruction = (
+            "Run the configured independent reviewer. The complete review bundle will be "
+            "sent to its standard input and its strict JSON submission will be validated."
+        )
+        envelope.next_command = "agentic-preflight review run"
     return envelope
 
 
@@ -308,7 +333,9 @@ def _describe_validation(exc: ValidationError) -> str:
     return "; ".join(parts)
 
 
-def submit_findings(session: Session, payload) -> Envelope:
+def submit_findings(
+    session: Session, payload, *, _executor: ReviewExecutor = "in_harness"
+) -> Envelope:
     run = _load_current(session)
     _assert_fresh(session, run)
     _require_state(
@@ -319,6 +346,21 @@ def submit_findings(session: Session, payload) -> Envelope:
     )
 
     stage = _require_finding_stage(run)
+    if (
+        stage is Stage.REVIEW
+        and _executor == "in_harness"
+        and _effective_review_executor(session, run) == "command"
+    ):
+        raise InvalidFindings(
+            "this run requires the configured independent review command; "
+            "in-harness review findings are not accepted",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=stage.value,
+            data={"mode": "needs_command", "risk": run.risk.level.value if run.risk else None},
+            next_instruction="Run the independent reviewer for this risk level.",
+            next_command="agentic-preflight review run",
+        )
     worktree_path = _require_worktree(run)
     bundle = _bundle_for(session, run)
     submissions, coverage_manifest = _parse_submissions(payload, stage=stage)
@@ -403,6 +445,17 @@ def submit_findings(session: Session, payload) -> Envelope:
         doc.risk = assessment
         if coverage is not None:
             doc.review_coverage = coverage
+            entry = doc.stages.get(Stage.REVIEW) or StageRecord()
+            entry.status = "green"
+            entry.executor = _executor
+            entry.finished_at = _now()
+            entry.head_sha = coverage.head_sha
+            if _executor == "in_harness":
+                entry.command = None
+                entry.exit_code = None
+                entry.output_sha256 = None
+                entry.log_path = None
+            doc.stages[Stage.REVIEW] = entry
         _apply(doc, Action.SUBMIT_FINDINGS)
         _apply(doc, Action.TRIAGE_BLOCKING if blocking else Action.TRIAGE_CLEAN)
         run = doc
@@ -431,6 +484,219 @@ def submit_findings(session: Session, payload) -> Envelope:
         },
         blocking=[f.model_dump(mode="json") for f in blocking],
     )
+
+
+def _review_command_failed(
+    session: Session,
+    run: RunDoc,
+    *,
+    command: str,
+    exit_code: int,
+    clean_output: str,
+    log_path: str,
+    reason: str,
+) -> RunDoc:
+    """Persist one bounded command-review failure and move to the retry state."""
+    with session.store.transaction(run.run_id) as doc:
+        if doc.state is State.REVIEW_AWAITING_FINDINGS:
+            _apply(doc, Action.RUN_REVIEW_COMMAND)
+        entry = doc.stages.get(Stage.REVIEW) or StageRecord()
+        entry.status = "red"
+        entry.attempts += 1
+        entry.executor = "command"
+        entry.command = command
+        entry.exit_code = exit_code
+        entry.output_sha256 = output_digest(clean_output)
+        entry.log_path = log_path
+        entry.reason = reason
+        entry.finished_at = _now()
+        entry.head_sha = gitx.rev_parse(_require_worktree(doc), "HEAD")
+        doc.stages[Stage.REVIEW] = entry
+        _apply(doc, Action.REVIEW_COMMAND_FAILED)
+        return doc
+
+
+def run_review_command(session: Session) -> Envelope:
+    """Run the configured independent reviewer over the canonical review bundle."""
+    run = _load_current(session)
+    _assert_fresh(session, run)
+    _require_state(
+        run,
+        State.REVIEW_AWAITING_FINDINGS,
+        State.REVIEW_COMMAND_RED,
+        State.REVIEW_COMMAND_RUNNING,
+        command="review run",
+    )
+    if _effective_review_executor(session, run) != "command":
+        raise InvalidFindings(
+            "review run is only available when the effective review executor is `command`",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=Stage.REVIEW.value,
+            next_command="agentic-preflight context",
+        )
+    command = session.config.review.command
+    if not command:
+        raise StageFailed(
+            "the command review executor is required but [review] command is not configured",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=Stage.REVIEW.value,
+            data={"mode": "needs_command", "stage": Stage.REVIEW.value},
+            next_instruction="Configure the independent reviewer command and retry.",
+            next_command="agentic-preflight review run",
+        )
+
+    if run.state is State.REVIEW_COMMAND_RUNNING:
+        run = _review_command_failed(
+            session,
+            run,
+            command=command,
+            exit_code=125,
+            clean_output="[agentic-preflight] previous review command was interrupted",
+            log_path="",
+            reason="interrupted",
+        )
+    entry = run.stages.get(Stage.REVIEW) or StageRecord()
+    if entry.attempts >= session.config.stage.max_attempts:
+        raise MaxAttempts(
+            f"the review command has failed {entry.attempts} times "
+            f"(max_attempts={session.config.stage.max_attempts})",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=Stage.REVIEW.value,
+            data={"attempts": entry.attempts, "stage": Stage.REVIEW.value},
+            next_instruction="This independent reviewer needs human intervention.",
+            next_command="agentic-preflight status",
+        )
+
+    bundle = _bundle_for(session, run)
+    report = diffmod.check_budget(bundle, session.config.diff.max_bytes)
+    if report.over_budget:
+        raise DiffTooLarge(
+            f"the diff is {report.total_bytes} bytes, over the {report.max_bytes} byte budget",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=Stage.REVIEW.value,
+            next_command="agentic-preflight context",
+        )
+    data = _context_data(session, run, section="review", bundle=bundle)
+    stdin_text = json.dumps(data, sort_keys=True, separators=(",", ":"))
+
+    with session.store.transaction(run.run_id) as doc:
+        _apply(
+            doc,
+            Action.RETRY_REVIEW_COMMAND
+            if doc.state is State.REVIEW_COMMAND_RED
+            else Action.RUN_REVIEW_COMMAND,
+        )
+        run = doc
+
+    wt = _require_worktree(run)
+    prepared = runtime.prepare_command(
+        wt,
+        command,
+        manager=session.config.runtime.manager,
+        strict=session.config.runtime.strict,
+    )
+    result = shellstage.run_stage(
+        wt,
+        prepared.command,
+        timeout_seconds=session.config.stage.timeout_seconds,
+        stdin_text=stdin_text,
+        separate_stderr=True,
+    )
+    if not gitx.is_clean(wt):
+        result.exit_code = result.exit_code or 1
+        result.output += "\n[agentic-preflight] review command changed the worktree"
+    secrets = shellstage.read_secrets(wt, run.copied_files)
+    clean_output = shellstage.redact(result.output, secrets)
+    log_path_obj = session.store.logs_dir(run.run_id) / "review.txt"
+    log_path_obj.parent.mkdir(parents=True, exist_ok=True)
+    log_path_obj.write_text(clean_output)
+    log_path = str(log_path_obj)
+
+    failure_reason = None
+    payload: Any = None
+    if not result.passed:
+        failure_reason = "timeout" if result.timed_out else f"exit {result.exit_code}"
+    else:
+        try:
+            payload = json.loads(result.stdout or "")
+            ReviewSubmission.model_validate(payload)
+        except (json.JSONDecodeError, ValidationError) as exc:
+            failure_reason = f"invalid review submission: {exc}"
+
+    if failure_reason is not None:
+        run = _review_command_failed(
+            session,
+            run,
+            command=command,
+            exit_code=result.exit_code,
+            clean_output=clean_output,
+            log_path=log_path,
+            reason=failure_reason,
+        )
+        raise StageFailed(
+            f"the review command failed: {failure_reason}",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=Stage.REVIEW.value,
+            data={
+                "command": command,
+                "exit_code": result.exit_code,
+                "timed_out": result.timed_out,
+                "log_path": log_path,
+                **shellstage.summarise(clean_output),
+            },
+            next_instruction="Inspect the reviewer output, correct the command, and retry.",
+            next_command="agentic-preflight review run",
+        )
+
+    with session.store.transaction(run.run_id) as doc:
+        entry = doc.stages.get(Stage.REVIEW) or StageRecord()
+        entry.status = "green"
+        entry.executor = "command"
+        entry.command = command
+        entry.exit_code = 0
+        entry.output_sha256 = output_digest(clean_output)
+        entry.log_path = log_path
+        entry.reason = None
+        entry.finished_at = _now()
+        entry.head_sha = gitx.rev_parse(wt, "HEAD")
+        doc.stages[Stage.REVIEW] = entry
+        _apply(doc, Action.REVIEW_COMMAND_PASSED)
+        run = doc
+    try:
+        envelope = submit_findings(session, payload, _executor="command")
+    except InvalidFindings as exc:
+        run = _review_command_failed(
+            session,
+            run,
+            command=command,
+            exit_code=0,
+            clean_output=clean_output,
+            log_path=log_path,
+            reason=exc.message,
+        )
+        raise StageFailed(
+            f"the review command returned an invalid submission: {exc.message}",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=Stage.REVIEW.value,
+            data={"command": command, "exit_code": 0, "log_path": log_path},
+            next_command="agentic-preflight review run",
+        ) from exc
+    envelope.data.update(
+        {
+            "executor": "command",
+            "command": command,
+            "exit_code": 0,
+            "output_sha256": output_digest(clean_output),
+            "log_path": log_path,
+        }
+    )
+    return envelope
 
 
 def verify(session: Session) -> Envelope:

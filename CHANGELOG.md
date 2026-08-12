@@ -7,6 +7,12 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Added
 
+- Configurable, attestable review independence. `[review] executor = "command"` runs an
+  external reviewer over the same complete bundle returned by `context`, while
+  `require_command_for` can require that executor for selected risk levels. Command
+  failures have bounded, restart-safe retries, and attestation schema v3 records the
+  executor plus redacted command evidence.
+
 - Snapshot-bound review coverage. `context` inventories every changed hunk plus
   non-textual file changes; review submissions must assert examination of that exact
   manifest, findings cite units, and code derives a complete cited/clean receipt.

@@ -104,6 +104,7 @@ def _register_stage_fix_commits(
                 doc.head_sha = current_head
                 doc.source_head_sha = current_head
             doc.review_coverage = None
+            _invalidate_stage_result(doc, Stage.REVIEW)
             if stage is Stage.LINT:
                 # A lint repair changes the tree a future test must describe. This
                 # also clears a prior red test when lint is being revalidated after
@@ -380,12 +381,17 @@ def logs(session: Session, *, stage_name: str) -> Envelope:
     run = _load_current(session)
     log_path = session.store.logs_dir(run.run_id) / f"{stage_name}.txt"
     if not log_path.exists():
+        next_command = (
+            "agentic-preflight review run"
+            if stage_name == "review"
+            else f"agentic-preflight stage run {stage_name}"
+        )
         raise NoLog(
             f"the {stage_name} stage has not run in this run, so there is no log",
             state=run.state.value,
             run_id=run.run_id,
             next_instruction="Run the stage first.",
-            next_command=f"agentic-preflight stage run {stage_name}",
+            next_command=next_command,
         )
     return _envelope_for(
         run,
