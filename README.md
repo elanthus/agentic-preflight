@@ -1,9 +1,9 @@
 # agentic-preflight
 
 [![CI](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml/badge.svg)](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml)
-[![Coverage](/../badges/coverage.svg)](/../badges/coverage.svg)
-[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](pyproject.toml)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![Coverage](https://raw.githubusercontent.com/elanthus/agentic-preflight/badges/coverage.svg)](https://github.com/elanthus/agentic-preflight/tree/badges)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.3.0/pyproject.toml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.3.0/LICENSE)
 
 **Stops your coding agent from pushing unverified work.**
 
@@ -14,7 +14,7 @@ configuration, and Git's clean merge result against the freshly fetched base are
 unchanged; content-changing rewrites and config changes still require a new run.
 
 ![A push blocked by the pre-push hook, a review that catches an unguarded division by
-zero, the fix verified, and the gate stopping to ask before it pushes](docs/demo.gif)
+zero, the fix verified, and the gate stopping to ask before it pushes](https://raw.githubusercontent.com/elanthus/agentic-preflight/v0.3.0/docs/demo.gif)
 
 Every frame above is real CLI output, recorded with [VHS](https://github.com/charmbracelet/vhs).
 Regenerate it yourself with `./docs/demo-fixture.sh && vhs docs/demo.tape`: the script
@@ -44,7 +44,7 @@ From a repository using a supported Python version (currently 3.11 through 3.13)
 Git 2.30+:
 
 ```bash
-uv tool install agentic-preflight
+uv tool install 'agentic-preflight==0.3.0'
 agentic-preflight integrations install codex claude cursor opencode amp
 cd your-repo
 agentic-preflight init
@@ -65,7 +65,7 @@ commit a change, then try to push it before validation:
 $ git push
 agentic-preflight: push blocked.
   commit: 4f15c2a (no green run recorded for this exact SHA)
-  reason: no green run recorded for this exact SHA
+  reason: no valid attestation note is attached to this exact SHA
   fix:    invoke the skill (/agentic-preflight in Claude Code, $agentic-preflight in Codex)
   bypass: git push --no-verify   (documented escape hatch)
 error: failed to push some refs
@@ -97,7 +97,7 @@ For a human-only final push, set `[gate] mode = "manual"`.
 
 Installing a single agent, checking a skill into one repository, upgrading, and using
 other Agent Skills clients are covered in
-[docs/installation.md](docs/installation.md).
+[installation guide](https://github.com/elanthus/agentic-preflight/blob/v0.3.0/docs/installation.md).
 
 ## How it works
 
@@ -114,10 +114,10 @@ directly to create a pull request and inspect its checks. In manual PR mode, it 
 user a compare URL instead. Those hosted lifecycle operations are not part of the
 stateful preflight CLI.
 
-`start` requires the user's objective and acceptance criteria, fetches `origin`, and
-rebases the validation checkout onto the fresh base before review. The agent drives the
-loop. Every command returns one JSON object containing `next`, the single next legal
-command, so the agent never has to guess.
+`start` requires the user's objective and acceptance criteria. When `origin` exists, it
+fetches it and rebases the validation checkout onto the fresh base before review. The
+agent drives the loop. Every agent-facing workflow command returns one JSON object
+containing `next`, the single next legal command, so the agent never has to guess.
 
 Review submissions bind an `examined: "all"` assertion to the manifest returned by
 `context`. Findings cite a review unit when their path and line do not identify one
@@ -129,7 +129,8 @@ run the final software test command. After lint, it takes an explicit `SKIP_TEST
 transition through `TEST_GREEN` and records the test stage as `skipped` with its reason,
 so the exception is visible in `status` and the commit's attestation note. Any source or
 otherwise unclassified file keeps tests mandatory.
-[docs/change-scope.md](docs/change-scope.md) lists the exact classification.
+[change-scope reference](https://github.com/elanthus/agentic-preflight/blob/v0.3.0/docs/change-scope.md)
+lists the exact classification.
 
 Risk is classified separately from that execution scope and from diff size. Repository
 policy maps changed paths to `low`, `medium`, or `high`, and findings can raise the final
@@ -141,12 +142,13 @@ reports findings; it cannot override the policy verdict.
 By default the run happens directly in the current checkout, which suits a clean,
 dedicated one-agent/one-PR worktree. Two isolated modes keep the source checkout
 untouched during verification. All three, along with dependency handling and secret
-protection, are described in [docs/worktree-modes.md](docs/worktree-modes.md).
+protection, are described in the
+[worktree-modes guide](https://github.com/elanthus/agentic-preflight/blob/v0.3.0/docs/worktree-modes.md).
 
 ## The pre-push hook
 
-`init` installs a pre-push hook that blocks any commit without a green run recorded for
-that **exact SHA**:
+`init` installs a pre-push hook that blocks a pushed ref when its tip has no green run
+recorded for that **exact SHA**:
 
 ```
 agentic-preflight: push blocked.
@@ -156,30 +158,18 @@ agentic-preflight: push blocked.
   bypass: git push --no-verify   (documented escape hatch)
 ```
 
-The hook reads the commit's note in `refs/notes/agentic-preflight`, never touches the
-network, and never mutates anything. **If `agentic-preflight` is not on `PATH`, the hook
-allows the push and warns.** That is deliberate: a teammate who clones your repo without
-installing this tool must not end up with a repository they cannot push from. A broken
-tool must not brick the repo.
-
-`init` does not compose with an existing `pre-push` hook. If Husky, pre-commit, or a
-custom hook already owns that path, `init` refuses to change it. Add
-`agentic-preflight hook-check` to the existing hook manually if you need both. Treat
-`init --force` as replacement, not composition: it overwrites the existing hook and
-removes whatever behavior that hook previously provided.
+The hook reads the tip's note in `refs/notes/agentic-preflight`, never touches the
+network, and never mutates anything. It is deliberately fail-open when the executable is
+unavailable. Existing-hook composition, force-push policy, and the exact failure modes
+are covered in the
+[pre-push hook guide](https://github.com/elanthus/agentic-preflight/blob/v0.3.0/docs/pre-push-hook.md).
 
 ## Portable attestations and CI enforcement
 
 Successful merge-back writes a versioned JSON attestation as a Git note on the exact
-commit. The note includes the run identity, commit and tree hashes, finding summary,
-finding status and severity totals, and a complete stage set. Green lint and test stages
-include the exact command, exit code, and SHA-256 of the redacted captured output.
-Explicitly skipped stages say why and carry no invented process evidence.
-
-`agentic-preflight push` atomically pushes the branch and
-`refs/notes/agentic-preflight`, so the attestation is not stranded in one clone. Git
-does not fetch notes in an ordinary checkout; fetch the dedicated ref before reading
-or verifying it:
+commit. `agentic-preflight push` atomically pushes the branch and
+`refs/notes/agentic-preflight`, so the attestation is not stranded in one clone. To
+inspect one after an ordinary checkout:
 
 ```bash
 git fetch origin refs/notes/agentic-preflight:refs/notes/agentic-preflight
@@ -187,73 +177,9 @@ git notes --ref=refs/notes/agentic-preflight show HEAD
 agentic-preflight verify HEAD
 ```
 
-`verify <sha>` exits non-zero when the note is missing or malformed, names another
-commit, describes another tree, omits a stage, or claims a green shell stage without
-its command, zero exit code, and output hash. A minimal GitHub Actions required check
-is:
-
-```yaml
-- uses: actions/checkout@v4
-  with:
-    fetch-depth: 0
-- run: git fetch origin refs/notes/agentic-preflight:refs/notes/agentic-preflight
-- run: pipx install agentic-preflight
-- name: Verify the attested commit
-  env:
-    ATTESTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-  run: agentic-preflight verify "$ATTESTED_SHA"
-```
-
-Make that job a required status check in branch protection. The local hook remains
-fail-open and bypassable so it cannot brick a repository; the required remote check
-is what rejects a branch tip without an attestation.
-
-### Dependabot and other bot-authored pull requests
-
-Dependabot creates commits on GitHub rather than through your local preflight workflow.
-Those commits therefore have no `refs/notes/agentic-preflight` note, and a required
-attestation check reports “has no agentic-preflight attestation.” If approval policy
-is derived from the same attestation, its checks fail too; those are downstream
-failures, not evidence that Dependabot found a vulnerability or that the update itself
-is bad.
-
-Do not broadly exempt Dependabot from the required check. Group its version updates to
-reduce review overhead, then attest each grouped pull request without rewriting its
-commit:
-
-1. Add a wildcard `groups` rule to each ecosystem in `.github/dependabot.yml`. This
-   repository groups Python dependencies separately from GitHub Actions because Actions
-   updates change trusted CI and release code.
-2. Check out the Dependabot pull request locally with `gh pr checkout <number>`.
-3. Run the normal Agentic Preflight workflow against that exact branch tip. Do not amend,
-   squash, or rebase it after review; any new SHA needs its own run.
-4. When the workflow reaches its publication gate, run `agentic-preflight push`; it
-   atomically pushes the unchanged branch and `refs/notes/agentic-preflight` together.
-5. Re-run the failed GitHub Actions workflows from the pull request. A notes-only push
-   does not create a new `pull_request` event, so the original failed runs will not
-   automatically notice the new attestation.
-
-Keep GitHub Actions updates under normal code-owner and manual-merge policy even when
-they are grouped. For a frequently changing dependency PR, finish review only after
-Dependabot has stopped rebasing it; every rebase changes the attested SHA.
-
-This repository dogfoods that check by installing the verifier from the protected PR
-base commit, then fetching the proposed commit and its note from the contributor's
-remote. The pull request cannot change the verifier that judges it. Governance paths
-are also listed in `.github/CODEOWNERS`; enable **Require review from Code Owners** in
-the branch ruleset because the file alone only requests reviewers.
-
-High-risk merge handling is enforced by a separate `pull_request_target` workflow that
-also installs its policy checker from the protected base and never executes proposed
-branch content. It reruns when the head changes or a review is submitted or dismissed.
-The default `manual_merge` mode reports success only while GitHub auto-merge is disabled,
-and instructs the agent never to merge or enable auto-merge. `environment` pauses a
-dedicated job at the configured GitHub Environment, and `peer_review` retains the
-exact-head approval rule for an eligible person other than the pull-request author. Make
-**high-risk human approval** a required status check on `main`; keep **Require review from
-Code Owners** enabled as the stricter ownership rule for sensitive paths. Because the
-workflow and policy are loaded from the protected base, a pull request that changes
-approval mode is judged by the old mode until that change is merged.
+The note schema, fail-closed CI check, protected-base verifier pattern, and high-risk
+approval workflow are documented in
+[Portable attestations and CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.3.0/docs/attestations-and-ci.md).
 
 ## Limits
 
@@ -270,121 +196,17 @@ know all three before relying on it:
 3. **This guards against mistakes, not against a careless or misaligned agent.** There is
    no cryptographic answer here, and claiming otherwise would be worse than the gap.
 
-**Content-changing rewrites invalidate green.** A fresh run normally binds its note to
-an exact SHA. During `start`, an in-place history rewrite may reuse a prior note only if
-the old and new commits have identical complete trees, use the same effective preflight
-configuration, and produce the same clean Git merge tree against the freshly fetched
-base, and the prior attestation has the same user intent. Amends, rebases, and squashes
-that fail those proofs require a fresh run.
-Cherry-picked merge-back uses the same strict tree-equivalence principle.
-
-**The note is an audit record, not a signature.** Anyone allowed to update the notes
-ref can replace it. Protect `refs/notes/agentic-preflight` on the remote if your forge
-supports ref-level policy, and treat `verify` as enforcement that a structurally valid,
-commit-bound record exists—not proof that the agent's review judgment was good.
-
-**Cryptographic unforgeability is future work.** It requires a signing authority whose
-key and execution path the evaluated agent cannot reach; putting an agent-accessible key
-around the current note would add ceremony, not a security boundary. The threat model,
-key lifecycle, replay protection, and transparency-ledger design are tracked in
-[issue #25](https://github.com/elanthus/agentic-preflight/issues/25).
-
-Environment drift between isolated worktrees and your shell, runtime pin activation, and
-the exact rebase-reuse boundary are covered in [docs/limits.md](docs/limits.md).
+Attestation mutability, history-rewrite reuse, environment drift, and the boundary of
+what a green run proves are covered in the
+[limits guide](https://github.com/elanthus/agentic-preflight/blob/v0.3.0/docs/limits.md).
 
 ## Configuration
 
 `.agentic-preflight.toml` in the repo root (committed), layered over
 `~/.config/agentic-preflight/config.toml`. Unknown keys are errors that name the key.
-
-```toml
-[general]
-base_ref = "main"
-
-[commands]
-lint = "ruff check ."
-test = "pytest"
-
-[stage]
-timeout_seconds = 600
-max_attempts = 5
-
-[review]
-blocking_severities = ["critical", "high"]
-max_findings = 50
-executor = "in_harness"       # default; or "command"
-# command = "reviewer --json" # receives review context JSON on stdin
-require_command_for = []      # e.g. ["high"] to require independence by risk
-
-[policy]
-# These ownership-sensitive paths are high-risk and require human merge approval.
-human_review_paths = [
-  ".agentic-preflight.toml",
-  ".github/workflows/**",
-  ".github/CODEOWNERS",
-  "CODEOWNERS",
-]
-# Every high-risk result requires human merge approval; medium risk does not.
-high_risk_paths = ["db/migrations/**", "infra/**"]
-medium_risk_paths = ["dependencies/**"]
-
-[docs]
-enabled = true
-paths = []
-require_changelog = false
-blocking_severities = ["critical", "high"]
-
-[diff]
-max_bytes = 200000
-# Setting exclude REPLACES the eight built-in globs rather than adding to them.
-# Omit the key to keep them; see docs/configuration.md for the full default list.
-exclude = ["*.lock", "*-lock.json", "vendor/**", "**/*.min.js"]
-
-[worktree]
-mode = "in_place"            # default; or "reusable" / "strict"
-root = "/optional/external/path" # isolated modes only; defaults outside .git
-copy_files = [".env"]        # protected in place, copied when isolated; must be ignored
-dependency_setup = "auto"    # pnpm/npm lockfile-aware; use "off" to disable
-# setup_command = "uv sync"  # overrides automatic dependency setup
-
-[runtime]
-manager = "auto"             # or "none", "nvm", "volta", "asdf", "mise", ...
-strict = true                 # never fall back when a pin cannot be activated
-
-[gate]
-mode = "token"               # or "manual"
-
-[pr]
-mode = "auto"                # default; "manual" reports a compare URL instead
-
-[approval]
-mode = "manual_merge"        # default; or "environment" / "peer_review"
-environment = "high-risk-review" # GitHub Environment used by environment mode
-
-[hook]
-enabled = true
-allow_force_push = false
-
-```
-
-The resolved configuration is snapshotted when `start` creates a run, so editing
-`.agentic-preflight.toml` afterward does not change that run. Commit configuration
-changes before starting the run they should affect.
-
-`[gate] mode` and `[pr] mode` are independent. The gate decides who performs the push;
-PR mode decides what happens after an approved push. In `auto` mode, the committed
-configuration authorizes the agent to open the PR automatically after preflight finishes.
-In `manual` mode, the agent never opens the pull request and reports a compare URL for
-the user instead.
-
-`[approval] mode` controls high-risk merge handling. `manual_merge` makes the hosted
-check succeed only while auto-merge is disabled and requires the user to perform the
-merge; the agent must never merge or enable auto-merge. `environment` requires approval
-through the named GitHub Environment. `peer_review` preserves the eligible, non-author,
-exact-head pull-request review rule.
-
-The documentation surface and oversized-diff handling are described in
-[docs/configuration.md](docs/configuration.md).
+`init` writes a commented starting configuration. The complete example, every section,
+and the behavior behind the less-obvious keys live in the
+[configuration reference](https://github.com/elanthus/agentic-preflight/blob/v0.3.0/docs/configuration.md).
 
 ## Exit codes
 
@@ -400,8 +222,9 @@ The documentation surface and oversized-diff handling are described in
 
 ## Requirements
 
-- A supported macOS/Linux and Python combination from
-  [COMPATIBILITY.md](COMPATIBILITY.md) (Windows is not supported)
+- A supported macOS/Linux and Python combination from the
+  [compatibility policy](https://github.com/elanthus/agentic-preflight/blob/v0.3.0/COMPATIBILITY.md)
+  (Windows is not supported)
 - git 2.30+
 - Bash
 - `gh` (optional; used for pull requests, hosted checks, and merge verification during
@@ -409,9 +232,10 @@ The documentation surface and oversized-diff handling are described in
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow and
-[SUPPORT.md](SUPPORT.md) for help channels. CI rejects overall coverage below 85% and
-also installs the built wheel as a `uv` tool before invoking its CLI.
+See the [contributor guide](https://github.com/elanthus/agentic-preflight/blob/v0.3.0/CONTRIBUTING.md)
+for the full workflow and [support guide](https://github.com/elanthus/agentic-preflight/blob/v0.3.0/SUPPORT.md)
+for help channels. CI rejects overall coverage below 85% and also installs the built
+wheel as a `uv` tool before invoking its CLI.
 
 ```bash
 uv sync --group dev
@@ -442,4 +266,4 @@ OpenAI Codex and Anthropic Claude.
 
 ## License
 
-Apache 2.0. See [LICENSE](LICENSE).
+Apache 2.0. See the [license](https://github.com/elanthus/agentic-preflight/blob/v0.3.0/LICENSE).

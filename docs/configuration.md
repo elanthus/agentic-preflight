@@ -1,11 +1,82 @@
 # Configuration
 
-The full example lives in the [README](../README.md#configuration). This page covers the
-behaviour behind the keys that need more than a comment.
+This is the canonical configuration reference. `agentic-preflight init` writes a
+commented starting file; the example below includes every supported section.
 
 `.agentic-preflight.toml` sits in the repo root and is committed. It is layered over
 `~/.config/agentic-preflight/config.toml`. Unknown keys are errors that name the key
 rather than being ignored.
+
+## Complete example
+
+```toml
+[general]
+base_ref = "main"
+
+[commands]
+lint = "ruff check ."
+test = "pytest"
+
+[stage]
+timeout_seconds = 600
+max_attempts = 5
+
+[review]
+blocking_severities = ["critical", "high"]
+max_findings = 50
+executor = "in_harness"       # default; or "command"
+# command = "reviewer --json" # receives review context JSON on stdin
+require_command_for = []      # e.g. ["high"] to require independence by risk
+
+[policy]
+# These ownership-sensitive paths are high-risk and require human merge approval.
+human_review_paths = [
+  ".agentic-preflight.toml",
+  ".github/workflows/**",
+  ".github/CODEOWNERS",
+  "CODEOWNERS",
+]
+# Every high-risk result requires human merge approval; medium risk does not.
+high_risk_paths = ["db/migrations/**", "infra/**"]
+medium_risk_paths = ["dependencies/**"]
+
+[docs]
+enabled = true
+paths = []
+require_changelog = false
+blocking_severities = ["critical", "high"]
+
+[diff]
+max_bytes = 200000
+# Setting exclude REPLACES the eight built-in globs rather than adding to them.
+# Omit the key to keep the built-ins; the full list appears below.
+exclude = ["*.lock", "*-lock.json", "vendor/**", "**/*.min.js"]
+
+[worktree]
+mode = "in_place"                 # default; or "reusable" / "strict"
+root = "/optional/external/path"  # isolated modes only; defaults outside .git
+copy_files = [".env"]             # must already be ignored
+dependency_setup = "auto"         # pnpm/npm lockfile-aware; or "off"
+# setup_command = "uv sync"       # overrides automatic dependency setup
+
+[runtime]
+manager = "auto"                  # or "none", "nvm", "volta", "asdf", "mise", ...
+strict = true                      # never fall back when a pin cannot be activated
+
+[gate]
+mode = "token"                    # or "manual"
+
+[pr]
+mode = "auto"                     # or "manual"
+
+[approval]
+mode = "manual_merge"             # or "environment" / "peer_review"
+environment = "high-risk-review"  # used by environment mode
+
+[hook]
+enabled = true
+allow_force_push = false
+```
 
 ## Configuration is snapshotted per run
 

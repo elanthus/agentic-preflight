@@ -1,6 +1,6 @@
 [project]
 name = "agentic-preflight"
-version = "0.2.1"
+version = "0.3.0"
 description = "Stops your coding agent from pushing unverified work. Your agent does the reviewing; a state machine records the result per-commit and gates the push."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -63,6 +63,7 @@ include = [
     "/README.md",
     "/SECURITY.md",
     "/SUPPORT.md",
+    "/docs/*.md",
     "/install.sh",
     "/uninstall.sh",
     "/pyproject.toml",

@@ -5,6 +5,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+## [0.3.0] - 2026-08-12
+
 ### Added
 
 - Supply-chain maintenance and verification: Dependabot updates Python and GitHub
@@ -72,9 +74,14 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 - Dependabot version updates are grouped into one weekly Python dependency pull
   request and one weekly GitHub Actions pull request, reducing preflight review and
-  attestation overhead without exempting bot-authored commits from the gate. The README
-  documents how to attest the exact bot-authored commit and re-run its hosted checks.
+  attestation overhead without exempting bot-authored commits from the gate. The
+  attestation and CI guide documents how to attest the exact bot-authored commit and
+  re-run its hosted checks.
 
+- The README now matches the 0.3.0 release surface, uses release-stable links when
+  rendered on PyPI, and keeps only the quickstart and core safety contract. Detailed
+  hook behavior, portable attestations and CI, configuration, and extended limitations
+  live in focused linked guides that are included in the source distribution.
 - An explicit request to push, publish, or create/open a pull request now authorizes the
   matching post-verification push. The gate still displays the exact remote, branch,
   commits, and risk summary, but no longer forces a duplicate confirmation unless that
@@ -218,5 +225,6 @@ First tagged pre-release.
 Windows is not supported because the implementation requires `fcntl`, Bash, and POSIX
 process groups.
 
+[0.3.0]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.3.0
 [0.2.1]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.2.1
 [0.2.0]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.2.0
