@@ -296,6 +296,7 @@ medium_risk_paths = ["dependencies/**"]
 enabled = true
 paths = []
 require_changelog = false
+blocking_severities = ["critical", "high"]
 
 [diff]
 max_bytes = 200000

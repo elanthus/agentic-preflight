@@ -2,10 +2,10 @@
 
 The division of labour encoded here is the heart of the findings pipeline:
 **code owns identity, the agent owns judgment.** ``FindingSubmission`` is what
-the agent sends and deliberately has no ``id`` and no ``stage`` field, with
-``extra="forbid"`` so that inventing one is a loud validation error instead of a
-quietly honoured lie. ``Finding`` is what we store, and it adds the fields only
-code may assign.
+the agent sends and deliberately has no ``id``, ``stage``, or ``code_owned``
+field, with ``extra="forbid"`` so that inventing one is a loud validation error
+instead of a quietly honoured lie. ``Finding`` is what we store, and it adds the
+fields only code may assign.
 """
 
 from __future__ import annotations
@@ -102,12 +102,13 @@ class FindingSubmission(BaseModel):
 
 
 class Finding(BaseModel):
-    """What code stores. ``id``, ``stage``, and ``status`` are code-assigned."""
+    """What code stores; identity, status, and ownership are code-assigned."""
 
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(pattern=r"^F\d{3,}$")
     stage: Stage
+    code_owned: bool = False
     status: FindingStatus = FindingStatus.OPEN
     fix_commit: str | None = None
     response_note: str | None = Field(default=None, max_length=4000)

@@ -50,11 +50,18 @@ def test_submission_rejects_an_agent_supplied_stage():
         FindingSubmission(**_submission(stage="docs"))
 
 
+def test_submission_rejects_agent_supplied_code_ownership():
+    """Only the CLI may mark a mechanical requirement as code-owned."""
+    with pytest.raises(ValidationError):
+        FindingSubmission(**_submission(code_owned=True))
+
+
 def test_finding_carries_the_code_assigned_identity():
     sub = FindingSubmission(**_submission())
     finding = Finding.from_submission(sub, id="F001", stage=Stage.REVIEW)
     assert finding.id == "F001"
     assert finding.stage is Stage.REVIEW
+    assert finding.code_owned is False
     assert finding.status is FindingStatus.OPEN
     assert finding.fix_commit is None
     assert finding.title == sub.title
@@ -116,7 +123,9 @@ def test_attestation_requires_a_complete_stage_set_and_shell_evidence():
         "green_at": "2026-01-01T00:00:00+00:00",
         "stages": _attestation_stages(),
     }
-    assert Attestation(**payload).stages[Stage.TEST].command == "pytest"
+    attestation = Attestation(**payload)
+    assert attestation.schema_version == 2
+    assert attestation.stages[Stage.TEST].command == "pytest"
 
     payload["stages"] = {**_attestation_stages(), Stage.TEST: AttestedStage(status="green")}
     with pytest.raises(ValidationError, match="lacks process evidence"):
