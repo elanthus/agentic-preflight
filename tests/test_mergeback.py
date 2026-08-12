@@ -12,7 +12,9 @@ from tests.driver import ScriptedAgent
 
 def findings_json(tmp_path, items):
     path = tmp_path / "findings.json"
-    path.write_text(json.dumps({"findings": items}))
+    path.write_text(
+        json.dumps({"coverage": {"manifest": "$context", "examined": "all"}, "findings": items})
+    )
     return str(path)
 
 
@@ -29,7 +31,7 @@ BLOCKING = [
 
 @pytest.fixture
 def ready(feature_repo, tmp_path):
-    """Drive a run to LINT_GREEN, optionally with a fix commit in the worktree."""
+    """Drive a run to TEST_GREEN, optionally with a fix commit in the worktree."""
 
     def build(*, with_fix=True, fix_content=None):
         write(
@@ -56,12 +58,14 @@ def ready(feature_repo, tmp_path):
             sha = git("rev-parse", "HEAD", cwd=wt)
             agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", sha)
             agent.run("verify")
+            agent.run("context")
+            agent.run("submit-findings", "--file", findings_json(tmp_path, []))
         else:
             agent.run("submit-findings", "--file", findings_json(tmp_path, []))
 
-        agent.run("stage", "run", "test")
-        env = agent.run("stage", "run", "lint")
-        assert env["state"] == "LINT_GREEN"
+        agent.run("stage", "run", "lint")
+        env = agent.run("stage", "run", "test")
+        assert env["state"] == "TEST_GREEN"
         return agent, wt
 
     return build
@@ -94,8 +98,10 @@ def test_default_in_place_mode_records_repairs_and_attests_without_cherry_pick(
     assert status["data"]["source_head_sha"] == fix_sha
 
     agent.run("verify")
-    agent.run("stage", "run", "test")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
     merged = agent.run("mergeback")
 
     assert merged["data"]["worktree_mode"] == "in_place"
@@ -220,8 +226,10 @@ def test_conflict_aborts_and_restores_the_branch_exactly(feature_repo, tmp_path)
     fix_sha = git("rev-parse", "HEAD", cwd=wt)
     agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", fix_sha)
     agent.run("verify")
-    agent.run("stage", "run", "test")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
 
     # Now make the branch diverge on the same content, and re-point the run's
     # recorded head so the staleness guard does not fire first.

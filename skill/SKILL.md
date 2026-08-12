@@ -17,9 +17,9 @@ Python here never calls a model — every judgment in this workflow is yours.
    you expected. Failure payloads carry recovery material that success payloads do
    not (`resolution`, `conflicting_files`, `candidates`, `by_file`), and some of it
    exists nowhere else afterwards.
-3. **Never invent finding IDs or stages.** You submit `path`, `line`, `severity`,
-   `action`, `title`, `detail`, `suggestion`. Nothing else. Sending `id` or `stage`
-   is a hard validation error, not a nudge.
+3. **Never invent finding IDs or stages.** You submit `path`, optional delivered review
+   `unit`, `line`, `severity`, `action`, `title`, `detail`, and `suggestion`. Sending
+   `id` or `stage` is a hard validation error, not a nudge.
 4. **Never run `git push --no-verify`.** It exists for humans, not for you.
 5. **Never push without asking the user in plain language first.** Show them what
    will be pushed and wait for an actual answer. `[pr] mode = "auto"` is standing
@@ -47,7 +47,8 @@ $ agentic-preflight start --intent "<the user's objective and acceptance criteri
 
 $ agentic-preflight context
 {"ok":true,"state":"REVIEW_AWAITING_FINDINGS",
- "data":{"diff":"diff --git a/src/auth.py ...","changed_files":["src/auth.py"]},
+ "data":{"diff":"diff --git a/src/auth.py ...","changed_files":["src/auth.py"],
+         "review_coverage":{"manifest":"<digest>","total_units":1,"units":[{"id":"U0001",...}]}},
  "next":{"command":"agentic-preflight submit-findings --file findings.json"}}
 
 # You read the diff and decide. Write findings.json, then:
@@ -61,13 +62,14 @@ $ agentic-preflight respond --id F001 --action fixed --commit 9c3d1ab
 {"ok":true,"state":"REVIEW_FIXING","next":{"command":"agentic-preflight verify"}}
 
 $ agentic-preflight verify
-{"ok":true,"state":"REVIEW_GREEN","next":{"command":"agentic-preflight stage run test"}}
+{"ok":true,"state":"REVIEW_AWAITING_FINDINGS","data":{"coverage_invalidated":true},
+ "next":{"command":"agentic-preflight context"}}
 
-# For a documentation/CI-configuration-only diff, verify instead records test as
-# skipped and returns TEST_GREEN with the docs command as next. Obey the envelope.
-
-$ agentic-preflight stage run test
-{"ok":true,"state":"TEST_GREEN","next":{"command":"agentic-preflight context --section docs"}}
+# The fix changed the snapshot. Review the complete current diff and submit its new
+# manifest. With no new issue, every unreferenced unit is explicitly examined clean.
+$ agentic-preflight context
+$ agentic-preflight submit-findings --file findings-clean.json
+{"ok":true,"state":"REVIEW_GREEN","next":{"command":"agentic-preflight context --section docs"}}
 
 $ agentic-preflight context --section docs
 {"ok":true,"state":"DOCS_AWAITING_FINDINGS","data":{"doc_surface":[{"path":"README.md",...}]},
@@ -77,7 +79,13 @@ $ agentic-preflight submit-findings --file findings.json     # often just {"find
 {"ok":true,"state":"DOCS_GREEN","next":{"command":"agentic-preflight stage run lint"}}
 
 $ agentic-preflight stage run lint
-{"ok":true,"state":"LINT_GREEN","next":{"command":"agentic-preflight mergeback"}}
+{"ok":true,"state":"LINT_GREEN","next":{"command":"agentic-preflight stage run test"}}
+
+# For a documentation/CI-configuration-only diff, green lint instead records test
+# as skipped and returns TEST_GREEN with mergeback as next. Obey the envelope.
+
+$ agentic-preflight stage run test
+{"ok":true,"state":"TEST_GREEN","next":{"command":"agentic-preflight mergeback"}}
 
 $ agentic-preflight mergeback
 {"ok":true,"state":"VERIFIED","data":{"worktree_mode":"in_place","applied":[],"tree_equivalent":true},
@@ -110,6 +118,9 @@ an envelope calls for a command or recovery path not expanded in this playbook.
 ## How to review
 
 Judge the diff, not the repo. Only findings against changed files are accepted.
+Account for the complete `review_coverage` manifest returned by `context`; never reuse a
+manifest after a commit. The payload's one `examined: "all"` assertion keeps clean hunks
+quiet while code verifies that no delivered unit disappears.
 
 | Severity | Means | Example |
 |---|---|---|
@@ -154,8 +165,9 @@ Full rubric: `reference/docs-rubric.md`.
 ## Findings schema
 
 ```json
-{"findings": [
-  {"path": "src/auth.py", "line": 42, "severity": "high", "action": "auto_fix",
+{"coverage": {"manifest": "<from context>", "examined": "all"}, "findings": [
+  {"unit": "U0001", "path": "src/auth.py", "line": 42,
+   "severity": "high", "action": "auto_fix",
    "title": "Password compared with ==",
    "detail": "Timing-variable comparison leaks length. Use secrets.compare_digest.",
    "suggestion": "if secrets.compare_digest(supplied, stored):"}
@@ -201,7 +213,7 @@ user `agentic-preflight logs --stage <name>` output and ask how to proceed.
 **Hosted CI failed.** Inspect the failed check with `gh pr checks` and `gh run view
 --log-failed`. Fix and commit the source branch, then start a fresh synchronized
 preflight run with the original intent. Do not push the repair until the new
-review → test → docs → lint run reaches green. Push through the gate again, then
+review → docs → lint → test run reaches green. Push through the gate again, then
 resume check monitoring with `gh`.
 
 **Stale head (exit 3, `stale_run`).** The branch moved after review began, so
@@ -311,18 +323,19 @@ commit that resolved each. That is the part CI cannot reproduce — no test
 suite tells a reviewer which judgment calls were made — and it stops a human
 re-deriving what the gate already caught.
 
-The commit's Git-note attestation already carries the local stage commands, exit codes,
-and output hashes. Do not copy those into the PR body; if the repo runs CI, point at
-the forge's execution for stronger, remote evidence.
+The commit's Git-note attestation already carries review coverage plus the local stage
+commands, exit codes, and output hashes. Do not copy those into the PR body; if the repo
+runs CI, point at the forge's execution for stronger, remote evidence.
 
 Publish the gaps in the same breath: a bypassed hook, a stage that could not run, a
 SHA with no green run. An attestation that can only report success is marketing, and a
 partial record that reads as complete is worse than none.
 
-State the limit plainly when you show it: this proves what the gate *reported*, not
-that the review was good. The same diff reviewed twice can yield different findings.
-It is an audit trail, not a quality proof, and it substitutes for neither CI nor a
-human reviewer.
+State the limit plainly when you show it: this proves what the gate *reported*, including
+that every delivered unit was cited or marked examined clean; it does not prove the agent
+understood those units or that the review was good. The same diff reviewed twice can
+yield different findings. It is an audit trail, not a quality proof, and it substitutes
+for neither CI nor a human reviewer.
 
 ## Project uninstall trigger (`agentic-preflight:uninstall`)
 

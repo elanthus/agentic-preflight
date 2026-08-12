@@ -61,7 +61,7 @@ def test_error_envelope_is_not_ok_and_names_the_code():
 
 def test_stateful_errors_inherit_the_declarative_recovery_hint():
     payload = WrongState("wrong command", state="REVIEW_GREEN").to_envelope().to_payload()
-    assert payload["next"]["command"] == "agentic-preflight stage run test"
+    assert payload["next"]["command"] == "agentic-preflight context --section docs"
 
 
 def test_emit_writes_exactly_one_json_object_and_nothing_else():

@@ -17,7 +17,9 @@ def agent(feature_repo):
 
 def findings_json(tmp_path, items):
     path = tmp_path / "findings.json"
-    path.write_text(json.dumps({"findings": items}))
+    path.write_text(
+        json.dumps({"coverage": {"manifest": "$context", "examined": "all"}, "findings": items})
+    )
     return str(path)
 
 
@@ -60,11 +62,17 @@ def test_responding_fixed_with_a_real_commit_clears_the_finding(blocked):
     assert env["data"]["finding"]["fix_commit"].startswith(sha[:8])
 
 
-def test_verify_goes_green_once_nothing_blocks(blocked):
+def test_verify_reopens_review_when_a_fix_changes_the_snapshot(blocked, tmp_path):
     agent, wt = blocked
     sha = fix_commit(wt)
     agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", sha)
     env = agent.run("verify")
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert env["data"]["coverage_invalidated"] is True
+
+    context = agent.run("context")
+    assert context["data"]["review_coverage"]["head"] == sha
+    env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     assert env["state"] == "REVIEW_GREEN"
 
 

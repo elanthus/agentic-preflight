@@ -18,7 +18,7 @@ digest; a new objective always starts a fresh review, even after local run recor
 been garbage-collected.
 
 Any content or effective-config change, merge conflict, different merge result, branch
-change, or base-ref change forces a fresh review, test, docs, and lint run. Isolated
+change, or base-ref change forces a fresh review, docs, lint, and test run. Isolated
 worktree modes do not reuse attestations because their synchronized commit is not the
 source branch that will be pushed.
 
@@ -52,11 +52,12 @@ as missing bindings, not as a version error.
 
 ## What a green run does and does not prove
 
-It proves what the gate reported: that the agent submitted findings, that the configured
-commands exited zero against that exact SHA, and which judgment calls were recorded along
-the way.
+It proves what the gate reported: that the agent accounted for every included review unit
+in a snapshot-bound diff manifest, that the configured commands exited zero against that
+exact SHA, and which judgment calls were recorded along the way. Excluded files remain
+explicitly outside that coverage.
 
-It does not prove the review was good. The same diff reviewed twice can yield different
-findings. Treat the Git note as an audit trail, and note that it substitutes for neither
-CI nor a human reviewer. It is not a signature: anyone allowed to update the notes ref
-can replace it.
+It does not prove the review was good or that the agent understood every unit it marked
+clean. The same diff reviewed twice can yield different findings. Treat the Git note as
+an audit trail, and note that it substitutes for neither CI nor a human reviewer. It is
+not a signature: anyone allowed to update the notes ref can replace it.

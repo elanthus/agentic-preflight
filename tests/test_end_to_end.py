@@ -21,12 +21,14 @@ enabled = true
 
 def findings_json(tmp_path, items):
     path = tmp_path / "findings.json"
-    path.write_text(json.dumps({"findings": items}))
+    path.write_text(
+        json.dumps({"coverage": {"manifest": "$context", "examined": "all"}, "findings": items})
+    )
     return str(path)
 
 
 def test_the_full_happy_path(feature_repo, bare_remote, tmp_path):
-    """review -> test -> docs -> lint -> mergeback -> gate -> push -> finish."""
+    """review -> docs -> lint -> test -> mergeback -> gate -> push -> finish."""
     write(feature_repo, ".agentic-preflight.toml", CONFIG)
     commit_all(feature_repo, "configure agentic-preflight")
 
@@ -45,8 +47,6 @@ def test_the_full_happy_path(feature_repo, bare_remote, tmp_path):
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     assert env["state"] == "REVIEW_GREEN"
 
-    assert agent.run("stage", "run", "test")["state"] == "TEST_GREEN"
-
     env = agent.run("context", "--section", "docs")
     assert env["data"]["doc_surface"]
 
@@ -54,6 +54,7 @@ def test_the_full_happy_path(feature_repo, bare_remote, tmp_path):
     assert env["state"] == "DOCS_GREEN"
 
     assert agent.run("stage", "run", "lint")["state"] == "LINT_GREEN"
+    assert agent.run("stage", "run", "test")["state"] == "TEST_GREEN"
 
     env = agent.run("mergeback")
     assert env["state"] == "VERIFIED"
@@ -106,7 +107,8 @@ def test_documentation_only_gate_records_test_as_skipped(tmp_repo, tmp_path):
     agent.run("context")
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     assert env["state"] == "DOCS_GREEN"
-    agent.run("stage", "run", "lint", "--command", "true", "--record")
+    env = agent.run("stage", "run", "lint", "--command", "true", "--record")
+    assert env["state"] == "TEST_GREEN"
     agent.run("mergeback")
 
     head = git("rev-parse", "HEAD", cwd=tmp_repo)
@@ -154,8 +156,6 @@ def test_seq_increases_monotonically_across_a_run(feature_repo, tmp_path):
     seqs = [agent.run("status")["data"]["seq"]]
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("stage", "run", "test")
-    seqs.append(agent.run("status")["data"]["seq"])
     agent.run("context", "--section", "docs")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     seqs.append(agent.run("status")["data"]["seq"])
@@ -182,7 +182,6 @@ def test_finding_ids_are_never_reused_across_stages(feature_repo, tmp_path):
             ],
         ),
     )
-    agent.run("stage", "run", "test")
     agent.run("context", "--section", "docs")
     agent.run(
         "submit-findings",

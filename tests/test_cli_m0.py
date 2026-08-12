@@ -17,7 +17,9 @@ def agent(feature_repo):
 
 def findings_json(tmp_path, items):
     path = tmp_path / "findings.json"
-    path.write_text(json.dumps({"findings": items}))
+    path.write_text(
+        json.dumps({"coverage": {"manifest": "$context", "examined": "all"}, "findings": items})
+    )
     return str(path)
 
 
@@ -143,10 +145,14 @@ def test_context_exclusions_bring_an_oversized_diff_back_under_budget(agent, fea
 
 def test_a_clean_review_goes_straight_to_green(agent, tmp_path):
     agent.run("start")
-    agent.run("context")
+    context = agent.run("context")
+    assert context["data"]["review_coverage"]["total_units"] == 1
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     assert env["state"] == "REVIEW_GREEN"
     assert env["blocking"] == []
+    assert env["data"]["coverage"]["total_units"] == 1
+    assert env["data"]["coverage"]["clean_count"] == 1
+    assert env["data"]["coverage"]["cited_count"] == 0
 
 
 def test_a_blocking_finding_holds_the_run_for_responses(agent, tmp_path):
@@ -167,6 +173,44 @@ def test_a_blocking_finding_holds_the_run_for_responses(agent, tmp_path):
     env = agent.run("submit-findings", "--file", path)
     assert env["state"] == "REVIEW_AWAITING_RESPONSES"
     assert [f["id"] for f in env["blocking"]] == ["F001"]
+    assert env["data"]["accepted"][0]["unit"] == "U0001"
+    assert env["data"]["coverage"]["cited_count"] == 1
+    assert env["data"]["coverage"]["clean_count"] == 0
+
+
+def test_review_coverage_accounts_for_cited_and_clean_hunks(tmp_repo, tmp_path):
+    write(tmp_repo, "src/long.py", "\n".join(f"line {i}" for i in range(40)) + "\n")
+    commit_all(tmp_repo, "add long source")
+    git("switch", "-c", "feature/two-hunks", cwd=tmp_repo)
+    lines = (tmp_repo / "src" / "long.py").read_text().splitlines()
+    lines[1] = "changed near start"
+    lines[37] = "changed near end"
+    write(tmp_repo, "src/long.py", "\n".join(lines) + "\n")
+    commit_all(tmp_repo, "change distant lines")
+    local_agent = ScriptedAgent(tmp_repo)
+
+    local_agent.run("start")
+    context = local_agent.run("context")
+    assert context["data"]["review_coverage"]["total_units"] == 2
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "path": "src/long.py",
+                "line": 2,
+                "severity": "low",
+                "action": "no_op",
+                "title": "Review the first change",
+                "detail": "The first hunk needs follow-up; the other hunk was examined clean.",
+            }
+        ],
+    )
+
+    env = local_agent.run("submit-findings", "--file", path)
+
+    assert env["data"]["coverage"]["total_units"] == 2
+    assert env["data"]["coverage"]["cited_count"] == 1
+    assert env["data"]["coverage"]["clean_count"] == 1
 
 
 def test_a_non_blocking_finding_still_reaches_green(agent, tmp_path):
@@ -247,13 +291,26 @@ def test_submitting_twice_is_a_wrong_state_error_naming_the_next_move(agent, tmp
     assert env["next"]["command"]
 
 
-def test_findings_accept_a_bare_list_as_well_as_a_wrapped_object(agent, tmp_path):
+def test_review_findings_reject_a_bare_list_without_coverage(agent, tmp_path):
     agent.run("start")
     agent.run("context")
     path = tmp_path / "bare.json"
     path.write_text(json.dumps([]))
-    env = agent.run("submit-findings", "--file", str(path))
-    assert env["state"] == "REVIEW_GREEN"
+    env = agent.run("submit-findings", "--file", str(path), expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "invalid_findings"
+    assert "ReviewSubmission" in env["error"]["message"]
+
+
+def test_review_rejects_a_manifest_that_does_not_match_the_current_diff(agent, tmp_path):
+    agent.run("start")
+    agent.run("context")
+    path = tmp_path / "wrong-coverage.json"
+    path.write_text(
+        json.dumps({"coverage": {"manifest": "0" * 64, "examined": "all"}, "findings": []})
+    )
+    env = agent.run("submit-findings", "--file", str(path), expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "invalid_findings"
+    assert "does not match" in env["error"]["message"]
 
 
 # -- verify -----------------------------------------------------------------
@@ -319,6 +376,7 @@ def test_status_reports_state_and_findings_summary(agent, tmp_path):
     assert env["state"] == "REVIEW_AWAITING_RESPONSES"
     assert env["data"]["findings_summary"]["open"] == 1
     assert env["data"]["findings"][0]["id"] == "F001"
+    assert env["data"]["review_coverage"]["cited_count"] == 1
 
 
 def test_status_is_legal_in_every_state_reached_by_the_happy_path(agent, tmp_path):

@@ -12,13 +12,22 @@ from tests.driver import ScriptedAgent
 
 def findings_json(tmp_path, items):
     path = tmp_path / "findings.json"
-    path.write_text(json.dumps({"findings": items}))
+    path.write_text(
+        json.dumps({"coverage": {"manifest": "$context", "examined": "all"}, "findings": items})
+    )
     return str(path)
 
 
 def config(repo, body):
     write(repo, ".agentic-preflight.toml", body)
     commit_all(repo, "configure agentic-preflight")
+
+
+def complete_reopened_review(agent, tmp_path):
+    context = agent.run("context")
+    assert context["state"] == "REVIEW_AWAITING_FINDINGS"
+    env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    assert env["state"] == "DOCS_GREEN"
 
 
 @pytest.fixture
@@ -30,8 +39,7 @@ def docs_green(feature_repo, tmp_path):
         agent = ScriptedAgent(feature_repo)
         agent.run("start")
         agent.run("context")
-        agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-        env = agent.run("stage", "run", "test", "--command", "true", "--record")
+        env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
         assert env["state"] == "DOCS_GREEN"
         return agent
 
@@ -124,7 +132,7 @@ def test_a_non_zero_exit_is_red_regardless_of_output(docs_green):
 # -- ordering ---------------------------------------------------------------
 
 
-def test_tests_must_pass_before_lint_runs(feature_repo, tmp_path):
+def test_docs_must_pass_before_lint_runs(feature_repo, tmp_path):
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     agent.run("context")
@@ -135,7 +143,7 @@ def test_tests_must_pass_before_lint_runs(feature_repo, tmp_path):
     assert env["error"]["code"] == "wrong_state"
 
 
-def test_documentation_only_changes_skip_software_tests(tmp_repo, tmp_path):
+def test_documentation_only_changes_skip_software_tests_after_lint(tmp_repo, tmp_path):
     from tests.conftest import git
 
     git("switch", "-c", "feature/docs", cwd=tmp_repo)
@@ -145,10 +153,13 @@ def test_documentation_only_changes_skip_software_tests(tmp_repo, tmp_path):
     agent.run("start")
     agent.run("context")
 
-    env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("context", "--section", "docs")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    env = agent.run("stage", "run", "lint", "--command", "true", "--record")
 
     assert env["state"] == "TEST_GREEN"
-    assert env["next"]["command"] == "agentic-preflight context --section docs"
+    assert env["next"]["command"] == "agentic-preflight mergeback"
     test_record = agent.run("status")["data"]["stages"]["test"]
     assert test_record["status"] == "skipped"
     assert "documentation and CI configuration" in test_record["reason"]
@@ -165,7 +176,10 @@ def test_ci_configuration_only_changes_skip_software_tests(tmp_repo, tmp_path):
     agent.run("start")
     agent.run("context")
 
-    env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("context", "--section", "docs")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    env = agent.run("stage", "run", "lint", "--command", "true", "--record")
 
     assert env["state"] == "TEST_GREEN"
     assert agent.run("status")["data"]["stages"]["test"]["status"] == "skipped"
@@ -179,14 +193,14 @@ def test_source_changes_still_require_software_tests(feature_repo, tmp_path):
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
 
     assert env["state"] == "REVIEW_GREEN"
-    assert env["next"]["command"] == "agentic-preflight stage run test"
+    assert env["next"]["command"] == "agentic-preflight context --section docs"
 
 
-def test_lint_runs_once_tests_and_docs_are_green(docs_green):
+def test_lint_runs_once_docs_are_green_and_points_to_tests(docs_green):
     agent = docs_green()
     env = agent.run("stage", "run", "lint", "--command", "true", "--record")
     assert env["state"] == "LINT_GREEN"
-    assert "mergeback" in env["next"]["command"]
+    assert env["next"]["command"] == "agentic-preflight stage run test"
 
 
 def test_a_red_stage_can_be_retried_after_a_fix(docs_green):
@@ -198,7 +212,7 @@ def test_a_red_stage_can_be_retried_after_a_fix(docs_green):
     assert env["state"] == "LINT_GREEN"
 
 
-def test_a_committed_lint_repair_invalidates_tests_and_docs(docs_green):
+def test_a_committed_lint_repair_revalidates_before_the_first_test_run(docs_green, tmp_path):
     agent = docs_green()
     failed = agent.run(
         "stage",
@@ -218,15 +232,49 @@ def test_a_committed_lint_repair_invalidates_tests_and_docs(docs_green):
     commit_all(Path(worktree), "repair lint failure")
 
     env = agent.run("stage", "run", "lint", "--command", "true", "--record")
-    assert env["state"] == "REVIEW_GREEN"
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
     assert env["data"]["validation_restarted"] is True
-    assert env["next"]["command"] == "agentic-preflight stage run test"
+    assert env["next"]["command"] == "agentic-preflight context"
+
+    complete_reopened_review(agent, tmp_path)
 
     assert (
-        agent.run("stage", "run", "test", "--command", "true", "--record")["state"] == "DOCS_GREEN"
+        agent.run("stage", "run", "lint", "--command", "true", "--record")["state"] == "LINT_GREEN"
     )
     assert (
-        agent.run("stage", "run", "lint", "--command", "true", "--record")["state"] == "LINT_GREEN"
+        agent.run("stage", "run", "test", "--command", "true", "--record")["state"] == "TEST_GREEN"
+    )
+
+
+def test_a_committed_test_repair_revalidates_docs_and_lint_before_retry(docs_green, tmp_path):
+    agent = docs_green()
+    agent.run("stage", "run", "lint", "--command", "true", "--record")
+    failed = agent.run(
+        "stage",
+        "run",
+        "test",
+        "--command",
+        "exit 1",
+        "--record",
+        expect=ExitCode.STAGE_FAILED,
+    )
+    worktree = failed["data"].get("worktree_path") or agent.run("status")["data"]["worktree_path"]
+    write(
+        Path(worktree),
+        "src/app.py",
+        "def greet(name, loud=False):\n    return f'hi {name}'.strip()\n",
+    )
+    commit_all(Path(worktree), "repair test failure")
+
+    env = agent.run("stage", "run", "test", "--command", "true", "--record")
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert env["data"]["validation_restarted"] is True
+    assert env["next"]["command"] == "agentic-preflight context"
+
+    complete_reopened_review(agent, tmp_path)
+    agent.run("stage", "run", "lint", "--command", "true", "--record")
+    assert (
+        agent.run("stage", "run", "test", "--command", "true", "--record")["state"] == "TEST_GREEN"
     )
 
 
@@ -249,6 +297,84 @@ def test_repeated_failures_stop_at_max_attempts(docs_green):
     assert env["error"]["code"] == "max_attempts"
     assert env["data"]["attempts"] == 2
     assert "logs" in env["next"]["command"]
+
+
+def test_cross_stage_repairs_preserve_attempt_limits(docs_green, tmp_path):
+    agent = docs_green("[docs]\nenabled = false\n\n[stage]\nmax_attempts = 2\n")
+    failed = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "exit 1",
+        "--record",
+        expect=ExitCode.STAGE_FAILED,
+    )
+    worktree = Path(
+        failed["data"].get("worktree_path") or agent.run("status")["data"]["worktree_path"]
+    )
+    write(worktree, "src/app.py", "def greet(name):\n    return f'hello {name}'\n")
+    commit_all(worktree, "repair first lint failure")
+
+    restarted = agent.run("stage", "run", "lint", "--command", "true", "--record")
+    assert restarted["data"]["validation_restarted"] is True
+    complete_reopened_review(agent, tmp_path)
+    agent.run("stage", "run", "lint", "--command", "true", "--record")
+    failed = agent.run(
+        "stage",
+        "run",
+        "test",
+        "--command",
+        "exit 1",
+        "--record",
+        expect=ExitCode.STAGE_FAILED,
+    )
+    worktree = Path(
+        failed["data"].get("worktree_path") or agent.run("status")["data"]["worktree_path"]
+    )
+    write(worktree, "src/app.py", "def greet(name):\n    return f'hello, {name}'\n")
+    commit_all(worktree, "repair test failure")
+
+    restarted = agent.run("stage", "run", "test", "--command", "true", "--record")
+    assert restarted["data"]["validation_restarted"] is True
+    complete_reopened_review(agent, tmp_path)
+    assert agent.run("status")["data"]["stages"]["lint"] == {
+        "attempts": 1,
+        "command": None,
+        "exit_code": None,
+        "finished_at": None,
+        "head_sha": None,
+        "log_path": None,
+        "output_sha256": None,
+        "reason": None,
+        "status": "pending",
+    }
+
+    failed = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "exit 1",
+        "--record",
+        expect=ExitCode.STAGE_FAILED,
+    )
+    worktree = Path(
+        failed["data"].get("worktree_path") or agent.run("status")["data"]["worktree_path"]
+    )
+    write(worktree, "src/app.py", "def greet(name):\n    return f'hi {name}'\n")
+    commit_all(worktree, "repair lint failure")
+
+    restarted = agent.run("stage", "run", "lint", "--command", "true", "--record")
+    assert restarted["data"]["validation_restarted"] is True
+    complete_reopened_review(agent, tmp_path)
+    assert agent.run("status")["data"]["stages"]["test"]["attempts"] == 1
+
+    env = agent.run(
+        "stage", "run", "lint", "--command", "true", "--record", expect=ExitCode.NEEDS_HUMAN
+    )
+    assert env["error"]["code"] == "max_attempts"
+    assert env["data"]["attempts"] == 2
 
 
 # -- log capture ------------------------------------------------------------
@@ -319,7 +445,6 @@ def test_copied_file_contents_never_reach_a_stage_log(feature_repo, tmp_path):
     agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("stage", "run", "test", "--command", "true", "--record")
 
     env = agent.run("stage", "run", "lint", "--command", "cat .env", "--record")
     from pathlib import Path

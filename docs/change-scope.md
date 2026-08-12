@@ -1,10 +1,10 @@
 # Change scope and the test-skip exception
 
 When every changed file in a diff is documentation or standard CI configuration, the gate
-does not run the software test command. It takes an explicit `SKIP_TEST` transition
-through `TEST_GREEN` and records the test stage as `skipped` with its reason, so the
-exception stays visible in `status` and the commit's attestation note rather than
-looking like a pass.
+does not run the software test command after lint. It takes an explicit `SKIP_TEST`
+transition through `TEST_GREEN` and records the test stage as `skipped` with its reason,
+so the exception stays visible in `status` and the commit's attestation note rather
+than looking like a pass.
 
 **Any source or otherwise unclassified file keeps tests mandatory.** The exception applies
 only when the whole diff qualifies; one unclassified file is enough to require them.

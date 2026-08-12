@@ -1,10 +1,12 @@
 # Findings schema
 
-## What you send
+## What you send for review
 
 ```json
-{"findings": [
+{"coverage": {"manifest": "<64-character digest>", "examined": "all"},
+ "findings": [
   {
+    "unit": "U0007",
     "path": "src/auth.py",
     "line": 42,
     "severity": "critical",
@@ -16,11 +18,18 @@
 ]}
 ```
 
-A bare JSON list is also accepted. An empty list is valid — and in the docs stage it is
-the most common correct answer.
+The manifest comes from `context`. `examined: "all"` is one compact assertion over the
+complete delivered manifest: code marks units referenced by findings as cited and every
+remaining unit examined clean. When `path` and `line` identify exactly one unit, `unit`
+may be omitted and is assigned mechanically. Name it for deleted-only, binary, or
+ambiguous multi-hunk findings.
+
+Docs submissions remain `{"findings": [...]}` or a bare JSON list. An empty docs list is
+valid and is the most common correct answer. A findings-only review submission is invalid.
 
 | Field | Required | Notes |
 |---|---|---|
+| `unit` | when ambiguous | Review-unit ID returned by `context`; not used for docs |
 | `path` | yes | Repo-relative. Must resolve inside the worktree |
 | `line` | no | 1-based. Must be within the file. Omit for file-level findings |
 | `severity` | yes | `critical` \| `high` \| `medium` \| `low` |
@@ -51,6 +60,8 @@ Any other unrecognised field is also rejected.
 
 Rejected with exit 3 (`invalid_findings`), all-or-nothing for the batch:
 
+- review coverage missing or not matching the current diff snapshot
+- an unknown review unit, or a unit belonging to another path
 - `path` escaping the worktree — `../`, absolute paths, or symlinks pointing out
 - `path` outside the changed-file set (review) or documentation allowlist (docs)
 - `line` beyond the end of the file

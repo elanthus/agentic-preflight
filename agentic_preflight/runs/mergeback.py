@@ -27,6 +27,7 @@ from ._session import (
     _require_worktree,
     _worktree_mode,
 )
+from .review import _reopen_review_if_coverage_stale
 
 
 def mergeback(session: Session) -> Envelope:
@@ -36,9 +37,18 @@ def mergeback(session: Session) -> Envelope:
     retrying_conflict = run.state is State.MERGEBACK_CONFLICT
     if not retrying_conflict:
         _assert_fresh(session, run)
+    if run.state is State.TEST_GREEN:
+        run, reopened = _reopen_review_if_coverage_stale(session, run)
+        if reopened:
+            return _envelope_for(
+                run,
+                stage="review",
+                data={"coverage_invalidated": True},
+                next_command="agentic-preflight context",
+            )
     _require_state(
         run,
-        State.LINT_GREEN,
+        State.TEST_GREEN,
         State.MERGEBACK_PENDING,
         State.MERGEBACK_CONFLICT,
         command="mergeback",
@@ -70,7 +80,7 @@ def mergeback(session: Session) -> Envelope:
                 next_command="git status",
             )
 
-    if run.state is State.LINT_GREEN:
+    if run.state is State.TEST_GREEN:
         with session.store.transaction(run.run_id) as doc:
             _apply(doc, Action.BEGIN_MERGEBACK)
             run = doc
@@ -161,7 +171,7 @@ def mergeback(session: Session) -> Envelope:
     summary: dict[str, int] = {}
     for finding in findings:
         summary[finding.status.value] = summary.get(finding.status.value, 0) + 1
-        # Severity totals make the v1 attestation sufficient for a trusted merge
+        # Severity totals make the attestation sufficient for a trusted merge
         # policy to reconstruct whether review findings raised the final risk.
         # Adding keys is backwards-compatible because the schema already models
         # this as an open string-to-count summary.
