@@ -16,10 +16,13 @@ def _finding(
     severity: Severity = Severity.HIGH,
     status: FindingStatus = FindingStatus.OPEN,
     action: FindingAction = FindingAction.AUTO_FIX,
+    stage: Stage = Stage.REVIEW,
+    code_owned: bool = False,
 ) -> Finding:
     return Finding(
         id="F001",
-        stage=Stage.REVIEW,
+        stage=stage,
+        code_owned=code_owned,
         status=status,
         path="src/auth.py",
         line=1,
@@ -29,13 +32,20 @@ def _finding(
     )
 
 
-def _assess(paths, findings=(), policy=None):
+def _assess(
+    paths,
+    findings=(),
+    policy=None,
+    *,
+    review_blocking_severities=("critical", "high"),
+    docs_blocking_severities=("critical", "high"),
+):
     return assess(
         list(paths),
         list(findings),
         policy=policy or PolicySection(),
-        review_blocking_severities=["critical", "high"],
-        docs_blocking_severities=["critical", "high"],
+        review_blocking_severities=list(review_blocking_severities),
+        docs_blocking_severities=list(docs_blocking_severities),
     )
 
 
@@ -94,6 +104,31 @@ def test_ask_user_blocks_at_any_severity():
     )
     assert result.level is RiskLevel.LOW
     assert result.verdict is Verdict.CHANGES_REQUIRED
+
+
+def test_code_owned_finding_requires_changes_when_severity_is_excluded():
+    result = _assess(
+        ["CHANGELOG.md"],
+        [
+            _finding(
+                stage=Stage.DOCS,
+                code_owned=True,
+            )
+        ],
+        docs_blocking_severities=("critical",),
+    )
+    assert result.level is RiskLevel.HIGH
+    assert result.verdict is Verdict.CHANGES_REQUIRED
+
+
+def test_agent_finding_excluded_by_policy_does_not_require_changes():
+    result = _assess(
+        ["README.md"],
+        [_finding(stage=Stage.DOCS)],
+        docs_blocking_severities=("critical",),
+    )
+    assert result.level is RiskLevel.HIGH
+    assert result.verdict is Verdict.NEEDS_HUMAN
 
 
 def test_changes_required_takes_precedence_until_the_finding_is_resolved():

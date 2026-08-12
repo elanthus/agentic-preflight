@@ -157,9 +157,5 @@ def blocking(
         f
         for f in items
         if f.status is FindingStatus.OPEN
-        and (
-            f.code_owned
-            or f.severity in severities
-            or f.action is FindingAction.ASK_USER
-        )
+        and (f.code_owned or f.severity in severities or f.action is FindingAction.ASK_USER)
     ]

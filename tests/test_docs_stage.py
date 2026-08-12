@@ -174,9 +174,7 @@ def test_docs_reject_agent_supplied_code_ownership(review_green, tmp_path):
             }
         ],
     )
-    env = review_green.run(
-        "submit-findings", "--file", path, expect=ExitCode.PRECONDITION
-    )
+    env = review_green.run("submit-findings", "--file", path, expect=ExitCode.PRECONDITION)
     assert env["error"]["code"] == "invalid_findings"
     assert "code_owned" in env["error"]["message"]
 
@@ -322,6 +320,7 @@ def test_code_owned_changelog_blocks_when_high_is_excluded(changelog_repo, tmp_p
 
     assert env["state"] == "DOCS_AWAITING_RESPONSES"
     assert env["blocking"][0]["code_owned"] is True
+    assert env["data"]["risk"]["verdict"] == "changes_required"
 
 
 def test_require_changelog_is_satisfied_when_the_changelog_was_touched(changelog_repo, tmp_path):
