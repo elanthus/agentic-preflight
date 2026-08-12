@@ -103,7 +103,7 @@ def test_gate_mints_a_token_and_summarises_what_would_be_pushed(verified):
     assert env["data"]["pr_mode"] == "auto"
     assert env["data"]["approval_mode"] == "manual_merge"
     assert "whether to push" in env["next"]["instruction"]
-    assert "explicitly requested a push" in env["next"]["instruction"]
+    assert "explicitly requested a push, publish" in env["next"]["instruction"]
     assert "proceed without asking again" in env["next"]["instruction"]
     assert "automatically open or reuse" in env["next"]["instruction"]
     assert "standing authorization" in env["next"]["instruction"]

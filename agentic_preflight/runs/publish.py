@@ -121,10 +121,10 @@ def gate(session: Session) -> Envelope:
         data=summary.as_dict(),
         next_instruction=(
             "Show the user the remote, branch, and commit list in plain language. If the "
-            "user explicitly requested a push or asked to create or open a pull request in "
-            "this task, that request authorizes this push when the summary matches the "
-            "requested work; proceed without asking again. Otherwise, ask whether to push "
-            "and wait for their answer."
+            "user explicitly requested a push, publish, or asked to create or open a pull "
+            "request in this task, that request authorizes this push when the summary "
+            "matches the requested work; proceed without asking again. Otherwise, ask "
+            "whether to push and wait for their answer."
             f"{risk_instruction}{manual_pr_instruction}"
         ),
         next_command=f"agentic-preflight push --confirm {summary.token}",
