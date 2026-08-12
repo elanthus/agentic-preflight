@@ -87,7 +87,7 @@ $ agentic-preflight push --confirm d8697c2068b4853b | jq -c '{ok,state,data:{rem
 ```
 
 The agent must show you the target remote, branch, and commits before the final command.
-If you explicitly asked it to push or create/open a pull request in the current task,
+If you explicitly asked it to push, publish, or create/open a pull request in the current task,
 that request is already approval for the matching push—there is no second confirmation
 after verification. If you requested only implementation or committing, or the summary
 contains an unexpected target or change, the agent asks before pushing. Automatic PR
