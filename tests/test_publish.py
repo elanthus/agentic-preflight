@@ -13,7 +13,9 @@ from tests.driver import ScriptedAgent
 
 def findings_json(tmp_path, items):
     path = tmp_path / "findings.json"
-    path.write_text(json.dumps({"findings": items}))
+    path.write_text(
+        json.dumps({"coverage": {"manifest": "$context", "examined": "all"}, "findings": items})
+    )
     return str(path)
 
 
@@ -79,6 +81,8 @@ def verified_with_cherry_picked_fix(feature_repo, bare_remote, tmp_path, monkeyp
     original = commit_all(wt, "use the loud flag")
     agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", original)
     agent.run("verify")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")
 

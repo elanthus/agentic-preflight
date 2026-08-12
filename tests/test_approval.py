@@ -3,7 +3,7 @@ import json
 from agentic_preflight import attestation
 from agentic_preflight.approval import current_human_approvers, evaluate
 from agentic_preflight.envelope import ExitCode
-from agentic_preflight.models import Attestation, AttestedStage, Stage
+from agentic_preflight.models import Attestation, AttestedStage, ReviewCoverage, Stage
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
@@ -28,7 +28,15 @@ def _review(
 
 def _stages():
     return {
-        Stage.REVIEW: AttestedStage(status="green"),
+        Stage.REVIEW: AttestedStage(
+            status="green",
+            coverage=ReviewCoverage(
+                manifest="d" * 64,
+                head_sha="e" * 40,
+                total_units=1,
+                clean_units=["U0001"],
+            ),
+        ),
         Stage.DOCS: AttestedStage(status="green"),
         Stage.TEST: AttestedStage(
             status="green", command="pytest", exit_code=0, output_sha256="a" * 64

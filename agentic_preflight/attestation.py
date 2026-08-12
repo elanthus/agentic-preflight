@@ -26,12 +26,12 @@ def output_digest(output: str) -> str:
 
 
 def intent_summary_key(intent: str) -> str:
-    """Encode intent binding without changing the v1 attestation schema."""
+    """Encode intent binding in the open-ended findings summary."""
     return _INTENT_SUMMARY_PREFIX + hashlib.sha256(intent.encode()).hexdigest()
 
 
 def config_summary_key(config_digest: str) -> str:
-    """Encode config binding without changing the v1 attestation schema."""
+    """Encode config binding in the open-ended findings summary."""
     return _CONFIG_SUMMARY_PREFIX + config_digest
 
 
@@ -43,8 +43,10 @@ def build(
     docs_enabled: bool,
     findings_summary: dict[str, int],
 ) -> Attestation:
+    if run.review_coverage is None:
+        raise InvalidAttestation("review stage has no coverage evidence")
     stages: dict[Stage, AttestedStage] = {
-        Stage.REVIEW: AttestedStage(status="green"),
+        Stage.REVIEW: AttestedStage(status="green", coverage=run.review_coverage),
         Stage.DOCS: AttestedStage(
             status="green" if docs_enabled else "skipped",
             reason=None if docs_enabled else "disabled by configuration",
@@ -123,6 +125,14 @@ def verify(repo: Path | str, sha: str) -> Attestation:
     return value
 
 
+def _has_reusable_stage_results(value: Attestation) -> bool:
+    """Require the mandatory lint result and the terminal test outcome."""
+    return value.stages[Stage.LINT].status == "green" and value.stages[Stage.TEST].status in {
+        "green",
+        "skipped",
+    }
+
+
 def reuse_for_rebase(
     repo: Path | str,
     *,
@@ -158,7 +168,7 @@ def reuse_for_rebase(
             and verified.base_ref == base_ref
             and verified.findings_summary.get(required_intent_key) == 1
             and verified.findings_summary.get(required_config_key) == 1
-            and verified.stages[Stage.LINT].status == "green"
+            and _has_reusable_stage_results(verified)
             and gitx.is_ancestor(repo, base_sha, target_sha)
         )
         return (verified, None) if reusable else None
@@ -181,7 +191,7 @@ def reuse_for_rebase(
             and candidate.base_ref == base_ref
             and candidate.findings_summary.get(required_intent_key) == 1
             and candidate.findings_summary.get(required_config_key) == 1
-            and candidate.stages[Stage.LINT].status == "green"
+            and _has_reusable_stage_results(candidate)
         ):
             candidates.append(candidate)
 

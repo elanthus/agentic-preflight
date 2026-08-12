@@ -32,6 +32,42 @@ def test_an_empty_diff_yields_an_empty_bundle(tmp_repo):
     assert bundle.total_bytes == 0
 
 
+def test_review_manifest_assigns_one_unit_to_each_text_hunk(tmp_repo):
+    write(tmp_repo, "src/long.py", "\n".join(f"line {i}" for i in range(40)) + "\n")
+    commit_all(tmp_repo, "add long source")
+    base = git("rev-parse", "HEAD", cwd=tmp_repo)
+    git("switch", "-c", "feature/hunks", cwd=tmp_repo)
+    lines = (tmp_repo / "src" / "long.py").read_text().splitlines()
+    lines[1] = "changed near start"
+    lines[37] = "changed near end"
+    write(tmp_repo, "src/long.py", "\n".join(lines) + "\n")
+    commit_all(tmp_repo, "change distant lines")
+
+    bundle = diff.build_bundle(tmp_repo, base)
+    manifest = diff.build_review_manifest(tmp_repo, bundle)
+
+    assert [unit.id for unit in manifest.units] == ["U0001", "U0002"]
+    assert all(unit.path == "src/long.py" for unit in manifest.units)
+    assert all(unit.kind == "hunk" for unit in manifest.units)
+    assert manifest.head_sha == git("rev-parse", "HEAD", cwd=tmp_repo)
+    assert len(manifest.manifest) == 64
+
+
+def test_review_manifest_keeps_a_non_hunk_binary_change_reviewable(tmp_repo):
+    (tmp_repo / "asset.bin").write_bytes(b"before\0")
+    commit_all(tmp_repo, "add binary")
+    base = git("rev-parse", "HEAD", cwd=tmp_repo)
+    git("switch", "-c", "feature/binary", cwd=tmp_repo)
+    (tmp_repo / "asset.bin").write_bytes(b"after\0")
+    commit_all(tmp_repo, "change binary")
+
+    manifest = diff.build_review_manifest(tmp_repo, diff.build_bundle(tmp_repo, base))
+
+    assert len(manifest.units) == 1
+    assert manifest.units[0].path == "asset.bin"
+    assert manifest.units[0].kind == "file"
+
+
 def test_total_bytes_always_equals_the_sum_of_file_bytes(feature_repo):
     """The budget check and the per-file report must never disagree."""
     base = git("rev-parse", "main", cwd=feature_repo)

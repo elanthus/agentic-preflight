@@ -16,7 +16,9 @@ def agent(feature_repo):
 
 def findings_json(tmp_path, items):
     path = tmp_path / "findings.json"
-    path.write_text(json.dumps({"findings": items}))
+    path.write_text(
+        json.dumps({"coverage": {"manifest": "$context", "examined": "all"}, "findings": items})
+    )
     return str(path)
 
 
@@ -354,4 +356,9 @@ def test_respond_works_the_same_way_in_the_docs_stage(review_green, tmp_path, fe
     env = review_green.run("respond", "--id", "F001", "--action", "fixed", "--commit", sha)
     assert env["data"]["finding"]["status"] == "fixed"
     env = review_green.run("verify")
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    review_green.run("context")
+    review_green.run("submit-findings", "--file", findings_json(tmp_path, []))
+    review_green.run("context", "--section", "docs")
+    env = review_green.run("submit-findings", "--file", findings_json(tmp_path, []))
     assert env["state"] == "DOCS_GREEN"

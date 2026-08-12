@@ -9,6 +9,7 @@ from agentic_preflight.models import (
     FindingAction,
     FindingStatus,
     FindingSubmission,
+    ReviewCoverage,
     RiskAssessment,
     RiskLevel,
     RunDoc,
@@ -84,7 +85,16 @@ def test_run_doc_round_trips_through_json():
 
 def _attestation_stages():
     return {
-        Stage.REVIEW: AttestedStage(status="green"),
+        Stage.REVIEW: AttestedStage(
+            status="green",
+            coverage=ReviewCoverage(
+                manifest="d" * 64,
+                head_sha="e" * 40,
+                total_units=1,
+                cited_units=[],
+                clean_units=["U0001"],
+            ),
+        ),
         Stage.DOCS: AttestedStage(status="green"),
         Stage.TEST: AttestedStage(
             status="green", command="pytest", exit_code=0, output_sha256="a" * 64

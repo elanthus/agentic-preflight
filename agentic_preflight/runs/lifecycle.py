@@ -266,6 +266,9 @@ def status(session: Session) -> Envelope:
             "gate_token": run.gate_token,
             "pushed_sha": run.pushed_sha,
             "fix_commits": run.fix_commits,
+            "review_coverage": (
+                run.review_coverage.summary() if run.review_coverage is not None else None
+            ),
             "stages": {
                 stage.value: record.model_dump(mode="json") for stage, record in run.stages.items()
             },

@@ -20,6 +20,7 @@ from .machine import State
 SHA_PATTERN = r"^[0-9a-f]{7,40}$"
 
 Sha = Annotated[str, Field(pattern=SHA_PATTERN)]
+ReviewUnitId = Annotated[str, Field(pattern=r"^U\d{4,}$")]
 
 
 class Stage(StrEnum):
@@ -91,6 +92,7 @@ class FindingSubmission(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     path: str = Field(min_length=1, max_length=1024)
+    unit: ReviewUnitId | None = None
     line: int | None = Field(default=None, ge=1)
     severity: Severity
     action: FindingAction
@@ -111,6 +113,7 @@ class Finding(BaseModel):
     response_note: str | None = Field(default=None, max_length=4000)
 
     path: str
+    unit: str | None = None
     line: int | None = None
     severity: Severity
     action: FindingAction
@@ -121,6 +124,59 @@ class Finding(BaseModel):
     @classmethod
     def from_submission(cls, submission: FindingSubmission, *, id: str, stage: Stage) -> Finding:
         return cls(id=id, stage=stage, **submission.model_dump())
+
+
+class ReviewCoverageSubmission(BaseModel):
+    """The agent's compact assertion over a tool-derived review manifest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    manifest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    examined: Literal["all"]
+
+
+class ReviewSubmission(BaseModel):
+    """Strict review-stage payload; legacy findings-only payloads are invalid."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    coverage: ReviewCoverageSubmission
+    findings: list[FindingSubmission]
+
+
+class ReviewCoverage(BaseModel):
+    """Code-derived evidence that every unit in one diff snapshot was disposed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    manifest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    head_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    total_units: int = Field(ge=0)
+    cited_units: list[ReviewUnitId] = Field(default_factory=list)
+    clean_units: list[ReviewUnitId] = Field(default_factory=list)
+    excluded_files: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def complete_accounting(self) -> ReviewCoverage:
+        cited = set(self.cited_units)
+        clean = set(self.clean_units)
+        if len(cited) != len(self.cited_units) or len(clean) != len(self.clean_units):
+            raise ValueError("coverage unit lists may not contain duplicates")
+        if cited & clean:
+            raise ValueError("a review unit cannot be both cited and clean")
+        if len(cited | clean) != self.total_units:
+            raise ValueError("coverage unit counts do not account for the manifest")
+        return self
+
+    def summary(self) -> dict[str, str | int | list[str]]:
+        return {
+            "manifest": self.manifest,
+            "head_sha": self.head_sha,
+            "total_units": self.total_units,
+            "cited_count": len(self.cited_units),
+            "clean_count": len(self.clean_units),
+            "excluded_files": self.excluded_files,
+        }
 
 
 class StageRecord(BaseModel):
@@ -167,6 +223,7 @@ class RunDoc(BaseModel):
     config_snapshot: dict[str, Any] | None = None
     config_digest: str | None = None
     changed_files: list[str] = Field(default_factory=list)
+    review_coverage: ReviewCoverage | None = None
     risk: RiskAssessment | None = None
 
     fix_commits: list[str] = Field(default_factory=list)
@@ -183,9 +240,10 @@ class RunDoc(BaseModel):
 class AttestedStage(BaseModel):
     """Portable evidence for one stage.
 
-    Review, docs, and deliberately skipped shell stages have no process
-    evidence. Shell stages may only be called green when the command, zero exit
-    code, and digest of their redacted captured output are all present.
+    Review carries coverage evidence rather than a process transcript. Docs and
+    deliberately skipped shell stages have no process evidence. Shell stages may
+    only be called green when the command, zero exit code, and digest of their
+    redacted captured output are all present.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -195,6 +253,7 @@ class AttestedStage(BaseModel):
     exit_code: int | None = None
     output_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     reason: str | None = None
+    coverage: ReviewCoverage | None = None
 
 
 class Attestation(BaseModel):
@@ -203,7 +262,7 @@ class Attestation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["agentic-preflight-attestation"] = "agentic-preflight-attestation"
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     tree_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     branch: str
@@ -223,6 +282,8 @@ class Attestation(BaseModel):
             raise ValueError(f"stage set must be complete (missing={missing}, extra={extra})")
         if self.stages[Stage.REVIEW].status != "green":
             raise ValueError("review stage must be green")
+        if self.stages[Stage.REVIEW].coverage is None:
+            raise ValueError("green review stage lacks coverage evidence")
         for stage, evidence in self.stages.items():
             process_fields = (
                 evidence.command,
@@ -237,6 +298,8 @@ class Attestation(BaseModel):
                     f"{stage.value} stage cannot carry process evidence with "
                     f"status {evidence.status}"
                 )
+            if stage is not Stage.REVIEW and evidence.coverage is not None:
+                raise ValueError(f"{stage.value} stage cannot carry review coverage")
             if evidence.status == "skipped" and not evidence.reason:
                 raise ValueError(f"skipped {stage.value} stage lacks a reason")
         return self

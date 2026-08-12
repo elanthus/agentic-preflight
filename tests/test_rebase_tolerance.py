@@ -16,7 +16,7 @@ def _green_run(repo, tmp_path):
     agent.run("start")
     agent.run("context")
     findings = tmp_path / "findings.json"
-    findings.write_text('{"findings": []}\n')
+    findings.write_text('{"coverage":{"manifest":"$context","examined":"all"},"findings":[]}\n')
     agent.run("submit-findings", "--file", str(findings))
     agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")
@@ -147,7 +147,7 @@ def test_a_different_effective_config_forces_a_fresh_review(feature_repo, tmp_pa
     agent.run("start")
     agent.run("context")
     findings = tmp_path / "config-findings.json"
-    findings.write_text('{"findings": []}\n')
+    findings.write_text('{"coverage":{"manifest":"$context","examined":"all"},"findings":[]}\n')
     agent.run("submit-findings", "--file", str(findings))
     agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")

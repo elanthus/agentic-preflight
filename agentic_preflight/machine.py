@@ -65,6 +65,7 @@ class Action(StrEnum):
     BEGIN_REVIEW = "BEGIN_REVIEW"
 
     SUBMIT_FINDINGS = "SUBMIT_FINDINGS"
+    INVALIDATE_REVIEW = "INVALIDATE_REVIEW"
     TRIAGE_CLEAN = "TRIAGE_CLEAN"
     TRIAGE_BLOCKING = "TRIAGE_BLOCKING"
     RESPOND = "RESPOND"
@@ -136,13 +137,22 @@ def _stage_cycle(
     awaiting_responses: State,
     fixing: State,
     green: State,
+    *,
+    invalidate_to: State | None = None,
 ) -> dict[State, StateDescription]:
     """The sub-machine shared by the two agent-judgment stages (review, docs)."""
+    invalidate = ((Action.INVALIDATE_REVIEW, invalidate_to),) if invalidate_to is not None else ()
+    awaiting_instruction = (
+        "Review every delivered unit, then submit snapshot-bound coverage and findings."
+        if label == "review"
+        else "Review the docs surface, then submit findings (an empty list is valid)."
+    )
     return {
         awaiting: _state(
-            f"Review the {label} diff, then submit findings (an empty list is a valid outcome).",
+            awaiting_instruction,
             "agentic-preflight submit-findings --file findings.json",
             (Action.SUBMIT_FINDINGS, submitted),
+            *invalidate,
         ),
         submitted: _state(
             "Check the blocking set.",
@@ -155,12 +165,14 @@ def _stage_cycle(
             "agentic-preflight respond --id F001 --action fixed --commit <sha>",
             (Action.RESPOND, fixing),
             (Action.RESOLVE_GREEN, green),
+            *invalidate,
         ),
         fixing: _state(
             "Keep responding until nothing blocks, then verify.",
             "agentic-preflight verify",
             (Action.RESPOND, fixing),
             (Action.RESOLVE_GREEN, green),
+            *invalidate,
         ),
     }
 
@@ -199,12 +211,14 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         _S.REVIEW_AWAITING_RESPONSES,
         _S.REVIEW_FIXING,
         _S.REVIEW_GREEN,
+        invalidate_to=_S.REVIEW_AWAITING_FINDINGS,
     ),
     _S.REVIEW_GREEN: _state(
         "Review is green. Check whether documentation is now stale.",
         "agentic-preflight context --section docs",
         (_A.BEGIN_DOCS, _S.DOCS_AWAITING_FINDINGS),
         (_A.SKIP_DOCS, _S.DOCS_GREEN),
+        (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
     ),
     **_stage_cycle(
         "docs",
@@ -213,11 +227,13 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         _S.DOCS_AWAITING_RESPONSES,
         _S.DOCS_FIXING,
         _S.DOCS_GREEN,
+        invalidate_to=_S.REVIEW_AWAITING_FINDINGS,
     ),
     _S.DOCS_GREEN: _state(
         "Docs are green. Run lint.",
         "agentic-preflight stage run lint",
         (_A.RUN_LINT, _S.LINT_RUNNING),
+        (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
     ),
     _S.LINT_RUNNING: _state(
         "Lint execution was interrupted; inspect the recorded run.",
@@ -229,7 +245,7 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         "Inspect the failed lint stage before retrying.",
         "agentic-preflight logs --stage lint",
         (_A.RETRY_LINT, _S.LINT_RUNNING),
-        (_A.LINT_FIX_RESTART, _S.REVIEW_GREEN),
+        (_A.LINT_FIX_RESTART, _S.REVIEW_AWAITING_FINDINGS),
     ),
     _S.LINT_GREEN: _state(
         "Lint is green. Run targeted tests.",
@@ -247,12 +263,13 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         "Inspect the failed test stage before retrying.",
         "agentic-preflight logs --stage test",
         (_A.RETRY_TEST, _S.TEST_RUNNING),
-        (_A.TEST_FIX_RESTART, _S.REVIEW_GREEN),
+        (_A.TEST_FIX_RESTART, _S.REVIEW_AWAITING_FINDINGS),
     ),
     _S.TEST_GREEN: _state(
         "Tests passed or were not applicable. Merge the fixes back.",
         "agentic-preflight mergeback",
         (_A.BEGIN_MERGEBACK, _S.MERGEBACK_PENDING),
+        (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
     ),
     _S.MERGEBACK_PENDING: _state(
         "Mergeback was interrupted; inspect the recorded run.",

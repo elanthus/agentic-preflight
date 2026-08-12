@@ -17,7 +17,14 @@ from ..errors import (
     StageFailed,
 )
 from ..machine import Action, State
-from ..models import FindingSubmission, RunDoc, Stage, StageRecord
+from ..models import (
+    FindingSubmission,
+    ReviewCoverage,
+    ReviewSubmission,
+    RunDoc,
+    Stage,
+    StageRecord,
+)
 from ..stages import change_scope
 from ..stages import docs as docsstage
 from ._session import (
@@ -92,13 +99,49 @@ def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
     return run
 
 
-def _advance_after_review(session: Session, run: RunDoc) -> RunDoc:
-    return _skip_docs_if_disabled(session, run)
+def _invalidate_stage_result(run: RunDoc, stage: Stage) -> None:
+    """Discard stale process evidence without resetting its convergence guard."""
+    prior = run.stages.pop(stage, None)
+    if prior is not None:
+        run.stages[stage] = StageRecord(attempts=prior.attempts)
+
+
+def _reopen_review_if_coverage_stale(session: Session, run: RunDoc) -> tuple[RunDoc, bool]:
+    """Invalidate review evidence when the validation snapshot has moved."""
+    coverage = run.review_coverage
+    worktree_path = _require_worktree(run)
+    current_head = gitx.rev_parse(worktree_path, "HEAD")
+    if coverage is not None and coverage.head_sha == current_head:
+        return run, False
+    with session.store.transaction(run.run_id) as doc:
+        reviewed_head = doc.review_coverage.head_sha if doc.review_coverage is not None else None
+        doc.review_coverage = None
+        _invalidate_stage_result(doc, Stage.LINT)
+        _invalidate_stage_result(doc, Stage.TEST)
+        _apply(doc, Action.INVALIDATE_REVIEW)
+        run = doc
+    session.store.append_event(
+        run.run_id,
+        {
+            "event": "review_coverage_invalidated",
+            "reviewed_head": reviewed_head,
+            "current_head": current_head,
+        },
+    )
+    return run, True
 
 
 def context(session: Session, *, section: str = "review") -> Envelope:
     run = _load_current(session)
     _assert_fresh(session, run)
+
+    if section == "docs" and run.state in {
+        State.REVIEW_GREEN,
+        State.DOCS_AWAITING_FINDINGS,
+    }:
+        run, reopened = _reopen_review_if_coverage_stale(session, run)
+        if reopened:
+            return context(session, section="review")
 
     if section == "docs":
         _require_state(
@@ -140,11 +183,15 @@ def context(session: Session, *, section: str = "review") -> Envelope:
             next_command="agentic-preflight context",
         )
 
+    worktree_path = _require_worktree(run)
+    review_manifest = (
+        diffmod.build_review_manifest(worktree_path, bundle) if section == "review" else None
+    )
     data: dict[str, Any] = {
         "section": section,
         "worktree_path": run.worktree_path,
         "base": run.merge_base_sha,
-        "head": run.head_sha,
+        "head": gitx.rev_parse(worktree_path, "HEAD"),
         "intent": run.intent,
         "intent_source": run.intent_source,
         "changed_files": bundle.files,
@@ -154,8 +201,10 @@ def context(session: Session, *, section: str = "review") -> Envelope:
         "risk": (run.risk.model_dump(mode="json") if run.risk is not None else None),
     }
 
+    if review_manifest is not None:
+        data["review_coverage"] = review_manifest.as_dict()
+
     if section == "docs":
-        worktree_path = _require_worktree(run)
         inventory = docsstage.build_inventory(
             worktree_path, bundle.files, session.config.docs.paths
         )
@@ -173,7 +222,14 @@ def context(session: Session, *, section: str = "review") -> Envelope:
     return envelope
 
 
-def _parse_submissions(payload) -> list[FindingSubmission]:
+def _parse_submissions(payload, *, stage: Stage) -> tuple[list[FindingSubmission], str | None]:
+    if stage is Stage.REVIEW:
+        try:
+            submission = ReviewSubmission.model_validate(payload)
+        except ValidationError as exc:
+            raise InvalidFindings(_describe_validation(exc)) from exc
+        return submission.findings, submission.coverage.manifest
+
     if isinstance(payload, dict):
         payload = payload.get("findings", [])
     if not isinstance(payload, list):
@@ -181,20 +237,68 @@ def _parse_submissions(payload) -> list[FindingSubmission]:
             "expected a JSON list of findings, or an object with a `findings` key"
         )
     try:
-        return [FindingSubmission.model_validate(item) for item in payload]
+        return [FindingSubmission.model_validate(item) for item in payload], None
     except ValidationError as exc:
         raise InvalidFindings(_describe_validation(exc)) from exc
+
+
+def _assign_review_units(
+    submissions: list[FindingSubmission], manifest: diffmod.ReviewManifest
+) -> list[FindingSubmission]:
+    """Bind each finding to a manifest unit, inferring only unambiguous cases."""
+    by_id = {unit.id: unit for unit in manifest.units}
+    assigned: list[FindingSubmission] = []
+    for submission in submissions:
+        if submission.unit is not None:
+            unit = by_id.get(submission.unit)
+            if unit is None:
+                raise InvalidFindings(
+                    f"finding cites unknown review unit {submission.unit!r}; "
+                    f"valid units: {sorted(by_id)}"
+                )
+            if unit.path != submission.path:
+                raise InvalidFindings(
+                    f"review unit {unit.id} belongs to {unit.path!r}, not "
+                    f"finding path {submission.path!r}"
+                )
+            assigned.append(submission)
+            continue
+
+        candidates = [unit for unit in manifest.units if unit.path == submission.path]
+        if submission.line is not None:
+            containing = [
+                unit
+                for unit in candidates
+                if unit.kind == "hunk"
+                and unit.new_start is not None
+                and unit.new_count is not None
+                and unit.new_count > 0
+                and unit.new_start <= submission.line < unit.new_start + unit.new_count
+            ]
+            if len(containing) == 1:
+                assigned.append(submission.model_copy(update={"unit": containing[0].id}))
+                continue
+        if len(candidates) == 1:
+            assigned.append(submission.model_copy(update={"unit": candidates[0].id}))
+            continue
+        raise InvalidFindings(
+            f"finding against {submission.path!r} must name a review `unit`; "
+            f"the path has {[unit.id for unit in candidates] or 'no review units'}"
+        )
+    return assigned
 
 
 def _describe_validation(exc: ValidationError) -> str:
     parts = []
     for error in exc.errors():
         location = ".".join(str(item) for item in error["loc"])
-        if error["type"] == "extra_forbidden":
+        if error["type"] == "extra_forbidden" and error["loc"][-1] in {"id", "stage"}:
             parts.append(
                 f"{location}: not a field you may set — id and stage are assigned by "
                 f"agentic-preflight, never supplied by the agent"
             )
+        elif error["type"] == "extra_forbidden":
+            parts.append(f"{location}: unrecognised field")
         else:
             parts.append(f"{location}: {error['msg']}")
     return "; ".join(parts)
@@ -212,8 +316,30 @@ def submit_findings(session: Session, payload) -> Envelope:
 
     stage = _require_finding_stage(run)
     worktree_path = _require_worktree(run)
-    submissions = _parse_submissions(payload)
     bundle = _bundle_for(session, run)
+    submissions, coverage_manifest = _parse_submissions(payload, stage=stage)
+    manifest = None
+    coverage = None
+    if stage is Stage.REVIEW:
+        manifest = diffmod.build_review_manifest(worktree_path, bundle)
+        if coverage_manifest != manifest.manifest:
+            raise InvalidFindings(
+                "review coverage does not match the current diff; fetch fresh "
+                "`context` and submit its review_coverage.manifest"
+            )
+        submissions = _assign_review_units(submissions, manifest)
+        cited = sorted({submission.unit for submission in submissions if submission.unit})
+        all_units = [unit.id for unit in manifest.units]
+        coverage = ReviewCoverage(
+            manifest=manifest.manifest,
+            head_sha=manifest.head_sha,
+            total_units=len(all_units),
+            cited_units=cited,
+            clean_units=[unit for unit in all_units if unit not in set(cited)],
+            excluded_files=list(manifest.excluded_files),
+        )
+    elif any(submission.unit is not None for submission in submissions):
+        raise InvalidFindings("docs findings cannot cite review units")
     existing = session.store.load_findings(run.run_id)
 
     inventory = None
@@ -271,11 +397,13 @@ def submit_findings(session: Session, payload) -> Envelope:
 
     with session.store.transaction(run.run_id) as doc:
         doc.risk = assessment
+        if coverage is not None:
+            doc.review_coverage = coverage
         _apply(doc, Action.SUBMIT_FINDINGS)
         _apply(doc, Action.TRIAGE_BLOCKING if blocking else Action.TRIAGE_CLEAN)
         run = doc
 
-    run = _advance_after_review(session, run)
+    run = _skip_docs_if_disabled(session, run)
 
     session.store.append_event(
         run.run_id,
@@ -283,6 +411,7 @@ def submit_findings(session: Session, payload) -> Envelope:
             "event": "findings_submitted",
             "stage": stage.value,
             "count": len(accepted),
+            "coverage": coverage.model_dump(mode="json") if coverage is not None else None,
             "risk": assessment.model_dump(mode="json"),
         },
     )
@@ -293,6 +422,7 @@ def submit_findings(session: Session, payload) -> Envelope:
         data={
             "accepted": [f.model_dump(mode="json") for f in accepted],
             "total": len(combined),
+            "coverage": coverage.summary() if coverage is not None else None,
             "risk": assessment.model_dump(mode="json"),
         },
         blocking=[f.model_dump(mode="json") for f in blocking],
@@ -336,12 +466,25 @@ def verify(session: Session) -> Envelope:
             next_command="agentic-preflight respond --id <id> --action fixed --commit <sha>",
         )
 
+    run, reopened = _reopen_review_if_coverage_stale(session, run)
+    if reopened:
+        return _envelope_for(
+            run,
+            stage=Stage.REVIEW.value,
+            data={"coverage_invalidated": True},
+            next_instruction=(
+                "The reviewed snapshot changed. Fetch the current diff and account "
+                "for every review unit before continuing."
+            ),
+            next_command="agentic-preflight context",
+        )
+
     if run.state not in (State.REVIEW_GREEN, State.DOCS_GREEN):
         with session.store.transaction(run.run_id) as doc:
             _apply(doc, Action.RESOLVE_GREEN)
             run = doc
 
-    run = _advance_after_review(session, run)
+    run = _skip_docs_if_disabled(session, run)
 
     return _envelope_for(
         run,

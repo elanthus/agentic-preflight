@@ -32,7 +32,11 @@ from ._session import (
     _require_state,
     _require_worktree,
 )
-from .review import _advance_after_review, _skip_test_if_not_applicable
+from .review import (
+    _invalidate_stage_result,
+    _reopen_review_if_coverage_stale,
+    _skip_test_if_not_applicable,
+)
 
 
 class _StageSpec(TypedDict):
@@ -99,25 +103,26 @@ def _register_stage_fix_commits(
             if _is_in_place(doc, session.config):
                 doc.head_sha = current_head
                 doc.source_head_sha = current_head
+            doc.review_coverage = None
             if stage is Stage.LINT:
                 # A lint repair changes the tree a future test must describe. This
                 # also clears a prior red test when lint is being revalidated after
                 # a committed test repair, so the lint commit is not later mistaken
                 # for another test repair.
-                doc.stages.pop(Stage.TEST, None)
+                _invalidate_stage_result(doc, Stage.TEST)
                 _apply(doc, Action.LINT_FIX_RESTART)
             elif stage is Stage.TEST:
                 # The previously green lint result names the pre-repair tree. Drop
                 # it before returning to docs/lint so the next lint run starts clean
                 # rather than treating this test commit as a lint repair.
-                doc.stages.pop(Stage.LINT, None)
+                _invalidate_stage_result(doc, Stage.LINT)
                 _apply(doc, Action.TEST_FIX_RESTART)
             run = doc
         session.store.append_event(
             run.run_id,
             {"event": "stage_fix_commits_registered", "stage": stage.value, "commits": commits},
         )
-        return run, stage in {Stage.LINT, Stage.TEST}
+        return run, True
     return run, False
 
 
@@ -172,9 +177,40 @@ def run_stage(
     )
     if not accepting_repair:
         _assert_fresh(session, run)
+    if run.state in {State.DOCS_GREEN, State.TEST_GREEN}:
+        run, reopened = _reopen_review_if_coverage_stale(session, run)
+        if reopened:
+            return _envelope_for(
+                run,
+                stage=Stage.REVIEW.value,
+                data={"coverage_invalidated": True},
+                next_command="agentic-preflight context",
+            )
     _require_state(run, *spec["ready"], command=f"stage run {stage_name}")
     worktree_path = _require_worktree(run)
 
+    if not gitx.is_clean(worktree_path):
+        raise DirtyTree(
+            "the validation worktree has uncommitted changes",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=stage_name,
+            next_instruction="Commit the intended repair, or discard incidental output, then retry.",
+            next_command="git status",
+        )
+
+    run, restarted = _register_stage_fix_commits(session, run, stage, record_entry)
+    if restarted:
+        return _envelope_for(
+            run,
+            stage=stage_name,
+            data={"stage": stage_name, "validation_restarted": True},
+            next_instruction=(
+                f"The {stage_name} repair changed the verified tree. Re-run every applicable "
+                "stage so each result describes the repaired commit."
+            ),
+            next_command="agentic-preflight context",
+        )
     if record_entry.attempts >= session.config.stage.max_attempts:
         raise MaxAttempts(
             f"the {stage_name} stage has failed {record_entry.attempts} times "
@@ -189,29 +225,6 @@ def run_stage(
                 "and ask how to proceed."
             ),
             next_command=f"agentic-preflight logs --stage {stage_name}",
-        )
-
-    if not gitx.is_clean(worktree_path):
-        raise DirtyTree(
-            "the validation worktree has uncommitted changes",
-            state=run.state.value,
-            run_id=run.run_id,
-            stage=stage_name,
-            next_instruction="Commit the intended repair, or discard incidental output, then retry.",
-            next_command="git status",
-        )
-
-    run, restarted = _register_stage_fix_commits(session, run, stage, record_entry)
-    if restarted:
-        run = _advance_after_review(session, run)
-        return _envelope_for(
-            run,
-            stage=stage_name,
-            data={"stage": stage_name, "validation_restarted": True},
-            next_instruction=(
-                f"The {stage_name} repair changed the verified tree. Re-run every applicable "
-                "stage so each result describes the repaired commit."
-            ),
         )
     resolved = _resolve_command(session, run, stage_name, command)
 

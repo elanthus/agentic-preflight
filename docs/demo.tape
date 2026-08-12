@@ -24,7 +24,8 @@
 #                          or session UUID.
 #   /tmp/ap-demo/workspace   sibling directory (outside the repo) holding:
 #                        - findings.json       (the one genuine `high` finding, F001)
-#                        - findings-empty.json (`{"findings": []}`, used for the docs stage)
+#                        - findings-empty.json (`{"findings": []}`, used for clean
+#                                                re-review and the docs stage)
 #                        - fix_percentage.py    (patches calc.py + tests/test_calc.py
 #                                                to add the missing zero guard)
 #
@@ -50,7 +51,7 @@ Set TypingSpeed 20ms
 Set Padding 20
 
 Hide
-Type "export PYTHONPATH=$(pwd) && cd '/tmp/ap-demo/repo' && clear && jqs() { jq -c '{ok,state,next}'; } && jqc() { jq -c '{ok,state,data:{changed_files:.data.changed_files},next}'; } && jqd() { jq -c '{ok,state,data:{doc_surface:.data.doc_surface},next}'; } && jqg() { jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch,pr_mode:.data.pr_mode},next}'; } && jqb() { jq -c '{ok,state,blocking:[.blocking[]|{id,severity,title}],next}'; }"
+Type "export PYTHONPATH=$(pwd) && cd '/tmp/ap-demo/repo' && clear && jqs() { jq -c '{ok,state,next}'; } && jqc() { jq -c '{ok,state,data:{changed_files:.data.changed_files,review_units:.data.review_coverage.total_units},next}'; } && jqr() { p=$(agentic-preflight context); manifest=$(print -r -- $p | jq -r '.data.review_coverage.manifest'); print -r -- $p | jqc; } && aps() { jq --arg m $manifest --arg all all '. + {coverage:{manifest:$m,examined:$all}}' $1 | agentic-preflight submit-findings --file -; } && jqd() { jq -c '{ok,state,data:{doc_surface:.data.doc_surface},next}'; } && jqg() { jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch,pr_mode:.data.pr_mode},next}'; } && jqb() { jq -c '{ok,state,blocking:[.blocking[]|{id,severity,title}],next}'; }"
 Enter
 Sleep 500ms
 Show
@@ -70,12 +71,12 @@ Enter
 Sleep 1800ms
 
 # 3. Fetch the diff to review.
-Type "agentic-preflight context | jqc"
+Type "jqr"
 Enter
 Sleep 1800ms
 
 # 4. Submit the one genuine high finding and see it accepted as blocking.
-Type "agentic-preflight submit-findings --file ../workspace/findings.json | jqb"
+Type "aps ../workspace/findings.json | jqb"
 Enter
 Sleep 2200ms
 
@@ -100,7 +101,16 @@ Type "agentic-preflight verify | jqs"
 Enter
 Sleep 1000ms
 
-# 6. Docs pass: nothing stale, zero findings is a valid outcome.
+# 6. The fix changed the snapshot, so account for the complete final diff again.
+Type "jqr"
+Enter
+Sleep 1800ms
+
+Type "aps ../workspace/findings-empty.json | jqs"
+Enter
+Sleep 1000ms
+
+# 7. Docs pass: nothing stale, zero findings is a valid outcome.
 Type "agentic-preflight context --section docs | jqd"
 Enter
 Sleep 1800ms
@@ -113,17 +123,17 @@ Type "clear"
 Enter
 Sleep 300ms
 
-# 7. Lint before the expensive tests, green.
+# 8. Lint before the expensive tests, green.
 Type "agentic-preflight stage run lint | jqs"
 Enter
 Sleep 1800ms
 
-# 8. Targeted tests run once against the lint-clean tree.
+# 9. Targeted tests run once against the lint-clean tree.
 Type "agentic-preflight stage run test | jqs"
 Enter
 Sleep 1800ms
 
-# 9. Merge fixes back, then open the gate.
+# 10. Merge fixes back, then open the gate.
 Type "agentic-preflight mergeback | jqs"
 Enter
 Sleep 1000ms

@@ -12,7 +12,9 @@ from tests.driver import ScriptedAgent
 
 def findings_json(tmp_path, items):
     path = tmp_path / "findings.json"
-    path.write_text(json.dumps({"findings": items}))
+    path.write_text(
+        json.dumps({"coverage": {"manifest": "$context", "examined": "all"}, "findings": items})
+    )
     return str(path)
 
 
@@ -56,6 +58,8 @@ def ready(feature_repo, tmp_path):
             sha = git("rev-parse", "HEAD", cwd=wt)
             agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", sha)
             agent.run("verify")
+            agent.run("context")
+            agent.run("submit-findings", "--file", findings_json(tmp_path, []))
         else:
             agent.run("submit-findings", "--file", findings_json(tmp_path, []))
 
@@ -94,6 +98,8 @@ def test_default_in_place_mode_records_repairs_and_attests_without_cherry_pick(
     assert status["data"]["source_head_sha"] == fix_sha
 
     agent.run("verify")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")
     merged = agent.run("mergeback")
@@ -220,6 +226,8 @@ def test_conflict_aborts_and_restores_the_branch_exactly(feature_repo, tmp_path)
     fix_sha = git("rev-parse", "HEAD", cwd=wt)
     agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", fix_sha)
     agent.run("verify")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")
 

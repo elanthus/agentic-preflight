@@ -29,8 +29,9 @@ def test_local_checks_run_review_then_docs_then_lint_then_test():
     assert next_state(State.TEST_GREEN, Action.BEGIN_MERGEBACK) == State.MERGEBACK_PENDING
 
 
-def test_committed_test_repairs_restart_downstream_validation():
-    assert next_state(State.TEST_RED, Action.TEST_FIX_RESTART) == State.REVIEW_GREEN
+def test_committed_stage_repairs_restart_with_fresh_review_coverage():
+    assert next_state(State.LINT_RED, Action.LINT_FIX_RESTART) == State.REVIEW_AWAITING_FINDINGS
+    assert next_state(State.TEST_RED, Action.TEST_FIX_RESTART) == State.REVIEW_AWAITING_FINDINGS
 
 
 def test_illegal_transition_raises_with_the_legal_actions_named():

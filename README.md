@@ -77,8 +77,8 @@ from a local demo repository; `jq` limits each envelope to the fields relevant h
 ```console
 $ agentic-preflight start --intent "Add retries and document the failure policy" | jq -c '{ok,state,next}'
 {"ok":true,"state":"REVIEW_AWAITING_FINDINGS","next":{"command":"agentic-preflight context","instruction":"Fetch the diff before judging it."}}
-$ agentic-preflight context | jq -c '{ok,state,data:{changed_files:.data.changed_files},next}'
-{"ok":true,"state":"REVIEW_AWAITING_FINDINGS","data":{"changed_files":[".agentic-preflight.toml","change.txt"]},"next":{"command":"agentic-preflight submit-findings --file findings.json","instruction":"Review the diff, then submit findings (an empty list is a valid outcome)."}}
+$ agentic-preflight context | jq -c '{ok,state,data:{changed_files:.data.changed_files,review_coverage:.data.review_coverage|{manifest,total_units}},next}'
+{"ok":true,"state":"REVIEW_AWAITING_FINDINGS","data":{"changed_files":[".agentic-preflight.toml","change.txt"],"review_coverage":{"manifest":"…","total_units":2}},"next":{"command":"agentic-preflight submit-findings --file findings.json","instruction":"Review every delivered unit, then submit snapshot-bound coverage and findings."}}
 ... review, docs, lint, and tests complete ...
 $ agentic-preflight gate | jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch,pr_mode:.data.pr_mode,approval_mode:.data.approval_mode},next}'
 {"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"d8697c2068b4853b","remote":"origin","branch":"demo","pr_mode":"auto","approval_mode":"manual_merge"},"next":{"command":"agentic-preflight push --confirm d8697c2068b4853b","instruction":"Show the user the remote, branch, and commit list in plain language, then ask whether to push. Never push without asking. This high-risk change requires the user to merge the pull request manually; do not merge it or enable auto-merge. After the confirmed push and preflight finish, automatically open or reuse the pull request; auto mode is standing authorization, so do not ask again."}}
@@ -114,6 +114,11 @@ stateful preflight CLI.
 rebases the validation checkout onto the fresh base before review. The agent drives the
 loop. Every command returns one JSON object containing `next`, the single next legal
 command, so the agent never has to guess.
+
+Review submissions bind an `examined: "all"` assertion to the manifest returned by
+`context`. Findings cite a review unit when their path and line do not identify one
+unambiguously. The CLI derives a compact receipt: units cited by findings and every
+remaining unit explicitly examined clean. A findings-only review payload is rejected.
 
 When every changed file is documentation or standard CI configuration, the gate does not
 run the final software test command. After lint, it takes an explicit `SKIP_TEST`

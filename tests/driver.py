@@ -48,12 +48,14 @@ class ScriptedAgent:
         self.repo = Path(repo)
         self.transport = transport
         self.steps: list[Step] = []
+        self.review_manifest: str | None = None
 
     def run(self, *argv: str, expect: int = 0) -> dict:
         # Intent is a production precondition. Test scenarios use one stable,
         # explicit intent unless a test supplies its own value.
         if argv and argv[0] == "start" and "--intent" not in argv:
             argv = (*argv, "--intent", "exercise the requested behavior safely")
+        self._materialize_review_coverage(argv)
         if self.transport == "subprocess":
             payload, code = self._run_subprocess(list(argv))
         else:
@@ -64,7 +66,32 @@ class ScriptedAgent:
             f"envelope: {json.dumps(payload, indent=2)}"
         )
         self.steps.append(Step(list(argv), code, payload))
+        coverage = payload.get("data", {}).get("review_coverage", {})
+        if isinstance(coverage, dict) and isinstance(coverage.get("manifest"), str):
+            self.review_manifest = coverage["manifest"]
         return payload
+
+    def _materialize_review_coverage(self, argv: tuple[str, ...]) -> None:
+        """Replace the test fixture's context sentinel with the delivered manifest."""
+        if not argv or argv[0] != "submit-findings" or "--file" not in argv:
+            return
+        file_path = argv[argv.index("--file") + 1]
+        if file_path == "-":
+            return
+        path = Path(file_path)
+        if not path.is_file():
+            return
+        try:
+            payload = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return
+        coverage = payload.get("coverage") if isinstance(payload, dict) else None
+        if not isinstance(coverage, dict) or coverage.get("manifest") != "$context":
+            return
+        if self.review_manifest is None:
+            return
+        coverage["manifest"] = self.review_manifest
+        path.write_text(json.dumps(payload))
 
     def script(self, steps: list[tuple[list[str], int]]) -> list[dict]:
         return [self.run(*argv, expect=code) for argv, code in steps]

@@ -9,6 +9,9 @@ one turn. See ``plan_delivery``.
 from __future__ import annotations
 
 import fnmatch
+import hashlib
+import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -74,6 +77,139 @@ class DiffBundle:
 
     def file_bytes(self, path: str) -> int:
         return len(self.per_file.get(path, "").encode())
+
+
+_HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$")
+
+
+@dataclass(frozen=True)
+class ReviewUnit:
+    """One mechanically identifiable part of a delivered review diff."""
+
+    id: str
+    path: str
+    kind: str
+    digest: str
+    old_start: int | None = None
+    old_count: int | None = None
+    new_start: int | None = None
+    new_count: int | None = None
+
+    def as_dict(self) -> dict[str, str | int | None]:
+        return {
+            "id": self.id,
+            "path": self.path,
+            "kind": self.kind,
+            "digest": self.digest,
+            "old_start": self.old_start,
+            "old_count": self.old_count,
+            "new_start": self.new_start,
+            "new_count": self.new_count,
+        }
+
+
+@dataclass(frozen=True)
+class ReviewManifest:
+    """Snapshot-bound inventory used to prove review-unit accounting."""
+
+    manifest: str
+    base_sha: str
+    head_sha: str
+    diff_sha256: str
+    units: tuple[ReviewUnit, ...]
+    excluded_files: tuple[str, ...]
+
+    def as_dict(self) -> dict:
+        return {
+            "manifest": self.manifest,
+            "base": self.base_sha,
+            "head": self.head_sha,
+            "diff_sha256": self.diff_sha256,
+            "total_units": len(self.units),
+            "units": [unit.as_dict() for unit in self.units],
+            "excluded_files": list(self.excluded_files),
+        }
+
+
+def _review_unit_parts(
+    path: str, patch: str
+) -> list[tuple[str, str, tuple[int, int, int, int] | None]]:
+    """Split a per-file patch into hunks, with a file unit for non-hunk diffs."""
+    lines = patch.splitlines(keepends=True)
+    starts = [index for index, line in enumerate(lines) if line.startswith("@@ ")]
+    if not starts:
+        return [(patch, "file", None)] if patch else []
+
+    parts: list[tuple[str, str, tuple[int, int, int, int] | None]] = []
+    for position, start in enumerate(starts):
+        end = starts[position + 1] if position + 1 < len(starts) else len(lines)
+        header = lines[start].rstrip("\n")
+        match = _HUNK_HEADER.match(header)
+        if match is None:
+            # Git produced a hunk marker we cannot safely locate. Keep it reviewable,
+            # but do not pretend line-based finding inference is available.
+            parts.append(("".join(lines[start:end]), "hunk", None))
+            continue
+        old_start, old_count, new_start, new_count = match.groups()
+        parts.append(
+            (
+                "".join(lines[start:end]),
+                "hunk",
+                (
+                    int(old_start),
+                    int(old_count) if old_count is not None else 1,
+                    int(new_start),
+                    int(new_count) if new_count is not None else 1,
+                ),
+            )
+        )
+    return parts
+
+
+def build_review_manifest(repo: Path | str, bundle: DiffBundle) -> ReviewManifest:
+    """Derive stable review units and a digest from the exact included diff."""
+    units: list[ReviewUnit] = []
+    for path in bundle.files:
+        patch = bundle.per_file[path]
+        for text, kind, location in _review_unit_parts(path, patch):
+            old_start = old_count = new_start = new_count = None
+            if location is not None:
+                old_start, old_count, new_start, new_count = location
+            units.append(
+                ReviewUnit(
+                    id=f"U{len(units) + 1:04d}",
+                    path=path,
+                    kind=kind,
+                    digest=hashlib.sha256(text.encode()).hexdigest(),
+                    old_start=old_start,
+                    old_count=old_count,
+                    new_start=new_start,
+                    new_count=new_count,
+                )
+            )
+
+    base_sha = gitx.rev_parse(repo, bundle.base)
+    head_sha = gitx.rev_parse(repo, bundle.head)
+    diff_sha256 = hashlib.sha256(bundle.text.encode()).hexdigest()
+    payload = {
+        "version": 1,
+        "base": base_sha,
+        "head": head_sha,
+        "diff_sha256": diff_sha256,
+        "excluded_files": list(bundle.excluded),
+        "units": [unit.as_dict() for unit in units],
+    }
+    manifest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return ReviewManifest(
+        manifest=manifest,
+        base_sha=base_sha,
+        head_sha=head_sha,
+        diff_sha256=diff_sha256,
+        units=tuple(units),
+        excluded_files=tuple(bundle.excluded),
+    )
 
 
 def build_bundle(

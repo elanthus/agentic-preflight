@@ -94,6 +94,8 @@ Returns the material for the active stage. Does not change state, so it is safe 
 call twice.
 
 - Both sections: `diff`, `changed_files`, `excluded_files`, `worktree_path`.
+- Review adds `review_coverage`: a snapshot-bound `manifest`, the exact `head`, and
+  every hunk or non-textual file-level review unit.
 - `--section docs` adds `doc_surface`: every documentation file with `exists`, `size`,
   and `touched_by_diff`. From `REVIEW_GREEN` this opens the docs stage.
 
@@ -101,12 +103,15 @@ Exits 2 with `data.mode = "diff_too_large"` when the diff exceeds `[diff] max_by
 The diff is never truncated — narrow it with `[diff] exclude` or raise the limit.
 
 ### `agentic-preflight submit-findings --file PATH`
-`PATH` may be `-` for stdin. Accepts `{"findings": [...]}` or a bare list. An empty
-list is valid and common.
+`PATH` may be `-` for stdin. Review requires
+`{"coverage":{"manifest":"<from context>","examined":"all"},"findings":[...]}`.
+The manifest must match the current diff. Docs accepts `{"findings": [...]}` or a bare
+list; an empty docs list is valid and common.
 
-Rejects (exit 3, `invalid_findings`): agent-supplied `id` or `stage`, paths outside the
-worktree, paths outside the changed-file set (review) or documentation allowlist
-(docs), line numbers past end of file, and batches over `[review] max_findings`.
+Rejects (exit 3, `invalid_findings`): missing, stale, or unknown review coverage;
+agent-supplied `id` or `stage`; unknown or path-mismatched review units; paths outside
+the worktree; paths outside the changed-file set (review) or documentation allowlist
+(docs); line numbers past end of file; and batches over `[review] max_findings`.
 All-or-nothing — one bad finding rejects the batch.
 
 ### `agentic-preflight respond --id F001 --action fixed|dismissed|accepted [--commit SHA] [--note TEXT]`

@@ -7,6 +7,11 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Added
 
+- Snapshot-bound review coverage. `context` inventories every changed hunk plus
+  non-textual file changes; review submissions must assert examination of that exact
+  manifest, findings cite units, and code derives a complete cited/clean receipt.
+  Any repair commit invalidates coverage and reopens review before validation continues.
+
 - Conservative rebase tolerance for in-place runs. `start` preserves a prior green
   attestation only when the rewritten commit has an identical complete tree, effective
   configuration, and clean Git merge result against the freshly synchronized base.
@@ -97,6 +102,11 @@ All notable changes to Agentic Preflight are documented here. This project follo
   been said in the README and the `docs/` pages. It remains in git history.
 
 ### Fixed
+
+- Cross-stage lint/test repair cycles preserve each stage's failed-attempt counter, so
+  alternating repairs cannot reset and evade the configured `max_attempts` stop.
+- Attestation reuse now names both mandatory terminal outcomes: lint must be green and
+  test must be green or explicitly skipped.
 
 - Synchronizing attestations now preserves locally-ahead and disjoint remote note
   histories. A valid local attestation no longer makes the next preflight start fail
