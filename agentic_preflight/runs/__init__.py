@@ -10,7 +10,7 @@ from .lifecycle import abort, events, gc, status
 from .mergeback import mergeback
 from .publish import finish, gate, push
 from .resolve import RESPONSE_ACTIONS, respond
-from .review import context, submit_findings, verify
+from .review import context, run_review_command, submit_findings, verify
 from .stages import logs, run_stage
 from .start import start
 
@@ -29,6 +29,7 @@ __all__ = [
     "open_session",
     "push",
     "respond",
+    "run_review_command",
     "run_stage",
     "start",
     "status",

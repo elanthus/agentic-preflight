@@ -279,6 +279,9 @@ max_attempts = 5
 [review]
 blocking_severities = ["critical", "high"]
 max_findings = 50
+executor = "in_harness"       # default; or "command"
+# command = "reviewer --json" # receives review context JSON on stdin
+require_command_for = []      # e.g. ["high"] to require independence by risk
 
 [policy]
 # These ownership-sensitive paths are high-risk and require human merge approval.

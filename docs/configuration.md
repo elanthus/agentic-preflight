@@ -117,6 +117,24 @@ judgment.
 
 `max_findings` caps how many findings a single submission may carry.
 
+## Review independence (`[review]`)
+
+`executor = "in_harness"` is the default and preserves the normal agent-driven
+`context` → `submit-findings` workflow. `executor = "command"` instead makes
+`agentic-preflight review run` send the complete review context JSON to `command` on
+stdin. The command must return one strict review submission on stdout, including the
+current coverage manifest and `examined = "all"`.
+
+`require_command_for` lists risk levels (`low`, `medium`, `high`) that must use command
+review even when the configured executor is `in_harness`. Direct `submit-findings` is
+refused for those runs. If command review is effective but `command` is unset, the CLI
+stops with `data.mode = "needs_command"`; it never guesses a reviewer.
+
+Command review uses `[stage] timeout_seconds` and `max_attempts`. Attempts persist across
+process restarts, and every repair invalidates the prior executor and coverage evidence.
+Attestation schema v3 records `executor` for every review; command reviews also record
+the configured command, exit code, and redacted output digest.
+
 ## Deterministic risk policy (`[policy]`)
 
 Risk and review size answer different questions. `[diff] max_bytes` is only the maximum

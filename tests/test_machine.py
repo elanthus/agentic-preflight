@@ -34,6 +34,25 @@ def test_committed_stage_repairs_restart_with_fresh_review_coverage():
     assert next_state(State.TEST_RED, Action.TEST_FIX_RESTART) == State.REVIEW_AWAITING_FINDINGS
 
 
+def test_command_review_has_explicit_running_failure_and_retry_states():
+    assert (
+        next_state(State.REVIEW_AWAITING_FINDINGS, Action.RUN_REVIEW_COMMAND)
+        == State.REVIEW_COMMAND_RUNNING
+    )
+    assert (
+        next_state(State.REVIEW_COMMAND_RUNNING, Action.REVIEW_COMMAND_FAILED)
+        == State.REVIEW_COMMAND_RED
+    )
+    assert (
+        next_state(State.REVIEW_COMMAND_RED, Action.RETRY_REVIEW_COMMAND)
+        == State.REVIEW_COMMAND_RUNNING
+    )
+    assert (
+        next_state(State.REVIEW_COMMAND_RUNNING, Action.REVIEW_COMMAND_PASSED)
+        == State.REVIEW_AWAITING_FINDINGS
+    )
+
+
 def test_illegal_transition_raises_with_the_legal_actions_named():
     with pytest.raises(IllegalTransition) as exc:
         next_state(State.CREATED, Action.SUBMIT_FINDINGS)

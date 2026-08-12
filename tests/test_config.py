@@ -7,6 +7,9 @@ def test_defaults_apply_when_no_config_file_exists(tmp_repo, tmp_path):
     cfg = load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
     assert cfg.general.base_ref == "main"
     assert cfg.review.blocking_severities == ["critical", "high"]
+    assert cfg.review.executor == "in_harness"
+    assert cfg.review.command is None
+    assert cfg.review.require_command_for == []
     assert cfg.docs.enabled is True
     assert cfg.worktree.copy_files == [".env"]
     assert cfg.worktree.root is None
@@ -83,6 +86,30 @@ def test_blocking_severities_reject_a_bogus_severity(tmp_repo, tmp_path):
     with pytest.raises(ConfigError) as exc:
         load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
     assert "spicy" in str(exc.value)
+
+
+def test_review_executor_and_required_risk_levels_are_validated(tmp_repo, tmp_path):
+    (tmp_repo / ".agentic-preflight.toml").write_text(
+        "[review]\nexecutor = 'command'\ncommand = 'reviewer --json'\n"
+        "require_command_for = ['medium', 'high']\n"
+    )
+    cfg = load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert cfg.review.executor == "command"
+    assert cfg.review.command == "reviewer --json"
+    assert cfg.review.require_command_for == ["medium", "high"]
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ("executor = 'telepathy'", "executor"),
+        ("require_command_for = ['extreme']", "risk level"),
+    ],
+)
+def test_review_executor_rejects_unknown_values(tmp_repo, tmp_path, body, message):
+    (tmp_repo / ".agentic-preflight.toml").write_text(f"[review]\n{body}\n")
+    with pytest.raises(ConfigError, match=message):
+        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
 
 
 def test_gate_mode_rejects_an_unknown_mode(tmp_repo, tmp_path):

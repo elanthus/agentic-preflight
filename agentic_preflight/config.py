@@ -53,6 +53,9 @@ class ReviewSection(_Section):
     blocking_severities: list[str] = Field(default_factory=lambda: ["critical", "high"])
     max_findings: int = Field(default=50, ge=1)
     require_fix_commits: bool = True
+    executor: str = "in_harness"
+    command: str | None = None
+    require_command_for: list[str] = Field(default_factory=list)
 
 
 class PolicySection(_Section):
@@ -127,6 +130,8 @@ VALID_RUNTIME_MANAGERS = {
 }
 VALID_DEPENDENCY_SETUP = {"auto", "off"}
 VALID_WORKTREE_MODES = {"in_place", "reusable", "strict"}
+VALID_REVIEW_EXECUTORS = {"in_harness", "command"}
+VALID_RISK_LEVELS = {"low", "medium", "high"}
 
 
 class Config(BaseModel):
@@ -173,6 +178,17 @@ def _validate_enums(cfg: Config) -> None:
                     f"[{section}] blocking_severities: unknown severity {severity!r}; "
                     f"valid values are {sorted(VALID_SEVERITIES)}"
                 )
+    if cfg.review.executor not in VALID_REVIEW_EXECUTORS:
+        raise ConfigError(
+            f"[review] executor: unknown executor {cfg.review.executor!r}; "
+            f"valid values are {sorted(VALID_REVIEW_EXECUTORS)}"
+        )
+    for level in cfg.review.require_command_for:
+        if level not in VALID_RISK_LEVELS:
+            raise ConfigError(
+                f"[review] require_command_for: unknown risk level {level!r}; "
+                f"valid values are {sorted(VALID_RISK_LEVELS)}"
+            )
     if cfg.gate.mode not in VALID_GATE_MODES:
         raise ConfigError(
             f"[gate] mode: unknown mode {cfg.gate.mode!r}; "

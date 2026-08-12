@@ -102,6 +102,20 @@ call twice.
 Exits 2 with `data.mode = "diff_too_large"` when the diff exceeds `[diff] max_bytes`.
 The diff is never truncated — narrow it with `[diff] exclude` or raise the limit.
 
+### `agentic-preflight review run`
+Runs the configured independent reviewer when the effective `[review] executor` is
+`command`. The command receives the exact review `context` data object as one JSON value
+on stdin and must write exactly one strict `ReviewSubmission` JSON value on stdout.
+The same coverage, unit, path, and finding validation used by `submit-findings` is then
+applied; the command cannot bypass the normal findings pipeline.
+
+The review command inherits `[stage] timeout_seconds` and `max_attempts`. Non-zero exit,
+timeout, malformed JSON, stale coverage, or invalid findings enter
+`REVIEW_COMMAND_RED` and consume one persisted attempt. A successful command records its
+configured command, zero exit code, and SHA-256 of redacted captured output alongside
+coverage in the schema-v3 attestation. Repairs invalidate all of that evidence and
+require a fresh command review.
+
 ### `agentic-preflight submit-findings --file PATH`
 `PATH` may be `-` for stdin. Review requires
 `{"coverage":{"manifest":"<from context>","examined":"all"},"findings":[...]}`.
@@ -127,7 +141,9 @@ it to green. Exits 2 listing the outstanding blocking set if anything remains.
 With a SHA, validates the portable attestation in `refs/notes/agentic-preflight` for
 CI. It checks the note schema, exact commit and tree binding, complete stage set, and
 process evidence for green lint/test stages. Fetch the notes ref before calling it in
-a fresh clone. A missing or invalid note exits 2.
+a fresh clone. Schema v3 additionally requires the review executor and, for command
+review, its command, zero exit code, and redacted output digest. A missing or invalid
+note exits 2.
 
 ### `agentic-preflight approval-check SHA --base SHA --reviews-file PATH --author LOGIN`
 CI-facing merge policy for an attested pull-request head. It recomputes path risk from
@@ -243,7 +259,7 @@ findings, staleness, worktree path, and the gate token. Never raises for a wedge
 In `MERGEBACK_CONFLICT`, it replays the durable conflict report and points back to the
 legal `mergeback` retry.
 
-### `agentic-preflight logs --stage lint|test`
+### `agentic-preflight logs --stage review|lint|test`
 Full captured output. Copied-file contents are redacted.
 
 ### `agentic-preflight events [--limit N]`

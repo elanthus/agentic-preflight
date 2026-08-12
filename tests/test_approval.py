@@ -30,6 +30,7 @@ def _stages():
     return {
         Stage.REVIEW: AttestedStage(
             status="green",
+            executor="in_harness",
             coverage=ReviewCoverage(
                 manifest="d" * 64,
                 head_sha="e" * 40,

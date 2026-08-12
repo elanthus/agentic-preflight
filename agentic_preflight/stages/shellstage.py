@@ -30,6 +30,8 @@ class StageResult:
     exit_code: int
     output: str
     timed_out: bool = False
+    stdout: str | None = None
+    stderr: str | None = None
 
     @property
     def passed(self) -> bool:
@@ -41,6 +43,8 @@ def run_stage(
     command: str,
     *,
     timeout_seconds: int = 600,
+    stdin_text: str | None = None,
+    separate_stderr: bool = False,
 ) -> StageResult:
     """Run ``command`` in the worktree, killing the whole process group on timeout.
 
@@ -52,24 +56,35 @@ def run_stage(
         ["bash", "-lc", command],
         cwd=str(worktree_path),
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stderr=subprocess.PIPE if separate_stderr else subprocess.STDOUT,
+        stdin=subprocess.PIPE if stdin_text is not None else None,
         text=True,
         start_new_session=True,
     )
     try:
-        output, _ = process.communicate(timeout=timeout_seconds)
-        return StageResult(command=command, exit_code=process.returncode, output=output or "")
+        stdout, stderr = process.communicate(input=stdin_text, timeout=timeout_seconds)
+        output = (stdout or "") + (stderr or "")
+        return StageResult(
+            command=command,
+            exit_code=process.returncode,
+            output=output,
+            stdout=stdout if separate_stderr else None,
+            stderr=stderr if separate_stderr else None,
+        )
     except subprocess.TimeoutExpired:
         try:
             os.killpg(os.getpgid(process.pid), signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             process.kill()
-        output, _ = process.communicate()
+        stdout, stderr = process.communicate()
+        output = (stdout or "") + (stderr or "")
         return StageResult(
             command=command,
             exit_code=124,
-            output=(output or "") + f"\n[timed out after {timeout_seconds}s]",
+            output=output + f"\n[timed out after {timeout_seconds}s]",
             timed_out=True,
+            stdout=stdout if separate_stderr else None,
+            stderr=stderr if separate_stderr else None,
         )
 
 
