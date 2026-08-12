@@ -65,6 +65,11 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Dependabot version updates are grouped into one weekly Python dependency pull
+  request and one weekly GitHub Actions pull request, reducing preflight review and
+  attestation overhead without exempting bot-authored commits from the gate. The README
+  documents how to attest the exact bot-authored commit and re-run its hosted checks.
+
 - An explicit request to push, publish, or create/open a pull request now authorizes the
   matching post-verification push. The gate still displays the exact remote, branch,
   commits, and risk summary, but no longer forces a duplicate confirmation unless that
