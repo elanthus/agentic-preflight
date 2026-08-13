@@ -24,16 +24,18 @@ does.
 
 Three things separate it from a checklist in a prompt:
 
-- **Skipping a stage is structurally unrepresentable.** Not discouraged by
-  documentation — no transition exists from a review state to a push state at all. That
-  property is proved by enumerating every path through the machine, not by testing a
-  few of them.
-- **Your agent judges; this keeps the record.** No API key and no second model, and no
-  opinion of its own about what good code looks like. It drives the agent you already
-  have.
-- **The record includes its own gaps.** A bypassed hook, a stage that could not run, a
-  SHA with no green run — each stays visible in `status` and the attestation. A record
-  that can only report success is marketing.
+- **Bypassing a gate is structurally unrepresentable.** An inapplicable test or disabled
+  docs stage advances only through an explicit skip transition that records why. No path
+  exists from review to push without traversing every load-bearing gate. That property is
+  proved by enumerating every path through the machine, not by testing a few of them.
+- **Your agent judges by default; this keeps the record.** The core CLI has no API key
+  and calls no model. It drives the coding agent already active in your workspace, while
+  an optional command executor lets repository policy require an independent reviewer
+  for selected risk levels.
+- **Gaps do not turn into green evidence.** An unattested SHA fails the hook and CI
+  verifier, an applicable skip carries its reason, and a failed stage stays in local run
+  history without producing a green attestation. A record that can only report success
+  is marketing.
 
 Agentic Preflight is a deterministic state machine with a JSON-over-stdout CLI. It runs
 on macOS and Linux.
@@ -134,9 +136,11 @@ lists the exact classification.
 
 Risk is classified separately from that execution scope and from diff size. Repository
 policy maps changed paths to `low`, `medium`, or `high`, and findings can raise the final
-risk. Every high-risk result produces the deterministic verdict `needs_human`. It does
-not prevent an approved push. The configured approval mode then requires a manual merge,
-a GitHub Environment approval, or an exact-head peer review before merge. The model
+risk. Every high-risk green result produces the deterministic verdict `needs_human`. It
+does not prevent an approved push. The skill honors the configured approval mode as a
+manual merge, a GitHub Environment approval, or an exact-head peer review. Forge-level
+enforcement additionally requires the documented protected-base workflow and required
+status check; configuration alone does not change repository branch rules. The model
 reports findings; it cannot override the policy verdict.
 
 By default the run happens directly in the current checkout, which suits a clean,
@@ -190,9 +194,11 @@ know all three before relying on it:
    hatch for humans who need it.
 2. **The confirmation token is not a secret.** The agent can read it from `status`. It is
    deliberate ceremony that makes an *accidental* push impossible and an unconfirmed push
-   a visible protocol violation. It does not stop a determined agent. If you need a real
-   boundary, set `[gate] mode = "manual"`: agentic-preflight then refuses to push at all
-   and a person must run the command themselves.
+   a visible protocol violation. It does not stop a determined agent. For a hard boundary
+   inside this CLI, set `[gate] mode = "manual"`: Agentic Preflight then refuses to run its
+   push command and hands the exact Git command to a person. A shell-capable agent could
+   still invoke Git directly, which is why this remains advisory rather than a security
+   boundary.
 3. **This guards against mistakes, not against a careless or misaligned agent.** There is
    no cryptographic answer here, and claiming otherwise would be worse than the gap.
 
@@ -251,16 +257,24 @@ so mocking it would test our idea of git instead of git.
 ## Prior art and differentiation
 
 Agentic Preflight was inspired by [`no-mistakes`](https://github.com/kunchenguid/no-mistakes)
-and its staged review, test, documentation, lint, push, pull-request, and CI workflow. It
-keeps that useful progression while exploring a different control model:
+and its staged review, test, documentation, lint, push, pull-request, and CI workflow. As
+of [`no-mistakes` v1.48.0](https://github.com/kunchenguid/no-mistakes/releases/tag/v1.48.0),
+both projects bind publication to reviewed work and both emit structured evidence. They
+make different tradeoffs about who owns the workflow and what the durable record proves:
 
 | Area | `no-mistakes` | Agentic Preflight |
 |---|---|---|
-| Agent execution | Runs a configurable validation-agent pipeline | Uses local coding agents already active in your workspace |
-| Git integration | Routes pushes through a local proxy remote | Uses an advisory pre-push hook; manual mode keeps the final push human-only |
-| Interface | Provides a daemon, TUI, and agent skill | Provides a JSON-over-stdout CLI and agent skill |
-| Workflow control | Owns the end-to-end validation pipeline | Persists a deterministic state machine and returns the single next legal command |
-| Runtime | Ships as a Go application | Ships as a Python CLI package |
+| Agent execution | Launches a required, configurable pipeline agent with ordered fallbacks | Uses the coding agent already active by default; an external command reviewer can be required by risk |
+| Git integration | Routes an opted-in push through a local proxy remote | Uses an advisory pre-push hook; manual mode disables the CLI's own push path |
+| Stage control | Fixes the stage order but permits per-run and approval-time skips | Makes every gate load-bearing; only explicit code/config-driven skips traverse it and record a reason |
+| Review completeness | Reviews a filtered diff and records the exact approved head | Inventories every changed hunk and non-text change, then requires a snapshot-bound `examined: "all"` assertion and derives a cited/clean receipt |
+| Durable evidence | Writes a data-only step-status snapshot into the PR body; it can become stale until the body is rewritten | Atomically pushes a schema-validated Git note bound to the exact commit and tree, with config/intent bindings, review coverage, executor evidence, and shell-output hashes |
+| Risk and approval | The reviewer returns `risk_level` and rationale; findings pause for user action | Repository path policy and recorded findings deterministically derive risk; the model cannot lower the verdict |
+| Publication approval | Automatically forwards the validated branch after the local pipeline | Shows the exact remote, branch, commits, and risk before a token-gated push, or refuses its own push in manual mode |
+| Local architecture | Runs a daemon, proxy repository, SQLite store, TUI, and disposable worktrees | Runs as a daemonless JSON-over-stdout CLI with file-based state and an agent skill |
+| Validation checkout | Always isolates the pipeline in a disposable worktree | Offers in-place, reusable isolated, and fresh strict worktree modes |
+| Hosted lifecycle | Creates PRs across several forges, monitors CI, and can auto-fix failures | Keeps hosted lifecycle outside the stateful core and delegates GitHub operations to the active agent and `gh` |
+| Runtime and platforms | Ships as a Go application for macOS, Linux, and Windows | Ships as a Python package for supported macOS and Linux combinations |
 
 ## Credits
 
