@@ -32,9 +32,9 @@ Keep thin, stable facades and split implementation by reason to change.
 - `runs/__init__.py` remains the supported import facade.
 
 The dependency direction is coordinator/executor toward protocol, coverage, and retry.
-Protocol, coverage, and retry do not import the coordinator. The executor performs one late
-import only when handing a parsed submission to the existing coordinator, avoiding a module
-cycle without creating a second submission path.
+Protocol, coverage, and retry do not import the coordinator. The executor hands a parsed
+submission to the existing coordinator so command and in-harness review share one submission
+path.
 
 ### CLI boundary
 

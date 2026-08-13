@@ -128,7 +128,11 @@ def approval_check(
 
 @click.command("hook-check")
 def hook_check() -> None:
-    """Pre-push predicate over commit attestations. Writes prose to stderr."""
+    """Pre-push predicate over commit attestations. Reads stdin, writes prose to stderr.
+
+    Deliberately not wrapped in the envelope contract: its consumer is git, not
+    the agent, and git judges it by exit code alone.
+    """
     from . import gitx
     from . import hook as hookmod
     from .config import load_config

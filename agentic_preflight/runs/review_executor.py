@@ -17,6 +17,7 @@ from ..models import Stage
 from ..stages import shellstage
 from . import review_protocol, review_retry
 from ._session import Session, _assert_fresh, _load_current, _require_state, _require_worktree
+from .review import submit_findings
 
 
 def run_review_command(session: Session) -> Envelope:
@@ -136,10 +137,6 @@ def run_review_command(session: Session) -> Envelope:
         log_path=log_path,
     )
     try:
-        # Imported here to keep the process adapter independent of review
-        # orchestration while retaining the existing public facade.
-        from .review import submit_findings
-
         envelope = submit_findings(session, payload, _executor="command")
     except InvalidFindings as exc:
         run = review_retry.fail(

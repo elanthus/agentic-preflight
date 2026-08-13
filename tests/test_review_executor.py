@@ -10,6 +10,8 @@ from pathlib import Path
 import pytest
 
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.machine import Action
+from agentic_preflight.runs._session import _apply, open_session
 from tests.conftest import commit_all, write
 from tests.driver import ScriptedAgent
 
@@ -150,6 +152,25 @@ def test_max_attempts_survive_a_new_process(feature_repo):
 
     assert env["error"]["code"] == "max_attempts"
     assert env["data"]["attempts"] == 2
+
+
+def test_interrupted_command_is_recorded_before_a_new_process_retries(feature_repo):
+    configure_reviewer(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    session = open_session(feature_repo)
+    run_id = session.store.get_current()
+    assert run_id is not None
+    with session.store.transaction(run_id) as run:
+        _apply(run, Action.RUN_REVIEW_COMMAND)
+
+    env = ScriptedAgent(feature_repo).run("review", "run")
+
+    assert env["state"] == "DOCS_GREEN"
+    review = ScriptedAgent(feature_repo).run("status")["data"]["stages"]["review"]
+    assert review["status"] == "green"
+    assert review["attempts"] == 1
+    assert review["executor"] == "command"
 
 
 def test_risk_policy_requires_command_and_refuses_direct_submission(feature_repo, tmp_path):
