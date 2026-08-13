@@ -6,9 +6,9 @@ run from a review/docs state into a lint, test, or push state. Stage-skipping is
 not forbidden by prose, it is *unrepresentable*.
 
 Transitions are a pure function: ``(State, Action) -> State``, exactly one
-target per pair. Where the design sketches a conditional branch (a submitted
-review goes to ``AWAITING_RESPONSES`` when blocking findings exist and to
-``GREEN`` when it is clean) the outcome is folded into the *action* rather than
+target per pair. Where the design sketches a conditional branch (a findings
+submission goes to ``BLOCKED`` when blocking findings exist and to ``GREEN``
+when it is clean) the outcome is folded into the *action* rather than
 resolved inside the transition. Code chooses which action to fire; the table
 stays deterministic and therefore property-testable.
 """
@@ -29,15 +29,11 @@ class State(StrEnum):
     REVIEW_AWAITING_FINDINGS = "REVIEW_AWAITING_FINDINGS"
     REVIEW_COMMAND_RUNNING = "REVIEW_COMMAND_RUNNING"
     REVIEW_COMMAND_RED = "REVIEW_COMMAND_RED"
-    REVIEW_SUBMITTED = "REVIEW_SUBMITTED"
-    REVIEW_AWAITING_RESPONSES = "REVIEW_AWAITING_RESPONSES"
-    REVIEW_FIXING = "REVIEW_FIXING"
+    REVIEW_BLOCKED = "REVIEW_BLOCKED"
     REVIEW_GREEN = "REVIEW_GREEN"
 
     DOCS_AWAITING_FINDINGS = "DOCS_AWAITING_FINDINGS"
-    DOCS_SUBMITTED = "DOCS_SUBMITTED"
-    DOCS_AWAITING_RESPONSES = "DOCS_AWAITING_RESPONSES"
-    DOCS_FIXING = "DOCS_FIXING"
+    DOCS_BLOCKED = "DOCS_BLOCKED"
     DOCS_GREEN = "DOCS_GREEN"
 
     LINT_RUNNING = "LINT_RUNNING"
@@ -66,14 +62,13 @@ class Action(StrEnum):
     SYNC_FAILED = "SYNC_FAILED"
     BEGIN_REVIEW = "BEGIN_REVIEW"
 
-    SUBMIT_FINDINGS = "SUBMIT_FINDINGS"
+    SUBMIT_CLEAN = "SUBMIT_CLEAN"
+    SUBMIT_BLOCKING = "SUBMIT_BLOCKING"
     RUN_REVIEW_COMMAND = "RUN_REVIEW_COMMAND"
     REVIEW_COMMAND_PASSED = "REVIEW_COMMAND_PASSED"
     REVIEW_COMMAND_FAILED = "REVIEW_COMMAND_FAILED"
     RETRY_REVIEW_COMMAND = "RETRY_REVIEW_COMMAND"
     INVALIDATE_REVIEW = "INVALIDATE_REVIEW"
-    TRIAGE_CLEAN = "TRIAGE_CLEAN"
-    TRIAGE_BLOCKING = "TRIAGE_BLOCKING"
     RESPOND = "RESPOND"
     RESOLVE_GREEN = "RESOLVE_GREEN"
 
@@ -139,9 +134,7 @@ def _state(
 def _stage_cycle(
     label: str,
     awaiting: State,
-    submitted: State,
-    awaiting_responses: State,
-    fixing: State,
+    blocked: State,
     green: State,
     *,
     invalidate_to: State | None = None,
@@ -153,7 +146,10 @@ def _stage_cycle(
         if label == "review"
         else "Review the docs surface, then submit findings (an empty list is valid)."
     )
-    awaiting_transitions = [(Action.SUBMIT_FINDINGS, submitted)]
+    awaiting_transitions = [
+        (Action.SUBMIT_CLEAN, green),
+        (Action.SUBMIT_BLOCKING, blocked),
+    ]
     if label == "review":
         awaiting_transitions.append((Action.RUN_REVIEW_COMMAND, State.REVIEW_COMMAND_RUNNING))
     return {
@@ -163,23 +159,10 @@ def _stage_cycle(
             *awaiting_transitions,
             *invalidate,
         ),
-        submitted: _state(
-            "Check the blocking set.",
-            "agentic-preflight verify",
-            (Action.TRIAGE_CLEAN, green),
-            (Action.TRIAGE_BLOCKING, awaiting_responses),
-        ),
-        awaiting_responses: _state(
+        blocked: _state(
             "Resolve each blocking finding with `respond`.",
             "agentic-preflight respond --id F001 --action fixed --commit <sha>",
-            (Action.RESPOND, fixing),
-            (Action.RESOLVE_GREEN, green),
-            *invalidate,
-        ),
-        fixing: _state(
-            "Keep responding until nothing blocks, then verify.",
-            "agentic-preflight verify",
-            (Action.RESPOND, fixing),
+            (Action.RESPOND, blocked),
             (Action.RESOLVE_GREEN, green),
             *invalidate,
         ),
@@ -216,9 +199,7 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
     **_stage_cycle(
         "review",
         _S.REVIEW_AWAITING_FINDINGS,
-        _S.REVIEW_SUBMITTED,
-        _S.REVIEW_AWAITING_RESPONSES,
-        _S.REVIEW_FIXING,
+        _S.REVIEW_BLOCKED,
         _S.REVIEW_GREEN,
         invalidate_to=_S.REVIEW_AWAITING_FINDINGS,
     ),
@@ -243,9 +224,7 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
     **_stage_cycle(
         "docs",
         _S.DOCS_AWAITING_FINDINGS,
-        _S.DOCS_SUBMITTED,
-        _S.DOCS_AWAITING_RESPONSES,
-        _S.DOCS_FIXING,
+        _S.DOCS_BLOCKED,
         _S.DOCS_GREEN,
         invalidate_to=_S.REVIEW_AWAITING_FINDINGS,
     ),

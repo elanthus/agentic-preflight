@@ -7,6 +7,12 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Simplified the review and documentation findings sub-machines. Clean and
+  blocking submissions now transition directly to each stage's green or blocked
+  state, and response handling remains in that single blocked state until every
+  blocking finding is resolved. The transient `*_SUBMITTED` states and the
+  behaviorally identical `*_AWAITING_RESPONSES`/`*_FIXING` pairs were removed.
+
 - Moved the skill's ten failure playbooks out of `SKILL.md` into
   `reference/playbooks.md`, leaving a symptom-to-playbook index in their place.
   The playbooks are recovery detail an agent needs only after a run stops, and they

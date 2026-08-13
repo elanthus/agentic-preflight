@@ -107,7 +107,7 @@ def test_command_can_submit_blocking_findings(feature_repo):
 
     env = agent.run("review", "run")
 
-    assert env["state"] == "REVIEW_AWAITING_RESPONSES"
+    assert env["state"] == "REVIEW_BLOCKED"
     assert env["blocking"][0]["title"] == "Independent reviewer finding"
 
 

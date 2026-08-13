@@ -36,7 +36,7 @@ BLOCKING = [
 
 @pytest.fixture
 def blocked(agent, tmp_path):
-    """A run parked in REVIEW_AWAITING_RESPONSES with F001 outstanding."""
+    """A run parked in REVIEW_BLOCKED with F001 outstanding."""
     env = agent.run("start")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, BLOCKING))
@@ -57,7 +57,7 @@ def test_responding_fixed_with_a_real_commit_clears_the_finding(blocked):
     agent, wt = blocked
     sha = fix_commit(wt)
     env = agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", sha)
-    assert env["state"] == "REVIEW_FIXING"
+    assert env["state"] == "REVIEW_BLOCKED"
     assert env["data"]["finding"]["status"] == "fixed"
     assert env["data"]["finding"]["fix_commit"].startswith(sha[:8])
 
@@ -111,6 +111,30 @@ def test_dismissing_with_a_note_clears_the_finding(blocked):
     )
     assert env["data"]["finding"]["status"] == "dismissed"
     agent.run("verify")
+
+
+def test_respond_points_to_the_next_finding_while_the_stage_remains_blocked(agent, tmp_path):
+    agent.run("start")
+    agent.run("context")
+    findings = [
+        {**BLOCKING[0], "title": "first blocking finding"},
+        {**BLOCKING[0], "title": "second blocking finding"},
+    ]
+    agent.run("submit-findings", "--file", findings_json(tmp_path, findings))
+
+    env = agent.run(
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        "dismissed",
+        "--note",
+        "not part of this change",
+    )
+
+    assert env["state"] == "REVIEW_BLOCKED"
+    assert env["data"]["remaining_blocking"] == 1
+    assert "--id F002" in env["next"]["command"]
 
 
 # -- respond, the claim is checked -----------------------------------------
