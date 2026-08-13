@@ -5,6 +5,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Changed
+
+- Corrected the README's descriptions of explicit stage skips, observable gaps,
+  hosted merge-approval enforcement, and manual gate boundaries. Expanded the
+  `no-mistakes` comparison against v1.48.0 to cover review completeness, portable
+  evidence, deterministic risk, publication approval, and local architecture.
+
 ## [0.3.0] - 2026-08-12
 
 ### Added
