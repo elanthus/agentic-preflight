@@ -33,7 +33,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
+        with:
+          enable-cache: false
 
       - name: Verify tag matches project version
         env:
@@ -58,11 +60,13 @@ jobs:
           uv build
 
       - name: Generate CycloneDX SBOM
+        env:
+          SBOM_PATH: sbom/agentic-preflight-${{ github.ref_name }}.cdx.json
         run: |
           mkdir -p sbom
           uv export --frozen --no-dev --preview-features sbom-export \
             --format cyclonedx1.5 \
-            --output-file sbom/agentic-preflight-${{ github.ref_name }}.cdx.json
+            --output-file "$SBOM_PATH"
 
       - name: Smoke test the built wheel
         env:
