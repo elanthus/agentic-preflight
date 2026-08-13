@@ -110,11 +110,20 @@ def test_default_in_place_mode_records_repairs_and_attests_without_cherry_pick(
     assert merged["data"]["tree_equivalent"] is True
 
 
-def test_mergeback_applies_fix_commits_to_the_branch(ready, feature_repo):
+def test_mergeback_applies_fix_commits_and_transfers_the_green_attestation(ready, feature_repo):
+    """Cherry-picking changes the commit SHA but must preserve the verified tree."""
     agent, _ = ready()
     env = agent.run("mergeback")
+
     assert env["state"] == "VERIFIED"
     assert "FIXED" in (feature_repo / "src" / "app.py").read_text()
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=feature_repo) == "feature/x"
+    assert "apply the fix" in git("log", "--format=%s", cwd=feature_repo)
+    assert env["data"]["tree_equivalent"] is True
+    assert env["data"]["local_tree_sha"] == env["data"]["worktree_tree_sha"]
+    assert env["data"]["green_transferred"] is True
+    assert env["data"]["post_sha"] == git("rev-parse", "HEAD", cwd=feature_repo)
+    assert env["data"]["pre_sha"] != env["data"]["post_sha"]
 
 
 def test_mergeback_with_no_fix_commits_is_a_no_op(ready, feature_repo):
@@ -123,38 +132,6 @@ def test_mergeback_with_no_fix_commits_is_a_no_op(ready, feature_repo):
     env = agent.run("mergeback")
     assert env["state"] == "VERIFIED"
     assert git("rev-parse", "HEAD", cwd=feature_repo) == before
-
-
-def test_the_users_branch_is_where_the_commits_land(ready, feature_repo):
-    agent, _ = ready()
-    agent.run("mergeback")
-    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=feature_repo) == "feature/x"
-    assert "apply the fix" in git("log", "--format=%s", cwd=feature_repo)
-
-
-# -- tree-equivalence attestation -------------------------------------------
-
-
-def test_a_clean_mergeback_attests_tree_equivalence(ready):
-    """The mechanism reconciling 'attestation keyed on exact SHA' with
-    'cherry-pick changes the SHA'."""
-    agent, _ = ready()
-    env = agent.run("mergeback")
-    assert env["data"]["tree_equivalent"] is True
-    assert env["data"]["local_tree_sha"] == env["data"]["worktree_tree_sha"]
-
-
-def test_green_transfers_only_on_tree_equivalence(ready):
-    agent, _ = ready()
-    env = agent.run("mergeback")
-    assert env["data"]["green_transferred"] is True
-
-
-def test_mergeback_records_the_new_tip(ready, feature_repo):
-    agent, _ = ready()
-    env = agent.run("mergeback")
-    assert env["data"]["post_sha"] == git("rev-parse", "HEAD", cwd=feature_repo)
-    assert env["data"]["pre_sha"] != env["data"]["post_sha"]
 
 
 # -- preconditions ----------------------------------------------------------
