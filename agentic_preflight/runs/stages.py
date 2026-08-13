@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypedDict
 
-from .. import gitx, runtime, worktree
+from .. import gitx, worktree
 from ..attestation import output_digest
 from ..envelope import Envelope
 from ..errors import (
@@ -42,7 +42,6 @@ class _BaselineSetupFailure(Exception):
     command: str
     exit_code: int
     worktree_path: str
-    runtime: dict
 
 
 class _StageSpec(TypedDict):
@@ -288,7 +287,6 @@ def run_stage(
                 command=exc.command,
                 exit_code=exc.exit_code,
                 worktree_path=exc.worktree_path,
-                runtime=exc.runtime,
                 next_instruction=(
                     "The stage was not evaluated against the base commit. Fix the setup "
                     "environment, then retry the same stage with its baseline check."
@@ -325,22 +323,15 @@ def run_stage(
                         "kind": "custom",
                         "command": exc.command,
                         "exit_code": exc.exit_code,
-                        "runtime": exc.runtime,
                     },
                 },
                 next_instruction=failure.next_instruction,
                 next_command=failure.next_command,
             ) from exc
 
-    prepared = runtime.prepare_command(
-        wt,
-        resolved,
-        manager=session.config.runtime.manager,
-        strict=session.config.runtime.strict,
-    )
     result = shellstage.run_stage(
         wt,
-        prepared.command,
+        resolved,
         timeout_seconds=session.config.stage.timeout_seconds,
     )
     if not gitx.is_clean(wt):
@@ -390,7 +381,6 @@ def run_stage(
         "exit_code": result.exit_code,
         "log_path": str(log_path),
         "timed_out": result.timed_out,
-        "runtime": prepared.runtime.as_dict(),
         **summary,
     }
     if baseline_red is not None:
@@ -438,15 +428,9 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
         with suppress(worktree.CopyRefused):
             worktree.copy_files(session.repo_root, scratch, session.config.worktree.copy_files)
         if session.config.worktree.setup_command:
-            setup = runtime.prepare_command(
-                scratch,
-                session.config.worktree.setup_command,
-                manager=session.config.runtime.manager,
-                strict=session.config.runtime.strict,
-            )
             completed = worktree.run_setup(
                 scratch,
-                setup.command,
+                session.config.worktree.setup_command,
                 timeout_seconds=session.config.stage.timeout_seconds,
             )
             if completed.returncode != 0:
@@ -454,16 +438,9 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
                     command=session.config.worktree.setup_command,
                     exit_code=completed.returncode,
                     worktree_path=str(scratch),
-                    runtime=setup.runtime.as_dict(),
                 )
-        prepared = runtime.prepare_command(
-            scratch,
-            command,
-            manager=session.config.runtime.manager,
-            strict=session.config.runtime.strict,
-        )
         result = shellstage.run_stage(
-            scratch, prepared.command, timeout_seconds=session.config.stage.timeout_seconds
+            scratch, command, timeout_seconds=session.config.stage.timeout_seconds
         )
         return not result.passed
     except worktree.WorktreeError:

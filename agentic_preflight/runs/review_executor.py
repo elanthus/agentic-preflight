@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from .. import diff as diffmod
-from .. import gitx, runtime
+from .. import gitx
 from ..attestation import output_digest
 from ..envelope import Envelope
 from ..errors import DiffTooLarge, InvalidFindings, StageFailed
@@ -69,15 +69,9 @@ def run_review_command(session: Session) -> Envelope:
 
     run = review_retry.begin(session, run)
     wt = _require_worktree(run)
-    prepared = runtime.prepare_command(
-        wt,
-        command,
-        manager=session.config.runtime.manager,
-        strict=session.config.runtime.strict,
-    )
     result = shellstage.run_stage(
         wt,
-        prepared.command,
+        command,
         timeout_seconds=session.config.stage.timeout_seconds,
         stdin_text=stdin_text,
         separate_stderr=True,

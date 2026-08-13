@@ -38,20 +38,6 @@ A nonzero exit is reported as a setup failure.
 
 Use `--baseline` so a pre-existing failure is reported rather than blamed on your diff.
 
-## Runtime pins are activated explicitly
-
-Non-interactive agent shells often miss interactive version-manager shims, so a stage can
-resolve a different toolchain than your terminal does. Stages detect committed Node pins
-for NVM, Volta, asdf, mise, fnm, and nodenv.
-
-A missing pinned manager fails clearly instead of silently running a different system
-Node. `init` reports unpinned Node projects, so a fresh clone, CI, and the gate can agree
-on the version.
-
-If a stage is green in your shell and red under the gate, compare the toolchain version
-*inside the stage* before debugging the code. A native module built for another ABI fails
-as missing bindings, not as a version error.
-
 ## What a green run does and does not prove
 
 It proves what the gate reported: that the configured in-harness or command executor

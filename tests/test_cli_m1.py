@@ -345,7 +345,7 @@ def test_events_record_ordered_history_with_the_resolved_config_snapshot(blocked
     )
     created = events[0]
     assert created["event"] == "run_created"
-    assert created["config_snapshot"]["runtime"]["manager"] == "auto"
+    assert "runtime" not in created["config_snapshot"]
     assert len(created["config_digest"]) == 64
 
 

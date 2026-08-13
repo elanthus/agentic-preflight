@@ -15,8 +15,6 @@ def test_defaults_apply_when_no_config_file_exists(tmp_repo, tmp_path):
     assert cfg.worktree.root is None
     assert cfg.worktree.mode == "in_place"
     assert cfg.worktree.setup_command is None
-    assert cfg.runtime.manager == "auto"
-    assert cfg.runtime.strict is True
     assert cfg.gate.mode == "token"
     assert cfg.pr.mode == "auto"
     assert cfg.approval.mode == "manual_merge"
@@ -166,13 +164,6 @@ def test_policy_rejects_unsafe_patterns(tmp_repo, tmp_path, pattern):
     with pytest.raises(ConfigError) as exc:
         load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
     assert "human_review_paths" in str(exc.value)
-
-
-def test_runtime_manager_rejects_an_unknown_value(tmp_repo, tmp_path):
-    (tmp_repo / ".agentic-preflight.toml").write_text("[runtime]\nmanager = 'magic'\n")
-    with pytest.raises(ConfigError) as exc:
-        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
-    assert "magic" in str(exc.value)
 
 
 def test_worktree_mode_rejects_an_unknown_value(tmp_repo, tmp_path):

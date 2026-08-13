@@ -19,9 +19,8 @@ Installs the pre-push hook and writes `.agentic-preflight.toml` if absent. Refus
 replace a pre-push hook it did not write (exit 3, `hook_exists`) — `--force`
 overrides. Does not clobber an existing config.
 
-It also inspects runtime pins. For Node projects, the response names the detected pin
-and manager, or warns that the repository is unpinned. Worktrees default to a hidden
-sibling directory outside `.git`; `data.worktree_root` reports the resolved location.
+Worktrees default to a hidden sibling directory outside `.git`; `data.worktree_root`
+reports the resolved location.
 
 ### `agentic-preflight integrations install AGENT... [--scope user|project] [--target PATH] [--force]`
 Copies the bundled skill and all of its references into each selected agent's discovery
@@ -203,11 +202,6 @@ these; treat their first green as unverified.
 is reported rather than blamed on the diff. It is also the cheapest way to see the
 command produce two different outcomes — if base and head are byte-identical greens on
 a diff that touches tested code, suspect the command before trusting it.
-
-Before setup or a shell stage runs, committed Node pins are activated for NVM, Volta,
-asdf, mise, fnm, or nodenv. `[runtime] manager = "auto"` is the default. With
-`strict = true`, a pin whose manager is unavailable fails with exit 127 instead of
-falling back to a different system Node. `manager = "none"` disables activation.
 
 ### `agentic-preflight mergeback`
 In in-place mode, attests the already-verified current SHA without creating or

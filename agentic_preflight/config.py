@@ -90,11 +90,6 @@ class WorktreeSection(_Section):
     setup_command: str | None = None
 
 
-class RuntimeSection(_Section):
-    manager: str = "auto"
-    strict: bool = True
-
-
 class GateSection(_Section):
     mode: str = "token"
 
@@ -117,16 +112,6 @@ VALID_SEVERITIES = {"critical", "high", "medium", "low"}
 VALID_GATE_MODES = {"token", "manual"}
 VALID_PR_MODES = {"auto", "manual"}
 VALID_APPROVAL_MODES = {"manual_merge", "environment", "peer_review"}
-VALID_RUNTIME_MANAGERS = {
-    "auto",
-    "none",
-    "nvm",
-    "volta",
-    "asdf",
-    "mise",
-    "fnm",
-    "nodenv",
-}
 VALID_WORKTREE_MODES = {"in_place", "reusable", "strict"}
 VALID_REVIEW_EXECUTORS = {"in_harness", "command"}
 VALID_RISK_LEVELS = {"low", "medium", "high"}
@@ -143,7 +128,6 @@ class Config(BaseModel):
     docs: DocsSection = Field(default_factory=DocsSection)
     diff: DiffSection = Field(default_factory=DiffSection)
     worktree: WorktreeSection = Field(default_factory=WorktreeSection)
-    runtime: RuntimeSection = Field(default_factory=RuntimeSection)
     gate: GateSection = Field(default_factory=GateSection)
     pr: PRSection = Field(default_factory=PRSection)
     approval: ApprovalSection = Field(default_factory=ApprovalSection)
@@ -203,11 +187,6 @@ def _validate_enums(cfg: Config) -> None:
         )
     if cfg.approval.mode == "environment" and not cfg.approval.environment.strip():
         raise ConfigError("[approval] environment must not be empty")
-    if cfg.runtime.manager not in VALID_RUNTIME_MANAGERS:
-        raise ConfigError(
-            f"[runtime] manager: unknown manager {cfg.runtime.manager!r}; "
-            f"valid values are {sorted(VALID_RUNTIME_MANAGERS)}"
-        )
     if cfg.worktree.mode not in VALID_WORKTREE_MODES:
         raise ConfigError(
             f"[worktree] mode: unknown mode {cfg.worktree.mode!r}; "
