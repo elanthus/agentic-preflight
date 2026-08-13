@@ -31,9 +31,9 @@ def test_attestation_uses_dedicated_intent_and_config_bindings(feature_repo, tmp
     value = attestation.verify(feature_repo, "HEAD")
     expected_config = config.config_digest(config.load_config(feature_repo).model_dump(mode="json"))
 
-    assert value.intent_sha256 == hashlib.sha256(
-        b"exercise the requested behavior safely"
-    ).hexdigest()
+    assert (
+        value.intent_sha256 == hashlib.sha256(b"exercise the requested behavior safely").hexdigest()
+    )
     assert value.config_sha256 == expected_config
     assert value.findings_summary == {}
 
