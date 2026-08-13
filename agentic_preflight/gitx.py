@@ -278,9 +278,7 @@ def _parse_raw_patch_output(text: str) -> dict[str, str]:
 
     patches = _split_patches(patch_text)
     if len(paths) != len(patches):
-        raise ValueError(
-            f"git diff returned {len(paths)} raw entries but {len(patches)} patches"
-        )
+        raise ValueError(f"git diff returned {len(paths)} raw entries but {len(patches)} patches")
     return dict(zip(paths, patches, strict=True))
 
 
