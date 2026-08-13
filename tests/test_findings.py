@@ -206,9 +206,9 @@ def test_non_code_owned_finding_excluded_by_policy_remains_non_blocking():
     ("state", "expected"),
     [
         (State.REVIEW_AWAITING_FINDINGS, Stage.REVIEW),
-        (State.REVIEW_FIXING, Stage.REVIEW),
+        (State.REVIEW_BLOCKED, Stage.REVIEW),
         (State.DOCS_AWAITING_FINDINGS, Stage.DOCS),
-        (State.DOCS_FIXING, Stage.DOCS),
+        (State.DOCS_BLOCKED, Stage.DOCS),
     ],
 )
 def test_stage_for_state(state, expected):

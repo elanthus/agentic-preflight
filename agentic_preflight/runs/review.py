@@ -31,6 +31,7 @@ from ._session import (
     _require_finding_stage,
     _require_state,
     _require_worktree,
+    _respond_command,
 )
 
 
@@ -270,8 +271,7 @@ def submit_findings(
                 entry.output_sha256 = None
                 entry.log_path = None
             doc.stages[Stage.REVIEW] = entry
-        _apply(doc, Action.SUBMIT_FINDINGS)
-        _apply(doc, Action.TRIAGE_BLOCKING if blocking else Action.TRIAGE_CLEAN)
+        _apply(doc, Action.SUBMIT_BLOCKING if blocking else Action.SUBMIT_CLEAN)
         run = doc
 
     run = _skip_docs_if_disabled(session, run)
@@ -287,7 +287,7 @@ def submit_findings(
         },
     )
 
-    return _envelope_for(
+    envelope = _envelope_for(
         run,
         stage=stage.value,
         data={
@@ -298,6 +298,10 @@ def submit_findings(
         },
         blocking=[f.model_dump(mode="json") for f in blocking],
     )
+    if blocking:
+        envelope.next_instruction = "Resolve each blocking finding with `respond`."
+        envelope.next_command = _respond_command(blocking[0].id)
+    return envelope
 
 
 def verify(session: Session) -> Envelope:
@@ -305,13 +309,9 @@ def verify(session: Session) -> Envelope:
     _assert_fresh(session, run)
     _require_state(
         run,
-        State.REVIEW_SUBMITTED,
-        State.REVIEW_AWAITING_RESPONSES,
-        State.REVIEW_FIXING,
+        State.REVIEW_BLOCKED,
         State.REVIEW_GREEN,
-        State.DOCS_SUBMITTED,
-        State.DOCS_AWAITING_RESPONSES,
-        State.DOCS_FIXING,
+        State.DOCS_BLOCKED,
         State.DOCS_GREEN,
         command="verify",
     )

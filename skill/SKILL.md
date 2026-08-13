@@ -62,13 +62,13 @@ $ agentic-preflight review run
 
 # You read the diff and decide. Write findings.json, then:
 $ agentic-preflight submit-findings --file findings.json
-{"ok":true,"state":"REVIEW_AWAITING_RESPONSES","blocking":[{"id":"F001","severity":"high",...}],
+{"ok":true,"state":"REVIEW_BLOCKED","blocking":[{"id":"F001","severity":"high",...}],
  "next":{"command":"agentic-preflight respond --id F001 --action fixed --commit <sha>"}}
 
 # Fix it in data.worktree_path, commit there, then:
 $ cd /repos/my-project && git add -A && git commit -m "use constant-time compare"
 $ agentic-preflight respond --id F001 --action fixed --commit 9c3d1ab
-{"ok":true,"state":"REVIEW_FIXING","next":{"command":"agentic-preflight verify"}}
+{"ok":true,"state":"REVIEW_BLOCKED","next":{"command":"agentic-preflight verify"}}
 
 $ agentic-preflight verify
 {"ok":true,"state":"REVIEW_AWAITING_FINDINGS","data":{"coverage_invalidated":true},

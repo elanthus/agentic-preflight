@@ -237,7 +237,7 @@ def test_a_high_docs_finding_blocks(review_green, tmp_path):
         ],
     )
     env = review_green.run("submit-findings", "--file", path)
-    assert env["state"] == "DOCS_AWAITING_RESPONSES"
+    assert env["state"] == "DOCS_BLOCKED"
 
 
 # -- require_changelog is a mechanical rule, so code owns it ----------------
@@ -270,7 +270,7 @@ def test_require_changelog_injects_a_code_owned_finding(changelog_repo, tmp_path
     agent.run("context", "--section", "docs")
 
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    assert env["state"] == "DOCS_AWAITING_RESPONSES"
+    assert env["state"] == "DOCS_BLOCKED"
     injected = env["blocking"][0]
     assert "changelog" in injected["title"].lower()
     assert injected["path"] == "CHANGELOG.md"
@@ -304,7 +304,7 @@ def test_code_owned_changelog_blocks_when_high_is_excluded(changelog_repo, tmp_p
     agent.run("context", "--section", "docs")
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
 
-    assert env["state"] == "DOCS_AWAITING_RESPONSES"
+    assert env["state"] == "DOCS_BLOCKED"
     assert env["blocking"][0]["code_owned"] is True
     assert env["data"]["risk"]["verdict"] == "changes_required"
 

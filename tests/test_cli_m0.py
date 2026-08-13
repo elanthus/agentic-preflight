@@ -171,7 +171,11 @@ def test_a_blocking_finding_holds_the_run_for_responses(agent, tmp_path):
         ],
     )
     env = agent.run("submit-findings", "--file", path)
-    assert env["state"] == "REVIEW_AWAITING_RESPONSES"
+    assert env["state"] == "REVIEW_BLOCKED"
+    assert (
+        env["next"]["command"]
+        == "agentic-preflight respond --id F001 --action fixed --commit <sha>"
+    )
     assert [f["id"] for f in env["blocking"]] == ["F001"]
     assert env["data"]["accepted"][0]["unit"] == "U0001"
     assert env["data"]["coverage"]["cited_count"] == 1
@@ -353,7 +357,7 @@ def test_verify_reports_the_outstanding_blocking_set(agent, tmp_path):
     agent.run("submit-findings", "--file", path)
     env = agent.run("verify", expect=ExitCode.STAGE_FAILED)
     assert [f["id"] for f in env["blocking"]] == ["F001"]
-    assert env["state"] == "REVIEW_AWAITING_RESPONSES"
+    assert env["state"] == "REVIEW_BLOCKED"
 
 
 def test_verify_on_a_green_review_confirms_and_moves_on(agent, tmp_path):
@@ -393,7 +397,7 @@ def test_status_reports_state_and_findings_summary(agent, tmp_path):
     agent.run("submit-findings", "--file", path)
 
     env = agent.run("status")
-    assert env["state"] == "REVIEW_AWAITING_RESPONSES"
+    assert env["state"] == "REVIEW_BLOCKED"
     assert env["data"]["findings_summary"]["open"] == 1
     assert env["data"]["findings"][0]["id"] == "F001"
     assert env["data"]["review_coverage"]["cited_count"] == 1

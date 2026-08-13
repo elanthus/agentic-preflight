@@ -34,6 +34,15 @@ def test_committed_stage_repairs_restart_with_fresh_review_coverage():
     assert next_state(State.TEST_RED, Action.TEST_FIX_RESTART) == State.REVIEW_AWAITING_FINDINGS
 
 
+def test_findings_submission_goes_directly_to_green_or_blocked():
+    assert next_state(State.REVIEW_AWAITING_FINDINGS, Action.SUBMIT_CLEAN) == State.REVIEW_GREEN
+    assert (
+        next_state(State.REVIEW_AWAITING_FINDINGS, Action.SUBMIT_BLOCKING) == State.REVIEW_BLOCKED
+    )
+    assert next_state(State.REVIEW_BLOCKED, Action.RESPOND) == State.REVIEW_BLOCKED
+    assert next_state(State.REVIEW_BLOCKED, Action.RESOLVE_GREEN) == State.REVIEW_GREEN
+
+
 def test_command_review_has_explicit_running_failure_and_retry_states():
     assert (
         next_state(State.REVIEW_AWAITING_FINDINGS, Action.RUN_REVIEW_COMMAND)
@@ -55,7 +64,7 @@ def test_command_review_has_explicit_running_failure_and_retry_states():
 
 def test_illegal_transition_raises_with_the_legal_actions_named():
     with pytest.raises(IllegalTransition) as exc:
-        next_state(State.CREATED, Action.SUBMIT_FINDINGS)
+        next_state(State.CREATED, Action.SUBMIT_CLEAN)
     assert "CREATED" in str(exc.value)
     assert "CREATE_WORKTREE" in str(exc.value)
 
@@ -71,7 +80,7 @@ def test_judgment_cycles_generate_equivalent_recovery_commands():
     assert recovery_hint(State.REVIEW_AWAITING_FINDINGS).command == (
         recovery_hint(State.DOCS_AWAITING_FINDINGS).command
     )
-    assert recovery_hint(State.REVIEW_FIXING).command == recovery_hint(State.DOCS_FIXING).command
+    assert recovery_hint(State.REVIEW_BLOCKED).command == recovery_hint(State.DOCS_BLOCKED).command
 
 
 def test_every_non_terminal_state_has_a_declarative_recovery_command():

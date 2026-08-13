@@ -117,6 +117,11 @@ def _next_hint(state: State) -> tuple[str | None, str | None]:
     return hint.instruction, hint.command
 
 
+def _respond_command(finding_id: str) -> str:
+    """Return the concrete command for resolving the next blocking finding."""
+    return f"agentic-preflight respond --id {finding_id} --action fixed --commit <sha>"
+
+
 def _envelope_for(run: RunDoc, **overrides) -> Envelope:
     instruction, command = _next_hint(run.state)
     fields: dict[str, Any] = {
