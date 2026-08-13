@@ -237,6 +237,9 @@ for the full workflow and [support guide](https://github.com/elanthus/agentic-pr
 for help channels. CI rejects overall coverage below 85% and also installs the built
 wheel as a `uv` tool before invoking its CLI.
 
+The review and CLI module boundaries are recorded in
+[ADR 0001](docs/adr/0001-orchestration-boundaries.md).
+
 ```bash
 uv sync --group dev
 uv run pytest

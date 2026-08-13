@@ -27,7 +27,7 @@ from ._session import (
     _require_worktree,
     _worktree_mode,
 )
-from .review import _reopen_review_if_coverage_stale
+from .review_coverage import reopen_if_stale
 
 
 def mergeback(session: Session) -> Envelope:
@@ -38,7 +38,7 @@ def mergeback(session: Session) -> Envelope:
     if not retrying_conflict:
         _assert_fresh(session, run)
     if run.state is State.TEST_GREEN:
-        run, reopened = _reopen_review_if_coverage_stale(session, run)
+        run, reopened = reopen_if_stale(session, run)
         if reopened:
             return _envelope_for(
                 run,
