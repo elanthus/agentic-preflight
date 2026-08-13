@@ -300,8 +300,7 @@ def submit_findings(
     if blocking:
         envelope.next_instruction = "Resolve each blocking finding with `respond`."
         envelope.next_command = (
-            f"agentic-preflight respond --id {blocking[0].id} "
-            "--action fixed --commit <sha>"
+            f"agentic-preflight respond --id {blocking[0].id} --action fixed --commit <sha>"
         )
     return envelope
 

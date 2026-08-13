@@ -163,8 +163,7 @@ def respond(
         next_finding = remaining[0]
         envelope.next_instruction = "Keep responding until nothing blocks, then verify."
         envelope.next_command = (
-            f"agentic-preflight respond --id {next_finding.id} "
-            "--action fixed --commit <sha>"
+            f"agentic-preflight respond --id {next_finding.id} --action fixed --commit <sha>"
         )
     else:
         envelope.next_instruction = "Nothing blocks this stage any more. Verify it."

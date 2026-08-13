@@ -35,12 +35,9 @@ def test_committed_stage_repairs_restart_with_fresh_review_coverage():
 
 
 def test_findings_submission_goes_directly_to_green_or_blocked():
+    assert next_state(State.REVIEW_AWAITING_FINDINGS, Action.SUBMIT_CLEAN) == State.REVIEW_GREEN
     assert (
-        next_state(State.REVIEW_AWAITING_FINDINGS, Action.SUBMIT_CLEAN) == State.REVIEW_GREEN
-    )
-    assert (
-        next_state(State.REVIEW_AWAITING_FINDINGS, Action.SUBMIT_BLOCKING)
-        == State.REVIEW_BLOCKED
+        next_state(State.REVIEW_AWAITING_FINDINGS, Action.SUBMIT_BLOCKING) == State.REVIEW_BLOCKED
     )
     assert next_state(State.REVIEW_BLOCKED, Action.RESPOND) == State.REVIEW_BLOCKED
     assert next_state(State.REVIEW_BLOCKED, Action.RESOLVE_GREEN) == State.REVIEW_GREEN
