@@ -32,11 +32,8 @@ from ._session import (
     _require_state,
     _require_worktree,
 )
-from .review import (
-    _invalidate_stage_result,
-    _reopen_review_if_coverage_stale,
-    _skip_test_if_not_applicable,
-)
+from .review import _skip_test_if_not_applicable
+from .review_coverage import invalidate_stage_result, reopen_if_stale
 
 
 class _StageSpec(TypedDict):
@@ -104,19 +101,19 @@ def _register_stage_fix_commits(
                 doc.head_sha = current_head
                 doc.source_head_sha = current_head
             doc.review_coverage = None
-            _invalidate_stage_result(doc, Stage.REVIEW)
+            invalidate_stage_result(doc, Stage.REVIEW)
             if stage is Stage.LINT:
                 # A lint repair changes the tree a future test must describe. This
                 # also clears a prior red test when lint is being revalidated after
                 # a committed test repair, so the lint commit is not later mistaken
                 # for another test repair.
-                _invalidate_stage_result(doc, Stage.TEST)
+                invalidate_stage_result(doc, Stage.TEST)
                 _apply(doc, Action.LINT_FIX_RESTART)
             elif stage is Stage.TEST:
                 # The previously green lint result names the pre-repair tree. Drop
                 # it before returning to docs/lint so the next lint run starts clean
                 # rather than treating this test commit as a lint repair.
-                _invalidate_stage_result(doc, Stage.LINT)
+                invalidate_stage_result(doc, Stage.LINT)
                 _apply(doc, Action.TEST_FIX_RESTART)
             run = doc
         session.store.append_event(
@@ -179,7 +176,7 @@ def run_stage(
     if not accepting_repair:
         _assert_fresh(session, run)
     if run.state in {State.DOCS_GREEN, State.TEST_GREEN}:
-        run, reopened = _reopen_review_if_coverage_stale(session, run)
+        run, reopened = reopen_if_stale(session, run)
         if reopened:
             return _envelope_for(
                 run,
