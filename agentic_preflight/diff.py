@@ -223,11 +223,12 @@ def build_bundle(
     all_files = gitx.changed_files(repo, base, head)
     kept = [p for p in all_files if not is_excluded(p, patterns)]
     dropped = [p for p in all_files if is_excluded(p, patterns)]
+    per_file = gitx.diff_text_by_path(repo, base, head, kept)
     return DiffBundle(
         base=base,
         head=head,
         files=kept,
-        per_file={p: gitx.diff_text_for_path(repo, base, head, p) for p in kept},
+        per_file=per_file,
         excluded=dropped,
     )
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 
@@ -206,7 +207,102 @@ def diff_text(cwd: Path | str, base: str, head: str = "HEAD") -> str:
 
 
 def diff_text_for_path(cwd: Path | str, base: str, head: str, path: str) -> str:
-    return run(cwd, "diff", "--no-color", f"{base}...{head}", "--", path).stdout
+    return run(
+        cwd,
+        "diff",
+        "--no-color",
+        f"{base}...{head}",
+        "--",
+        f":(literal){path}",
+    ).stdout
+
+
+_DIFF_PATH_BATCH_FILES = 256
+_DIFF_PATH_BATCH_BYTES = 24_000
+
+
+def _path_batches(paths: Sequence[str]) -> Iterator[list[str]]:
+    """Keep diff path arguments below conservative count and command-size bounds."""
+    batch: list[str] = []
+    batch_bytes = 0
+    for path in paths:
+        path_bytes = len(path.encode(errors="surrogateescape")) + len(":(literal)") + 1
+        if batch and (
+            len(batch) >= _DIFF_PATH_BATCH_FILES
+            or batch_bytes + path_bytes > _DIFF_PATH_BATCH_BYTES
+        ):
+            yield batch
+            batch = []
+            batch_bytes = 0
+        batch.append(path)
+        batch_bytes += path_bytes
+    if batch:
+        yield batch
+
+
+def _split_patches(text: str) -> list[str]:
+    """Split ordinary Git patch output at file headers.
+
+    A hunk line always carries a context/addition/deletion prefix, so an exact
+    line-start ``diff --git`` marker cannot be confused with file contents.
+    """
+    lines = text.splitlines(keepends=True)
+    starts = [index for index, line in enumerate(lines) if line.startswith("diff --git ")]
+    return [
+        "".join(lines[start : starts[position + 1] if position + 1 < len(starts) else None])
+        for position, start in enumerate(starts)
+    ]
+
+
+def _parse_raw_patch_output(text: str) -> dict[str, str]:
+    """Map patches to destination paths using Git's NUL-delimited raw prelude."""
+    try:
+        raw, patch_text = text.split("\0\0", 1)
+    except ValueError as exc:
+        raise ValueError("git diff did not separate its raw inventory from patch output") from exc
+
+    fields = raw.split("\0")
+    paths: list[str] = []
+    position = 0
+    while position < len(fields):
+        metadata = fields[position]
+        position += 1
+        if not metadata.startswith(":"):
+            raise ValueError("git diff returned malformed raw metadata")
+        status = metadata.rsplit(" ", 1)[-1]
+        path_count = 2 if status.startswith(("R", "C")) else 1
+        if position + path_count > len(fields):
+            raise ValueError("git diff raw metadata omitted a path")
+        paths.append(fields[position + path_count - 1])
+        position += path_count
+
+    patches = _split_patches(patch_text)
+    if len(paths) != len(patches):
+        raise ValueError(
+            f"git diff returned {len(paths)} raw entries but {len(patches)} patches"
+        )
+    return dict(zip(paths, patches, strict=True))
+
+
+def diff_text_by_path(
+    cwd: Path | str, base: str, head: str, paths: Sequence[str]
+) -> dict[str, str]:
+    """Return complete per-file patches using one Git process per bounded batch."""
+    per_file: dict[str, str] = {}
+    for batch in _path_batches(paths):
+        output = run(
+            cwd,
+            "diff",
+            "--raw",
+            "-z",
+            "--patch",
+            "--no-color",
+            f"{base}...{head}",
+            "--",
+            *(f":(literal){path}" for path in batch),
+        ).stdout
+        per_file.update(_parse_raw_patch_output(output))
+    return per_file
 
 
 # -- working tree -----------------------------------------------------------

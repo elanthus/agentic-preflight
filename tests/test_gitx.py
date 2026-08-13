@@ -31,6 +31,68 @@ def test_diff_text_contains_the_change(feature_repo):
     assert "src/app.py" in diff
 
 
+def test_diff_text_by_path_matches_individual_patches(feature_repo):
+    base = gitx.merge_base(feature_repo, "main", "HEAD")
+    write(feature_repo, "README.md", "# changed\n")
+    commit_all(feature_repo, "change readme")
+
+    paths = gitx.changed_files(feature_repo, base)
+    batched = gitx.diff_text_by_path(feature_repo, base, "HEAD", paths)
+
+    assert list(batched) == paths
+    assert batched == {
+        path: gitx.diff_text_for_path(feature_repo, base, "HEAD", path) for path in paths
+    }
+
+
+def test_diff_text_by_path_handles_renames_binary_and_pathspec_characters(tmp_repo):
+    shared = "".join(f"shared line {index}\n" for index in range(20))
+    write(tmp_repo, "literal[1].txt", shared + "before\n")
+    write(tmp_repo, "brackets[1].txt", "before\n")
+    (tmp_repo / "image.bin").write_bytes(b"before\0")
+    commit_all(tmp_repo, "add unusual files")
+    base = gitx.rev_parse(tmp_repo, "HEAD")
+    git("switch", "-c", "feature/unusual", cwd=tmp_repo)
+    git("mv", "literal[1].txt", "renamed file.txt", cwd=tmp_repo)
+    write(tmp_repo, "renamed file.txt", shared + "after\n")
+    write(tmp_repo, "brackets[1].txt", "after\n")
+    (tmp_repo / "image.bin").write_bytes(b"after\0")
+    commit_all(tmp_repo, "rename text and update binary")
+
+    paths = gitx.changed_files(tmp_repo, base)
+    batched = gitx.diff_text_by_path(tmp_repo, base, "HEAD", paths)
+
+    assert list(batched) == paths
+    assert batched == {
+        path: gitx.diff_text_for_path(tmp_repo, base, "HEAD", path) for path in paths
+    }
+    assert "brackets[1].txt" in batched["brackets[1].txt"]
+    assert "renamed file.txt" in batched["renamed file.txt"]
+    assert "Binary files" in batched["image.bin"]
+
+
+def test_diff_text_by_path_batches_many_files(tmp_repo, monkeypatch):
+    base = gitx.rev_parse(tmp_repo, "HEAD")
+    git("switch", "-c", "feature/many-files", cwd=tmp_repo)
+    for index in range(300):
+        write(tmp_repo, f"many/{index:03d}.txt", "changed\n")
+    commit_all(tmp_repo, "add many files")
+
+    calls = 0
+    real_run = gitx.run
+
+    def recording_run(cwd, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return real_run(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(gitx, "run", recording_run)
+    paths = [f"many/{index:03d}.txt" for index in range(300)]
+
+    assert len(gitx.diff_text_by_path(tmp_repo, base, "HEAD", paths)) == 300
+    assert calls == 2
+
+
 def test_is_clean_is_true_for_an_untouched_tree(tmp_repo):
     assert gitx.is_clean(tmp_repo) is True
 
