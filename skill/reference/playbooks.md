@@ -61,6 +61,14 @@ instead of costing a retry. Confirm the run actually did work (a test count, a r
 file, a non-empty log) before believing it. The trap is usually a flag: `-quit` on a
 Unity `-runTests` invocation exits 0 having run zero tests.
 
+## Setup failed (exit 2, `setup_failed`)
+
+Run `status` and obey its durable recovery command. An initial checkout setup failure
+returns `abort --force`; use it so reusable or strict worktrees cannot retain the active
+lease. A baseline setup failure returns the exact lint or test retry, including the
+resolved command and `--baseline`. It does not have a stage log because the stage never
+ran, so do not replace that recovery with `logs --stage`.
+
 ## Stage far slower than normal
 
 Check `[worktree] mode`. The default `in_place` mode uses the checkout's existing

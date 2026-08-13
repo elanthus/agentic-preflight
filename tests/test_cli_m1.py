@@ -416,6 +416,9 @@ def test_failed_setup_still_cleans_copied_files_from_a_reusable_runner(agent, fe
     failed = agent.run("start", expect=ExitCode.STAGE_FAILED)
     runner = Path(failed["data"]["worktree_path"])
     assert (runner / ".env").is_file()
+    status = agent.run("status")
+    assert status["data"]["setup_failure"]["scope"] == "initial"
+    assert status["next"]["command"] == "agentic-preflight abort --force"
 
     agent.run("abort", "--force")
 

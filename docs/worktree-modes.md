@@ -95,6 +95,11 @@ The command runs before review in every worktree mode and before a `--baseline` 
 its scratch worktree. A nonzero exit stops the run; a failed baseline setup is reported
 as a setup failure rather than evidence that the base commit is red.
 
+Setup failures remain recoverable after the original error scrolls away. `status`
+returns `abort --force` after initial checkout setup fails, releasing an isolated lease.
+For baseline setup failures it retains the command and exit code and returns the exact
+stage retry with `--baseline`; it never points at a stage log that was not created.
+
 An isolated mode never copies dependency directories from the source checkout. Reusable
 mode retains ignored dependency and build caches between leases, although the setup
 command still runs. Strict mode begins without retained artifacts.

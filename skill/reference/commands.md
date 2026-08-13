@@ -85,6 +85,11 @@ caches between leases, while strict mode begins without retained artifacts. Use
 `copy_files` only for ignored files such as `.env`; directories are refused with a clear
 setup instruction.
 
+The failure details and recovery command are durable. After initial setup fails,
+`status` returns `abort --force` so an isolated lease can always be released. After
+baseline setup fails, `status` returns the exact stage retry including `--baseline`
+instead of pointing at a stage log that was never created.
+
 Note the interaction with `respond`: a fix commit containing a `copy_files` path is
 rejected. Copied caches are inputs to the run, never part of the change.
 

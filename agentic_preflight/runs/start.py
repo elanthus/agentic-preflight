@@ -17,7 +17,7 @@ from ..errors import (
     WrongState,
 )
 from ..machine import Action, State
-from ..models import RunDoc, Stage, StageRecord
+from ..models import RunDoc, SetupFailure, Stage, StageRecord
 from ..store import CurrentRunExists
 from ._session import Session, _apply, _envelope_for, _new_run_id, _now
 
@@ -341,17 +341,40 @@ def start(
             "runtime": prepared.runtime.as_dict(),
         }
         if completed.returncode != 0:
+            failure = SetupFailure(
+                scope="initial",
+                command=cfg.worktree.setup_command,
+                exit_code=completed.returncode,
+                worktree_path=str(wt_path),
+                runtime=prepared.runtime.as_dict(),
+                next_instruction=(
+                    "Fix the setup command or its environment, then abort this run and "
+                    "start a fresh one. The active run keeps its configuration snapshot."
+                ),
+                next_command="agentic-preflight abort --force",
+            )
+            with session.store.transaction(run_id) as doc:
+                doc.head_sha = sync_result.head_after
+                doc.source_head_sha = sync_result.head_after if in_place else head_sha
+                doc.merge_base_sha = sync_result.base_sha
+                doc.sync_base_sha = sync_result.base_sha
+                doc.sync_base_ref = sync_result.base_ref
+                doc.sync_remote = sync_result.remote
+                doc.changed_files = changed
+                doc.risk = assessment
+                doc.setup_failure = failure
+            session.store.append_event(
+                run_id,
+                {"event": "setup_failed", **failure.model_dump(mode="json")},
+            )
             raise SetupFailed(
                 f"the setup command failed (exit {completed.returncode})",
                 state=State.SYNC_RUNNING.value,
                 run_id=run_id,
                 stage="setup",
                 data={"worktree_path": str(wt_path), "setup": setup_result},
-                next_instruction=(
-                    "Fix the setup command or its environment, then abort this run and "
-                    "start a fresh one. The active run keeps its configuration snapshot."
-                ),
-                next_command="agentic-preflight abort --force",
+                next_instruction=failure.next_instruction,
+                next_command=failure.next_command,
             )
 
     with session.store.transaction(run_id) as doc:

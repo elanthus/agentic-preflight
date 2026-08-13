@@ -217,6 +217,7 @@ stops — do not improvise a recovery from the symptom alone.
 | Stale head (exit 3, `stale_run`) | `abort --force`, then the fresh `start` it returns |
 | Diff too large (exit 2, `diff_too_large`) | Exclude generated globs; never review part of it |
 | No command configured (exit 2, `needs_command`) | Pick from `data.candidates`; distrust the first green |
+| Setup failed (exit 2, `setup_failed`) | Obey `status`: abort initial setup or preserve the baseline retry |
 | Stage far slower than normal | Check `[worktree] mode` before raising `max_attempts` |
 | Copy refused (exit 3) | `copy_files` entry is not gitignored; do not work around it |
 | Stage reports zero files to work on | Check whether `worktree_path` is under `.git/` |

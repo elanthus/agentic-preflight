@@ -272,6 +272,11 @@ def status(session: Session) -> Envelope:
             "stages": {
                 stage.value: record.model_dump(mode="json") for stage, record in run.stages.items()
             },
+            "setup_failure": (
+                run.setup_failure.model_dump(mode="json")
+                if run.setup_failure is not None
+                else None
+            ),
             # Names only — contents are never read, logged, or echoed anywhere.
             "copied_files": run.copied_files,
             "findings": [f.model_dump(mode="json") for f in findings],
@@ -286,6 +291,9 @@ def status(session: Session) -> Envelope:
             "the legal fresh-start command."
         )
         envelope.next_command = "agentic-preflight abort --force"
+    elif run.setup_failure is not None:
+        envelope.next_instruction = run.setup_failure.next_instruction
+        envelope.next_command = run.setup_failure.next_command
     elif run.state is State.MERGEBACK_CONFLICT:
         conflict = next(
             (

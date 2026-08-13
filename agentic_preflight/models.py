@@ -197,6 +197,21 @@ class StageRecord(BaseModel):
     head_sha: str | None = None
 
 
+class SetupFailure(BaseModel):
+    """Durable recovery details for setup that failed before a stage could run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scope: Literal["initial", "baseline"]
+    command: str
+    exit_code: int
+    worktree_path: str
+    next_instruction: str
+    next_command: str
+    stage: Stage | None = None
+    runtime: dict[str, Any] = Field(default_factory=dict)
+
+
 class RunDoc(BaseModel):
     """The persisted state document, ``runs/<run_id>/run.json``."""
 
@@ -230,6 +245,7 @@ class RunDoc(BaseModel):
 
     fix_commits: list[str] = Field(default_factory=list)
     stages: dict[Stage, StageRecord] = Field(default_factory=dict)
+    setup_failure: SetupFailure | None = None
 
     stale: bool = False
     gate_token: str | None = None

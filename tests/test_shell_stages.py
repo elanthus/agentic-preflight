@@ -551,6 +551,14 @@ def test_a_failed_baseline_setup_is_not_reported_as_a_red_base(docs_green):
     assert env["data"]["setup"]["exit_code"] == 9
     assert "baseline_red" not in env["data"]
     assert "--baseline" in env["next"]["command"]
-    assert agent.run("status")["data"]["stages"]["lint"]["reason"] == (
-        "baseline setup command failed"
+    status = agent.run("status")
+    assert status["data"]["stages"]["lint"]["reason"] == "baseline setup command failed"
+    assert status["data"]["stages"]["lint"]["log_path"] is None
+    assert status["data"]["setup_failure"]["scope"] == "baseline"
+    assert status["data"]["setup_failure"]["stage"] == "lint"
+    assert status["data"]["setup_failure"]["command"] == (
+        'case "$PWD" in *-baseline) exit 9;; *) exit 0;; esac'
     )
+    assert status["data"]["setup_failure"]["exit_code"] == 9
+    assert status["next"]["command"] == env["next"]["command"]
+    assert "--baseline" in status["next"]["command"]

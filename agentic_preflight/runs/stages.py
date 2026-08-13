@@ -20,7 +20,7 @@ from ..errors import (
     StaleRun,
 )
 from ..machine import Action, State
-from ..models import RunDoc, Stage, StageRecord
+from ..models import RunDoc, SetupFailure, Stage, StageRecord
 from ..stages import detect, shellstage
 from ._session import (
     Session,
@@ -236,6 +236,7 @@ def run_stage(
 
     with session.store.transaction(run.run_id) as doc:
         _apply(doc, spec["retry"] if doc.state is spec["red"] else spec["run"])
+        doc.setup_failure = None
         run = doc
 
     wt = _require_worktree(run)
@@ -244,6 +245,31 @@ def run_stage(
         try:
             baseline_red = _baseline_is_red(session, run, resolved)
         except _BaselineSetupFailure as exc:
+            retry_command = shlex.join(
+                [
+                    "agentic-preflight",
+                    "stage",
+                    "run",
+                    stage_name,
+                    "--command",
+                    resolved,
+                    "--record",
+                    "--baseline",
+                ]
+            )
+            failure = SetupFailure(
+                scope="baseline",
+                stage=stage,
+                command=exc.command,
+                exit_code=exc.exit_code,
+                worktree_path=str(wt),
+                runtime=exc.runtime,
+                next_instruction=(
+                    "The stage was not evaluated against the base commit. Fix the setup "
+                    "environment, then retry the same stage with its baseline check."
+                ),
+                next_command=retry_command,
+            )
             with session.store.transaction(run.run_id) as doc:
                 previous = doc.stages.get(stage) or StageRecord()
                 entry = StageRecord(
@@ -255,8 +281,13 @@ def run_stage(
                     head_sha=gitx.rev_parse(wt, "HEAD"),
                 )
                 doc.stages[stage] = entry
+                doc.setup_failure = failure
                 _apply(doc, spec["failed"])
                 run = doc
+            session.store.append_event(
+                run.run_id,
+                {"event": "setup_failed", **failure.model_dump(mode="json")},
+            )
             raise SetupFailed(
                 f"the baseline setup command failed (exit {exc.exit_code})",
                 state=run.state.value,
@@ -272,22 +303,8 @@ def run_stage(
                         "runtime": exc.runtime,
                     },
                 },
-                next_instruction=(
-                    "The stage was not evaluated against the base commit. Fix the setup "
-                    "environment, then retry the same stage with its baseline check."
-                ),
-                next_command=shlex.join(
-                    [
-                        "agentic-preflight",
-                        "stage",
-                        "run",
-                        stage_name,
-                        "--command",
-                        resolved,
-                        "--record",
-                        "--baseline",
-                    ]
-                ),
+                next_instruction=failure.next_instruction,
+                next_command=failure.next_command,
             ) from exc
 
     prepared = runtime.prepare_command(
