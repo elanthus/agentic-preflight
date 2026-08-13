@@ -23,6 +23,10 @@ def output_digest(output: str) -> str:
     return hashlib.sha256(output.encode()).hexdigest()
 
 
+def intent_digest(intent: str) -> str:
+    return hashlib.sha256(intent.encode()).hexdigest()
+
+
 def build(
     run: RunDoc,
     *,
@@ -73,7 +77,7 @@ def build(
         branch=run.branch,
         base_ref=run.base_ref,
         merge_base_sha=run.merge_base_sha,
-        intent_sha256=hashlib.sha256((run.intent or "").encode()).hexdigest(),
+        intent_sha256=intent_digest(run.intent or ""),
         config_sha256=run.config_digest,
         run_id=run.run_id,
         green_at=datetime.now(UTC).isoformat(timespec="seconds"),
@@ -149,7 +153,7 @@ def reuse_exact(
     reusable = (
         verified.branch == branch
         and verified.base_ref == base_ref
-        and verified.intent_sha256 == hashlib.sha256(intent.encode()).hexdigest()
+        and verified.intent_sha256 == intent_digest(intent)
         and verified.config_sha256 == config_digest
         and _has_reusable_stage_results(verified)
         and gitx.is_ancestor(repo, base_sha, target_sha)
