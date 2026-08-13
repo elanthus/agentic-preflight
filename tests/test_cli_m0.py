@@ -172,7 +172,10 @@ def test_a_blocking_finding_holds_the_run_for_responses(agent, tmp_path):
     )
     env = agent.run("submit-findings", "--file", path)
     assert env["state"] == "REVIEW_BLOCKED"
-    assert "--id F001" in env["next"]["command"]
+    assert (
+        env["next"]["command"]
+        == "agentic-preflight respond --id F001 --action fixed --commit <sha>"
+    )
     assert [f["id"] for f in env["blocking"]] == ["F001"]
     assert env["data"]["accepted"][0]["unit"] == "U0001"
     assert env["data"]["coverage"]["cited_count"] == 1

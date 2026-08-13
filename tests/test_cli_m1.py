@@ -1,11 +1,14 @@
 """M1 resolution loop: respond, fix-commit verification, abort, gc, events."""
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.machine import State
+from agentic_preflight.store import Store
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
@@ -134,11 +137,44 @@ def test_respond_points_to_the_next_finding_while_the_stage_remains_blocked(agen
 
     assert env["state"] == "REVIEW_BLOCKED"
     assert env["data"]["remaining_blocking"] == 1
-    assert "--id F002" in env["next"]["command"]
+    assert (
+        env["next"]["command"]
+        == "agentic-preflight respond --id F002 --action fixed --commit <sha>"
+    )
 
     status = agent.run("status")
     assert status["state"] == "REVIEW_BLOCKED"
     assert status["next"]["command"] == "agentic-preflight verify"
+
+
+def test_respond_tolerates_the_stage_advancing_before_the_transaction_lock(blocked, monkeypatch):
+    agent, _ = blocked
+    original_transaction = Store.transaction
+    advanced = False
+
+    @contextmanager
+    def advance_before_yield(self, run_id, *, expect_seq=None):
+        nonlocal advanced
+        with original_transaction(self, run_id, expect_seq=expect_seq) as doc:
+            if not advanced:
+                doc.state = State.REVIEW_GREEN
+                advanced = True
+            yield doc
+
+    monkeypatch.setattr(Store, "transaction", advance_before_yield)
+
+    env = agent.run(
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        "dismissed",
+        "--note",
+        "resolved concurrently",
+    )
+
+    assert env["state"] == "REVIEW_GREEN"
+    assert env["data"]["finding"]["status"] == "dismissed"
 
 
 # -- respond, the claim is checked -----------------------------------------

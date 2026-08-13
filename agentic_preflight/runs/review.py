@@ -31,6 +31,7 @@ from ._session import (
     _require_finding_stage,
     _require_state,
     _require_worktree,
+    _respond_command,
 )
 
 
@@ -299,9 +300,7 @@ def submit_findings(
     )
     if blocking:
         envelope.next_instruction = "Resolve each blocking finding with `respond`."
-        envelope.next_command = (
-            f"agentic-preflight respond --id {blocking[0].id} --action fixed --commit <sha>"
-        )
+        envelope.next_command = _respond_command(blocking[0].id)
     return envelope
 
 

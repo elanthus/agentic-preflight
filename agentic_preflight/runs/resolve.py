@@ -26,6 +26,7 @@ from ._session import (
     _require_finding_stage,
     _require_state,
     _require_worktree,
+    _respond_command,
 )
 
 RESPONSE_ACTIONS = ("fixed", "dismissed", "accepted")
@@ -122,7 +123,8 @@ def respond(
         if accepting_in_place_fix:
             doc.head_sha = new_commits[-1]
             doc.source_head_sha = new_commits[-1]
-        _apply(doc, Action.RESPOND)
+        if doc.state in (State.REVIEW_BLOCKED, State.DOCS_BLOCKED):
+            _apply(doc, Action.RESPOND)
         doc.changed_files = changed_files
         doc.risk = assessment
         run = doc
@@ -162,9 +164,7 @@ def respond(
     if remaining:
         next_finding = remaining[0]
         envelope.next_instruction = "Keep responding until nothing blocks, then verify."
-        envelope.next_command = (
-            f"agentic-preflight respond --id {next_finding.id} --action fixed --commit <sha>"
-        )
+        envelope.next_command = _respond_command(next_finding.id)
     else:
         envelope.next_instruction = "Nothing blocks this stage any more. Verify it."
         envelope.next_command = "agentic-preflight verify"
