@@ -110,16 +110,8 @@ def test_hook_installer_directly_refuses_and_then_replaces_a_foreign_hook(tmp_pa
     assert written is False
 
 
-def test_init_reports_an_unpinned_node_project_and_in_place_default(feature_repo):
-    write(
-        feature_repo,
-        "package.json",
-        json.dumps({"engines": {"node": ">=24 <25"}}),
-    )
+def test_init_reports_in_place_default(feature_repo):
     env = ScriptedAgent(feature_repo).run("init", "--no-hook")
-    assert env["data"]["runtime"]["node_project"] is True
-    assert ">=24 <25" in env["data"]["warnings"][0]
-    assert "Pin Node" in env["next"]["instruction"]
     assert env["data"]["worktree_mode"] == "in_place"
     assert env["data"]["worktree_root"] is None
 

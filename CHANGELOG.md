@@ -7,6 +7,10 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Removed automatic runtime-manager discovery and command wrapping. Setup, review,
+  lint, and test commands now run directly in the configured environment, and the
+  `[runtime]` configuration section is no longer supported.
+
 - Replaced Node-specific automatic npm/pnpm installation and reusable dependency
   fingerprinting with the language-neutral `[worktree] setup_command`. Setup now fails
   explicitly on a nonzero exit, including in baseline scratch worktrees, where an

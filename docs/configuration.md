@@ -58,10 +58,6 @@ root = "/optional/external/path"  # isolated modes only; defaults outside .git
 copy_files = [".env"]             # must already be ignored
 # setup_command = "uv sync"       # prepare dependencies and ignored build inputs
 
-[runtime]
-manager = "auto"                  # or "none", "nvm", "volta", "asdf", "mise", ...
-strict = true                      # never fall back when a pin cannot be activated
-
 [gate]
 mode = "token"                    # or "manual"
 

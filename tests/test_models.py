@@ -86,7 +86,6 @@ def test_run_doc_round_trips_through_json():
             command="uv sync",
             exit_code=7,
             worktree_path="/repos/demo-baseline",
-            runtime={"manager": "none"},
             next_instruction="Retry the baseline setup.",
             next_command="agentic-preflight stage run lint --baseline",
         ),

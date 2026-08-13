@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import gitx, hook, runtime, worktree
+from . import gitx, hook, worktree
 from .config import REPO_CONFIG_NAME, load_config
 from .envelope import Envelope
 
@@ -53,12 +53,6 @@ copy_files = [".env"]
 # worktree. Use it to install dependencies or prepare ignored build inputs.
 # setup_command = "uv sync"
 
-# Detect committed pins for nvm, Volta, asdf, mise, fnm, and nodenv. Strict mode
-# fails clearly instead of silently running a different system runtime.
-# [runtime]
-# manager = "auto"
-# strict = true
-
 [gate]
 # "token" mints a confirmation token; "manual" refuses to push at all, so a
 # person must run the command themselves. Risk policy does not change this mode.
@@ -101,21 +95,10 @@ def init(repo_root: Path | str, *, force: bool = False, install_hook: bool = Tru
         _ = written
 
     cfg = load_config(repo_root)
-    runtime_info = runtime.inspect_project(repo_root, cfg.runtime.manager)
-    warnings: list[str] = []
-    if runtime_info.reason:
-        warnings.append(runtime_info.reason)
-
     instruction = (
         "Set [commands] lint and test in .agentic-preflight.toml so stages do not have "
         "to be detected on every run, then start a run."
     )
-    if runtime_info.node_project and not runtime_info.pin_file:
-        instruction = (
-            "Pin Node with .nvmrc, .node-version, Volta, asdf, or mise so agentic-preflight "
-            "can reproduce the runtime in non-interactive stages. Then set [commands] "
-            "lint and test and start a run."
-        )
 
     return Envelope(
         data={
@@ -130,8 +113,6 @@ def init(repo_root: Path | str, *, force: bool = False, install_hook: bool = Tru
                 else str(worktree.resolve_root(repo_root, cfg.worktree.root))
             ),
             "worktree_mode": cfg.worktree.mode,
-            "runtime": runtime_info.as_dict(),
-            "warnings": warnings,
         },
         next_instruction=instruction,
         next_command='agentic-preflight start --intent "<objective and acceptance criteria>"',

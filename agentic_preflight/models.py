@@ -209,7 +209,6 @@ class SetupFailure(BaseModel):
     next_instruction: str
     next_command: str
     stage: Stage | None = None
-    runtime: dict[str, Any] = Field(default_factory=dict)
 
 
 class RunDoc(BaseModel):

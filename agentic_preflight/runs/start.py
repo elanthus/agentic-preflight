@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .. import attestation as attestationmod
-from .. import gitx, risk, runtime, worktree
+from .. import gitx, risk, worktree
 from .. import sync as syncmod
 from ..config import config_digest, load_config
 from ..envelope import Envelope
@@ -325,20 +325,13 @@ def start(
 
     setup_result = None
     if cfg.worktree.setup_command:
-        prepared = runtime.prepare_command(
-            wt_path,
-            cfg.worktree.setup_command,
-            manager=cfg.runtime.manager,
-            strict=cfg.runtime.strict,
-        )
         completed = worktree.run_setup(
-            wt_path, prepared.command, timeout_seconds=cfg.stage.timeout_seconds
+            wt_path, cfg.worktree.setup_command, timeout_seconds=cfg.stage.timeout_seconds
         )
         setup_result = {
             "kind": "custom",
             "command": cfg.worktree.setup_command,
             "exit_code": completed.returncode,
-            "runtime": prepared.runtime.as_dict(),
         }
         if completed.returncode != 0:
             failure = SetupFailure(
@@ -346,7 +339,6 @@ def start(
                 command=cfg.worktree.setup_command,
                 exit_code=completed.returncode,
                 worktree_path=str(wt_path),
-                runtime=prepared.runtime.as_dict(),
                 next_instruction=(
                     "Fix the setup command or its environment, then abort this run and "
                     "start a fresh one. The active run keeps its configuration snapshot."
