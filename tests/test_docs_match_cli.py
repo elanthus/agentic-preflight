@@ -76,6 +76,7 @@ def test_skill_md_exists_with_front_matter():
         REFERENCE / "commands.md",
         REFERENCE / "findings-schema.md",
         REFERENCE / "docs-rubric.md",
+        REFERENCE / "playbooks.md",
         README,
     ],
 )
@@ -114,8 +115,34 @@ def test_skill_links_the_complete_command_reference():
     assert "reference/commands.md" in text
 
 
-def test_skill_documents_mergeback_conflict_retry():
+def test_skill_links_the_failure_playbooks():
+    """The index is only useful if it points somewhere."""
     text = SKILL.read_text()
+    assert "reference/playbooks.md" in text
+
+
+def playbook_index() -> str:
+    """The pipe-table rows under SKILL.md's `## Failure playbooks` heading.
+
+    Scoped to the table on purpose: matching against the whole file would let a
+    playbook dropped from the index still pass because its name appears in prose
+    somewhere else.
+    """
+    section = re.search(r"^## Failure playbooks\n(.*?)^## ", SKILL.read_text(), re.DOTALL | re.M)
+    return "\n".join(line for line in section.group(1).splitlines() if line.startswith("|"))
+
+
+def test_the_playbook_index_covers_every_playbook():
+    """A playbook nobody can find from SKILL.md is a playbook nobody reads."""
+    headings = set(re.findall(r"^## (.+)$", (REFERENCE / "playbooks.md").read_text(), re.MULTILINE))
+    index = playbook_index()
+    # Index rows carry the symptom; the heading's parenthetical is kept verbatim.
+    missing = {h for h in headings if h not in index}
+    assert missing == set(), f"playbooks missing from the SKILL.md index: {missing}"
+
+
+def test_skill_documents_mergeback_conflict_retry():
+    text = (REFERENCE / "playbooks.md").read_text()
     assert "`mergeback` is the legal retry" in text
     assert "report is stored in the event log" in text
     assert "no outbound transition" not in text
