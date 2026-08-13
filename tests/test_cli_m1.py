@@ -136,6 +136,10 @@ def test_respond_points_to_the_next_finding_while_the_stage_remains_blocked(agen
     assert env["data"]["remaining_blocking"] == 1
     assert "--id F002" in env["next"]["command"]
 
+    status = agent.run("status")
+    assert status["state"] == "REVIEW_BLOCKED"
+    assert status["next"]["command"] == "agentic-preflight verify"
+
 
 # -- respond, the claim is checked -----------------------------------------
 

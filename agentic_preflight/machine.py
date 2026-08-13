@@ -160,8 +160,8 @@ def _stage_cycle(
             *invalidate,
         ),
         blocked: _state(
-            "Resolve each blocking finding with `respond`.",
-            "agentic-preflight respond --id F001 --action fixed --commit <sha>",
+            "Check the blocking set and continue resolving findings.",
+            "agentic-preflight verify",
             (Action.RESPOND, blocked),
             (Action.RESOLVE_GREEN, green),
             *invalidate,

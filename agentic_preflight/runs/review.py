@@ -286,7 +286,7 @@ def submit_findings(
         },
     )
 
-    return _envelope_for(
+    envelope = _envelope_for(
         run,
         stage=stage.value,
         data={
@@ -297,6 +297,13 @@ def submit_findings(
         },
         blocking=[f.model_dump(mode="json") for f in blocking],
     )
+    if blocking:
+        envelope.next_instruction = "Resolve each blocking finding with `respond`."
+        envelope.next_command = (
+            f"agentic-preflight respond --id {blocking[0].id} "
+            "--action fixed --commit <sha>"
+        )
+    return envelope
 
 
 def verify(session: Session) -> Envelope:
