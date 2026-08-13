@@ -132,13 +132,20 @@ def test_attestation_requires_a_complete_stage_set_and_shell_evidence():
         "branch": "feature/x",
         "base_ref": "main",
         "merge_base_sha": "c" * 40,
+        "intent_sha256": "d" * 64,
+        "config_sha256": "e" * 64,
         "run_id": "r_test",
         "green_at": "2026-01-01T00:00:00+00:00",
         "stages": _attestation_stages(),
     }
     attestation = Attestation(**payload)
-    assert attestation.schema_version == 3
+    assert attestation.schema_version == 4
     assert attestation.stages[Stage.TEST].command == "pytest"
+
+    payload["schema_version"] = 3
+    with pytest.raises(ValidationError, match="schema_version"):
+        Attestation(**payload)
+    payload["schema_version"] = 4
 
     payload["stages"] = {**_attestation_stages(), Stage.TEST: AttestedStage(status="green")}
     with pytest.raises(ValidationError, match="lacks process evidence"):
@@ -154,6 +161,8 @@ def test_attestation_allows_an_explicit_shell_stage_skip_without_fake_evidence()
         branch="feature/docs",
         base_ref="main",
         merge_base_sha="c" * 40,
+        intent_sha256="d" * 64,
+        config_sha256="e" * 64,
         run_id="r_test",
         green_at="2026-01-01T00:00:00+00:00",
         stages=stages,
@@ -171,6 +180,8 @@ def test_attestation_rejects_a_skip_without_a_reason():
             branch="feature/docs",
             base_ref="main",
             merge_base_sha="c" * 40,
+            intent_sha256="d" * 64,
+            config_sha256="e" * 64,
             run_id="r_test",
             green_at="2026-01-01T00:00:00+00:00",
             stages=stages,
@@ -187,6 +198,8 @@ def test_command_review_attestation_requires_process_evidence():
         "branch": "feature/x",
         "base_ref": "main",
         "merge_base_sha": "c" * 40,
+        "intent_sha256": "d" * 64,
+        "config_sha256": "e" * 64,
         "run_id": "r_test",
         "green_at": "2026-01-01T00:00:00+00:00",
         "stages": stages,

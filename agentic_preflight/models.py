@@ -280,12 +280,14 @@ class Attestation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["agentic-preflight-attestation"] = "agentic-preflight-attestation"
-    schema_version: Literal[3] = 3
+    schema_version: Literal[4] = 4
     sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     tree_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     branch: str
     base_ref: str
     merge_base_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    intent_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    config_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     run_id: str
     green_at: str
     stages: dict[Stage, AttestedStage]

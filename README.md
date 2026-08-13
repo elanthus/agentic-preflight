@@ -9,9 +9,9 @@
 
 Agentic Preflight records a review, test, documentation, and lint result against a
 commit, and a pre-push hook refuses a commit with no applicable green run. A
-history-only rebase keeps green only when the complete tree, effective preflight
-configuration, and Git's clean merge result against the freshly fetched base are
-unchanged; content-changing rewrites and config changes still require a new run.
+freshly fetched base keeps green only when synchronization leaves the exact attested
+commit unchanged, that commit contains the fresh base, and the effective configuration
+and user intent still match. Any rewritten commit requires a new run.
 
 ![A push blocked by the pre-push hook, a review that catches an unguarded division by
 zero, the fix verified, and the gate stopping to ask before it pushes](https://raw.githubusercontent.com/elanthus/agentic-preflight/v0.3.0/docs/demo.gif)
