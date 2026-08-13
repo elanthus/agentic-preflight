@@ -273,9 +273,7 @@ def status(session: Session) -> Envelope:
                 stage.value: record.model_dump(mode="json") for stage, record in run.stages.items()
             },
             "setup_failure": (
-                run.setup_failure.model_dump(mode="json")
-                if run.setup_failure is not None
-                else None
+                run.setup_failure.model_dump(mode="json") if run.setup_failure is not None else None
             ),
             # Names only — contents are never read, logged, or echoed anywhere.
             "copied_files": run.copied_files,
