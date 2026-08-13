@@ -1,9 +1,10 @@
 # Failure playbooks
 
-Each entry starts from what the CLI actually returned — an exit code and an error
-code — because that is what you have when a run stops. The universal recovery rule
-still comes first: **any exit 3 → run `status` → obey `next`.** `status` is legal in
-every state, and when you are unsure where a run is, it is always the right call.
+Entries are keyed by symptom, with the exit code and error code given where the CLI
+supplies one — several of these surface as a slow or wrong-looking stage rather than
+as a failed command. The universal recovery rule still comes first: **any exit 3 → run
+`status` → obey `next`.** `status` is legal in every state, and when you are unsure
+where a run is, it is always the right call.
 
 ## Merge-back conflict (exit 4, isolated modes only)
 

@@ -121,12 +121,23 @@ def test_skill_links_the_failure_playbooks():
     assert "reference/playbooks.md" in text
 
 
+def playbook_index() -> str:
+    """The pipe-table rows under SKILL.md's `## Failure playbooks` heading.
+
+    Scoped to the table on purpose: matching against the whole file would let a
+    playbook dropped from the index still pass because its name appears in prose
+    somewhere else.
+    """
+    section = re.search(r"^## Failure playbooks\n(.*?)^## ", SKILL.read_text(), re.DOTALL | re.M)
+    return "\n".join(line for line in section.group(1).splitlines() if line.startswith("|"))
+
+
 def test_the_playbook_index_covers_every_playbook():
     """A playbook nobody can find from SKILL.md is a playbook nobody reads."""
     headings = set(re.findall(r"^## (.+)$", (REFERENCE / "playbooks.md").read_text(), re.MULTILINE))
-    index = SKILL.read_text()
-    # Index rows carry the symptom; the heading's parenthetical is dropped in the table.
-    missing = {h for h in headings if h.split(" (")[0] not in index}
+    index = playbook_index()
+    # Index rows carry the symptom; the heading's parenthetical is kept verbatim.
+    missing = {h for h in headings if h not in index}
     assert missing == set(), f"playbooks missing from the SKILL.md index: {missing}"
 
 
