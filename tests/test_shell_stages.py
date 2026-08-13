@@ -534,6 +534,7 @@ def test_a_failed_baseline_setup_is_not_reported_as_a_red_base(docs_green):
         "setup_command = 'case \"$PWD\" in *-baseline) exit 9;; *) exit 0;; esac'\n"
     )
 
+    active_worktree = agent.run("status")["data"]["worktree_path"]
     env = agent.run(
         "stage",
         "run",
@@ -548,11 +549,14 @@ def test_a_failed_baseline_setup_is_not_reported_as_a_red_base(docs_green):
     assert env["error"]["code"] == "setup_failed"
     assert env["state"] == "LINT_RED"
     assert env["data"]["scope"] == "baseline"
+    assert env["data"]["worktree_path"] != active_worktree
+    assert env["data"]["worktree_path"].endswith("-baseline")
     assert env["data"]["setup"]["exit_code"] == 9
     assert "baseline_red" not in env["data"]
     assert "--baseline" in env["next"]["command"]
     status = agent.run("status")
     assert status["data"]["stages"]["lint"]["reason"] == "baseline setup command failed"
+    assert status["data"]["stages"]["lint"]["attempts"] == 1
     assert status["data"]["stages"]["lint"]["log_path"] is None
     assert status["data"]["setup_failure"]["scope"] == "baseline"
     assert status["data"]["setup_failure"]["stage"] == "lint"
@@ -560,5 +564,39 @@ def test_a_failed_baseline_setup_is_not_reported_as_a_red_base(docs_green):
         'case "$PWD" in *-baseline) exit 9;; *) exit 0;; esac'
     )
     assert status["data"]["setup_failure"]["exit_code"] == 9
+    assert status["data"]["setup_failure"]["worktree_path"] == env["data"]["worktree_path"]
     assert status["next"]["command"] == env["next"]["command"]
     assert "--baseline" in status["next"]["command"]
+
+
+def test_repeated_baseline_setup_failures_stop_without_a_nonexistent_log(docs_green):
+    agent = docs_green(
+        "[docs]\nenabled = false\n\n"
+        "[stage]\nmax_attempts = 2\n\n"
+        "[worktree]\n"
+        "setup_command = 'case \"$PWD\" in *-baseline) exit 9;; *) exit 0;; esac'\n"
+    )
+    command = [
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "exit 1",
+        "--record",
+        "--baseline",
+    ]
+
+    for _ in range(2):
+        agent.run(*command, expect=ExitCode.STAGE_FAILED)
+
+    status = agent.run("status")
+    assert status["data"]["stages"]["lint"]["attempts"] == 2
+    assert status["data"]["stages"]["lint"]["log_path"] is None
+
+    env = agent.run(*command, expect=ExitCode.NEEDS_HUMAN)
+
+    assert env["error"]["code"] == "max_attempts"
+    assert env["data"]["attempts"] == 2
+    assert env["data"]["setup_failure"]["scope"] == "baseline"
+    assert env["next"]["command"] == "agentic-preflight abort --force"
+    assert "no stage log" in env["next"]["instruction"]

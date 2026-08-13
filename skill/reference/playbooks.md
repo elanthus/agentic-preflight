@@ -22,8 +22,10 @@ the conflict is real, check the user's tree was clean — see non-negotiable 7.
 ## Stage red after max attempts (exit 4)
 
 Stop retrying — you have already tried `max_attempts` times and the tool is telling
-you the loop is not converging. Show the user `agentic-preflight logs --stage <name>`
-output and ask how to proceed.
+you the loop is not converging. For a stage failure, show the user
+`agentic-preflight logs --stage <name>` output and ask how to proceed. For a baseline
+setup failure, no stage log exists; show `data.setup_failure` and obey the returned
+`agentic-preflight abort --force` command.
 
 ## Hosted CI failed
 

@@ -41,6 +41,7 @@ from .review_coverage import invalidate_stage_result, reopen_if_stale
 class _BaselineSetupFailure(Exception):
     command: str
     exit_code: int
+    worktree_path: str
     runtime: dict
 
 
@@ -218,6 +219,30 @@ def run_stage(
             next_command="agentic-preflight context",
         )
     if record_entry.attempts >= session.config.stage.max_attempts:
+        setup_failure = run.setup_failure
+        if (
+            setup_failure is not None
+            and setup_failure.scope == "baseline"
+            and setup_failure.stage is stage
+        ):
+            raise MaxAttempts(
+                f"the {stage_name} baseline setup has failed {record_entry.attempts} times "
+                f"(max_attempts={session.config.stage.max_attempts}); stopping rather than "
+                "looping",
+                state=run.state.value,
+                run_id=run.run_id,
+                stage=stage_name,
+                data={
+                    "attempts": record_entry.attempts,
+                    "stage": stage_name,
+                    "setup_failure": setup_failure.model_dump(mode="json"),
+                },
+                next_instruction=(
+                    "The baseline setup never reached the stage, so there is no stage log. "
+                    "Abort this run, fix the setup environment, then start a fresh run."
+                ),
+                next_command="agentic-preflight abort --force",
+            )
         raise MaxAttempts(
             f"the {stage_name} stage has failed {record_entry.attempts} times "
             f"(max_attempts={session.config.stage.max_attempts}); stopping rather than "
@@ -262,7 +287,7 @@ def run_stage(
                 stage=stage,
                 command=exc.command,
                 exit_code=exc.exit_code,
-                worktree_path=str(wt),
+                worktree_path=exc.worktree_path,
                 runtime=exc.runtime,
                 next_instruction=(
                     "The stage was not evaluated against the base commit. Fix the setup "
@@ -274,7 +299,7 @@ def run_stage(
                 previous = doc.stages.get(stage) or StageRecord()
                 entry = StageRecord(
                     status="red",
-                    attempts=previous.attempts,
+                    attempts=previous.attempts + 1,
                     command=resolved,
                     reason="baseline setup command failed",
                     finished_at=_now(),
@@ -295,7 +320,7 @@ def run_stage(
                 stage=stage_name,
                 data={
                     "scope": "baseline",
-                    "worktree_path": str(wt),
+                    "worktree_path": exc.worktree_path,
                     "setup": {
                         "kind": "custom",
                         "command": exc.command,
@@ -426,9 +451,10 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
             )
             if completed.returncode != 0:
                 raise _BaselineSetupFailure(
-                    session.config.worktree.setup_command,
-                    completed.returncode,
-                    setup.runtime.as_dict(),
+                    command=session.config.worktree.setup_command,
+                    exit_code=completed.returncode,
+                    worktree_path=str(scratch),
+                    runtime=setup.runtime.as_dict(),
                 )
         prepared = runtime.prepare_command(
             scratch,
