@@ -72,19 +72,18 @@ For isolated modes the path is outside both the repository and its `.git` direct
 which avoids Jest's hard-coded VCS-directory exclusion. Override that location with
 `[worktree] root`.
 
-**Strict mode has no build cache.** If a lint or test stage is far slower there
+**Strict mode has no retained build cache.** If a lint or test stage is far slower there
 than in the user's tree, that is almost always the cause — not a hanging command. The
 worktree is a clean checkout, so every gitignored artifact directory the toolchain
 relies on is absent and gets rebuilt from nothing on the first run.
 
-With `[worktree] dependency_setup = "auto"`, a pnpm lockfile uses
-`pnpm install --frozen-lockfile`; npm uses `npm ci`. Reusable mode skips the install
-while its dependency/runtime fingerprint matches and `node_modules` remains present.
-Strict mode installs on every run. In-place mode uses the checkout's existing
-dependencies and performs no automatic install. The source checkout's `node_modules`
-is never linked into an isolated mode.
-`setup_command` overrides this automatic setup. Use `copy_files` only for ignored files
-such as `.env`; directories are refused with a clear setup instruction.
+Agentic Preflight performs no automatic dependency installation. Configure
+`setup_command` to prepare the validation checkout; it runs before review in every mode
+and before a `--baseline` stage in its scratch worktree. A nonzero exit stops setup
+instead of allowing review or reporting the base as red. Reusable mode preserves ignored
+caches between leases, while strict mode begins without retained artifacts. Use
+`copy_files` only for ignored files such as `.env`; directories are refused with a clear
+setup instruction.
 
 Note the interaction with `respond`: a fix commit containing a `copy_files` path is
 rejected. Copied caches are inputs to the run, never part of the change.

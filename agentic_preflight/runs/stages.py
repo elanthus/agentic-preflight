@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import shlex
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TypedDict
 
-from .. import dependencies as dependenciesmod
 from .. import gitx, runtime, worktree
 from ..attestation import output_digest
 from ..envelope import Envelope
@@ -15,6 +15,7 @@ from ..errors import (
     DirtyTree,
     MaxAttempts,
     NoLog,
+    SetupFailed,
     StageFailed,
     StaleRun,
 )
@@ -34,6 +35,13 @@ from ._session import (
 )
 from .review import _skip_test_if_not_applicable
 from .review_coverage import invalidate_stage_result, reopen_if_stale
+
+
+@dataclass(frozen=True)
+class _BaselineSetupFailure(Exception):
+    command: str
+    exit_code: int
+    runtime: dict
 
 
 class _StageSpec(TypedDict):
@@ -233,7 +241,54 @@ def run_stage(
     wt = _require_worktree(run)
     baseline_red = None
     if baseline:
-        baseline_red = _baseline_is_red(session, run, resolved)
+        try:
+            baseline_red = _baseline_is_red(session, run, resolved)
+        except _BaselineSetupFailure as exc:
+            with session.store.transaction(run.run_id) as doc:
+                previous = doc.stages.get(stage) or StageRecord()
+                entry = StageRecord(
+                    status="red",
+                    attempts=previous.attempts,
+                    command=resolved,
+                    reason="baseline setup command failed",
+                    finished_at=_now(),
+                    head_sha=gitx.rev_parse(wt, "HEAD"),
+                )
+                doc.stages[stage] = entry
+                _apply(doc, spec["failed"])
+                run = doc
+            raise SetupFailed(
+                f"the baseline setup command failed (exit {exc.exit_code})",
+                state=run.state.value,
+                run_id=run.run_id,
+                stage=stage_name,
+                data={
+                    "scope": "baseline",
+                    "worktree_path": str(wt),
+                    "setup": {
+                        "kind": "custom",
+                        "command": exc.command,
+                        "exit_code": exc.exit_code,
+                        "runtime": exc.runtime,
+                    },
+                },
+                next_instruction=(
+                    "The stage was not evaluated against the base commit. Fix the setup "
+                    "environment, then retry the same stage with its baseline check."
+                ),
+                next_command=shlex.join(
+                    [
+                        "agentic-preflight",
+                        "stage",
+                        "run",
+                        stage_name,
+                        "--command",
+                        resolved,
+                        "--record",
+                        "--baseline",
+                    ]
+                ),
+            ) from exc
 
     prepared = runtime.prepare_command(
         wt,
@@ -269,6 +324,7 @@ def run_stage(
     with session.store.transaction(run.run_id) as doc:
         entry = doc.stages.get(stage) or StageRecord()
         entry.command = resolved
+        entry.reason = None
         entry.exit_code = result.exit_code
         entry.output_sha256 = output_digest(clean_output)
         entry.log_path = str(log_path)
@@ -346,18 +402,17 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
                 manager=session.config.runtime.manager,
                 strict=session.config.runtime.strict,
             )
-            worktree.run_setup(
+            completed = worktree.run_setup(
                 scratch,
                 setup.command,
                 timeout_seconds=session.config.stage.timeout_seconds,
             )
-        elif session.config.worktree.dependency_setup == "auto":
-            dependenciesmod.setup(
-                scratch,
-                runtime_manager=session.config.runtime.manager,
-                runtime_strict=session.config.runtime.strict,
-                timeout_seconds=session.config.stage.timeout_seconds,
-            )
+            if completed.returncode != 0:
+                raise _BaselineSetupFailure(
+                    session.config.worktree.setup_command,
+                    completed.returncode,
+                    setup.runtime.as_dict(),
+                )
         prepared = runtime.prepare_command(
             scratch,
             command,

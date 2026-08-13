@@ -14,7 +14,7 @@ def test_defaults_apply_when_no_config_file_exists(tmp_repo, tmp_path):
     assert cfg.worktree.copy_files == [".env"]
     assert cfg.worktree.root is None
     assert cfg.worktree.mode == "in_place"
-    assert cfg.worktree.dependency_setup == "auto"
+    assert cfg.worktree.setup_command is None
     assert cfg.runtime.manager == "auto"
     assert cfg.runtime.strict is True
     assert cfg.gate.mode == "token"
@@ -173,15 +173,6 @@ def test_runtime_manager_rejects_an_unknown_value(tmp_repo, tmp_path):
     with pytest.raises(ConfigError) as exc:
         load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
     assert "magic" in str(exc.value)
-
-
-def test_dependency_setup_rejects_an_unknown_mode(tmp_repo, tmp_path):
-    (tmp_repo / ".agentic-preflight.toml").write_text(
-        "[worktree]\ndependency_setup = 'sometimes'\n"
-    )
-    with pytest.raises(ConfigError) as exc:
-        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
-    assert "sometimes" in str(exc.value)
 
 
 def test_worktree_mode_rejects_an_unknown_value(tmp_repo, tmp_path):

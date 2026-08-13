@@ -64,13 +64,11 @@ Unity `-runTests` invocation exits 0 having run zero tests.
 ## Stage far slower than normal
 
 Check `[worktree] mode`. The default `in_place` mode uses the checkout's existing
-environment and does not run an automatic dependency install. The reusable runner
-retains ignored build caches and skips Node installation while its fingerprint
-matches. Strict mode has no build cache and runs the frozen install every time.
-Isolated modes do not share the source checkout's `node_modules`; use
-`[worktree] setup_command` to prepare non-Node caches. `copy_files` is for ignored
-files such as `.env`, not directories. Do not raise `[stage] max_attempts` to paper
-over it.
+environment. The reusable runner retains ignored dependency and build caches, while
+strict mode begins without them. Agentic Preflight does not install dependencies
+automatically; isolated modes need `[worktree] setup_command` when the validation
+checkout requires preparation. `copy_files` is for ignored files such as `.env`, not
+directories. Do not raise `[stage] max_attempts` to paper over it.
 
 ## Copy refused (exit 3)
 

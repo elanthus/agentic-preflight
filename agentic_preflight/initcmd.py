@@ -49,11 +49,8 @@ mode = "in_place"
 # gitignored and are forbidden from repair commits. Dotenv values that appear
 # verbatim in captured output are redacted; other formats are not guaranteed.
 copy_files = [".env"]
-# Auto-detect pnpm/npm lockfiles. pnpm gets a frozen install backed by its
-# shared store; in-place mode uses this checkout's existing dependencies,
-# reusable mode retains a fingerprint-matched install, and strict mode runs a
-# clean install in every new worktree.
-dependency_setup = "auto"
+# Runs before review in every mode and before a --baseline stage in its scratch
+# worktree. Use it to install dependencies or prepare ignored build inputs.
 # setup_command = "uv sync"
 
 # Detect committed pins for nvm, Volta, asdf, mise, fnm, and nodenv. Strict mode

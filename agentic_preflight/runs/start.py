@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from .. import attestation as attestationmod
-from .. import dependencies as dependenciesmod
 from .. import gitx, risk, runtime, worktree
 from .. import sync as syncmod
 from ..config import config_digest, load_config
@@ -13,6 +12,7 @@ from ..errors import (
     EmptyDiff,
     IntentRequired,
     NeedsHuman,
+    SetupFailed,
     SyncConflictError,
     WrongState,
 )
@@ -140,7 +140,6 @@ def start(
                         "is still leased; recover or release its run first"
                     )
                 worktree.remove(repo, retained_runner)
-                session.store.runner_dependency_state_path.unlink(missing_ok=True)
             worktree.create(repo, path=wt_path, branch=wt_branch, head_sha=head_sha)
     except worktree.WorktreeError as exc:
         with session.store.transaction(run_id) as doc:
@@ -319,6 +318,11 @@ def start(
         docs_blocking_severities=cfg.docs.blocking_severities,
     )
 
+    # Persist copied paths before setup so an abort after a failed command still
+    # removes secret-bearing copies from a reusable runner.
+    with session.store.transaction(run_id) as doc:
+        doc.copied_files = copied
+
     setup_result = None
     if cfg.worktree.setup_command:
         prepared = runtime.prepare_command(
@@ -336,33 +340,23 @@ def start(
             "exit_code": completed.returncode,
             "runtime": prepared.runtime.as_dict(),
         }
-    elif cfg.worktree.dependency_setup == "auto" and in_place:
-        setup_result = {
-            "kind": "dependencies",
-            "manager": "checkout",
-            "action": "reuse",
-            "command": None,
-            "reason": "in-place mode uses the checkout's existing dependency environment",
-            "node": None,
-            "exit_code": 0,
-            "fingerprint": None,
-        }
-    elif cfg.worktree.dependency_setup == "auto":
-        setup_result = {
-            "kind": "dependencies",
-            **dependenciesmod.setup(
-                wt_path,
-                cache_state_path=(session.store.runner_dependency_state_path if reusable else None),
-                runtime_manager=cfg.runtime.manager,
-                runtime_strict=cfg.runtime.strict,
-                timeout_seconds=cfg.stage.timeout_seconds,
-            ).as_dict(),
-        }
+        if completed.returncode != 0:
+            raise SetupFailed(
+                f"the setup command failed (exit {completed.returncode})",
+                state=State.SYNC_RUNNING.value,
+                run_id=run_id,
+                stage="setup",
+                data={"worktree_path": str(wt_path), "setup": setup_result},
+                next_instruction=(
+                    "Fix the setup command or its environment, then abort this run and "
+                    "start a fresh one. The active run keeps its configuration snapshot."
+                ),
+                next_command="agentic-preflight abort --force",
+            )
 
     with session.store.transaction(run_id) as doc:
         doc.worktree_path = str(wt_path)
         doc.worktree_branch = wt_branch
-        doc.copied_files = copied
         doc.head_sha = sync_result.head_after
         doc.source_head_sha = sync_result.head_after if in_place else head_sha
         doc.merge_base_sha = sync_result.base_sha

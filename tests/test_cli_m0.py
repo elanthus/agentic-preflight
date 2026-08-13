@@ -78,6 +78,20 @@ def test_start_refuses_a_dirty_tree(agent, feature_repo):
     assert env["error"]["code"] == "dirty_tree"
 
 
+def test_start_stops_when_the_setup_command_fails(agent, feature_repo):
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nsetup_command = 'exit 7'\n")
+    commit_all(feature_repo, "configure failing setup")
+
+    env = agent.run("start", expect=ExitCode.STAGE_FAILED)
+
+    assert env["error"]["code"] == "setup_failed"
+    assert env["stage"] == "setup"
+    assert env["data"]["setup"]["command"] == "exit 7"
+    assert env["data"]["setup"]["exit_code"] == 7
+    assert env["next"]["command"] == "agentic-preflight abort --force"
+    assert agent.run("abort", "--force")["state"] == "ABORTED"
+
+
 def test_start_refuses_a_second_lease_while_a_run_is_active(agent):
     first = agent.run("start")
 

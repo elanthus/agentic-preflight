@@ -27,12 +27,14 @@ Cherry-picked merge-back is handled via tree-equivalence attestation.
 ## Isolated worktrees can differ from your environment
 
 In-place mode deliberately uses the checkout's existing dependencies and ignored files. An
-isolated runner does not inherit the source checkout's `.venv` or `.env`.
+isolated runner does not inherit the source checkout's `.venv`, `node_modules`, or `.env`.
 
-- Configure `[worktree] setup_command` for non-Node dependencies.
+- Configure `[worktree] setup_command` to install dependencies or prepare ignored build
+  inputs. Agentic Preflight does not select a package manager or install automatically.
 - Configure `copy_files` for ignored files such as `.env`.
-- Node lockfiles are handled automatically. See
-  [worktree-modes.md](worktree-modes.md#node-dependencies).
+
+The setup command runs before review and in the scratch worktree used by `--baseline`.
+A nonzero exit is reported as a setup failure.
 
 Use `--baseline` so a pre-existing failure is reported rather than blamed on your diff.
 

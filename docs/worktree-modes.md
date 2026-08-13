@@ -57,12 +57,12 @@ mode = "reusable" # one serial isolated runner; retained ignored caches
 
 ```toml
 [worktree]
-mode = "strict"   # fresh worktree and dependency install for every run
+mode = "strict"   # fresh worktree with no retained artifacts
 ```
 
-The first strict run removes any idle reusable runner and its retained dependency
-fingerprint, so switching back to reusable mode begins with one clean install. In-place
-mode leaves an idle reusable runner alone.
+The first strict run removes any idle reusable runner. Switching back to reusable mode
+therefore starts with no retained cache. In-place mode leaves an idle reusable runner
+alone.
 
 ## Secrets in worktrees
 
@@ -85,28 +85,22 @@ or derived values are outside this guarantee.
 
 `copy_files` is for ignored files such as `.env`, not for directories.
 
-## Node dependencies
+## Preparing the validation checkout
 
-Isolated modes never use the source checkout's `node_modules`; it is not linked and not
-modified.
+Agentic Preflight does not install dependencies automatically. Configure
+`[worktree] setup_command` when a validation checkout needs preparation, for example
+`uv sync`, `npm ci`, or `pnpm install --frozen-lockfile`.
 
-With `dependency_setup = "auto"`, a committed `pnpm-lock.yaml` uses
-`pnpm install --frozen-lockfile`. pnpm hard-links package contents from its shared
-content-addressable store — see the [pnpm storage model](https://pnpm.io/motivation). In
-reusable mode the install is retained and skipped while its fingerprint still matches.
+The command runs before review in every worktree mode and before a `--baseline` stage in
+its scratch worktree. A nonzero exit stops the run; a failed baseline setup is reported
+as a setup failure rather than evidence that the base commit is red.
 
-For npm, strict mode runs `npm ci` in every fresh worktree. Reusable mode runs it the
-first time and whenever the dependency fingerprint changes; otherwise it retains the
-runner's existing `node_modules`.
-
-The fingerprint covers dependency and runtime pin files, the activated Node version and
-modules ABI, package-manager version, platform, architecture, and install command.
-
-For non-Node dependencies, use `[worktree] setup_command`.
+An isolated mode never copies dependency directories from the source checkout. Reusable
+mode retains ignored dependency and build caches between leases, although the setup
+command still runs. Strict mode begins without retained artifacts.
 
 ## When a stage is much slower than expected
 
-Check the mode first. Strict mode has no build cache and runs the frozen install every
-time; reusable mode skips Node installation while its fingerprint matches; in-place mode
-runs no automatic install at all. Do not raise `[stage] max_attempts` to paper over a
-mode-shaped problem.
+Check the mode first. Strict mode has no retained build cache; reusable mode preserves
+ignored caches between leases; in-place mode uses the current checkout. Do not raise
+`[stage] max_attempts` to paper over a mode-shaped problem.

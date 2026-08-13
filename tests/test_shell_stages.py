@@ -525,3 +525,32 @@ def test_a_green_baseline_leaves_the_failure_attributed_to_the_diff(docs_green):
     )
     assert env["data"]["baseline_red"] is False
     assert "base commit" not in env["error"]["message"]
+
+
+def test_a_failed_baseline_setup_is_not_reported_as_a_red_base(docs_green):
+    agent = docs_green(
+        "[docs]\nenabled = false\n\n"
+        "[worktree]\n"
+        "setup_command = 'case \"$PWD\" in *-baseline) exit 9;; *) exit 0;; esac'\n"
+    )
+
+    env = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "exit 1",
+        "--record",
+        "--baseline",
+        expect=ExitCode.STAGE_FAILED,
+    )
+
+    assert env["error"]["code"] == "setup_failed"
+    assert env["state"] == "LINT_RED"
+    assert env["data"]["scope"] == "baseline"
+    assert env["data"]["setup"]["exit_code"] == 9
+    assert "baseline_red" not in env["data"]
+    assert "--baseline" in env["next"]["command"]
+    assert agent.run("status")["data"]["stages"]["lint"]["reason"] == (
+        "baseline setup command failed"
+    )
