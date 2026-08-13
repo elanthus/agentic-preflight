@@ -13,8 +13,6 @@ from . import gitx
 from .models import Attestation, AttestedStage, RunDoc, Stage
 
 NOTES_REF = "refs/notes/agentic-preflight"
-_INTENT_SUMMARY_PREFIX = "intent-sha256:"
-_CONFIG_SUMMARY_PREFIX = "config-sha256:"
 
 
 class InvalidAttestation(ValueError):
@@ -25,16 +23,6 @@ def output_digest(output: str) -> str:
     return hashlib.sha256(output.encode()).hexdigest()
 
 
-def intent_summary_key(intent: str) -> str:
-    """Encode intent binding in the open-ended findings summary."""
-    return _INTENT_SUMMARY_PREFIX + hashlib.sha256(intent.encode()).hexdigest()
-
-
-def config_summary_key(config_digest: str) -> str:
-    """Encode config binding in the open-ended findings summary."""
-    return _CONFIG_SUMMARY_PREFIX + config_digest
-
-
 def build(
     run: RunDoc,
     *,
@@ -43,6 +31,8 @@ def build(
     docs_enabled: bool,
     findings_summary: dict[str, int],
 ) -> Attestation:
+    if run.config_digest is None:
+        raise InvalidAttestation("run has no effective configuration digest")
     if run.review_coverage is None:
         raise InvalidAttestation("review stage has no coverage evidence")
     review_record = run.stages.get(Stage.REVIEW)
@@ -77,22 +67,18 @@ def build(
             exit_code=record.exit_code,
             output_sha256=record.output_sha256,
         )
-    portable_bindings = {intent_summary_key(run.intent or ""): 1}
-    if run.config_digest is not None:
-        portable_bindings[config_summary_key(run.config_digest)] = 1
     return Attestation(
         sha=sha,
         tree_sha=tree_sha,
         branch=run.branch,
         base_ref=run.base_ref,
         merge_base_sha=run.merge_base_sha,
+        intent_sha256=hashlib.sha256((run.intent or "").encode()).hexdigest(),
+        config_sha256=run.config_digest,
         run_id=run.run_id,
         green_at=datetime.now(UTC).isoformat(timespec="seconds"),
         stages=stages,
-        findings_summary={
-            **findings_summary,
-            **portable_bindings,
-        },
+        findings_summary=findings_summary,
     )
 
 
@@ -143,7 +129,7 @@ def _has_reusable_stage_results(value: Attestation) -> bool:
     }
 
 
-def reuse_for_rebase(
+def reuse_exact(
     repo: Path | str,
     *,
     sha: str,
@@ -152,69 +138,20 @@ def reuse_for_rebase(
     base_ref: str,
     intent: str,
     config_digest: str,
-) -> tuple[Attestation, str | None] | None:
-    """Transfer green to ``sha`` only for a merge-equivalent tree rewrite.
-
-    Matching trees alone are insufficient: Git's merge result also depends on
-    ancestry.  A candidate is reusable only when both commits have the same
-    complete tree, effective configuration, and Git merge result against the
-    freshly synchronized base. An exact-note lookup additionally requires the
-    fresh base to be an ancestor of the target, making that merge a fast-forward.
-    """
+) -> Attestation | None:
+    """Reuse green only when ``sha`` itself is attested and contains the fresh base."""
     repo = Path(repo)
     target_sha = gitx.rev_parse(repo, sha)
-    target_tree = gitx.tree_sha(repo, target_sha)
-    required_intent_key = intent_summary_key(intent)
-    required_config_key = config_summary_key(config_digest)
-
-    exact = read(repo, target_sha)
-    if exact is not None:
-        try:
-            verified = verify(repo, target_sha)
-        except InvalidAttestation:
-            return None
-        reusable = (
-            verified.branch == branch
-            and verified.base_ref == base_ref
-            and verified.findings_summary.get(required_intent_key) == 1
-            and verified.findings_summary.get(required_config_key) == 1
-            and _has_reusable_stage_results(verified)
-            and gitx.is_ancestor(repo, base_sha, target_sha)
-        )
-        return (verified, None) if reusable else None
-
-    target_merge_tree = gitx.merge_tree(repo, base_sha, target_sha)
-    if target_merge_tree is None:
+    try:
+        verified = verify(repo, target_sha)
+    except InvalidAttestation:
         return None
-
-    candidates: list[Attestation] = []
-    for noted_sha in gitx.list_noted_objects(repo, NOTES_REF):
-        if not gitx.commit_exists(repo, noted_sha):
-            continue
-        try:
-            candidate = verify(repo, noted_sha)
-        except (InvalidAttestation, gitx.GitError):
-            continue
-        if (
-            candidate.tree_sha == target_tree
-            and candidate.branch == branch
-            and candidate.base_ref == base_ref
-            and candidate.findings_summary.get(required_intent_key) == 1
-            and candidate.findings_summary.get(required_config_key) == 1
-            and _has_reusable_stage_results(candidate)
-        ):
-            candidates.append(candidate)
-
-    for candidate in sorted(candidates, key=lambda value: value.green_at, reverse=True):
-        if gitx.merge_tree(repo, base_sha, candidate.sha) != target_merge_tree:
-            continue
-        reused = candidate.model_copy(
-            update={
-                "sha": target_sha,
-                "tree_sha": target_tree,
-                "merge_base_sha": gitx.rev_parse(repo, base_sha),
-            }
-        )
-        write(repo, reused)
-        return reused, candidate.sha
-    return None
+    reusable = (
+        verified.branch == branch
+        and verified.base_ref == base_ref
+        and verified.intent_sha256 == hashlib.sha256(intent.encode()).hexdigest()
+        and verified.config_sha256 == config_digest
+        and _has_reusable_stage_results(verified)
+        and gitx.is_ancestor(repo, base_sha, target_sha)
+    )
+    return verified if reusable else None

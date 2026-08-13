@@ -1,10 +1,11 @@
 # Portable attestations and CI enforcement
 
 Successful merge-back writes a versioned JSON attestation as a Git note on the exact
-commit. The note includes the run identity, commit and tree hashes, finding summary,
-finding status and severity totals, and a complete stage set. Green lint and test stages
-include the exact command, exit code, and SHA-256 of the redacted captured output.
-Explicitly skipped stages say why and carry no invented process evidence.
+commit. The version 4 note includes the run identity, commit and tree hashes, dedicated
+SHA-256 bindings for user intent and effective configuration, finding status and severity
+totals, and a complete stage set. Green lint and test stages include the exact command,
+exit code, and SHA-256 of the redacted captured output. Explicitly skipped stages say why
+and carry no invented process evidence. Earlier schema versions are rejected.
 
 `agentic-preflight push` atomically pushes the branch and
 `refs/notes/agentic-preflight`, so the attestation is not stranded in one clone. Git

@@ -4,23 +4,19 @@ The [README](../README.md#limits) states the three that matter most: the gate is
 rather than a security boundary, `git push --no-verify` defeats it by design, and the
 confirmation token is ceremony rather than a secret. This page covers the rest.
 
-## Most history rewrites invalidate green
+## History rewrites invalidate green
 
 The normal attestation note is bound to an exact SHA. In the default in-place mode,
-`start` can preserve green across a history-only rebase, but only when the complete Git
-tree and effective preflight configuration are identical and `git merge-tree` produces
-the same clean result for the old and new commits against the freshly synchronized base.
-The merge check matters because identical snapshots with different parents can merge
-differently. The config check includes the resolved user and repository configuration,
-so changing stage applicability, commands, policy, or another setting forces a fresh
-run. Reuse also requires the portable attestation to carry the same persisted user-intent
-digest; a new objective always starts a fresh review, even after local run records have
-been garbage-collected.
+`start` preserves green only when synchronization leaves the exact attested commit
+unchanged and the freshly fetched base is already its ancestor. Reuse also requires the
+same branch, base ref, effective user and repository configuration, and persisted user
+intent. Changing stage applicability, commands, policy, another setting, or the objective
+starts a fresh review even when local run records have been garbage-collected.
 
-Any content or effective-config change, merge conflict, different merge result, branch
-change, or base-ref change forces a fresh review, docs, lint, and test run. Isolated
-worktree modes do not reuse attestations because their synchronized commit is not the
-source branch that will be pushed.
+Any rebase that produces a new commit SHA requires a fresh review, docs, lint, and test
+run, even when its tree is unchanged. The same is true for a merge conflict, branch
+change, or base-ref change. Isolated worktree modes do not reuse attestations because
+their synchronized commit is not the source branch that will be pushed.
 
 Cherry-picked merge-back is handled via tree-equivalence attestation.
 

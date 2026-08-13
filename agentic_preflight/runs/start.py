@@ -17,9 +17,30 @@ from ..errors import (
     WrongState,
 )
 from ..machine import Action, State
-from ..models import RunDoc, SetupFailure, Stage, StageRecord
+from ..models import Attestation, RunDoc, SetupFailure, Stage, StageRecord
 from ..store import CurrentRunExists
 from ._session import Session, _apply, _envelope_for, _new_run_id, _now
+
+
+def _import_evidence_through_machine(doc: RunDoc, evidence: Attestation) -> None:
+    """Replay imported evidence through every load-bearing green transition."""
+    _apply(doc, Action.SYNC_PASSED)
+    _apply(doc, Action.BEGIN_REVIEW)
+    _apply(doc, Action.SUBMIT_CLEAN)
+    if evidence.stages[Stage.DOCS].status == "skipped":
+        _apply(doc, Action.SKIP_DOCS)
+    else:
+        _apply(doc, Action.BEGIN_DOCS)
+        _apply(doc, Action.SUBMIT_CLEAN)
+    _apply(doc, Action.RUN_LINT)
+    _apply(doc, Action.LINT_PASSED)
+    if evidence.stages[Stage.TEST].status == "skipped":
+        _apply(doc, Action.SKIP_TEST)
+    else:
+        _apply(doc, Action.RUN_TEST)
+        _apply(doc, Action.TEST_PASSED)
+    _apply(doc, Action.BEGIN_MERGEBACK)
+    _apply(doc, Action.MERGEBACK_OK)
 
 
 def start(
@@ -209,9 +230,9 @@ def start(
             next_instruction="The requested change is already present upstream.",
         )
 
-    reused = None
+    reused_attestation = None
     if in_place:
-        reused = attestationmod.reuse_for_rebase(
+        reused_attestation = attestationmod.reuse_exact(
             repo,
             sha=sync_result.head_after,
             base_sha=sync_result.base_sha,
@@ -220,8 +241,7 @@ def start(
             intent=intent,
             config_digest=resolved_config_digest,
         )
-    if reused is not None:
-        reused_attestation, reused_from_sha = reused
+    if reused_attestation is not None:
         assessment = risk.assess(
             changed,
             [],
@@ -251,33 +271,13 @@ def start(
                 )
                 for stage, evidence in reused_attestation.stages.items()
             }
-            # Imported evidence traverses the same load-bearing green states as
-            # a fresh run. The transition graph therefore continues to prove
-            # that no stage gate is bypassable.
-            _apply(doc, Action.SYNC_PASSED)
-            _apply(doc, Action.BEGIN_REVIEW)
-            _apply(doc, Action.SUBMIT_CLEAN)
-            if reused_attestation.stages[Stage.DOCS].status == "skipped":
-                _apply(doc, Action.SKIP_DOCS)
-            else:
-                _apply(doc, Action.BEGIN_DOCS)
-                _apply(doc, Action.SUBMIT_CLEAN)
-            _apply(doc, Action.RUN_LINT)
-            _apply(doc, Action.LINT_PASSED)
-            if reused_attestation.stages[Stage.TEST].status == "skipped":
-                _apply(doc, Action.SKIP_TEST)
-            else:
-                _apply(doc, Action.RUN_TEST)
-                _apply(doc, Action.TEST_PASSED)
-            _apply(doc, Action.BEGIN_MERGEBACK)
-            _apply(doc, Action.MERGEBACK_OK)
+            _import_evidence_through_machine(doc, reused_attestation)
             run = doc
         session.store.append_event(
             run_id,
             {
                 "event": "attestation_reused",
                 "sha": sync_result.head_after,
-                "reused_from_sha": reused_from_sha,
                 "base_sha": sync_result.base_sha,
                 "tree_sha": reused_attestation.tree_sha,
             },
@@ -296,11 +296,10 @@ def start(
                 "changed_files": changed,
                 "risk": assessment.model_dump(mode="json"),
                 "attestation_reused": True,
-                "reused_from_sha": reused_from_sha,
             },
             next_instruction=(
-                "The synchronized head has the same complete tree and clean merge outcome "
-                "as an attested head. Green was preserved; open the gate."
+                "The synchronized head still has its green attestation and contains the "
+                "fresh base. Green was preserved; open the gate."
             ),
             next_command="agentic-preflight gate",
         )
