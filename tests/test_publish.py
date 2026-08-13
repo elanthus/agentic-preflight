@@ -93,13 +93,17 @@ def verified_with_cherry_picked_fix(feature_repo, bare_remote, tmp_path, monkeyp
     return agent, run_id, wt, original, picked
 
 
-def test_gate_mints_a_token_and_summarises_what_would_be_pushed(verified):
+def test_gate_mints_a_token_and_summarises_the_verified_push(verified):
     env = verified.run("gate")
+    token = env["data"]["token"]
+
     assert env["state"] == "AWAITING_PUSH_CONFIRM"
-    assert env["data"]["token"]
+    assert token
     assert env["data"]["remote"] == "origin"
     assert env["data"]["refspec"]
     assert env["data"]["commits"]
+    assert env["data"]["branch"] == "feature/x"
+    assert "add loud flag" in json.dumps(env["data"]["commits"])
     assert env["data"]["pr_mode"] == "auto"
     assert env["data"]["approval_mode"] == "manual_merge"
     assert "whether to push" in env["next"]["instruction"]
@@ -108,25 +112,22 @@ def test_gate_mints_a_token_and_summarises_what_would_be_pushed(verified):
     assert "automatically open or reuse" in env["next"]["instruction"]
     assert "standing authorization" in env["next"]["instruction"]
     assert "push and open" not in env["next"]["instruction"]
+    assert verified.run("status")["data"]["gate_token"] == token
 
 
-def test_the_gate_summary_names_the_branch_and_commit_subjects(verified):
-    env = verified.run("gate")
-    assert env["data"]["branch"] == "feature/x"
-    subjects = json.dumps(env["data"]["commits"])
-    assert "add loud flag" in subjects
-
-
-def test_push_without_a_token_is_refused(verified):
-    verified.run("gate")
+def test_push_rejects_missing_and_wrong_tokens_without_changing_state(verified):
+    token = verified.run("gate")["data"]["token"]
     env = verified.run("push", expect=ExitCode.NEEDS_CONFIRM)
     assert env["error"]["code"] == "needs_confirm"
+    status = verified.run("status")
+    assert status["state"] == "AWAITING_PUSH_CONFIRM"
+    assert status["data"]["gate_token"] == token
 
-
-def test_push_with_a_wrong_token_is_refused(verified):
-    verified.run("gate")
     env = verified.run("push", "--confirm", "not-the-token", expect=ExitCode.NEEDS_CONFIRM)
     assert env["error"]["code"] == "needs_confirm"
+    status = verified.run("status")
+    assert status["state"] == "AWAITING_PUSH_CONFIRM"
+    assert status["data"]["gate_token"] == token
 
 
 def test_push_with_the_right_token_succeeds(verified, feature_repo, bare_remote):
@@ -281,9 +282,3 @@ def test_gc_reclaims_a_finished_run_whose_fixes_were_cherry_picked(
     assert wt.exists()
     assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=wt) == "HEAD"
     assert git("branch", "--list", f"ap/{run_id}", cwd=feature_repo) == ""
-
-
-def test_the_token_is_readable_from_status(verified):
-    """The token is ceremony, not a security boundary."""
-    token = verified.run("gate")["data"]["token"]
-    assert verified.run("status")["data"]["gate_token"] == token

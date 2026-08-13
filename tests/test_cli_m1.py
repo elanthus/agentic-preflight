@@ -263,27 +263,24 @@ def test_respond_is_illegal_before_findings_are_submitted(agent):
 # -- events and logs --------------------------------------------------------
 
 
-def test_events_records_the_run_history(blocked):
+def test_events_record_ordered_history_with_the_resolved_config_snapshot(blocked):
     agent, wt = blocked
     sha = fix_commit(wt)
     agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", sha)
 
     env = agent.run("events")
-    kinds = [e["event"] for e in env["data"]["events"]]
+    events = env["data"]["events"]
+    kinds = [event["event"] for event in events]
     assert "run_created" in kinds
     assert "findings_submitted" in kinds
     assert "finding_resolved" in kinds
-
-
-def test_events_are_ordered_oldest_first(blocked):
-    agent, _ = blocked
-    env = agent.run("events")
-    assert env["data"]["events"][0]["event"] == "run_created"
-
-
-def test_run_created_event_carries_the_resolved_config_snapshot(blocked):
-    agent, _ = blocked
-    created = agent.run("events")["data"]["events"][0]
+    assert (
+        kinds.index("run_created")
+        < kinds.index("findings_submitted")
+        < kinds.index("finding_resolved")
+    )
+    created = events[0]
+    assert created["event"] == "run_created"
     assert created["config_snapshot"]["runtime"]["manager"] == "auto"
     assert len(created["config_digest"]) == 64
 
@@ -291,17 +288,12 @@ def test_run_created_event_carries_the_resolved_config_snapshot(blocked):
 # -- abort ------------------------------------------------------------------
 
 
-def test_abort_ends_an_in_place_run_without_changing_the_checkout(blocked):
+def test_abort_ends_an_in_place_run_and_clears_the_current_pointer(blocked):
     agent, wt = blocked
     env = agent.run("abort")
     assert env["state"] == "ABORTED"
     assert Path(wt).exists()
     assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=Path(wt)) == "feature/x"
-
-
-def test_abort_clears_the_current_pointer(blocked):
-    agent, _ = blocked
-    agent.run("abort")
     env = agent.run("status")
     assert env["data"]["has_run"] is False
 

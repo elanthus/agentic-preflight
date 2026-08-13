@@ -33,34 +33,25 @@ def review_green(agent, tmp_path):
 # -- reaching the docs stage ------------------------------------------------
 
 
-def test_review_green_points_at_the_docs_stage(review_green):
+def test_docs_context_exposes_the_stage_inventory_metadata_and_diff(review_green):
+    """The shared review-green scenario exposes the complete docs-review context."""
     env = review_green.run("status")
     assert env["state"] == "REVIEW_GREEN"
     assert "docs" in env["next"]["command"]
 
-
-def test_docs_context_opens_the_docs_stage(review_green):
     env = review_green.run("context", "--section", "docs")
     assert env["state"] == "DOCS_AWAITING_FINDINGS"
     assert env["stage"] == "docs"
-
-
-# -- the code-built documentation inventory ---------------------------------
-
-
-def test_docs_context_inventories_the_documentation_surface(review_green):
-    """Code assembles the inventory; the agent does not go hunting."""
-    env = review_green.run("context", "--section", "docs")
     paths = {item["path"] for item in env["data"]["doc_surface"]}
     assert "README.md" in paths
-
-
-def test_inventory_entries_carry_existence_size_and_diff_status(review_green):
-    env = review_green.run("context", "--section", "docs")
     readme = next(i for i in env["data"]["doc_surface"] if i["path"] == "README.md")
     assert readme["exists"] is True
     assert readme["size"] > 0
     assert readme["touched_by_diff"] is False
+    assert "loud=False" in env["data"]["diff"]
+
+
+# -- the code-built documentation inventory ---------------------------------
 
 
 def test_inventory_flags_a_doc_the_diff_already_touched(agent, feature_repo, tmp_path):
@@ -100,11 +91,6 @@ def test_common_agent_rules_and_product_docs_are_included_by_default(agent, feat
     env = agent.run("context", "--section", "docs")
     paths = {item["path"] for item in env["data"]["doc_surface"]}
     assert {".claude/rules/state.md", "PRODUCT.md", "DESIGN.md"} <= paths
-
-
-def test_docs_context_still_carries_the_diff(review_green):
-    env = review_green.run("context", "--section", "docs")
-    assert "loud=False" in env["data"]["diff"]
 
 
 # -- zero findings is the normal outcome ------------------------------------
