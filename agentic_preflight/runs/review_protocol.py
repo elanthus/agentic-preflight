@@ -75,9 +75,7 @@ def context_data(
     return data
 
 
-def parse_submission(
-    payload: Any, *, stage: Stage
-) -> tuple[list[FindingSubmission], str | None]:
+def parse_submission(payload: Any, *, stage: Stage) -> tuple[list[FindingSubmission], str | None]:
     """Parse an executor submission without applying coverage or finding policy."""
     if stage is Stage.REVIEW:
         try:
