@@ -24,10 +24,10 @@ does.
 
 Three things separate it from a checklist in a prompt:
 
-- **Bypassing a gate is structurally unrepresentable.** An inapplicable test or disabled
-  docs stage advances only through an explicit skip transition that records why. No path
-  exists from review to push without traversing every load-bearing gate. That property is
-  proved by enumerating every path through the machine, not by testing a few of them.
+- **Within a run, no gate can be bypassed.** An inapplicable test or disabled docs stage
+  advances only through an explicit skip transition that records why. No path exists from
+  review to push without traversing every load-bearing gate. That property is proved by
+  enumerating every path through the machine, not by testing a few of them.
 - **Your agent judges by default; this keeps the record.** The core CLI has no API key
   and calls no model. It drives the coding agent already active in your workspace, while
   an optional command executor lets repository policy require an independent reviewer
@@ -267,7 +267,7 @@ make different tradeoffs about who owns the workflow and what the durable record
 | Agent execution | Launches a required, configurable pipeline agent with ordered fallbacks | Uses the coding agent already active by default; an external command reviewer can be required by risk |
 | Git integration | Routes an opted-in push through a local proxy remote | Uses an advisory pre-push hook; manual mode disables the CLI's own push path |
 | Stage control | Fixes the stage order but permits per-run and approval-time skips | Makes every gate load-bearing; only explicit code/config-driven skips traverse it and record a reason |
-| Review completeness | Reviews a filtered diff and records the exact approved head | Inventories every changed hunk and non-text change, then requires a snapshot-bound `examined: "all"` assertion and derives a cited/clean receipt |
+| Review completeness | Reviews the diff and records the exact approved head | Inventories every included changed hunk and non-text change after `[diff] exclude`, then requires a snapshot-bound `examined: "all"` assertion and derives a cited/clean receipt |
 | Durable evidence | Writes a data-only step-status snapshot into the PR body; it can become stale until the body is rewritten | Atomically pushes a schema-validated Git note bound to the exact commit and tree, with config/intent bindings, review coverage, executor evidence, and shell-output hashes |
 | Risk and approval | The reviewer returns `risk_level` and rationale; findings pause for user action | Repository path policy and recorded findings deterministically derive risk; the model cannot lower the verdict |
 | Publication approval | Automatically forwards the validated branch after the local pipeline | Shows the exact remote, branch, commits, and risk before a token-gated push, or refuses its own push in manual mode |
