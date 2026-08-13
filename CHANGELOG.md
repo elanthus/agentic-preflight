@@ -7,6 +7,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Replaced Node-specific automatic npm/pnpm installation and reusable dependency
+  fingerprinting with the language-neutral `[worktree] setup_command`. Setup now fails
+  explicitly on a nonzero exit, including in baseline scratch worktrees, where an
+  installation failure can no longer be mistaken for a pre-existing red base. The run
+  persists setup failure details so `status` returns either the required abort or the
+  exact baseline-aware stage retry instead of a dead-end state or nonexistent log.
+
 - Simplified the review and documentation findings sub-machines. Clean and
   blocking submissions now transition directly to each stage's green or blocked
   state, and response handling remains in that single blocked state until every

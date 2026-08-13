@@ -404,6 +404,28 @@ def test_reusable_runner_is_reused_but_secrets_and_nonignored_files_are_not(agen
     assert (runner / "node_modules/cache/index.js").is_file()
 
 
+def test_failed_setup_still_cleans_copied_files_from_a_reusable_runner(agent, feature_repo):
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[worktree]\nmode = 'reusable'\nsetup_command = 'exit 7'\n",
+    )
+    commit_all(feature_repo, "configure failing reusable setup")
+    write(feature_repo, ".env", "SECRET=first\n")
+
+    failed = agent.run("start", expect=ExitCode.STAGE_FAILED)
+    runner = Path(failed["data"]["worktree_path"])
+    assert (runner / ".env").is_file()
+    status = agent.run("status")
+    assert status["data"]["setup_failure"]["scope"] == "initial"
+    assert status["next"]["command"] == "agentic-preflight abort --force"
+
+    agent.run("abort", "--force")
+
+    assert runner.exists()
+    assert not (runner / ".env").exists()
+
+
 def test_strict_mode_removes_each_run_worktree(feature_repo):
     write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
     commit_all(feature_repo, "use strict worktrees")

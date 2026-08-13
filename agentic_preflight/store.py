@@ -145,10 +145,6 @@ class Store:
         # directly. Normal sessions pass the external cache location.
         return self._worktrees_root or self.root / "worktrees"
 
-    @property
-    def runner_dependency_state_path(self) -> Path:
-        return self.root / "runner-dependencies.json"
-
     def set_worktrees_root(self, path: Path) -> None:
         self._worktrees_root = Path(path)
 

@@ -22,8 +22,10 @@ the conflict is real, check the user's tree was clean — see non-negotiable 7.
 ## Stage red after max attempts (exit 4)
 
 Stop retrying — you have already tried `max_attempts` times and the tool is telling
-you the loop is not converging. Show the user `agentic-preflight logs --stage <name>`
-output and ask how to proceed.
+you the loop is not converging. For a stage failure, show the user
+`agentic-preflight logs --stage <name>` output and ask how to proceed. For a baseline
+setup failure, no stage log exists; show `data.setup_failure` and obey the returned
+`agentic-preflight abort --force` command.
 
 ## Hosted CI failed
 
@@ -61,16 +63,22 @@ instead of costing a retry. Confirm the run actually did work (a test count, a r
 file, a non-empty log) before believing it. The trap is usually a flag: `-quit` on a
 Unity `-runTests` invocation exits 0 having run zero tests.
 
+## Setup failed (exit 2, `setup_failed`)
+
+Run `status` and obey its durable recovery command. An initial checkout setup failure
+returns `abort --force`; use it so reusable or strict worktrees cannot retain the active
+lease. A baseline setup failure returns the exact lint or test retry, including the
+resolved command and `--baseline`. It does not have a stage log because the stage never
+ran, so do not replace that recovery with `logs --stage`.
+
 ## Stage far slower than normal
 
 Check `[worktree] mode`. The default `in_place` mode uses the checkout's existing
-environment and does not run an automatic dependency install. The reusable runner
-retains ignored build caches and skips Node installation while its fingerprint
-matches. Strict mode has no build cache and runs the frozen install every time.
-Isolated modes do not share the source checkout's `node_modules`; use
-`[worktree] setup_command` to prepare non-Node caches. `copy_files` is for ignored
-files such as `.env`, not directories. Do not raise `[stage] max_attempts` to paper
-over it.
+environment. The reusable runner retains ignored dependency and build caches, while
+strict mode begins without them. Agentic Preflight does not install dependencies
+automatically; isolated modes need `[worktree] setup_command` when the validation
+checkout requires preparation. `copy_files` is for ignored files such as `.env`, not
+directories. Do not raise `[stage] max_attempts` to paper over it.
 
 ## Copy refused (exit 3)
 

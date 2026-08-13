@@ -56,8 +56,7 @@ exclude = ["*.lock", "*-lock.json", "vendor/**", "**/*.min.js"]
 mode = "in_place"                 # default; or "reusable" / "strict"
 root = "/optional/external/path"  # isolated modes only; defaults outside .git
 copy_files = [".env"]             # must already be ignored
-dependency_setup = "auto"         # pnpm/npm lockfile-aware; or "off"
-# setup_command = "uv sync"       # overrides automatic dependency setup
+# setup_command = "uv sync"       # prepare dependencies and ignored build inputs
 
 [runtime]
 manager = "auto"                  # or "none", "nvm", "volta", "asdf", "mise", ...

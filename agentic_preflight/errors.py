@@ -154,6 +154,11 @@ class StageFailed(AgenticError):
     exit_code = ExitCode.STAGE_FAILED
 
 
+class SetupFailed(AgenticError):
+    code = "setup_failed"
+    exit_code = ExitCode.STAGE_FAILED
+
+
 class AttestationFailed(AgenticError):
     """A CI-facing attestation check failed."""
 

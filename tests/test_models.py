@@ -13,6 +13,7 @@ from agentic_preflight.models import (
     RiskAssessment,
     RiskLevel,
     RunDoc,
+    SetupFailure,
     Severity,
     Stage,
 )
@@ -79,6 +80,16 @@ def test_run_doc_round_trips_through_json():
         intent="preserve the public behavior",
         changed_files=["src/auth.py"],
         risk=RiskAssessment(level=RiskLevel.HIGH),
+        setup_failure=SetupFailure(
+            scope="baseline",
+            stage=Stage.LINT,
+            command="uv sync",
+            exit_code=7,
+            worktree_path="/repos/demo-baseline",
+            runtime={"manager": "none"},
+            next_instruction="Retry the baseline setup.",
+            next_command="agentic-preflight stage run lint --baseline",
+        ),
     )
     restored = RunDoc.model_validate_json(run.model_dump_json())
     assert restored == run
@@ -88,6 +99,8 @@ def test_run_doc_round_trips_through_json():
     assert restored.changed_files == ["src/auth.py"]
     assert restored.risk is not None
     assert restored.risk.level is RiskLevel.HIGH
+    assert restored.setup_failure is not None
+    assert restored.setup_failure.stage is Stage.LINT
 
 
 def _attestation_stages():
