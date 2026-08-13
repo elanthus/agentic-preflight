@@ -7,6 +7,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Moved the skill's ten failure playbooks out of `SKILL.md` into
+  `reference/playbooks.md`, leaving a symptom-to-playbook index in their place.
+  The playbooks are recovery detail an agent needs only after a run stops, and they
+  were being loaded into context on every invocation instead. The universal
+  `exit 3 → status → next` rule and the merge-back non-negotiable stay in the skill
+  body, and a test keeps the index covering every playbook.
+
 - Corrected the README's descriptions of explicit stage skips, observable gaps,
   hosted merge-approval enforcement, and manual gate boundaries. Expanded the
   `no-mistakes` comparison against v1.48.0 to cover review completeness, portable

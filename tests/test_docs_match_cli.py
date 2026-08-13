@@ -76,6 +76,7 @@ def test_skill_md_exists_with_front_matter():
         REFERENCE / "commands.md",
         REFERENCE / "findings-schema.md",
         REFERENCE / "docs-rubric.md",
+        REFERENCE / "playbooks.md",
         README,
     ],
 )
@@ -114,8 +115,23 @@ def test_skill_links_the_complete_command_reference():
     assert "reference/commands.md" in text
 
 
-def test_skill_documents_mergeback_conflict_retry():
+def test_skill_links_the_failure_playbooks():
+    """The index is only useful if it points somewhere."""
     text = SKILL.read_text()
+    assert "reference/playbooks.md" in text
+
+
+def test_the_playbook_index_covers_every_playbook():
+    """A playbook nobody can find from SKILL.md is a playbook nobody reads."""
+    headings = set(re.findall(r"^## (.+)$", (REFERENCE / "playbooks.md").read_text(), re.MULTILINE))
+    index = SKILL.read_text()
+    # Index rows carry the symptom; the heading's parenthetical is dropped in the table.
+    missing = {h for h in headings if h.split(" (")[0] not in index}
+    assert missing == set(), f"playbooks missing from the SKILL.md index: {missing}"
+
+
+def test_skill_documents_mergeback_conflict_retry():
+    text = (REFERENCE / "playbooks.md").read_text()
     assert "`mergeback` is the legal retry" in text
     assert "report is stored in the event log" in text
     assert "no outbound transition" not in text

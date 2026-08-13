@@ -206,81 +206,21 @@ in every state. If you are ever unsure where you are, that is always the right c
 
 ## Failure playbooks
 
-**Merge-back conflict (exit 4, isolated modes only).** The branch has already been
-restored exactly and your fix commits are safe in the worktree. Paste
-`data.resolution` to the user verbatim and **stop**. Do not cherry-pick, do not force,
-do not pick a side. A conflict is a content decision and it is not yours to make.
+Recovery detail lives in `reference/playbooks.md`. Read the matching entry when a run
+stops — do not improvise a recovery from the symptom alone.
 
-The full conflict report is stored in the event log and replayed by `status`. After a
-person resolves or restores the reported paths, `mergeback` is the legal retry and
-completed verification remains intact when the resulting tree is still identical to
-the verified tree. A different tree must go through a fresh run. Before concluding
-the conflict is real, check the user's tree was clean — see non-negotiable 7.
-
-**Stage red after max attempts (exit 4).** Stop retrying — you have already tried
-`max_attempts` times and the tool is telling you the loop is not converging. Show the
-user `agentic-preflight logs --stage <name>` output and ask how to proceed.
-
-**Hosted CI failed.** Inspect the failed check with `gh pr checks` and `gh run view
---log-failed`. Fix and commit the source branch, then start a fresh synchronized
-preflight run with the original intent. Do not push the repair until the new
-review → docs → lint → test run reaches green. Push through the gate again, then
-resume check monitoring with `gh`.
-
-**Stale head (exit 3, `stale_run`).** The branch moved after review began, so
-everything verified so far describes a tree that no longer exists. There is no partial
-recovery: run `agentic-preflight abort --force`, then run the fresh `start` command from
-the abort response. It preserves the original user intent.
-
-**Diff too large (exit 2, `diff_too_large`).** The diff is never truncated, so
-reviewing part of it is not an option. Look at `data.by_file`; if the bulk is generated
-(lockfiles, vendored code, snapshots), add those globs to `[diff] exclude`. Raise
-`[diff] max_bytes` only if the change genuinely is that large.
-
-**No command configured (exit 2, `needs_command`).** For lint/test, pick from
-`data.candidates` and re-invoke with `--command`; offer to write it into `[commands]` so
-it is settled. For review, configure `[review] command` and retry `review run` — reviewer
-commands are never detected. If lint/test `candidates` is empty, the repo simply has no
-manifest detection understands (Unity,
-Unreal, Xcode, most engine projects) — ask the user for the invocation instead of
-hunting for a build file that does not exist.
-
-Then treat its first green as unproven. Pass/fail is the exit code alone, so a command
-that no-ops and exits 0 reads as a pass forever — and a false green retires the check
-instead of costing a retry. Confirm the run actually did work (a test count, a results
-file, a non-empty log) before believing it. The trap is usually a flag: `-quit` on a
-Unity `-runTests` invocation exits 0 having run zero tests.
-
-**Stage far slower than normal.** Check `[worktree] mode`. The default `in_place` mode
-uses the checkout's existing environment and does not run an automatic dependency
-install. The reusable runner retains ignored build caches and skips Node installation
-while its fingerprint matches. Strict mode has no build cache and runs the frozen
-install every time. Isolated modes do not share the source checkout's `node_modules`;
-use `[worktree] setup_command` to prepare non-Node caches.
-`copy_files` is for ignored files such as `.env`, not directories. Do not raise
-`[stage] max_attempts` to paper over it.
-
-**Copy refused (exit 3).** A `copy_files` entry is not gitignored. Do not work around
-it — tell the user to gitignore and commit it first. This guard prevents a secret
-being committed and pushed.
-
-**Stage reports zero files to work on.** Check where `worktree_path` actually points.
-If it is under `.git/`, tools that skip VCS directories cannot see it and will exit
-non-zero on an empty set, which reads as a red stage. Jest is the common case:
-`jest-haste-map` ORs a hardcoded `/.git/` ignore into its crawl with no config
-override, so it finds zero test files no matter how healthy the code is. Symlinks do
-not help — real paths are resolved. Confirm by running the same command in a worktree
-outside `.git`; if that finds files, point the stage command at a script that checks
-the commit under test out to a non-`.git` path and runs there. Never point an isolated
-run at the source checkout: that reports on the wrong content and is a false green.
-
-**Green in your shell, red under the gate.** Stages run non-interactively, so
-version-manager shims (nvm, rbenv, pyenv, asdf) are absent and tools resolve to
-system-wide installs. Compare the toolchain version *inside the stage* against the
-project's declared range before you debug the code — a native module built for another
-ABI fails as missing bindings, not as a version error. A repo with no `.nvmrc` (or
-equivalent) has nothing pinning it, so this bites fresh clones and CI too, not just
-the gate.
+| Symptom | Playbook |
+|---|---|
+| Merge-back conflict (exit 4, isolated modes only) | Paste `data.resolution` verbatim and stop |
+| Stage red after max attempts (exit 4) | Stop retrying; show `logs --stage <name>` |
+| Hosted CI failed | Fix on the source branch, re-run the whole gate |
+| Stale head (exit 3, `stale_run`) | `abort --force`, then the fresh `start` it returns |
+| Diff too large (exit 2, `diff_too_large`) | Exclude generated globs; never review part of it |
+| No command configured (exit 2, `needs_command`) | Pick from `data.candidates`; distrust the first green |
+| Stage far slower than normal | Check `[worktree] mode` before raising `max_attempts` |
+| Copy refused (exit 3) | `copy_files` entry is not gitignored; do not work around it |
+| Stage reports zero files to work on | Check whether `worktree_path` is under `.git/` |
+| Green in your shell, red under the gate | Stages are non-interactive; version-manager shims are absent |
 
 ## Escalation etiquette
 
