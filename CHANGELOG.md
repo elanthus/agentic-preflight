@@ -7,6 +7,11 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Batched per-file review diff collection into bounded Git invocations instead of
+  launching one process for every retained file. Review bundles keep the same exact
+  per-file patches and handle renames, binary changes, file-type changes, non-ASCII
+  names, and literal pathspec characters.
+
 - Removed automatic runtime-manager discovery and command wrapping. Setup, review,
   lint, and test commands now run directly in the configured environment, and the
   `[runtime]` configuration section is no longer supported.

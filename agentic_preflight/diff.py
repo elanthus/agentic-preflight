@@ -60,6 +60,11 @@ class DiffBundle:
     per_file: dict[str, str] = field(default_factory=dict)
     excluded: list[str] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        missing = [path for path in self.files if path not in self.per_file]
+        if missing:
+            raise ValueError("missing patches for changed files: " + ", ".join(missing))
+
     @property
     def text(self) -> str:
         """The concatenation of the *included* per-file diffs.
@@ -223,11 +228,12 @@ def build_bundle(
     all_files = gitx.changed_files(repo, base, head)
     kept = [p for p in all_files if not is_excluded(p, patterns)]
     dropped = [p for p in all_files if is_excluded(p, patterns)]
+    per_file = gitx.diff_text_by_path(repo, base, head, kept)
     return DiffBundle(
         base=base,
         head=head,
         files=kept,
-        per_file={p: gitx.diff_text_for_path(repo, base, head, p) for p in kept},
+        per_file=per_file,
         excluded=dropped,
     )
 

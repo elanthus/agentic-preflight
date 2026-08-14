@@ -24,6 +24,32 @@ def test_bundle_splits_per_file(feature_repo):
     assert "Now documented" not in bundle.per_file["src/app.py"]
 
 
+def test_bundle_uses_a_single_batched_diff_for_an_ordinary_change(feature_repo, monkeypatch):
+    base = git("rev-parse", "main", cwd=feature_repo)
+    calls = 0
+    real_run = diff.gitx.run
+
+    def recording_run(cwd, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return real_run(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(diff.gitx, "run", recording_run)
+
+    bundle = diff.build_bundle(feature_repo, base, "HEAD")
+
+    assert bundle.files == ["src/app.py"]
+    assert calls == 2  # changed-file inventory plus one patch batch
+
+
+def test_bundle_rejects_an_incomplete_per_file_mapping(feature_repo, monkeypatch):
+    base = git("rev-parse", "main", cwd=feature_repo)
+    monkeypatch.setattr(diff.gitx, "diff_text_by_path", lambda *_args: {})
+
+    with pytest.raises(ValueError, match=r"missing patches for changed files: src/app\.py"):
+        diff.build_bundle(feature_repo, base, "HEAD")
+
+
 def test_an_empty_diff_yields_an_empty_bundle(tmp_repo):
     head = git("rev-parse", "HEAD", cwd=tmp_repo)
     bundle = diff.build_bundle(tmp_repo, head, "HEAD")
