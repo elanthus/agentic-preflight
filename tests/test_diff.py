@@ -42,6 +42,14 @@ def test_bundle_uses_a_single_batched_diff_for_an_ordinary_change(feature_repo, 
     assert calls == 2  # changed-file inventory plus one patch batch
 
 
+def test_bundle_rejects_an_incomplete_per_file_mapping(feature_repo, monkeypatch):
+    base = git("rev-parse", "main", cwd=feature_repo)
+    monkeypatch.setattr(diff.gitx, "diff_text_by_path", lambda *_args: {})
+
+    with pytest.raises(ValueError, match=r"missing patches for changed files: src/app\.py"):
+        diff.build_bundle(feature_repo, base, "HEAD")
+
+
 def test_an_empty_diff_yields_an_empty_bundle(tmp_repo):
     head = git("rev-parse", "HEAD", cwd=tmp_repo)
     bundle = diff.build_bundle(tmp_repo, head, "HEAD")

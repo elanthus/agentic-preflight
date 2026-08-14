@@ -199,7 +199,8 @@ def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> bool:
 
 
 def changed_files(cwd: Path | str, base: str, head: str = "HEAD") -> list[str]:
-    return _lines(out(cwd, "diff", "--name-only", f"{base}...{head}"))
+    output = run(cwd, "diff", "--name-only", "-z", f"{base}...{head}").stdout
+    return [path for path in output.split("\0") if path]
 
 
 def diff_text(cwd: Path | str, base: str, head: str = "HEAD") -> str:
@@ -255,14 +256,19 @@ def _split_patches(text: str) -> list[str]:
 
 
 def _parse_raw_patch_output(text: str) -> dict[str, str]:
-    """Map patches to destination paths using Git's NUL-delimited raw prelude."""
+    """Map patches to destination paths using Git's NUL-delimited raw prelude.
+
+    Git represents a file-type change as one raw record but emits the content
+    change as a deletion patch followed by an addition patch. Keep both blocks
+    together so the result remains byte-for-byte equivalent to a per-path diff.
+    """
     try:
         raw, patch_text = text.split("\0\0", 1)
     except ValueError as exc:
         raise ValueError("git diff did not separate its raw inventory from patch output") from exc
 
     fields = raw.split("\0")
-    paths: list[str] = []
+    entries: list[tuple[str, str]] = []
     position = 0
     while position < len(fields):
         metadata = fields[position]
@@ -273,13 +279,26 @@ def _parse_raw_patch_output(text: str) -> dict[str, str]:
         path_count = 2 if status.startswith(("R", "C")) else 1
         if position + path_count > len(fields):
             raise ValueError("git diff raw metadata omitted a path")
-        paths.append(fields[position + path_count - 1])
+        entries.append((fields[position + path_count - 1], status))
         position += path_count
 
     patches = _split_patches(patch_text)
-    if len(paths) != len(patches):
-        raise ValueError(f"git diff returned {len(paths)} raw entries but {len(patches)} patches")
-    return dict(zip(paths, patches, strict=True))
+    per_file: dict[str, str] = {}
+    patch_position = 0
+    for path, status in entries:
+        patch_count = 2 if status == "T" else 1
+        patch_end = patch_position + patch_count
+        if patch_end > len(patches):
+            raise ValueError(f"git diff omitted patch blocks for raw entry {path!r} ({status})")
+        per_file[path] = per_file.get(path, "") + "".join(patches[patch_position:patch_end])
+        patch_position = patch_end
+
+    if patch_position != len(patches):
+        raise ValueError(
+            f"git diff returned {len(entries)} raw entries with "
+            f"{patch_position} expected patch blocks but {len(patches)} patches"
+        )
+    return per_file
 
 
 def diff_text_by_path(
@@ -299,7 +318,11 @@ def diff_text_by_path(
             "--",
             *(f":(literal){path}" for path in batch),
         ).stdout
-        per_file.update(_parse_raw_patch_output(output))
+        parsed = _parse_raw_patch_output(output)
+        missing = [path for path in batch if path not in parsed]
+        if missing:
+            raise ValueError("git diff omitted requested changed paths: " + ", ".join(missing))
+        per_file.update((path, parsed[path]) for path in batch)
     return per_file
 
 

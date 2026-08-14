@@ -60,6 +60,11 @@ class DiffBundle:
     per_file: dict[str, str] = field(default_factory=dict)
     excluded: list[str] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        missing = [path for path in self.files if path not in self.per_file]
+        if missing:
+            raise ValueError("missing patches for changed files: " + ", ".join(missing))
+
     @property
     def text(self) -> str:
         """The concatenation of the *included* per-file diffs.
