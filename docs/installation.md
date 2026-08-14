@@ -18,7 +18,7 @@ one or more agent names to limit the skill installation, for example
 To install the published package instead:
 
 ```bash
-uv tool install 'agentic-preflight==0.3.0'
+uv tool install 'agentic-preflight==0.4.0'
 ```
 
 If `uv` reports that its tool directory is not on `PATH`, run `uv tool update-shell` and
