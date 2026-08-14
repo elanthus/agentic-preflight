@@ -1,6 +1,6 @@
 [project]
 name = "agentic-preflight"
-version = "0.3.0"
+version = "0.4.0"
 description = "Stops your coding agent from pushing unverified work. Your agent does the reviewing; a state machine records the result per-commit and gates the push."
 readme = "README.md"
 requires-python = ">=3.11"
