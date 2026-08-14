@@ -100,9 +100,10 @@ the wrong content and is a false green.
 
 ## Green in your shell, red under the gate
 
-Stages run non-interactively, so version-manager shims (nvm, rbenv, pyenv, asdf) are
-absent and tools resolve to system-wide installs. Compare the toolchain version
-*inside the stage* against the project's declared range before you debug the code — a
-native module built for another ABI fails as missing bindings, not as a version error.
-A repo with no `.nvmrc` (or equivalent) has nothing pinning it, so this bites fresh
-clones and CI too, not just the gate.
+Stages run through a non-interactive login Bash shell. Its `PATH` can differ from your
+interactive shell: version-manager shims (nvm, rbenv, pyenv, asdf) may be absent, but
+inherited or login-profile configuration can also keep them available. Compare `PATH`
+and the toolchain version *inside the stage* against the project's declared range before
+you debug the code — a native module built for another ABI fails as missing bindings,
+not as a version error. A repo with no `.nvmrc` (or equivalent) has nothing pinning it,
+so this bites fresh clones and CI too, not just the gate.

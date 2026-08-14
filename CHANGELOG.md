@@ -149,8 +149,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
   `installation.md`, `change-scope.md`, `worktree-modes.md`, `configuration.md`, and
   `limits.md`. The prior-art comparison moved below the technical sections, since it
   answers a question a reader has not yet asked. No documented behaviour changed, and
-  the configuration example stays in the README, where the test suite requires every
-  config section to appear.
+  the complete configuration example stays in `docs/configuration.md`, where the test
+  suite requires every config section to appear.
 - The `[diff] exclude` example now says that setting the key replaces the eight built-in
   globs rather than extending them. The example lists four of the eight, so copying it
   verbatim silently dropped `**/*.min.css`, `**/__snapshots__/**`, `**/*.pb.go`, and

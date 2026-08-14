@@ -1,10 +1,12 @@
 # Command reference
 
-Every command prints exactly one JSON object to stdout. Human prose goes to stderr.
-Parse stdout blindly; every key is always present.
+Every agent-facing workflow command prints exactly one JSON object to stdout. Human
+prose goes to stderr. Parse that stdout blindly; every key is always present. The sole
+exception is `hook-check`: Git consumes its exit status and stderr, so it emits no JSON
+envelope and is not an agent-facing command.
 
 ```json
-{"ok": true, "run_id": "r_...", "state": "AWAITING_FINDINGS", "stage": "review",
+{"ok": true, "run_id": "r_...", "state": "REVIEW_AWAITING_FINDINGS", "stage": "review",
  "data": {}, "blocking": [], "next": {"instruction": "...", "command": "..."},
  "error": null}
 ```
@@ -19,8 +21,10 @@ Installs the pre-push hook and writes `.agentic-preflight.toml` if absent. Refus
 replace a pre-push hook it did not write (exit 3, `hook_exists`) — `--force`
 overrides. Does not clobber an existing config.
 
-Worktrees default to a hidden sibling directory outside `.git`; `data.worktree_root`
-reports the resolved location.
+The default `in_place` mode uses the current checkout and reports
+`data.worktree_root: null`. In isolated `reusable` and `strict` modes, worktrees default
+to a hidden sibling directory outside `.git`, and `data.worktree_root` reports that
+resolved location.
 
 ### `agentic-preflight integrations install AGENT... [--scope user|project] [--target PATH] [--force]`
 Copies the bundled skill and all of its references into each selected agent's discovery
@@ -99,8 +103,9 @@ call twice.
 - Both sections: `diff`, `changed_files`, `excluded_files`, `worktree_path`.
 - Review adds `review_coverage`: a snapshot-bound `manifest`, the exact `head`, and
   every hunk or non-textual file-level review unit.
-- `--section docs` adds `doc_surface`: every documentation file with `exists`, `size`,
-  and `touched_by_diff`. From `REVIEW_GREEN` this opens the docs stage.
+- `--section docs` adds `doc_surface`: every file in the configured documentation
+  allowlist, with `exists`, `size`, and `touched_by_diff`. From `REVIEW_GREEN` this
+  opens the docs stage.
 
 Exits 2 with `data.mode = "diff_too_large"` when the diff exceeds `[diff] max_bytes`.
 The diff is never truncated — narrow it with `[diff] exclude` or raise the limit.
@@ -116,7 +121,7 @@ The review command inherits `[stage] timeout_seconds` and `max_attempts`. Non-ze
 timeout, malformed JSON, stale coverage, or invalid findings enter
 `REVIEW_COMMAND_RED` and consume one persisted attempt. A successful command records its
 configured command, zero exit code, and SHA-256 of redacted captured output alongside
-coverage in the schema-v3 attestation. Repairs invalidate all of that evidence and
+coverage in the schema-v4 attestation. Repairs invalidate all of that evidence and
 require a fresh command review.
 
 ### `agentic-preflight submit-findings --file PATH`
@@ -144,7 +149,7 @@ it to green. Exits 2 listing the outstanding blocking set if anything remains.
 With a SHA, validates the portable attestation in `refs/notes/agentic-preflight` for
 CI. It checks the note schema, exact commit and tree binding, complete stage set, and
 process evidence for green lint/test stages. Fetch the notes ref before calling it in
-a fresh clone. Schema v3 additionally requires the review executor and, for command
+a fresh clone. Schema v4 requires the review executor and, for command
 review, its command, zero exit code, and redacted output digest. A missing or invalid
 note exits 2.
 

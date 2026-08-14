@@ -16,12 +16,15 @@ from click.testing import CliRunner
 from agentic_preflight.cli import main
 from agentic_preflight.config import Config
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.machine import State
+from agentic_preflight.models import Attestation
 
 SKILL_DIR = Path(__file__).parent.parent / "skill"
 SKILL = SKILL_DIR / "SKILL.md"
 REFERENCE = SKILL_DIR / "reference"
 README = Path(__file__).parent.parent / "README.md"
 CONFIGURATION = Path(__file__).parent.parent / "docs" / "configuration.md"
+ATTESTATIONS_AND_CI = Path(__file__).parent.parent / "docs" / "attestations-and-ci.md"
 
 
 def real_commands() -> set[str]:
@@ -95,6 +98,20 @@ def test_every_real_command_is_documented_somewhere():
     assert missing == set(), f"undocumented commands: {missing}"
 
 
+def test_command_reference_uses_a_real_review_state():
+    text = (REFERENCE / "commands.md").read_text()
+    assert f'"state": "{State.REVIEW_AWAITING_FINDINGS}"' in text
+    assert '"state": "AWAITING_FINDINGS"' not in text
+
+
+def test_json_envelope_contract_names_the_hook_exception():
+    for doc in (SKILL, REFERENCE / "commands.md"):
+        text = doc.read_text()
+        assert "agent-facing workflow command" in text
+        assert "hook-check" in text
+        assert "exception" in text
+
+
 # -- exit codes -----------------------------------------------------------
 
 
@@ -164,6 +181,29 @@ def test_every_config_section_is_documented_in_the_configuration_reference():
     documented = set(re.findall(r"^\[([a-z]+)\]$", text, re.MULTILINE))
     missing = set(Config.model_fields) - documented
     assert missing == set(), f"undocumented config sections: {missing}"
+
+
+def test_current_attestation_schema_is_consistent_across_reference_docs():
+    schema = Attestation.model_fields["schema_version"].default
+    assert f"version {schema} note" in ATTESTATIONS_AND_CI.read_text()
+    assert f"schema v{schema}" in CONFIGURATION.read_text()
+
+    commands = (REFERENCE / "commands.md").read_text()
+    assert f"schema-v{schema} attestation" in commands
+    assert f"Schema v{schema} requires" in commands
+
+
+def test_ci_verifier_example_explains_version_matching():
+    text = ATTESTATIONS_AND_CI.read_text()
+    assert "verifier must support the schema emitted by the producer" in text
+    assert "same immutable source revision" in text
+
+
+def test_worktree_and_doc_surface_descriptions_name_their_boundaries():
+    text = (REFERENCE / "commands.md").read_text()
+    assert "data.worktree_root: null" in text
+    assert "In isolated `reusable` and `strict` modes" in text
+    assert "configured documentation\n  allowlist" in text
 
 
 def test_the_configuration_example_actually_parses(tmp_path):
@@ -239,6 +279,12 @@ def test_the_docs_rubric_leads_with_the_obligation_test():
     text = (REFERENCE / "docs-rubric.md").read_text()
     assert "Would a reader following the current documentation now be wrong?" in text
     assert "Zero findings is a normal" in text
+
+
+def test_shell_playbook_does_not_claim_version_manager_shims_are_always_absent():
+    text = (REFERENCE / "playbooks.md").read_text()
+    assert "may be absent" in text
+    assert "inherited or login-profile configuration can also keep them available" in text
 
 
 # -- the help text itself -------------------------------------------------
