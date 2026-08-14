@@ -24,6 +24,11 @@ command, zero exit code, and output hash.
 
 ## Required GitHub check
 
+The verifier must support the schema emitted by the producer. Pin it to the same
+Agentic Preflight release, or to the same immutable source revision when validating
+attestations produced by an unreleased source build. Do not use a v0.3.0 verifier for a
+version 4 note: v0.3.0 accepts schema version 3, while current source accepts version 4.
+
 A minimal GitHub Actions required check is:
 
 ```yaml
@@ -31,7 +36,10 @@ A minimal GitHub Actions required check is:
   with:
     fetch-depth: 0
 - run: git fetch origin refs/notes/agentic-preflight:refs/notes/agentic-preflight
-- run: pipx install 'agentic-preflight==0.3.0'
+- name: Install the verifier that matches the attestation producer
+  # Example for notes produced by the published v0.3.0 release. Replace this
+  # with the exact matching release or immutable source revision.
+  run: pipx install 'agentic-preflight==0.3.0'
 - name: Verify the attested commit
   env:
     ATTESTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

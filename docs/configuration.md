@@ -198,7 +198,7 @@ stops with `data.mode = "needs_command"`; it never guesses a reviewer.
 
 Command review uses `[stage] timeout_seconds` and `max_attempts`. Attempts persist across
 process restarts, and every repair invalidates the prior executor and coverage evidence.
-Attestation schema v3 records `executor` for every review; command reviews also record
+Attestation schema v4 records `executor` for every review; command reviews also record
 the configured command, exit code, and redacted output digest.
 
 ## Deterministic risk policy (`[policy]`)
