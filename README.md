@@ -14,7 +14,7 @@ commit unchanged, that commit contains the fresh base, and the effective configu
 and user intent still match. Any rewritten commit requires a new run.
 
 ![A push blocked by the pre-push hook, a review that catches an unguarded division by
-zero, the fix verified, and the gate stopping to ask before it pushes](https://raw.githubusercontent.com/elanthus/agentic-preflight/v0.3.0/docs/demo.gif)
+zero, the fix verified, and the gate stopping to ask before it pushes](docs/demo.gif)
 
 Every frame above is real CLI output, recorded with [VHS](https://github.com/charmbracelet/vhs).
 Regenerate it yourself with `./docs/demo-fixture.sh && vhs docs/demo.tape`: the script

@@ -36,7 +36,7 @@
 # that wrap the `jq -c '{...}'` filters used throughout, purely so the commands
 # typed on screen stay short and readable within the recording's time budget.
 
-Output demo.gif
+Output docs/demo.gif
 
 Require agentic-preflight
 Require jq
