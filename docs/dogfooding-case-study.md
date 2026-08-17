@@ -17,11 +17,11 @@ on August 17 at approximately 20:40 UTC. Pull requests are counted by creation t
 
 | Repository | PRs opened | PRs merged | Merged PRs that explicitly record preflight use | Merged PRs with a concrete finding record |
 |---|---:|---:|---:|---:|
-| [`agentic-preflight`](https://github.com/elanthus/agentic-preflight/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 34 | 26 | 21 | 7 |
-| [`news-briefing`](https://github.com/elanthus/news-briefing/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 65 | 63 | 36 | 8 |
-| [`OSWorldTasks`](https://github.com/elanthus/OSWorldTasks/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 35 | 34 | 23 | 1 |
+| [`agentic-preflight`](https://github.com/elanthus/agentic-preflight/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 34 | 26 | 25 | 7 |
+| [`news-briefing`](https://github.com/elanthus/news-briefing/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 65 | 63 | 41 | 6 |
+| [`OSWorldTasks`](https://github.com/elanthus/OSWorldTasks/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 35 | 34 | 30 | 1 |
 | [`jobwright`](https://github.com/elanthus/jobwright/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 33 | 30 | 26 | 7 |
-| **Total** | **167** | **153** | **106** | **23** |
+| **Total** | **167** | **153** | **122** | **21** |
 
 "Explicitly record" is deliberately narrower than "used." A merged PR is counted only
 when its description names Agentic Preflight or records a preflight review, gate,
@@ -41,11 +41,10 @@ gh pr list --repo OWNER/REPOSITORY --state all --limit 100 \
 The point-in-time interval is inclusive from `2026-08-03T00:00:00Z` through
 `2026-08-17T20:40:03Z`. A PR counts as merged only when `mergedAt` is non-null and no
 later than the interval end. Recorded use is the case-insensitive regular expression
-`agentic[- ]?preflight|preflight (review|gate|attestation|risk|record)` applied to the
-body of a merged PR. A concrete finding record is the case-insensitive expression
-`F00[1-9]|preflight caught` within that recorded-use cohort. Each repository returned
-fewer than 100 PRs in the interval, so the requested result limit did not truncate the
-sample.
+`preflight` applied to the body of a merged PR. A concrete finding record is the
+case-insensitive expression `F00[1-9]|preflight caught` within that recorded-use cohort.
+Each repository returned fewer than 100 PRs in the interval, so the requested result
+limit did not truncate the sample.
 
 The public descriptions also show clean runs at very different sizes. Examples include
 9 delivered review units in
@@ -160,8 +159,8 @@ than allowing an automatic merge path. PR descriptions such as
 repair commit, final disposition, and manual-merge requirement for a reviewer.
 
 Across all 153 merged PRs, the median GitHub time from PR creation to merge was about
-12.6 minutes; among the 106 PRs that explicitly recorded preflight use, it was about
-14.3 minutes. Those numbers show the owner-operated workflow did not create a multi-day
+12.6 minutes; among the 122 PRs that explicitly recorded preflight use, it was about
+13.1 minutes. Those numbers show the owner-operated workflow did not create a multi-day
 publication queue, but they do **not** measure preflight overhead: most local review,
 repair, lint, and test work happened before the PR was created. No causal speed claim is
 made.
