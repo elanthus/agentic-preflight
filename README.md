@@ -37,6 +37,16 @@ Three things separate it from a checklist in a prompt:
   history without producing a green attestation. A record that can only report success
   is marketing.
 
+## Dogfooding case study
+
+From August 3–17, 2026, the public history of four repositories contains 153 merged pull
+requests. Of those, 106 PR descriptions explicitly record Agentic Preflight use, and 23
+conservatively record at least one concrete finding. The recurring catches were semantic
+boundary failures: stale evidence reuse, approval eligibility, secret normalization,
+trust-domain selection, resumability, and immutable inputs.
+
+[Read the evidence, representative findings, methodology, and limits](docs/dogfooding-case-study.md).
+
 Agentic Preflight is a deterministic state machine with a JSON-over-stdout CLI. It runs
 on macOS and Linux.
 
