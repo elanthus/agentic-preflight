@@ -18,17 +18,23 @@ on August 17 at approximately 20:40 UTC. Pull requests are counted by creation t
 | Repository | PRs opened | PRs merged | Merged PRs that explicitly record preflight use | Merged PRs with a concrete finding record |
 |---|---:|---:|---:|---:|
 | [`agentic-preflight`](https://github.com/elanthus/agentic-preflight/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 34 | 26 | 25 | 7 |
-| [`news-briefing`](https://github.com/elanthus/news-briefing/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 65 | 63 | 41 | 6 |
-| [`OSWorldTasks`](https://github.com/elanthus/OSWorldTasks/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 35 | 34 | 30 | 1 |
+| [`news-briefing`](https://github.com/elanthus/news-briefing/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 65 | 63 | 42 | 9 |
+| [`OSWorldTasks`](https://github.com/elanthus/OSWorldTasks/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 35 | 34 | 29 | 1 |
 | [`jobwright`](https://github.com/elanthus/jobwright/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 33 | 30 | 26 | 7 |
-| **Total** | **167** | **153** | **122** | **21** |
+| **Total** | **167** | **153** | **122** | **24** |
+
+The repository links in the table are live, day-level browsing links. They can include
+PRs created later on August 17 than the exact cutoff and are not the aggregate snapshots.
+The fixed counts and the excerpts used to classify them are preserved in the
+[`dogfooding-case-study-evidence.json`](dogfooding-case-study-evidence.json) ledger.
 
 "Explicitly record" is deliberately narrower than "used." A merged PR is counted only
-when its description names Agentic Preflight or records a preflight review, gate,
-attestation, risk verdict, or review record. A concrete finding record requires a
-specific finding identifier or an explicit statement that preflight caught an issue.
-PR descriptions that merely list tests or other reviewers do not count. This avoids
-claiming that all 153 merged PRs were gated when the public record does not prove that.
+when its description contains positive workflow-status evidence for Preflight or a
+detailed `F`-identifier-and-severity finding record. Package paths such as
+`agentic_preflight` do not qualify by themselves. A statement such as "no findings"
+records use but not a concrete finding, and a hypothetical "preflight caught no issue"
+does not qualify as a finding. This avoids claiming that all 153 merged PRs were gated
+when the public record does not prove that.
 
 The aggregate was produced from the `number`, `createdAt`, `mergedAt`, `closedAt`,
 `body`, and `url` fields returned by the following command for each repository:
@@ -40,11 +46,17 @@ gh pr list --repo OWNER/REPOSITORY --state all --limit 100 \
 
 The point-in-time interval is inclusive from `2026-08-03T00:00:00Z` through
 `2026-08-17T20:40:03Z`. A PR counts as merged only when `mergedAt` is non-null and no
-later than the interval end. Recorded use is the case-insensitive regular expression
-`preflight` applied to the body of a merged PR. A concrete finding record is the
-case-insensitive expression `F00[1-9]|preflight caught` within that recorded-use cohort.
-Each repository returned fewer than 100 PRs in the interval, so the requested result
-limit did not truncate the sample.
+later than the interval end. Recorded-use evidence is either a line containing a
+word-boundary `F` followed by at least three digits plus a severity, a Markdown heading
+containing the standalone word `preflight`, an attestation or audit reference, an
+explicit outcome such as `passed`, `green`, `examined`, or a risk verdict, or a
+validation-list item that names a Preflight check. Feature, configuration, and review-
+scope mentions without an outcome do not qualify. Concrete-finding evidence is either
+the detailed `F` record or an affirmative statement that Preflight caught, identified,
+found, or flagged an issue. Immediate `no`/`none`/`zero` negations are excluded. The
+ledger stores the selected excerpt and classification reason for every counted PR, plus
+the rejected borderline examples. Each repository returned fewer than 100 PRs in the
+interval, so the requested result limit did not truncate the sample.
 
 The public descriptions also show clean runs at very different sizes. Examples include
 9 delivered review units in
@@ -171,8 +183,8 @@ made.
   rate, reviewer recall, false-negative rate, or productivity improvement.
 - PR bodies are author-maintained audit records, not independent telemetry. The
   representative findings above were checked against their linked public descriptions,
-  but descriptions are mutable, the aggregate text classification can undercount
-  undocumented use, and it cannot grade review quality.
+  but descriptions are mutable, the preserved rule-based classification can still miss
+  undocumented use or misclassify prose, and it cannot grade review quality.
 - These four repositories have one owner. The sample demonstrates repeated use across
   heterogeneous codebases, not organization-wide adoption or peer-review effectiveness.
 - Generated evaluation evidence and large refactors make line-count totals misleading,

@@ -1,0 +1,1304 @@
+{
+  "schema_version": 1,
+  "observation_window": {
+    "start": "2026-08-03T00:00:00Z",
+    "end": "2026-08-17T20:40:03Z"
+  },
+  "source": {
+    "command": "gh pr list --repo OWNER/REPOSITORY --state all --limit 100 --json number,createdAt,mergedAt,body,url",
+    "note": "PR descriptions are mutable; this file preserves the exact excerpts classified on 2026-08-17."
+  },
+  "classification": {
+    "recorded_use": [
+      "A line contains a word-boundary F followed by at least three digits and a severity (critical, high, medium, or low).",
+      "A Markdown heading contains the standalone word preflight.",
+      "A line links standalone preflight or agentic-preflight to an attestation or audit record.",
+      "A line links standalone preflight or agentic-preflight to an explicit outcome such as no findings, passed, green, completed, classified, examined, reported, a risk verdict, a manual-merge requirement, a skip, or a test count.",
+      "A validation-list item begins with preflight or agentic-preflight and names a review, gate, lint, test, documentation, or risk check."
+    ],
+    "concrete_finding": [
+      "A line contains a word-boundary F followed by at least three digits and a severity.",
+      "A line says preflight caught, identified, found, or flagged an issue; a verb immediately followed by no, none, or zero is excluded."
+    ],
+    "negative_cases": [
+      "An underscore-delimited package path such as agentic_preflight is not standalone product-use evidence.",
+      "A feature, configuration, or review-scope mention without an outcome is not recorded use.",
+      "A no findings or zero findings statement records use but not a concrete finding.",
+      "A preflight caught no issue statement is not a concrete finding."
+    ]
+  },
+  "repository_counts": [
+    {
+      "repository": "elanthus/agentic-preflight",
+      "opened": 34,
+      "merged": 26,
+      "recorded_use": 25,
+      "concrete_finding": 7
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "opened": 65,
+      "merged": 63,
+      "recorded_use": 42,
+      "concrete_finding": 9
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "opened": 35,
+      "merged": 34,
+      "recorded_use": 29,
+      "concrete_finding": 1
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "opened": 33,
+      "merged": 30,
+      "recorded_use": 26,
+      "concrete_finding": 7
+    }
+  ],
+  "totals": {
+    "opened": 167,
+    "merged": 153,
+    "recorded_use": 122,
+    "concrete_finding": 24
+  },
+  "excluded_candidate_examples": [
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 26,
+      "url": "https://github.com/elanthus/news-briefing/pull/26",
+      "excerpt": "Adds `.agentic-preflight.toml` to `.gitignore`.",
+      "reason": "Mentions configuration or review scope without recording a completed Preflight workflow or finding."
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 51,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/51",
+      "excerpt": "- Raised the preflight diff-size ceiling to 1.2 MB so the complete evidence diff remains in review scope without excluding evidence paths.",
+      "reason": "Mentions configuration or review scope without recording a completed Preflight workflow or finding."
+    }
+  ],
+  "records": [
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 23,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/23",
+      "created_at": "2026-08-10T20:42:36Z",
+      "merged_at": "2026-08-10T20:48:00Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "| F001 | high | `agentic_preflight/approval.py` | Fixed in `8756b0d`: only repository owners, members, or collaborators can satisfy the exact-head approval check. |",
+      "concrete_finding_excerpt": "| F001 | high | `agentic_preflight/approval.py` | Fixed in `8756b0d`: only repository owners, members, or collaborators can satisfy the exact-head approval check. |"
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 24,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/24",
+      "created_at": "2026-08-10T22:07:00Z",
+      "merged_at": "2026-08-10T23:29:23Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- `F001` — **high** — `agentic_preflight/runs/publish.py`: the finish instruction incorrectly attributed automatic PR creation to push-gate approval. Fixed in `c86575c8a1246dd99ca4d038f302e1263b188fb9` by describing automatic PR mode as standing authorization and adding regression coverage.",
+      "concrete_finding_excerpt": "- `F001` — **high** — `agentic_preflight/runs/publish.py`: the finish instruction incorrectly attributed automatic PR creation to push-gate approval. Fixed in `c86575c8a1246dd99ca4d038f302e1263b188fb9` by describing automatic PR mode as standing authorization and adding regression coverage."
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 26,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/26",
+      "created_at": "2026-08-11T01:49:27Z",
+      "merged_at": "2026-08-11T01:55:04Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 27,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/27",
+      "created_at": "2026-08-11T02:51:47Z",
+      "merged_at": "2026-08-11T03:56:02Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- **F001 · high · `agentic_preflight/attestation.py`** — reused evidence was not originally bound to the user's intent. Resolved in `d4262e8`, with the binding made portable across local run garbage collection in `a5d540b`.",
+      "concrete_finding_excerpt": "- **F001 · high · `agentic_preflight/attestation.py`** — reused evidence was not originally bound to the user's intent. Resolved in `d4262e8`, with the binding made portable across local run garbage collection in `a5d540b`."
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 30,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/30",
+      "created_at": "2026-08-11T23:00:09Z",
+      "merged_at": "2026-08-12T02:17:32Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- the full test suite passed in its single preflight run, after lint",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 31,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/31",
+      "created_at": "2026-08-12T02:54:00Z",
+      "merged_at": "2026-08-12T04:52:03Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- F001 (high), `docs/configuration.md`, fixed by `33d4faed8a3d93ef0eb1b746acf4b4045b7513df`: the threshold description omitted the code-owned exception.",
+      "concrete_finding_excerpt": "- F001 (high), `docs/configuration.md`, fixed by `33d4faed8a3d93ef0eb1b746acf4b4045b7513df`: the threshold description omitted the code-owned exception."
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 32,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/32",
+      "created_at": "2026-08-12T05:33:59Z",
+      "merged_at": "2026-08-12T16:48:11Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- Local preflight: lint/type checks green; full test suite green (471 tests)",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 33,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/33",
+      "created_at": "2026-08-12T17:43:06Z",
+      "merged_at": "2026-08-12T17:53:14Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- `F001` — **high**, `agentic_preflight/stages/shellstage.py`: double-quoted escaped apostrophes could be decoded by dotenv loaders but remain escaped in the redaction set. Fixed in `ba4a998` and covered by a regression test.",
+      "concrete_finding_excerpt": "- `F001` — **high**, `agentic_preflight/stages/shellstage.py`: double-quoted escaped apostrophes could be decoded by dotenv loaders but remain escaped in the redaction set. Fixed in `ba4a998` and covered by a regression test."
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 34,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/34",
+      "created_at": "2026-08-12T19:37:44Z",
+      "merged_at": "2026-08-12T20:21:18Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "The preflight audit trail records what the gate reported; it does not prove review quality and does not replace CI or human review. Post-finish cleanup completed successfully with the updated plugin.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 35,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/35",
+      "created_at": "2026-08-12T20:52:10Z",
+      "merged_at": "2026-08-12T21:00:27Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight findings",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 42,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/42",
+      "created_at": "2026-08-12T21:27:06Z",
+      "merged_at": "2026-08-12T23:25:04Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight record",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 43,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/43",
+      "created_at": "2026-08-12T22:10:19Z",
+      "merged_at": "2026-08-12T22:13:13Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "The preflight attestation records what the gate reported, including complete review-unit coverage and green local checks. It is an audit trail, not proof that the review judgment was correct, and it does not replace hosted CI or human review.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 46,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/46",
+      "created_at": "2026-08-12T22:23:45Z",
+      "merged_at": "2026-08-12T22:29:41Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 47,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/47",
+      "created_at": "2026-08-13T01:38:41Z",
+      "merged_at": "2026-08-13T01:42:41Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "No review findings were filed or resolved. The agentic-preflight attestation records review coverage and local stage results, but it is an audit trail rather than proof that the review was correct; hosted CI and human review remain required.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 48,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/48",
+      "created_at": "2026-08-13T04:27:10Z",
+      "merged_at": "2026-08-13T04:40:36Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Agentic Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 49,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/49",
+      "created_at": "2026-08-13T16:42:13Z",
+      "merged_at": "2026-08-13T17:11:03Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "The preflight attestation is an audit trail of what the gate reported. It records complete",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 50,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/50",
+      "created_at": "2026-08-13T17:59:52Z",
+      "merged_at": "2026-08-13T18:13:45Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 51,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/51",
+      "created_at": "2026-08-13T18:33:20Z",
+      "merged_at": "2026-08-13T18:35:06Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "| F001 | medium | `skill/reference/playbooks.md` | auto_fix | 27d237f |",
+      "concrete_finding_excerpt": "| F001 | medium | `skill/reference/playbooks.md` | auto_fix | 27d237f |"
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 52,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/52",
+      "created_at": "2026-08-13T18:53:55Z",
+      "merged_at": "2026-08-13T19:17:25Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- `F001` (high, `agentic_preflight/machine.py`) found that a resumed partially resolved blocked stage could point back to an already closed `F001`; fixed in `7d23af3` by making `verify` the durable recovery command and keeping concrete finding IDs in live envelopes",
+      "concrete_finding_excerpt": "- `F001` (high, `agentic_preflight/machine.py`) found that a resumed partially resolved blocked stage could point back to an already closed `F001`; fixed in `7d23af3` by making `verify` the durable recovery command and keeping concrete finding IDs in live envelopes"
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 53,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/53",
+      "created_at": "2026-08-13T19:44:52Z",
+      "merged_at": "2026-08-13T20:35:57Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "The commit carries the local agentic-preflight attestation; hosted CI remains the remote verification boundary.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 54,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/54",
+      "created_at": "2026-08-13T20:52:04Z",
+      "merged_at": "2026-08-13T21:05:16Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Agentic Preflight",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 55,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/55",
+      "created_at": "2026-08-13T20:54:45Z",
+      "merged_at": "2026-08-13T21:04:15Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "The preflight attestation records what the gate reported, including complete delivered-unit",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 56,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/56",
+      "created_at": "2026-08-13T21:30:57Z",
+      "merged_at": "2026-08-13T22:04:04Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 57,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/57",
+      "created_at": "2026-08-13T23:15:44Z",
+      "merged_at": "2026-08-14T00:19:07Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/agentic-preflight",
+      "number": 58,
+      "url": "https://github.com/elanthus/agentic-preflight/pull/58",
+      "created_at": "2026-08-14T02:35:49Z",
+      "merged_at": "2026-08-14T02:56:07Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- Agentic Preflight review and documentation stages — no findings",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 35,
+      "url": "https://github.com/elanthus/jobwright/pull/35",
+      "created_at": "2026-08-10T20:33:08Z",
+      "merged_at": "2026-08-10T22:24:39Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- structured preflight code and documentation reviews: no findings",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 36,
+      "url": "https://github.com/elanthus/jobwright/pull/36",
+      "created_at": "2026-08-11T00:14:14Z",
+      "merged_at": "2026-08-11T01:51:20Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight review, documentation, test, lint, type, and push gates passed",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 37,
+      "url": "https://github.com/elanthus/jobwright/pull/37",
+      "created_at": "2026-08-11T02:29:05Z",
+      "merged_at": "2026-08-11T03:08:46Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "The final synchronized review reported no findings. An earlier review identified automatic provider selection as a cache-identity gap (`F001`, high, `jobwright/requirements_step.py`); commit `6dda67c` fixed it by fingerprinting the resolved provider and model without including credentials.",
+      "concrete_finding_excerpt": "The final synchronized review reported no findings. An earlier review identified automatic provider selection as a cache-identity gap (`F001`, high, `jobwright/requirements_step.py`); commit `6dda67c` fixed it by fingerprinting the resolved provider and model without including credentials."
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 38,
+      "url": "https://github.com/elanthus/jobwright/pull/38",
+      "created_at": "2026-08-11T03:31:54Z",
+      "merged_at": "2026-08-11T03:33:49Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 39,
+      "url": "https://github.com/elanthus/jobwright/pull/39",
+      "created_at": "2026-08-11T23:24:50Z",
+      "merged_at": "2026-08-12T03:28:59Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- `F001` (medium), `.claude/rules/documents.md`: the résumé-production rule described the old web producer; resolved in `56c64ff`",
+      "concrete_finding_excerpt": "- `F001` (medium), `.claude/rules/documents.md`: the résumé-production rule described the old web producer; resolved in `56c64ff`"
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 40,
+      "url": "https://github.com/elanthus/jobwright/pull/40",
+      "created_at": "2026-08-12T03:45:57Z",
+      "merged_at": "2026-08-12T03:51:11Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "The preflight record is an audit trail of the submitted review coverage and local gate results, not a substitute for CI or human review.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 41,
+      "url": "https://github.com/elanthus/jobwright/pull/41",
+      "created_at": "2026-08-12T04:07:01Z",
+      "merged_at": "2026-08-12T04:09:31Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "The preflight record is an audit trail of submitted review coverage and local gate results, not a substitute for CI or human review.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 42,
+      "url": "https://github.com/elanthus/jobwright/pull/42",
+      "created_at": "2026-08-12T04:16:10Z",
+      "merged_at": "2026-08-12T04:18:58Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "The preflight record is an audit trail of submitted review coverage and local gate results, not a substitute for CI or human review.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 43,
+      "url": "https://github.com/elanthus/jobwright/pull/43",
+      "created_at": "2026-08-12T04:56:48Z",
+      "merged_at": "2026-08-12T05:03:24Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "Agentic preflight classified the change as low risk and examined all 13 delivered review units cleanly, with no findings or dismissed issues. This audit trail records what the gate reported; it does not replace CI or human review.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 44,
+      "url": "https://github.com/elanthus/jobwright/pull/44",
+      "created_at": "2026-08-12T05:23:27Z",
+      "merged_at": "2026-08-12T05:25:50Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Review notes (agentic-preflight)",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 45,
+      "url": "https://github.com/elanthus/jobwright/pull/45",
+      "created_at": "2026-08-12T17:39:33Z",
+      "merged_at": "2026-08-12T17:42:23Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- **F001 · medium · `jobwright/research.py`** — the initial Markdown-link matcher could leave a stray delimiter when a URL contained balanced parentheses. Resolved in `a89c967` and hardened for surrounding punctuation in `82c9782`.",
+      "concrete_finding_excerpt": "- **F001 · medium · `jobwright/research.py`** — the initial Markdown-link matcher could leave a stray delimiter when a URL contained balanced parentheses. Resolved in `a89c967` and hardened for surrounding punctuation in `82c9782`."
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 46,
+      "url": "https://github.com/elanthus/jobwright/pull/46",
+      "created_at": "2026-08-12T17:58:11Z",
+      "merged_at": "2026-08-12T18:18:08Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 48,
+      "url": "https://github.com/elanthus/jobwright/pull/48",
+      "created_at": "2026-08-12T18:54:50Z",
+      "merged_at": "2026-08-12T20:29:06Z",
+      "recorded_use_reason": "finding_verb",
+      "recorded_use_excerpt": "Preflight caught that the first implementation included raw research source text in the generated-output scan. That would have falsely failed whenever an injection canary correctly remained only in an untrusted source. The final implementation excludes the raw source ledger and includes a regression test for that boundary.",
+      "concrete_finding_excerpt": "Preflight caught that the first implementation included raw research source text in the generated-output scan. That would have falsely failed whenever an injection canary correctly remained only in an untrusted source. The final implementation excludes the raw source ledger and includes a regression test for that boundary."
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 50,
+      "url": "https://github.com/elanthus/jobwright/pull/50",
+      "created_at": "2026-08-12T22:39:08Z",
+      "merged_at": "2026-08-12T23:13:42Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "Agentic preflight examined all 16 delivered diff units and reported no findings. No findings were dismissed or required repair commits.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 51,
+      "url": "https://github.com/elanthus/jobwright/pull/51",
+      "created_at": "2026-08-13T16:22:59Z",
+      "merged_at": "2026-08-13T16:47:27Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 52,
+      "url": "https://github.com/elanthus/jobwright/pull/52",
+      "created_at": "2026-08-13T17:44:42Z",
+      "merged_at": "2026-08-13T17:59:24Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "The preflight attestation is an audit trail of what the gate reported. It does not prove review quality and does not replace CI or human review.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 53,
+      "url": "https://github.com/elanthus/jobwright/pull/53",
+      "created_at": "2026-08-13T21:26:24Z",
+      "merged_at": "2026-08-13T21:56:03Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- **F001 (high)** — `devtools/pipeline_benchmark.py`: rescoring a newly added case could create artifact directories inside the source run, violating immutability. Resolved by commit `2c9a459` by emitting a missing-artifact result without constructing a mutating run context.",
+      "concrete_finding_excerpt": "- **F001 (high)** — `devtools/pipeline_benchmark.py`: rescoring a newly added case could create artifact directories inside the source run, violating immutability. Resolved by commit `2c9a459` by emitting a missing-artifact result without constructing a mutating run context."
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 54,
+      "url": "https://github.com/elanthus/jobwright/pull/54",
+      "created_at": "2026-08-13T23:45:29Z",
+      "merged_at": "2026-08-14T00:13:17Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight code review: clean",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 55,
+      "url": "https://github.com/elanthus/jobwright/pull/55",
+      "created_at": "2026-08-14T17:09:53Z",
+      "merged_at": "2026-08-14T17:15:33Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "Agentic-preflight examined all 19 delivered review units and reported no code or documentation findings. Repository CI provides the remote verification; the preflight record is an audit trail, not a substitute for human review.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 56,
+      "url": "https://github.com/elanthus/jobwright/pull/56",
+      "created_at": "2026-08-14T23:33:59Z",
+      "merged_at": "2026-08-15T00:07:34Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic preflight: low-risk pass, no unresolved findings",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 57,
+      "url": "https://github.com/elanthus/jobwright/pull/57",
+      "created_at": "2026-08-15T00:23:53Z",
+      "merged_at": "2026-08-15T00:26:48Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- preflight review: no findings",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 59,
+      "url": "https://github.com/elanthus/jobwright/pull/59",
+      "created_at": "2026-08-15T03:08:28Z",
+      "merged_at": "2026-08-15T03:15:19Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- F001 (high), `.github/workflows/claude-code-review.yml`: the reference workflow's single-quoted review body could fail when generated prose contained an apostrophe. Fixed in `9b35043` by restoring an explicit no-apostrophe constraint and adding a regression test.",
+      "concrete_finding_excerpt": "- F001 (high), `.github/workflows/claude-code-review.yml`: the reference workflow's single-quoted review body could fail when generated prose contained an apostrophe. Fixed in `9b35043` by restoring an explicit no-apostrophe constraint and adding a regression test."
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 60,
+      "url": "https://github.com/elanthus/jobwright/pull/60",
+      "created_at": "2026-08-15T04:29:42Z",
+      "merged_at": "2026-08-15T05:44:31Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "The agentic-preflight gate reports low risk with a pass verdict and no review findings.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 61,
+      "url": "https://github.com/elanthus/jobwright/pull/61",
+      "created_at": "2026-08-15T05:39:00Z",
+      "merged_at": "2026-08-15T06:56:13Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight review: pass; medium risk only because `docs/pipeline.md` does not enumerate the new output-root log (the dedicated configuration and troubleshooting docs do)",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 62,
+      "url": "https://github.com/elanthus/jobwright/pull/62",
+      "created_at": "2026-08-15T17:50:55Z",
+      "merged_at": "2026-08-15T17:53:52Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight: low risk, pass",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/jobwright",
+      "number": 63,
+      "url": "https://github.com/elanthus/jobwright/pull/63",
+      "created_at": "2026-08-16T04:35:33Z",
+      "merged_at": "2026-08-17T19:09:36Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- F001 (medium, docs): the historical Elliot/E Corp example described deleted cache sidecars. Resolved by `f991626` with an explicit note that omitted producer manifests make the snapshot illustrative rather than reusable pipeline input.",
+      "concrete_finding_excerpt": "- F001 (medium, docs): the historical Elliot/E Corp example described deleted cache sidecars. Resolved by `f991626` with an explicit note that omitted producer manifests make the snapshot illustrative rather than reusable pipeline input."
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 5,
+      "url": "https://github.com/elanthus/news-briefing/pull/5",
+      "created_at": "2026-08-09T03:29:04Z",
+      "merged_at": "2026-08-09T03:34:34Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight audit",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 11,
+      "url": "https://github.com/elanthus/news-briefing/pull/11",
+      "created_at": "2026-08-09T17:38:18Z",
+      "merged_at": "2026-08-09T17:39:16Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- F001 high, eval_briefing.py:86 — accepted follow-up: citation guarantee exceeds the parsed link surface. The user requested this integration after the limitation was disclosed.",
+      "concrete_finding_excerpt": "- F001 high, eval_briefing.py:86 — accepted follow-up: citation guarantee exceeds the parsed link surface. The user requested this integration after the limitation was disclosed."
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 12,
+      "url": "https://github.com/elanthus/news-briefing/pull/12",
+      "created_at": "2026-08-09T23:35:43Z",
+      "merged_at": "2026-08-09T23:37:43Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "The final preflight review reported no findings. The README now explicitly distinguishes enforced structural checks, prompt-constrained behavior, and semantic claims the deterministic evaluator cannot prove.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 13,
+      "url": "https://github.com/elanthus/news-briefing/pull/13",
+      "created_at": "2026-08-10T01:58:16Z",
+      "merged_at": "2026-08-10T01:59:53Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "The agentic preflight review reported no remaining findings. No findings were dismissed and no product decisions remain unresolved. This is an audit trail of the review performed, not a substitute for CI or human review.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 14,
+      "url": "https://github.com/elanthus/news-briefing/pull/14",
+      "created_at": "2026-08-10T02:20:43Z",
+      "merged_at": "2026-08-10T02:22:54Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "Agentic preflight reported no actionable findings for commit `988237d`.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 15,
+      "url": "https://github.com/elanthus/news-briefing/pull/15",
+      "created_at": "2026-08-10T03:12:25Z",
+      "merged_at": "2026-08-10T03:15:18Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 16,
+      "url": "https://github.com/elanthus/news-briefing/pull/16",
+      "created_at": "2026-08-10T03:58:23Z",
+      "merged_at": "2026-08-10T03:59:06Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 17,
+      "url": "https://github.com/elanthus/news-briefing/pull/17",
+      "created_at": "2026-08-10T04:23:45Z",
+      "merged_at": "2026-08-10T04:26:29Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 18,
+      "url": "https://github.com/elanthus/news-briefing/pull/18",
+      "created_at": "2026-08-10T05:25:19Z",
+      "merged_at": "2026-08-10T06:02:51Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- F001 (medium), `eval_briefing.py`: exclusion category validation normalized URLs differently from the main parser. Resolved in `0384d4e` by sharing URL cleanup and adding regression coverage.",
+      "concrete_finding_excerpt": "- F001 (medium), `eval_briefing.py`: exclusion category validation normalized URLs differently from the main parser. Resolved in `0384d4e` by sharing URL cleanup and adding regression coverage."
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 19,
+      "url": "https://github.com/elanthus/news-briefing/pull/19",
+      "created_at": "2026-08-10T07:43:28Z",
+      "merged_at": "2026-08-10T07:44:47Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "GitHub CI is the source of truth for this pushed SHA. The preflight review reported no remaining findings.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 20,
+      "url": "https://github.com/elanthus/news-briefing/pull/20",
+      "created_at": "2026-08-10T08:01:58Z",
+      "merged_at": "2026-08-10T08:03:13Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "Agentic preflight reported no code or documentation findings. CI will validate the pushed commit.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 24,
+      "url": "https://github.com/elanthus/news-briefing/pull/24",
+      "created_at": "2026-08-10T19:02:51Z",
+      "merged_at": "2026-08-10T19:05:50Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 25,
+      "url": "https://github.com/elanthus/news-briefing/pull/25",
+      "created_at": "2026-08-10T23:06:13Z",
+      "merged_at": "2026-08-10T23:07:20Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 28,
+      "url": "https://github.com/elanthus/news-briefing/pull/28",
+      "created_at": "2026-08-11T01:39:24Z",
+      "merged_at": "2026-08-11T02:00:47Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- **F001 — high — `eval_briefing.py`: configured source identifiers could still contain the error delimiter.** Fixed by commits `38c81b5` and `000278d`, which reject ambiguous source identifiers at configuration load and document the evaluator-side parsing contract.",
+      "concrete_finding_excerpt": "- **F001 — high — `eval_briefing.py`: configured source identifiers could still contain the error delimiter.** Fixed by commits `38c81b5` and `000278d`, which reject ambiguous source identifiers at configuration load and document the evaluator-side parsing contract."
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 33,
+      "url": "https://github.com/elanthus/news-briefing/pull/33",
+      "created_at": "2026-08-11T03:09:01Z",
+      "merged_at": "2026-08-11T03:48:42Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- **F001 · medium · `corpus_schema.py`** — duplicate structured error records could satisfy a set-only consistency comparison. Fixed in `bea55df` by preserving multiplicity and rejecting duplicate failures.",
+      "concrete_finding_excerpt": "- **F001 · medium · `corpus_schema.py`** — duplicate structured error records could satisfy a set-only consistency comparison. Fixed in `bea55df` by preserving multiplicity and rejecting duplicate failures."
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 34,
+      "url": "https://github.com/elanthus/news-briefing/pull/34",
+      "created_at": "2026-08-11T17:16:37Z",
+      "merged_at": "2026-08-11T17:39:27Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "The preflight attestation records what the local gate reported; it is an audit trail, not a substitute for CI or human review.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 36,
+      "url": "https://github.com/elanthus/news-briefing/pull/36",
+      "created_at": "2026-08-12T03:58:53Z",
+      "merged_at": "2026-08-12T18:45:56Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- F001, medium, `evaluator/cases.py`: the heuristic false-positive denominator included an intentionally invalid thin-evidence case. Resolved by `ce66d51` by restricting the cohort to deliberately valid human-labeled cases and updating its regression assertion and baseline.",
+      "concrete_finding_excerpt": "- F001, medium, `evaluator/cases.py`: the heuristic false-positive denominator included an intentionally invalid thin-evidence case. Resolved by `ce66d51` by restricting the cohort to deliberately valid human-labeled cases and updating its regression assertion and baseline."
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 37,
+      "url": "https://github.com/elanthus/news-briefing/pull/37",
+      "created_at": "2026-08-12T19:48:12Z",
+      "merged_at": "2026-08-12T19:49:08Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 38,
+      "url": "https://github.com/elanthus/news-briefing/pull/38",
+      "created_at": "2026-08-12T23:39:08Z",
+      "merged_at": "2026-08-13T00:04:19Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- `F001` (medium), `evaluator/label_review.py`: validated batch responses were checkpointed but not resumed, so a later malformed response could repeat paid calls. Resolved in `4d20d98` by binding resumable checkpoints to the suite hash, reviewer/adjudicator models, and batch size, with regression coverage.",
+      "concrete_finding_excerpt": "- `F001` (medium), `evaluator/label_review.py`: validated batch responses were checkpointed but not resumed, so a later malformed response could repeat paid calls. Resolved in `4d20d98` by binding resumable checkpoints to the suite hash, reviewer/adjudicator models, and batch size, with regression coverage."
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 39,
+      "url": "https://github.com/elanthus/news-briefing/pull/39",
+      "created_at": "2026-08-13T00:14:12Z",
+      "merged_at": "2026-08-13T00:30:23Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 40,
+      "url": "https://github.com/elanthus/news-briefing/pull/40",
+      "created_at": "2026-08-13T02:54:11Z",
+      "merged_at": "2026-08-13T03:16:51Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight: low-risk/pass; all 54 review units examined; no additional code or documentation findings",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 41,
+      "url": "https://github.com/elanthus/news-briefing/pull/41",
+      "created_at": "2026-08-13T04:29:41Z",
+      "merged_at": "2026-08-13T05:10:45Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 42,
+      "url": "https://github.com/elanthus/news-briefing/pull/42",
+      "created_at": "2026-08-13T05:10:06Z",
+      "merged_at": "2026-08-13T15:59:47Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 43,
+      "url": "https://github.com/elanthus/news-briefing/pull/43",
+      "created_at": "2026-08-13T16:22:58Z",
+      "merged_at": "2026-08-13T16:26:12Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- `F001` — **high**, `SECURITY.md`: GitHub private vulnerability reporting was disabled, which made the proposed confidential-report link unusable. The repository owner approved enabling the feature; the repository setting was updated and verified as enabled. No source commit was needed for this external configuration fix.",
+      "concrete_finding_excerpt": "- `F001` — **high**, `SECURITY.md`: GitHub private vulnerability reporting was disabled, which made the proposed confidential-report link unusable. The repository owner approved enabling the feature; the repository setting was updated and verified as enabled. No source commit was needed for this external configuration fix."
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 44,
+      "url": "https://github.com/elanthus/news-briefing/pull/44",
+      "created_at": "2026-08-13T17:15:30Z",
+      "merged_at": "2026-08-13T17:17:05Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "No review findings required remediation. The preflight attestation records review coverage and local quality-stage evidence; repository CI should be treated as the stronger remote execution record.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 45,
+      "url": "https://github.com/elanthus/news-briefing/pull/45",
+      "created_at": "2026-08-13T17:36:10Z",
+      "merged_at": "2026-08-13T17:38:08Z",
+      "recorded_use_reason": "finding_verb",
+      "recorded_use_excerpt": "Preflight identified and fixed a path that could have republished an ungrounded URL inside the post-check validation summary. The final workflow redacts any destination absent from the corpus and checks the completed briefing, including its validation section. This PR is intentionally marked for manual merge.",
+      "concrete_finding_excerpt": "Preflight identified and fixed a path that could have republished an ungrounded URL inside the post-check validation summary. The final workflow redacts any destination absent from the corpus and checks the completed briefing, including its validation section. This PR is intentionally marked for manual merge."
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 46,
+      "url": "https://github.com/elanthus/news-briefing/pull/46",
+      "created_at": "2026-08-13T21:23:58Z",
+      "merged_at": "2026-08-13T21:52:51Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- `F001` (medium), `evaluator/quality.py`: quality checkpoints were not bound to the manifest and suite contents. Resolved by `d5b618e` with input hashes and a changed-input regression test.",
+      "concrete_finding_excerpt": "- `F001` (medium), `evaluator/quality.py`: quality checkpoints were not bound to the manifest and suite contents. Resolved by `d5b618e` with input hashes and a changed-input regression test."
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 47,
+      "url": "https://github.com/elanthus/news-briefing/pull/47",
+      "created_at": "2026-08-13T23:29:19Z",
+      "merged_at": "2026-08-14T00:14:58Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "Low. The preflight gate reported no risk reasons and no required human-review hold. Its attestation records the reviewed diff and local checks; repository CI remains the independent remote verification.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 51,
+      "url": "https://github.com/elanthus/news-briefing/pull/51",
+      "created_at": "2026-08-15T00:25:25Z",
+      "merged_at": "2026-08-15T00:27:08Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight review and documentation checks passed",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 52,
+      "url": "https://github.com/elanthus/news-briefing/pull/52",
+      "created_at": "2026-08-15T01:10:48Z",
+      "merged_at": "2026-08-15T02:45:25Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "The preflight attestation records the reported review coverage and local stage evidence. It is an audit trail, not proof of review quality, and does not replace CI or human review.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 53,
+      "url": "https://github.com/elanthus/news-briefing/pull/53",
+      "created_at": "2026-08-15T02:18:31Z",
+      "merged_at": "2026-08-15T02:43:35Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "No findings. The preflight review examined all three changed workflow hunks and classified the change as low risk.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 54,
+      "url": "https://github.com/elanthus/news-briefing/pull/54",
+      "created_at": "2026-08-15T04:14:29Z",
+      "merged_at": "2026-08-15T04:18:36Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "No additional findings. The preflight review examined the complete one-hunk diff and classified it as low risk.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 55,
+      "url": "https://github.com/elanthus/news-briefing/pull/55",
+      "created_at": "2026-08-15T04:28:37Z",
+      "merged_at": "2026-08-15T05:11:55Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight review: passed with no findings",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 56,
+      "url": "https://github.com/elanthus/news-briefing/pull/56",
+      "created_at": "2026-08-15T17:38:56Z",
+      "merged_at": "2026-08-15T17:43:52Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "Agentic-preflight reviewed all 13 delivered diff units and recorded no findings. Its deterministic risk verdict is low/pass, with no human-review path matched. The attestation and local stage results are attached to the commit through the pushed git note; repository CI is the authoritative remote check.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 57,
+      "url": "https://github.com/elanthus/news-briefing/pull/57",
+      "created_at": "2026-08-16T04:21:37Z",
+      "merged_at": "2026-08-17T06:41:06Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "Agentic preflight classified this PR as **needs human review**, so it must be merged manually and must not use auto-merge.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 58,
+      "url": "https://github.com/elanthus/news-briefing/pull/58",
+      "created_at": "2026-08-17T06:13:37Z",
+      "merged_at": "2026-08-17T06:39:14Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight diff and documentation review (low risk, pass)",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 59,
+      "url": "https://github.com/elanthus/news-briefing/pull/59",
+      "created_at": "2026-08-17T07:26:02Z",
+      "merged_at": "2026-08-17T07:37:45Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight full diff review: pass, no findings",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 65,
+      "url": "https://github.com/elanthus/news-briefing/pull/65",
+      "created_at": "2026-08-17T07:58:16Z",
+      "merged_at": "2026-08-17T08:06:08Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- Project preflight lint — Ruff and mypy clean.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 66,
+      "url": "https://github.com/elanthus/news-briefing/pull/66",
+      "created_at": "2026-08-17T08:13:32Z",
+      "merged_at": "2026-08-17T08:21:44Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- Project preflight lint — Ruff and mypy clean.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 67,
+      "url": "https://github.com/elanthus/news-briefing/pull/67",
+      "created_at": "2026-08-17T08:25:58Z",
+      "merged_at": "2026-08-17T08:38:03Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight lint/test gate (228 top-level tests passed)",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 68,
+      "url": "https://github.com/elanthus/news-briefing/pull/68",
+      "created_at": "2026-08-17T08:43:58Z",
+      "merged_at": "2026-08-17T08:49:26Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight — green",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/news-briefing",
+      "number": 69,
+      "url": "https://github.com/elanthus/news-briefing/pull/69",
+      "created_at": "2026-08-17T09:01:55Z",
+      "merged_at": "2026-08-17T09:12:22Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight — green",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 1,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/1",
+      "created_at": "2026-08-09T04:09:01Z",
+      "merged_at": "2026-08-09T18:05:51Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 2,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/2",
+      "created_at": "2026-08-10T06:16:14Z",
+      "merged_at": "2026-08-10T06:17:02Z",
+      "recorded_use_reason": "detailed_finding",
+      "recorded_use_excerpt": "- **F001 · medium · `scripts/prepare_osworld_docker.py`** — a cached extracted guest image could bypass archive validation. Fixed in `f5a182c` by verifying the cached member's size and CRC32 against the SHA-256-verified ZIP, with regression tests.",
+      "concrete_finding_excerpt": "- **F001 · medium · `scripts/prepare_osworld_docker.py`** — a cached extracted guest image could bypass archive validation. Fixed in `f5a182c` by verifying the cached member's size and CRC32 against the SHA-256-verified ZIP, with regression tests."
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 3,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/3",
+      "created_at": "2026-08-14T20:21:19Z",
+      "merged_at": "2026-08-14T21:44:33Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic preflight review: 94 delivered code units examined; no open findings",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 4,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/4",
+      "created_at": "2026-08-14T22:04:02Z",
+      "merged_at": "2026-08-14T23:28:44Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- `agentic-preflight`: low risk, pass",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 5,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/5",
+      "created_at": "2026-08-15T00:01:06Z",
+      "merged_at": "2026-08-15T00:25:19Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "Agentic preflight classified this change as low risk with no review findings. Repository policy requires a manual merge; auto-merge is intentionally disabled.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 6,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/6",
+      "created_at": "2026-08-15T00:30:20Z",
+      "merged_at": "2026-08-15T00:50:27Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight review: one delivered unit examined clean, no findings",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 7,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/7",
+      "created_at": "2026-08-15T01:55:55Z",
+      "merged_at": "2026-08-15T04:07:21Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- `agentic-preflight` review: clean after fixes",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 8,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/8",
+      "created_at": "2026-08-15T04:48:54Z",
+      "merged_at": "2026-08-15T07:18:57Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- `agentic-preflight`: low risk/pass; 55 changed units reviewed; no code or documentation findings",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 19,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/19",
+      "created_at": "2026-08-15T08:00:15Z",
+      "merged_at": "2026-08-15T08:05:09Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- full agentic preflight: pytest and lint green",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 20,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/20",
+      "created_at": "2026-08-15T08:23:30Z",
+      "merged_at": "2026-08-15T08:29:38Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- full agentic-preflight test suite and Ruff: green",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 21,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/21",
+      "created_at": "2026-08-15T08:51:32Z",
+      "merged_at": "2026-08-15T09:13:59Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- full preflight: 499 passed, 2 skipped, 4 warnings in 123.36s",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 22,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/22",
+      "created_at": "2026-08-15T09:25:00Z",
+      "merged_at": "2026-08-15T09:29:04Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- full preflight: 501 passed, 2 skipped, 4 warnings in 124.04s",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 23,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/23",
+      "created_at": "2026-08-15T09:45:25Z",
+      "merged_at": "2026-08-15T09:50:06Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- scoped preflight review: 24 units, 0 findings",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 24,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/24",
+      "created_at": "2026-08-15T10:00:15Z",
+      "merged_at": "2026-08-15T10:04:29Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- scoped preflight review: 16 units, 0 open findings",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 25,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/25",
+      "created_at": "2026-08-15T10:18:09Z",
+      "merged_at": "2026-08-15T10:23:16Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- scoped preflight review: 17 units, 0 findings",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 27,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/27",
+      "created_at": "2026-08-15T17:22:16Z",
+      "merged_at": "2026-08-15T17:25:22Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 28,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/28",
+      "created_at": "2026-08-15T17:33:46Z",
+      "merged_at": "2026-08-15T17:37:38Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 29,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/29",
+      "created_at": "2026-08-15T17:45:47Z",
+      "merged_at": "2026-08-15T17:49:14Z",
+      "recorded_use_reason": "preflight_heading",
+      "recorded_use_excerpt": "## Preflight review",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 30,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/30",
+      "created_at": "2026-08-15T18:03:13Z",
+      "merged_at": "2026-08-15T18:21:39Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight r_b850a7c28a: 543 passed, 2 skipped, 4 existing warnings (141.47s); ruff clean; review/docs clean",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 31,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/31",
+      "created_at": "2026-08-15T18:29:01Z",
+      "merged_at": "2026-08-15T19:17:23Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- preflight r_53b613c80a: full ruff passed; full pytest — 545 passed, 2 skipped, 4 existing warnings in 135.99s",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 32,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/32",
+      "created_at": "2026-08-15T19:23:44Z",
+      "merged_at": "2026-08-15T19:26:34Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- preflight: 550 collected; 548 passed, 2 skipped, 4 existing warnings in 123.40s",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 33,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/33",
+      "created_at": "2026-08-15T19:44:55Z",
+      "merged_at": "2026-08-15T19:57:56Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- preflight r_af4fbce97e: full pytest — 549 passed, 2 skipped, 4 existing warnings in 124.21s",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 34,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/34",
+      "created_at": "2026-08-15T20:14:54Z",
+      "merged_at": "2026-08-15T20:17:57Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight r_1867677a27: 551 passed, 2 skipped, 4 existing warnings (123.68s); review/docs/lint clean",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 35,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/35",
+      "created_at": "2026-08-15T20:25:32Z",
+      "merged_at": "2026-08-15T20:33:20Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- preflight r_d7ef8a3588: full pytest: 553 passed, 2 skipped, 4 warnings in 125.62s",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 39,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/39",
+      "created_at": "2026-08-16T00:47:54Z",
+      "merged_at": "2026-08-16T01:13:54Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight r_5986efc7c3: 559 collected, 557 passed, 2 skipped, 4 warnings in 140.54s",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 40,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/40",
+      "created_at": "2026-08-16T01:21:09Z",
+      "merged_at": "2026-08-16T01:27:28Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight r_d078537f75: 570 collected, 568 passed, 2 skipped, 4 warnings in 140.62s",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 41,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/41",
+      "created_at": "2026-08-16T01:34:40Z",
+      "merged_at": "2026-08-16T01:41:06Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- agentic-preflight r_4a0d705393: 571 collected, 569 passed, 2 skipped, 4 warnings in 129.04s",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 43,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/43",
+      "created_at": "2026-08-17T06:13:19Z",
+      "merged_at": "2026-08-17T07:03:53Z",
+      "recorded_use_reason": "audit_record",
+      "recorded_use_excerpt": "The preflight attestation is an audit trail of what the gate reported, not proof that the review judgment was correct, and it does not replace CI or human review. This repository requires a human to merge the PR; auto-merge must remain disabled.",
+      "concrete_finding_excerpt": null
+    },
+    {
+      "repository": "elanthus/OSWorldTasks",
+      "number": 50,
+      "url": "https://github.com/elanthus/OSWorldTasks/pull/50",
+      "created_at": "2026-08-17T08:27:39Z",
+      "merged_at": "2026-08-17T18:44:11Z",
+      "recorded_use_reason": "workflow_outcome",
+      "recorded_use_excerpt": "- Preflight review — 37/37 diff units examined, no findings; deterministic risk low, no human-review paths.",
+      "concrete_finding_excerpt": null
+    }
+  ]
+}
