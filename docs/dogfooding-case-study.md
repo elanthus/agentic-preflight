@@ -30,6 +30,23 @@ specific finding identifier or an explicit statement that preflight caught an is
 PR descriptions that merely list tests or other reviewers do not count. This avoids
 claiming that all 153 merged PRs were gated when the public record does not prove that.
 
+The aggregate was produced from the `number`, `createdAt`, `mergedAt`, `closedAt`,
+`body`, and `url` fields returned by the following command for each repository:
+
+```bash
+gh pr list --repo OWNER/REPOSITORY --state all --limit 100 \
+  --json number,createdAt,mergedAt,closedAt,body,url
+```
+
+The point-in-time interval is inclusive from `2026-08-03T00:00:00Z` through
+`2026-08-17T20:40:03Z`. A PR counts as merged only when `mergedAt` is non-null and no
+later than the interval end. Recorded use is the case-insensitive regular expression
+`agentic[- ]?preflight|preflight (review|gate|attestation|risk|record)` applied to the
+body of a merged PR. A concrete finding record is the case-insensitive expression
+`F00[1-9]|preflight caught` within that recorded-use cohort. Each repository returned
+fewer than 100 PRs in the interval, so the requested result limit did not truncate the
+sample.
+
 The public descriptions also show clean runs at very different sizes. Examples include
 9 delivered review units in
 [`agentic-preflight` #57](https://github.com/elanthus/agentic-preflight/pull/57),
@@ -41,11 +58,12 @@ that every delivered unit was cited or marked examined clean.
 
 ## What the gate caught
 
-The consequential findings were not syntax errors. They remained after the configured
-lint and test stages, with hosted CI providing a separate verification source when it
-was present. The findings clustered at boundaries where a locally green implementation
-could still preserve stale evidence, authorize the wrong actor, mutate supposedly
-immutable input, or scan the wrong trust domain.
+The representative findings were semantic rather than syntax errors. Their PR records
+describe regression coverage added with the repairs and final configured stages green,
+with hosted CI providing a separate verification source when it was present. The
+findings clustered at boundaries where an otherwise plausible implementation could
+still preserve stale evidence, authorize the wrong actor, mutate supposedly immutable
+input, or scan the wrong trust domain.
 
 ### Green evidence must bind every decision-making input
 
@@ -154,8 +172,8 @@ made.
   rate, reviewer recall, false-negative rate, or productivity improvement.
 - PR bodies are author-maintained audit records, not independent telemetry. The
   representative findings above were checked against their linked public descriptions,
-  but the aggregate text classification can undercount undocumented use and cannot
-  grade review quality.
+  but descriptions are mutable, the aggregate text classification can undercount
+  undocumented use, and it cannot grade review quality.
 - These four repositories have one owner. The sample demonstrates repeated use across
   heterogeneous codebases, not organization-wide adoption or peer-review effectiveness.
 - Generated evaluation evidence and large refactors make line-count totals misleading,
