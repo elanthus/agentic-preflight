@@ -555,6 +555,35 @@ def test_unreadable_copied_file_fails_closed_before_a_stage_runs(
     assert "lint" not in agent.run("status")["data"]["stages"]
 
 
+def test_stage_output_is_withheld_if_a_copied_file_becomes_unreadable(
+    feature_repo, tmp_path
+):
+    write(feature_repo, ".env", "SECRET=before-run-secret\n")
+    config(feature_repo, "[docs]\nenabled = false\n")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+
+    env = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "printf '\\377' > .env; printf post-run-secret",
+        "--record",
+        expect=ExitCode.STAGE_FAILED,
+    )
+
+    displayed = env["data"]["output_head"] + env["data"]["output_tail"]
+    logged = Path(env["data"]["log_path"]).read_text()
+    assert env["state"] == "LINT_RED"
+    assert "post-run-secret" not in displayed
+    assert "post-run-secret" not in logged
+    assert displayed == shellstage.REDACTION_FAILURE_OUTPUT
+    assert logged == shellstage.REDACTION_FAILURE_OUTPUT
+
+
 # -- baseline check ---------------------------------------------------------
 
 

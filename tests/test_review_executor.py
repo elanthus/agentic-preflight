@@ -36,6 +36,10 @@ if mode == "timeout":
 if mode == "malformed":
     print("not json")
     raise SystemExit(0)
+if mode == "mutate_secret":
+    pathlib.Path(".env").write_bytes(b"SECRET=\\xff\\n")
+    print("post-run-secret")
+    raise SystemExit(0)
 if mode == "stale":
     manifest = {**manifest, "manifest": "0" * 64}
 
@@ -150,6 +154,23 @@ def test_unreadable_copied_file_blocks_review_command_before_execution(feature_r
     assert env["data"]["copied_file"].endswith("/.env")
     assert "redaction is unavailable" in env["error"]["message"]
     assert "review" not in agent.run("status")["data"]["stages"]
+
+
+def test_review_output_is_withheld_if_a_copied_file_becomes_unreadable(feature_repo):
+    write(feature_repo, ".env", "SECRET=before-run-secret\n")
+    configure_reviewer(feature_repo, mode="mutate_secret")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+
+    env = agent.run("review", "run", expect=ExitCode.STAGE_FAILED)
+
+    displayed = env["data"]["output_head"] + env["data"]["output_tail"]
+    logged = Path(env["data"]["log_path"]).read_text()
+    assert env["state"] == "REVIEW_COMMAND_RED"
+    assert "post-run-secret" not in displayed
+    assert "post-run-secret" not in logged
+    assert "output withheld" in displayed
+    assert logged == displayed
 
 
 def test_max_attempts_survive_a_new_process(feature_repo):

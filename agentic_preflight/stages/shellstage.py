@@ -24,6 +24,10 @@ from pathlib import Path
 
 HEAD_LINES = 50
 TAIL_LINES = 200
+REDACTION_FAILURE_OUTPUT = (
+    "[agentic-preflight] command output withheld because copied-file secret "
+    "redaction became unavailable"
+)
 
 _DOTENV_ASSIGNMENT = re.compile(r"(?m)^[ \t]*(?:export[ \t]+)?[^=\s#]+[ \t]*=[ \t]*")
 _DOUBLE_QUOTE_ESCAPES = {
@@ -131,6 +135,11 @@ def redact(text: str, secrets: list[str]) -> str:
         if secret:
             cleaned = cleaned.replace(secret, "[redacted]")
     return cleaned
+
+
+def combine_secrets(*snapshots: list[str]) -> list[str]:
+    """Combine redaction snapshots with longest matches first."""
+    return sorted({secret for snapshot in snapshots for secret in snapshot}, key=len, reverse=True)
 
 
 def _decode_quoted_value(value: str, quote: str) -> str:

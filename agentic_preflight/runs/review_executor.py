@@ -95,7 +95,46 @@ def run_review_command(session: Session) -> Envelope:
     if not gitx.is_clean(wt):
         result.exit_code = result.exit_code or 1
         result.output += "\n[agentic-preflight] review command changed the worktree"
-    clean_output = shellstage.redact(result.output, secrets)
+    try:
+        post_run_secrets = shellstage.read_secrets(wt, run.copied_files)
+    except shellstage.SecretRedactionError as exc:
+        clean_output = shellstage.REDACTION_FAILURE_OUTPUT
+        log_path_obj = session.store.logs_dir(run.run_id) / "review.txt"
+        log_path_obj.parent.mkdir(parents=True, exist_ok=True)
+        log_path_obj.write_text(clean_output)
+        log_path = str(log_path_obj)
+        safe_exit_code = result.exit_code if result.exit_code != 0 else 1
+        run = review_retry.fail(
+            session,
+            run,
+            command=command,
+            exit_code=safe_exit_code,
+            clean_output=clean_output,
+            log_path=log_path,
+            reason="copied-file redaction became unavailable",
+        )
+        raise StageFailed(
+            "the review command output was withheld because redaction became unavailable",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=Stage.REVIEW.value,
+            data={
+                "command": command,
+                "exit_code": safe_exit_code,
+                "copied_file": str(exc.path),
+                "log_path": log_path,
+                **shellstage.summarise(clean_output),
+            },
+            next_instruction=(
+                "Restore the reported copied file as readable text, or remove it from "
+                "[worktree] copy_files, then retry the review command."
+            ),
+            next_command="agentic-preflight review run",
+        ) from exc
+    clean_output = shellstage.redact(
+        result.output,
+        shellstage.combine_secrets(secrets, post_run_secrets),
+    )
     log_path_obj = session.store.logs_dir(run.run_id) / "review.txt"
     log_path_obj.parent.mkdir(parents=True, exist_ok=True)
     log_path_obj.write_text(clean_output)
