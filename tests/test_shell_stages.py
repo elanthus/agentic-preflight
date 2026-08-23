@@ -529,9 +529,7 @@ def test_timeout_uses_the_known_process_group_when_lookup_is_denied(tmp_path, mo
     assert direct_kills == []
 
 
-def test_unreadable_copied_file_fails_closed_before_a_stage_runs(
-    feature_repo, tmp_path
-):
+def test_unreadable_copied_file_fails_closed_before_a_stage_runs(feature_repo, tmp_path):
     (feature_repo / ".env").write_bytes(b"SECRET=\xff\n")
     config(feature_repo, "[docs]\nenabled = false\n")
     agent = ScriptedAgent(feature_repo)
@@ -555,9 +553,7 @@ def test_unreadable_copied_file_fails_closed_before_a_stage_runs(
     assert "lint" not in agent.run("status")["data"]["stages"]
 
 
-def test_stage_output_is_withheld_if_a_copied_file_becomes_unreadable(
-    feature_repo, tmp_path
-):
+def test_stage_output_is_withheld_if_a_copied_file_becomes_unreadable(feature_repo, tmp_path):
     write(feature_repo, ".env", "SECRET=before-run-secret\n")
     config(feature_repo, "[docs]\nenabled = false\n")
     agent = ScriptedAgent(feature_repo)

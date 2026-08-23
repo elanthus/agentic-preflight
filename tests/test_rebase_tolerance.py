@@ -106,9 +106,7 @@ def test_exact_attestation_requires_the_fresh_base_to_be_an_ancestor(feature_rep
     )
 
 
-def test_exact_attestation_requires_the_original_and_fresh_merges_to_match(
-    feature_repo, tmp_path
-):
+def test_exact_attestation_requires_the_original_and_fresh_merges_to_match(feature_repo, tmp_path):
     agent = _green_run(feature_repo, tmp_path)
     target = git("rev-parse", "HEAD", cwd=feature_repo)
     fresh_base = git("rev-parse", "main", cwd=feature_repo)

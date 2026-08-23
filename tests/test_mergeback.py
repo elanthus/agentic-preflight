@@ -326,9 +326,7 @@ def test_different_human_conflict_resolution_restarts_review(feature_repo, tmp_p
     assert status["data"]["stages"]["review"]["status"] == "pending"
     assert status["data"]["stages"]["lint"]["status"] == "pending"
     assert status["data"]["stages"]["test"]["status"] == "pending"
-    assert agent.run("context")["data"]["head"] == git(
-        "rev-parse", "HEAD", cwd=feature_repo
-    )
+    assert agent.run("context")["data"]["head"] == git("rev-parse", "HEAD", cwd=feature_repo)
 
 
 def test_conflict_never_auto_resolves(tmp_repo, monkeypatch):

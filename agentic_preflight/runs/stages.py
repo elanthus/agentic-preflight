@@ -395,9 +395,7 @@ def run_stage(
         entry = doc.stages.get(stage) or StageRecord()
         entry.command = resolved
         entry.reason = (
-            "copied-file redaction became unavailable"
-            if redaction_error is not None
-            else None
+            "copied-file redaction became unavailable" if redaction_error is not None else None
         )
         entry.exit_code = result.exit_code
         entry.output_sha256 = output_digest(clean_output)
