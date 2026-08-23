@@ -257,6 +257,28 @@ def run_stage(
             next_command=f"agentic-preflight logs --stage {stage_name}",
         )
     resolved = _resolve_command(session, run, stage_name, command)
+    try:
+        secrets = shellstage.read_secrets(worktree_path, run.copied_files)
+    except shellstage.SecretRedactionError as exc:
+        retry = ["agentic-preflight", "stage", "run", stage_name]
+        if command is not None:
+            retry.extend(("--command", command))
+        if record:
+            retry.append("--record")
+        if baseline:
+            retry.append("--baseline")
+        raise StageFailed(
+            f"the {stage_name} stage cannot run because copied-file redaction is unavailable",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=stage_name,
+            data={"copied_file": str(exc.path)},
+            next_instruction=(
+                "Restore the reported copied file as readable text, or remove it from "
+                "[worktree] copy_files, then retry the stage."
+            ),
+            next_command=shlex.join(retry),
+        ) from exc
 
     with session.store.transaction(run.run_id) as doc:
         _apply(doc, spec["retry"] if doc.state is spec["red"] else spec["run"])
@@ -345,7 +367,6 @@ def run_stage(
             timed_out=result.timed_out,
         )
 
-    secrets = shellstage.read_secrets(wt, run.copied_files)
     clean_output = shellstage.redact(result.output, secrets)
 
     log_path = session.store.logs_dir(run.run_id) / f"{stage_name}.txt"

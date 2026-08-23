@@ -34,6 +34,17 @@ def test_committed_stage_repairs_restart_with_fresh_review_coverage():
     assert next_state(State.TEST_RED, Action.TEST_FIX_RESTART) == State.REVIEW_AWAITING_FINDINGS
 
 
+def test_non_equivalent_mergeback_resolution_can_restart_review():
+    assert (
+        next_state(State.MERGEBACK_CONFLICT, Action.INVALIDATE_REVIEW)
+        == State.REVIEW_AWAITING_FINDINGS
+    )
+    assert (
+        next_state(State.MERGEBACK_PENDING, Action.INVALIDATE_REVIEW)
+        == State.REVIEW_AWAITING_FINDINGS
+    )
+
+
 def test_findings_submission_goes_directly_to_green_or_blocked():
     assert next_state(State.REVIEW_AWAITING_FINDINGS, Action.SUBMIT_CLEAN) == State.REVIEW_GREEN
     assert (

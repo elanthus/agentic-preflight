@@ -63,9 +63,10 @@ rebases the validation checkout onto that exact fresh base. In-place mode theref
 rebases the PR branch itself. A sync conflict is aborted
 cleanly and reported; no conflicted rebase is left in progress.
 If synchronization leaves the exact attested commit unchanged, the fresh base is already
-its ancestor, and the effective configuration, user intent, branch, and base ref still
-match, `start` imports that evidence and returns `VERIFIED`. Any rewritten commit requires
-a fresh run, even when its tree is unchanged.
+its ancestor, Git computes the same clean merge tree against the attestation's recorded
+base, and the effective configuration, user intent, branch, and base ref still match,
+`start` imports that evidence and returns `VERIFIED`. Any rewritten commit requires a
+fresh run, even when its tree is unchanged.
 Refuses a dirty tree (exit 3, `dirty_tree`) and a branch with no changes over the base
 (exit 3, `empty_diff`). In-place mode protects `[worktree] copy_files` where they are;
 isolated modes copy them. Every mode refuses an entry git is not already ignoring.
@@ -217,13 +218,13 @@ blocked, while unrelated tracked edits and untracked files are left alone.
 On conflict: aborts immediately, verifies the branch is byte-for-byte restored, exits 4
 with `data.resolution`, and stores that full report in the event log. **Never
 auto-resolves.** After a person resolves it, `mergeback` is legal again: an exact tree
-is attested without rerunning completed stages; a different tree is retained but must
-start a fresh verification run.
+is attested without rerunning completed stages; a different tree becomes the validation
+checkout's new snapshot and returns the active run to review before any stage can be
+trusted again.
 
 On success: compares the branch tree against the worktree tree. `tree_equivalent: true`
 means the verified content is byte-identical and a Git-note attestation is written for
-the exact commit. False
-means re-verification is needed.
+the exact commit. False returns to review with all snapshot-bound stage evidence cleared.
 
 ### `agentic-preflight gate`
 Mints a confirmation token and summarises the remote, refspec, branch, and commits.

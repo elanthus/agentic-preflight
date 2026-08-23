@@ -10,8 +10,9 @@
 Agentic Preflight records a review, test, documentation, and lint result against a
 commit, and a pre-push hook refuses a commit with no applicable green run. A
 freshly fetched base keeps green only when synchronization leaves the exact attested
-commit unchanged, that commit contains the fresh base, and the effective configuration
-and user intent still match. Any rewritten commit requires a new run.
+commit unchanged, that commit contains the fresh base, its clean merge result still
+matches the attested base, and the effective configuration and user intent still match.
+Any rewritten commit requires a new run.
 
 ![A push blocked by the pre-push hook, a review that catches an unguarded division by
 zero, the fix verified, and the gate stopping to ask before it pushes](docs/demo.gif)

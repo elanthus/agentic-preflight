@@ -67,8 +67,24 @@ def run_review_command(session: Session) -> Envelope:
     data = review_protocol.context_data(session, run, section="review", bundle=bundle)
     stdin_text = json.dumps(data, sort_keys=True, separators=(",", ":"))
 
-    run = review_retry.begin(session, run)
     wt = _require_worktree(run)
+    try:
+        secrets = shellstage.read_secrets(wt, run.copied_files)
+    except shellstage.SecretRedactionError as exc:
+        raise StageFailed(
+            "the review command cannot run because copied-file redaction is unavailable",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=Stage.REVIEW.value,
+            data={"copied_file": str(exc.path)},
+            next_instruction=(
+                "Restore the reported copied file as readable text, or remove it from "
+                "[worktree] copy_files, then retry the review command."
+            ),
+            next_command="agentic-preflight review run",
+        ) from exc
+
+    run = review_retry.begin(session, run)
     result = shellstage.run_stage(
         wt,
         command,
@@ -79,7 +95,6 @@ def run_review_command(session: Session) -> Envelope:
     if not gitx.is_clean(wt):
         result.exit_code = result.exit_code or 1
         result.output += "\n[agentic-preflight] review command changed the worktree"
-    secrets = shellstage.read_secrets(wt, run.copied_files)
     clean_output = shellstage.redact(result.output, secrets)
     log_path_obj = session.store.logs_dir(run.run_id) / "review.txt"
     log_path_obj.parent.mkdir(parents=True, exist_ok=True)

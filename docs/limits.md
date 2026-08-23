@@ -8,10 +8,11 @@ confirmation token is ceremony rather than a secret. This page covers the rest.
 
 The normal attestation note is bound to an exact SHA. In the default in-place mode,
 `start` preserves green only when synchronization leaves the exact attested commit
-unchanged and the freshly fetched base is already its ancestor. Reuse also requires the
-same branch, base ref, effective user and repository configuration, and persisted user
-intent. Changing stage applicability, commands, policy, another setting, or the objective
-starts a fresh review even when local run records have been garbage-collected.
+unchanged, the freshly fetched base is already its ancestor, and Git computes the same
+clean merge tree against the recorded attestation base. Reuse also requires the same
+branch, base ref, effective user and repository configuration, and persisted user intent.
+Changing stage applicability, commands, policy, another setting, or the objective starts
+a fresh review even when local run records have been garbage-collected.
 
 Any rebase that produces a new commit SHA requires a fresh review, docs, lint, and test
 run, even when its tree is unchanged. The same is true for a merge conflict, branch

@@ -138,6 +138,20 @@ def test_command_failures_are_retryable_and_attested_as_red(feature_repo, mode, 
     )
 
 
+def test_unreadable_copied_file_blocks_review_command_before_execution(feature_repo):
+    (feature_repo / ".env").write_bytes(b"SECRET=\xff\n")
+    configure_reviewer(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+
+    env = agent.run("review", "run", expect=ExitCode.STAGE_FAILED)
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert env["data"]["copied_file"].endswith("/.env")
+    assert "redaction is unavailable" in env["error"]["message"]
+    assert "review" not in agent.run("status")["data"]["stages"]
+
+
 def test_max_attempts_survive_a_new_process(feature_repo):
     configure_reviewer(
         feature_repo,

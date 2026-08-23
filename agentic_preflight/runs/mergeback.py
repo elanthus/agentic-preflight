@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import shlex
-
 from .. import attestation as attestationmod
 from .. import gitx
 from .. import mergeback as mergebackmod
+from .. import risk as riskmod
 from .. import sync as syncmod
 from ..envelope import Envelope
 from ..errors import (
@@ -15,7 +14,7 @@ from ..errors import (
     NeedsHuman,
 )
 from ..machine import Action, State
-from ..models import RunDoc
+from ..models import RunDoc, Stage
 from ._session import (
     Session,
     _apply,
@@ -27,7 +26,47 @@ from ._session import (
     _require_worktree,
     _worktree_mode,
 )
-from .review_coverage import reopen_if_stale
+from .review_coverage import invalidate_stage_result, reopen_if_stale
+
+
+def _reset_non_equivalent_merge_to_review(
+    session: Session,
+    run: RunDoc,
+    result: mergebackmod.MergebackResult,
+) -> RunDoc:
+    """Make a human-resolved source tree the new isolated review snapshot."""
+    worktree_path = _require_worktree(run)
+    gitx.run(worktree_path, "reset", "--hard", result.post_sha)
+    changed = gitx.changed_files(worktree_path, run.merge_base_sha, "HEAD")
+    assessment = riskmod.assess(
+        changed,
+        session.store.load_findings(run.run_id),
+        policy=session.config.policy,
+        review_blocking_severities=session.config.review.blocking_severities,
+        docs_blocking_severities=session.config.docs.blocking_severities,
+    )
+    with session.store.transaction(run.run_id) as doc:
+        doc.head_sha = result.post_sha
+        doc.source_head_sha = result.post_sha
+        doc.changed_files = changed
+        doc.risk = assessment
+        doc.fix_commits = []
+        doc.review_coverage = None
+        invalidate_stage_result(doc, Stage.REVIEW)
+        invalidate_stage_result(doc, Stage.LINT)
+        invalidate_stage_result(doc, Stage.TEST)
+        _apply(doc, Action.INVALIDATE_REVIEW)
+        run = doc
+    session.store.append_event(
+        run.run_id,
+        {
+            "event": "mergeback_review_reset",
+            "post_sha": result.post_sha,
+            "verified_tree_sha": result.worktree_tree_sha,
+            "resolved_tree_sha": result.local_tree_sha,
+        },
+    )
+    return run
 
 
 def mergeback(session: Session) -> Envelope:
@@ -177,15 +216,32 @@ def mergeback(session: Session) -> Envelope:
         # this as an open string-to-count summary.
         summary[finding.severity.value] = summary.get(finding.severity.value, 0) + 1
 
-    if result.tree_equivalent:
-        entry = attestationmod.build(
+    if not result.tree_equivalent:
+        run = _reset_non_equivalent_merge_to_review(session, run, result)
+        return _envelope_for(
             run,
-            sha=result.post_sha,
-            tree_sha=result.local_tree_sha,
-            docs_enabled=session.config.docs.enabled,
-            findings_summary=summary,
+            stage="review",
+            data={
+                **result.as_dict(),
+                "worktree_mode": _worktree_mode(run, session.config),
+                "validation_restarted": True,
+            },
+            next_instruction=(
+                "The human-resolved merge tree differs from the verified tree. The "
+                "validation checkout now matches that resolution; review the complete "
+                "current diff and rerun every applicable stage."
+            ),
+            next_command="agentic-preflight context",
         )
-        attestationmod.write(session.repo_root, entry)
+
+    entry = attestationmod.build(
+        run,
+        sha=result.post_sha,
+        tree_sha=result.local_tree_sha,
+        docs_enabled=session.config.docs.enabled,
+        findings_summary=summary,
+    )
+    attestationmod.write(session.repo_root, entry)
 
     with session.store.transaction(run.run_id) as doc:
         doc.head_sha = result.post_sha
@@ -202,23 +258,9 @@ def mergeback(session: Session) -> Envelope:
         },
     )
 
-    envelope = _envelope_for(
+    return _envelope_for(
         run, data={**result.as_dict(), "worktree_mode": _worktree_mode(run, session.config)}
     )
-    if not result.tree_equivalent:
-        envelope.next_instruction = (
-            "The merged tree does not match what was verified, so green did not "
-            "transfer. Start a fresh run against the new tip."
-        )
-        envelope.next_command = shlex.join(
-            [
-                "agentic-preflight",
-                "start",
-                "--intent",
-                run.intent or "<objective and acceptance criteria>",
-            ]
-        )
-    return envelope
 
 
 def _remote_for(session: Session, run: RunDoc) -> str:

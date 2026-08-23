@@ -18,6 +18,7 @@ import os
 import re
 import signal
 import subprocess
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -51,6 +52,14 @@ class StageResult:
     @property
     def passed(self) -> bool:
         return self.exit_code == 0
+
+
+class SecretRedactionError(RuntimeError):
+    """A copied file cannot be read safely enough to redact stage output."""
+
+    def __init__(self, path: Path, reason: str) -> None:
+        super().__init__(f"cannot read copied file {str(path)!r} for secret redaction: {reason}")
+        self.path = path
 
 
 def run_stage(
@@ -88,9 +97,21 @@ def run_stage(
         )
     except subprocess.TimeoutExpired:
         try:
-            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            process.kill()
+            process_group = os.getpgid(process.pid)
+        except ProcessLookupError:
+            process_group = None
+        except PermissionError:
+            # start_new_session guarantees that the child's PID is its process
+            # group ID, so a denied lookup does not justify abandoning workers.
+            process_group = process.pid
+        if process_group is not None:
+            try:
+                os.killpg(process_group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                with suppress(ProcessLookupError):
+                    process.kill()
         stdout, stderr = process.communicate()
         output = (stdout or "") + (stderr or "")
         return StageResult(
@@ -206,11 +227,13 @@ def read_secrets(worktree_path: Path | str, copied_files: list[str]) -> list[str
     for rel in copied_files:
         path = Path(worktree_path) / rel
         if not path.is_file():
-            continue
+            raise SecretRedactionError(path, "the path is missing or is not a regular file")
         try:
             content = path.read_text()
-        except (UnicodeDecodeError, OSError):
-            continue
+        except UnicodeDecodeError as exc:
+            raise SecretRedactionError(path, "the contents are not valid text") from exc
+        except OSError as exc:
+            raise SecretRedactionError(path, str(exc)) from exc
         secrets.extend(_dotenv_values(content))
         # Retain the previous literal fallback for copied files that are not
         # dotenv-formatted. Short *values* above are intentionally included;
