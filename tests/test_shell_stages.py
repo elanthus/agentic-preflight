@@ -582,6 +582,9 @@ def test_stage_output_is_withheld_if_a_copied_file_becomes_unreadable(
     assert "post-run-secret" not in logged
     assert displayed == shellstage.REDACTION_FAILURE_OUTPUT
     assert logged == shellstage.REDACTION_FAILURE_OUTPUT
+    assert agent.run("status")["data"]["stages"]["lint"]["reason"] == (
+        "copied-file redaction became unavailable"
+    )
 
 
 # -- baseline check ---------------------------------------------------------
