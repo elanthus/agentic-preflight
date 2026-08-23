@@ -17,7 +17,9 @@ from __future__ import annotations
 import os
 import re
 import signal
+import stat
 import subprocess
+import threading
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,6 +54,7 @@ class StageResult:
     timed_out: bool = False
     stdout: str | None = None
     stderr: str | None = None
+    copied_files_changed: bool = False
 
     @property
     def passed(self) -> bool:
@@ -66,6 +69,77 @@ class SecretRedactionError(RuntimeError):
         self.path = path
 
 
+def _stat_fingerprint(value: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_mode,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+
+
+def _copied_file_fingerprints(
+    worktree_path: Path | str,
+    copied_files: list[str] | tuple[str, ...],
+) -> tuple[tuple[str, tuple[int, ...], tuple[int, ...]], ...] | None:
+    """Capture path and target identity without reading secret contents."""
+    root = Path(worktree_path)
+    fingerprints: list[tuple[str, tuple[int, ...], tuple[int, ...]]] = []
+    try:
+        for rel in copied_files:
+            path = root / rel
+            link_stat = path.lstat()
+            target_stat = path.stat()
+            if not stat.S_ISREG(target_stat.st_mode):
+                return None
+            fingerprints.append((rel, _stat_fingerprint(link_stat), _stat_fingerprint(target_stat)))
+    except OSError:
+        return None
+    return tuple(fingerprints)
+
+
+class _CopiedFileMutationGuard:
+    """Notice copied-file writes even when their contents are later restored."""
+
+    def __init__(
+        self,
+        worktree_path: Path | str,
+        copied_files: list[str] | tuple[str, ...],
+    ) -> None:
+        self.worktree_path = worktree_path
+        self.copied_files = copied_files
+        self.initial = _copied_file_fingerprints(worktree_path, copied_files)
+        self.changed = threading.Event()
+        self.stop_requested = threading.Event()
+        self.thread: threading.Thread | None = None
+        if self.initial is None:
+            self.changed.set()
+
+    def _check(self) -> None:
+        if _copied_file_fingerprints(self.worktree_path, self.copied_files) != self.initial:
+            self.changed.set()
+
+    def _watch(self) -> None:
+        while not self.stop_requested.wait(0.001):
+            self._check()
+
+    def start(self) -> None:
+        if not self.copied_files:
+            return
+        self.thread = threading.Thread(target=self._watch, daemon=True)
+        self.thread.start()
+
+    def stop(self) -> bool:
+        self._check()
+        self.stop_requested.set()
+        if self.thread is not None:
+            self.thread.join()
+        self._check()
+        return self.changed.is_set()
+
+
 def run_stage(
     worktree_path: Path | str,
     command: str,
@@ -73,6 +147,7 @@ def run_stage(
     timeout_seconds: int = 600,
     stdin_text: str | None = None,
     separate_stderr: bool = False,
+    guarded_files: list[str] | tuple[str, ...] = (),
 ) -> StageResult:
     """Run ``command`` in the worktree, killing the whole process group on timeout.
 
@@ -80,54 +155,61 @@ def run_stage(
     test runner which spawns workers does not leave them orphaned when the
     timeout fires — killing only the direct child would strand them.
     """
-    process = subprocess.Popen(
-        ["bash", "-lc", command],
-        cwd=str(worktree_path),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE if separate_stderr else subprocess.STDOUT,
-        stdin=subprocess.PIPE if stdin_text is not None else None,
-        text=True,
-        start_new_session=True,
-    )
+    guard = _CopiedFileMutationGuard(worktree_path, guarded_files)
+    guard.start()
     try:
-        stdout, stderr = process.communicate(input=stdin_text, timeout=timeout_seconds)
-        output = (stdout or "") + (stderr or "")
-        return StageResult(
-            command=command,
-            exit_code=process.returncode,
-            output=output,
-            stdout=stdout if separate_stderr else None,
-            stderr=stderr if separate_stderr else None,
+        process = subprocess.Popen(
+            ["bash", "-lc", command],
+            cwd=str(worktree_path),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE if separate_stderr else subprocess.STDOUT,
+            stdin=subprocess.PIPE if stdin_text is not None else None,
+            text=True,
+            start_new_session=True,
         )
-    except subprocess.TimeoutExpired:
         try:
-            process_group = os.getpgid(process.pid)
-        except ProcessLookupError:
-            # The session leader may already have exited while descendants
-            # remain in the process group identified by its original PID.
-            process_group = process.pid
-        except PermissionError:
-            # start_new_session guarantees that the child's PID is its process
-            # group ID, so a denied lookup does not justify abandoning workers.
-            process_group = process.pid
-        if process_group is not None:
+            stdout, stderr = process.communicate(input=stdin_text, timeout=timeout_seconds)
+            output = (stdout or "") + (stderr or "")
+            result = StageResult(
+                command=command,
+                exit_code=process.returncode,
+                output=output,
+                stdout=stdout if separate_stderr else None,
+                stderr=stderr if separate_stderr else None,
+            )
+        except subprocess.TimeoutExpired:
             try:
-                os.killpg(process_group, signal.SIGKILL)
+                process_group = os.getpgid(process.pid)
             except ProcessLookupError:
-                pass
+                # The session leader may already have exited while descendants
+                # remain in the process group identified by its original PID.
+                process_group = process.pid
             except PermissionError:
-                with suppress(ProcessLookupError):
-                    process.kill()
-        stdout, stderr = process.communicate()
-        output = (stdout or "") + (stderr or "")
-        return StageResult(
-            command=command,
-            exit_code=124,
-            output=output + f"\n[timed out after {timeout_seconds}s]",
-            timed_out=True,
-            stdout=stdout if separate_stderr else None,
-            stderr=stderr if separate_stderr else None,
-        )
+                # start_new_session guarantees that the child's PID is its process
+                # group ID, so a denied lookup does not justify abandoning workers.
+                process_group = process.pid
+            if process_group is not None:
+                try:
+                    os.killpg(process_group, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except PermissionError:
+                    with suppress(ProcessLookupError):
+                        process.kill()
+            stdout, stderr = process.communicate()
+            output = (stdout or "") + (stderr or "")
+            result = StageResult(
+                command=command,
+                exit_code=124,
+                output=output + f"\n[timed out after {timeout_seconds}s]",
+                timed_out=True,
+                stdout=stdout if separate_stderr else None,
+                stderr=stderr if separate_stderr else None,
+            )
+    finally:
+        copied_files_changed = guard.stop()
+    result.copied_files_changed = copied_files_changed
+    return result
 
 
 def redact(text: str, secrets: list[str]) -> str:

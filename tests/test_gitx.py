@@ -49,7 +49,7 @@ def test_merge_tree_uses_the_legacy_fallback_for_invalid_write_tree_object(tmp_r
     assert [call[1] for call in calls] == ["read-tree", "write-tree"]
 
 
-def test_merge_tree_accepts_sha256_object_ids(tmp_repo, monkeypatch):
+def test_merge_tree_rejects_object_ids_outside_the_sha1_schema(tmp_repo, monkeypatch):
     tree = "a" * 64
     monkeypatch.setattr(
         gitx,
@@ -59,7 +59,7 @@ def test_merge_tree_accepts_sha256_object_ids(tmp_repo, monkeypatch):
         ),
     )
 
-    assert gitx.merge_tree(tmp_repo, "left", "right") == tree
+    assert gitx.merge_tree(tmp_repo, "left", "right") is None
 
 
 def test_changed_files_lists_only_files_touched_by_the_branch(feature_repo):

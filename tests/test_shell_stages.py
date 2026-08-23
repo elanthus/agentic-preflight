@@ -621,6 +621,39 @@ def test_stage_output_is_withheld_if_a_copied_file_becomes_unreadable(feature_re
     )
 
 
+def test_stage_output_is_withheld_if_a_copied_file_is_mutated_then_restored(feature_repo, tmp_path):
+    write(feature_repo, ".env", "SECRET=original-secret\n")
+    config(feature_repo, "[docs]\nenabled = false\n")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+
+    command = (
+        "printf 'SECRET=transient-secret\\n' > .env; "
+        "printf transient-secret; "
+        "printf 'SECRET=original-secret\\n' > .env"
+    )
+    env = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        command,
+        "--record",
+        expect=ExitCode.STAGE_FAILED,
+    )
+
+    displayed = env["data"]["output_head"] + env["data"]["output_tail"]
+    logged = Path(env["data"]["log_path"]).read_text()
+    assert env["state"] == "LINT_RED"
+    assert "transient-secret" not in displayed
+    assert "transient-secret" not in logged
+    assert displayed == shellstage.REDACTION_FAILURE_OUTPUT
+    assert logged == displayed
+    assert (feature_repo / ".env").read_text() == "SECRET=original-secret\n"
+
+
 # -- baseline check ---------------------------------------------------------
 
 

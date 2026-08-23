@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .. import attestation as attestationmod
-from .. import gitx
+from .. import gitx, worktree
 from .. import mergeback as mergebackmod
 from .. import risk as riskmod
 from .. import sync as syncmod
@@ -36,6 +36,13 @@ def _reset_non_equivalent_merge_to_review(
 ) -> RunDoc:
     """Make a human-resolved source tree the new isolated review snapshot."""
     worktree_path = _require_worktree(run)
+    worktree.assert_diff_is_clean_of(
+        session.repo_root,
+        run.merge_base_sha,
+        result.post_sha,
+        run.copied_files,
+    )
+    worktree.assert_paths_are_ignored(session.repo_root, run.copied_files)
     gitx.run(worktree_path, "reset", "--hard", result.post_sha)
     changed = gitx.changed_files(worktree_path, run.merge_base_sha, "HEAD")
     assessment = riskmod.assess(

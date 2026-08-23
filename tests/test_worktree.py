@@ -133,6 +133,24 @@ def test_commit_content_invariant_passes_an_innocent_commit(feature_repo, wt):
     worktree.assert_commit_is_clean_of(wt, sha, [".env"])  # must not raise
 
 
+def test_cumulative_diff_invariant_rejects_a_copied_path(feature_repo):
+    base = gitx.rev_parse(feature_repo, "main")
+    write(feature_repo, ".env", "SECRET=hunter2\n")
+    git("add", "-f", ".env", cwd=feature_repo)
+    git("commit", "-m", "force-add copied file", cwd=feature_repo)
+    head = gitx.rev_parse(feature_repo, "HEAD")
+
+    with pytest.raises(worktree.CopiedFileInCommit, match="resolved diff"):
+        worktree.assert_diff_is_clean_of(feature_repo, base, head, [".env"])
+
+
+def test_resolved_source_must_still_ignore_copied_paths(feature_repo):
+    write(feature_repo, ".gitignore", "")
+
+    with pytest.raises(worktree.CopyRefused, match="no longer ignores"):
+        worktree.assert_paths_are_ignored(feature_repo, [".env"])
+
+
 def test_remove_deletes_the_worktree_and_its_copies(feature_repo, wt):
     write(feature_repo, ".env", "SECRET=hunter2\n")
     worktree.copy_files(feature_repo, wt, [".env"])

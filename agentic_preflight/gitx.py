@@ -129,7 +129,7 @@ def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
             if written.returncode != 0:
                 return None
             value = written.stdout.strip()
-            return value if len(value) in {40, 64} else None
+            return value if len(value) == 40 else None
     if result.returncode != 0:
         raise GitError(
             ["merge-tree", "--write-tree", left, right],
@@ -137,7 +137,7 @@ def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
             result.stderr,
         )
     first_line = result.stdout.splitlines()[0] if result.stdout else ""
-    return first_line if len(first_line) in {40, 64} else None
+    return first_line if len(first_line) == 40 else None
 
 
 def commit_exists(cwd: Path | str, sha: str) -> bool:

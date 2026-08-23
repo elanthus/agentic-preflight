@@ -329,6 +329,65 @@ def test_different_human_conflict_resolution_restarts_review(feature_repo, tmp_p
     assert agent.run("context")["data"]["head"] == git("rev-parse", "HEAD", cwd=feature_repo)
 
 
+def test_human_conflict_resolution_cannot_adopt_a_copied_file(feature_repo, tmp_path):
+    write(feature_repo, ".env", "SECRET=original-secret\n")
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+        "\n[worktree]\nmode = 'reusable'\n",
+    )
+    commit_all(feature_repo, "configure agentic-preflight")
+
+    agent = ScriptedAgent(feature_repo)
+    started = agent.run("start")
+    wt = Path(started["data"]["worktree_path"])
+    run_id = started["run_id"]
+    assert started["data"]["copied_files"] == [".env"]
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, BLOCKING))
+
+    write(wt, "src/app.py", "VERIFIED FIX\n")
+    fix_sha = commit_all(wt, "worktree fix")
+    agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", fix_sha)
+    agent.run("verify")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
+
+    write(feature_repo, "src/app.py", "SOURCE CONFLICT\n")
+    source_head = commit_all(feature_repo, "create source conflict")
+    state_root = (
+        Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo))
+        / "agentic-preflight"
+    )
+    run_path = state_root / "runs" / run_id / "run.json"
+    doc = json.loads(run_path.read_text())
+    doc["head_sha"] = source_head
+    doc["source_head_sha"] = source_head
+    run_path.write_text(json.dumps(doc))
+
+    agent.run("mergeback", expect=ExitCode.NEEDS_HUMAN)
+    result = subprocess.run(
+        ["git", "cherry-pick", fix_sha], cwd=feature_repo, capture_output=True, text=True
+    )
+    assert result.returncode != 0
+    write(feature_repo, "src/app.py", "HUMAN RESOLUTION\n")
+    write(feature_repo, ".env", "SECRET=force-added-secret\n")
+    git("add", "src/app.py", cwd=feature_repo)
+    git("add", "-f", ".env", cwd=feature_repo)
+    git("cherry-pick", "--continue", cwd=feature_repo)
+
+    blocked = agent.run("mergeback", expect=ExitCode.PRECONDITION)
+
+    assert blocked["error"]["code"] == "copied_file_in_commit"
+    assert ".env" in blocked["error"]["message"]
+    assert (wt / "src/app.py").read_text() == "VERIFIED FIX\n"
+    assert (wt / ".env").read_text() == "SECRET=original-secret\n"
+    assert agent.run("status")["state"] == "MERGEBACK_PENDING"
+
+
 def test_conflict_never_auto_resolves(tmp_repo, monkeypatch):
     """No -X ours/theirs, no rerere, ever — asserted against real git argv.
 

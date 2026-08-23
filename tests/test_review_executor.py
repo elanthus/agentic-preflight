@@ -12,6 +12,7 @@ import pytest
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.machine import Action
 from agentic_preflight.runs._session import _apply, open_session
+from agentic_preflight.stages import shellstage
 from tests.conftest import commit_all, write
 from tests.driver import ScriptedAgent
 
@@ -40,6 +41,12 @@ if mode == "mutate_secret":
     pathlib.Path(".env").write_bytes(b"SECRET=\\xff\\n")
     print("post-run-secret")
     raise SystemExit(0)
+if mode == "mutate_restore_secret":
+    copied = pathlib.Path(".env")
+    original = copied.read_text()
+    copied.write_text("SECRET=transient-secret\\n")
+    print("transient-secret", file=sys.stderr)
+    copied.write_text(original)
 if mode == "stale":
     manifest = {**manifest, "manifest": "0" * 64}
 
@@ -171,6 +178,24 @@ def test_review_output_is_withheld_if_a_copied_file_becomes_unreadable(feature_r
     assert "post-run-secret" not in logged
     assert "output withheld" in displayed
     assert logged == displayed
+
+
+def test_review_output_is_withheld_if_a_copied_file_is_mutated_then_restored(feature_repo):
+    write(feature_repo, ".env", "SECRET=original-secret\n")
+    configure_reviewer(feature_repo, mode="mutate_restore_secret")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+
+    env = agent.run("review", "run", expect=ExitCode.STAGE_FAILED)
+
+    displayed = env["data"]["output_head"] + env["data"]["output_tail"]
+    logged = Path(env["data"]["log_path"]).read_text()
+    assert env["state"] == "REVIEW_COMMAND_RED"
+    assert "transient-secret" not in displayed
+    assert "transient-secret" not in logged
+    assert displayed == shellstage.REDACTION_FAILURE_OUTPUT
+    assert logged == displayed
+    assert (feature_repo / ".env").read_text() == "SECRET=original-secret\n"
 
 
 def test_max_attempts_survive_a_new_process(feature_repo):
