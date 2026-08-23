@@ -2,13 +2,15 @@
 
 Deliberately not a git library: the tool's contract is defined in terms of what
 git itself does, and shelling out keeps the semantics honest. Query helpers do
-not update refs, the index, or the worktree.
+not update refs, the index, or the worktree. Git's merge-tree plumbing can still
+write unreachable tree objects, which normal object pruning may collect.
 """
 
 from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
@@ -82,6 +84,60 @@ def merge_base(cwd: Path | str, a: str, b: str) -> str:
 def is_ancestor(cwd: Path | str, maybe_ancestor: str, descendant: str) -> bool:
     result = run(cwd, "merge-base", "--is-ancestor", maybe_ancestor, descendant, check=False)
     return result.returncode == 0
+
+
+def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
+    """Return Git's clean merge-result tree, or ``None`` for a conflict.
+
+    ``merge-tree --write-tree`` uses the commits' ancestry as well as their
+    snapshots. That distinction is essential when deciding whether an existing
+    attestation remains valid against a newly synchronized base. Git may add
+    unreachable tree objects, but this does not update refs, the index, or files.
+    """
+    result = run(cwd, "merge-tree", "--write-tree", left, right, check=False)
+    if result.returncode == 1:
+        return None
+    stderr = result.stderr.lower()
+    legacy_interface = (
+        result.returncode == 129
+        or "unknown option" in stderr
+        or "not a valid object name --write-tree" in stderr
+    )
+    if legacy_interface:
+        # Git 2.30-2.37 predates `merge-tree --write-tree`. Its index
+        # three-way merge is intentionally more conservative (it can reject a
+        # clean textual merge), but it cannot manufacture a false equivalence.
+        base = merge_base(cwd, left, right)
+        with tempfile.TemporaryDirectory(prefix="agentic-preflight-merge-") as temp_dir:
+            env = {**os.environ, "GIT_INDEX_FILE": str(Path(temp_dir) / "index")}
+            merged = subprocess.run(
+                ["git", "read-tree", "-m", base, left, right],
+                cwd=str(cwd),
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            if merged.returncode != 0:
+                return None
+            written = subprocess.run(
+                ["git", "write-tree"],
+                cwd=str(cwd),
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            if written.returncode != 0:
+                return None
+            value = written.stdout.strip()
+            return value if len(value) == 40 else None
+    if result.returncode != 0:
+        raise GitError(
+            ["merge-tree", "--write-tree", left, right],
+            result.returncode,
+            result.stderr,
+        )
+    first_line = result.stdout.splitlines()[0] if result.stdout else ""
+    return first_line if len(first_line) == 40 else None
 
 
 def commit_exists(cwd: Path | str, sha: str) -> bool:

@@ -275,11 +275,13 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         _STATUS,
         (_A.MERGEBACK_OK, _S.VERIFIED),
         (_A.MERGEBACK_FAILED, _S.MERGEBACK_CONFLICT),
+        (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
     ),
     _S.MERGEBACK_CONFLICT: _state(
         "Resolve the reported conflict or restore the affected paths, then retry mergeback.",
         "agentic-preflight mergeback",
         (_A.MERGEBACK_RETRY, _S.MERGEBACK_PENDING),
+        (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
     ),
     _S.VERIFIED: _state(
         "Everything is green. Open the gate.",

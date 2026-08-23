@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
+from agentic_preflight import attestation as attestationmod
 from agentic_preflight.machine import State
 from agentic_preflight.models import (
     Attestation,
@@ -16,6 +17,7 @@ from agentic_preflight.models import (
     SetupFailure,
     Severity,
     Stage,
+    StageRecord,
 )
 
 
@@ -216,3 +218,39 @@ def test_command_review_attestation_requires_process_evidence():
         }
     )
     assert Attestation(**payload).stages[Stage.REVIEW].executor == "command"
+
+
+def test_attestation_build_refuses_to_invent_a_green_review_stage():
+    coverage = ReviewCoverage(
+        manifest="d" * 64,
+        head_sha="e" * 40,
+        total_units=1,
+        clean_units=["U0001"],
+    )
+    run = RunDoc(
+        run_id="r_test",
+        state=State.TEST_GREEN,
+        branch="feature/x",
+        base_ref="main",
+        merge_base_sha="c" * 40,
+        head_sha="a" * 40,
+        config_digest="f" * 64,
+        review_coverage=coverage,
+        stages={
+            Stage.LINT: StageRecord(
+                status="green", command="ruff check .", exit_code=0, output_sha256="1" * 64
+            ),
+            Stage.TEST: StageRecord(
+                status="green", command="pytest", exit_code=0, output_sha256="2" * 64
+            ),
+        },
+    )
+
+    with pytest.raises(attestationmod.InvalidAttestation, match="review stage"):
+        attestationmod.build(
+            run,
+            sha="a" * 40,
+            tree_sha="b" * 40,
+            docs_enabled=False,
+            findings_summary={},
+        )

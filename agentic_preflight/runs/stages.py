@@ -257,6 +257,28 @@ def run_stage(
             next_command=f"agentic-preflight logs --stage {stage_name}",
         )
     resolved = _resolve_command(session, run, stage_name, command)
+    try:
+        secrets = shellstage.read_secrets(worktree_path, run.copied_files)
+    except shellstage.SecretRedactionError as exc:
+        retry = ["agentic-preflight", "stage", "run", stage_name]
+        if command is not None:
+            retry.extend(("--command", command))
+        if record:
+            retry.append("--record")
+        if baseline:
+            retry.append("--baseline")
+        raise StageFailed(
+            f"the {stage_name} stage cannot run because copied-file redaction is unavailable",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=stage_name,
+            data={"copied_file": str(exc.path)},
+            next_instruction=(
+                "Restore the reported copied file as readable text, or remove it from "
+                "[worktree] copy_files, then retry the stage."
+            ),
+            next_command=shlex.join(retry),
+        ) from exc
 
     with session.store.transaction(run.run_id) as doc:
         _apply(doc, spec["retry"] if doc.state is spec["red"] else spec["run"])
@@ -333,6 +355,7 @@ def run_stage(
         wt,
         resolved,
         timeout_seconds=session.config.stage.timeout_seconds,
+        guarded_files=run.copied_files,
     )
     if not gitx.is_clean(wt):
         result = shellstage.StageResult(
@@ -343,10 +366,34 @@ def run_stage(
                 + "\n[agentic-preflight] stage changed the worktree; validation results are stale"
             ),
             timed_out=result.timed_out,
+            copied_files_changed=result.copied_files_changed,
         )
 
-    secrets = shellstage.read_secrets(wt, run.copied_files)
-    clean_output = shellstage.redact(result.output, secrets)
+    redaction_error = None
+    try:
+        post_run_secrets = shellstage.read_secrets(wt, run.copied_files)
+    except shellstage.SecretRedactionError as exc:
+        redaction_error = exc
+        post_run_secrets = []
+    redaction_failure_reason = None
+    if redaction_error is not None:
+        redaction_failure_reason = "copied-file redaction became unavailable"
+    elif result.copied_files_changed:
+        redaction_failure_reason = "copied file changed during command execution"
+    if redaction_failure_reason is not None:
+        result = shellstage.StageResult(
+            command=result.command,
+            exit_code=result.exit_code if result.exit_code != 0 else 1,
+            output=shellstage.REDACTION_FAILURE_OUTPUT,
+            timed_out=result.timed_out,
+            copied_files_changed=result.copied_files_changed,
+        )
+        clean_output = result.output
+    else:
+        clean_output = shellstage.redact(
+            result.output,
+            shellstage.combine_secrets(secrets, post_run_secrets),
+        )
 
     log_path = session.store.logs_dir(run.run_id) / f"{stage_name}.txt"
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -357,7 +404,7 @@ def run_stage(
     with session.store.transaction(run.run_id) as doc:
         entry = doc.stages.get(stage) or StageRecord()
         entry.command = resolved
-        entry.reason = None
+        entry.reason = redaction_failure_reason
         entry.exit_code = result.exit_code
         entry.output_sha256 = output_digest(clean_output)
         entry.log_path = str(log_path)
@@ -383,6 +430,10 @@ def run_stage(
         "timed_out": result.timed_out,
         **summary,
     }
+    if redaction_error is not None:
+        data["copied_file"] = str(redaction_error.path)
+    if result.copied_files_changed:
+        data["copied_files"] = run.copied_files
     if baseline_red is not None:
         data["baseline_red"] = baseline_red
 
@@ -393,7 +444,18 @@ def run_stage(
 
     message = f"the {stage_name} stage failed (exit {result.exit_code})"
     instruction = "Read the log, fix the cause in the worktree, commit, then re-run the stage."
-    if baseline_red:
+    if redaction_failure_reason is not None:
+        message = (
+            f"the {stage_name} stage output was withheld because a copied file changed "
+            "during execution"
+            if redaction_error is None
+            else f"the {stage_name} stage output was withheld because redaction became unavailable"
+        )
+        instruction = (
+            "Restore every copied file to its intended contents, then retry the stage. "
+            "Commands must not rewrite [worktree] copy_files."
+        )
+    elif baseline_red:
         message = (
             f"the {stage_name} stage failed, but the base commit fails it too — "
             f"this is pre-existing, not caused by the diff"

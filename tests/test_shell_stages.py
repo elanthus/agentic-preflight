@@ -1,6 +1,8 @@
 """M3 shell stages: lint and test, resolved by config or detection."""
 
 import json
+import signal
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -487,6 +489,169 @@ def test_exported_dotenv_values_never_reach_stage_stdout_or_stderr(feature_repo,
         assert secret not in captured_output
         assert secret not in log_output
     assert log_output == "[redacted] [redacted]\n[redacted]\n"
+
+
+def test_timeout_uses_the_known_process_group_when_lookup_is_denied(tmp_path, monkeypatch):
+    killed_groups: list[tuple[int, signal.Signals]] = []
+    direct_kills: list[bool] = []
+
+    class TimedOutProcess:
+        pid = 4242
+        returncode = -signal.SIGKILL
+        calls = 0
+
+        def communicate(self, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise subprocess.TimeoutExpired("review", 1)
+            return "", None
+
+        def kill(self):
+            direct_kills.append(True)
+
+    process = TimedOutProcess()
+    monkeypatch.setattr(shellstage.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        shellstage.os,
+        "getpgid",
+        lambda _pid: (_ for _ in ()).throw(PermissionError("denied")),
+    )
+    monkeypatch.setattr(
+        shellstage.os,
+        "killpg",
+        lambda pgid, sig: killed_groups.append((pgid, sig)),
+    )
+
+    result = shellstage.run_stage(tmp_path, "ignored", timeout_seconds=1)
+
+    assert result.timed_out is True
+    assert killed_groups == [(process.pid, signal.SIGKILL)]
+    assert direct_kills == []
+
+
+def test_timeout_uses_the_known_process_group_when_the_leader_is_gone(tmp_path, monkeypatch):
+    killed_groups: list[tuple[int, signal.Signals]] = []
+    direct_kills: list[bool] = []
+
+    class TimedOutProcess:
+        pid = 4242
+        returncode = -signal.SIGKILL
+        calls = 0
+
+        def communicate(self, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise subprocess.TimeoutExpired("review", 1)
+            return "", None
+
+        def kill(self):
+            direct_kills.append(True)
+
+    process = TimedOutProcess()
+    monkeypatch.setattr(shellstage.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        shellstage.os,
+        "getpgid",
+        lambda _pid: (_ for _ in ()).throw(ProcessLookupError("leader exited")),
+    )
+    monkeypatch.setattr(
+        shellstage.os,
+        "killpg",
+        lambda pgid, sig: killed_groups.append((pgid, sig)),
+    )
+
+    result = shellstage.run_stage(tmp_path, "ignored", timeout_seconds=1)
+
+    assert result.timed_out is True
+    assert killed_groups == [(process.pid, signal.SIGKILL)]
+    assert direct_kills == []
+
+
+def test_unreadable_copied_file_fails_closed_before_a_stage_runs(feature_repo, tmp_path):
+    (feature_repo / ".env").write_bytes(b"SECRET=\xff\n")
+    config(feature_repo, "[docs]\nenabled = false\n")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+
+    env = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "true",
+        "--record",
+        expect=ExitCode.STAGE_FAILED,
+    )
+
+    assert env["state"] == "DOCS_GREEN"
+    assert env["data"]["copied_file"].endswith("/.env")
+    assert "redaction is unavailable" in env["error"]["message"]
+    assert "lint" not in agent.run("status")["data"]["stages"]
+
+
+def test_stage_output_is_withheld_if_a_copied_file_becomes_unreadable(feature_repo, tmp_path):
+    write(feature_repo, ".env", "SECRET=before-run-secret\n")
+    config(feature_repo, "[docs]\nenabled = false\n")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+
+    env = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "printf '\\377' > .env; printf post-run-secret",
+        "--record",
+        expect=ExitCode.STAGE_FAILED,
+    )
+
+    displayed = env["data"]["output_head"] + env["data"]["output_tail"]
+    logged = Path(env["data"]["log_path"]).read_text()
+    assert env["state"] == "LINT_RED"
+    assert "post-run-secret" not in displayed
+    assert "post-run-secret" not in logged
+    assert displayed == shellstage.REDACTION_FAILURE_OUTPUT
+    assert logged == shellstage.REDACTION_FAILURE_OUTPUT
+    assert agent.run("status")["data"]["stages"]["lint"]["reason"] == (
+        "copied-file redaction became unavailable"
+    )
+
+
+def test_stage_output_is_withheld_if_a_copied_file_is_mutated_then_restored(feature_repo, tmp_path):
+    write(feature_repo, ".env", "SECRET=original-secret\n")
+    config(feature_repo, "[docs]\nenabled = false\n")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+
+    command = (
+        "printf 'SECRET=transient-secret\\n' > .env; "
+        "printf transient-secret; "
+        "printf 'SECRET=original-secret\\n' > .env"
+    )
+    env = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        command,
+        "--record",
+        expect=ExitCode.STAGE_FAILED,
+    )
+
+    displayed = env["data"]["output_head"] + env["data"]["output_tail"]
+    logged = Path(env["data"]["log_path"]).read_text()
+    assert env["state"] == "LINT_RED"
+    assert "transient-secret" not in displayed
+    assert "transient-secret" not in logged
+    assert displayed == shellstage.REDACTION_FAILURE_OUTPUT
+    assert logged == displayed
+    assert (feature_repo / ".env").read_text() == "SECRET=original-secret\n"
 
 
 # -- baseline check ---------------------------------------------------------

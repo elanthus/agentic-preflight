@@ -1,3 +1,5 @@
+import subprocess
+
 import pytest
 
 from agentic_preflight import gitx
@@ -17,6 +19,47 @@ def test_rev_parse_resolves_a_ref_to_a_full_sha(tmp_repo):
 def test_merge_base_finds_the_fork_point(feature_repo):
     base = gitx.merge_base(feature_repo, "main", "HEAD")
     assert base == git("rev-parse", "main", cwd=feature_repo)
+
+
+def test_merge_tree_uses_the_legacy_fallback_for_invalid_write_tree_object(tmp_repo, monkeypatch):
+    tree = "a" * 40
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        gitx,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[],
+            returncode=128,
+            stdout="",
+            stderr="fatal: Not a valid object name --write-tree\n",
+        ),
+    )
+    monkeypatch.setattr(gitx, "merge_base", lambda *_args: "base")
+
+    def legacy_run(args, **_kwargs):
+        calls.append(args)
+        if args[1] == "read-tree":
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout=f"{tree}\n", stderr="")
+
+    monkeypatch.setattr(gitx.subprocess, "run", legacy_run)
+
+    assert gitx.merge_tree(tmp_repo, "left", "right") == tree
+    assert [call[1] for call in calls] == ["read-tree", "write-tree"]
+
+
+def test_merge_tree_rejects_object_ids_outside_the_sha1_schema(tmp_repo, monkeypatch):
+    tree = "a" * 64
+    monkeypatch.setattr(
+        gitx,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=f"{tree}\n", stderr=""
+        ),
+    )
+
+    assert gitx.merge_tree(tmp_repo, "left", "right") is None
 
 
 def test_changed_files_lists_only_files_touched_by_the_branch(feature_repo):

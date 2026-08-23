@@ -16,8 +16,9 @@ it is not yours to make.
 The full conflict report is stored in the event log and replayed by `status`. After a
 person resolves or restores the reported paths, `mergeback` is the legal retry and
 completed verification remains intact when the resulting tree is still identical to
-the verified tree. A different tree must go through a fresh run. Before concluding
-the conflict is real, check the user's tree was clean — see non-negotiable 7.
+the verified tree. A different tree resets the validation checkout and active run to
+review, clearing the old review, lint, and test evidence. Before concluding the conflict
+is real, check the user's tree was clean — see non-negotiable 7.
 
 ## Stage red after max attempts (exit 4)
 

@@ -269,6 +269,35 @@ def assert_commit_is_clean_of(
         )
 
 
+def assert_diff_is_clean_of(
+    worktree_path: Path | str,
+    base_sha: str,
+    head_sha: str,
+    entries: list[str] | tuple[str, ...],
+) -> None:
+    """Raise when the cumulative resolved diff contains a copied path."""
+    touched = set(gitx.changed_files(worktree_path, base_sha, head_sha))
+    offenders = sorted(touched & set(entries))
+    if offenders:
+        raise CopiedFileInCommit(
+            f"resolved diff {base_sha[:8]}..{head_sha[:8]} touches copied file(s) "
+            f"{offenders}, which must never enter the reviewed or published change"
+        )
+
+
+def assert_paths_are_ignored(
+    worktree_path: Path | str,
+    entries: list[str] | tuple[str, ...],
+) -> None:
+    """Recheck the ignore invariant after a human changes the source tree."""
+    offenders = sorted(entry for entry in entries if not gitx.is_ignored(worktree_path, entry))
+    if offenders:
+        raise CopyRefused(
+            f"resolved source no longer ignores copied file(s) {offenders}; restore the "
+            "committed ignore rules before adopting the human resolution"
+        )
+
+
 def run_setup(
     worktree_path: Path | str,
     command: str,

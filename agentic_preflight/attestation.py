@@ -143,14 +143,14 @@ def reuse_exact(
     intent: str,
     config_digest: str,
 ) -> Attestation | None:
-    """Reuse green only when ``sha`` itself is attested and contains the fresh base."""
+    """Reuse green only when the exact attested SHA remains merge-equivalent."""
     repo = Path(repo)
     target_sha = gitx.rev_parse(repo, sha)
     try:
         verified = verify(repo, target_sha)
     except InvalidAttestation:
         return None
-    reusable = (
+    reusable_metadata = (
         verified.branch == branch
         and verified.base_ref == base_ref
         and verified.intent_sha256 == intent_digest(intent)
@@ -158,4 +158,15 @@ def reuse_exact(
         and _has_reusable_stage_results(verified)
         and gitx.is_ancestor(repo, base_sha, target_sha)
     )
-    return verified if reusable else None
+    if not reusable_metadata:
+        return None
+    try:
+        fresh_merge_tree = gitx.merge_tree(repo, base_sha, target_sha)
+        attested_merge_tree = gitx.merge_tree(repo, verified.merge_base_sha, target_sha)
+    except gitx.GitError:
+        return None
+    return (
+        verified
+        if fresh_merge_tree is not None and fresh_merge_tree == attested_merge_tree
+        else None
+    )

@@ -106,6 +106,39 @@ def test_exact_attestation_requires_the_fresh_base_to_be_an_ancestor(feature_rep
     )
 
 
+def test_exact_attestation_requires_the_original_and_fresh_merges_to_match(feature_repo, tmp_path):
+    agent = _green_run(feature_repo, tmp_path)
+    target = git("rev-parse", "HEAD", cwd=feature_repo)
+    fresh_base = git("rev-parse", "main", cwd=feature_repo)
+    value = attestation.verify(feature_repo, target)
+    resolved_config_digest = config.config_digest(
+        config.load_config(feature_repo).model_dump(mode="json")
+    )
+    agent.run("abort", "--force")
+
+    git("switch", "main", cwd=feature_repo)
+    write(feature_repo, "README.md", "# divergent base content\n")
+    divergent_base = commit_all(feature_repo, "create a different merge outcome")
+    git("switch", "feature/x", cwd=feature_repo)
+    attestation.write(
+        feature_repo,
+        value.model_copy(update={"merge_base_sha": divergent_base}),
+    )
+
+    assert (
+        attestation.reuse_exact(
+            feature_repo,
+            sha=target,
+            base_sha=fresh_base,
+            branch="feature/x",
+            base_ref="main",
+            intent="exercise the requested behavior safely",
+            config_digest=resolved_config_digest,
+        )
+        is None
+    )
+
+
 def test_a_different_user_intent_forces_a_fresh_review(feature_repo, tmp_path):
     agent = _green_run(feature_repo, tmp_path)
     head = git("rev-parse", "HEAD", cwd=feature_repo)
