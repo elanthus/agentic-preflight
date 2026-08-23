@@ -97,7 +97,13 @@ def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
     result = run(cwd, "merge-tree", "--write-tree", left, right, check=False)
     if result.returncode == 1:
         return None
-    if result.returncode == 129 or "unknown option" in result.stderr.lower():
+    stderr = result.stderr.lower()
+    legacy_interface = (
+        result.returncode == 129
+        or "unknown option" in stderr
+        or "not a valid object name --write-tree" in stderr
+    )
+    if legacy_interface:
         # Git 2.30-2.37 predates `merge-tree --write-tree`. Its index
         # three-way merge is intentionally more conservative (it can reject a
         # clean textual merge), but it cannot manufacture a false equivalence.
@@ -123,7 +129,7 @@ def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
             if written.returncode != 0:
                 return None
             value = written.stdout.strip()
-            return value if len(value) == 40 else None
+            return value if len(value) in {40, 64} else None
     if result.returncode != 0:
         raise GitError(
             ["merge-tree", "--write-tree", left, right],
@@ -131,7 +137,7 @@ def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
             result.stderr,
         )
     first_line = result.stdout.splitlines()[0] if result.stdout else ""
-    return first_line if len(first_line) == 40 else None
+    return first_line if len(first_line) in {40, 64} else None
 
 
 def commit_exists(cwd: Path | str, sha: str) -> bool:

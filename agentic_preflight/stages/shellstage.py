@@ -103,7 +103,9 @@ def run_stage(
         try:
             process_group = os.getpgid(process.pid)
         except ProcessLookupError:
-            process_group = None
+            # The session leader may already have exited while descendants
+            # remain in the process group identified by its original PID.
+            process_group = process.pid
         except PermissionError:
             # start_new_session guarantees that the child's PID is its process
             # group ID, so a denied lookup does not justify abandoning workers.

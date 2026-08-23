@@ -529,6 +529,44 @@ def test_timeout_uses_the_known_process_group_when_lookup_is_denied(tmp_path, mo
     assert direct_kills == []
 
 
+def test_timeout_uses_the_known_process_group_when_the_leader_is_gone(tmp_path, monkeypatch):
+    killed_groups: list[tuple[int, signal.Signals]] = []
+    direct_kills: list[bool] = []
+
+    class TimedOutProcess:
+        pid = 4242
+        returncode = -signal.SIGKILL
+        calls = 0
+
+        def communicate(self, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise subprocess.TimeoutExpired("review", 1)
+            return "", None
+
+        def kill(self):
+            direct_kills.append(True)
+
+    process = TimedOutProcess()
+    monkeypatch.setattr(shellstage.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        shellstage.os,
+        "getpgid",
+        lambda _pid: (_ for _ in ()).throw(ProcessLookupError("leader exited")),
+    )
+    monkeypatch.setattr(
+        shellstage.os,
+        "killpg",
+        lambda pgid, sig: killed_groups.append((pgid, sig)),
+    )
+
+    result = shellstage.run_stage(tmp_path, "ignored", timeout_seconds=1)
+
+    assert result.timed_out is True
+    assert killed_groups == [(process.pid, signal.SIGKILL)]
+    assert direct_kills == []
+
+
 def test_unreadable_copied_file_fails_closed_before_a_stage_runs(feature_repo, tmp_path):
     (feature_repo / ".env").write_bytes(b"SECRET=\xff\n")
     config(feature_repo, "[docs]\nenabled = false\n")
