@@ -58,13 +58,15 @@ jobs:
           agentic-preflight verify "$ATTESTED_SHA"
 
   test:
-    # Single combo for fast PR feedback. Run this workflow manually
-    # (workflow_dispatch) to expand to the full matrix -- useful as a pre-tag
-    # check, since release.yml only gates publishing after the tag is already
-    # pushed.
+    # Linux and Windows on every pull request. macOS is close enough to Linux
+    # that a Linux-only run catches most of what it would; Windows is not, and
+    # its failures are the ones a contributor on macOS or Linux is least likely
+    # to notice before merging. Run this workflow manually (workflow_dispatch)
+    # to expand to the full matrix -- useful as a pre-tag check, since
+    # release.yml only gates publishing after the tag is already pushed.
     uses: ./.github/workflows/test.yml
     with:
-      os: ${{ github.event_name == 'workflow_dispatch' && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]' }}
+      os: ${{ github.event_name == 'workflow_dispatch' && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest", "windows-latest"]' }}
       python-versions: ${{ github.event_name == 'workflow_dispatch' && '["3.11", "3.12", "3.13"]' || '["3.13"]' }}
       coverage: true
 

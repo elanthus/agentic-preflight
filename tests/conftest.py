@@ -9,8 +9,10 @@ made deterministic with fixed identity and timestamp environment instead.
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -53,8 +55,63 @@ def git(*args: str, cwd: Path) -> str:
 def write(repo: Path | str, relpath: str, content: str) -> Path:
     path = Path(repo) / relpath
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8")
     return path
+
+
+def home_env(path: Path | str) -> dict[str, str]:
+    """Environment that redirects ``Path.home()`` at a temporary directory.
+
+    ``HOME`` alone is not enough. ``Path.home()`` consults ``USERPROFILE`` on
+    Windows, so a test that sets only ``HOME`` there does not redirect anything
+    — it reads and writes the developer's real home directory, installing
+    skills into it and asserting against whatever happens to be there already.
+    """
+    return {"HOME": str(path), "USERPROFILE": str(path)}
+
+
+def set_home(monkeypatch, path: Path | str) -> None:
+    """The :func:`home_env` redirection, applied to this process."""
+    for name, value in home_env(path).items():
+        monkeypatch.setenv(name, value)
+
+
+def _symlinks_available() -> bool:
+    """Whether this process may create symlinks.
+
+    Probed rather than assumed from the platform: Windows permits it under
+    Developer Mode or elevation and refuses otherwise, so the answer is a
+    property of the machine and not of ``sys.platform``.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        probe = Path(directory) / "probe"
+        try:
+            probe.symlink_to(directory)
+        except (OSError, NotImplementedError):
+            return False
+    return True
+
+
+SYMLINKS_AVAILABLE = _symlinks_available()
+
+requires_symlinks = pytest.mark.skipif(
+    not SYMLINKS_AVAILABLE,
+    reason="creating symlinks requires Developer Mode or elevation on Windows",
+)
+
+requires_posix_permissions = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="making a file unreadable by mode bits has no effect on Windows",
+)
+
+# The POSIX kill path cannot be forced on Windows the way other platform
+# branches can: ``signal.SIGKILL`` does not exist there, so exercising it would
+# mean inventing the constant and testing a fiction. The Windows branch has its
+# own tests instead, so both paths stay covered.
+requires_posix_signals = pytest.mark.skipif(
+    not hasattr(signal, "SIGKILL"),
+    reason="process groups and SIGKILL are POSIX-only",
+)
 
 
 def commit_all(repo: Path, message: str) -> str:

@@ -1,9 +1,41 @@
 import stat
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
-from agentic_preflight import gitx, worktree
+from agentic_preflight import fileperms, gitx, worktree
 from tests.conftest import git, write
+
+
+def assert_owner_only(path):
+    """Assert the platform's expression of "readable by the owner and nobody else".
+
+    On Windows the mode bits are meaningless, so the DACL is read back with
+    ``icacls``: exactly one principal must appear, and it must be this user.
+    """
+    if sys.platform != "win32":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        return
+
+    listing = subprocess.run(
+        ["icacls", str(path)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
+    ).stdout
+    granted = [
+        line.split(":", 1)[0].strip()
+        for line in listing.splitlines()
+        if ":" in line and not line.startswith("Successfully")
+    ]
+    # The first line carries the path before the principal; drop it.
+    granted = [entry.rsplit(str(path), 1)[-1].strip() or entry for entry in granted]
+    assert len(granted) == 1, f"expected a single ACE, got: {listing}"
+    assert "(I)" not in listing, f"inherited permissions survived: {listing}"
 
 
 @pytest.fixture
@@ -56,7 +88,7 @@ def test_a_gitignored_env_file_is_copied_and_stays_invisible_to_git(feature_repo
     copied = worktree.copy_files(feature_repo, wt, [".env"])
 
     assert copied == [".env"]
-    assert (wt / ".env").read_text() == "SECRET=hunter2\n"
+    assert (wt / ".env").read_text(encoding="utf-8") == "SECRET=hunter2\n"
     # The whole point: git must not see it, or `git add -A` would sweep it up.
     assert git("status", "--porcelain", cwd=wt) == ""
 
@@ -92,12 +124,28 @@ def test_ignore_status_is_judged_in_the_worktree_not_the_users_tree(feature_repo
 
 
 def test_copies_are_written_owner_only(feature_repo, wt):
+    """The same guarantee on both platforms, asserted the way each expresses it."""
     write(feature_repo, ".env", "SECRET=hunter2\n")
 
     worktree.copy_files(feature_repo, wt, [".env"])
 
-    mode = stat.S_IMODE((wt / ".env").stat().st_mode)
-    assert mode == 0o600
+    assert_owner_only(wt / ".env")
+
+
+def test_a_copy_that_cannot_be_restricted_is_refused_and_removed(feature_repo, wt, monkeypatch):
+    """A secret copied but left readable is the exact outcome this must never reach."""
+    write(feature_repo, ".env", "SECRET=hunter2\n")
+
+    def refuse(path):
+        raise fileperms.PermissionRestrictionError(path, "simulated ACL failure")
+
+    monkeypatch.setattr(worktree.fileperms, "restrict_to_owner", refuse)
+
+    with pytest.raises(worktree.CopyRefused) as caught:
+        worktree.copy_files(feature_repo, wt, [".env"])
+
+    assert "simulated ACL failure" in str(caught.value)
+    assert not (wt / ".env").exists()
 
 
 def test_a_missing_copy_file_is_skipped_silently(feature_repo, wt):
@@ -162,9 +210,13 @@ def test_remove_deletes_the_worktree_and_its_copies(feature_repo, wt):
 
 
 def test_setup_command_runs_inside_the_worktree(feature_repo, wt):
-    result = worktree.run_setup(wt, "pwd > setup_ran.txt")
+    """``git rev-parse`` rather than ``pwd``: the shell builtin reports a POSIX
+    path under Git Bash on Windows, which no comparison with ``wt`` can survive."""
+    result = worktree.run_setup(wt, "git rev-parse --show-toplevel > setup_ran.txt")
+
     assert result.returncode == 0
-    assert str(wt) in (wt / "setup_ran.txt").read_text()
+    reported = (wt / "setup_ran.txt").read_text(encoding="utf-8").strip()
+    assert Path(reported) == Path(wt)
 
 
 def test_a_failing_setup_command_reports_rather_than_raising(feature_repo, wt):

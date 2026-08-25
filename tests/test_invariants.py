@@ -31,7 +31,7 @@ def _module_files() -> list[Path]:
 
 
 def _imported_names(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text())
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -68,7 +68,7 @@ def test_cli_declares_no_network_dependencies():
     """The declared dependency set is part of the promise, not just the code."""
     import tomllib
 
-    pyproject = tomllib.loads((PACKAGE_ROOT.parent / "pyproject.toml").read_text())
+    pyproject = tomllib.loads((PACKAGE_ROOT.parent / "pyproject.toml").read_text(encoding="utf-8"))
     deps = pyproject["project"]["dependencies"]
     for dep in deps:
         name = dep.split(">")[0].split("=")[0].split("[")[0].strip().lower()

@@ -3,7 +3,7 @@
 import hashlib
 
 from agentic_preflight import attestation, config
-from tests.conftest import commit_all, git, write
+from tests.conftest import commit_all, git, set_home, write
 from tests.driver import ScriptedAgent
 
 
@@ -152,7 +152,7 @@ def test_a_different_user_intent_forces_a_fresh_review(feature_repo, tmp_path):
 
 def test_a_different_effective_config_forces_a_fresh_review(feature_repo, tmp_path, monkeypatch):
     home = tmp_path / "home"
-    monkeypatch.setenv("HOME", str(home))
+    set_home(monkeypatch, home)
     user_config = home / ".config" / "agentic-preflight" / "config.toml"
     user_config.parent.mkdir(parents=True)
     user_config.write_text("[docs]\nenabled = false\n")

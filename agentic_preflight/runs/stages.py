@@ -397,7 +397,7 @@ def run_stage(
 
     log_path = session.store.logs_dir(run.run_id) / f"{stage_name}.txt"
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_text(clean_output)
+    log_path.write_text(clean_output, encoding="utf-8", newline="\n")
 
     summary = shellstage.summarise(clean_output)
 
@@ -530,5 +530,9 @@ def logs(session: Session, *, stage_name: str) -> Envelope:
     return _envelope_for(
         run,
         stage=stage_name,
-        data={"stage": stage_name, "log_path": str(log_path), "output": log_path.read_text()},
+        data={
+            "stage": stage_name,
+            "log_path": str(log_path),
+            "output": log_path.read_text(encoding="utf-8"),
+        },
     )

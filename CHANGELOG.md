@@ -5,6 +5,61 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Added
+
+- Native Windows support. Windows 10 or newer joins macOS and Linux as a supported
+  platform, is covered by the pull-request CI matrix, and installs with the new
+  `install.ps1` / `uninstall.ps1` scripts. WSL is no longer required.
+
+- `install.ps1` and `uninstall.ps1`, PowerShell counterparts to the bash installers
+  with identical behaviour and ordering, including the deliberate pause before
+  uninstalling so repository state can be cleaned up while the skill still exists.
+
+### Changed
+
+- Stage, review, and setup commands are now executed directly as a program and its
+  arguments when they contain no shell grammar. A shell is used only for commands
+  that need one: pipes, `&&`, redirection, globs, expansions, variable assignments,
+  or a program that does not resolve. This removes the hard dependency on a POSIX
+  shell for the common case, and takes the shell out of the injection surface of the
+  one code path that runs repository-controlled strings.
+
+  A consequence worth noting: a directly executed command does not source your shell
+  profile, where `bash -lc` did. A command whose program is only on `PATH` via
+  `~/.profile` still resolves through the shell fallback and is unaffected, but a
+  stage that depended on a profile also exporting environment now runs without it.
+  This matches how the same command behaves in CI.
+
+  On Windows, the shell fallback is the one Git for Windows installs, located through
+  the Git installation rather than `PATH`, because `bash.exe` on `PATH` is normally
+  the WSL launcher and would run stages against a different filesystem.
+
+- All file and subprocess text is now read and written as UTF-8 explicitly rather
+  than in the platform's default encoding, and generated files use Unix line endings.
+  Under the Windows default of `cp1252`, a non-ASCII path or review finding could
+  previously corrupt git output or raise `UnicodeEncodeError`.
+
+### Fixed
+
+- Restored attestation reuse on Git 2.30 through 2.37. Those releases predate
+  `merge-tree --write-tree` and report the unknown flag on stderr *while exiting
+  zero*, so the fallback written for them was never reached: `merge_tree` returned
+  "no clean merge" for every comparison, and `start` silently reopened review instead
+  of reusing a still-valid green attestation after a base synchronization. The
+  interface is now chosen from the reported Git version rather than by recognising an
+  error message, which also stops the detection breaking under a non-English locale
+  where Git's messages are translated.
+
+- Copied `[worktree] copy_files` entries are now restricted to their owner on Windows
+  using an ACL, as `os.chmod` there does not affect permissions. A copy that cannot be
+  restricted is deleted and refused rather than left readable, so the guarantee that
+  makes copying a local `.env` acceptable is never silently unmet.
+
+- Replacing a run document no longer fails when another process briefly holds it open,
+  which POSIX `rename` permits but Windows does not. The replace is retried with
+  backoff and still raises if the file stays held, so a lost write cannot pass as a
+  recorded state transition.
+
 ## [0.4.0] - 2026-08-13
 
 ### Changed

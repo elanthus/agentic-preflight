@@ -63,7 +63,7 @@ def test_review_manifest_assigns_one_unit_to_each_text_hunk(tmp_repo):
     commit_all(tmp_repo, "add long source")
     base = git("rev-parse", "HEAD", cwd=tmp_repo)
     git("switch", "-c", "feature/hunks", cwd=tmp_repo)
-    lines = (tmp_repo / "src" / "long.py").read_text().splitlines()
+    lines = (tmp_repo / "src" / "long.py").read_text(encoding="utf-8").splitlines()
     lines[1] = "changed near start"
     lines[37] = "changed near end"
     write(tmp_repo, "src/long.py", "\n".join(lines) + "\n")

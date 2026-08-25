@@ -145,12 +145,14 @@ def install(git_dir: Path | str, *, force: bool = False) -> tuple[Path, bool]:
     path = hooks_dir / "pre-push"
 
     if path.exists() and not force:
-        existing = path.read_text()
+        existing = path.read_text(encoding="utf-8")
         if "agentic-preflight hook-check" not in existing:
             raise FileExistsError(str(path))
         return path, False
 
-    path.write_text(HOOK_SCRIPT)
+    # LF explicitly: this is a shell script executed by Git's own ``sh``, and a
+    # CRLF shebang line makes the interpreter unfindable.
+    path.write_text(HOOK_SCRIPT, encoding="utf-8", newline="\n")
     path.chmod(0o755)
     return path, True
 

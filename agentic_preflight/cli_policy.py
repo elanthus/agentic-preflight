@@ -89,7 +89,7 @@ def approval_check(
     from . import gitx
 
     try:
-        reviews = json.loads(reviews_file.read_text())
+        reviews = json.loads(reviews_file.read_text(encoding="utf-8"))
         result = approvalmod.evaluate(
             gitx.repo_root(Path.cwd()),
             base_sha=base_sha,

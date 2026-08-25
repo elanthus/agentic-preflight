@@ -24,8 +24,17 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import command as command_plan
+
 HEAD_LINES = 50
 TAIL_LINES = 200
+# Named here rather than read from ``os.name`` at each use so a test can select
+# a platform's process handling without patching ``os`` for the whole process —
+# which would also redirect the unrelated platform checks in sibling modules.
+WINDOWS = os.name == "nt"
+# Conventional "command not found": the configuration named something this
+# machine cannot execute at all.
+EXIT_UNRUNNABLE = 127
 REDACTION_FAILURE_OUTPUT = (
     "[agentic-preflight] command output withheld because copied-file secret "
     "redaction became unavailable"
@@ -140,6 +149,54 @@ class _CopiedFileMutationGuard:
         return self.changed.is_set()
 
 
+def _process_group_kwargs() -> dict:
+    """Popen arguments that isolate the child and its descendants.
+
+    Both platforms need the same guarantee for the same reason: a test runner
+    spawns workers, and a timeout must be able to reach all of them.
+    """
+    if WINDOWS:
+        # Fetched dynamically because the constant does not exist in the POSIX
+        # build of the standard library, where this branch is unreachable. The
+        # zero default is the "no special creation flags" value.
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+    return {"start_new_session": True}
+
+
+def _kill_process_tree(process: subprocess.Popen) -> None:
+    """Kill the timed-out child together with everything it spawned."""
+    if WINDOWS:
+        # Windows has no process group to signal: CREATE_NEW_PROCESS_GROUP only
+        # scopes console events, which a non-console child never receives. The
+        # parent/child tree that taskkill /T walks is the reachable equivalent.
+        killed = subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+            capture_output=True,
+        )
+        if killed.returncode != 0:
+            with suppress(OSError):
+                process.kill()
+        return
+
+    try:
+        process_group = os.getpgid(process.pid)
+    except ProcessLookupError:
+        # The session leader may already have exited while descendants
+        # remain in the process group identified by its original PID.
+        process_group = process.pid
+    except PermissionError:
+        # start_new_session guarantees that the child's PID is its process
+        # group ID, so a denied lookup does not justify abandoning workers.
+        process_group = process.pid
+    try:
+        os.killpg(process_group, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except PermissionError:
+        with suppress(ProcessLookupError):
+            process.kill()
+
+
 def run_stage(
     worktree_path: Path | str,
     command: str,
@@ -151,21 +208,38 @@ def run_stage(
 ) -> StageResult:
     """Run ``command`` in the worktree, killing the whole process group on timeout.
 
+    The command is planned first (see :mod:`agentic_preflight.stages.command`):
+    a plain program and its arguments are executed directly, and only genuine
+    shell grammar pays for a shell. A command that needs a shell where none
+    exists is a red stage rather than an exception, because the stage contract
+    is that the exit code decides — and a configuration the machine cannot run
+    is a failure the agent should report, not a crash.
+
     ``start_new_session`` puts the child in its own process group so that a
     test runner which spawns workers does not leave them orphaned when the
     timeout fires — killing only the direct child would strand them.
     """
+    try:
+        argv = command_plan.build_argv(command_plan.plan(command, cwd=worktree_path))
+    except command_plan.ShellUnavailable as exc:
+        return StageResult(command=command, exit_code=EXIT_UNRUNNABLE, output=str(exc))
+
     guard = _CopiedFileMutationGuard(worktree_path, guarded_files)
     guard.start()
     try:
         process = subprocess.Popen(
-            ["bash", "-lc", command],
+            argv,
             cwd=str(worktree_path),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE if separate_stderr else subprocess.STDOUT,
             stdin=subprocess.PIPE if stdin_text is not None else None,
             text=True,
-            start_new_session=True,
+            # Captured output is a *report*, not structured data: a linter that
+            # emits one stray byte must not crash the gate, and the exit code —
+            # which is what decides the stage — is unaffected either way.
+            encoding="utf-8",
+            errors="replace",
+            **_process_group_kwargs(),
         )
         try:
             stdout, stderr = process.communicate(input=stdin_text, timeout=timeout_seconds)
@@ -178,24 +252,7 @@ def run_stage(
                 stderr=stderr if separate_stderr else None,
             )
         except subprocess.TimeoutExpired:
-            try:
-                process_group = os.getpgid(process.pid)
-            except ProcessLookupError:
-                # The session leader may already have exited while descendants
-                # remain in the process group identified by its original PID.
-                process_group = process.pid
-            except PermissionError:
-                # start_new_session guarantees that the child's PID is its process
-                # group ID, so a denied lookup does not justify abandoning workers.
-                process_group = process.pid
-            if process_group is not None:
-                try:
-                    os.killpg(process_group, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                except PermissionError:
-                    with suppress(ProcessLookupError):
-                        process.kill()
+            _kill_process_tree(process)
             stdout, stderr = process.communicate()
             output = (stdout or "") + (stderr or "")
             result = StageResult(
@@ -322,7 +379,7 @@ def read_secrets(worktree_path: Path | str, copied_files: list[str]) -> list[str
         if not path.is_file():
             raise SecretRedactionError(path, "the path is missing or is not a regular file")
         try:
-            content = path.read_text()
+            content = path.read_text(encoding="utf-8")
         except UnicodeDecodeError as exc:
             raise SecretRedactionError(path, "the contents are not valid text") from exc
         except OSError as exc:

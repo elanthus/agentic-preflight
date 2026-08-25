@@ -46,7 +46,7 @@ def context(section: str) -> None:
 @command
 def submit_findings(file_path: str) -> None:
     """Record the agent's findings for the active stage."""
-    raw = sys.stdin.read() if file_path == "-" else Path(file_path).read_text()
+    raw = sys.stdin.read() if file_path == "-" else Path(file_path).read_text(encoding="utf-8")
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:

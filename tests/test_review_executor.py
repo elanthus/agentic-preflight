@@ -13,7 +13,7 @@ from agentic_preflight.envelope import ExitCode
 from agentic_preflight.machine import Action
 from agentic_preflight.runs._session import _apply, open_session
 from agentic_preflight.stages import shellstage
-from tests.conftest import commit_all, write
+from tests.conftest import commit_all, requires_posix_permissions, write
 from tests.driver import ScriptedAgent
 
 REVIEWER = """\
@@ -43,7 +43,7 @@ if mode == "mutate_secret":
     raise SystemExit(0)
 if mode == "mutate_restore_secret":
     copied = pathlib.Path(".env")
-    original = copied.read_text()
+    original = copied.read_text(encoding="utf-8")
     copied.write_text("SECRET=transient-secret\\n")
     print("transient-secret", file=sys.stderr)
     copied.write_text(original)
@@ -101,7 +101,7 @@ def test_command_receives_the_exact_context_bundle_and_records_evidence(feature_
 
     env = agent.run("review", "run")
 
-    assert json.loads(capture.read_text()) == context["data"]
+    assert json.loads(capture.read_text(encoding="utf-8")) == context["data"]
     assert env["state"] == "DOCS_GREEN"
     assert env["data"]["executor"] == "command"
     review = agent.run("status")["data"]["stages"]["review"]
@@ -149,6 +149,7 @@ def test_command_failures_are_retryable_and_attested_as_red(feature_repo, mode, 
     )
 
 
+@requires_posix_permissions
 def test_unreadable_copied_file_blocks_review_command_before_execution(feature_repo):
     (feature_repo / ".env").write_bytes(b"SECRET=\xff\n")
     configure_reviewer(feature_repo)
@@ -172,7 +173,7 @@ def test_review_output_is_withheld_if_a_copied_file_becomes_unreadable(feature_r
     env = agent.run("review", "run", expect=ExitCode.STAGE_FAILED)
 
     displayed = env["data"]["output_head"] + env["data"]["output_tail"]
-    logged = Path(env["data"]["log_path"]).read_text()
+    logged = Path(env["data"]["log_path"]).read_text(encoding="utf-8")
     assert env["state"] == "REVIEW_COMMAND_RED"
     assert "post-run-secret" not in displayed
     assert "post-run-secret" not in logged
@@ -189,13 +190,13 @@ def test_review_output_is_withheld_if_a_copied_file_is_mutated_then_restored(fea
     env = agent.run("review", "run", expect=ExitCode.STAGE_FAILED)
 
     displayed = env["data"]["output_head"] + env["data"]["output_tail"]
-    logged = Path(env["data"]["log_path"]).read_text()
+    logged = Path(env["data"]["log_path"]).read_text(encoding="utf-8")
     assert env["state"] == "REVIEW_COMMAND_RED"
     assert "transient-secret" not in displayed
     assert "transient-secret" not in logged
     assert displayed == shellstage.REDACTION_FAILURE_OUTPUT
     assert logged == displayed
-    assert (feature_repo / ".env").read_text() == "SECRET=original-secret\n"
+    assert (feature_repo / ".env").read_text(encoding="utf-8") == "SECRET=original-secret\n"
 
 
 def test_max_attempts_survive_a_new_process(feature_repo):

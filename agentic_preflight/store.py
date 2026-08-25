@@ -5,7 +5,8 @@ invocations — it lives on disk and every mutation follows the same discipline:
 
     load -> guard -> mutate -> write tmp -> os.replace
 
-all of it inside an ``fcntl.flock`` held for the entire read-modify-write window.
+all of it inside a :mod:`~agentic_preflight.filelock` exclusive lock held for the
+entire read-modify-write window.
 Two parallel ``Bash`` calls in a single agent turn are a real hazard, not a
 theoretical one. ``expect_seq`` is the second, independent defense: it catches a
 *logically* stale write (the caller read the document, thought about it for a
@@ -15,16 +16,25 @@ alone cannot detect.
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
+import sys
 import tempfile
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import filelock
 from .models import Finding, RunDoc
+
+# Roughly a second of total backoff. Long enough to outlast a concurrent read
+# or a scanner's grab, short enough that a genuinely stuck file surfaces as an
+# error while the agent is still waiting on the command.
+_REPLACE_ATTEMPTS = 8
+_REPLACE_INITIAL_DELAY = 0.005
+_REPLACE_MAX_DELAY = 0.25
 
 _REMOVED_LIFECYCLE_FIELDS = {
     "pr_url",
@@ -91,6 +101,46 @@ def _utcnow() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def _replace(tmp: Path, path: Path) -> None:
+    """``os.replace``, retried while Windows reports the target as in use.
+
+    POSIX ``rename`` cannot fail because someone else has the destination open;
+    Windows can, and does. A reader holding ``run.json`` for the microseconds of
+    a ``read_text`` is enough, and so is a virus scanner or the search indexer
+    opening the file behind everyone's back.
+
+    Retrying is safe precisely because the operation is atomic: it either
+    replaced the file or it did not, so a failed attempt has no partial effect
+    to undo. The retry is Windows-only — a ``PermissionError`` on POSIX is a
+    real permissions problem, and quietly grinding on it for a second would
+    hide the cause rather than fix it.
+
+    What this fixes is a *transient* hold, which is the one that actually
+    occurs: every reader in this module opens the document, reads it, and
+    closes it. A process that keeps the handle open indefinitely still blocks
+    the replace, and no amount of retrying would change that — Python's
+    ``open`` gives no way to ask for the share-delete access that would.
+    """
+    if sys.platform == "win32":
+        _replace_with_retry(tmp, path)
+    else:
+        os.replace(tmp, path)
+
+
+def _replace_with_retry(tmp: Path, path: Path) -> None:
+    delay = _REPLACE_INITIAL_DELAY
+    for _ in range(_REPLACE_ATTEMPTS - 1):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            time.sleep(delay)
+            delay = min(delay * 2, _REPLACE_MAX_DELAY)
+    # The last attempt is deliberately unguarded: if the target is still held
+    # after backing off, the caller needs the real error, not a silent loss.
+    os.replace(tmp, path)
+
+
 def _atomic_write(path: Path, payload: str) -> None:
     """Write via a same-directory temp file and rename.
 
@@ -101,11 +151,11 @@ def _atomic_write(path: Path, payload: str) -> None:
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     tmp = Path(tmp_name)
     try:
-        with os.fdopen(fd, "w") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp, path)
+        _replace(tmp, path)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
@@ -161,7 +211,7 @@ class Store:
         path = self.run_path(run_id)
         if not path.exists():
             raise UnknownRun(run_id)
-        return _parse_run(path.read_text())
+        return _parse_run(path.read_text(encoding="utf-8"))
 
     def list_runs(self) -> list[str]:
         runs = self.root / "runs"
@@ -181,22 +231,16 @@ class Store:
         if not path.exists():
             raise UnknownRun(run_id)
 
-        lock_path = self.run_dir(run_id) / ".lock"
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(lock_path, "w") as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            try:
-                run = _parse_run(path.read_text())
-                if expect_seq is not None and run.seq != expect_seq:
-                    raise StaleWrite(run_id, expect_seq, run.seq)
+        with filelock.exclusive(self.run_dir(run_id) / ".lock"):
+            run = _parse_run(path.read_text(encoding="utf-8"))
+            if expect_seq is not None and run.seq != expect_seq:
+                raise StaleWrite(run_id, expect_seq, run.seq)
 
-                yield run
+            yield run
 
-                run.seq += 1
-                run.updated_at = _utcnow()
-                _atomic_write(path, run.model_dump_json(indent=2))
-            finally:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            run.seq += 1
+            run.updated_at = _utcnow()
+            _atomic_write(path, run.model_dump_json(indent=2))
 
     # -- findings ------------------------------------------------------------
 
@@ -204,7 +248,8 @@ class Store:
         path = self.findings_path(run_id)
         if not path.exists():
             return []
-        return [Finding.model_validate(item) for item in json.loads(path.read_text())]
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return [Finding.model_validate(item) for item in payload]
 
     def save_findings(self, run_id: str, findings: list[Finding]) -> None:
         payload = json.dumps([f.model_dump(mode="json") for f in findings], indent=2)
@@ -219,26 +264,22 @@ class Store:
         path = self.events_path(run_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps({"at": _utcnow(), **event}, sort_keys=True)
-        with open(path, "a") as handle:
+        with open(path, "a", encoding="utf-8", newline="\n") as handle:
             handle.write(line + "\n")
 
     def load_events(self, run_id: str) -> list[dict]:
         path = self.events_path(run_id)
         if not path.exists():
             return []
-        return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+        lines = path.read_text(encoding="utf-8").splitlines()
+        return [json.loads(line) for line in lines if line.strip()]
 
     # -- current pointer -----------------------------------------------------
 
     @contextmanager
     def _current_lock(self) -> Iterator[None]:
-        self.root.mkdir(parents=True, exist_ok=True)
-        with open(self.root / ".current.lock", "w") as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        with filelock.exclusive(self.root / ".current.lock"):
+            yield
 
     def _set_current_unlocked(self, run_id: str | None) -> None:
         if run_id is None:
@@ -269,4 +310,4 @@ class Store:
     def get_current(self) -> str | None:
         if not self.current_path.exists():
             return None
-        return self.current_path.read_text().strip() or None
+        return self.current_path.read_text(encoding="utf-8").strip() or None

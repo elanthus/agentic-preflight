@@ -82,7 +82,7 @@ class ScriptedAgent:
         if not path.is_file():
             return
         try:
-            payload = json.loads(path.read_text())
+            payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return
         coverage = payload.get("coverage") if isinstance(payload, dict) else None

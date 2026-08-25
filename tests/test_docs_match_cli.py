@@ -66,7 +66,7 @@ def documented_commands(text: str) -> set[str]:
 
 
 def test_skill_md_exists_with_front_matter():
-    text = SKILL.read_text()
+    text = SKILL.read_text(encoding="utf-8")
     assert text.startswith("---")
     assert "name: agentic-preflight" in text
     assert "description:" in text
@@ -85,7 +85,7 @@ def test_skill_md_exists_with_front_matter():
 )
 def test_every_documented_command_exists(doc):
     real = real_commands()
-    documented = documented_commands(doc.read_text())
+    documented = documented_commands(doc.read_text(encoding="utf-8"))
     unknown = {c for c in documented if c not in real and c.split()[0] not in real}
     assert unknown == set(), f"{doc.name} documents commands that do not exist: {unknown}"
 
@@ -93,20 +93,20 @@ def test_every_documented_command_exists(doc):
 def test_every_real_command_is_documented_somewhere():
     documented = set()
     for doc in (SKILL, REFERENCE / "commands.md"):
-        documented |= documented_commands(doc.read_text())
+        documented |= documented_commands(doc.read_text(encoding="utf-8"))
     missing = real_commands() - documented
     assert missing == set(), f"undocumented commands: {missing}"
 
 
 def test_command_reference_uses_a_real_review_state():
-    text = (REFERENCE / "commands.md").read_text()
+    text = (REFERENCE / "commands.md").read_text(encoding="utf-8")
     assert f'"state": "{State.REVIEW_AWAITING_FINDINGS}"' in text
     assert '"state": "AWAITING_FINDINGS"' not in text
 
 
 def test_json_envelope_contract_names_the_hook_exception():
     for doc in (SKILL, REFERENCE / "commands.md"):
-        text = doc.read_text()
+        text = doc.read_text(encoding="utf-8")
         assert "agent-facing workflow command" in text
         assert "hook-check" in text
         assert "exception" in text
@@ -116,25 +116,25 @@ def test_json_envelope_contract_names_the_hook_exception():
 
 
 def test_documented_exit_codes_match_the_enum():
-    text = (REFERENCE / "commands.md").read_text()
+    text = (REFERENCE / "commands.md").read_text(encoding="utf-8")
     for code in ExitCode:
         assert str(int(code)) in text, f"exit code {code.name}={int(code)} is undocumented"
 
 
 def test_skill_documents_the_universal_recovery_rule():
-    text = SKILL.read_text()
+    text = SKILL.read_text(encoding="utf-8")
     assert "exit 3" in text
     assert "status" in text
 
 
 def test_skill_links_the_complete_command_reference():
-    text = SKILL.read_text()
+    text = SKILL.read_text(encoding="utf-8")
     assert "reference/commands.md" in text
 
 
 def test_skill_links_the_failure_playbooks():
     """The index is only useful if it points somewhere."""
-    text = SKILL.read_text()
+    text = SKILL.read_text(encoding="utf-8")
     assert "reference/playbooks.md" in text
 
 
@@ -145,13 +145,19 @@ def playbook_index() -> str:
     playbook dropped from the index still pass because its name appears in prose
     somewhere else.
     """
-    section = re.search(r"^## Failure playbooks\n(.*?)^## ", SKILL.read_text(), re.DOTALL | re.M)
+    section = re.search(
+        r"^## Failure playbooks\n(.*?)^## ", SKILL.read_text(encoding="utf-8"), re.DOTALL | re.M
+    )
     return "\n".join(line for line in section.group(1).splitlines() if line.startswith("|"))
 
 
 def test_the_playbook_index_covers_every_playbook():
     """A playbook nobody can find from SKILL.md is a playbook nobody reads."""
-    headings = set(re.findall(r"^## (.+)$", (REFERENCE / "playbooks.md").read_text(), re.MULTILINE))
+    headings = set(
+        re.findall(
+            r"^## (.+)$", (REFERENCE / "playbooks.md").read_text(encoding="utf-8"), re.MULTILINE
+        )
+    )
     index = playbook_index()
     # Index rows carry the symptom; the heading's parenthetical is kept verbatim.
     missing = {h for h in headings if h not in index}
@@ -159,7 +165,7 @@ def test_the_playbook_index_covers_every_playbook():
 
 
 def test_skill_documents_mergeback_conflict_retry():
-    text = (REFERENCE / "playbooks.md").read_text()
+    text = (REFERENCE / "playbooks.md").read_text(encoding="utf-8")
     assert "`mergeback` is the legal retry" in text
     assert "report is stored in the event log" in text
     assert "no outbound transition" not in text
@@ -169,7 +175,7 @@ def test_skill_documents_mergeback_conflict_retry():
 
 
 def test_configuration_example_uses_only_real_sections():
-    text = CONFIGURATION.read_text()
+    text = CONFIGURATION.read_text(encoding="utf-8")
     documented = set(re.findall(r"^\[([a-z]+)\]$", text, re.MULTILINE))
     real = set(Config.model_fields)
     unknown = documented - real
@@ -177,7 +183,7 @@ def test_configuration_example_uses_only_real_sections():
 
 
 def test_every_config_section_is_documented_in_the_configuration_reference():
-    text = CONFIGURATION.read_text()
+    text = CONFIGURATION.read_text(encoding="utf-8")
     documented = set(re.findall(r"^\[([a-z]+)\]$", text, re.MULTILINE))
     missing = set(Config.model_fields) - documented
     assert missing == set(), f"undocumented config sections: {missing}"
@@ -185,22 +191,22 @@ def test_every_config_section_is_documented_in_the_configuration_reference():
 
 def test_current_attestation_schema_is_consistent_across_reference_docs():
     schema = Attestation.model_fields["schema_version"].default
-    assert f"version {schema} note" in ATTESTATIONS_AND_CI.read_text()
-    assert f"schema v{schema}" in CONFIGURATION.read_text()
+    assert f"version {schema} note" in ATTESTATIONS_AND_CI.read_text(encoding="utf-8")
+    assert f"schema v{schema}" in CONFIGURATION.read_text(encoding="utf-8")
 
-    commands = (REFERENCE / "commands.md").read_text()
+    commands = (REFERENCE / "commands.md").read_text(encoding="utf-8")
     assert f"schema-v{schema} attestation" in commands
     assert f"Schema v{schema} requires" in commands
 
 
 def test_ci_verifier_example_explains_version_matching():
-    text = ATTESTATIONS_AND_CI.read_text()
+    text = ATTESTATIONS_AND_CI.read_text(encoding="utf-8")
     assert "verifier must support the schema emitted by the producer" in text
     assert "same immutable source revision" in text
 
 
 def test_worktree_and_doc_surface_descriptions_name_their_boundaries():
-    text = (REFERENCE / "commands.md").read_text()
+    text = (REFERENCE / "commands.md").read_text(encoding="utf-8")
     assert "data.worktree_root: null" in text
     assert "In isolated `reusable` and `strict` modes" in text
     assert "configured documentation\n  allowlist" in text
@@ -210,7 +216,7 @@ def test_the_configuration_example_actually_parses(tmp_path):
     """The example must be valid config, not plausible-looking config."""
     import tomllib
 
-    text = CONFIGURATION.read_text()
+    text = CONFIGURATION.read_text(encoding="utf-8")
     block = re.search(r"```toml\n(.*?)```", text, re.DOTALL).group(1)
     parsed = tomllib.loads(block)
     Config.model_validate(parsed)
@@ -221,7 +227,7 @@ def test_the_configuration_example_actually_parses(tmp_path):
 
 def test_the_readme_states_the_gate_is_not_a_security_boundary():
     """The design requires this be said plainly; do not let it be edited away."""
-    text = README.read_text().lower()
+    text = README.read_text(encoding="utf-8").lower()
     assert "not a security boundary" in text
     assert "--no-verify" in text
     assert "manual" in text
@@ -229,13 +235,13 @@ def test_the_readme_states_the_gate_is_not_a_security_boundary():
 
 def test_the_skill_documents_the_findings_id_prohibition():
     for doc in (SKILL, REFERENCE / "findings-schema.md"):
-        text = doc.read_text()
+        text = doc.read_text(encoding="utf-8")
         assert "`id`" in text or '"id"' in text
         assert "stage" in text
 
 
 def test_the_skill_documents_both_pr_modes_and_their_approval_boundary():
-    text = SKILL.read_text()
+    text = SKILL.read_text(encoding="utf-8")
     assert '[pr] mode = "auto"' in text
     assert '[pr] mode = "manual"' in text
     assert "standing authorization" in text
@@ -243,31 +249,31 @@ def test_the_skill_documents_both_pr_modes_and_their_approval_boundary():
 
 
 def test_explicit_publication_request_does_not_require_double_confirmation():
-    text = SKILL.read_text()
+    text = SKILL.read_text(encoding="utf-8")
     assert "create/open a pull request authorizes the matching push" in text
     assert "Do not ask them to confirm the same publication twice" in text
     assert 'generic "proceed"' in text
 
 
 def test_the_skill_documents_all_high_risk_approval_modes():
-    text = SKILL.read_text()
+    text = SKILL.read_text(encoding="utf-8")
     assert "`manual_merge`" in text
     assert "`environment`" in text
     assert "`peer_review`" in text
     assert "never merge or enable auto-merge" in text
 
-    configuration = (README.parent / "docs" / "configuration.md").read_text()
+    configuration = (README.parent / "docs" / "configuration.md").read_text(encoding="utf-8")
     assert '`mode = "manual_merge"` is the default' in configuration
 
 
 def test_an_explicit_cleanup_request_needs_no_second_approval():
-    text = SKILL.read_text()
+    text = SKILL.read_text(encoding="utf-8")
     assert "cleanup in the same turn without asking again" in text
     assert "delete the local PR source branch and the remote PR source branch" in text
 
 
 def test_the_skill_documents_the_project_uninstall_trigger_and_scope():
-    text = SKILL.read_text()
+    text = SKILL.read_text(encoding="utf-8")
     assert "agentic-preflight:uninstall" in text
     assert "without another confirmation" in text
     assert ".agentic-preflight.toml" in text
@@ -276,13 +282,13 @@ def test_the_skill_documents_the_project_uninstall_trigger_and_scope():
 
 
 def test_the_docs_rubric_leads_with_the_obligation_test():
-    text = (REFERENCE / "docs-rubric.md").read_text()
+    text = (REFERENCE / "docs-rubric.md").read_text(encoding="utf-8")
     assert "Would a reader following the current documentation now be wrong?" in text
     assert "Zero findings is a normal" in text
 
 
 def test_shell_playbook_does_not_claim_version_manager_shims_are_always_absent():
-    text = (REFERENCE / "playbooks.md").read_text()
+    text = (REFERENCE / "playbooks.md").read_text(encoding="utf-8")
     assert "may be absent" in text
     assert "inherited or login-profile configuration can also keep them available" in text
 

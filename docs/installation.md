@@ -11,9 +11,19 @@ From a source checkout, install or update the CLI and all supported agent skills
 ./install.sh
 ```
 
+On Windows, use the PowerShell installer instead:
+
+```powershell
+.\install.ps1
+```
+
 The script installs from that checkout and is safe to rerun after pulling changes. Pass
 one or more agent names to limit the skill installation, for example
-`./install.sh codex`. It refuses to overwrite locally modified or unmanaged skill copies.
+`./install.sh codex` (`.\install.ps1 codex`). It refuses to overwrite locally modified
+or unmanaged skill copies.
+
+Both installers do the same two things in the same order and are kept in step by
+matching test suites. Everything after this section is identical on all platforms.
 
 To install the published package instead:
 
