@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -76,6 +77,39 @@ def set_home(monkeypatch, path: Path | str) -> None:
         monkeypatch.setenv(name, value)
 
 
+def access_entries(path: Path) -> list[str]:
+    """A Windows file's DACL entries, one per granted principal.
+
+    Every ``icacls`` entry has the shape ``PRINCIPAL:(rights)``, so ``:(`` is
+    what identifies one. Splitting on the first colon instead counts the drive
+    letter of the path that ``icacls`` prints on its own first line.
+    """
+    listing = subprocess.run(
+        ["icacls", str(path)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
+    ).stdout
+    return [line.strip() for line in listing.splitlines() if ":(" in line]
+
+
+def assert_owner_only(path: Path) -> None:
+    """Assert the platform's expression of "readable by the owner and nobody else".
+
+    On Windows the mode bits carry no permissions, so the DACL is read back:
+    exactly one entry may remain, and none of it may be inherited.
+    """
+    if sys.platform != "win32":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        return
+
+    entries = access_entries(path)
+    assert len(entries) == 1, f"expected a single access entry, got: {entries}"
+    assert "(I)" not in entries[0], f"inherited access survived: {entries}"
+
+
 def _symlinks_available() -> bool:
     """Whether this process may create symlinks.
 
@@ -92,11 +126,57 @@ def _symlinks_available() -> bool:
     return True
 
 
+def _git_records_symlinks() -> bool:
+    """Whether git stores a symlink *as* a symlink in this environment.
+
+    A separate question from whether the filesystem allows one. Git for Windows
+    sets ``core.symlinks=false`` unless the installer enabled them, and then
+    commits a symlink as an ordinary file holding its target path — so a test
+    about symlink-to-file *type changes* sees no type change at all. GitHub's
+    Windows runners are exactly this case: elevated enough to create symlinks,
+    configured not to record them.
+
+    Probed under the same config isolation the suite runs with, since that is
+    what decides the answer.
+    """
+    if not SYMLINKS_AVAILABLE:
+        return False
+
+    env = {**os.environ, **DETERMINISTIC_ENV}
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        try:
+            subprocess.run(
+                ["git", "init", "-q", str(root)], capture_output=True, check=True, env=env
+            )
+            (root / "target.txt").write_text("target\n", encoding="utf-8")
+            (root / "link.txt").symlink_to("target.txt")
+            subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True, check=True, env=env)
+            staged = subprocess.run(
+                ["git", "ls-files", "-s", "link.txt"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=True,
+                env=env,
+            ).stdout
+        except (OSError, subprocess.CalledProcessError):
+            return False
+    # Mode 120000 is git's symlink mode; 100644 means it stored a plain file.
+    return staged.startswith("120000")
+
+
 SYMLINKS_AVAILABLE = _symlinks_available()
+GIT_RECORDS_SYMLINKS = _git_records_symlinks()
 
 requires_symlinks = pytest.mark.skipif(
     not SYMLINKS_AVAILABLE,
     reason="creating symlinks requires Developer Mode or elevation on Windows",
+)
+
+requires_git_symlinks = pytest.mark.skipif(
+    not GIT_RECORDS_SYMLINKS,
+    reason="git is not configured to record symlinks as symlinks",
 )
 
 requires_posix_permissions = pytest.mark.skipif(

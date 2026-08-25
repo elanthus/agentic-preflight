@@ -1,41 +1,9 @@
-import stat
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 from agentic_preflight import fileperms, gitx, worktree
-from tests.conftest import git, write
-
-
-def assert_owner_only(path):
-    """Assert the platform's expression of "readable by the owner and nobody else".
-
-    On Windows the mode bits are meaningless, so the DACL is read back with
-    ``icacls``: exactly one principal must appear, and it must be this user.
-    """
-    if sys.platform != "win32":
-        assert stat.S_IMODE(path.stat().st_mode) == 0o600
-        return
-
-    listing = subprocess.run(
-        ["icacls", str(path)],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=True,
-    ).stdout
-    granted = [
-        line.split(":", 1)[0].strip()
-        for line in listing.splitlines()
-        if ":" in line and not line.startswith("Successfully")
-    ]
-    # The first line carries the path before the principal; drop it.
-    granted = [entry.rsplit(str(path), 1)[-1].strip() or entry for entry in granted]
-    assert len(granted) == 1, f"expected a single ACE, got: {listing}"
-    assert "(I)" not in listing, f"inherited permissions survived: {listing}"
+from tests.conftest import assert_owner_only, git, write
 
 
 @pytest.fixture

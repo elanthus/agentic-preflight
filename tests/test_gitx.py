@@ -3,7 +3,7 @@ import subprocess
 import pytest
 
 from agentic_preflight import gitx
-from tests.conftest import commit_all, git, requires_symlinks, write
+from tests.conftest import commit_all, git, requires_git_symlinks, write
 
 
 def test_current_branch_reads_the_checked_out_branch(feature_repo):
@@ -208,7 +208,7 @@ def test_diff_text_by_path_handles_renames_binary_and_pathspec_characters(tmp_re
     assert "Binary files" in batched["image.bin"]
 
 
-@requires_symlinks
+@requires_git_symlinks
 def test_diff_text_by_path_handles_non_ascii_and_file_to_symlink_changes(tmp_repo):
     write(tmp_repo, "plain.txt", "before\n")
     write(tmp_repo, "café.txt", "before\n")
@@ -232,7 +232,7 @@ def test_diff_text_by_path_handles_non_ascii_and_file_to_symlink_changes(tmp_rep
     assert batched["kind.txt"].count("diff --git ") == 2
 
 
-@requires_symlinks
+@requires_git_symlinks
 def test_diff_text_by_path_handles_symlink_to_file_changes(tmp_repo):
     write(tmp_repo, "target.txt", "target\n")
     (tmp_repo / "kind.txt").symlink_to("target.txt")

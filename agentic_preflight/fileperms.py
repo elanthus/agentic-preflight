@@ -10,10 +10,11 @@ live in an ACL that the call never touches. A copied ``.env`` would inherit the
 containing directory's ACEs and be readable by every principal that already had
 access — silently, because the call still returns successfully.
 
-The Windows equivalent is therefore built explicitly: strip inheritance and
-grant the calling user alone. ``icacls`` ships with Windows and needs no
-elevation to rewrite the DACL of a file the caller owns, which keeps this free
-of a new dependency in a package that has two.
+The Windows equivalent is therefore built explicitly: reset the file's access
+list, drop what it inherits, and grant the calling user alone. ``icacls`` ships
+with Windows and needs no elevation to rewrite the access list of a file the
+caller owns, which keeps this free of a new dependency in a package that has
+two. See :func:`_restrict_via_acl` for why all three steps are load-bearing.
 """
 
 from __future__ import annotations
@@ -93,16 +94,36 @@ def _restrict_via_mode(path: Path) -> None:
 
 
 def _restrict_via_acl(path: Path) -> None:
+    """Replace the file's DACL with a single entry for the calling user.
+
+    Two passes, because neither ``icacls`` option does this alone and the gap
+    between them is exactly where a secret leaks:
+
+    ``/reset`` discards *explicit* entries, leaving only what the parent
+    directory grants by inheritance. This is the step that is easy to omit and
+    hard to notice missing: a file whose DACL came from the creating process's
+    default rather than from inheritance carries SYSTEM, Administrators, and
+    OWNER RIGHTS as explicit entries, which ``/inheritance:r`` will not touch
+    and ``/grant:r`` will not replace, because it only replaces the principal
+    it names.
+
+    ``/inheritance:r`` then drops the inherited entries that ``/reset`` left,
+    and ``/grant:r`` adds the one entry that should remain.
+    """
     sid = current_user_sid(path)
-    # /inheritance:r drops the ACEs inherited from the containing directory —
-    # without it the grant below is additive and everything that could already
-    # read the file still can. /grant:r replaces rather than adds to any
-    # existing explicit entry for the same principal.
-    result = _run(["icacls", str(path), "/inheritance:r", "/grant:r", f"*{sid}:F"], path)
-    if result.returncode != 0:
+
+    reset = _run(["icacls", str(path), "/reset"], path)
+    if reset.returncode != 0:
         raise PermissionRestrictionError(
             path,
-            f"icacls failed ({result.returncode}): {(result.stderr or result.stdout).strip()}",
+            f"icacls /reset failed ({reset.returncode}): {(reset.stderr or reset.stdout).strip()}",
+        )
+
+    granted = _run(["icacls", str(path), "/inheritance:r", "/grant:r", f"*{sid}:F"], path)
+    if granted.returncode != 0:
+        raise PermissionRestrictionError(
+            path,
+            f"icacls failed ({granted.returncode}): {(granted.stderr or granted.stdout).strip()}",
         )
 
 
