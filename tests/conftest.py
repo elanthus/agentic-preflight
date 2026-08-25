@@ -110,30 +110,32 @@ def assert_owner_only(path: Path) -> None:
     assert "(I)" not in entries[0], f"inherited access survived: {entries}"
 
 
-def recorded_mode(repo: Path, relpath: str) -> str:
-    """The file mode git has actually stored for ``relpath``.
+def recorded_mode(repo: Path, ref: str, relpath: str) -> str:
+    """The file mode git stored for ``relpath`` in ``ref``.
 
-    ``120000`` is a symlink; ``100644`` a plain file. Worth asking directly,
-    because whether git records a symlink *as* one varies by platform and
-    configuration, and a test about type changes is meaningless when it did
-    not.
+    ``120000`` is a symlink, ``100644`` a plain file. Worth asking directly:
+    whether git records a symlink *as* one, and whether it notices a change
+    between the two, both vary by platform and configuration.
     """
-    staged = git("ls-files", "-s", "--", relpath, cwd=repo)
-    return staged.split(maxsplit=1)[0] if staged else ""
+    entry = git("ls-tree", ref, "--", relpath, cwd=repo)
+    return entry.split(maxsplit=1)[0] if entry else ""
 
 
-def require_recorded_symlink(repo: Path, relpath: str) -> None:
-    """Skip unless git stored ``relpath`` as a symlink in this repository.
+def require_type_change(repo: Path, base: str, head: str, relpath: str) -> None:
+    """Skip unless git recorded ``relpath`` changing file type between the two refs.
 
-    The module-level probe answers whether git *can*; this answers whether it
-    did, here, for this file. Checked at the point of use so a diff test about
-    a symlink-to-file type change can never quietly assert something else —
-    which is exactly how it failed before, with no type change to find and a
-    confusing count as the only symptom.
+    Checked as an invariant rather than inferred from a platform, because more
+    than one thing decides it. Creating a symlink can be permitted while git is
+    configured not to record it, and a recorded symlink can still be replaced
+    by a plain file without git registering the mode change — Windows defaults
+    to ignoring file modes. Either way there is no type change for a diff test
+    to describe, and asserting on the patch count would report a confusing
+    number instead of the reason.
     """
-    mode = recorded_mode(repo, relpath)
-    if mode != "120000":
-        pytest.skip(f"git recorded {relpath} as mode {mode or 'nothing'}, not a symlink")
+    before = recorded_mode(repo, base, relpath)
+    after = recorded_mode(repo, head, relpath)
+    if before == after:
+        pytest.skip(f"git recorded no type change for {relpath}: mode {before} on both sides")
 
 
 def _symlinks_available() -> bool:

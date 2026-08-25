@@ -6,7 +6,7 @@ from agentic_preflight import gitx
 from tests.conftest import (
     commit_all,
     git,
-    require_recorded_symlink,
+    require_type_change,
     requires_git_symlinks,
     write,
 )
@@ -227,7 +227,7 @@ def test_diff_text_by_path_handles_non_ascii_and_file_to_symlink_changes(tmp_rep
     (tmp_repo / "kind.txt").unlink()
     (tmp_repo / "kind.txt").symlink_to("plain.txt")
     commit_all(tmp_repo, "change mixed files")
-    require_recorded_symlink(tmp_repo, "kind.txt")
+    require_type_change(tmp_repo, base, "HEAD", "kind.txt")
 
     paths = gitx.changed_files(tmp_repo, base)
     batched = gitx.diff_text_by_path(tmp_repo, base, "HEAD", paths)
@@ -244,14 +244,12 @@ def test_diff_text_by_path_handles_symlink_to_file_changes(tmp_repo):
     write(tmp_repo, "target.txt", "target\n")
     (tmp_repo / "kind.txt").symlink_to("target.txt")
     commit_all(tmp_repo, "add symlink")
-    # The symlink is on the *base* side here, so it is the committed base that
-    # has to be a symlink for there to be a type change at all.
-    require_recorded_symlink(tmp_repo, "kind.txt")
     base = gitx.rev_parse(tmp_repo, "HEAD")
     git("switch", "-c", "feature/symlink-to-file", cwd=tmp_repo)
     (tmp_repo / "kind.txt").unlink()
     write(tmp_repo, "kind.txt", "regular file\n")
     commit_all(tmp_repo, "replace symlink with file")
+    require_type_change(tmp_repo, base, "HEAD", "kind.txt")
 
     batched = gitx.diff_text_by_path(tmp_repo, base, "HEAD", ["kind.txt"])
 
