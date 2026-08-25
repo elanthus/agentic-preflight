@@ -622,11 +622,7 @@ def test_timeout_kills_the_whole_tree_on_windows(tmp_path, monkeypatch):
     assert direct_kills == []
 
 
-@requires_windows
-def test_a_failed_taskkill_falls_back_to_killing_the_child(tmp_path, monkeypatch):
-    """Losing the tree is bad; leaving the child itself running is worse."""
-    direct_kills: list[bool] = []
-
+def _timed_out_process(direct_kills: list[bool]):
     class TimedOutProcess:
         pid = 4242
         returncode = 1
@@ -641,17 +637,57 @@ def test_a_failed_taskkill_falls_back_to_killing_the_child(tmp_path, monkeypatch
         def kill(self):
             direct_kills.append(True)
 
-    process = TimedOutProcess()
+    return TimedOutProcess()
+
+
+@requires_windows
+@pytest.mark.parametrize(
+    ("outcome", "label"),
+    [
+        (lambda argv, **_kwargs: subprocess.CompletedProcess(argv, 1, b"", b"denied"), "refused"),
+        (lambda *_a, **_kw: (_ for _ in ()).throw(FileNotFoundError(2, "not found")), "absent"),
+        (
+            lambda *_a, **_kw: (_ for _ in ()).throw(subprocess.TimeoutExpired("taskkill", 30)),
+            "hung",
+        ),
+    ],
+)
+def test_a_failed_taskkill_falls_back_to_killing_the_child(tmp_path, monkeypatch, outcome, label):
+    """Losing the tree is bad; leaving the child itself running is worse.
+
+    Every way ``taskkill`` can fail has to reach the same fallback. Two of these
+    reach it by raising rather than returning, which previously escaped
+    ``run_stage`` and replaced the timed-out result with a crash.
+    """
+    direct_kills: list[bool] = []
+    process = _timed_out_process(direct_kills)
     monkeypatch.setattr(shellstage.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(shellstage.subprocess, "run", outcome)
+
+    result = shellstage.run_stage(tmp_path, "ignored", timeout_seconds=1)
+
+    assert direct_kills == [True], label
+    assert result.timed_out is True
+
+
+@requires_windows
+def test_the_taskkill_call_is_bounded_by_its_own_timeout(tmp_path, monkeypatch):
+    """It runs on the timeout path, so an unbounded wait here bounds nothing."""
+    seen: list[object] = []
+
+    def record(argv, **kwargs):
+        seen.append(kwargs.get("timeout"))
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
     monkeypatch.setattr(
-        shellstage.subprocess,
-        "run",
-        lambda argv, **_kwargs: subprocess.CompletedProcess(argv, 1, b"", b"denied"),
+        shellstage.subprocess, "Popen", lambda *_args, **_kwargs: _timed_out_process([])
     )
+    monkeypatch.setattr(shellstage.subprocess, "run", record)
 
     shellstage.run_stage(tmp_path, "ignored", timeout_seconds=1)
 
-    assert direct_kills == [True]
+    assert seen
+    assert all(isinstance(value, int | float) for value in seen)
 
 
 @requires_posix_permissions

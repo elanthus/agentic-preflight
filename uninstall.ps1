@@ -104,11 +104,23 @@ if (-not $agenticPreflightBin) {
     exit 0
 }
 
+# $ErrorActionPreference does not govern native commands: they report failure
+# through $LASTEXITCODE and the script carries on regardless. Left unchecked,
+# a failed skill removal would still be followed by removing the CLI that
+# performs it, and a failed CLI removal would still print success.
 Write-Host "Removing managed agent skills for: $($Agents -join ' ')"
 & $agenticPreflightBin integrations uninstall @Agents
+if ($LASTEXITCODE -ne 0) {
+    Write-Error 'removing the managed agent skills failed; the CLI was left installed so it can be retried'
+    exit 1
+}
 
 Write-Host 'Uninstalling the agentic-preflight CLI'
 uv tool uninstall agentic-preflight
+if ($LASTEXITCODE -ne 0) {
+    Write-Error 'uninstalling the agentic-preflight CLI failed'
+    exit 1
+}
 
 Write-Host 'agentic-preflight has been uninstalled.'
 Write-Host 'Run history and attestations were left intact.'

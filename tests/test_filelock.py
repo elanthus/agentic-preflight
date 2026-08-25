@@ -6,6 +6,7 @@ lock exists for, and an in-process test of the same code would pass on a lock
 that does not actually cross a process boundary.
 """
 
+import errno
 import subprocess
 import sys
 import textwrap
@@ -64,6 +65,30 @@ def test_the_lock_can_be_taken_again_by_the_same_process(tmp_path):
         pass
     with filelock.exclusive(lock):
         pass
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the retry loop is the Windows path")
+def test_a_lock_error_that_is_not_contention_is_raised_rather_than_retried(tmp_path, monkeypatch):
+    """Contention resolves by waiting; a bad descriptor never will.
+
+    Retrying everything meant a permanent error became an unkillable loop at
+    full CPU instead of an exception naming the problem.
+    """
+    attempts: list[int] = []
+
+    def always_broken(fileno, mode, nbytes):
+        attempts.append(fileno)
+        raise OSError(errno.EBADF, "bad file descriptor")
+
+    monkeypatch.setattr(filelock.msvcrt, "locking", always_broken)
+
+    with (
+        pytest.raises(OSError, match="bad file descriptor"),
+        filelock.exclusive(tmp_path / "run.lock"),
+    ):
+        pass
+
+    assert len(attempts) == 1
 
 
 def test_the_lock_file_is_created_with_its_parent_directory(tmp_path):

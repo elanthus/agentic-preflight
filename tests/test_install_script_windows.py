@@ -158,6 +158,36 @@ def test_uninstaller_still_prints_hook_instructions_when_the_cli_is_already_abse
 
 
 @windows_only
+def test_a_failed_skill_removal_leaves_the_cli_installed(tmp_path):
+    """The CLI is what performs the skill removal, so removing it after a failure
+    would take away the only way to retry.
+
+    ``$ErrorActionPreference`` does not cover native commands: they report
+    failure through ``$LASTEXITCODE`` and the script continues regardless, so
+    this ordering only holds because it is checked explicitly.
+    """
+    operations = tmp_path / "operations.log"
+    bin_dir = fake_bin(
+        tmp_path,
+        uv_body=(
+            "@echo off\r\n"
+            'echo uv %* >> "%OPERATION_LOG%"\r\n'
+            'if "%*"=="tool dir --bin" echo %FAKE_TOOL_BIN_DIR%\r\n'
+        ),
+        cli_body='@echo off\r\necho cli %* >> "%OPERATION_LOG%"\r\nexit /b 3\r\n',
+    )
+    env = environment(bin_dir, OPERATION_LOG=str(operations))
+
+    result = powershell(UNINSTALLER, env=env, stdin="\n")
+
+    assert result.returncode != 0
+    logged = operations.read_text(encoding="utf-8")
+    assert "cli integrations uninstall" in logged
+    assert "tool uninstall" not in logged
+    assert "has been uninstalled" not in result.stdout
+
+
+@windows_only
 def test_uninstaller_refuses_to_continue_until_enter_is_received(tmp_path):
     """An unattended run must not silently uninstall before repositories are cleaned."""
     operations = tmp_path / "operations.log"

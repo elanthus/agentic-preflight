@@ -24,6 +24,7 @@ indefinite wait that ``flock`` gives for free.
 
 from __future__ import annotations
 
+import errno
 import os
 import sys
 from collections.abc import Iterator
@@ -51,11 +52,17 @@ def _acquire(handle) -> None:
             try:
                 msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, _LOCK_BYTE)
                 return
-            except OSError:
-                # LK_LOCK gives up after roughly ten seconds. A contended lock
-                # is normal here, so keep waiting rather than failing a caller
-                # that is simply second in line.
-                continue
+            except OSError as exc:
+                # LK_LOCK gives up after roughly ten seconds of contention and
+                # reports it as EDEADLOCK. Being second in line is normal here,
+                # so that one is worth waiting out.
+                #
+                # Only that one. Every other OSError — a bad descriptor, a
+                # permission failure — would still be true on the next attempt,
+                # and retrying it means spinning forever at full CPU instead of
+                # telling the caller what went wrong.
+                if exc.errno != errno.EDEADLOCK:
+                    raise
     else:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
 

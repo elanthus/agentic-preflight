@@ -112,6 +112,19 @@ def test_hook_installer_directly_refuses_and_then_replaces_a_foreign_hook(tmp_pa
     assert written is False
 
 
+def test_a_foreign_hook_that_is_not_utf8_is_still_refused(tmp_path):
+    """Someone else's hook is arbitrary bytes, and refusing it must not depend
+    on those bytes decoding as text."""
+    path = tmp_path / "hooks" / "pre-push"
+    path.parent.mkdir()
+    path.write_bytes(b"#!/bin/sh\n# \xff\xfe not valid utf-8\necho existing\n")
+
+    with pytest.raises(FileExistsError):
+        hook.install(tmp_path)
+
+    assert b"echo existing" in path.read_bytes()
+
+
 def test_init_reports_in_place_default(feature_repo):
     env = ScriptedAgent(feature_repo).run("init", "--no-hook")
     assert env["data"]["worktree_mode"] == "in_place"

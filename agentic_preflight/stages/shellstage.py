@@ -32,6 +32,9 @@ TAIL_LINES = 200
 # Conventional "command not found": the configuration named something this
 # machine cannot execute at all.
 EXIT_UNRUNNABLE = 127
+# Generous for a process-tree kill, and short enough that a wedged taskkill
+# cannot hold a stage open indefinitely after its own timeout has fired.
+_TASKKILL_TIMEOUT_SECONDS = 30
 REDACTION_FAILURE_OUTPUT = (
     "[agentic-preflight] command output withheld because copied-file secret "
     "redaction became unavailable"
@@ -168,12 +171,24 @@ if sys.platform == "win32":
         never receives. The parent/child tree that ``taskkill /T`` walks is the
         reachable equivalent. Falling back to killing the direct child is worse
         than killing the tree, and better than leaving it running.
+
+        Every way ``taskkill`` can fail leads to that same fallback, including
+        not being on PATH and not returning. This runs on the timeout path, so
+        an unbounded wait here would mean the stage timeout no longer bounds
+        anything, and an escaping exception would replace the timed-out result
+        the caller is owed with a crash.
         """
-        killed = subprocess.run(
-            ["taskkill", "/F", "/T", "/PID", str(process.pid)],
-            capture_output=True,
-        )
-        if killed.returncode != 0:
+        try:
+            killed = subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                capture_output=True,
+                timeout=_TASKKILL_TIMEOUT_SECONDS,
+            )
+            tree_killed = killed.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            tree_killed = False
+
+        if not tree_killed:
             with suppress(OSError):
                 process.kill()
 
