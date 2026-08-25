@@ -113,6 +113,14 @@ requires_posix_signals = pytest.mark.skipif(
     reason="process groups and SIGKILL are POSIX-only",
 )
 
+# Its counterpart. The two kill paths are defined under a ``sys.platform``
+# guard, so neither can be forced on the other platform — each is covered by
+# the CI leg that actually runs it.
+requires_windows = pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="taskkill and process-creation flags are Windows-only",
+)
+
 
 def commit_all(repo: Path, message: str) -> str:
     git("add", "-A", cwd=repo)

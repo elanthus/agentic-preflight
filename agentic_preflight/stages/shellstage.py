@@ -19,6 +19,7 @@ import re
 import signal
 import stat
 import subprocess
+import sys
 import threading
 from contextlib import suppress
 from dataclasses import dataclass
@@ -28,10 +29,6 @@ from . import command as command_plan
 
 HEAD_LINES = 50
 TAIL_LINES = 200
-# Named here rather than read from ``os.name`` at each use so a test can select
-# a platform's process handling without patching ``os`` for the whole process —
-# which would also redirect the unrelated platform checks in sibling modules.
-WINDOWS = os.name == "nt"
 # Conventional "command not found": the configuration named something this
 # machine cannot execute at all.
 EXIT_UNRUNNABLE = 127
@@ -149,26 +146,29 @@ class _CopiedFileMutationGuard:
         return self.changed.is_set()
 
 
-def _process_group_kwargs() -> dict:
-    """Popen arguments that isolate the child and its descendants.
+# Both platforms need the same two guarantees — isolate the child so a timeout
+# can reach every process it spawned, then kill all of them — but they provide
+# them through APIs the other does not have at all.
+#
+# The definitions are split on ``sys.platform`` rather than branching inside a
+# shared function because a type checker resolves the standard library for the
+# platform it is running on: ``os.getpgid``, ``os.killpg``, and
+# ``signal.SIGKILL`` simply do not exist when checking on Windows. Guarding at
+# definition means each body is only ever checked against the library it uses.
+if sys.platform == "win32":
 
-    Both platforms need the same guarantee for the same reason: a test runner
-    spawns workers, and a timeout must be able to reach all of them.
-    """
-    if WINDOWS:
-        # Fetched dynamically because the constant does not exist in the POSIX
-        # build of the standard library, where this branch is unreachable. The
-        # zero default is the "no special creation flags" value.
-        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
-    return {"start_new_session": True}
+    def _process_group_kwargs() -> dict:
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
 
+    def _kill_process_tree(process: subprocess.Popen) -> None:
+        """Kill the timed-out child together with everything it spawned.
 
-def _kill_process_tree(process: subprocess.Popen) -> None:
-    """Kill the timed-out child together with everything it spawned."""
-    if WINDOWS:
-        # Windows has no process group to signal: CREATE_NEW_PROCESS_GROUP only
-        # scopes console events, which a non-console child never receives. The
-        # parent/child tree that taskkill /T walks is the reachable equivalent.
+        Windows has no process group to signal: ``CREATE_NEW_PROCESS_GROUP``
+        only scopes console control events, which a child without a console
+        never receives. The parent/child tree that ``taskkill /T`` walks is the
+        reachable equivalent. Falling back to killing the direct child is worse
+        than killing the tree, and better than leaving it running.
+        """
         killed = subprocess.run(
             ["taskkill", "/F", "/T", "/PID", str(process.pid)],
             capture_output=True,
@@ -176,25 +176,36 @@ def _kill_process_tree(process: subprocess.Popen) -> None:
         if killed.returncode != 0:
             with suppress(OSError):
                 process.kill()
-        return
 
-    try:
-        process_group = os.getpgid(process.pid)
-    except ProcessLookupError:
-        # The session leader may already have exited while descendants
-        # remain in the process group identified by its original PID.
-        process_group = process.pid
-    except PermissionError:
-        # start_new_session guarantees that the child's PID is its process
-        # group ID, so a denied lookup does not justify abandoning workers.
-        process_group = process.pid
-    try:
-        os.killpg(process_group, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    except PermissionError:
-        with suppress(ProcessLookupError):
-            process.kill()
+else:
+
+    def _process_group_kwargs() -> dict:
+        return {"start_new_session": True}
+
+    def _kill_process_tree(process: subprocess.Popen) -> None:
+        """Kill the timed-out child's whole process group.
+
+        ``start_new_session`` made the child a session leader, so its PID is
+        also its process group ID — which is why a failed lookup below is
+        survivable rather than a reason to abandon its workers.
+        """
+        try:
+            process_group = os.getpgid(process.pid)
+        except ProcessLookupError:
+            # The session leader may already have exited while descendants
+            # remain in the process group identified by its original PID.
+            process_group = process.pid
+        except PermissionError:
+            # start_new_session guarantees that the child's PID is its process
+            # group ID, so a denied lookup does not justify abandoning workers.
+            process_group = process.pid
+        try:
+            os.killpg(process_group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            with suppress(ProcessLookupError):
+                process.kill()
 
 
 def run_stage(

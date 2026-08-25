@@ -13,6 +13,7 @@ from tests.conftest import (
     commit_all,
     requires_posix_permissions,
     requires_posix_signals,
+    requires_windows,
     write,
 )
 from tests.driver import ScriptedAgent
@@ -579,6 +580,7 @@ def test_timeout_uses_the_known_process_group_when_the_leader_is_gone(tmp_path, 
     assert direct_kills == []
 
 
+@requires_windows
 def test_timeout_kills_the_whole_tree_on_windows(tmp_path, monkeypatch):
     """Windows has no process group to signal, so the parent/child tree is walked.
 
@@ -605,7 +607,6 @@ def test_timeout_kills_the_whole_tree_on_windows(tmp_path, monkeypatch):
 
     process = TimedOutProcess()
     monkeypatch.setattr(shellstage.subprocess, "Popen", lambda *_args, **_kwargs: process)
-    monkeypatch.setattr(shellstage, "WINDOWS", True)
     monkeypatch.setattr(
         shellstage.subprocess,
         "run",
@@ -621,6 +622,7 @@ def test_timeout_kills_the_whole_tree_on_windows(tmp_path, monkeypatch):
     assert direct_kills == []
 
 
+@requires_windows
 def test_a_failed_taskkill_falls_back_to_killing_the_child(tmp_path, monkeypatch):
     """Losing the tree is bad; leaving the child itself running is worse."""
     direct_kills: list[bool] = []
@@ -641,7 +643,6 @@ def test_a_failed_taskkill_falls_back_to_killing_the_child(tmp_path, monkeypatch
 
     process = TimedOutProcess()
     monkeypatch.setattr(shellstage.subprocess, "Popen", lambda *_args, **_kwargs: process)
-    monkeypatch.setattr(shellstage, "WINDOWS", True)
     monkeypatch.setattr(
         shellstage.subprocess,
         "run",
