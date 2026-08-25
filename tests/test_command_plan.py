@@ -205,6 +205,87 @@ def test_a_relative_program_resolves_against_the_worktree(tmp_path, monkeypatch)
     assert Path(plan.argv[0]).parent == worktree
 
 
+def test_a_bare_name_is_never_resolved_from_the_working_directory(tmp_path, monkeypatch):
+    """A repository must not be able to supply the program that validates it.
+
+    ``shutil.which`` searches the calling process's current directory on
+    Windows, which for this tool is the repository under validation — so a
+    checked-in ``pytest.exe`` or ``ruff.bat`` would run in place of the real
+    tool. Passing ``path=`` does not suppress it.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    name = executable(repo, "cwd-probe")
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+
+    assert command_plan.resolve_on_path(name) is None
+    assert command_plan.plan(f"{name} --check", cwd=repo).uses_shell is True
+
+
+def test_a_bare_name_still_resolves_from_the_search_path(tmp_path, monkeypatch):
+    """The guard above must not cost ordinary resolution."""
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    name = executable(tools, "path-probe")
+    monkeypatch.setenv("PATH", str(tools))
+
+    resolved = command_plan.resolve_on_path(name)
+
+    assert resolved is not None
+    assert Path(resolved).is_absolute()
+    assert Path(resolved).parent == tools
+
+
+@pytest.mark.skipif(WINDOWS, reason="executability comes from the extension on Windows")
+def test_a_non_executable_file_on_the_search_path_is_not_a_program(tmp_path, monkeypatch):
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    (tools / "not-executable").write_text("#!/bin/sh\necho hi\n", encoding="ascii")
+    monkeypatch.setenv("PATH", str(tools))
+
+    assert command_plan.resolve_on_path("not-executable") is None
+
+
+# -- backslash inside double quotes ------------------------------------------
+
+
+@pytest.mark.parametrize("command", [r'pytest -k "cost\$"', r'pytest -k "a\$b"', r'echo "a\nb"'])
+def test_an_escape_inside_double_quotes_falls_back_to_the_shell(command, tmp_path):
+    """A shell drops the backslash before ``$``; the splitter keeps it.
+
+    Judging this shell-free sent ``cost\\$`` to the program where a shell would
+    have sent ``cost$`` — a different command, chosen silently.
+    """
+    plan = command_plan.plan(command, cwd=tmp_path, escapes=True)
+
+    assert plan.uses_shell is True
+    assert "inside double quotes" in plan.reason
+
+
+def test_an_escape_outside_quotes_is_still_direct(tmp_path, monkeypatch):
+    """Unquoted, a shell and the splitter agree, so nothing is given up."""
+    monkeypatch.setenv("PATH", str(tmp_path))
+    name = executable(tmp_path)
+
+    assert command_plan.first_metacharacter(rf"{name} -k a\*b", escapes=True) is None
+
+
+def test_a_windows_path_in_double_quotes_stays_direct(tmp_path, monkeypatch):
+    """Where a backslash is a separator rather than an escape, quoting a path
+    is the common case and must not be pushed to a shell."""
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    name = executable(tools, "quoted-probe")
+    monkeypatch.setenv("PATH", str(tools))
+    resolved = command_plan.resolve_on_path(name)
+
+    plan = command_plan.plan(f'"{resolved}" status', cwd=tmp_path, escapes=False)
+
+    assert plan.uses_shell is False
+    assert plan.argv[0] == resolved
+
+
 # -- shell discovery --------------------------------------------------------
 
 

@@ -24,11 +24,30 @@ All notable changes to Agentic Preflight are documented here. This project follo
   shell for the common case, and takes the shell out of the injection surface of the
   one code path that runs repository-controlled strings.
 
-  A consequence worth noting: a directly executed command does not source your shell
-  profile, where `bash -lc` did. A command whose program is only on `PATH` via
-  `~/.profile` still resolves through the shell fallback and is unaffected, but a
-  stage that depended on a profile also exporting environment now runs without it.
-  This matches how the same command behaves in CI.
+  **A consequence worth reading before upgrading.** A directly executed command does
+  not source your login shell profile, where `bash -lc` did. Where a version manager
+  — `nvm`, `pyenv`, `rbenv`, `mise`, `asdf` — puts its shims on `PATH` from that
+  profile, a stage can now run a *different build of the same program*. Which case
+  you are in depends on whether the program resolves without the profile:
+
+  - **Not on `PATH` without it.** Resolution fails, the command falls back to a
+    shell, the profile is sourced, and nothing changes.
+  - **On `PATH` without it, and the same program.** Nothing changes.
+  - **On `PATH` without it, but the profile would have selected a different one.**
+    The system build now runs instead of the managed one, and says nothing about it.
+    A suite can go green or red against an interpreter version you did not intend.
+
+  Only the third case is a behaviour change, and it is silent. If a stage depends on
+  a version manager, select the interpreter in the command itself — `uv run pytest`,
+  `mise exec -- pytest`, or an absolute path — rather than relying on the profile.
+  That also makes the stage behave the same way in CI, where no profile is sourced
+  either.
+
+  Program *resolution* is likewise now PATH-only: a bare command name is never
+  looked up in a working directory, so a repository cannot supply the tool that
+  validates it. This closes a Windows-specific hole, where `shutil.which` searches
+  the calling process's current directory — the repository under validation — before
+  `PATH`.
 
   On Windows, the shell fallback is the one Git for Windows installs, located through
   the Git installation rather than `PATH`, because `bash.exe` on `PATH` is normally

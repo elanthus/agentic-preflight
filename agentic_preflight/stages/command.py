@@ -22,6 +22,16 @@ Detection is deliberately conservative: when in doubt, use the shell. A false
 "needs a shell" costs a subprocess. A false "safe to split" would silently run a
 *different command* than the repository asked for, which is the class of quiet
 wrongness this tool exists to prevent.
+
+Two consequences of executing directly are worth stating plainly, because
+neither announces itself:
+
+* The login shell profile is not sourced. Where a version manager puts its shims
+  on ``PATH`` from that profile, a stage can run the system build of a program
+  rather than the managed one. See COMPATIBILITY.md.
+* Resolution is PATH-only. A bare program name is never looked up in a working
+  directory, so the repository being validated cannot supply the program that
+  validates it. See :func:`resolve_on_path`.
 """
 
 from __future__ import annotations
@@ -39,6 +49,9 @@ _METACHARACTERS = frozenset("|&;<>()$`*?[]{}~#\n")
 _EXPAND_IN_DOUBLE_QUOTES = frozenset("$`")
 
 _WSL_SHIM = "system32"
+
+# Windows' own default when PATHEXT is unset.
+_DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD"
 
 # Whether a backslash escapes the following character.
 #
@@ -96,9 +109,18 @@ def first_metacharacter(command: str, *, escapes: bool | None = None) -> str | N
     while index < len(command):
         char = command[index]
 
-        if escapes and char == "\\" and quote != "'" and index + 1 < len(command):
-            # A backslash escapes the next character everywhere a shell would
-            # honour it, so neither character is significant here.
+        if escapes and char == "\\" and quote == '"':
+            # Inside double quotes the shell and the splitter disagree. A shell
+            # drops the backslash before ``$``, a backtick, a quote, or another
+            # backslash and keeps it otherwise; ``shlex`` keeps it in every
+            # case. So ``-k "cost\$"`` reaches the program as ``cost$`` through
+            # a shell and as ``cost\$`` through an argv — a different command,
+            # chosen silently. Hand the whole string to the shell instead.
+            return char
+
+        if escapes and char == "\\" and quote is None and index + 1 < len(command):
+            # Unquoted, the two agree: the backslash escapes the next character
+            # and neither is significant.
             index += 2
             continue
 
@@ -171,6 +193,8 @@ def _leading_assignment(argv: list[str]) -> bool:
 def _shell_reason(command: str, argv: list[str] | None, escapes: bool) -> str | None:
     """Why ``command`` cannot be split into an argv, in words fit for a user."""
     found = first_metacharacter(command, escapes=escapes)
+    if found == "\\":
+        return "escapes a character inside double quotes, which a shell reads differently"
     if found is not None:
         label = "a newline" if found == "\n" else f"the shell metacharacter {found!r}"
         return f"contains {label}"
@@ -185,29 +209,79 @@ def _shell_reason(command: str, argv: list[str] | None, escapes: bool) -> str | 
     return None
 
 
+def _search_path_entries() -> list[str]:
+    return [entry for entry in os.environ.get("PATH", os.defpath).split(os.pathsep) if entry]
+
+
+def _candidate_names(program: str) -> list[str]:
+    """The filenames a bare ``program`` could have on this platform.
+
+    Windows executability comes from the extension, and the installed entry
+    point for ``npm``, ``uv``, or ``just`` is commonly a ``.cmd`` shim rather
+    than an ``.exe``, so ``PATHEXT`` has to be applied here — ``CreateProcess``
+    does not apply it on our behalf.
+    """
+    if os.name != "nt":
+        return [program]
+
+    extensions = [
+        extension
+        for extension in os.environ.get("PATHEXT", _DEFAULT_PATHEXT).split(os.pathsep)
+        if extension
+    ]
+    _, existing = os.path.splitext(program)
+    names = [program] if existing else []
+    return names + [program + extension for extension in extensions]
+
+
+def resolve_on_path(program: str) -> str | None:
+    """Absolute path to a bare ``program`` name, searching PATH and only PATH.
+
+    Deliberately not ``shutil.which``. On Windows that function prepends the
+    *calling process's* current directory to the search, which for this tool is
+    the repository under validation — so a repository containing its own
+    ``pytest.exe`` or ``ruff.bat`` would have that run in place of the real
+    tool. Passing ``path=`` does not suppress it; the directory is inserted
+    after the supplied path is split. Whether it happens at all depends on an
+    environment variable and on the Python version, which is no basis for
+    deciding what gets executed.
+
+    Searching PATH alone also matches what a shell did here before, and what
+    ``execvp`` does on POSIX. Returning an absolute path then stops
+    ``CreateProcess`` performing its own current-directory search afterwards.
+    """
+    for directory in _search_path_entries():
+        for name in _candidate_names(program):
+            candidate = os.path.join(directory, name)
+            # POSIX decides executability by mode, Windows by extension — which
+            # ``_candidate_names`` has already applied, and where ``X_OK`` is
+            # true of every existing file and so proves nothing.
+            if os.path.isfile(candidate) and (os.name == "nt" or os.access(candidate, os.X_OK)):
+                return os.path.abspath(candidate)
+    return None
+
+
 def resolve_program(program: str, cwd: Path | str) -> str | None:
     """Absolute path to ``program``, or ``None`` when it is not an executable.
 
-    Relative program paths are resolved against ``cwd`` rather than the calling
+    A program *path* is resolved against ``cwd`` rather than the calling
     process's directory. On POSIX that only tidies the result, because the child
     ``chdir``s before ``exec``. On Windows it is required for correctness:
     ``CreateProcess`` resolves a relative path against the *parent's* directory,
     so a relative command would otherwise be looked up in the wrong tree.
 
-    ``shutil.which`` is what makes a bare name work on Windows at all: the
-    installed entry point for ``npm``, ``uv``, or ``just`` is commonly a
-    ``.cmd`` shim, and ``CreateProcess`` does not apply ``PATHEXT`` on its own.
+    A bare *name* is looked up on PATH instead, never in a working directory.
+    See :func:`resolve_on_path`.
     """
     if os.path.dirname(program):
         candidate = Path(program)
         if not candidate.is_absolute():
             candidate = Path(cwd) / candidate
+        # A path already names the file, so this only checks it is executable;
+        # no directory search happens and the working directory cannot leak in.
         return shutil.which(str(candidate))
 
-    resolved = shutil.which(program)
-    if resolved is None:
-        return None
-    return os.path.abspath(resolved)
+    return resolve_on_path(program)
 
 
 def plan(command: str, *, cwd: Path | str, escapes: bool | None = None) -> Plan:
