@@ -3,7 +3,13 @@ import subprocess
 import pytest
 
 from agentic_preflight import gitx
-from tests.conftest import commit_all, git, requires_git_symlinks, write
+from tests.conftest import (
+    commit_all,
+    git,
+    require_recorded_symlink,
+    requires_git_symlinks,
+    write,
+)
 
 
 def test_current_branch_reads_the_checked_out_branch(feature_repo):
@@ -221,6 +227,7 @@ def test_diff_text_by_path_handles_non_ascii_and_file_to_symlink_changes(tmp_rep
     (tmp_repo / "kind.txt").unlink()
     (tmp_repo / "kind.txt").symlink_to("plain.txt")
     commit_all(tmp_repo, "change mixed files")
+    require_recorded_symlink(tmp_repo, "kind.txt")
 
     paths = gitx.changed_files(tmp_repo, base)
     batched = gitx.diff_text_by_path(tmp_repo, base, "HEAD", paths)
@@ -237,6 +244,9 @@ def test_diff_text_by_path_handles_symlink_to_file_changes(tmp_repo):
     write(tmp_repo, "target.txt", "target\n")
     (tmp_repo / "kind.txt").symlink_to("target.txt")
     commit_all(tmp_repo, "add symlink")
+    # The symlink is on the *base* side here, so it is the committed base that
+    # has to be a symlink for there to be a type change at all.
+    require_recorded_symlink(tmp_repo, "kind.txt")
     base = gitx.rev_parse(tmp_repo, "HEAD")
     git("switch", "-c", "feature/symlink-to-file", cwd=tmp_repo)
     (tmp_repo / "kind.txt").unlink()

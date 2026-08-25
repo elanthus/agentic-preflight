@@ -110,6 +110,32 @@ def assert_owner_only(path: Path) -> None:
     assert "(I)" not in entries[0], f"inherited access survived: {entries}"
 
 
+def recorded_mode(repo: Path, relpath: str) -> str:
+    """The file mode git has actually stored for ``relpath``.
+
+    ``120000`` is a symlink; ``100644`` a plain file. Worth asking directly,
+    because whether git records a symlink *as* one varies by platform and
+    configuration, and a test about type changes is meaningless when it did
+    not.
+    """
+    staged = git("ls-files", "-s", "--", relpath, cwd=repo)
+    return staged.split(maxsplit=1)[0] if staged else ""
+
+
+def require_recorded_symlink(repo: Path, relpath: str) -> None:
+    """Skip unless git stored ``relpath`` as a symlink in this repository.
+
+    The module-level probe answers whether git *can*; this answers whether it
+    did, here, for this file. Checked at the point of use so a diff test about
+    a symlink-to-file type change can never quietly assert something else —
+    which is exactly how it failed before, with no type change to find and a
+    confusing count as the only symptom.
+    """
+    mode = recorded_mode(repo, relpath)
+    if mode != "120000":
+        pytest.skip(f"git recorded {relpath} as mode {mode or 'nothing'}, not a symlink")
+
+
 def _symlinks_available() -> bool:
     """Whether this process may create symlinks.
 
