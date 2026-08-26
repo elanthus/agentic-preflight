@@ -73,8 +73,8 @@ class ShellUnavailable(RuntimeError):
     def __init__(self, command: str, reason: str) -> None:
         super().__init__(
             f"cannot run {command!r}: it {reason}, which requires a POSIX shell, "
-            "and none was found. Install Git for Windows (which provides bash), or "
-            "rewrite the command as a single program and its arguments."
+            "and none was found. Install one (on Windows, Git for Windows provides "
+            "bash), or rewrite the command as a single program and its arguments."
         )
         self.command = command
         self.reason = reason
@@ -312,10 +312,16 @@ def plan(command: str, *, cwd: Path | str, escapes: bool | None = None) -> Plan:
 
 
 def _windows_bash_candidates() -> list[Path]:
-    """Git for Windows bash locations, most trustworthy first."""
+    """Git for Windows bash locations, most trustworthy first.
+
+    Resolved with :func:`resolve_on_path`, never ``shutil.which``, for the same
+    reason stage programs are: ``which`` searches the calling process's current
+    directory — the repository under validation — which must not be able to
+    supply the shell that runs its own stages.
+    """
     candidates: list[Path] = []
 
-    git = shutil.which("git")
+    git = resolve_on_path("git")
     if git is not None:
         # .../Git/cmd/git.exe and .../Git/bin/git.exe both sit one level below
         # the install root that also contains bin/bash.exe.
@@ -329,11 +335,22 @@ def _windows_bash_candidates() -> list[Path]:
             candidates.append(Path(base) / "Git" / "bin" / "bash.exe")
             candidates.append(Path(base) / "Programs" / "Git" / "bin" / "bash.exe")
 
-    found = shutil.which("bash")
+    found = resolve_on_path("bash")
     if found is not None:
         candidates.append(Path(found))
 
     return candidates
+
+
+def windows_system_tool(name: str) -> str:
+    """Absolute System32 path for a Windows utility such as ``taskkill.exe``.
+
+    Named in full so ``CreateProcess`` performs no search at all: handed a bare
+    name it looks in the current directory — for this tool, the repository
+    under validation — before System32.
+    """
+    system_root = os.environ.get("SystemRoot", r"C:\Windows")
+    return os.path.join(system_root, "System32", name)
 
 
 def find_shell() -> list[str] | None:
@@ -347,7 +364,14 @@ def find_shell() -> list[str] | None:
     this tool — and any System32 candidate is rejected.
     """
     if os.name != "nt":
-        return ["bash", "-lc"]
+        # Probed rather than assumed: a minimal container image may ship only
+        # ``sh``, and a missing shell must surface as ShellUnavailable — the
+        # red stage the caller reports — not as a FileNotFoundError from exec.
+        for name in ("bash", "sh"):
+            shell = resolve_on_path(name)
+            if shell is not None:
+                return [shell, "-lc"]
+        return None
 
     for candidate in _windows_bash_candidates():
         if candidate.is_file() and _WSL_SHIM not in str(candidate).lower():

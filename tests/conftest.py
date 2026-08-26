@@ -8,6 +8,7 @@ made deterministic with fixed identity and timestamp environment instead.
 
 from __future__ import annotations
 
+import functools
 import os
 import signal
 import stat
@@ -17,6 +18,9 @@ import tempfile
 from pathlib import Path
 
 import pytest
+
+from agentic_preflight.machine import State
+from agentic_preflight.models import RunDoc
 
 DETERMINISTIC_ENV = {
     "GIT_AUTHOR_NAME": "Test Author",
@@ -58,6 +62,18 @@ def write(repo: Path | str, relpath: str, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
     return path
+
+
+def make_run(run_id: str = "r_abc123", branch: str = "feature/x") -> RunDoc:
+    """A minimal valid run document, shared by the store-level test modules."""
+    return RunDoc(
+        run_id=run_id,
+        state=State.CREATED,
+        branch=branch,
+        base_ref="main",
+        merge_base_sha="a" * 40,
+        head_sha="b" * 40,
+    )
 
 
 def home_env(path: Path | str) -> dict[str, str]:
@@ -138,6 +154,7 @@ def require_type_change(repo: Path, base: str, head: str, relpath: str) -> None:
         pytest.skip(f"git recorded no type change for {relpath}: mode {before} on both sides")
 
 
+@functools.cache
 def _symlinks_available() -> bool:
     """Whether this process may create symlinks.
 
@@ -154,6 +171,7 @@ def _symlinks_available() -> bool:
     return True
 
 
+@functools.cache
 def _git_records_symlinks() -> bool:
     """Whether git stores a symlink *as* a symlink in this environment.
 
@@ -167,7 +185,7 @@ def _git_records_symlinks() -> bool:
     Probed under the same config isolation the suite runs with, since that is
     what decides the answer.
     """
-    if not SYMLINKS_AVAILABLE:
+    if not _symlinks_available():
         return False
 
     env = {**os.environ, **DETERMINISTIC_ENV}
@@ -194,18 +212,30 @@ def _git_records_symlinks() -> bool:
     return staged.startswith("120000")
 
 
-SYMLINKS_AVAILABLE = _symlinks_available()
-GIT_RECORDS_SYMLINKS = _git_records_symlinks()
+def __getattr__(name: str):
+    """Build the probe-backed names on first use rather than at module import.
 
-requires_symlinks = pytest.mark.skipif(
-    not SYMLINKS_AVAILABLE,
-    reason="creating symlinks requires Developer Mode or elevation on Windows",
-)
+    Both probes spawn subprocesses and temporary directories, and only the test
+    modules that import these marks need the answers — a run that collects no
+    symlink test should not pay for a git init/add/ls-files before collection.
+    The probe results themselves are cached, so the cost is paid at most once.
+    """
+    if name == "SYMLINKS_AVAILABLE":
+        return _symlinks_available()
+    if name == "GIT_RECORDS_SYMLINKS":
+        return _git_records_symlinks()
+    if name == "requires_symlinks":
+        return pytest.mark.skipif(
+            not _symlinks_available(),
+            reason="creating symlinks requires Developer Mode or elevation on Windows",
+        )
+    if name == "requires_git_symlinks":
+        return pytest.mark.skipif(
+            not _git_records_symlinks(),
+            reason="git is not configured to record symlinks as symlinks",
+        )
+    raise AttributeError(name)
 
-requires_git_symlinks = pytest.mark.skipif(
-    not GIT_RECORDS_SYMLINKS,
-    reason="git is not configured to record symlinks as symlinks",
-)
 
 requires_posix_permissions = pytest.mark.skipif(
     sys.platform == "win32",

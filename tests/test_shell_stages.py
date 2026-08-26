@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.stages import command as command_plan
 from agentic_preflight.stages import shellstage
 from tests.conftest import (
     commit_all,
@@ -580,48 +581,6 @@ def test_timeout_uses_the_known_process_group_when_the_leader_is_gone(tmp_path, 
     assert direct_kills == []
 
 
-@requires_windows
-def test_timeout_kills_the_whole_tree_on_windows(tmp_path, monkeypatch):
-    """Windows has no process group to signal, so the parent/child tree is walked.
-
-    ``CREATE_NEW_PROCESS_GROUP`` only scopes console control events, which a
-    non-console child never receives — killing the direct child alone would
-    strand a test runner's workers exactly as it would on POSIX.
-    """
-    commands: list[list[str]] = []
-    direct_kills: list[bool] = []
-
-    class TimedOutProcess:
-        pid = 4242
-        returncode = 1
-        calls = 0
-
-        def communicate(self, **_kwargs):
-            self.calls += 1
-            if self.calls == 1:
-                raise subprocess.TimeoutExpired("review", 1)
-            return "", None
-
-        def kill(self):
-            direct_kills.append(True)
-
-    process = TimedOutProcess()
-    monkeypatch.setattr(shellstage.subprocess, "Popen", lambda *_args, **_kwargs: process)
-    monkeypatch.setattr(
-        shellstage.subprocess,
-        "run",
-        lambda argv, **_kwargs: (
-            commands.append(argv) or subprocess.CompletedProcess(argv, 0, b"", b"")
-        ),
-    )
-
-    result = shellstage.run_stage(tmp_path, "ignored", timeout_seconds=1)
-
-    assert result.timed_out is True
-    assert commands == [["taskkill", "/F", "/T", "/PID", "4242"]]
-    assert direct_kills == []
-
-
 def _timed_out_process(direct_kills: list[bool]):
     class TimedOutProcess:
         pid = 4242
@@ -638,6 +597,34 @@ def _timed_out_process(direct_kills: list[bool]):
             direct_kills.append(True)
 
     return TimedOutProcess()
+
+
+@requires_windows
+def test_timeout_kills_the_whole_tree_on_windows(tmp_path, monkeypatch):
+    """Windows has no process group to signal, so the parent/child tree is walked.
+
+    ``CREATE_NEW_PROCESS_GROUP`` only scopes console control events, which a
+    non-console child never receives — killing the direct child alone would
+    strand a test runner's workers exactly as it would on POSIX.
+    """
+    commands: list[list[str]] = []
+    direct_kills: list[bool] = []
+    process = _timed_out_process(direct_kills)
+    monkeypatch.setattr(shellstage.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        shellstage.subprocess,
+        "run",
+        lambda argv, **_kwargs: (
+            commands.append(argv) or subprocess.CompletedProcess(argv, 0, b"", b"")
+        ),
+    )
+
+    result = shellstage.run_stage(tmp_path, "ignored", timeout_seconds=1)
+
+    assert result.timed_out is True
+    taskkill = command_plan.windows_system_tool("taskkill.exe")
+    assert commands == [[taskkill, "/F", "/T", "/PID", "4242"]]
+    assert direct_kills == []
 
 
 @requires_windows

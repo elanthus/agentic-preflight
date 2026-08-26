@@ -14,9 +14,8 @@ import time
 import pytest
 
 from agentic_preflight import store as store_module
-from agentic_preflight.machine import State
-from agentic_preflight.models import RunDoc
 from agentic_preflight.store import Store
+from tests.conftest import make_run
 
 WINDOWS = sys.platform == "win32"
 
@@ -24,17 +23,6 @@ WINDOWS = sys.platform == "win32"
 @pytest.fixture
 def store(tmp_path):
     return Store(tmp_path / "agentic-preflight")
-
-
-def make_run(run_id="r_abc123", branch="feature/x"):
-    return RunDoc(
-        run_id=run_id,
-        state=State.CREATED,
-        branch=branch,
-        base_ref="main",
-        merge_base_sha="a" * 40,
-        head_sha="b" * 40,
-    )
 
 
 @pytest.mark.skipif(not WINDOWS, reason="only Windows refuses to replace an open file")

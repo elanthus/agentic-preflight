@@ -6,14 +6,12 @@ accented character in a branch name, a review finding, or a file path is the
 difference between a working command and a traceback.
 """
 
-import json
-
 import pytest
 
 from agentic_preflight import hook
-from agentic_preflight.machine import State
-from agentic_preflight.models import RunDoc
+from agentic_preflight.models import Finding, FindingAction, Severity, Stage
 from agentic_preflight.store import Store
+from tests.conftest import make_run
 
 NON_ASCII = "réviser café — naïve ☕"
 
@@ -21,17 +19,6 @@ NON_ASCII = "réviser café — naïve ☕"
 @pytest.fixture
 def store(tmp_path):
     return Store(tmp_path / "agentic-preflight")
-
-
-def make_run(run_id="r_abc123", branch="feature/x"):
-    return RunDoc(
-        run_id=run_id,
-        state=State.CREATED,
-        branch=branch,
-        base_ref="main",
-        merge_base_sha="a" * 40,
-        head_sha="b" * 40,
-    )
 
 
 def test_a_run_document_round_trips_non_ascii(store):
@@ -70,10 +57,20 @@ def test_the_events_log_uses_unix_line_endings(store):
 
 def test_findings_round_trip_non_ascii(store):
     store.create_run(make_run())
-    payload = store.findings_path("r_abc123")
-    store.save_findings("r_abc123", [])
+    finding = Finding(
+        id="F001",
+        stage=Stage.REVIEW,
+        path="src/café.py",
+        severity=Severity.LOW,
+        action=FindingAction.NO_OP,
+        title=NON_ASCII,
+    )
 
-    assert json.loads(payload.read_text(encoding="utf-8")) == []
+    store.save_findings("r_abc123", [finding])
+
+    loaded = store.load_findings("r_abc123")
+    assert loaded[0].title == NON_ASCII
+    assert loaded[0].path == "src/café.py"
 
 
 def test_the_pre_push_hook_is_written_with_unix_line_endings(tmp_path):

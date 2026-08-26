@@ -332,12 +332,23 @@ def run_setup(
             stderr=str(exc),
         )
 
-    return subprocess.run(
-        argv,
-        cwd=str(worktree_path),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=timeout_seconds,
-    )
+    try:
+        return subprocess.run(
+            argv,
+            cwd=str(worktree_path),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_seconds,
+        )
+    except OSError as exc:
+        # Resolved when planned, refused by the OS at execution — a script
+        # with no shebang, or a program deleted since planning. Reported as a
+        # failed result like every other unrunnable command.
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=shellstage.EXIT_UNRUNNABLE,
+            stdout="",
+            stderr=f"cannot run {command!r}: {exc}",
+        )

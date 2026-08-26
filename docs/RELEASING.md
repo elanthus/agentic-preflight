@@ -37,7 +37,11 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
 ## Cutting a release
 
 1. Update `version` in `pyproject.toml`.
-2. Update `CHANGELOG.md`.
+2. Update `CHANGELOG.md`, and re-pin the README's `blob/vX.Y.Z` documentation
+   links to the new version. They deliberately point at released pages, so
+   between releases the README on `main` can claim things — Windows support,
+   for one — that the pages it links do not say yet; this bump is what closes
+   that gap.
 3. Commit and merge to `main`.
 4. Run the full test matrix before tagging. Pull requests and pushes to `main` run
    only `ubuntu-latest` on Python 3.13. Scheduled Monday/Thursday regression covers

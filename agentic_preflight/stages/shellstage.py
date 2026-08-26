@@ -180,7 +180,15 @@ if sys.platform == "win32":
         """
         try:
             killed = subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                [
+                    # Full path: a bare name would let ``CreateProcess`` search
+                    # the current directory ahead of System32.
+                    command_plan.windows_system_tool("taskkill.exe"),
+                    "/F",
+                    "/T",
+                    "/PID",
+                    str(process.pid),
+                ],
                 capture_output=True,
                 timeout=_TASKKILL_TIMEOUT_SECONDS,
             )
@@ -253,20 +261,33 @@ def run_stage(
     guard = _CopiedFileMutationGuard(worktree_path, guarded_files)
     guard.start()
     try:
-        process = subprocess.Popen(
-            argv,
-            cwd=str(worktree_path),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE if separate_stderr else subprocess.STDOUT,
-            stdin=subprocess.PIPE if stdin_text is not None else None,
-            text=True,
-            # Captured output is a *report*, not structured data: a linter that
-            # emits one stray byte must not crash the gate, and the exit code —
-            # which is what decides the stage — is unaffected either way.
-            encoding="utf-8",
-            errors="replace",
-            **_process_group_kwargs(),
-        )
+        try:
+            process = subprocess.Popen(
+                argv,
+                cwd=str(worktree_path),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE if separate_stderr else subprocess.STDOUT,
+                stdin=subprocess.PIPE if stdin_text is not None else None,
+                text=True,
+                # Captured output is a *report*, not structured data: a linter
+                # that emits one stray byte must not crash the gate, and the
+                # exit code — which is what decides the stage — is unaffected
+                # either way.
+                encoding="utf-8",
+                errors="replace",
+                **_process_group_kwargs(),
+            )
+        except OSError as exc:
+            # The program resolved when the command was planned, but the OS
+            # refused to execute it: a script with no shebang, a file whose
+            # format or extension is not executable, or a program deleted
+            # since planning. The same contract as a missing shell — a red
+            # stage the agent can report, not a crash.
+            return StageResult(
+                command=command,
+                exit_code=EXIT_UNRUNNABLE,
+                output=f"cannot run {command!r}: {exc}",
+            )
         try:
             stdout, stderr = process.communicate(input=stdin_text, timeout=timeout_seconds)
             output = (stdout or "") + (stderr or "")

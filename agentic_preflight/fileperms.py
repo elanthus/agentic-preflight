@@ -24,6 +24,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .stages import command as command_plan
+
 OWNER_ONLY_MODE = 0o600
 
 _ACL_TIMEOUT_SECONDS = 30
@@ -69,7 +71,12 @@ def current_user_sid(path: Path) -> str:
     if _cached_sid is not None:
         return _cached_sid
 
-    result = _run(["whoami", "/user", "/fo", "csv", "/nh"], path)
+    # Full System32 paths for both utilities: a bare name would let
+    # ``CreateProcess`` search the current directory — the repository under
+    # validation — for the very tool that protects the copied secret.
+    result = _run(
+        [command_plan.windows_system_tool("whoami.exe"), "/user", "/fo", "csv", "/nh"], path
+    )
     if result.returncode != 0:
         raise PermissionRestrictionError(
             path, f"could not resolve the current user: {result.stderr.strip()}"
@@ -112,14 +119,15 @@ def _restrict_via_acl(path: Path) -> None:
     """
     sid = current_user_sid(path)
 
-    reset = _run(["icacls", str(path), "/reset"], path)
+    icacls = command_plan.windows_system_tool("icacls.exe")
+    reset = _run([icacls, str(path), "/reset"], path)
     if reset.returncode != 0:
         raise PermissionRestrictionError(
             path,
             f"icacls /reset failed ({reset.returncode}): {(reset.stderr or reset.stdout).strip()}",
         )
 
-    granted = _run(["icacls", str(path), "/inheritance:r", "/grant:r", f"*{sid}:F"], path)
+    granted = _run([icacls, str(path), "/inheritance:r", "/grant:r", f"*{sid}:F"], path)
     if granted.returncode != 0:
         raise PermissionRestrictionError(
             path,
