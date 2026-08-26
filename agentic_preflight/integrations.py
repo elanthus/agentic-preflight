@@ -222,7 +222,7 @@ def _read_install_metadata(destination: Path) -> dict | None:
     if metadata_path.is_symlink():
         return None
     try:
-        payload = json.loads(metadata_path.read_text())
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, TypeError):
         return None
     if not isinstance(payload, dict):
@@ -322,7 +322,9 @@ def _write_install_metadata(destination: Path, source_hash: str, source_version:
         "content_sha256": source_hash,
     }
     (destination / INSTALL_METADATA).write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n"
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
     )
 
 

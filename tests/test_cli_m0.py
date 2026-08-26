@@ -56,7 +56,7 @@ def test_start_records_fresh_sync_metadata(agent):
 
 def test_start_reports_an_absolute_worktree_path(agent):
     env = agent.run("start")
-    assert env["data"]["worktree_path"].startswith("/")
+    assert Path(env["data"]["worktree_path"]).is_absolute()
 
 
 def test_start_uses_the_current_checkout_by_default(agent, feature_repo):
@@ -205,7 +205,7 @@ def test_review_coverage_accounts_for_cited_and_clean_hunks(tmp_repo, tmp_path):
     write(tmp_repo, "src/long.py", "\n".join(f"line {i}" for i in range(40)) + "\n")
     commit_all(tmp_repo, "add long source")
     git("switch", "-c", "feature/two-hunks", cwd=tmp_repo)
-    lines = (tmp_repo / "src" / "long.py").read_text().splitlines()
+    lines = (tmp_repo / "src" / "long.py").read_text(encoding="utf-8").splitlines()
     lines[1] = "changed near start"
     lines[37] = "changed near end"
     write(tmp_repo, "src/long.py", "\n".join(lines) + "\n")

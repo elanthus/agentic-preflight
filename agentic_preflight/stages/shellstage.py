@@ -19,13 +19,22 @@ import re
 import signal
 import stat
 import subprocess
+import sys
 import threading
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import command as command_plan
+
 HEAD_LINES = 50
 TAIL_LINES = 200
+# Conventional "command not found": the configuration named something this
+# machine cannot execute at all.
+EXIT_UNRUNNABLE = 127
+# Generous for a process-tree kill, and short enough that a wedged taskkill
+# cannot hold a stage open indefinitely after its own timeout has fired.
+_TASKKILL_TIMEOUT_SECONDS = 30
 REDACTION_FAILURE_OUTPUT = (
     "[agentic-preflight] command output withheld because copied-file secret "
     "redaction became unavailable"
@@ -140,6 +149,88 @@ class _CopiedFileMutationGuard:
         return self.changed.is_set()
 
 
+# Both platforms need the same two guarantees — isolate the child so a timeout
+# can reach every process it spawned, then kill all of them — but they provide
+# them through APIs the other does not have at all.
+#
+# The definitions are split on ``sys.platform`` rather than branching inside a
+# shared function because a type checker resolves the standard library for the
+# platform it is running on: ``os.getpgid``, ``os.killpg``, and
+# ``signal.SIGKILL`` simply do not exist when checking on Windows. Guarding at
+# definition means each body is only ever checked against the library it uses.
+if sys.platform == "win32":
+
+    def _process_group_kwargs() -> dict:
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+
+    def _kill_process_tree(process: subprocess.Popen) -> None:
+        """Kill the timed-out child together with everything it spawned.
+
+        Windows has no process group to signal: ``CREATE_NEW_PROCESS_GROUP``
+        only scopes console control events, which a child without a console
+        never receives. The parent/child tree that ``taskkill /T`` walks is the
+        reachable equivalent. Falling back to killing the direct child is worse
+        than killing the tree, and better than leaving it running.
+
+        Every way ``taskkill`` can fail leads to that same fallback, including
+        not being on PATH and not returning. This runs on the timeout path, so
+        an unbounded wait here would mean the stage timeout no longer bounds
+        anything, and an escaping exception would replace the timed-out result
+        the caller is owed with a crash.
+        """
+        try:
+            killed = subprocess.run(
+                [
+                    # Full path: a bare name would let ``CreateProcess`` search
+                    # the current directory ahead of System32.
+                    command_plan.windows_system_tool("taskkill.exe"),
+                    "/F",
+                    "/T",
+                    "/PID",
+                    str(process.pid),
+                ],
+                capture_output=True,
+                timeout=_TASKKILL_TIMEOUT_SECONDS,
+            )
+            tree_killed = killed.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            tree_killed = False
+
+        if not tree_killed:
+            with suppress(OSError):
+                process.kill()
+
+else:
+
+    def _process_group_kwargs() -> dict:
+        return {"start_new_session": True}
+
+    def _kill_process_tree(process: subprocess.Popen) -> None:
+        """Kill the timed-out child's whole process group.
+
+        ``start_new_session`` made the child a session leader, so its PID is
+        also its process group ID — which is why a failed lookup below is
+        survivable rather than a reason to abandon its workers.
+        """
+        try:
+            process_group = os.getpgid(process.pid)
+        except ProcessLookupError:
+            # The session leader may already have exited while descendants
+            # remain in the process group identified by its original PID.
+            process_group = process.pid
+        except PermissionError:
+            # start_new_session guarantees that the child's PID is its process
+            # group ID, so a denied lookup does not justify abandoning workers.
+            process_group = process.pid
+        try:
+            os.killpg(process_group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            with suppress(ProcessLookupError):
+                process.kill()
+
+
 def run_stage(
     worktree_path: Path | str,
     command: str,
@@ -151,22 +242,52 @@ def run_stage(
 ) -> StageResult:
     """Run ``command`` in the worktree, killing the whole process group on timeout.
 
+    The command is planned first (see :mod:`agentic_preflight.stages.command`):
+    a plain program and its arguments are executed directly, and only genuine
+    shell grammar pays for a shell. A command that needs a shell where none
+    exists is a red stage rather than an exception, because the stage contract
+    is that the exit code decides — and a configuration the machine cannot run
+    is a failure the agent should report, not a crash.
+
     ``start_new_session`` puts the child in its own process group so that a
     test runner which spawns workers does not leave them orphaned when the
     timeout fires — killing only the direct child would strand them.
     """
+    try:
+        argv = command_plan.build_argv(command_plan.plan(command, cwd=worktree_path))
+    except command_plan.ShellUnavailable as exc:
+        return StageResult(command=command, exit_code=EXIT_UNRUNNABLE, output=str(exc))
+
     guard = _CopiedFileMutationGuard(worktree_path, guarded_files)
     guard.start()
     try:
-        process = subprocess.Popen(
-            ["bash", "-lc", command],
-            cwd=str(worktree_path),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE if separate_stderr else subprocess.STDOUT,
-            stdin=subprocess.PIPE if stdin_text is not None else None,
-            text=True,
-            start_new_session=True,
-        )
+        try:
+            process = subprocess.Popen(
+                argv,
+                cwd=str(worktree_path),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE if separate_stderr else subprocess.STDOUT,
+                stdin=subprocess.PIPE if stdin_text is not None else None,
+                text=True,
+                # Captured output is a *report*, not structured data: a linter
+                # that emits one stray byte must not crash the gate, and the
+                # exit code — which is what decides the stage — is unaffected
+                # either way.
+                encoding="utf-8",
+                errors="replace",
+                **_process_group_kwargs(),
+            )
+        except OSError as exc:
+            # The program resolved when the command was planned, but the OS
+            # refused to execute it: a script with no shebang, a file whose
+            # format or extension is not executable, or a program deleted
+            # since planning. The same contract as a missing shell — a red
+            # stage the agent can report, not a crash.
+            return StageResult(
+                command=command,
+                exit_code=EXIT_UNRUNNABLE,
+                output=f"cannot run {command!r}: {exc}",
+            )
         try:
             stdout, stderr = process.communicate(input=stdin_text, timeout=timeout_seconds)
             output = (stdout or "") + (stderr or "")
@@ -178,24 +299,7 @@ def run_stage(
                 stderr=stderr if separate_stderr else None,
             )
         except subprocess.TimeoutExpired:
-            try:
-                process_group = os.getpgid(process.pid)
-            except ProcessLookupError:
-                # The session leader may already have exited while descendants
-                # remain in the process group identified by its original PID.
-                process_group = process.pid
-            except PermissionError:
-                # start_new_session guarantees that the child's PID is its process
-                # group ID, so a denied lookup does not justify abandoning workers.
-                process_group = process.pid
-            if process_group is not None:
-                try:
-                    os.killpg(process_group, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                except PermissionError:
-                    with suppress(ProcessLookupError):
-                        process.kill()
+            _kill_process_tree(process)
             stdout, stderr = process.communicate()
             output = (stdout or "") + (stderr or "")
             result = StageResult(
@@ -322,7 +426,7 @@ def read_secrets(worktree_path: Path | str, copied_files: list[str]) -> list[str
         if not path.is_file():
             raise SecretRedactionError(path, "the path is missing or is not a regular file")
         try:
-            content = path.read_text()
+            content = path.read_text(encoding="utf-8")
         except UnicodeDecodeError as exc:
             raise SecretRedactionError(path, "the contents are not valid text") from exc
         except OSError as exc:

@@ -11,9 +11,20 @@ From a source checkout, install or update the CLI and all supported agent skills
 ./install.sh
 ```
 
+On Windows, use the PowerShell installer instead:
+
+```powershell
+.\install.ps1
+```
+
 The script installs from that checkout and is safe to rerun after pulling changes. Pass
 one or more agent names to limit the skill installation, for example
-`./install.sh codex`. It refuses to overwrite locally modified or unmanaged skill copies.
+`./install.sh codex` (`.\install.ps1 codex`). It refuses to overwrite locally modified
+or unmanaged skill copies.
+
+Both installers do the same two things in the same order and are kept in step by
+matching test suites. The uninstall step below has a PowerShell counterpart too;
+everything else on this page is identical on all platforms.
 
 To install the published package instead:
 
@@ -78,7 +89,14 @@ From a source checkout, remove all managed agent skills and the CLI together wit
 ./uninstall.sh
 ```
 
-Pass agent names to limit skill removal, such as `./uninstall.sh codex`. The script
+On Windows:
+
+```powershell
+.\uninstall.ps1
+```
+
+Pass agent names to limit skill removal, such as `./uninstall.sh codex`
+(`.\uninstall.ps1 codex`). The script
 first asks you to enter `agentic-preflight:uninstall` in your coding agent for every
 repository where `agentic-preflight init` was run, and waits for Enter before it
 continues. That trigger removes the current repository's `.agentic-preflight.toml` and

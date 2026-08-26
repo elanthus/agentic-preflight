@@ -117,7 +117,7 @@ def test_mergeback_applies_fix_commits_and_transfers_the_green_attestation(ready
     env = agent.run("mergeback")
 
     assert env["state"] == "VERIFIED"
-    assert "FIXED" in (feature_repo / "src" / "app.py").read_text()
+    assert "FIXED" in (feature_repo / "src" / "app.py").read_text(encoding="utf-8")
     assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=feature_repo) == "feature/x"
     assert "apply the fix" in git("log", "--format=%s", cwd=feature_repo)
     assert env["data"]["tree_equivalent"] is True
@@ -143,7 +143,7 @@ def test_mergeback_allows_an_unrelated_untracked_file(ready, feature_repo):
     write(feature_repo, "scratch.txt", "uncommitted\n")
     env = agent.run("mergeback")
     assert env["state"] == "VERIFIED"
-    assert (feature_repo / "scratch.txt").read_text() == "uncommitted\n"
+    assert (feature_repo / "scratch.txt").read_text(encoding="utf-8") == "uncommitted\n"
 
 
 def test_mergeback_allows_an_unrelated_tracked_edit(ready, feature_repo):
@@ -151,7 +151,7 @@ def test_mergeback_allows_an_unrelated_tracked_edit(ready, feature_repo):
     write(feature_repo, "README.md", "uncommitted documentation\n")
     env = agent.run("mergeback")
     assert env["state"] == "VERIFIED"
-    assert (feature_repo / "README.md").read_text() == "uncommitted documentation\n"
+    assert (feature_repo / "README.md").read_text(encoding="utf-8") == "uncommitted documentation\n"
 
 
 def test_mergeback_refuses_a_change_to_an_affected_path(ready, feature_repo):
@@ -222,7 +222,7 @@ def test_conflict_aborts_and_restores_the_branch_exactly(feature_repo, tmp_path)
         / "agentic-preflight"
     )
     run_path = state_root / "runs" / run_id / "run.json"
-    doc = json.loads(run_path.read_text())
+    doc = json.loads(run_path.read_text(encoding="utf-8"))
     doc["head_sha"] = new_head
     doc["source_head_sha"] = new_head
     run_path.write_text(json.dumps(doc))
@@ -299,7 +299,7 @@ def test_different_human_conflict_resolution_restarts_review(feature_repo, tmp_p
         / "agentic-preflight"
     )
     run_path = state_root / "runs" / run_id / "run.json"
-    doc = json.loads(run_path.read_text())
+    doc = json.loads(run_path.read_text(encoding="utf-8"))
     doc["head_sha"] = source_head
     doc["source_head_sha"] = source_head
     run_path.write_text(json.dumps(doc))
@@ -319,7 +319,7 @@ def test_different_human_conflict_resolution_restarts_review(feature_repo, tmp_p
     assert restarted["data"]["tree_equivalent"] is False
     assert restarted["data"]["validation_restarted"] is True
     assert restarted["next"]["command"] == "agentic-preflight context"
-    assert (wt / "src/app.py").read_text() == "HUMAN RESOLUTION\n"
+    assert (wt / "src/app.py").read_text(encoding="utf-8") == "HUMAN RESOLUTION\n"
     status = agent.run("status")
     assert status["data"]["review_coverage"] is None
     assert status["data"]["fix_commits"] == []
@@ -363,7 +363,7 @@ def test_human_conflict_resolution_cannot_adopt_a_copied_file(feature_repo, tmp_
         / "agentic-preflight"
     )
     run_path = state_root / "runs" / run_id / "run.json"
-    doc = json.loads(run_path.read_text())
+    doc = json.loads(run_path.read_text(encoding="utf-8"))
     doc["head_sha"] = source_head
     doc["source_head_sha"] = source_head
     run_path.write_text(json.dumps(doc))
@@ -383,8 +383,8 @@ def test_human_conflict_resolution_cannot_adopt_a_copied_file(feature_repo, tmp_
 
     assert blocked["error"]["code"] == "copied_file_in_commit"
     assert ".env" in blocked["error"]["message"]
-    assert (wt / "src/app.py").read_text() == "VERIFIED FIX\n"
-    assert (wt / ".env").read_text() == "SECRET=original-secret\n"
+    assert (wt / "src/app.py").read_text(encoding="utf-8") == "VERIFIED FIX\n"
+    assert (wt / ".env").read_text(encoding="utf-8") == "SECRET=original-secret\n"
     assert agent.run("status")["state"] == "MERGEBACK_PENDING"
 
 
@@ -477,5 +477,5 @@ def test_conflict_aborts_the_entire_fix_stack_and_preserves_unrelated_work(tmp_r
 
     assert exc.value.report.restored is True
     assert git("rev-parse", "HEAD", cwd=tmp_repo) == pre_sha
-    assert (tmp_repo / "README.md").read_text().startswith("# demo")
-    assert (tmp_repo / "unrelated.txt").read_text() == "keep me\n"
+    assert (tmp_repo / "README.md").read_text(encoding="utf-8").startswith("# demo")
+    assert (tmp_repo / "unrelated.txt").read_text(encoding="utf-8") == "keep me\n"

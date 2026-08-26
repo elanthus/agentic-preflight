@@ -9,10 +9,18 @@ write unreachable tree objects, which normal object pruning may collect.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 from collections.abc import Iterator, Sequence
 from pathlib import Path
+
+# `git merge-tree --write-tree` landed in Git 2.38.
+_WRITE_TREE_MINIMUM = (2, 38)
+
+# Deliberately not cached. It is read at most twice per run, so a process-wide
+# cache would trade an unmeasurable saving for global state that leaks between
+# tests.
 
 
 class GitError(Exception):
@@ -31,6 +39,7 @@ def run(cwd: Path | str, *args: str, check: bool = True) -> subprocess.Completed
         cwd=str(cwd),
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if check and result.returncode != 0:
         raise GitError(list(args), result.returncode, result.stderr)
@@ -86,6 +95,54 @@ def is_ancestor(cwd: Path | str, maybe_ancestor: str, descendant: str) -> bool:
     return result.returncode == 0
 
 
+def version(cwd: Path | str = ".") -> tuple[int, int] | None:
+    """``(major, minor)`` of the git binary, or ``None`` if it cannot be read."""
+    result = run(cwd, "--version", check=False)
+    if result.returncode != 0:
+        return None
+    # "git version 2.46.2.windows.1" and "git version 2.39.3 (Apple Git-146)"
+    # are both real; take the first two numeric components and ignore the rest.
+    match = re.search(r"(\d+)\.(\d+)", result.stdout)
+    if match is None:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def _merge_tree_via_index(cwd: Path | str, left: str, right: str) -> str | None:
+    """The pre-2.38 three-way merge, performed in a throwaway index.
+
+    Intentionally more conservative than ``--write-tree``: it can reject a
+    merge that would have been textually clean. What it cannot do is
+    manufacture a false equivalence, which is the direction that matters when
+    the answer decides whether a green attestation may be reused.
+    """
+    base = merge_base(cwd, left, right)
+    with tempfile.TemporaryDirectory(prefix="agentic-preflight-merge-") as temp_dir:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(temp_dir) / "index")}
+        merged = subprocess.run(
+            ["git", "read-tree", "-m", base, left, right],
+            cwd=str(cwd),
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if merged.returncode != 0:
+            return None
+        written = subprocess.run(
+            ["git", "write-tree"],
+            cwd=str(cwd),
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if written.returncode != 0:
+            return None
+        value = written.stdout.strip()
+        return value if len(value) == 40 else None
+
+
 def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
     """Return Git's clean merge-result tree, or ``None`` for a conflict.
 
@@ -93,51 +150,56 @@ def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
     snapshots. That distinction is essential when deciding whether an existing
     attestation remains valid against a newly synchronized base. Git may add
     unreachable tree objects, but this does not update refs, the index, or files.
+
+    Which interface to use is decided by the git *version*, not by recognising
+    an error message. Git 2.30-2.37 predates ``--write-tree`` and reports the
+    flag as ``fatal: unknown rev --write-tree`` — on stderr, while exiting
+    zero, so there is no failure to detect. Message matching also breaks under
+    any locale where git speaks a translated string.
     """
-    result = run(cwd, "merge-tree", "--write-tree", left, right, check=False)
-    if result.returncode == 1:
-        return None
+    if _supports_write_tree(cwd):
+        result = run(cwd, "merge-tree", "--write-tree", left, right, check=False)
+        if result.returncode == 1:
+            return None
+        if result.returncode == 0:
+            first_line = result.stdout.splitlines()[0] if result.stdout else ""
+            if len(first_line) == 40:
+                return first_line
+            # Exit zero without a tree means the flag was not understood after
+            # all, so the version probe was wrong. Fall through rather than
+            # report "no clean merge" for a merge that may well be clean.
+        elif not _rejected_the_flag(result):
+            raise GitError(
+                ["merge-tree", "--write-tree", left, right],
+                result.returncode,
+                result.stderr,
+            )
+
+    return _merge_tree_via_index(cwd, left, right)
+
+
+def _supports_write_tree(cwd: Path | str) -> bool:
+    detected = version(cwd)
+    # An unreadable version is treated as modern: the newer interface is tried
+    # first and falls back on its own, which is the order this used to take.
+    return detected is None or detected >= _WRITE_TREE_MINIMUM
+
+
+def _rejected_the_flag(result: subprocess.CompletedProcess) -> bool:
+    """Whether a failure is git refusing ``--write-tree`` rather than a real error.
+
+    A second line of defence behind the version check, for a build that reports
+    the flag some other way. Kept as a *secondary* signal because these strings
+    are translated under a non-English locale, which is exactly why matching on
+    them alone was not enough.
+    """
     stderr = result.stderr.lower()
-    legacy_interface = (
+    return (
         result.returncode == 129
         or "unknown option" in stderr
         or "not a valid object name --write-tree" in stderr
+        or "unknown rev --write-tree" in stderr
     )
-    if legacy_interface:
-        # Git 2.30-2.37 predates `merge-tree --write-tree`. Its index
-        # three-way merge is intentionally more conservative (it can reject a
-        # clean textual merge), but it cannot manufacture a false equivalence.
-        base = merge_base(cwd, left, right)
-        with tempfile.TemporaryDirectory(prefix="agentic-preflight-merge-") as temp_dir:
-            env = {**os.environ, "GIT_INDEX_FILE": str(Path(temp_dir) / "index")}
-            merged = subprocess.run(
-                ["git", "read-tree", "-m", base, left, right],
-                cwd=str(cwd),
-                env=env,
-                capture_output=True,
-                text=True,
-            )
-            if merged.returncode != 0:
-                return None
-            written = subprocess.run(
-                ["git", "write-tree"],
-                cwd=str(cwd),
-                env=env,
-                capture_output=True,
-                text=True,
-            )
-            if written.returncode != 0:
-                return None
-            value = written.stdout.strip()
-            return value if len(value) == 40 else None
-    if result.returncode != 0:
-        raise GitError(
-            ["merge-tree", "--write-tree", left, right],
-            result.returncode,
-            result.stderr,
-        )
-    first_line = result.stdout.splitlines()[0] if result.stdout else ""
-    return first_line if len(first_line) == 40 else None
 
 
 def commit_exists(cwd: Path | str, sha: str) -> bool:
@@ -183,6 +245,7 @@ def commit_patch_id(cwd: Path | str, sha: str) -> str | None:
         input=patch,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if result.returncode != 0:
         raise GitError(["patch-id", "--stable"], result.returncode, result.stderr)

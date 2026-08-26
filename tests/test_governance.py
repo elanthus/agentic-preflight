@@ -5,12 +5,12 @@ ROOT = Path(__file__).parent.parent
 
 
 def test_short_ap_console_alias_is_not_packaged():
-    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert project["project"]["scripts"] == {"agentic-preflight": "agentic_preflight.cli:main"}
 
 
 def test_ci_verifies_attestations_with_the_protected_base_version():
-    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "trusted preflight attestation" in workflow
     assert "ref: ${{ github.event.pull_request.base.sha }}" in workflow
     assert 'agentic-preflight verify "$ATTESTED_SHA"' in workflow
@@ -18,7 +18,7 @@ def test_ci_verifies_attestations_with_the_protected_base_version():
 
 
 def test_high_risk_approval_runs_trusted_code_and_rechecks_on_reviews():
-    workflow = (ROOT / ".github" / "workflows" / "human-approval.yml").read_text()
+    workflow = (ROOT / ".github" / "workflows" / "human-approval.yml").read_text(encoding="utf-8")
     assert "pull_request_target:" in workflow
     assert "pull_request_review:" in workflow
     assert "ref: ${{ github.event.pull_request.base.sha }}" in workflow
@@ -38,7 +38,7 @@ def test_high_risk_approval_runs_trusted_code_and_rechecks_on_reviews():
 
 
 def test_codeowners_protects_the_policy_and_verifier_surfaces():
-    codeowners = (ROOT / ".github" / "CODEOWNERS").read_text()
+    codeowners = (ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
     for path in (
         "/.agentic-preflight.toml",
         "/.github/CODEOWNERS",

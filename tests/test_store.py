@@ -3,24 +3,13 @@ import json
 import pytest
 
 from agentic_preflight.machine import State
-from agentic_preflight.models import RunDoc
 from agentic_preflight.store import CurrentRunExists, StaleWrite, Store, UnknownRun
+from tests.conftest import make_run
 
 
 @pytest.fixture
 def store(tmp_path):
     return Store(tmp_path / "agentic-preflight")
-
-
-def make_run(run_id="r_abc123"):
-    return RunDoc(
-        run_id=run_id,
-        state=State.CREATED,
-        branch="feature/x",
-        base_ref="main",
-        merge_base_sha="a" * 40,
-        head_sha="b" * 40,
-    )
 
 
 def test_created_run_round_trips(store):
@@ -30,7 +19,7 @@ def test_created_run_round_trips(store):
 
 def test_removed_pr_lifecycle_documents_migrate_to_pushed(store):
     store.create_run(make_run())
-    raw = json.loads(store.run_path("r_abc123").read_text())
+    raw = json.loads(store.run_path("r_abc123").read_text(encoding="utf-8"))
     raw.update(
         {
             "state": "CI_FAILED",
@@ -101,7 +90,7 @@ def test_a_crash_during_replace_leaves_a_valid_document(store, monkeypatch):
         run.state = State.ABORTED
     monkeypatch.undo()
 
-    raw = json.loads(store.run_path("r_abc123").read_text())
+    raw = json.loads(store.run_path("r_abc123").read_text(encoding="utf-8"))
     assert raw["state"] == "CREATED"
     assert store.load_run("r_abc123").seq == 0
 

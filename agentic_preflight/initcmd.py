@@ -83,7 +83,7 @@ def init(repo_root: Path | str, *, force: bool = False, install_hook: bool = Tru
     config_path = repo_root / REPO_CONFIG_NAME
     config_written = False
     if not config_path.exists():
-        config_path.write_text(DEFAULT_CONFIG)
+        config_path.write_text(DEFAULT_CONFIG, encoding="utf-8", newline="\n")
         config_written = True
 
     hook_path = None

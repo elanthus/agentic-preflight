@@ -12,6 +12,7 @@ from click.testing import CliRunner
 from agentic_preflight import integrations
 from agentic_preflight.cli import main
 from agentic_preflight.envelope import ExitCode
+from tests.conftest import home_env
 
 
 @pytest.fixture
@@ -97,9 +98,13 @@ def test_install_copies_the_whole_skill_and_records_ownership(tmp_path, source_s
         tmp_path / ".agents" / "skills" / "agentic-preflight",
         tmp_path / ".claude" / "skills" / "agentic-preflight",
     ):
-        assert (destination / "SKILL.md").read_text() == (source_skill / "SKILL.md").read_text()
+        assert (destination / "SKILL.md").read_text(encoding="utf-8") == (
+            source_skill / "SKILL.md"
+        ).read_text(encoding="utf-8")
         assert (destination / "reference" / "commands.md").is_file()
-        metadata = json.loads((destination / integrations.INSTALL_METADATA).read_text())
+        metadata = json.loads(
+            (destination / integrations.INSTALL_METADATA).read_text(encoding="utf-8")
+        )
         assert metadata["package_version"] == "1.2.3"
 
 
@@ -174,7 +179,7 @@ def test_modified_copy_is_preserved_unless_force_is_explicit(tmp_path, source_sk
         integrations.install_integrations(
             ["codex"], home=tmp_path, source_dir=source_skill, source_version="1.0"
         )
-    assert (destination / "SKILL.md").read_text() == "my local workflow\n"
+    assert (destination / "SKILL.md").read_text(encoding="utf-8") == "my local workflow\n"
 
     results = integrations.install_integrations(
         ["codex"],
@@ -184,7 +189,9 @@ def test_modified_copy_is_preserved_unless_force_is_explicit(tmp_path, source_sk
         force=True,
     )
     assert results[0]["action"] == "replaced"
-    assert (destination / "SKILL.md").read_text() == (source_skill / "SKILL.md").read_text()
+    assert (destination / "SKILL.md").read_text(encoding="utf-8") == (
+        source_skill / "SKILL.md"
+    ).read_text(encoding="utf-8")
 
 
 def test_conflicts_are_preflighted_before_any_destination_changes(tmp_path, source_skill):
@@ -234,7 +241,7 @@ def test_cli_install_and_status_keep_the_single_json_contract(tmp_path):
     installed = runner.invoke(
         main,
         ["integrations", "install", "codex", "claude"],
-        env={"HOME": str(home)},
+        env=home_env(home),
         catch_exceptions=False,
     )
     assert installed.exit_code == 0
@@ -250,7 +257,7 @@ def test_cli_install_and_status_keep_the_single_json_contract(tmp_path):
     status = runner.invoke(
         main,
         ["integrations", "status"],
-        env={"HOME": str(home)},
+        env=home_env(home),
         catch_exceptions=False,
     )
     assert status.exit_code == 0
@@ -273,7 +280,7 @@ def test_cli_refuses_an_unmanaged_copy_with_a_structured_error(tmp_path):
     result = CliRunner().invoke(
         main,
         ["integrations", "install", "codex"],
-        env={"HOME": str(home)},
+        env=home_env(home),
         catch_exceptions=False,
     )
     assert result.exit_code == ExitCode.PRECONDITION
@@ -290,7 +297,7 @@ def test_cli_custom_target_does_not_implicitly_select_known_agents(tmp_path):
     installed = runner.invoke(
         main,
         ["integrations", "install", "--target", str(custom_root)],
-        env={"HOME": str(home)},
+        env=home_env(home),
         catch_exceptions=False,
     )
     assert installed.exit_code == 0
@@ -302,7 +309,7 @@ def test_cli_custom_target_does_not_implicitly_select_known_agents(tmp_path):
     status = runner.invoke(
         main,
         ["integrations", "status", "--target", str(custom_root)],
-        env={"HOME": str(home)},
+        env=home_env(home),
         catch_exceptions=False,
     )
     payload = json.loads(status.stdout)
@@ -312,7 +319,7 @@ def test_cli_custom_target_does_not_implicitly_select_known_agents(tmp_path):
 
 def test_wheel_force_includes_the_canonical_skill_directory():
     root = Path(__file__).parent.parent
-    config = tomllib.loads((root / "pyproject.toml").read_text())
+    config = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     force_include = config["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
     assert force_include["skill"] == "agentic_preflight/_bundled_skill"
     assert integrations.bundled_skill_dir() == root / "skill"

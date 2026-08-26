@@ -64,9 +64,9 @@ agentic-preflight init
 ```
 
 When working from this source checkout, `./install.sh` installs or updates the CLI and
-all five supported agent integrations in one step. Pass integration names to choose
-only the coding agents you use.
-Run `./uninstall.sh` to remove the managed skills and CLI. It pauses first so you can
+all five supported agent integrations in one step (`.\install.ps1` on Windows). Pass
+integration names to choose only the coding agents you use.
+Run `./uninstall.sh` (or `.\uninstall.ps1`) to remove the managed skills and CLI. It pauses first so you can
 enter `agentic-preflight:uninstall` in every initialized repository; that trigger
 removes the repository configuration and managed hook logic while preserving unrelated
 hooks, run history, and attestations.
@@ -239,11 +239,12 @@ and the behavior behind the less-obvious keys live in the
 
 ## Requirements
 
-- A supported macOS/Linux and Python combination from the
+- A supported macOS/Linux/Windows and Python combination from the
   [compatibility policy](https://github.com/elanthus/agentic-preflight/blob/v0.4.0/COMPATIBILITY.md)
-  (Windows is not supported)
 - git 2.30+
-- Bash
+- A POSIX shell, only for stage commands that use shell grammar such as pipes or `&&`.
+  Plain commands run without one. On Windows this is the shell Git for Windows
+  installs; nothing extra to set up.
 - `gh` (optional; used for pull requests, hosted checks, and merge verification during
   cleanup; it owns auth, we never handle credentials)
 
@@ -285,7 +286,7 @@ make different tradeoffs about who owns the workflow and what the durable record
 | Local architecture | Runs a daemon, proxy repository, SQLite store, TUI, and disposable worktrees | Runs as a daemonless JSON-over-stdout CLI with file-based state and an agent skill |
 | Validation checkout | Always isolates the pipeline in a disposable worktree | Offers in-place, reusable isolated, and fresh strict worktree modes |
 | Hosted lifecycle | Creates PRs across several forges, monitors CI, and can auto-fix failures | Keeps hosted lifecycle outside the stateful core and delegates GitHub operations to the active agent and `gh` |
-| Runtime and platforms | Ships as a Go application for macOS, Linux, and Windows | Ships as a Python package for supported macOS and Linux combinations |
+| Runtime and platforms | Ships as a Go application for macOS, Linux, and Windows | Ships as a Python package for supported macOS, Linux, and Windows combinations |
 
 ## Credits
 

@@ -3,7 +3,13 @@ import subprocess
 import pytest
 
 from agentic_preflight import gitx
-from tests.conftest import commit_all, git, write
+from tests.conftest import (
+    commit_all,
+    git,
+    require_type_change,
+    requires_git_symlinks,
+    write,
+)
 
 
 def test_current_branch_reads_the_checked_out_branch(feature_repo):
@@ -47,6 +53,91 @@ def test_merge_tree_uses_the_legacy_fallback_for_invalid_write_tree_object(tmp_r
 
     assert gitx.merge_tree(tmp_repo, "left", "right") == tree
     assert [call[1] for call in calls] == ["read-tree", "write-tree"]
+
+
+@pytest.mark.parametrize(
+    ("reported", "expected"),
+    [
+        ("git version 2.34.1\n", (2, 34)),
+        ("git version 2.46.2.windows.1\n", (2, 46)),
+        ("git version 2.39.3 (Apple Git-146)\n", (2, 39)),
+        ("git version 2.51.0\n", (2, 51)),
+    ],
+)
+def test_the_git_version_is_read_from_real_world_version_strings(
+    tmp_repo, monkeypatch, reported, expected
+):
+    monkeypatch.setattr(
+        gitx,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=reported, stderr=""
+        ),
+    )
+
+    assert gitx.version(tmp_repo) == expected
+
+
+def test_an_unreadable_git_version_is_reported_as_unknown(tmp_repo, monkeypatch):
+    monkeypatch.setattr(
+        gitx,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="not git"
+        ),
+    )
+
+    assert gitx.version(tmp_repo) is None
+
+
+def test_a_pre_2_38_git_never_invokes_the_write_tree_flag(tmp_repo, monkeypatch):
+    """The regression this guards: git 2.30-2.37 rejects ``--write-tree`` on stderr
+    while exiting *zero*, so there is no failure to detect. Asking the version
+    first is what keeps those releases on the interface they actually have."""
+    invoked: list[tuple[str, ...]] = []
+
+    def record(cwd, *args, **_kwargs):
+        invoked.append(args)
+        if args == ("--version",):
+            return subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="git version 2.34.1\n", stderr=""
+            )
+        raise AssertionError(f"unexpected git invocation: {args}")
+
+    monkeypatch.setattr(gitx, "run", record)
+    monkeypatch.setattr(gitx, "_merge_tree_via_index", lambda *_args: "b" * 40)
+
+    assert gitx.merge_tree(tmp_repo, "left", "right") == "b" * 40
+    assert invoked == [("--version",)]
+
+
+def test_a_modern_git_that_still_rejects_the_flag_falls_back(tmp_repo, monkeypatch):
+    """Exit zero with no tree is the shape that previously returned "no clean
+    merge" for a merge that may have been perfectly clean."""
+
+    def respond(cwd, *args, **_kwargs):
+        if args == ("--version",):
+            return subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="git version 2.46.0\n", stderr=""
+            )
+        return subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr="fatal: unknown rev --write-tree\n"
+        )
+
+    monkeypatch.setattr(gitx, "run", respond)
+    monkeypatch.setattr(gitx, "_merge_tree_via_index", lambda *_args: "c" * 40)
+
+    assert gitx.merge_tree(tmp_repo, "left", "right") == "c" * 40
+
+
+def test_the_index_fallback_agrees_with_this_git_on_a_clean_merge(feature_repo):
+    """Exercises the fallback against the real binary, whichever interface this
+    machine's git would otherwise have used."""
+    base = gitx.merge_base(feature_repo, "main", "HEAD")
+
+    assert gitx._merge_tree_via_index(feature_repo, base, "HEAD") == gitx.tree_sha(
+        feature_repo, "HEAD"
+    )
 
 
 def test_merge_tree_rejects_object_ids_outside_the_sha1_schema(tmp_repo, monkeypatch):
@@ -123,6 +214,7 @@ def test_diff_text_by_path_handles_renames_binary_and_pathspec_characters(tmp_re
     assert "Binary files" in batched["image.bin"]
 
 
+@requires_git_symlinks
 def test_diff_text_by_path_handles_non_ascii_and_file_to_symlink_changes(tmp_repo):
     write(tmp_repo, "plain.txt", "before\n")
     write(tmp_repo, "café.txt", "before\n")
@@ -135,6 +227,7 @@ def test_diff_text_by_path_handles_non_ascii_and_file_to_symlink_changes(tmp_rep
     (tmp_repo / "kind.txt").unlink()
     (tmp_repo / "kind.txt").symlink_to("plain.txt")
     commit_all(tmp_repo, "change mixed files")
+    require_type_change(tmp_repo, base, "HEAD", "kind.txt")
 
     paths = gitx.changed_files(tmp_repo, base)
     batched = gitx.diff_text_by_path(tmp_repo, base, "HEAD", paths)
@@ -146,6 +239,7 @@ def test_diff_text_by_path_handles_non_ascii_and_file_to_symlink_changes(tmp_rep
     assert batched["kind.txt"].count("diff --git ") == 2
 
 
+@requires_git_symlinks
 def test_diff_text_by_path_handles_symlink_to_file_changes(tmp_repo):
     write(tmp_repo, "target.txt", "target\n")
     (tmp_repo / "kind.txt").symlink_to("target.txt")
@@ -155,6 +249,7 @@ def test_diff_text_by_path_handles_symlink_to_file_changes(tmp_repo):
     (tmp_repo / "kind.txt").unlink()
     write(tmp_repo, "kind.txt", "regular file\n")
     commit_all(tmp_repo, "replace symlink with file")
+    require_type_change(tmp_repo, base, "HEAD", "kind.txt")
 
     batched = gitx.diff_text_by_path(tmp_repo, base, "HEAD", ["kind.txt"])
 

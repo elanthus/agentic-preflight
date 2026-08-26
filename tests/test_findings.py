@@ -10,7 +10,7 @@ from agentic_preflight.models import (
     Severity,
     Stage,
 )
-from tests.conftest import write
+from tests.conftest import requires_symlinks, write
 
 
 def sub(path="src/app.py", line=1, severity="high", action="auto_fix", title="t"):
@@ -90,6 +90,7 @@ def test_an_absolute_path_is_rejected(wt):
         accept([sub(path="/etc/passwd")], wt=wt, allowed=("/etc/passwd",))
 
 
+@requires_symlinks
 def test_a_symlink_escaping_the_worktree_is_rejected(wt, tmp_path):
     secret = tmp_path / "outside.txt"
     secret.write_text("secret\n")

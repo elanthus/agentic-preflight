@@ -8,8 +8,15 @@ from pathlib import Path
 import pytest
 
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.stages import command as command_plan
 from agentic_preflight.stages import shellstage
-from tests.conftest import commit_all, write
+from tests.conftest import (
+    commit_all,
+    requires_posix_permissions,
+    requires_posix_signals,
+    requires_windows,
+    write,
+)
 from tests.driver import ScriptedAgent
 
 
@@ -390,7 +397,7 @@ def test_full_output_is_written_to_a_log_file(docs_green):
     from pathlib import Path
 
     log = Path(env["data"]["log_path"])
-    assert "hello-from-lint" in log.read_text()
+    assert "hello-from-lint" in log.read_text(encoding="utf-8")
 
 
 def test_the_envelope_truncates_long_output_and_says_so(docs_green):
@@ -432,13 +439,18 @@ def test_logs_for_a_stage_that_never_ran_is_an_error(docs_green):
 
 
 def test_the_command_runs_inside_the_worktree(docs_green):
+    """``git rev-parse``, not ``pwd``: the latter is a shell builtin that reports
+    a POSIX path even on Windows, so it cannot be compared with the worktree
+    path the envelope carries."""
     agent = docs_green()
-    env = agent.run("stage", "run", "lint", "--command", "pwd", "--record")
+    env = agent.run(
+        "stage", "run", "lint", "--command", "git rev-parse --show-toplevel", "--record"
+    )
     status = agent.run("status")
-    from pathlib import Path
 
-    log = Path(env["data"]["log_path"]).read_text()
-    assert status["data"]["worktree_path"] in log
+    log = Path(env["data"]["log_path"]).read_text(encoding="utf-8")
+
+    assert Path(log.strip()) == Path(status["data"]["worktree_path"])
 
 
 def test_dotenv_values_are_parsed_including_quotes_multiline_and_short_values(tmp_path):
@@ -483,7 +495,7 @@ def test_exported_dotenv_values_never_reach_stage_stdout_or_stderr(feature_repo,
         "--record",
     )
     captured_output = env["data"]["output_head"] + env["data"]["output_tail"]
-    log_output = Path(env["data"]["log_path"]).read_text()
+    log_output = Path(env["data"]["log_path"]).read_text(encoding="utf-8")
 
     for secret in ("hunter2", "123", "first line", "second line"):
         assert secret not in captured_output
@@ -491,6 +503,7 @@ def test_exported_dotenv_values_never_reach_stage_stdout_or_stderr(feature_repo,
     assert log_output == "[redacted] [redacted]\n[redacted]\n"
 
 
+@requires_posix_signals
 def test_timeout_uses_the_known_process_group_when_lookup_is_denied(tmp_path, monkeypatch):
     killed_groups: list[tuple[int, signal.Signals]] = []
     direct_kills: list[bool] = []
@@ -529,6 +542,7 @@ def test_timeout_uses_the_known_process_group_when_lookup_is_denied(tmp_path, mo
     assert direct_kills == []
 
 
+@requires_posix_signals
 def test_timeout_uses_the_known_process_group_when_the_leader_is_gone(tmp_path, monkeypatch):
     killed_groups: list[tuple[int, signal.Signals]] = []
     direct_kills: list[bool] = []
@@ -567,6 +581,103 @@ def test_timeout_uses_the_known_process_group_when_the_leader_is_gone(tmp_path, 
     assert direct_kills == []
 
 
+def _timed_out_process(direct_kills: list[bool]):
+    class TimedOutProcess:
+        pid = 4242
+        returncode = 1
+        calls = 0
+
+        def communicate(self, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise subprocess.TimeoutExpired("review", 1)
+            return "", None
+
+        def kill(self):
+            direct_kills.append(True)
+
+    return TimedOutProcess()
+
+
+@requires_windows
+def test_timeout_kills_the_whole_tree_on_windows(tmp_path, monkeypatch):
+    """Windows has no process group to signal, so the parent/child tree is walked.
+
+    ``CREATE_NEW_PROCESS_GROUP`` only scopes console control events, which a
+    non-console child never receives — killing the direct child alone would
+    strand a test runner's workers exactly as it would on POSIX.
+    """
+    commands: list[list[str]] = []
+    direct_kills: list[bool] = []
+    process = _timed_out_process(direct_kills)
+    monkeypatch.setattr(shellstage.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        shellstage.subprocess,
+        "run",
+        lambda argv, **_kwargs: (
+            commands.append(argv) or subprocess.CompletedProcess(argv, 0, b"", b"")
+        ),
+    )
+
+    result = shellstage.run_stage(tmp_path, "ignored", timeout_seconds=1)
+
+    assert result.timed_out is True
+    taskkill = command_plan.windows_system_tool("taskkill.exe")
+    assert commands == [[taskkill, "/F", "/T", "/PID", "4242"]]
+    assert direct_kills == []
+
+
+@requires_windows
+@pytest.mark.parametrize(
+    ("outcome", "label"),
+    [
+        (lambda argv, **_kwargs: subprocess.CompletedProcess(argv, 1, b"", b"denied"), "refused"),
+        (lambda *_a, **_kw: (_ for _ in ()).throw(FileNotFoundError(2, "not found")), "absent"),
+        (
+            lambda *_a, **_kw: (_ for _ in ()).throw(subprocess.TimeoutExpired("taskkill", 30)),
+            "hung",
+        ),
+    ],
+)
+def test_a_failed_taskkill_falls_back_to_killing_the_child(tmp_path, monkeypatch, outcome, label):
+    """Losing the tree is bad; leaving the child itself running is worse.
+
+    Every way ``taskkill`` can fail has to reach the same fallback. Two of these
+    reach it by raising rather than returning, which previously escaped
+    ``run_stage`` and replaced the timed-out result with a crash.
+    """
+    direct_kills: list[bool] = []
+    process = _timed_out_process(direct_kills)
+    monkeypatch.setattr(shellstage.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(shellstage.subprocess, "run", outcome)
+
+    result = shellstage.run_stage(tmp_path, "ignored", timeout_seconds=1)
+
+    assert direct_kills == [True], label
+    assert result.timed_out is True
+
+
+@requires_windows
+def test_the_taskkill_call_is_bounded_by_its_own_timeout(tmp_path, monkeypatch):
+    """It runs on the timeout path, so an unbounded wait here bounds nothing."""
+    seen: list[object] = []
+
+    def record(argv, **kwargs):
+        seen.append(kwargs.get("timeout"))
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    monkeypatch.setattr(
+        shellstage.subprocess, "Popen", lambda *_args, **_kwargs: _timed_out_process([])
+    )
+    monkeypatch.setattr(shellstage.subprocess, "run", record)
+
+    shellstage.run_stage(tmp_path, "ignored", timeout_seconds=1)
+
+    assert seen
+    assert all(isinstance(value, int | float) for value in seen)
+
+
+@requires_posix_permissions
 def test_unreadable_copied_file_fails_closed_before_a_stage_runs(feature_repo, tmp_path):
     (feature_repo / ".env").write_bytes(b"SECRET=\xff\n")
     config(feature_repo, "[docs]\nenabled = false\n")
@@ -591,6 +702,7 @@ def test_unreadable_copied_file_fails_closed_before_a_stage_runs(feature_repo, t
     assert "lint" not in agent.run("status")["data"]["stages"]
 
 
+@requires_posix_permissions
 def test_stage_output_is_withheld_if_a_copied_file_becomes_unreadable(feature_repo, tmp_path):
     write(feature_repo, ".env", "SECRET=before-run-secret\n")
     config(feature_repo, "[docs]\nenabled = false\n")
@@ -610,7 +722,7 @@ def test_stage_output_is_withheld_if_a_copied_file_becomes_unreadable(feature_re
     )
 
     displayed = env["data"]["output_head"] + env["data"]["output_tail"]
-    logged = Path(env["data"]["log_path"]).read_text()
+    logged = Path(env["data"]["log_path"]).read_text(encoding="utf-8")
     assert env["state"] == "LINT_RED"
     assert "post-run-secret" not in displayed
     assert "post-run-secret" not in logged
@@ -645,13 +757,13 @@ def test_stage_output_is_withheld_if_a_copied_file_is_mutated_then_restored(feat
     )
 
     displayed = env["data"]["output_head"] + env["data"]["output_tail"]
-    logged = Path(env["data"]["log_path"]).read_text()
+    logged = Path(env["data"]["log_path"]).read_text(encoding="utf-8")
     assert env["state"] == "LINT_RED"
     assert "transient-secret" not in displayed
     assert "transient-secret" not in logged
     assert displayed == shellstage.REDACTION_FAILURE_OUTPUT
     assert logged == displayed
-    assert (feature_repo / ".env").read_text() == "SECRET=original-secret\n"
+    assert (feature_repo / ".env").read_text(encoding="utf-8") == "SECRET=original-secret\n"
 
 
 # -- baseline check ---------------------------------------------------------

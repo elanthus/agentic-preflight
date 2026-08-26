@@ -25,7 +25,7 @@ def test_sync_fetches_and_rebases_the_worktree_onto_fresh_origin(
     assert result.remote == "origin"
     assert result.base_sha == upstream
     assert gitx.is_ancestor(worktree_path, upstream, "HEAD")
-    assert (worktree_path / "base.txt").read_text() == "new upstream content\n"
+    assert (worktree_path / "base.txt").read_text(encoding="utf-8") == "new upstream content\n"
 
 
 def test_sync_uses_the_local_base_when_origin_is_absent(feature_repo: Path):

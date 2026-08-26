@@ -30,7 +30,7 @@ def _from_package_json(root: Path, stage: str) -> list[Candidate]:
     if not path.exists():
         return []
     try:
-        scripts = json.loads(path.read_text()).get("scripts", {})
+        scripts = json.loads(path.read_text(encoding="utf-8")).get("scripts", {})
     except (json.JSONDecodeError, OSError):
         return []
     return [
@@ -44,7 +44,7 @@ def _from_makefile(root: Path, stage: str) -> list[Candidate]:
     path = root / "Makefile"
     if not path.exists():
         return []
-    targets = re.findall(r"^([a-zA-Z0-9_.-]+):", path.read_text(), re.MULTILINE)
+    targets = re.findall(r"^([a-zA-Z0-9_.-]+):", path.read_text(encoding="utf-8"), re.MULTILINE)
     return [Candidate(f"make {t}", "Makefile") for t in targets if stage in t.lower()]
 
 
@@ -54,7 +54,7 @@ def _from_justfile(root: Path, stage: str) -> list[Candidate]:
         path = root / "Justfile"
     if not path.exists():
         return []
-    targets = re.findall(r"^([a-zA-Z0-9_-]+):", path.read_text(), re.MULTILINE)
+    targets = re.findall(r"^([a-zA-Z0-9_-]+):", path.read_text(encoding="utf-8"), re.MULTILINE)
     return [Candidate(f"just {t}", "justfile") for t in targets if stage in t.lower()]
 
 
@@ -63,7 +63,7 @@ def _from_pyproject(root: Path, stage: str) -> list[Candidate]:
     if not path.exists():
         return []
     try:
-        data = tomllib.loads(path.read_text())
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
     except (tomllib.TOMLDecodeError, OSError):
         return []
 
@@ -85,7 +85,7 @@ def _from_workflows(root: Path, stage: str) -> list[Candidate]:
         return []
     candidates: list[Candidate] = []
     for path in sorted(workflows.glob("*.y*ml")):
-        for line in path.read_text().splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             stripped = line.strip()
             if stripped.startswith("run:") and stage in stripped.lower():
                 command = stripped.removeprefix("run:").strip()

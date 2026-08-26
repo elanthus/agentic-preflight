@@ -79,7 +79,7 @@ def _check_line_bounds(resolved: Path, raw_path: str, line: int | None) -> None:
     if line is None or not resolved.is_file():
         return
     try:
-        total = len(resolved.read_text().splitlines())
+        total = len(resolved.read_text(encoding="utf-8").splitlines())
     except (UnicodeDecodeError, OSError):
         return  # binary or unreadable: bounds are not meaningful, skip the check
     if line > total:

@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -10,6 +11,7 @@ import pytest
 
 from agentic_preflight import attestation, hook
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.stages import command as command_plan
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
@@ -47,14 +49,14 @@ def test_init_installs_a_pre_push_hook(feature_repo):
     hook = Path(feature_repo) / ".git" / "hooks" / "pre-push"
     assert hook.exists()
     assert os.access(hook, os.X_OK)
-    assert "agentic-preflight hook-check" in hook.read_text()
+    assert "agentic-preflight hook-check" in hook.read_text(encoding="utf-8")
     assert env["data"]["hook_installed"] is True
 
 
 def test_init_writes_a_config_file_if_absent(feature_repo):
     agent = ScriptedAgent(feature_repo)
     agent.run("init")
-    config = (Path(feature_repo) / ".agentic-preflight.toml").read_text()
+    config = (Path(feature_repo) / ".agentic-preflight.toml").read_text(encoding="utf-8")
     assert "[pr]" in config
     assert 'mode = "auto"' in config
 
@@ -63,7 +65,7 @@ def test_init_does_not_clobber_an_existing_config(feature_repo):
     write(feature_repo, ".agentic-preflight.toml", "[general]\nbase_ref = 'develop'\n")
     agent = ScriptedAgent(feature_repo)
     agent.run("init")
-    assert "develop" in (Path(feature_repo) / ".agentic-preflight.toml").read_text()
+    assert "develop" in (Path(feature_repo) / ".agentic-preflight.toml").read_text(encoding="utf-8")
 
 
 def test_init_refuses_to_overwrite_a_foreign_hook(feature_repo):
@@ -73,7 +75,7 @@ def test_init_refuses_to_overwrite_a_foreign_hook(feature_repo):
     agent = ScriptedAgent(feature_repo)
     env = agent.run("init", expect=ExitCode.PRECONDITION)
     assert env["error"]["code"] == "hook_exists"
-    assert "someone elses hook" in hook.read_text()
+    assert "someone elses hook" in hook.read_text(encoding="utf-8")
 
 
 def test_init_force_replaces_a_foreign_hook(feature_repo):
@@ -82,7 +84,7 @@ def test_init_force_replaces_a_foreign_hook(feature_repo):
     hook.write_text("#!/bin/sh\necho someone elses hook\n")
     agent = ScriptedAgent(feature_repo)
     agent.run("init", "--force")
-    assert "agentic-preflight hook-check" in hook.read_text()
+    assert "agentic-preflight hook-check" in hook.read_text(encoding="utf-8")
 
 
 def test_init_is_idempotent(feature_repo):
@@ -103,11 +105,24 @@ def test_hook_installer_directly_refuses_and_then_replaces_a_foreign_hook(tmp_pa
     installed, written = hook.install(tmp_path, force=True)
     assert installed == path
     assert written is True
-    assert "agentic-preflight hook-check" in path.read_text()
+    assert "agentic-preflight hook-check" in path.read_text(encoding="utf-8")
 
     installed, written = hook.install(tmp_path)
     assert installed == path
     assert written is False
+
+
+def test_a_foreign_hook_that_is_not_utf8_is_still_refused(tmp_path):
+    """Someone else's hook is arbitrary bytes, and refusing it must not depend
+    on those bytes decoding as text."""
+    path = tmp_path / "hooks" / "pre-push"
+    path.parent.mkdir()
+    path.write_bytes(b"#!/bin/sh\n# \xff\xfe not valid utf-8\necho existing\n")
+
+    with pytest.raises(FileExistsError):
+        hook.install(tmp_path)
+
+    assert b"echo existing" in path.read_bytes()
 
 
 def test_init_reports_in_place_default(feature_repo):
@@ -265,6 +280,31 @@ def test_empty_stdin_is_allowed(feature_repo):
 # -- a broken tool must not brick the repo ----------------------------------
 
 
+def _posix_shell() -> tuple[str, str]:
+    """A POSIX shell, and a PATH containing it but not ``agentic-preflight``.
+
+    The hook is a ``/bin/sh`` script on every platform because git runs it with
+    its own bundled shell, so this must find that same interpreter rather than
+    whatever ``sh`` the ambient PATH resolves to — which on Windows is nothing
+    at all outside the Git installation.
+    """
+    shell = command_plan.find_shell()
+    assert shell is not None, "git ships a shell on every supported platform"
+
+    interpreter = Path(shell[0])
+    if not interpreter.is_absolute():
+        # POSIX resolves the shell through PATH, but this test *replaces* PATH,
+        # so the interpreter has to be named by its full path.
+        resolved = shutil.which(interpreter.name)
+        assert resolved is not None, f"{interpreter.name} is not on PATH"
+        interpreter = Path(resolved)
+
+    plain_sh = interpreter.with_name("sh" + interpreter.suffix)
+    if plain_sh.exists():
+        interpreter = plain_sh
+    return str(interpreter), str(interpreter.parent)
+
+
 def test_the_installed_hook_allows_and_warns_when_the_tool_is_missing(feature_repo):
     """Deliberate: a repo you cannot push from is worse than a skipped check."""
     agent = ScriptedAgent(feature_repo)
@@ -272,16 +312,19 @@ def test_the_installed_hook_allows_and_warns_when_the_tool_is_missing(feature_re
     hook = Path(feature_repo) / ".git" / "hooks" / "pre-push"
 
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
+    shell, shell_dir = _posix_shell()
     result = subprocess.run(
-        ["sh", str(hook), "origin", "ssh://example/repo"],
+        [shell, str(hook), "origin", "ssh://example/repo"],
         cwd=feature_repo,
         input=f"refs/heads/feature/x {sha} refs/heads/feature/x {ZERO}\n",
         capture_output=True,
         text=True,
+        encoding="utf-8",
         # A real shell is present, but agentic-preflight (which lives in .venv/bin)
         # is not — exactly the state of a fresh clone by someone who has not
-        # installed the tool.
-        env={"PATH": "/usr/bin:/bin", "HOME": os.environ.get("HOME", "")},
+        # installed the tool. On Windows the shell is Git's own, which is also
+        # the interpreter git uses to run the hook for real.
+        env={"PATH": shell_dir, "HOME": os.environ.get("HOME", "")},
     )
     assert result.returncode == 0
     assert "not found" in result.stderr.lower()

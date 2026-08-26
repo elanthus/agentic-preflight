@@ -24,13 +24,14 @@ hole, because guard 2 never consults ``.gitignore``.
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 from hashlib import sha256
 from pathlib import Path
 
-from . import gitx
+from . import fileperms, gitx
+from .stages import command as command_plan
+from .stages import shellstage
 
 
 class WorktreeError(Exception):
@@ -211,7 +212,17 @@ def copy_files(
         destination = worktree_path / entry
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
-        os.chmod(destination, 0o600)
+        try:
+            fileperms.restrict_to_owner(destination)
+        except fileperms.PermissionRestrictionError as exc:
+            # The copy exists but is not owner-only, which is the state this
+            # function promises never to leave behind. Remove it and refuse.
+            destination.unlink(missing_ok=True)
+            raise CopyRefused(
+                f"refusing to copy {entry!r} into the worktree: the copy could not be "
+                f"restricted to its owner ({exc.reason}), so it would be a second, "
+                "less protected location for a secret."
+            ) from exc
         copied.append(entry)
 
     return copied
@@ -307,12 +318,37 @@ def run_setup(
     """Run the configured setup command inside the worktree.
 
     Returns the result rather than raising: a failed ``uv sync`` is information
-    for the caller to report, not an exception to unwind on.
+    for the caller to report, not an exception to unwind on. A setup command
+    this machine cannot run is reported the same way, as a failed result, so
+    the caller's single reporting path covers both.
     """
-    return subprocess.run(
-        ["bash", "-lc", command],
-        cwd=str(worktree_path),
-        capture_output=True,
-        text=True,
-        timeout=timeout_seconds,
-    )
+    try:
+        argv = command_plan.build_argv(command_plan.plan(command, cwd=worktree_path))
+    except command_plan.ShellUnavailable as exc:
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=shellstage.EXIT_UNRUNNABLE,
+            stdout="",
+            stderr=str(exc),
+        )
+
+    try:
+        return subprocess.run(
+            argv,
+            cwd=str(worktree_path),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_seconds,
+        )
+    except OSError as exc:
+        # Resolved when planned, refused by the OS at execution — a script
+        # with no shebang, or a program deleted since planning. Reported as a
+        # failed result like every other unrunnable command.
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=shellstage.EXIT_UNRUNNABLE,
+            stdout="",
+            stderr=f"cannot run {command!r}: {exc}",
+        )

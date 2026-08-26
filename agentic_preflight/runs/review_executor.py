@@ -111,7 +111,7 @@ def run_review_command(session: Session) -> Envelope:
         clean_output = shellstage.REDACTION_FAILURE_OUTPUT
         log_path_obj = session.store.logs_dir(run.run_id) / "review.txt"
         log_path_obj.parent.mkdir(parents=True, exist_ok=True)
-        log_path_obj.write_text(clean_output)
+        log_path_obj.write_text(clean_output, encoding="utf-8", newline="\n")
         log_path = str(log_path_obj)
         safe_exit_code = result.exit_code if result.exit_code != 0 else 1
         run = review_retry.fail(
@@ -155,7 +155,7 @@ def run_review_command(session: Session) -> Envelope:
     )
     log_path_obj = session.store.logs_dir(run.run_id) / "review.txt"
     log_path_obj.parent.mkdir(parents=True, exist_ok=True)
-    log_path_obj.write_text(clean_output)
+    log_path_obj.write_text(clean_output, encoding="utf-8", newline="\n")
     log_path = str(log_path_obj)
 
     failure_reason = None

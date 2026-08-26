@@ -8,12 +8,19 @@ made deterministic with fixed identity and timestamp environment instead.
 
 from __future__ import annotations
 
+import functools
 import os
+import signal
+import stat
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
+
+from agentic_preflight.machine import State
+from agentic_preflight.models import RunDoc
 
 DETERMINISTIC_ENV = {
     "GIT_AUTHOR_NAME": "Test Author",
@@ -53,8 +60,204 @@ def git(*args: str, cwd: Path) -> str:
 def write(repo: Path | str, relpath: str, content: str) -> Path:
     path = Path(repo) / relpath
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8")
     return path
+
+
+def make_run(run_id: str = "r_abc123", branch: str = "feature/x") -> RunDoc:
+    """A minimal valid run document, shared by the store-level test modules."""
+    return RunDoc(
+        run_id=run_id,
+        state=State.CREATED,
+        branch=branch,
+        base_ref="main",
+        merge_base_sha="a" * 40,
+        head_sha="b" * 40,
+    )
+
+
+def home_env(path: Path | str) -> dict[str, str]:
+    """Environment that redirects ``Path.home()`` at a temporary directory.
+
+    ``HOME`` alone is not enough. ``Path.home()`` consults ``USERPROFILE`` on
+    Windows, so a test that sets only ``HOME`` there does not redirect anything
+    — it reads and writes the developer's real home directory, installing
+    skills into it and asserting against whatever happens to be there already.
+    """
+    return {"HOME": str(path), "USERPROFILE": str(path)}
+
+
+def set_home(monkeypatch, path: Path | str) -> None:
+    """The :func:`home_env` redirection, applied to this process."""
+    for name, value in home_env(path).items():
+        monkeypatch.setenv(name, value)
+
+
+def access_entries(path: Path) -> list[str]:
+    """A Windows file's DACL entries, one per granted principal.
+
+    Every ``icacls`` entry has the shape ``PRINCIPAL:(rights)``, so ``:(`` is
+    what identifies one. Splitting on the first colon instead counts the drive
+    letter of the path that ``icacls`` prints on its own first line.
+    """
+    listing = subprocess.run(
+        ["icacls", str(path)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
+    ).stdout
+    return [line.strip() for line in listing.splitlines() if ":(" in line]
+
+
+def assert_owner_only(path: Path) -> None:
+    """Assert the platform's expression of "readable by the owner and nobody else".
+
+    On Windows the mode bits carry no permissions, so the DACL is read back:
+    exactly one entry may remain, and none of it may be inherited.
+    """
+    if sys.platform != "win32":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        return
+
+    entries = access_entries(path)
+    assert len(entries) == 1, f"expected a single access entry, got: {entries}"
+    assert "(I)" not in entries[0], f"inherited access survived: {entries}"
+
+
+def recorded_mode(repo: Path, ref: str, relpath: str) -> str:
+    """The file mode git stored for ``relpath`` in ``ref``.
+
+    ``120000`` is a symlink, ``100644`` a plain file. Worth asking directly:
+    whether git records a symlink *as* one, and whether it notices a change
+    between the two, both vary by platform and configuration.
+    """
+    entry = git("ls-tree", ref, "--", relpath, cwd=repo)
+    return entry.split(maxsplit=1)[0] if entry else ""
+
+
+def require_type_change(repo: Path, base: str, head: str, relpath: str) -> None:
+    """Skip unless git recorded ``relpath`` changing file type between the two refs.
+
+    Checked as an invariant rather than inferred from a platform, because more
+    than one thing decides it. Creating a symlink can be permitted while git is
+    configured not to record it, and a recorded symlink can still be replaced
+    by a plain file without git registering the mode change — Windows defaults
+    to ignoring file modes. Either way there is no type change for a diff test
+    to describe, and asserting on the patch count would report a confusing
+    number instead of the reason.
+    """
+    before = recorded_mode(repo, base, relpath)
+    after = recorded_mode(repo, head, relpath)
+    if before == after:
+        pytest.skip(f"git recorded no type change for {relpath}: mode {before} on both sides")
+
+
+@functools.cache
+def _symlinks_available() -> bool:
+    """Whether this process may create symlinks.
+
+    Probed rather than assumed from the platform: Windows permits it under
+    Developer Mode or elevation and refuses otherwise, so the answer is a
+    property of the machine and not of ``sys.platform``.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        probe = Path(directory) / "probe"
+        try:
+            probe.symlink_to(directory)
+        except (OSError, NotImplementedError):
+            return False
+    return True
+
+
+@functools.cache
+def _git_records_symlinks() -> bool:
+    """Whether git stores a symlink *as* a symlink in this environment.
+
+    A separate question from whether the filesystem allows one. Git for Windows
+    sets ``core.symlinks=false`` unless the installer enabled them, and then
+    commits a symlink as an ordinary file holding its target path — so a test
+    about symlink-to-file *type changes* sees no type change at all. GitHub's
+    Windows runners are exactly this case: elevated enough to create symlinks,
+    configured not to record them.
+
+    Probed under the same config isolation the suite runs with, since that is
+    what decides the answer.
+    """
+    if not _symlinks_available():
+        return False
+
+    env = {**os.environ, **DETERMINISTIC_ENV}
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        try:
+            subprocess.run(
+                ["git", "init", "-q", str(root)], capture_output=True, check=True, env=env
+            )
+            (root / "target.txt").write_text("target\n", encoding="utf-8")
+            (root / "link.txt").symlink_to("target.txt")
+            subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True, check=True, env=env)
+            staged = subprocess.run(
+                ["git", "ls-files", "-s", "link.txt"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=True,
+                env=env,
+            ).stdout
+        except (OSError, subprocess.CalledProcessError):
+            return False
+    # Mode 120000 is git's symlink mode; 100644 means it stored a plain file.
+    return staged.startswith("120000")
+
+
+def __getattr__(name: str):
+    """Build the probe-backed names on first use rather than at module import.
+
+    Both probes spawn subprocesses and temporary directories, and only the test
+    modules that import these marks need the answers — a run that collects no
+    symlink test should not pay for a git init/add/ls-files before collection.
+    The probe results themselves are cached, so the cost is paid at most once.
+    """
+    if name == "SYMLINKS_AVAILABLE":
+        return _symlinks_available()
+    if name == "GIT_RECORDS_SYMLINKS":
+        return _git_records_symlinks()
+    if name == "requires_symlinks":
+        return pytest.mark.skipif(
+            not _symlinks_available(),
+            reason="creating symlinks requires Developer Mode or elevation on Windows",
+        )
+    if name == "requires_git_symlinks":
+        return pytest.mark.skipif(
+            not _git_records_symlinks(),
+            reason="git is not configured to record symlinks as symlinks",
+        )
+    raise AttributeError(name)
+
+
+requires_posix_permissions = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="making a file unreadable by mode bits has no effect on Windows",
+)
+
+# The POSIX kill path cannot be forced on Windows the way other platform
+# branches can: ``signal.SIGKILL`` does not exist there, so exercising it would
+# mean inventing the constant and testing a fiction. The Windows branch has its
+# own tests instead, so both paths stay covered.
+requires_posix_signals = pytest.mark.skipif(
+    not hasattr(signal, "SIGKILL"),
+    reason="process groups and SIGKILL are POSIX-only",
+)
+
+# Its counterpart. The two kill paths are defined under a ``sys.platform``
+# guard, so neither can be forced on the other platform — each is covered by
+# the CI leg that actually runs it.
+requires_windows = pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="taskkill and process-creation flags are Windows-only",
+)
 
 
 def commit_all(repo: Path, message: str) -> str:
