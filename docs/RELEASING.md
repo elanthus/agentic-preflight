@@ -44,9 +44,9 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
    that gap.
 3. Commit and merge to `main`.
 4. Run the full test matrix before tagging. Pull requests and pushes to `main` run
-   only `ubuntu-latest` on Python 3.13. Scheduled Monday/Thursday regression covers
-   macOS 15 with Python 3.11, but a manual run of the CI workflow is the pre-release
-   check across all six supported combinations:
+   only `ubuntu-latest` and `windows-latest` on Python 3.13. Scheduled
+   Monday/Thursday regression covers macOS 15 with Python 3.11, but a manual run of
+   the CI workflow is the pre-release check across all nine supported combinations:
 
    ```bash
    gh workflow run ci.yml --ref main
@@ -57,8 +57,8 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
    before a tag exists.
 
    Check that the run **completed**, not merely that it started. A cancelled run
-   reports neither pass nor fail, so six jobs appearing in the Actions tab is not
-   the same as six jobs passing. Manual runs are given their own concurrency group
+   reports neither pass nor fail, so nine jobs appearing in the Actions tab is not
+   the same as nine jobs passing. Manual runs are given their own concurrency group
    precisely so nothing supersedes them, but a run can still be cancelled by hand or
    time out.
 
@@ -69,7 +69,7 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
    ```
 
 6. The tag run starts two jobs in parallel. `test` exercises the full matrix of
-   Ubuntu and macOS against Python 3.11, 3.12, and 3.13. `build` verifies the tag
+   Ubuntu, macOS, and Windows against Python 3.11, 3.12, and 3.13. `build` verifies the tag
    matches `pyproject.toml`, builds the sdist and wheel, and smoke-tests the wheel.
    `publish` requires both, so it stays pending until the matrix and the build are
    green. The build also produces a CycloneDX SBOM and GitHub build-provenance and SBOM
