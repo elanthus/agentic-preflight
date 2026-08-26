@@ -349,7 +349,7 @@ def windows_system_tool(name: str) -> str:
     name it looks in the current directory — for this tool, the repository
     under validation — before System32.
     """
-    system_root = os.environ.get("SystemRoot", r"C:\Windows")
+    system_root = os.environ.get("SYSTEMROOT", r"C:\Windows")
     return os.path.join(system_root, "System32", name)
 
 
