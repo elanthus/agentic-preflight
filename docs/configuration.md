@@ -7,6 +7,12 @@ commented starting file; the example below includes every supported section.
 `~/.config/agentic-preflight/config.toml`. Unknown keys are errors that name the key
 rather than being ignored.
 
+> **Warning: the configuration executes committed code.** `[worktree] setup_command`,
+> every `[commands]` entry, and `[review] command` come from the repository and run
+> with your privileges as soon as a run starts. Starting a preflight run on a freshly
+> cloned repository is equivalent in trust to running that repository's build or test
+> suite; run it only on repositories whose code you would build.
+
 ## Complete example
 
 ```toml

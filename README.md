@@ -49,7 +49,7 @@ trust-domain selection, resumability, and immutable inputs.
 [Read the evidence, representative findings, methodology, and limits](docs/dogfooding-case-study.md).
 
 Agentic Preflight is a deterministic state machine with a JSON-over-stdout CLI. It runs
-on macOS and Linux.
+on macOS, Linux, and Windows.
 
 ## Quickstart
 
@@ -224,6 +224,12 @@ what a green run proves are covered in the
 `init` writes a commented starting configuration. The complete example, every section,
 and the behavior behind the less-obvious keys live in the
 [configuration reference](https://github.com/elanthus/agentic-preflight/blob/v0.4.0/docs/configuration.md).
+
+**The configuration executes committed code.** `[worktree] setup_command`, every
+`[commands]` entry, and `[review] command` come from the repository and run with your
+privileges as soon as a run starts. Starting a preflight run on a repository is
+equivalent in trust to running that repository's own build or tests — do not run it on
+a clone you would not build.
 
 ## Exit codes
 
