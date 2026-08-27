@@ -81,7 +81,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 - Git output is now decoded with `backslashreplace`, so one changed file in a legacy
   encoding renders as visible `\xe9`-style escapes in the diff instead of failing the
-  whole run with `UnicodeDecodeError`.
+  whole run with `UnicodeDecodeError`. Patch identities are exempt from decoding:
+  the patch travels between `git show` and `git patch-id` as raw bytes, so two
+  byte-distinct changes cannot share an identity through escape-text folding.
 
 - Paths changed by a single commit are read NUL-delimited, so a non-ASCII filename is
   reported as itself rather than C-quoted under git's default `core.quotePath` — a
@@ -90,7 +92,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - The git executable itself is resolved on PATH once per process. Handed a bare name,
   Windows' `CreateProcess` searches the parent's current directory first — the
   repository under validation — so a repo-committed `git.exe` could previously have
-  become the git that validated the repository shipping it.
+  become the git that validated the repository shipping it. A git missing from PATH
+  entirely now raises an explicit `FileNotFoundError` rather than falling back to the
+  bare name, which would have reopened the same search.
 
 ## [0.4.0] - 2026-08-13
 

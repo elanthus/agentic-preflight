@@ -377,6 +377,16 @@ def test_git_is_invoked_through_an_absolute_executable_path(tmp_repo, monkeypatc
     assert all(os.path.isabs(program) for program in recorded)
 
 
+def test_a_missing_git_raises_rather_than_falling_back_to_a_bare_name(tmp_repo, monkeypatch):
+    """A bare-name fallback would hand ``CreateProcess`` its current-directory
+    search back — the exact hole PATH-only resolution exists to close."""
+    monkeypatch.setattr(gitx, "_RESOLVED_GIT", None)
+    monkeypatch.setattr(gitx, "resolve_on_path", lambda program: None)
+
+    with pytest.raises(FileNotFoundError, match="git"):
+        gitx.current_branch(tmp_repo)
+
+
 def test_the_git_executable_is_resolved_on_path_exactly_once(tmp_repo, monkeypatch):
     calls: list[str] = []
     real_resolve = command_plan.resolve_on_path
@@ -414,6 +424,23 @@ def test_stable_patch_id_matches_a_cherry_pick_with_a_different_sha(tmp_repo):
 
     assert original != picked
     assert gitx.commit_patch_id(tmp_repo, original) == gitx.commit_patch_id(tmp_repo, picked)
+
+
+def test_patch_ids_distinguish_raw_bytes_from_their_escape_text(tmp_repo):
+    """The patch reaches ``git patch-id`` as the bytes git emitted. Decoding it
+    first would fold the raw byte 0xE9 and the literal four characters ``\\xe9``
+    into one string, giving two different changes the same patch identity."""
+    write(tmp_repo, "data.txt", "before\n")
+    commit_all(tmp_repo, "seed")
+    base = gitx.current_branch(tmp_repo)
+    git("switch", "-c", "raw-byte", cwd=tmp_repo)
+    (tmp_repo / "data.txt").write_bytes(b"caf\xe9\n")
+    raw_sha = commit_all(tmp_repo, "raw byte")
+    git("switch", "-c", "escape-text", base, cwd=tmp_repo)
+    (tmp_repo / "data.txt").write_bytes(b"caf\\xe9\n")
+    escaped_sha = commit_all(tmp_repo, "escape text")
+
+    assert gitx.commit_patch_id(tmp_repo, raw_sha) != gitx.commit_patch_id(tmp_repo, escaped_sha)
 
 
 def test_tree_sha_is_stable_for_identical_content(tmp_repo):

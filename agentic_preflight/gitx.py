@@ -22,8 +22,9 @@ _WRITE_TREE_MINIMUM = (2, 38)
 
 # Git output is repository data and repositories contain latin-1, so decoding
 # must never be able to crash the command that read it. ``backslashreplace``
-# keeps the mojibake visible as ``\xe9`` instead of raising, and round-trips
-# through the one place that re-encodes (``commit_patch_id``'s stdin).
+# keeps the mojibake visible as ``\xe9`` instead of raising. Anything that
+# feeds git output back *into* git stays in bytes — see ``commit_patch_id`` —
+# because the escape text is not the bytes it stands for.
 _DECODE_ERRORS = "backslashreplace"
 
 # Resolved once per process. Handed a bare name, Windows' ``CreateProcess``
@@ -37,9 +38,13 @@ _RESOLVED_GIT: str | None = None
 def _git_executable() -> str:
     global _RESOLVED_GIT
     if _RESOLVED_GIT is None:
-        # The bare-name fallback preserves the original "git is missing"
-        # failure: subprocess raises FileNotFoundError exactly where it did.
-        _RESOLVED_GIT = resolve_on_path("git") or "git"
+        resolved = resolve_on_path("git")
+        if resolved is None:
+            # Falling back to the bare name would hand ``CreateProcess`` its
+            # current-directory search back — the exact hole this resolution
+            # exists to close. A git missing from PATH fails loudly instead.
+            raise FileNotFoundError("git was not found on PATH")
+        _RESOLVED_GIT = resolved
     return _RESOLVED_GIT
 
 
@@ -264,27 +269,35 @@ def commit_patch_id(cwd: Path | str, sha: str) -> str | None:
     Patch IDs deliberately ignore commit metadata, so an ordinary cherry-pick
     compares equal to its source even though the commit SHA changes. Empty
     commits have no patch identity and return ``None``.
+
+    The patch travels between the two git processes as raw bytes. Decoding it
+    first would fold the raw byte ``0xE9`` and the literal escape text
+    ``\\xe9`` into one string, giving two byte-distinct changes the same
+    identity — and identity is the whole point of this function.
     """
-    patch = run(
-        cwd,
-        "show",
-        "--format=",
-        "--no-ext-diff",
-        "--binary",
-        sha,
-    ).stdout
+    show_args = ["show", "--format=", "--no-ext-diff", "--binary", sha]
+    patch = subprocess.run(
+        [_git_executable(), *show_args],
+        cwd=str(cwd),
+        capture_output=True,
+    )
+    if patch.returncode != 0:
+        raise GitError(
+            show_args, patch.returncode, patch.stderr.decode("utf-8", errors=_DECODE_ERRORS)
+        )
     result = subprocess.run(
         [_git_executable(), "patch-id", "--stable"],
         cwd=str(cwd),
-        input=patch,
+        input=patch.stdout,
         capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors=_DECODE_ERRORS,
     )
     if result.returncode != 0:
-        raise GitError(["patch-id", "--stable"], result.returncode, result.stderr)
-    fields = result.stdout.split()
+        raise GitError(
+            ["patch-id", "--stable"],
+            result.returncode,
+            result.stderr.decode("utf-8", errors=_DECODE_ERRORS),
+        )
+    fields = result.stdout.decode("utf-8", errors=_DECODE_ERRORS).split()
     return fields[0] if fields else None
 
 

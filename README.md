@@ -225,11 +225,15 @@ what a green run proves are covered in the
 and the behavior behind the less-obvious keys live in the
 [configuration reference](https://github.com/elanthus/agentic-preflight/blob/v0.4.0/docs/configuration.md).
 
-**The configuration executes committed code.** `[worktree] setup_command`, every
-`[commands]` entry, and `[review] command` come from the repository and run with your
-privileges as soon as a run starts. Starting a preflight run on a repository is
-equivalent in trust to running that repository's own build or tests — do not run it on
-a clone you would not build.
+**The configuration executes committed code.** During a run, `[worktree]
+setup_command` runs at `start`, every `[commands]` entry runs at its lint or test
+stage, and `[review] command` runs when command review is in effect (`executor =
+"command"`, or a risk level listed in `require_command_for`). Each may come from the
+committed file or your user config, with the repository file overriding your user
+config section by section — so the repository being validated decides what runs with
+your privileges. Starting a preflight run on a repository is equivalent in trust to
+running that repository's own build or tests — do not run it on a clone you would not
+build.
 
 ## Exit codes
 
