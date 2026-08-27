@@ -15,12 +15,37 @@ import tempfile
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
+from agentic_preflight.stages.command import resolve_on_path
+
 # `git merge-tree --write-tree` landed in Git 2.38.
 _WRITE_TREE_MINIMUM = (2, 38)
 
-# Deliberately not cached. It is read at most twice per run, so a process-wide
-# cache would trade an unmeasurable saving for global state that leaks between
-# tests.
+# Git output is repository data and repositories contain latin-1, so decoding
+# must never be able to crash the command that read it. ``backslashreplace``
+# keeps the mojibake visible as ``\xe9`` instead of raising. Anything that
+# feeds git output back *into* git stays in bytes — see ``commit_patch_id`` —
+# because the escape text is not the bytes it stands for.
+_DECODE_ERRORS = "backslashreplace"
+
+# Resolved once per process. Handed a bare name, Windows' ``CreateProcess``
+# searches the parent's current directory before PATH — for this tool, the
+# repository under validation — so a repo-committed ``git.exe`` could become
+# the git that validates the repository that ships it. POSIX ``execvp``
+# searches PATH only; the absolute path pins Windows to the same rule.
+_RESOLVED_GIT: str | None = None
+
+
+def _git_executable() -> str:
+    global _RESOLVED_GIT
+    if _RESOLVED_GIT is None:
+        resolved = resolve_on_path("git")
+        if resolved is None:
+            # Falling back to the bare name would hand ``CreateProcess`` its
+            # current-directory search back — the exact hole this resolution
+            # exists to close. A git missing from PATH fails loudly instead.
+            raise FileNotFoundError("git was not found on PATH")
+        _RESOLVED_GIT = resolved
+    return _RESOLVED_GIT
 
 
 class GitError(Exception):
@@ -35,11 +60,12 @@ class GitError(Exception):
 
 def run(cwd: Path | str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     result = subprocess.run(
-        ["git", *args],
+        [_git_executable(), *args],
         cwd=str(cwd),
         capture_output=True,
         text=True,
         encoding="utf-8",
+        errors=_DECODE_ERRORS,
     )
     if check and result.returncode != 0:
         raise GitError(list(args), result.returncode, result.stderr)
@@ -96,7 +122,12 @@ def is_ancestor(cwd: Path | str, maybe_ancestor: str, descendant: str) -> bool:
 
 
 def version(cwd: Path | str = ".") -> tuple[int, int] | None:
-    """``(major, minor)`` of the git binary, or ``None`` if it cannot be read."""
+    """``(major, minor)`` of the git binary, or ``None`` if it cannot be read.
+
+    Deliberately not cached. It is read at most twice per run, so a
+    process-wide cache would trade an unmeasurable saving for global state
+    that leaks between tests.
+    """
     result = run(cwd, "--version", check=False)
     if result.returncode != 0:
         return None
@@ -120,22 +151,24 @@ def _merge_tree_via_index(cwd: Path | str, left: str, right: str) -> str | None:
     with tempfile.TemporaryDirectory(prefix="agentic-preflight-merge-") as temp_dir:
         env = {**os.environ, "GIT_INDEX_FILE": str(Path(temp_dir) / "index")}
         merged = subprocess.run(
-            ["git", "read-tree", "-m", base, left, right],
+            [_git_executable(), "read-tree", "-m", base, left, right],
             cwd=str(cwd),
             env=env,
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors=_DECODE_ERRORS,
         )
         if merged.returncode != 0:
             return None
         written = subprocess.run(
-            ["git", "write-tree"],
+            [_git_executable(), "write-tree"],
             cwd=str(cwd),
             env=env,
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors=_DECODE_ERRORS,
         )
         if written.returncode != 0:
             return None
@@ -208,8 +241,14 @@ def commit_exists(cwd: Path | str, sha: str) -> bool:
 
 
 def commit_files(cwd: Path | str, sha: str) -> list[str]:
-    """Paths changed by a single commit."""
-    return _lines(out(cwd, "diff-tree", "--no-commit-id", "--name-only", "-r", sha))
+    """Paths changed by a single commit.
+
+    NUL-delimited for the same reason as ``changed_files``: under default
+    ``core.quotePath`` a non-ASCII path comes back C-quoted, naming a file
+    that exists nowhere.
+    """
+    output = run(cwd, "diff-tree", "--no-commit-id", "--name-only", "-z", "-r", sha).stdout
+    return [path for path in output.split("\0") if path]
 
 
 def commit_touches(cwd: Path | str, sha: str, path: str) -> bool:
@@ -230,26 +269,35 @@ def commit_patch_id(cwd: Path | str, sha: str) -> str | None:
     Patch IDs deliberately ignore commit metadata, so an ordinary cherry-pick
     compares equal to its source even though the commit SHA changes. Empty
     commits have no patch identity and return ``None``.
+
+    The patch travels between the two git processes as raw bytes. Decoding it
+    first would fold the raw byte ``0xE9`` and the literal escape text
+    ``\\xe9`` into one string, giving two byte-distinct changes the same
+    identity — and identity is the whole point of this function.
     """
-    patch = run(
-        cwd,
-        "show",
-        "--format=",
-        "--no-ext-diff",
-        "--binary",
-        sha,
-    ).stdout
-    result = subprocess.run(
-        ["git", "patch-id", "--stable"],
+    show_args = ["show", "--format=", "--no-ext-diff", "--binary", sha]
+    patch = subprocess.run(
+        [_git_executable(), *show_args],
         cwd=str(cwd),
-        input=patch,
         capture_output=True,
-        text=True,
-        encoding="utf-8",
+    )
+    if patch.returncode != 0:
+        raise GitError(
+            show_args, patch.returncode, patch.stderr.decode("utf-8", errors=_DECODE_ERRORS)
+        )
+    result = subprocess.run(
+        [_git_executable(), "patch-id", "--stable"],
+        cwd=str(cwd),
+        input=patch.stdout,
+        capture_output=True,
     )
     if result.returncode != 0:
-        raise GitError(["patch-id", "--stable"], result.returncode, result.stderr)
-    fields = result.stdout.split()
+        raise GitError(
+            ["patch-id", "--stable"],
+            result.returncode,
+            result.stderr.decode("utf-8", errors=_DECODE_ERRORS),
+        )
+    fields = result.stdout.decode("utf-8", errors=_DECODE_ERRORS).split()
     return fields[0] if fields else None
 
 
