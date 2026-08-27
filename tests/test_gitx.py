@@ -1,8 +1,10 @@
+import os
 import subprocess
 
 import pytest
 
 from agentic_preflight import gitx
+from agentic_preflight.stages import command as command_plan
 from tests.conftest import (
     commit_all,
     git,
@@ -167,6 +169,25 @@ def test_changed_files_preserves_non_ascii_paths(tmp_repo):
     assert gitx.changed_files(tmp_repo, base) == ["café.txt"]
 
 
+def test_diff_text_survives_non_utf8_file_content(tmp_repo):
+    """Changed files are repository data, and repositories contain latin-1.
+
+    Git emits the patch bytes as they are; a strict UTF-8 decode turns one
+    legacy-encoded changed file into a traceback for the whole diff.
+    """
+    (tmp_repo / "legacy.txt").write_bytes(b"caf\xe9 before\n")
+    commit_all(tmp_repo, "add legacy-encoded file")
+    base = gitx.rev_parse(tmp_repo, "HEAD")
+    git("switch", "-c", "feature/legacy-encoding", cwd=tmp_repo)
+    (tmp_repo / "legacy.txt").write_bytes(b"caf\xe9 after\n")
+    commit_all(tmp_repo, "change legacy-encoded file")
+
+    diff = gitx.diff_text(tmp_repo, base)
+
+    assert "legacy.txt" in diff
+    assert "\\xe9" in diff
+
+
 def test_diff_text_contains_the_change(feature_repo):
     base = gitx.merge_base(feature_repo, "main", "HEAD")
     diff = gitx.diff_text(feature_repo, base, "HEAD")
@@ -323,6 +344,54 @@ def test_commit_touches_checks_the_claim(feature_repo):
 def test_commit_files_lists_the_changed_set(feature_repo):
     sha = gitx.rev_parse(feature_repo, "HEAD")
     assert gitx.commit_files(feature_repo, sha) == ["src/app.py"]
+
+
+def test_commit_files_preserves_non_ascii_paths(tmp_repo):
+    """Under default ``core.quotePath`` git C-quotes ``café.txt`` into
+    ``"caf\\303\\251.txt"`` — a path that exists nowhere — unless asked for
+    NUL-delimited output, the same way ``changed_files`` already asks."""
+    git("switch", "-c", "feature/non-ascii-commit", cwd=tmp_repo)
+    write(tmp_repo, "café.txt", "changed\n")
+    sha = commit_all(tmp_repo, "add non-ascii path")
+
+    assert gitx.commit_files(tmp_repo, sha) == ["café.txt"]
+
+
+def test_git_is_invoked_through_an_absolute_executable_path(tmp_repo, monkeypatch):
+    """Handed a bare name, Windows' ``CreateProcess`` searches the parent's
+    current directory before PATH — for this tool, the repository under
+    validation. A repo-committed ``git.exe`` must never be the git that
+    validates the repository that ships it; an absolute path leaves no search."""
+    recorded: list[str] = []
+    real_run = subprocess.run
+
+    def recording_run(argv, **kwargs):
+        recorded.append(argv[0])
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(gitx.subprocess, "run", recording_run)
+
+    gitx.current_branch(tmp_repo)
+
+    assert recorded
+    assert all(os.path.isabs(program) for program in recorded)
+
+
+def test_the_git_executable_is_resolved_on_path_exactly_once(tmp_repo, monkeypatch):
+    calls: list[str] = []
+    real_resolve = command_plan.resolve_on_path
+
+    def counting_resolve(program: str) -> str | None:
+        calls.append(program)
+        return real_resolve(program)
+
+    monkeypatch.setattr(gitx, "_RESOLVED_GIT", None, raising=False)
+    monkeypatch.setattr(gitx, "resolve_on_path", counting_resolve, raising=False)
+
+    gitx.current_branch(tmp_repo)
+    gitx.rev_parse(tmp_repo, "HEAD")
+
+    assert calls == ["git"]
 
 
 def test_is_ancestor_reflects_history(feature_repo):

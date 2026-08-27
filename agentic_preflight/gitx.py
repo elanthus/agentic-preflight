@@ -15,12 +15,32 @@ import tempfile
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
+from agentic_preflight.stages.command import resolve_on_path
+
 # `git merge-tree --write-tree` landed in Git 2.38.
 _WRITE_TREE_MINIMUM = (2, 38)
 
-# Deliberately not cached. It is read at most twice per run, so a process-wide
-# cache would trade an unmeasurable saving for global state that leaks between
-# tests.
+# Git output is repository data and repositories contain latin-1, so decoding
+# must never be able to crash the command that read it. ``backslashreplace``
+# keeps the mojibake visible as ``\xe9`` instead of raising, and round-trips
+# through the one place that re-encodes (``commit_patch_id``'s stdin).
+_DECODE_ERRORS = "backslashreplace"
+
+# Resolved once per process. Handed a bare name, Windows' ``CreateProcess``
+# searches the parent's current directory before PATH — for this tool, the
+# repository under validation — so a repo-committed ``git.exe`` could become
+# the git that validates the repository that ships it. POSIX ``execvp``
+# searches PATH only; the absolute path pins Windows to the same rule.
+_RESOLVED_GIT: str | None = None
+
+
+def _git_executable() -> str:
+    global _RESOLVED_GIT
+    if _RESOLVED_GIT is None:
+        # The bare-name fallback preserves the original "git is missing"
+        # failure: subprocess raises FileNotFoundError exactly where it did.
+        _RESOLVED_GIT = resolve_on_path("git") or "git"
+    return _RESOLVED_GIT
 
 
 class GitError(Exception):
@@ -35,11 +55,12 @@ class GitError(Exception):
 
 def run(cwd: Path | str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     result = subprocess.run(
-        ["git", *args],
+        [_git_executable(), *args],
         cwd=str(cwd),
         capture_output=True,
         text=True,
         encoding="utf-8",
+        errors=_DECODE_ERRORS,
     )
     if check and result.returncode != 0:
         raise GitError(list(args), result.returncode, result.stderr)
@@ -96,7 +117,12 @@ def is_ancestor(cwd: Path | str, maybe_ancestor: str, descendant: str) -> bool:
 
 
 def version(cwd: Path | str = ".") -> tuple[int, int] | None:
-    """``(major, minor)`` of the git binary, or ``None`` if it cannot be read."""
+    """``(major, minor)`` of the git binary, or ``None`` if it cannot be read.
+
+    Deliberately not cached. It is read at most twice per run, so a
+    process-wide cache would trade an unmeasurable saving for global state
+    that leaks between tests.
+    """
     result = run(cwd, "--version", check=False)
     if result.returncode != 0:
         return None
@@ -120,22 +146,24 @@ def _merge_tree_via_index(cwd: Path | str, left: str, right: str) -> str | None:
     with tempfile.TemporaryDirectory(prefix="agentic-preflight-merge-") as temp_dir:
         env = {**os.environ, "GIT_INDEX_FILE": str(Path(temp_dir) / "index")}
         merged = subprocess.run(
-            ["git", "read-tree", "-m", base, left, right],
+            [_git_executable(), "read-tree", "-m", base, left, right],
             cwd=str(cwd),
             env=env,
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors=_DECODE_ERRORS,
         )
         if merged.returncode != 0:
             return None
         written = subprocess.run(
-            ["git", "write-tree"],
+            [_git_executable(), "write-tree"],
             cwd=str(cwd),
             env=env,
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors=_DECODE_ERRORS,
         )
         if written.returncode != 0:
             return None
@@ -208,8 +236,14 @@ def commit_exists(cwd: Path | str, sha: str) -> bool:
 
 
 def commit_files(cwd: Path | str, sha: str) -> list[str]:
-    """Paths changed by a single commit."""
-    return _lines(out(cwd, "diff-tree", "--no-commit-id", "--name-only", "-r", sha))
+    """Paths changed by a single commit.
+
+    NUL-delimited for the same reason as ``changed_files``: under default
+    ``core.quotePath`` a non-ASCII path comes back C-quoted, naming a file
+    that exists nowhere.
+    """
+    output = run(cwd, "diff-tree", "--no-commit-id", "--name-only", "-z", "-r", sha).stdout
+    return [path for path in output.split("\0") if path]
 
 
 def commit_touches(cwd: Path | str, sha: str, path: str) -> bool:
@@ -240,12 +274,13 @@ def commit_patch_id(cwd: Path | str, sha: str) -> str | None:
         sha,
     ).stdout
     result = subprocess.run(
-        ["git", "patch-id", "--stable"],
+        [_git_executable(), "patch-id", "--stable"],
         cwd=str(cwd),
         input=patch,
         capture_output=True,
         text=True,
         encoding="utf-8",
+        errors=_DECODE_ERRORS,
     )
     if result.returncode != 0:
         raise GitError(["patch-id", "--stable"], result.returncode, result.stderr)
