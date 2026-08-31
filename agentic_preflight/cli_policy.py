@@ -9,7 +9,7 @@ from pathlib import Path
 import click
 
 from . import runs
-from .cli_support import command, finish
+from .cli_support import command, finish, finish_locked
 from .envelope import Envelope, ExitCode
 from .errors import AttestationFailed, NeedsHuman
 from .gitx import GitError
@@ -51,8 +51,7 @@ def verify(sha: str | None) -> None:
             )
         )
         return
-    session = runs.open_session()
-    finish(runs.verify(session))
+    finish_locked(runs.verify)
 
 
 @click.command("approval-check")

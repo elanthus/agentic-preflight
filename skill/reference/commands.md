@@ -14,6 +14,9 @@ envelope and is not an agent-facing command.
 `next` is `null` only when there is genuinely nothing left to do. `error` is `null`
 when `ok` is `true`.
 
+Place `--run RUN_ID` before any workflow command to select a stored run explicitly.
+Without it, the command resolves the run owned by the invoking Git worktree.
+
 ## Setup
 
 ### `agentic-preflight init [--force] [--no-hook]`
@@ -52,12 +55,18 @@ preserved unless `--force` is explicit. At least one agent or custom target is r
 
 ## Running a gate
 
-### `agentic-preflight start --intent TEXT [--base-ref REF]`
+### `agentic-preflight start --intent TEXT [--base-ref REF] [--replace]`
 Creates a run and prepares its validation checkout. The default `[worktree] mode =
 "in_place"` validates directly in the current clean PR checkout. `mode = "reusable"`
 uses one serial isolated runner and preserves ignored caches between leases. `mode =
 "strict"` creates and removes a fresh isolated worktree per run.
 The intent is required and persisted as the user's objective and acceptance criteria.
+Different linked source worktrees may run gates concurrently. Repeating `start` with the
+same head, intent, base, and effective configuration resumes that worktree's existing run.
+A moved source head orphans the stale run without deleting its evidence or fixes and then
+starts fresh. On an unchanged head, a different intent or configuration requires
+`--replace`, which preserves the replaced run as `ORPHANED`. Age alone never expires a
+run.
 Before review, the command fetches the configured base from `origin` when available and
 rebases the validation checkout onto that exact fresh base. In-place mode therefore
 rebases the PR branch itself. A sync conflict is aborted
@@ -252,7 +261,8 @@ access, and is not a security boundary.
 
 ### `agentic-preflight finish`
 Marks a pushed validation run `DONE`. It preserves the run directory and
-audit logs, clears the current-run pointer, and directs the next step to `gc`.
+audit logs, clears only that run's worktree ownership pointers, and directs the next step
+to `gc`.
 
 Pull-request creation and hosted CI monitoring are deliberately outside this CLI. On
 GitHub, automatic PR mode uses `gh pr create`, `gh pr checks`, and `gh run view` after
@@ -262,11 +272,12 @@ request.
 
 ## Inspection and recovery
 
-### `agentic-preflight status`
+### `agentic-preflight status [--all]`
 Legal in **every** state and the universal recovery entry point. Reports state, seq,
 findings, staleness, worktree path, and the gate token. Never raises for a wedged run.
 In `MERGEBACK_CONFLICT`, it replays the durable conflict report and points back to the
 legal `mergeback` retry.
+`--all` inventories stored and active runs across every linked worktree in the clone.
 
 ### `agentic-preflight logs --stage review|lint|test`
 Full captured output. Copied-file contents are redacted.
@@ -284,6 +295,9 @@ each fix commit is compared by stable patch ID with commits in that run's
 post-mergeback history. Patch-equivalent cherry-picks are safe to reclaim; anything
 with no equivalent remains reported as unmerged and is never removed without
 `--force`. Run directories and their audit logs are retained.
+It marks a nonterminal run `ORPHANED` when its source worktree disappeared, its source
+head moved, or its ownership pointer vanished, but only when no command is executing.
+Orphaning releases ownership; cleanup remains a separate preserve-first decision.
 
 ### `agentic-preflight hook-check`
 The pre-push predicate. Reads git's stdin protocol, consults only the commit's

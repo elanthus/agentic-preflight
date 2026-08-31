@@ -65,7 +65,7 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
         doc.worktree_released = True
         run = doc
 
-    session.store.set_current(None)
+    session.store.clear_run(run.run_id)
     session.store.append_event(run.run_id, {"event": "aborted", "forced": force})
 
     return _envelope_for(
@@ -96,6 +96,12 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
     repo = session.repo_root
 
     known_runs = set(store.list_runs())
+    active = store.list_active()
+    for owner_id, active_run_id in list(active.items()):
+        if active_run_id not in known_runs:
+            store.clear_active_if(owner_id, active_run_id)
+            active.pop(owner_id, None)
+    active_run_ids = set(active.values())
     live_worktrees = {
         record["branch"].removeprefix("refs/heads/ap/"): record["worktree"]
         for record in gitx.list_worktrees(repo)
@@ -115,6 +121,51 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
         run = store.load_run(run_id)
         terminal = run.state in (State.ABORTED, State.DONE, State.ORPHANED)
         if not terminal:
+            source_missing = bool(
+                run.source_worktree_path and not Path(run.source_worktree_path).exists()
+            )
+            source_alias_missing = bool(
+                run.source_worktree_id
+                and active.get(run.source_worktree_id) != run.run_id
+            )
+            start_in_progress = run.state in {
+                State.CREATED,
+                State.WORKTREE_READY,
+                State.SYNC_RUNNING,
+            }
+            stale = not start_in_progress and _head_moved(session, run) is not None
+            abandoned_reason = None
+            if source_missing:
+                abandoned_reason = "source worktree disappeared"
+            elif source_alias_missing:
+                abandoned_reason = "source worktree lease disappeared"
+            elif stale:
+                abandoned_reason = "source worktree moved"
+            elif run.run_id not in active_run_ids:
+                abandoned_reason = "run has no active worktree lease"
+
+            if abandoned_reason:
+                with store.try_operation(run_id) as idle:
+                    if idle:
+                        with store.transaction(run_id) as doc:
+                            _apply(doc, Action.ORPHAN)
+                            doc.orphaned_reason = abandoned_reason
+                            run = doc
+                        store.clear_run(run_id)
+                        store.append_event(
+                            run_id, {"event": "orphaned", "reason": abandoned_reason}
+                        )
+                        terminal = True
+                    else:
+                        retained.append(
+                            {
+                                "run_id": run_id,
+                                "reason": "run command is still executing",
+                            }
+                        )
+                        continue
+
+        if not terminal:
             # An active run is never a reclamation candidate, but one holding
             # fix commits is worth surfacing so it is not forgotten about.
             if run.fix_commits:
@@ -126,6 +177,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
                     }
                 )
             continue
+        store.clear_run(run_id)
         if run.fix_commits and not force and not _is_in_place(run, session.config):
             # Only DONE proves mergeback and publication completed. Aborted or
             # orphaned runs must retain every fix even if an unrelated commit
@@ -158,16 +210,13 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
         if run_id not in known_runs and run_id not in orphans:
             orphans.append(run_id)
 
-    current = store.get_current()
-    if current and current not in known_runs:
-        store.set_current(None)
-
     return Envelope(
         data={
             "removed": removed,
             "retained": retained,
             "orphans": orphans,
             "runs_known": sorted(known_runs),
+            "active": store.list_active(),
         },
         next_instruction=("Orphans were found; inspect them before removing." if orphans else None),
         next_command="agentic-preflight gc --force" if orphans and not force else None,
@@ -200,13 +249,37 @@ def _unlanded_fix_commits(repo: Path, run: RunDoc) -> list[str]:
         return list(run.fix_commits)
 
 
-def status(session: Session) -> Envelope:
+def status(session: Session, *, all_runs: bool = False) -> Envelope:
     """Legal in every state, and the universal recovery entry point.
 
     Deliberately never raises for a stale or wedged run: if `status` could fail,
     an agent that had wandered off the path would have nowhere to go.
     """
-    run_id = session.store.get_current()
+    if all_runs:
+        active = session.store.list_active()
+        active_run_ids = set(active.values())
+        summaries = []
+        for known_run_id in session.store.list_runs():
+            try:
+                known = session.store.load_run(known_run_id)
+            except Exception:  # noqa: BLE001 - inventory must survive one corrupt record
+                summaries.append({"run_id": known_run_id, "corrupt": True})
+                continue
+            summaries.append(
+                {
+                    "run_id": known.run_id,
+                    "state": known.state.value,
+                    "branch": known.branch,
+                    "source_worktree_path": known.source_worktree_path,
+                    "worktree_path": known.worktree_path,
+                    "active": known.run_id in active_run_ids,
+                    "orphaned_reason": known.orphaned_reason,
+                    "updated_at": known.updated_at,
+                }
+            )
+        return Envelope(data={"active": active, "runs": summaries, "count": len(summaries)})
+
+    run_id = session.active_run_id()
     if not run_id:
         return Envelope(
             data={"has_run": False},
@@ -217,9 +290,26 @@ def status(session: Session) -> Envelope:
     try:
         run = session.store.load_run(run_id)
     except Exception:  # noqa: BLE001 - status is the recovery path for corrupt state
+        if session.selected_run_id is None:
+            session.store.clear_active_if(session.owner_id, run_id)
         return Envelope(
             data={"has_run": False, "dangling_run_id": run_id},
             next_instruction="The recorded run is missing. Start a fresh one.",
+            next_command=START_COMMAND,
+        )
+
+    if (
+        run.state in (State.ABORTED, State.DONE, State.ORPHANED)
+        and session.selected_run_id is None
+    ):
+        session.store.clear_run(run.run_id)
+        return Envelope(
+            data={
+                "has_run": False,
+                "previous_run_id": run.run_id,
+                "previous_state": run.state.value,
+            },
+            next_instruction="The previous run is terminal. Start a new one.",
             next_command=START_COMMAND,
         )
 
@@ -257,6 +347,9 @@ def status(session: Session) -> Envelope:
             "current_tip": tip or run.head_sha,
             "stale": stale,
             "worktree_path": run.worktree_path,
+            "source_worktree_id": run.source_worktree_id,
+            "source_worktree_path": run.source_worktree_path,
+            "owner_ids": run.owner_ids,
             "worktree_branch": run.worktree_branch,
             "worktree_mode": _worktree_mode(run, session.config),
             "worktree_released": run.worktree_released,
@@ -284,11 +377,18 @@ def status(session: Session) -> Envelope:
     )
     if stale:
         envelope.next_instruction = (
-            "This run is stale: the branch moved after review began. Abort it to release "
-            "the active-run lease; the abort response preserves the intent and returns "
-            "the legal fresh-start command."
+            "This run is stale: the source worktree moved after review began. From that "
+            "source worktree, start again with the same intent; the stale run will be "
+            "preserved as ORPHANED."
         )
-        envelope.next_command = "agentic-preflight abort --force"
+        envelope.next_command = shlex.join(
+            [
+                "agentic-preflight",
+                "start",
+                "--intent",
+                run.intent or "<objective and acceptance criteria>",
+            ]
+        )
     elif run.setup_failure is not None:
         envelope.next_instruction = run.setup_failure.next_instruction
         envelope.next_command = run.setup_failure.next_command

@@ -90,7 +90,7 @@ class StaleWrite(StoreError):
 
 
 class CurrentRunExists(StoreError):
-    """A repository-wide run lease is already held."""
+    """A worktree-scoped run lease is already held."""
 
     def __init__(self, run_id: str) -> None:
         super().__init__(f"run {run_id} is already active")
@@ -187,7 +187,15 @@ class Store:
 
     @property
     def current_path(self) -> Path:
+        """The pre-v0.6 repository-wide pointer retained for migration."""
         return self.root / "current"
+
+    @property
+    def active_dir(self) -> Path:
+        return self.root / "active"
+
+    def active_path(self, owner_id: str) -> Path:
+        return self.active_dir / f"{owner_id}.run"
 
     @property
     def worktrees_dir(self) -> Path:
@@ -274,40 +282,102 @@ class Store:
         lines = path.read_text(encoding="utf-8").splitlines()
         return [json.loads(line) for line in lines if line.strip()]
 
-    # -- current pointer -----------------------------------------------------
+    # -- active-run pointers -------------------------------------------------
 
     @contextmanager
-    def _current_lock(self) -> Iterator[None]:
-        with filelock.exclusive(self.root / ".current.lock"):
+    def _active_lock(self, owner_id: str) -> Iterator[None]:
+        with filelock.exclusive(self.active_dir / f"{owner_id}.lock"):
             yield
 
-    def _set_current_unlocked(self, run_id: str | None) -> None:
+    def _set_active_unlocked(self, owner_id: str, run_id: str | None) -> None:
+        path = self.active_path(owner_id)
         if run_id is None:
-            self.current_path.unlink(missing_ok=True)
+            path.unlink(missing_ok=True)
             return
-        _atomic_write(self.current_path, run_id + "\n")
+        _atomic_write(path, run_id + "\n")
 
-    def set_current(self, run_id: str | None) -> None:
-        with self._current_lock():
-            self._set_current_unlocked(run_id)
+    def set_active(self, owner_id: str, run_id: str | None) -> None:
+        with self._active_lock(owner_id):
+            self._set_active_unlocked(owner_id, run_id)
 
-    def claim_current(self, run_id: str) -> None:
-        """Atomically claim the repository's single active-run lease."""
-        with self._current_lock():
-            current = self.get_current()
+    def claim_active(self, owner_id: str, run_id: str) -> None:
+        """Atomically claim one worktree's active-run lease."""
+        with self._active_lock(owner_id):
+            current = self.get_active(owner_id)
             if current:
                 raise CurrentRunExists(current)
-            self._set_current_unlocked(run_id)
+            self._set_active_unlocked(owner_id, run_id)
 
-    def clear_current_if(self, run_id: str) -> bool:
+    def clear_active_if(self, owner_id: str, run_id: str) -> bool:
         """Release only the caller's lease, never a newer run's pointer."""
-        with self._current_lock():
-            if self.get_current() != run_id:
+        with self._active_lock(owner_id):
+            if self.get_active(owner_id) != run_id:
                 return False
-            self._set_current_unlocked(None)
+            self._set_active_unlocked(owner_id, None)
             return True
 
-    def get_current(self) -> str | None:
-        if not self.current_path.exists():
+    def get_active(self, owner_id: str) -> str | None:
+        path = self.active_path(owner_id)
+        try:
+            payload = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
             return None
-        return self.current_path.read_text(encoding="utf-8").strip() or None
+        return payload.strip() or None
+
+    def list_active(self) -> dict[str, str]:
+        if not self.active_dir.exists():
+            return {}
+        active: dict[str, str] = {}
+        for path in self.active_dir.glob("*.run"):
+            try:
+                run_id = path.read_text(encoding="utf-8").strip()
+            except FileNotFoundError:
+                continue
+            if run_id:
+                active[path.stem] = run_id
+        return active
+
+    def clear_run(self, run_id: str) -> list[str]:
+        """Release every worktree alias still pointing at ``run_id``."""
+        cleared: list[str] = []
+        for owner_id, active_run_id in self.list_active().items():
+            if active_run_id == run_id and self.clear_active_if(owner_id, run_id):
+                cleared.append(owner_id)
+        return cleared
+
+    def migrate_legacy_current(self, owner_id: str) -> str | None:
+        """Move the old clone-wide pointer to the invoking worktree once."""
+        with filelock.exclusive(self.root / ".current.lock"):
+            if not self.current_path.exists():
+                return self.get_active(owner_id)
+            run_id = self.current_path.read_text(encoding="utf-8").strip()
+            if not run_id:
+                self.current_path.unlink(missing_ok=True)
+                return self.get_active(owner_id)
+            with self._active_lock(owner_id):
+                current = self.get_active(owner_id)
+                if current is None:
+                    self._set_active_unlocked(owner_id, run_id)
+                    current = run_id
+            self.current_path.unlink(missing_ok=True)
+            return current
+
+    @contextmanager
+    def operation(self, run_id: str) -> Iterator[None]:
+        """Serialize a complete mutating command for one run."""
+        with filelock.exclusive(self.run_dir(run_id) / ".operation.lock"):
+            yield
+
+    @contextmanager
+    def try_operation(self, run_id: str) -> Iterator[bool]:
+        """Probe whether a run is between commands without waiting for it."""
+        with filelock.try_exclusive(self.run_dir(run_id) / ".operation.lock") as acquired:
+            yield acquired
+
+    @contextmanager
+    def resource(self, name: str) -> Iterator[None]:
+        """Serialize a narrow clone-wide Git or runner resource."""
+        if not name.replace("-", "").isalnum():
+            raise ValueError(f"invalid resource lock name: {name!r}")
+        with filelock.exclusive(self.root / "resources" / f"{name}.lock"):
+            yield

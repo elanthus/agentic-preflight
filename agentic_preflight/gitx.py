@@ -105,6 +105,12 @@ def git_common_dir(cwd: Path | str) -> Path:
     return Path(raw)
 
 
+def git_dir(cwd: Path | str) -> Path:
+    """The private Git directory for this specific worktree."""
+    raw = out(cwd, "rev-parse", "--path-format=absolute", "--git-dir")
+    return Path(raw)
+
+
 def repo_root(cwd: Path | str) -> Path:
     return Path(out(cwd, "rev-parse", "--show-toplevel"))
 

@@ -160,6 +160,13 @@ untouched during verification. All three, along with dependency handling and sec
 protection, are described in the
 [worktree-modes guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.0/docs/worktree-modes.md).
 
+Run ownership is scoped to that source worktree, not the clone. Multiple agents can gate
+different PR branches concurrently from linked worktrees; `status` in each checkout
+resolves its own run. A matching repeated `start` resumes the existing run, while a moved
+source head automatically orphans the stale record without deleting its logs or isolated
+fixes. Use `status --all` to inventory the clone and `agentic-preflight --run RUN_ID ...`
+to inspect or recover a specific stored run.
+
 ## The pre-push hook
 
 `init` installs a pre-push hook that blocks a pushed ref when its tip has no green run

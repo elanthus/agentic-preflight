@@ -38,9 +38,13 @@ def _use_utf8_streams() -> None:
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option(package_name="agentic-preflight")
-def main() -> None:
+@click.option("--run", "run_id", default=None, help="Operate on a specific stored run.")
+@click.pass_context
+def main(ctx: click.Context, run_id: str | None) -> None:
     """Agent-driven quality gate. Every command prints one JSON object."""
     _use_utf8_streams()
+    ctx.ensure_object(dict)
+    ctx.obj["run_id"] = run_id
 
 
 register_runs(main)

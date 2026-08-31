@@ -97,14 +97,42 @@ def test_start_stops_when_the_setup_command_fails(agent, feature_repo):
     assert agent.run("abort", "--force")["state"] == "ABORTED"
 
 
-def test_start_refuses_a_second_lease_while_a_run_is_active(agent):
+def test_start_resumes_a_matching_run_in_the_same_worktree(agent):
     first = agent.run("start")
 
-    env = agent.run("start", expect=ExitCode.PRECONDITION)
+    env = agent.run("start")
+
+    assert env["run_id"] == first["run_id"]
+    assert env["data"]["resumed"] is True
+
+
+def test_start_requires_replace_for_a_different_intent_in_the_same_worktree(agent):
+    first = agent.run("start", "--intent", "first objective")
+
+    env = agent.run(
+        "start", "--intent", "different objective", expect=ExitCode.PRECONDITION
+    )
 
     assert env["error"]["code"] == "wrong_state"
     assert env["run_id"] == first["run_id"]
-    assert env["next"]["command"] == "agentic-preflight status"
+    assert "--replace" in env["next"]["command"]
+
+
+def test_replace_orphans_the_old_run_without_deleting_it(agent, feature_repo):
+    first = agent.run("start", "--intent", "first objective")
+
+    second = agent.run(
+        "start", "--replace", "--intent", "different objective"
+    )
+
+    assert second["run_id"] != first["run_id"]
+    state_root = (
+        Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo))
+        / "agentic-preflight"
+    )
+    old = json.loads((state_root / "runs" / first["run_id"] / "run.json").read_text())
+    assert old["state"] == "ORPHANED"
+    assert old["orphaned_reason"] == "replaced by a new start"
 
 
 def test_start_refuses_when_the_branch_has_no_commits_over_base(tmp_repo):
@@ -448,12 +476,10 @@ def test_a_moved_head_marks_the_run_stale_and_refuses_to_continue(agent, feature
         expect=ExitCode.PRECONDITION,
     )
     assert env["error"]["code"] == "stale_run"
-    assert env["next"]["command"] == "agentic-preflight abort --force"
+    assert env["next"]["command"].startswith("agentic-preflight start --intent")
 
-    aborted = agent.run("abort", "--force")
-    assert "start" in aborted["next"]["command"]
-    assert "--intent" in aborted["next"]["command"]
-    assert "exercise the requested behavior safely" in aborted["next"]["command"]
+    fresh = agent.run("start")
+    assert fresh["run_id"] != env["run_id"]
 
 
 def test_status_still_works_on_a_stale_run(agent, feature_repo):
@@ -462,7 +488,7 @@ def test_status_still_works_on_a_stale_run(agent, feature_repo):
     commit_all(feature_repo, "move the head")
     env = agent.run("status")
     assert env["data"]["stale"] is True
-    assert env["next"]["command"] == "agentic-preflight abort --force"
+    assert env["next"]["command"].startswith("agentic-preflight start --intent")
 
 
 def test_status_uses_the_snapshot_when_working_copy_config_breaks(agent, feature_repo):

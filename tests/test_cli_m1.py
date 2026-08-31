@@ -503,7 +503,9 @@ def test_gc_reconciles_a_worktree_with_no_run_directory(agent, feature_repo):
     )
 
     shutil.rmtree(state_root / "runs" / run_id)
-    (state_root / "current").unlink()
+    for pointer in (state_root / "active").glob("*.run"):
+        if pointer.read_text(encoding="utf-8").strip() == run_id:
+            pointer.unlink()
 
     env = agent.run("gc")
     assert run_id in env["data"]["orphans"]

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import shlex
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -29,23 +31,38 @@ class Session:
     """Everything a command needs about *where* it is running."""
 
     repo_root: Path
+    caller_root: Path
+    owner_id: str
     store: Store
     config: Config
+    selected_run_id: str | None = None
+
+    def active_run_id(self) -> str | None:
+        return self.selected_run_id or self.store.get_active(self.owner_id)
 
 
-def open_session(cwd: Path | str | None = None) -> Session:
+def worktree_identity(cwd: Path | str) -> str:
+    """Return a stable, filesystem-safe identity for one linked worktree."""
+    private_git_dir = gitx.git_dir(cwd).resolve()
+    return hashlib.sha256(str(private_git_dir).encode()).hexdigest()
+
+
+def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) -> Session:
     cwd = Path(cwd) if cwd else Path.cwd()
-    repo_root = gitx.repo_root(cwd)
+    caller_root = gitx.repo_root(cwd)
     # GIT_COMMON_DIR, not GIT_DIR: these differ when the caller is already
     # inside a worktree, and run state must be one namespace per clone.
     state_root = gitx.git_common_dir(cwd) / STATE_DIR_NAME
     store = Store(state_root)
+    owner_id = worktree_identity(caller_root)
+    store.migrate_legacy_current(owner_id)
 
     # Once a run exists, its resolved snapshot is authoritative. This also
     # keeps a malformed or edited working-copy config from stranding `status`
     # or silently reshaping an in-flight gate.
     cfg = None
-    current = store.get_current()
+    current = run_id or store.get_active(owner_id)
+    active = None
     if current:
         try:
             active = store.load_run(current)
@@ -53,10 +70,22 @@ def open_session(cwd: Path | str | None = None) -> Session:
                 cfg = Config.model_validate(active.config_snapshot)
         except Exception:  # noqa: BLE001,S110 - a corrupt snapshot falls back to repo config
             pass
+    repo_root = caller_root
+    if active is not None and active.source_worktree_path:
+        source = Path(active.source_worktree_path)
+        if source.exists():
+            repo_root = source
     cfg = cfg or load_config(repo_root)
     if cfg.worktree.mode != "in_place":
         store.set_worktrees_root(worktree.resolve_root(repo_root, cfg.worktree.root))
-    return Session(repo_root=repo_root, store=store, config=cfg)
+    return Session(
+        repo_root=repo_root,
+        caller_root=caller_root,
+        owner_id=owner_id,
+        store=store,
+        config=cfg,
+        selected_run_id=run_id,
+    )
 
 
 def _now() -> str:
@@ -135,7 +164,7 @@ def _envelope_for(run: RunDoc, **overrides) -> Envelope:
 
 
 def _load_current(session: Session) -> RunDoc:
-    run_id = session.store.get_current()
+    run_id = session.active_run_id()
     if not run_id:
         raise NoRun()
     try:
@@ -146,9 +175,10 @@ def _load_current(session: Session) -> RunDoc:
 
 def _head_moved(session: Session, run: RunDoc) -> str | None:
     """Return the current tip if it differs from the reviewed one."""
+    source = Path(run.source_worktree_path) if run.source_worktree_path else session.repo_root
     try:
-        tip = gitx.rev_parse(session.repo_root, run.branch)
-    except gitx.GitError:
+        tip = gitx.rev_parse(source, "HEAD")
+    except (gitx.GitError, OSError):
         return None
     expected = run.source_head_sha or run.head_sha
     return None if tip == expected else tip
@@ -166,10 +196,17 @@ def _assert_fresh(session: Session, run: RunDoc) -> None:
         state=run.state.value,
         run_id=run.run_id,
         next_instruction=(
-            "Abort the stale run to release its lease. The abort response preserves the "
-            "intent and returns the legal fresh-start command."
+            "Start again from the source worktree with the same intent. The stale run "
+            "will be preserved as ORPHANED before the fresh run begins."
         ),
-        next_command="agentic-preflight abort --force",
+        next_command=shlex.join(
+            [
+                "agentic-preflight",
+                "start",
+                "--intent",
+                run.intent or "<objective and acceptance criteria>",
+            ]
+        ),
     )
 
 

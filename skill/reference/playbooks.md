@@ -38,9 +38,21 @@ reaches green. Push through the gate again, then resume check monitoring with `g
 ## Stale head (exit 3, `stale_run`)
 
 The branch moved after review began, so everything verified so far describes a tree
-that no longer exists. There is no partial recovery: run `agentic-preflight abort
---force`, then run the fresh `start` command from the abort response. It preserves the
-original user intent.
+that no longer exists. Run `agentic-preflight start` again with the original intent from
+the source worktree. `start` marks the stale run `ORPHANED`, preserves its evidence and
+isolated fixes, and creates the fresh run. Use `status --all` and
+`agentic-preflight --run RUN_ID status` when the old run needs inspection.
+
+## Abandoned run
+
+Do not infer abandonment from elapsed time. A run may legitimately wait for user input.
+`gc` only orphans a nonterminal run when its source worktree disappeared, its source head
+moved, or its worktree ownership pointer vanished, and it refuses while a command is
+executing. A repeated matching `start` resumes the run; a different intent on the same
+head requires the explicit `start --replace` returned by the error envelope. Orphaning
+itself never deletes logs, findings, validation worktrees, or fix commits. A subsequent
+`gc` may reclaim a terminal validator with no unmerged fixes; fix-bearing work remains
+retained unless `--force` is explicit.
 
 ## Diff too large (exit 2, `diff_too_large`)
 

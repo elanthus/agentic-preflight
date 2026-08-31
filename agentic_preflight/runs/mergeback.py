@@ -248,7 +248,8 @@ def mergeback(session: Session) -> Envelope:
         docs_enabled=session.config.docs.enabled,
         findings_summary=summary,
     )
-    attestationmod.write(session.repo_root, entry)
+    with session.store.resource("notes"):
+        attestationmod.write(session.repo_root, entry)
 
     with session.store.transaction(run.run_id) as doc:
         doc.head_sha = result.post_sha

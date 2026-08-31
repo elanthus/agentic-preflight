@@ -78,7 +78,7 @@ class NoRun(AgenticError):
     code = "no_run"
     exit_code = ExitCode.PRECONDITION
 
-    def __init__(self, message: str = "no active run in this repository") -> None:
+    def __init__(self, message: str = "no active run for this worktree") -> None:
         super().__init__(
             message,
             next_instruction="Start a run first.",

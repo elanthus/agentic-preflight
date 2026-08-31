@@ -9,7 +9,7 @@ from pathlib import Path
 import click
 
 from . import runs
-from .cli_support import as_error, command, fail, finish
+from .cli_support import as_error, command, fail, finish, finish_locked, open_cli_session
 from .envelope import ExitCode
 
 
@@ -20,11 +20,17 @@ from .envelope import ExitCode
     default=None,
     help="The user's objective and acceptance criteria, in their own terms.",
 )
+@click.option(
+    "--replace",
+    is_flag=True,
+    help="Orphan a non-stale active run in this worktree and start a new one.",
+)
 @command
-def start(base_ref: str | None, intent: str | None) -> None:
+def start(base_ref: str | None, intent: str | None, replace: bool) -> None:
     """Create a run and prepare its validation checkout."""
-    session = runs.open_session()
-    finish(runs.start(session, base_ref=base_ref, intent=intent))
+    session = open_cli_session()
+    with session.store.resource(f"start-{session.owner_id}"):
+        finish(runs.start(session, base_ref=base_ref, intent=intent, replace=replace))
 
 
 @click.command()
@@ -32,8 +38,7 @@ def start(base_ref: str | None, intent: str | None) -> None:
 @command
 def context(section: str) -> None:
     """Return the material the agent needs to judge this stage."""
-    session = runs.open_session()
-    finish(runs.context(session, section=section))
+    finish_locked(lambda session: runs.context(session, section=section))
 
 
 @click.command("submit-findings")
@@ -58,8 +63,7 @@ def submit_findings(file_path: str) -> None:
             )
         )
         return
-    session = runs.open_session()
-    finish(runs.submit_findings(session, payload))
+    finish_locked(lambda session: runs.submit_findings(session, payload))
 
 
 @click.group()
@@ -71,8 +75,7 @@ def review() -> None:
 @command
 def review_run() -> None:
     """Run the configured reviewer over the current review bundle."""
-    session = runs.open_session()
-    finish(runs.run_review_command(session))
+    finish_locked(runs.run_review_command)
 
 
 @click.command()
@@ -88,8 +91,11 @@ def review_run() -> None:
 @command
 def respond(finding_id: str, action: str, commit: str | None, note: str | None) -> None:
     """Resolve one finding. Claims about commits are verified, not trusted."""
-    session = runs.open_session()
-    finish(runs.respond(session, finding_id=finding_id, action=action, commit=commit, note=note))
+    finish_locked(
+        lambda session: runs.respond(
+            session, finding_id=finding_id, action=action, commit=commit, note=note
+        )
+    )
 
 
 @click.command()
@@ -97,7 +103,7 @@ def respond(finding_id: str, action: str, commit: str | None, note: str | None) 
 @command
 def events(limit: int | None) -> None:
     """The run's history, oldest first."""
-    session = runs.open_session()
+    session = open_cli_session()
     finish(runs.events(session, limit=limit))
 
 
@@ -105,16 +111,14 @@ def events(limit: int | None) -> None:
 @command
 def mergeback() -> None:
     """Cherry-pick verified fixes onto your branch. Never auto-resolves."""
-    session = runs.open_session()
-    finish(runs.mergeback(session))
+    finish_locked(runs.mergeback)
 
 
 @click.command()
 @command
 def gate() -> None:
     """Summarise what would be pushed and mint a confirmation token."""
-    session = runs.open_session()
-    finish(runs.gate(session))
+    finish_locked(runs.gate)
 
 
 @click.command()
@@ -123,16 +127,14 @@ def gate() -> None:
 @command
 def push(confirm: str | None, dry_run: bool) -> None:
     """Push the verified branch. Requires the gate token."""
-    session = runs.open_session()
-    finish(runs.push(session, confirm=confirm, dry_run=dry_run))
+    finish_locked(lambda session: runs.push(session, confirm=confirm, dry_run=dry_run))
 
 
 @click.command()
 @command
 def finish_run() -> None:
     """Mark a pushed validation run complete."""
-    session = runs.open_session()
-    finish(runs.finish(session))
+    finish_locked(runs.finish)
 
 
 @click.group()
@@ -148,8 +150,11 @@ def stage() -> None:
 @command
 def stage_run(name: str, command_str: str | None, record: bool, baseline: bool) -> None:
     """Run a stage. Pass/fail is the exit code and nothing else."""
-    session = runs.open_session()
-    finish(runs.run_stage(session, name, command=command_str, record=record, baseline=baseline))
+    finish_locked(
+        lambda session: runs.run_stage(
+            session, name, command=command_str, record=record, baseline=baseline
+        )
+    )
 
 
 @click.command()
@@ -157,7 +162,7 @@ def stage_run(name: str, command_str: str | None, record: bool, baseline: bool) 
 @command
 def logs(stage_name: str) -> None:
     """The full captured output of a stage."""
-    session = runs.open_session()
+    session = open_cli_session()
     finish(runs.logs(session, stage_name=stage_name))
 
 
@@ -166,8 +171,7 @@ def logs(stage_name: str) -> None:
 @command
 def abort(force: bool) -> None:
     """End the run and release its validation worktree."""
-    session = runs.open_session()
-    finish(runs.abort(session, force=force))
+    finish_locked(lambda session: runs.abort(session, force=force))
 
 
 @click.command()
@@ -175,16 +179,17 @@ def abort(force: bool) -> None:
 @command
 def gc(force: bool) -> None:
     """Reconcile run directories, git worktrees, and ap/* branches."""
-    session = runs.open_session()
+    session = open_cli_session()
     finish(runs.gc(session, force=force))
 
 
 @click.command()
+@click.option("--all", "all_runs", is_flag=True, help="List runs across every worktree.")
 @command
-def status() -> None:
+def status(all_runs: bool) -> None:
     """Where the run is and what to do next. Legal in every state."""
-    session = runs.open_session()
-    finish(runs.status(session))
+    session = open_cli_session()
+    finish(runs.status(session, all_runs=all_runs))
 
 
 COMMANDS = (

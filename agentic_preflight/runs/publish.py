@@ -163,14 +163,16 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
             next_command=f"agentic-preflight push --confirm {run.gate_token}",
         )
 
-    gitx.run(
-        session.repo_root,
-        "push",
-        "--atomic",
-        "origin",
-        f"{run.branch}:{run.branch}",
-        f"{NOTES_REF}:{NOTES_REF}",
-    )
+    with session.store.resource("notes"):
+        gitx.fetch_notes(session.repo_root, "origin", NOTES_REF)
+        gitx.run(
+            session.repo_root,
+            "push",
+            "--atomic",
+            "origin",
+            f"{run.branch}:{run.branch}",
+            f"{NOTES_REF}:{NOTES_REF}",
+        )
 
     with session.store.transaction(run.run_id) as doc:
         doc.pushed_sha = run.head_sha
@@ -203,7 +205,7 @@ def finish(session: Session) -> Envelope:
         doc.worktree_released = True
         run = doc
 
-    session.store.set_current(None)
+    session.store.clear_run(run.run_id)
     session.store.append_event(run.run_id, {"event": "finished"})
     pr_instruction = (
         " Run gc, then open or reuse the pull request with gh; auto PR mode is standing "
