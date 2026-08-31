@@ -266,10 +266,24 @@ def test_the_skill_documents_all_high_risk_approval_modes():
     assert '`mode = "manual_merge"` is the default' in configuration
 
 
-def test_an_explicit_cleanup_request_needs_no_second_approval():
+def test_automatic_prs_are_polled_and_cleaned_without_a_second_approval():
     text = SKILL.read_text(encoding="utf-8")
+    assert "[pr] automatedCleanup = true" in text
+    assert "automated_cleanup: true" in text
+    assert "automated_cleanup: false" in text
+    assert "stop after hosted checks" in text
+    assert "wait 60 seconds" in text
+    assert 'gh pr view "$PR_URL" --json' in text
+    assert "url,state,mergedAt,headRefName,headRefOid,baseRefName" in text
+    assert "never rely on the current branch" in text
+    assert "expected gated head commit" in text
+    assert "Re-resolve the local and remote source-branch tips" in text
+    assert "preserve both source branches" in text
+    assert "Do not ask for a separate cleanup confirmation" in text
+    assert "If the PR closes without" in text
+    assert "preserve every cleanup target" in text
     assert "cleanup in the same turn without asking again" in text
-    assert "delete the local PR source branch and the remote PR source branch" in text
+    assert "Delete either source branch" in text
 
 
 def test_the_skill_documents_the_project_uninstall_trigger_and_scope():

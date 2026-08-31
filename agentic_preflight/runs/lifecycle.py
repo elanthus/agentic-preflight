@@ -349,6 +349,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             "worktree_released": run.worktree_released,
             "config_digest": run.config_digest,
             "pr_mode": session.config.pr.mode,
+            "automated_cleanup": session.config.pr.automated_cleanup,
             "approval_mode": session.config.approval.mode,
             "gate_token": run.gate_token,
             "pushed_sha": run.pushed_sha,

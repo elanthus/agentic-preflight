@@ -59,6 +59,7 @@ def test_init_writes_a_config_file_if_absent(feature_repo):
     config = (Path(feature_repo) / ".agentic-preflight.toml").read_text(encoding="utf-8")
     assert "[pr]" in config
     assert 'mode = "auto"' in config
+    assert "automatedCleanup = true" in config
 
 
 def test_init_does_not_clobber_an_existing_config(feature_repo):

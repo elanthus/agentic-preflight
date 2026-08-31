@@ -62,6 +62,9 @@ mode = "token"
 # "auto" opens a pull request after the user approves the push gate. "manual"
 # leaves pull-request creation to the user and reports a compare URL instead.
 mode = "auto"
+# After an automatically opened PR is green, poll for its merge and perform the
+# disclosed run-scoped cleanup. Set false to require a later explicit request.
+automatedCleanup = true
 
 [approval]
 # High-risk changes default to a successful hosted check that requires a person

@@ -244,14 +244,18 @@ the exact commit. False returns to review with all snapshot-bound stage evidence
 
 ### `agentic-preflight gate`
 Mints a confirmation token and summarises the remote, refspec, branch, and commits.
-The summary also includes the configured PR mode and deterministic risk classification
-and verdict. An explicit request in the current task to push, publish, or create/open a
-pull request authorizes the matching push; show the summary and proceed without a second
+The summary also includes the configured PR mode, `automated_cleanup` setting, and
+deterministic risk classification and verdict. An explicit request in the current task
+to push, publish, or create/open a pull request authorizes the matching push; show the
+summary and proceed without a second
 confirmation. Otherwise ask whether to push, and ask again if the summary differs
 materially from what the user authorized. In `[pr] mode = "auto"`, the committed
 configuration is standing authorization to open or reuse the pull request automatically
-after the confirmed push and preflight finish. In manual PR mode, provide a compare URL
-instead. High risk does not change publication: after user confirmation, token mode may
+after the confirmed push and preflight finish. When `automated_cleanup` is true, the
+agent also enters the disclosed 60-second merge poll and run-scoped cleanup lifecycle;
+when false, it stops after hosted checks until the user explicitly requests cleanup. In
+manual PR mode, provide a compare URL instead. High risk does not change publication:
+after user confirmation, token mode may
 push it. The summary's `approval_mode` says whether the user must merge manually, a
 GitHub Environment must approve, or an eligible peer must approve the exact head. In
 `manual_merge`, never merge or enable auto-merge even when the hosted check is green.
@@ -272,10 +276,16 @@ audit logs, clears only that run's worktree ownership pointers, and directs the 
 to `gc`.
 
 Pull-request creation and hosted CI monitoring are deliberately outside this CLI. On
-GitHub, automatic PR mode uses `gh pr create`, `gh pr checks`, and `gh run view` after
-`finish`; manual PR mode provides a compare URL and never creates the PR. Branch cleanup
-remains an explicit, run-scoped host or forge operation authorized by the user's cleanup
-request.
+GitHub, automatic PR mode uses `gh pr create`, `gh pr checks`, and `gh run view`. When
+`automated_cleanup` is true, it also starts a 60-second `gh pr view` state poll after
+`finish`; when false, it stops after hosted checks until the user explicitly requests
+cleanup. Manual PR mode provides a compare URL and never creates the PR. Cleanup remains
+a run-scoped host or forge operation. For an automatically opened or reused PR with
+cleanup enabled, the skill discloses its exact targets before polling and performs that
+cleanup after GitHub verifies the merge. Monitoring always selects the recorded full PR
+URL, and source branches are deleted only when the PR, local branch, and remote branch
+still reference the disclosed gated head commit. A later explicit cleanup request
+authorizes the equivalent operation for other PRs.
 
 ## Inspection and recovery
 

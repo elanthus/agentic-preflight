@@ -29,7 +29,12 @@ Python here never calls a model — every judgment in this workflow is yours.
    materially different from what the user authorized, show the summary and wait for
    an actual answer. A generic request to implement, commit, or "proceed" is not push
    authorization. `[pr] mode = "auto"` is standing authorization to open or reuse the
-   pull request after the authorized push and preflight finish. With `mode = "manual"`,
+   pull request after the authorized push and preflight finish.
+   When `[pr] automatedCleanup = true` (the default), it also authorizes monitoring
+   that exact PR
+   until it reaches a terminal state and cleaning up the disclosed run-scoped targets
+   after GitHub verifies the PR was merged. When `[pr] automatedCleanup = false`, stop
+   after hosted checks and require an explicit cleanup request. With `mode = "manual"`,
    never open the PR for them.
 6. **Never resolve a merge-back conflict.** Paste the resolution block and stop.
 7. **Keep the validation checkout clean for the whole run.** The default
@@ -105,7 +110,7 @@ $ agentic-preflight mergeback
  "next":{"command":"agentic-preflight gate"}}
 
 $ agentic-preflight gate
-{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"a1b2c3d4","pr_mode":"auto","commits":[...]},
+{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"a1b2c3d4","pr_mode":"auto","automated_cleanup":true,"commits":[...]},
  "next":{"command":"agentic-preflight push --confirm a1b2c3d4"}}
 
 # Show the remote, branch, and commits. If this task explicitly requested a push,
@@ -116,9 +121,15 @@ $ agentic-preflight finish
 $ agentic-preflight gc
 
 # Auto PR mode: after preflight finishes, reuse an existing PR for the branch or
-# create one automatically without asking about PR creation.
+# create one automatically without asking about PR creation. Continue into the
+# polling and cleanup flow below only when automated_cleanup is true.
 $ gh pr create --title "Use constant-time password comparison" --body-file pr-body.md
 $ gh pr checks --watch
+$ gh pr view "$PR_URL" --json url,state,mergedAt,headRefName,headRefOid,baseRefName
+
+# While state is OPEN, wait 60 seconds and query those same fields again.
+# If it is MERGED, perform the disclosed run-scoped cleanup. If it is CLOSED
+# without mergedAt, stop without deleting anything.
 
 # Manual PR mode: never create it. Give the user the repository compare URL instead.
 ```
@@ -256,7 +267,12 @@ remote, branch, commit, or risk decision.
 
 In `[pr] mode = "auto"`, the committed configuration is standing authorization for PR
 creation. After the authorized push, `finish`, and `gc`, reuse an existing pull request
-for the branch or call `gh pr create` automatically without asking about the PR.
+for the branch or call `gh pr create` automatically without asking about the PR. When
+the gate reports `automated_cleanup: true`, disclose the exact cleanup scope, monitor
+that PR, and clean up automatically after GitHub reports it merged.
+Do not ask for a separate cleanup confirmation. When it reports
+`automated_cleanup: false`, stop after hosted checks without polling the merge state or
+deleting anything; cleanup requires a later explicit user request.
 
 In `[pr] mode = "manual"`, ask only whether to push. Afterward, never open a pull
 request; construct the forge compare URL from the repository URL, base branch, and head
@@ -282,11 +298,25 @@ decision you have already made as if it were a question.
 Branch names are often poor human-facing PR titles, so offer a concise title that
 describes the verified change before calling `gh pr create`.
 
-When an automatic pull request is opened or an existing one is reused, report its URL
-and tell the user exactly what a later cleanup request will do: verify that this PR was
-merged, switch a clean source checkout to the base branch when necessary, remove only
-this run's validation worktree and `ap/*` branch, delete the local PR branch and its
-remote branch, and fast-forward the base branch.
+When an automatic pull request is opened or an existing one is reused and
+`automated_cleanup` is true, report its URL and disclose the exact run-scoped cleanup
+targets before monitoring begins: the PR head and base branches,
+the expected gated head commit, this run's validation worktree and `ap/*` branch, the
+local PR branch, and its remote branch. Record the full PR URL as
+`PR_URL`, then query it explicitly with `gh pr view "$PR_URL" --json
+url,state,mergedAt,headRefName,headRefOid,baseRefName`; never rely on the current branch
+to select the PR. Require the returned URL, branches, and `headRefOid` to match the
+disclosed PR and gated commit. While it remains open, wait 60 seconds between identical
+queries; use the host's durable wait or recurring-task mechanism when available so
+monitoring survives an ordinary turn boundary. Do not poll more frequently, silently
+stop after checks pass, or impose an arbitrary timeout.
+
+If a check fails, inspect and repair it through the normal hosted-CI playbook, push the
+newly gated head, disclose and record that new expected head commit, and resume the same
+60-second PR-state loop. If the PR closes without being merged, stop monitoring and
+preserve every cleanup target. If the user cancels monitoring, stop without cleanup.
+Only a terminal `MERGED` state with a non-null `mergedAt` value advances to automatic
+cleanup.
 
 ## What to publish, and what it proves
 
@@ -333,18 +363,27 @@ and anything deliberately preserved.
 
 ## Cleanup after a merge
 
-An explicit user request to clean up a merged pull request is the approval for the
-whole run-scoped operation. Inspect the exact targets and verify through `gh` that the
-PR is merged, then perform the cleanup in the same turn without asking again. Re-check
-the merge and head/base branches immediately before mutation, switch a clean source
-checkout to the base branch when necessary, remove only that run's validation worktree
-and `ap/*` branch, delete the local PR source branch and the remote PR source branch,
-then run `git pull --ff-only` so the base checkout contains the merged result.
+For an automatically opened or reused PR, the disclosed cleanup scope, `[pr] mode =
+"auto"`, and `automated_cleanup: true` authorize the whole run-scoped cleanup operation
+once monitoring verifies the merge. If `automated_cleanup` is false, or for any other
+PR, an explicit later user cleanup request grants the same authorization. In either
+case, inspect the exact targets and verify through `gh` that the PR
+is merged, then perform the cleanup in the same turn without asking again. Immediately
+before mutation, query the recorded full PR URL again for `url`, `state`, `mergedAt`,
+`headRefName`, `headRefOid`, and `baseRefName`; do not infer the PR from the current
+checkout. Re-resolve the local and remote source-branch tips. Delete either source branch
+only when the PR head, local tip, and remote tip that exist still equal the disclosed
+expected head commit. If any of those commits changed, preserve both source branches and
+report the mismatch, but still reclaim this run's validation worktree and `ap/*` branch
+when their run identity and the PR's URL, merged state, and head/base branch names match.
+Switch a clean source checkout to the base branch when necessary, then fast-forward it
+with `git pull --ff-only` so it contains the merged result.
 
 Stop instead of deleting if the PR is not merged, the checkout is dirty, the PR head or
-base differs from the disclosed cleanup scope, or a branch is checked out in an
-unrelated worktree. Cleanup never performs a blanket `ap/*` deletion. Afterward, report
-the exact targets removed and whether the remote branch was already absent.
+base branch name differs from the disclosed cleanup scope, or a branch is checked out
+in an unrelated worktree. Cleanup never performs a blanket `ap/*` deletion. Afterward,
+report the exact targets removed, every preserved mismatch, and whether either source
+branch was already absent.
 
 For a pushed run with no PR, follow `finish` with `gc`. `gc` compares original fixes
 with post-mergeback history using stable patch IDs. Only patch-equivalent fixes are
