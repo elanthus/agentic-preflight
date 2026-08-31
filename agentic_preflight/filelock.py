@@ -78,13 +78,14 @@ def _try_acquire(handle) -> bool:
                 return False
             raise
         return True
-    try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError as exc:
-        if exc.errno in {errno.EACCES, errno.EAGAIN}:
-            return False
-        raise
-    return True
+    else:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            if exc.errno in {errno.EACCES, errno.EAGAIN}:
+                return False
+            raise
+        return True
 
 
 def _release(handle) -> None:
