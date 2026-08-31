@@ -272,7 +272,8 @@ def test_automatic_prs_are_polled_and_cleaned_without_a_second_approval():
     assert "automated_cleanup: true" in text
     assert "automated_cleanup: false" in text
     assert "stop after hosted checks" in text
-    assert "wait 60 seconds" in text
+    assert "wait 5 minutes" in text
+    assert "wait 60 seconds" not in text
     assert 'gh pr view "$PR_URL" --json' in text
     assert "url,state,mergedAt,headRefName,headRefOid,baseRefName" in text
     assert "never rely on the current branch" in text

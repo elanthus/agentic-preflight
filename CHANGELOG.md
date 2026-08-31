@@ -10,7 +10,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - `[pr] automatedCleanup` now controls the post-merge cleanup lifecycle and defaults to
   `true`. Automatic pull-request creation remains enabled when it is `false`, but the
   agent stops after hosted checks until the user explicitly requests cleanup. When it is
-  enabled, the agent polls the exact PR every 60 seconds and automatically performs the
+  enabled, the agent polls the exact PR every 5 minutes and automatically performs the
   pre-disclosed, run-scoped cleanup as soon as GitHub verifies the merge. Closed-unmerged
   PRs and changed cleanup targets are preserved instead of being deleted. Polls select
   the recorded full PR URL, and source branches are deleted only while the PR, local

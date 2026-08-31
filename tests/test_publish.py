@@ -112,7 +112,7 @@ def test_gate_mints_a_token_and_summarises_the_verified_push(verified):
     assert "proceed without asking again" in env["next"]["instruction"]
     assert "automatically open or reuse" in env["next"]["instruction"]
     assert "standing authorization" in env["next"]["instruction"]
-    assert "poll that PR every 60 seconds" in env["next"]["instruction"]
+    assert "poll that PR every 5 minutes" in env["next"]["instruction"]
     assert "push and open" not in env["next"]["instruction"]
     assert verified.run("status")["data"]["gate_token"] == token
 

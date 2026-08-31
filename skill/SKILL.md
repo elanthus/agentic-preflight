@@ -127,7 +127,7 @@ $ gh pr create --title "Use constant-time password comparison" --body-file pr-bo
 $ gh pr checks --watch
 $ gh pr view "$PR_URL" --json url,state,mergedAt,headRefName,headRefOid,baseRefName
 
-# While state is OPEN, wait 60 seconds and query those same fields again.
+# While state is OPEN, wait 5 minutes and query those same fields again.
 # If it is MERGED, perform the disclosed run-scoped cleanup. If it is CLOSED
 # without mergedAt, stop without deleting anything.
 
@@ -306,14 +306,14 @@ local PR branch, and its remote branch. Record the full PR URL as
 `PR_URL`, then query it explicitly with `gh pr view "$PR_URL" --json
 url,state,mergedAt,headRefName,headRefOid,baseRefName`; never rely on the current branch
 to select the PR. Require the returned URL, branches, and `headRefOid` to match the
-disclosed PR and gated commit. While it remains open, wait 60 seconds between identical
+disclosed PR and gated commit. While it remains open, wait 5 minutes between identical
 queries; use the host's durable wait or recurring-task mechanism when available so
 monitoring survives an ordinary turn boundary. Do not poll more frequently, silently
 stop after checks pass, or impose an arbitrary timeout.
 
 If a check fails, inspect and repair it through the normal hosted-CI playbook, push the
 newly gated head, disclose and record that new expected head commit, and resume the same
-60-second PR-state loop. If the PR closes without being merged, stop monitoring and
+5-minute PR-state loop. If the PR closes without being merged, stop monitoring and
 preserve every cleanup target. If the user cancels monitoring, stop without cleanup.
 Only a terminal `MERGED` state with a non-null `mergedAt` value advances to automatic
 cleanup.
