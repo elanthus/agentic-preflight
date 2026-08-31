@@ -5,6 +5,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Fixed
+
+- Non-blocking review and documentation findings can now be dispositioned after their
+  stage turns green. `accepted` and `dismissed` notes remain in the run record without
+  invalidating green evidence, while a registered fix commit reopens review so every
+  later stage describes the repaired snapshot.
+
 ## [0.5.2] - 2026-08-31
 
 ### Fixed

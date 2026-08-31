@@ -159,3 +159,12 @@ def blocking(
         if f.status is FindingStatus.OPEN
         and (f.code_owned or f.severity in severities or f.action is FindingAction.ASK_USER)
     ]
+
+
+def actionable(items: list[Finding]) -> list[Finding]:
+    """Open mechanical findings that deserve a fix or an explicit disposition."""
+    return [
+        finding
+        for finding in items
+        if finding.status is FindingStatus.OPEN and finding.action is FindingAction.AUTO_FIX
+    ]

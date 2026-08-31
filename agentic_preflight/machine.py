@@ -217,6 +217,7 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
     _S.REVIEW_GREEN: _state(
         "Review is green. Check whether documentation is now stale.",
         "agentic-preflight context --section docs",
+        (_A.RESPOND, _S.REVIEW_GREEN),
         (_A.BEGIN_DOCS, _S.DOCS_AWAITING_FINDINGS),
         (_A.SKIP_DOCS, _S.DOCS_GREEN),
         (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
@@ -231,6 +232,7 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
     _S.DOCS_GREEN: _state(
         "Docs are green. Run lint.",
         "agentic-preflight stage run lint",
+        (_A.RESPOND, _S.DOCS_GREEN),
         (_A.RUN_LINT, _S.LINT_RUNNING),
         (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
     ),
