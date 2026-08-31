@@ -14,7 +14,9 @@ lock so concurrent attestations are preserved.
 `status --all` to list runs across the clone, or place `--run RUN_ID` before a command to
 select a stored run explicitly. Commands selected that way operate on the recorded source
 checkout when it still exists; they do not mutate whichever unrelated worktree happened
-to invoke them.
+to invoke them. If that source checkout was deleted, `status`, `events`, and `logs` remain
+available for inspection, but gated mutations fail with `source_worktree_missing` and
+direct recovery to `gc` from a surviving worktree in the same clone.
 
 A repeated `start` with the same head, intent, base, and effective configuration resumes
 the matching run. If the source head moved, `start` marks the old run `ORPHANED` and

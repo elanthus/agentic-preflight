@@ -1,13 +1,18 @@
 """Active gate ownership is scoped to one source worktree, not the clone."""
 
 import json
+import shlex
 import subprocess
 import sys
 import textwrap
+import threading
 from concurrent.futures import ThreadPoolExecutor
+from importlib import import_module
 from pathlib import Path
 
+from agentic_preflight import runs
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.store import CurrentRunExists
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
@@ -72,6 +77,42 @@ def test_moving_the_source_head_orphans_the_stale_run_on_the_next_start(feature_
     assert old["orphaned_reason"] == "source worktree moved"
 
 
+def test_restart_commands_preserve_a_non_default_base_ref(feature_repo):
+    git("branch", "release", "main", cwd=feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start", "--base-ref", "release", "--intent", "first objective")
+
+    refused = agent.run(
+        "start",
+        "--base-ref",
+        "release",
+        "--intent",
+        "second objective",
+        expect=ExitCode.PRECONDITION,
+    )
+    assert shlex.split(refused["next"]["command"]) == [
+        "agentic-preflight",
+        "start",
+        "--replace",
+        "--base-ref",
+        "release",
+        "--intent",
+        "second objective",
+    ]
+
+    write(feature_repo, "src/extra.py", "value = 1\n")
+    commit_all(feature_repo, "advance the source branch")
+    stale = agent.run("status")
+    assert shlex.split(stale["next"]["command"]) == [
+        "agentic-preflight",
+        "start",
+        "--base-ref",
+        "release",
+        "--intent",
+        "first objective",
+    ]
+
+
 def test_commands_from_an_isolated_validator_resolve_the_owning_run(feature_repo):
     write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
     commit_all(feature_repo, "use strict validation")
@@ -103,6 +144,88 @@ def test_gc_orphans_an_abandoned_run_whose_ownership_pointer_disappeared(feature
     old = json.loads((state_root / "runs" / started["run_id"] / "run.json").read_text())
     assert old["state"] == "ORPHANED"
     assert old["orphaned_reason"] == "source worktree lease disappeared"
+
+
+def test_gc_does_not_orphan_a_run_while_start_claims_its_source_lease(feature_repo, monkeypatch):
+    session = runs.open_session(feature_repo)
+    original_claim = session.store.claim_active
+    claim_started = threading.Event()
+    allow_claim = threading.Event()
+
+    def delayed_claim(owner_id, run_id):
+        claim_started.set()
+        if not allow_claim.wait(timeout=5):
+            raise AssertionError("test did not release the delayed active-lease claim")
+        original_claim(owner_id, run_id)
+
+    monkeypatch.setattr(session.store, "claim_active", delayed_claim)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(runs.start, session, intent="protect the creation window")
+        try:
+            assert claim_started.wait(timeout=5)
+            collected = runs.gc(runs.open_session(feature_repo))
+            assert collected.data["removed"] == []
+            assert collected.data["retained"] == [
+                {
+                    "run_id": next(iter(session.store.list_runs())),
+                    "reason": "run command is still executing",
+                }
+            ]
+        finally:
+            allow_claim.set()
+        started = future.result(timeout=30)
+
+    assert runs.status(runs.open_session(feature_repo)).run_id == started.run_id
+
+
+def test_missing_source_worktree_blocks_mutation_but_allows_gc(feature_repo, tmp_path):
+    source_repo = _second_feature_worktree(feature_repo, tmp_path)
+    write(source_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(source_repo, "use strict validation")
+    started = ScriptedAgent(source_repo).run("start", "--intent", "validate feature y")
+    validator = Path(started["data"]["worktree_path"])
+    git("worktree", "remove", "--force", str(source_repo), cwd=feature_repo)
+    recovery_agent = ScriptedAgent(feature_repo)
+
+    inspected = recovery_agent.run("--run", started["run_id"], "status")
+    assert inspected["data"]["source_worktree_available"] is False
+    assert inspected["next"]["command"] == "agentic-preflight gc"
+    blocked = recovery_agent.run(
+        "--run",
+        started["run_id"],
+        "mergeback",
+        expect=ExitCode.PRECONDITION,
+    )
+    assert blocked["error"]["code"] == "source_worktree_missing"
+    assert blocked["data"]["source_worktree_path"] == str(source_repo.resolve())
+    assert validator.exists()
+
+    collected = recovery_agent.run("--run", started["run_id"], "gc")
+    assert started["run_id"] in collected["data"]["removed"]
+    assert not validator.exists()
+
+
+def test_alias_claim_failure_records_validator_for_gc(feature_repo, monkeypatch):
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(feature_repo, "use strict validation")
+    start_module = import_module("agentic_preflight.runs.start")
+
+    def reject_alias(_session, _owner_id, _run_id):
+        raise CurrentRunExists("r_conflicting")
+
+    monkeypatch.setattr(start_module, "_claim_alias", reject_alias)
+    agent = ScriptedAgent(feature_repo)
+    failed = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+    validator = Path(failed["data"]["worktree_path"])
+    run = json.loads(
+        (_state_root(feature_repo) / "runs" / failed["run_id"] / "run.json").read_text()
+    )
+    assert run["worktree_path"] == str(validator)
+    assert validator.exists()
+
+    collected = agent.run("gc")
+    assert failed["run_id"] in collected["data"]["removed"]
+    assert not validator.exists()
 
 
 def test_replace_refuses_while_the_existing_run_is_executing(feature_repo):

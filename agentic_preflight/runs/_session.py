@@ -36,6 +36,7 @@ class Session:
     store: Store
     config: Config
     selected_run_id: str | None = None
+    source_worktree_available: bool = True
 
     def active_run_id(self) -> str | None:
         return self.selected_run_id or self.store.get_active(self.owner_id)
@@ -71,10 +72,13 @@ def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) ->
         except Exception:  # noqa: BLE001,S110 - a corrupt snapshot falls back to repo config
             pass
     repo_root = caller_root
+    source_worktree_available = True
     if active is not None and active.source_worktree_path:
         source = Path(active.source_worktree_path)
         if source.exists():
             repo_root = source
+        else:
+            source_worktree_available = False
     cfg = cfg or load_config(repo_root)
     if cfg.worktree.mode != "in_place":
         store.set_worktrees_root(worktree.resolve_root(repo_root, cfg.worktree.root))
@@ -85,6 +89,7 @@ def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) ->
         store=store,
         config=cfg,
         selected_run_id=run_id,
+        source_worktree_available=source_worktree_available,
     )
 
 
@@ -151,6 +156,23 @@ def _respond_command(finding_id: str) -> str:
     return f"agentic-preflight respond --id {finding_id} --action fixed --commit <sha>"
 
 
+def _start_command(
+    intent: str | None,
+    *,
+    base_ref: str,
+    default_base_ref: str,
+    replace: bool = False,
+) -> str:
+    """Build a restart command without silently changing a run's base ref."""
+    args = ["agentic-preflight", "start"]
+    if replace:
+        args.append("--replace")
+    if base_ref != default_base_ref:
+        args.extend(["--base-ref", base_ref])
+    args.extend(["--intent", intent or "<objective and acceptance criteria>"])
+    return shlex.join(args)
+
+
 def _envelope_for(run: RunDoc, **overrides) -> Envelope:
     instruction, command = _next_hint(run.state)
     fields: dict[str, Any] = {
@@ -199,13 +221,10 @@ def _assert_fresh(session: Session, run: RunDoc) -> None:
             "Start again from the source worktree with the same intent. The stale run "
             "will be preserved as ORPHANED before the fresh run begins."
         ),
-        next_command=shlex.join(
-            [
-                "agentic-preflight",
-                "start",
-                "--intent",
-                run.intent or "<objective and acceptance criteria>",
-            ]
+        next_command=_start_command(
+            run.intent,
+            base_ref=run.base_ref,
+            default_base_ref=session.config.general.base_ref,
         ),
     )
 

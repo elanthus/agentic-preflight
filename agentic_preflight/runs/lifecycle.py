@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shlex
 from pathlib import Path
 
 from .. import gitx
@@ -22,6 +21,7 @@ from ._session import (
     _is_in_place,
     _load_current,
     _release_run_worktree,
+    _start_command,
     _worktree_mode,
 )
 
@@ -75,13 +75,10 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
             "preserved_in_place_commits": run.fix_commits if not isolated else [],
         },
         next_instruction="Run aborted. Start a fresh one when ready.",
-        next_command=shlex.join(
-            [
-                "agentic-preflight",
-                "start",
-                "--intent",
-                run.intent or "<objective and acceptance criteria>",
-            ]
+        next_command=_start_command(
+            run.intent,
+            base_ref=run.base_ref,
+            default_base_ref=session.config.general.base_ref,
         ),
     )
 
@@ -345,6 +342,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             "worktree_path": run.worktree_path,
             "source_worktree_id": run.source_worktree_id,
             "source_worktree_path": run.source_worktree_path,
+            "source_worktree_available": session.source_worktree_available,
             "owner_ids": run.owner_ids,
             "worktree_branch": run.worktree_branch,
             "worktree_mode": _worktree_mode(run, session.config),
@@ -371,19 +369,22 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             "risk": assessment.model_dump(mode="json"),
         },
     )
-    if stale:
+    if not session.source_worktree_available:
+        envelope.next_instruction = (
+            "The recorded source worktree no longer exists. Inspection remains available; "
+            "run `gc` from another worktree in this clone to reconcile the abandoned run."
+        )
+        envelope.next_command = "agentic-preflight gc"
+    elif stale:
         envelope.next_instruction = (
             "This run is stale: the source worktree moved after review began. From that "
             "source worktree, start again with the same intent; the stale run will be "
             "preserved as ORPHANED."
         )
-        envelope.next_command = shlex.join(
-            [
-                "agentic-preflight",
-                "start",
-                "--intent",
-                run.intent or "<objective and acceptance criteria>",
-            ]
+        envelope.next_command = _start_command(
+            run.intent,
+            base_ref=run.base_ref,
+            default_base_ref=session.config.general.base_ref,
         )
     elif run.setup_failure is not None:
         envelope.next_instruction = run.setup_failure.next_instruction

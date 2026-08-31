@@ -52,7 +52,10 @@ executing. A repeated matching `start` resumes the run; a different intent on th
 head requires the explicit `start --replace` returned by the error envelope. Orphaning
 itself never deletes logs, findings, validation worktrees, or fix commits. A subsequent
 `gc` may reclaim a terminal validator with no unmerged fixes; fix-bearing work remains
-retained unless `--force` is explicit.
+retained unless `--force` is explicit. If the source checkout itself disappeared, use
+`status`, `events`, or `logs` for inspection; other run mutations return
+`source_worktree_missing` so fixes cannot be applied to the caller's unrelated checkout.
+Run `gc` from a surviving worktree in the same clone.
 
 ## Diff too large (exit 2, `diff_too_large`)
 

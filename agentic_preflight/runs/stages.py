@@ -32,6 +32,7 @@ from ._session import (
     _now,
     _require_state,
     _require_worktree,
+    _start_command,
 )
 from .review import _skip_test_if_not_applicable
 from .review_coverage import invalidate_stage_result, reopen_if_stale
@@ -86,13 +87,10 @@ def _register_stage_fix_commits(
                 "stage's recorded head",
                 state=run.state.value,
                 run_id=run.run_id,
-                next_command=shlex.join(
-                    [
-                        "agentic-preflight",
-                        "start",
-                        "--intent",
-                        run.intent or "<objective and acceptance criteria>",
-                    ]
+                next_command=_start_command(
+                    run.intent,
+                    base_ref=run.base_ref,
+                    default_base_ref=session.config.general.base_ref,
                 ),
             )
         commits = gitx.commits_between(wt, record_entry.head_sha, current_head)

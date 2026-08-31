@@ -15,7 +15,10 @@ envelope and is not an agent-facing command.
 when `ok` is `true`.
 
 Place `--run RUN_ID` before any workflow command to select a stored run explicitly.
-Without it, the command resolves the run owned by the invoking Git worktree.
+Without it, the command resolves the run owned by the invoking Git worktree. When the
+selected run's recorded source checkout no longer exists, inspection commands remain
+available, gated mutations exit 3 with `source_worktree_missing`, and `gc` remains the
+recovery path from another worktree in the clone.
 
 ## Setup
 

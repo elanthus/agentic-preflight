@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import shlex
-
 from .. import attestation as attestationmod
 from .. import gitx, risk, worktree
 from .. import sync as syncmod
@@ -21,7 +19,15 @@ from ..errors import (
 from ..machine import TERMINAL_STATES, Action, State
 from ..models import Attestation, RunDoc, SetupFailure, Stage, StageRecord
 from ..store import CurrentRunExists
-from ._session import Session, _apply, _envelope_for, _new_run_id, _now, worktree_identity
+from ._session import (
+    Session,
+    _apply,
+    _envelope_for,
+    _new_run_id,
+    _now,
+    _start_command,
+    worktree_identity,
+)
 
 
 def _import_evidence_through_machine(doc: RunDoc, evidence: Attestation) -> None:
@@ -162,8 +168,11 @@ def start(
                 elif replace:
                     _orphan(session, existing, reason="replaced by a new start")
                 else:
-                    command = shlex.join(
-                        ["agentic-preflight", "start", "--replace", "--intent", intent]
+                    command = _start_command(
+                        intent,
+                        base_ref=base_ref,
+                        default_base_ref=cfg.general.base_ref,
+                        replace=True,
                     )
                     raise WrongState(
                         f"run {existing.run_id} is already active in this worktree",
@@ -212,19 +221,20 @@ def start(
     )
     # Persist the intent *before* the git call, so a crash mid-create leaves a
     # record for `gc` to reconcile rather than an orphan nobody knows about.
-    session.store.create_run(run)
-    try:
-        session.store.claim_active(session.owner_id, run_id)
-    except CurrentRunExists as exc:
-        with session.store.transaction(run_id) as doc:
-            _apply(doc, Action.ABORT)
-            doc.worktree_released = True
-        raise WrongState(
-            f"run {exc.run_id} is already active in this worktree",
-            run_id=exc.run_id,
-            next_instruction="Finish, clean up, or abort the active run before starting another.",
-            next_command="agentic-preflight status",
-        ) from exc
+    with session.store.operation(run_id):
+        session.store.create_run(run)
+        try:
+            session.store.claim_active(session.owner_id, run_id)
+        except CurrentRunExists as exc:
+            with session.store.transaction(run_id) as doc:
+                _apply(doc, Action.ABORT)
+                doc.worktree_released = True
+            raise WrongState(
+                f"run {exc.run_id} is already active in this worktree",
+                run_id=exc.run_id,
+                next_instruction="Finish, clean up, or abort the active run before starting another.",
+                next_command="agentic-preflight status",
+            ) from exc
     session.store.append_event(
         run_id,
         {
@@ -273,6 +283,9 @@ def start(
         ) from exc
 
     validation_owner = worktree_identity(wt_path)
+    with session.store.transaction(run_id) as doc:
+        doc.worktree_path = str(wt_path)
+        doc.worktree_branch = wt_branch
     try:
         _claim_alias(session, validation_owner, run_id)
     except CurrentRunExists as exc:
@@ -291,8 +304,6 @@ def start(
     with session.store.transaction(run_id) as doc:
         if validation_owner not in doc.owner_ids:
             doc.owner_ids.append(validation_owner)
-        doc.worktree_path = str(wt_path)
-        doc.worktree_branch = wt_branch
         _apply(doc, Action.CREATE_WORKTREE)
         _apply(doc, Action.BEGIN_SYNC)
 

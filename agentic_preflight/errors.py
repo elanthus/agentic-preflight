@@ -112,6 +112,13 @@ class StaleRun(AgenticError):
         super().__init__(message, **kwargs)
 
 
+class SourceWorktreeMissing(AgenticError):
+    """A selected run can be inspected, but its source checkout is gone."""
+
+    code = "source_worktree_missing"
+    exit_code = ExitCode.PRECONDITION
+
+
 class DirtyTree(AgenticError):
     code = "dirty_tree"
     exit_code = ExitCode.PRECONDITION

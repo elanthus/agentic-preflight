@@ -12,7 +12,7 @@ import click
 
 from .config import ConfigError
 from .envelope import Envelope, ExitCode, emit
-from .errors import AgenticError
+from .errors import AgenticError, SourceWorktreeMissing
 from .gitx import GitError
 from .worktree import CopiedFileInCommit, CopyRefused, WorktreeError
 
@@ -47,6 +47,19 @@ def finish_locked(callback: Callable[[Any], Envelope]) -> None:
     if run_id is None or not session.store.run_path(run_id).exists():
         finish(callback(session))
         return
+    if not session.source_worktree_available:
+        run = session.store.load_run(run_id)
+        raise SourceWorktreeMissing(
+            f"source worktree for run {run_id} no longer exists",
+            state=run.state.value,
+            run_id=run_id,
+            data={"source_worktree_path": run.source_worktree_path},
+            next_instruction=(
+                "Inspect the preserved run with `status` or `events`, then run `gc` "
+                "from another worktree in the same clone to reconcile it."
+            ),
+            next_command="agentic-preflight gc",
+        )
     with session.store.operation(run_id):
         finish(callback(session))
 
