@@ -5,6 +5,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+## [0.5.2] - 2026-08-31
+
+### Fixed
+
+- Removed stale version pins from the Quickstart and installation guide so the
+  published-package command installs the current release instead of `0.4.0`.
+
 ## [0.5.1] - 2026-08-30
 
 ### Added
@@ -376,6 +383,7 @@ First tagged pre-release.
 Windows is not supported because the implementation requires `fcntl`, Bash, and POSIX
 process groups.
 
+[0.5.2]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.2
 [0.5.1]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.1
 [0.5.0]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.0
 [0.4.0]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.4.0
