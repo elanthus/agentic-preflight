@@ -279,6 +279,61 @@ def test_a_non_blocking_finding_still_reaches_green(agent, tmp_path):
     assert env["state"] == "REVIEW_GREEN"
 
 
+def test_disabled_docs_waits_for_every_actionable_review_finding(feature_repo, tmp_path):
+    write(feature_repo, ".agentic-preflight.toml", "[docs]\nenabled = false\n")
+    commit_all(feature_repo, "disable docs")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "path": "src/app.py",
+                "line": 1,
+                "severity": "medium",
+                "action": "auto_fix",
+                "title": "first actionable finding",
+            },
+            {
+                "path": "src/app.py",
+                "line": 1,
+                "severity": "medium",
+                "action": "auto_fix",
+                "title": "second actionable finding",
+            },
+        ],
+    )
+
+    env = agent.run("submit-findings", "--file", path)
+    assert env["state"] == "REVIEW_GREEN"
+    assert "--id F001" in env["next"]["command"]
+
+    env = agent.run(
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        "accepted",
+        "--note",
+        "Not worth changing in this pull request.",
+    )
+    assert env["state"] == "REVIEW_GREEN"
+    assert "--id F002" in env["next"]["command"]
+
+    env = agent.run(
+        "respond",
+        "--id",
+        "F002",
+        "--action",
+        "accepted",
+        "--note",
+        "Also not worth changing in this pull request.",
+    )
+    assert env["state"] == "DOCS_GREEN"
+    assert env["next"]["command"] == "agentic-preflight stage run lint"
+
+
 def test_an_agent_supplied_id_is_a_hard_error(agent, tmp_path):
     agent.run("start")
     agent.run("context")

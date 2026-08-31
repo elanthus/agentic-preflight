@@ -151,6 +151,12 @@ quiet while code verifies that no delivered unit disappears.
   severity**, because choosing for the user *is* the decision you declined to make.
 - **`no_op`** — worth recording, not worth acting on.
 
+A low- or medium-severity `auto_fix` finding does not make the stage red, but it still
+needs an explicit disposition before following the normal stage continuation. Use
+`fixed --commit <sha>` to register the repair, or `accepted --note <reason>` to record
+why the valid finding is not worth fixing. A green-stage repair changes the reviewed
+snapshot and returns the run to review; a note-only disposition leaves it green.
+
 Be specific. "Consider improving error handling" is not a finding. "Line 42 swallows
 `ConnectionError`, so a network failure looks like an empty result" is.
 
