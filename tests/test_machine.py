@@ -52,6 +52,8 @@ def test_findings_submission_goes_directly_to_green_or_blocked():
     )
     assert next_state(State.REVIEW_BLOCKED, Action.RESPOND) == State.REVIEW_BLOCKED
     assert next_state(State.REVIEW_BLOCKED, Action.RESOLVE_GREEN) == State.REVIEW_GREEN
+    assert next_state(State.REVIEW_GREEN, Action.RESPOND) == State.REVIEW_GREEN
+    assert next_state(State.DOCS_GREEN, Action.RESPOND) == State.DOCS_GREEN
 
 
 def test_command_review_has_explicit_running_failure_and_retry_states():
