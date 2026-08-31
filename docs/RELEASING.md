@@ -65,7 +65,7 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
 5. Tag and push:
 
    ```bash
-   git tag v0.5.1 && git push origin v0.5.1
+   git tag v0.5.2 && git push origin v0.5.2
    ```
 
 6. The tag run starts two jobs in parallel. `test` exercises the full matrix of

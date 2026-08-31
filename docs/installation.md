@@ -29,7 +29,7 @@ everything else on this page is identical on all platforms.
 To install the published package instead:
 
 ```bash
-uv tool install 'agentic-preflight==0.4.0'
+uv tool install agentic-preflight
 ```
 
 If `uv` reports that its tool directory is not on `PATH`, run `uv tool update-shell` and
