@@ -272,10 +272,12 @@ audit logs, clears only that run's worktree ownership pointers, and directs the 
 to `gc`.
 
 Pull-request creation and hosted CI monitoring are deliberately outside this CLI. On
-GitHub, automatic PR mode uses `gh pr create`, `gh pr checks`, and `gh run view` after
-`finish`; manual PR mode provides a compare URL and never creates the PR. Branch cleanup
-remains an explicit, run-scoped host or forge operation authorized by the user's cleanup
-request.
+GitHub, automatic PR mode uses `gh pr create`, `gh pr checks`, `gh run view`, and a
+60-second `gh pr view` state poll after `finish`; manual PR mode provides a compare URL
+and never creates the PR. Cleanup remains a run-scoped host or forge operation. For an
+automatically opened or reused PR, the skill discloses its exact targets before polling
+and performs that cleanup after GitHub verifies the merge; a later explicit cleanup
+request authorizes the equivalent operation for other PRs.
 
 ## Inspection and recovery
 

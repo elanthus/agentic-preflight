@@ -266,8 +266,13 @@ def test_the_skill_documents_all_high_risk_approval_modes():
     assert '`mode = "manual_merge"` is the default' in configuration
 
 
-def test_an_explicit_cleanup_request_needs_no_second_approval():
+def test_automatic_prs_are_polled_and_cleaned_without_a_second_approval():
     text = SKILL.read_text(encoding="utf-8")
+    assert "wait 60 seconds" in text
+    assert "url,state,mergedAt,headRefName,baseRefName" in text
+    assert "Do not ask for a separate cleanup confirmation" in text
+    assert "If the PR closes without" in text
+    assert "preserve every cleanup target" in text
     assert "cleanup in the same turn without asking again" in text
     assert "delete the local PR source branch and the remote PR source branch" in text
 
