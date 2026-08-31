@@ -64,6 +64,7 @@ def gate(session: Session) -> Envelope:
         branch=run.branch,
         base_ref=run.base_ref,
         pr_mode=session.config.pr.mode,
+        automated_cleanup=session.config.pr.automated_cleanup,
         approval_mode=session.config.approval.mode,
         commits=commits,
         risk=assessment.model_dump(mode="json"),
@@ -116,6 +117,20 @@ def gate(session: Session) -> Envelope:
         else " After the confirmed push and preflight finish, automatically open or reuse "
         "the pull request; auto mode is standing authorization, so do not ask again."
     )
+    if opens_pr and session.config.pr.automated_cleanup:
+        cleanup_instruction = (
+            " Automated cleanup is enabled: after opening or reusing the pull request, "
+            "disclose the exact cleanup scope, poll that PR every 60 seconds, and clean up "
+            "only after the merge is verified."
+        )
+    elif opens_pr:
+        cleanup_instruction = (
+            " Automated cleanup is disabled: do not enter the merge-state polling or "
+            "cleanup flow; report hosted-check results and leave cleanup for a later "
+            "explicit user request."
+        )
+    else:
+        cleanup_instruction = ""
     return _envelope_for(
         run,
         data=summary.as_dict(),
@@ -125,7 +140,7 @@ def gate(session: Session) -> Envelope:
             "request in this task, that request authorizes this push when the summary "
             "matches the requested work; proceed without asking again. Otherwise, ask "
             "whether to push and wait for their answer."
-            f"{risk_instruction}{manual_pr_instruction}"
+            f"{risk_instruction}{manual_pr_instruction}{cleanup_instruction}"
         ),
         next_command=f"agentic-preflight push --confirm {summary.token}",
     )
@@ -157,6 +172,7 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
                 "branch": run.branch,
                 "base_ref": run.base_ref,
                 "pr_mode": session.config.pr.mode,
+                "automated_cleanup": session.config.pr.automated_cleanup,
                 "pushed": False,
             },
             next_instruction="Dry run only; nothing was pushed.",
@@ -189,6 +205,7 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
             "branch": run.branch,
             "base_ref": run.base_ref,
             "pr_mode": session.config.pr.mode,
+            "automated_cleanup": session.config.pr.automated_cleanup,
             "dry_run": False,
         },
     )
@@ -207,12 +224,22 @@ def finish(session: Session) -> Envelope:
 
     session.store.clear_run(run.run_id)
     session.store.append_event(run.run_id, {"event": "finished"})
-    pr_instruction = (
-        " Run gc, then open or reuse the pull request with gh; auto PR mode is standing "
-        "authorization, so do not ask again."
-        if session.config.pr.mode == "auto"
-        else " Run gc, then give the user the compare URL; do not open the pull request."
-    )
+    if session.config.pr.mode == "manual":
+        pr_instruction = (
+            " Run gc, then give the user the compare URL; do not open the pull request."
+        )
+    elif session.config.pr.automated_cleanup:
+        pr_instruction = (
+            " Run gc, then open or reuse the pull request with gh; auto PR mode is standing "
+            "authorization, so do not ask again. After hosted checks, follow the disclosed "
+            "automatic cleanup lifecycle."
+        )
+    else:
+        pr_instruction = (
+            " Run gc, then open or reuse the pull request with gh; auto PR mode is standing "
+            "authorization, so do not ask again. Automated cleanup is disabled: stop after "
+            "hosted checks and wait for an explicit cleanup request."
+        )
     return _envelope_for(
         run,
         data={
@@ -220,6 +247,7 @@ def finish(session: Session) -> Envelope:
             "branch": run.branch,
             "base_ref": run.base_ref,
             "pr_mode": session.config.pr.mode,
+            "automated_cleanup": session.config.pr.automated_cleanup,
         },
         next_instruction=(
             _worktree_completion(_worktree_mode(run, session.config)) + pr_instruction

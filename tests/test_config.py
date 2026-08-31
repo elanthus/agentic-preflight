@@ -17,6 +17,7 @@ def test_defaults_apply_when_no_config_file_exists(tmp_repo, tmp_path):
     assert cfg.worktree.setup_command is None
     assert cfg.gate.mode == "token"
     assert cfg.pr.mode == "auto"
+    assert cfg.pr.automated_cleanup is True
     assert cfg.approval.mode == "manual_merge"
     assert cfg.approval.environment == "high-risk-review"
     assert cfg.policy.human_review_paths == []
@@ -128,6 +129,16 @@ def test_pr_modes_are_explicit_configuration_options(tmp_repo, tmp_path, mode):
     (tmp_repo / ".agentic-preflight.toml").write_text(f"[pr]\nmode = {mode!r}\n")
     cfg = load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
     assert cfg.pr.mode == mode
+
+
+def test_automatic_cleanup_can_be_disabled_with_the_public_camel_case_key(
+    tmp_repo, tmp_path
+):
+    (tmp_repo / ".agentic-preflight.toml").write_text(
+        "[pr]\nmode = 'auto'\nautomatedCleanup = false\n"
+    )
+    cfg = load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert cfg.pr.automated_cleanup is False
 
 
 def test_approval_mode_rejects_an_unknown_mode(tmp_repo, tmp_path):

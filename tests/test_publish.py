@@ -105,12 +105,14 @@ def test_gate_mints_a_token_and_summarises_the_verified_push(verified):
     assert env["data"]["branch"] == "feature/x"
     assert "add loud flag" in json.dumps(env["data"]["commits"])
     assert env["data"]["pr_mode"] == "auto"
+    assert env["data"]["automated_cleanup"] is True
     assert env["data"]["approval_mode"] == "manual_merge"
     assert "whether to push" in env["next"]["instruction"]
     assert "explicitly requested a push, publish" in env["next"]["instruction"]
     assert "proceed without asking again" in env["next"]["instruction"]
     assert "automatically open or reuse" in env["next"]["instruction"]
     assert "standing authorization" in env["next"]["instruction"]
+    assert "poll that PR every 60 seconds" in env["next"]["instruction"]
     assert "push and open" not in env["next"]["instruction"]
     assert verified.run("status")["data"]["gate_token"] == token
 
@@ -136,6 +138,7 @@ def test_push_with_the_right_token_succeeds(verified, feature_repo, bare_remote)
     assert env["state"] == "PUSHED"
     assert env["next"]["command"] == "agentic-preflight finish"
     assert env["data"]["pr_mode"] == "auto"
+    assert env["data"]["automated_cleanup"] is True
     remote_sha = git("rev-parse", "feature/x", cwd=bare_remote)
     assert remote_sha == git("rev-parse", "HEAD", cwd=feature_repo)
 
@@ -147,8 +150,10 @@ def test_finish_closes_a_pushed_run(verified):
     assert env["state"] == "DONE"
     assert env["next"]["command"] == "agentic-preflight gc"
     assert env["data"]["pr_mode"] == "auto"
+    assert env["data"]["automated_cleanup"] is True
     assert "open or reuse the pull request" in env["next"]["instruction"]
     assert "auto PR mode is standing authorization" in env["next"]["instruction"]
+    assert "follow the disclosed automatic cleanup lifecycle" in env["next"]["instruction"]
     assert "gate approval" not in env["next"]["instruction"]
     assert "do not ask again" in env["next"]["instruction"]
     assert verified.run("status")["data"]["has_run"] is False
@@ -219,6 +224,41 @@ def test_manual_pr_mode_pushes_but_hands_pr_creation_to_the_user(
     finished = agent.run("finish")
     assert "give the user the compare URL" in finished["next"]["instruction"]
     assert "do not open the pull request" in finished["next"]["instruction"]
+
+
+def test_automatic_cleanup_can_be_disabled_without_disabling_automatic_pr_creation(
+    feature_repo, bare_remote, tmp_path
+):
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+        "\n[pr]\nmode = 'auto'\nautomatedCleanup = false\n",
+    )
+    commit_all(feature_repo, "disable automatic PR cleanup")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
+    agent.run("mergeback")
+
+    env = agent.run("gate")
+    assert env["data"]["pr_mode"] == "auto"
+    assert env["data"]["automated_cleanup"] is False
+    assert "automatically open or reuse" in env["next"]["instruction"]
+    assert "Automated cleanup is disabled" in env["next"]["instruction"]
+    assert "do not enter the merge-state polling" in env["next"]["instruction"]
+
+    status = agent.run("status")
+    assert status["data"]["automated_cleanup"] is False
+
+    agent.run("push", "--confirm", env["data"]["token"])
+    finished = agent.run("finish")
+    assert finished["data"]["automated_cleanup"] is False
+    assert "Automated cleanup is disabled" in finished["next"]["instruction"]
+    assert "stop after hosted checks" in finished["next"]["instruction"]
 
 
 def test_human_review_path_allows_push_gate_and_marks_merge_review_requirement(

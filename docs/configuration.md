@@ -73,6 +73,7 @@ mode = "token"                    # or "manual"
 
 [pr]
 mode = "auto"                     # or "manual"
+automatedCleanup = true            # default; false requires explicit cleanup
 
 [approval]
 mode = "manual_merge"             # or "environment" / "peer_review"
@@ -102,6 +103,13 @@ exists for the branch—without a PR-specific approval prompt.
 `mode = "manual"` keeps pull-request creation in the user's hands. The agent may still
 push through the configured gate, but it never opens the pull request and provides a
 compare URL instead.
+
+`automatedCleanup = true` is the default. After an automatically opened or reused pull
+request passes hosted checks, the agent discloses the exact cleanup scope, polls that
+pull request every 60 seconds, and removes only the disclosed run-scoped targets after
+GitHub verifies the merge. When the field is `false`, automatic pull-request creation
+still works, but the agent stops after hosted checks: it does not poll the merge state or
+delete anything until the user explicitly requests cleanup.
 
 This is independent of `[gate] mode`. The token gate lets the agent push after explicit
 user agreement; the manual gate refuses to push and hands the command to a person.

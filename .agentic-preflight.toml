@@ -37,6 +37,7 @@ max_bytes = 500000
 
 [pr]
 mode = "auto"
+automatedCleanup = true
 
 [approval]
 mode = "manual_merge"

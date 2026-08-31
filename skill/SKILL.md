@@ -29,9 +29,12 @@ Python here never calls a model — every judgment in this workflow is yours.
    materially different from what the user authorized, show the summary and wait for
    an actual answer. A generic request to implement, commit, or "proceed" is not push
    authorization. `[pr] mode = "auto"` is standing authorization to open or reuse the
-   pull request after the authorized push and preflight finish, monitor that exact PR
-   until it reaches a terminal state, and clean up the disclosed run-scoped targets
-   after GitHub verifies the PR was merged. With `mode = "manual"`,
+   pull request after the authorized push and preflight finish.
+   When `[pr] automatedCleanup = true` (the default), it also authorizes monitoring
+   that exact PR
+   until it reaches a terminal state and cleaning up the disclosed run-scoped targets
+   after GitHub verifies the PR was merged. When `[pr] automatedCleanup = false`, stop
+   after hosted checks and require an explicit cleanup request. With `mode = "manual"`,
    never open the PR for them.
 6. **Never resolve a merge-back conflict.** Paste the resolution block and stop.
 7. **Keep the validation checkout clean for the whole run.** The default
@@ -107,7 +110,7 @@ $ agentic-preflight mergeback
  "next":{"command":"agentic-preflight gate"}}
 
 $ agentic-preflight gate
-{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"a1b2c3d4","pr_mode":"auto","commits":[...]},
+{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"a1b2c3d4","pr_mode":"auto","automated_cleanup":true,"commits":[...]},
  "next":{"command":"agentic-preflight push --confirm a1b2c3d4"}}
 
 # Show the remote, branch, and commits. If this task explicitly requested a push,
@@ -118,7 +121,8 @@ $ agentic-preflight finish
 $ agentic-preflight gc
 
 # Auto PR mode: after preflight finishes, reuse an existing PR for the branch or
-# create one automatically without asking about PR creation.
+# create one automatically without asking about PR creation. Continue into the
+# polling and cleanup flow below only when automated_cleanup is true.
 $ gh pr create --title "Use constant-time password comparison" --body-file pr-body.md
 $ gh pr checks --watch
 $ gh pr view "$PR_URL" --json url,state,mergedAt,headRefName,headRefOid,baseRefName
@@ -261,11 +265,14 @@ answer. A request only to implement or commit, or a generic "proceed" from a pre
 step, is not consent for the push gate. Ask again if the summary reveals an unexpected
 remote, branch, commit, or risk decision.
 
-In `[pr] mode = "auto"`, the committed configuration is standing authorization for the
-complete PR lifecycle. After the authorized push, `finish`, and `gc`, reuse an existing
-pull request for the branch or call `gh pr create` automatically without asking about
-the PR. Disclose the exact cleanup scope, monitor that PR, and clean up automatically
-after GitHub reports it merged. Do not ask for a separate cleanup confirmation.
+In `[pr] mode = "auto"`, the committed configuration is standing authorization for PR
+creation. After the authorized push, `finish`, and `gc`, reuse an existing pull request
+for the branch or call `gh pr create` automatically without asking about the PR. When
+the gate reports `automated_cleanup: true`, disclose the exact cleanup scope, monitor
+that PR, and clean up automatically after GitHub reports it merged.
+Do not ask for a separate cleanup confirmation. When it reports
+`automated_cleanup: false`, stop after hosted checks without polling the merge state or
+deleting anything; cleanup requires a later explicit user request.
 
 In `[pr] mode = "manual"`, ask only whether to push. Afterward, never open a pull
 request; construct the forge compare URL from the repository URL, base branch, and head
@@ -291,10 +298,11 @@ decision you have already made as if it were a question.
 Branch names are often poor human-facing PR titles, so offer a concise title that
 describes the verified change before calling `gh pr create`.
 
-When an automatic pull request is opened or an existing one is reused, report its URL
-and disclose the exact run-scoped cleanup targets before monitoring begins: the PR head
-and base branches, the expected gated head commit, this run's validation worktree and
-`ap/*` branch, the local PR branch, and its remote branch. Record the full PR URL as
+When an automatic pull request is opened or an existing one is reused and
+`automated_cleanup` is true, report its URL and disclose the exact run-scoped cleanup
+targets before monitoring begins: the PR head and base branches,
+the expected gated head commit, this run's validation worktree and `ap/*` branch, the
+local PR branch, and its remote branch. Record the full PR URL as
 `PR_URL`, then query it explicitly with `gh pr view "$PR_URL" --json
 url,state,mergedAt,headRefName,headRefOid,baseRefName`; never rely on the current branch
 to select the PR. Require the returned URL, branches, and `headRefOid` to match the
@@ -355,10 +363,11 @@ and anything deliberately preserved.
 
 ## Cleanup after a merge
 
-For an automatically opened or reused PR, the disclosed cleanup scope and `[pr] mode =
-"auto"` authorize the whole run-scoped cleanup operation once monitoring verifies the
-merge. An explicit later user cleanup request grants the same authorization for any
-other PR. In either case, inspect the exact targets and verify through `gh` that the PR
+For an automatically opened or reused PR, the disclosed cleanup scope, `[pr] mode =
+"auto"`, and `automated_cleanup: true` authorize the whole run-scoped cleanup operation
+once monitoring verifies the merge. If `automated_cleanup` is false, or for any other
+PR, an explicit later user cleanup request grants the same authorization. In either
+case, inspect the exact targets and verify through `gh` that the PR
 is merged, then perform the cleanup in the same turn without asking again. Immediately
 before mutation, query the recorded full PR URL again for `url`, `state`, `mergedAt`,
 `headRefName`, `headRefOid`, and `baseRefName`; do not infer the PR from the current
