@@ -5,6 +5,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+## [0.5.1] - 2026-08-30
+
 ### Added
 
 - Worktree-scoped active-run ownership. Multiple agents can now run independent gates
@@ -374,6 +376,7 @@ First tagged pre-release.
 Windows is not supported because the implementation requires `fcntl`, Bash, and POSIX
 process groups.
 
+[0.5.1]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.1
 [0.5.0]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.0
 [0.4.0]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.4.0
 [0.3.0]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.3.0
