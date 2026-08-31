@@ -138,10 +138,7 @@ def start(
             if existing.state in TERMINAL_STATES:
                 session.store.clear_run(existing.run_id)
             else:
-                if (
-                    existing.source_worktree_id
-                    and existing.source_worktree_id != session.owner_id
-                ):
+                if existing.source_worktree_id and existing.source_worktree_id != session.owner_id:
                     raise WrongState(
                         f"run {existing.run_id} belongs to another source worktree",
                         state=existing.state.value,

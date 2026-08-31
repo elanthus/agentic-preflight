@@ -109,9 +109,7 @@ def test_start_resumes_a_matching_run_in_the_same_worktree(agent):
 def test_start_requires_replace_for_a_different_intent_in_the_same_worktree(agent):
     first = agent.run("start", "--intent", "first objective")
 
-    env = agent.run(
-        "start", "--intent", "different objective", expect=ExitCode.PRECONDITION
-    )
+    env = agent.run("start", "--intent", "different objective", expect=ExitCode.PRECONDITION)
 
     assert env["error"]["code"] == "wrong_state"
     assert env["run_id"] == first["run_id"]
@@ -121,9 +119,7 @@ def test_start_requires_replace_for_a_different_intent_in_the_same_worktree(agen
 def test_replace_orphans_the_old_run_without_deleting_it(agent, feature_repo):
     first = agent.run("start", "--intent", "first objective")
 
-    second = agent.run(
-        "start", "--replace", "--intent", "different objective"
-    )
+    second = agent.run("start", "--replace", "--intent", "different objective")
 
     assert second["run_id"] != first["run_id"]
     state_root = (

@@ -35,9 +35,7 @@ def test_two_linked_worktrees_can_run_gates_independently(feature_repo, tmp_path
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         first_future = pool.submit(first_agent.run, "start", "--intent", "prepare feature x")
-        second_future = pool.submit(
-            second_agent.run, "start", "--intent", "prepare feature y"
-        )
+        second_future = pool.submit(second_agent.run, "start", "--intent", "prepare feature y")
         first = first_future.result(timeout=30)
         second = second_future.result(timeout=30)
 
@@ -58,9 +56,7 @@ def test_two_linked_worktrees_can_run_gates_independently(feature_repo, tmp_path
     assert first["run_id"] not in inventory["active"].values()
 
 
-def test_moving_the_source_head_orphans_the_stale_run_on_the_next_start(
-    feature_repo, tmp_path
-):
+def test_moving_the_source_head_orphans_the_stale_run_on_the_next_start(feature_repo, tmp_path):
     agent = ScriptedAgent(feature_repo)
     first = agent.run("start", "--intent", "prepare the original head")
     write(feature_repo, "src/extra.py", "value = 1\n")
@@ -104,9 +100,7 @@ def test_gc_orphans_an_abandoned_run_whose_ownership_pointer_disappeared(feature
     collected = agent.run("gc")
 
     assert started["run_id"] in collected["data"]["removed"]
-    old = json.loads(
-        (state_root / "runs" / started["run_id"] / "run.json").read_text()
-    )
+    old = json.loads((state_root / "runs" / started["run_id"] / "run.json").read_text())
     assert old["state"] == "ORPHANED"
     assert old["orphaned_reason"] == "source worktree lease disappeared"
 

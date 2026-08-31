@@ -125,8 +125,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
                 run.source_worktree_path and not Path(run.source_worktree_path).exists()
             )
             source_alias_missing = bool(
-                run.source_worktree_id
-                and active.get(run.source_worktree_id) != run.run_id
+                run.source_worktree_id and active.get(run.source_worktree_id) != run.run_id
             )
             start_in_progress = run.state in {
                 State.CREATED,
@@ -298,10 +297,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             next_command=START_COMMAND,
         )
 
-    if (
-        run.state in (State.ABORTED, State.DONE, State.ORPHANED)
-        and session.selected_run_id is None
-    ):
+    if run.state in (State.ABORTED, State.DONE, State.ORPHANED) and session.selected_run_id is None:
         session.store.clear_run(run.run_id)
         return Envelope(
             data={
