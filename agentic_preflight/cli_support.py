@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import sys
 import traceback
+from collections.abc import Callable
 from functools import wraps
+from typing import Any
+
+import click
 
 from .config import ConfigError
 from .envelope import Envelope, ExitCode, emit
-from .errors import AgenticError
+from .errors import AgenticError, SourceWorktreeMissing
 from .gitx import GitError
 from .worktree import CopiedFileInCommit, CopyRefused, WorktreeError
 
@@ -20,6 +24,44 @@ def finish(envelope: Envelope, code: int = ExitCode.OK) -> None:
 
 def fail(exc: AgenticError) -> None:
     finish(exc.to_envelope(), exc.exit_code)
+
+
+def selected_run_id() -> str | None:
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return None
+    root = ctx.find_root()
+    return (root.obj or {}).get("run_id")
+
+
+def open_cli_session():
+    from . import runs
+
+    return runs.open_session(run_id=selected_run_id())
+
+
+def finish_locked(callback: Callable[[Any], Envelope]) -> None:
+    """Run one mutating command under its durable per-run operation lock."""
+    session = open_cli_session()
+    run_id = session.active_run_id()
+    if run_id is None or not session.store.run_path(run_id).exists():
+        finish(callback(session))
+        return
+    if not session.source_worktree_available:
+        run = session.store.load_run(run_id)
+        raise SourceWorktreeMissing(
+            f"source worktree for run {run_id} no longer exists",
+            state=run.state.value,
+            run_id=run_id,
+            data={"source_worktree_path": run.source_worktree_path},
+            next_instruction=(
+                "Inspect the preserved run with `status` or `events`, then run `gc` "
+                "from another worktree in the same clone to reconcile it."
+            ),
+            next_command="agentic-preflight gc",
+        )
+    with session.store.operation(run_id):
+        finish(callback(session))
 
 
 def command(fn):

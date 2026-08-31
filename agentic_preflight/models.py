@@ -232,6 +232,9 @@ class RunDoc(BaseModel):
     intent: str | None = None
     intent_source: str | None = None
 
+    source_worktree_id: str | None = None
+    source_worktree_path: str | None = None
+    owner_ids: list[str] = Field(default_factory=list)
     worktree_path: str | None = None
     worktree_branch: str | None = None
     worktree_released: bool = False
@@ -247,6 +250,8 @@ class RunDoc(BaseModel):
     setup_failure: SetupFailure | None = None
 
     stale: bool = False
+    orphaned_reason: str | None = None
+    superseded_by: str | None = None
     gate_token: str | None = None
     pushed_sha: str | None = None
 

@@ -220,7 +220,7 @@ def test_interrupted_command_is_recorded_before_a_new_process_retries(feature_re
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     session = open_session(feature_repo)
-    run_id = session.store.get_current()
+    run_id = session.active_run_id()
     assert run_id is not None
     with session.store.transaction(run_id) as run:
         _apply(run, Action.RUN_REVIEW_COMMAND)

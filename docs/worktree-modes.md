@@ -2,6 +2,33 @@
 
 Where a run validates, and what it is allowed to touch while doing so.
 
+## Concurrent source worktrees
+
+Active ownership is scoped to the source worktree's private Git directory. Linked
+worktrees in one clone therefore run independent gates: one agent can wait for review
+input while another reviews, tests, or publishes another PR branch. Per-run state changes
+remain serialized, and the shared Git-notes ref is reconciled under a narrow publication
+lock so concurrent attestations are preserved.
+
+`agentic-preflight status` resolves the run owned by the invoking worktree. Use
+`status --all` to list runs across the clone, or place `--run RUN_ID` before a command to
+select a stored run explicitly. Commands selected that way operate on the recorded source
+checkout when it still exists; they do not mutate whichever unrelated worktree happened
+to invoke them. If that source checkout was deleted, `status`, `events`, and `logs` remain
+available for inspection, but gated mutations fail with `source_worktree_missing` and
+direct recovery to `gc` from a surviving worktree in the same clone.
+
+A repeated `start` with the same head, intent, base, and effective configuration resumes
+the matching run. If the source head moved, `start` marks the old run `ORPHANED` and
+continues without deleting its evidence, validation checkout, or fix commits. A different
+intent on the same unchanged head is ambiguous and requires `start --replace`; replacement
+has the same preserve-first behavior. No run expires merely because it is old.
+
+`reusable` mode still has one cached validation runner and is intentionally serial among
+its users. That resource lease does not block `in_place` or `strict` runs in other source
+worktrees. [ADR 0002](adr/0002-scope-run-ownership-to-worktrees.md) records the ownership
+and lock-boundary decision.
+
 ## `in_place` (default)
 
 Work happens directly in the current checkout. This is intended for a clean, dedicated
@@ -42,8 +69,8 @@ code is.
 
 ## Switching modes
 
-Commit one of these and start a new run — an active run keeps the configuration snapshot
-it started with:
+Commit one of these and start a new run — each active worktree run keeps the configuration
+snapshot it started with:
 
 ```toml
 [worktree]

@@ -5,6 +5,24 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Added
+
+- Worktree-scoped active-run ownership. Multiple agents can now run independent gates
+  concurrently from linked worktrees in one clone. `status --all` inventories the clone,
+  and the global `--run RUN_ID` selector provides explicit recovery without making the
+  caller's unrelated checkout the mutation target.
+
+### Changed
+
+- Repeating `start` with matching inputs now resumes the active worktree run. A moved
+  source head is preserved as `ORPHANED` and replaced automatically; a different intent
+  on an unchanged head requires `start --replace`. Terminal, dangling, and abandoned
+  ownership pointers no longer block later work, and elapsed time is never used as proof
+  of abandonment.
+- Clone-wide synchronization is limited to the resources that are actually shared: base
+  synchronization, the single reusable runner, and Git-note publication. Per-run commands
+  and source-worktree ownership no longer serialize unrelated PR preparation.
+
 ## [0.5.0] - 2026-08-27
 
 ### Added

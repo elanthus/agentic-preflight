@@ -103,30 +103,49 @@ def test_no_temp_files_are_left_behind(store):
     assert leftovers == []
 
 
-def test_current_run_pointer_round_trips(store):
+def test_active_run_pointer_round_trips(store):
     store.create_run(make_run())
-    store.set_current("r_abc123")
-    assert store.get_current() == "r_abc123"
+    store.set_active("worktree-a", "r_abc123")
+    assert store.get_active("worktree-a") == "r_abc123"
 
 
-def test_current_is_none_when_never_set(store):
-    assert store.get_current() is None
+def test_active_is_none_when_never_set(store):
+    assert store.get_active("worktree-a") is None
 
 
-def test_current_run_lease_can_only_be_claimed_once(store):
-    store.claim_current("r_first")
+def test_worktree_run_lease_can_only_be_claimed_once(store):
+    store.claim_active("worktree-a", "r_first")
 
     with pytest.raises(CurrentRunExists) as exc:
-        store.claim_current("r_second")
+        store.claim_active("worktree-a", "r_second")
 
     assert exc.value.run_id == "r_first"
-    assert store.get_current() == "r_first"
+    assert store.get_active("worktree-a") == "r_first"
 
 
 def test_failed_start_cannot_clear_another_runs_lease(store):
-    store.claim_current("r_winner")
+    store.claim_active("worktree-a", "r_winner")
 
-    assert store.clear_current_if("r_loser") is False
-    assert store.get_current() == "r_winner"
-    assert store.clear_current_if("r_winner") is True
-    assert store.get_current() is None
+    assert store.clear_active_if("worktree-a", "r_loser") is False
+    assert store.get_active("worktree-a") == "r_winner"
+    assert store.clear_active_if("worktree-a", "r_winner") is True
+    assert store.get_active("worktree-a") is None
+
+
+def test_different_worktrees_can_claim_runs_concurrently(store):
+    store.claim_active("worktree-a", "r_first")
+    store.claim_active("worktree-b", "r_second")
+
+    assert store.list_active() == {
+        "worktree-a": "r_first",
+        "worktree-b": "r_second",
+    }
+
+
+def test_legacy_current_pointer_migrates_to_the_invoking_worktree(store):
+    store.current_path.parent.mkdir(parents=True, exist_ok=True)
+    store.current_path.write_text("r_legacy\n", encoding="utf-8")
+
+    assert store.migrate_legacy_current("worktree-a") == "r_legacy"
+    assert store.get_active("worktree-a") == "r_legacy"
+    assert not store.current_path.exists()

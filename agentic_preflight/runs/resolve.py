@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import shlex
-
 from .. import findings as findingsmod
 from .. import gitx, worktree
 from .. import risk as riskmod
@@ -27,6 +25,7 @@ from ._session import (
     _require_state,
     _require_worktree,
     _respond_command,
+    _start_command,
 )
 
 RESPONSE_ACTIONS = ("fixed", "dismissed", "accepted")
@@ -220,13 +219,10 @@ def _in_place_fix_commits(session: Session, run: RunDoc, commit: str) -> list[st
             "the in-place validation branch was rewritten instead of advanced by repair commits",
             state=run.state.value,
             run_id=run.run_id,
-            next_command=shlex.join(
-                [
-                    "agentic-preflight",
-                    "start",
-                    "--intent",
-                    run.intent or "<objective and acceptance criteria>",
-                ]
+            next_command=_start_command(
+                run.intent,
+                base_ref=run.base_ref,
+                default_base_ref=session.config.general.base_ref,
             ),
         )
     commits = gitx.commits_between(repo, run.head_sha, current)

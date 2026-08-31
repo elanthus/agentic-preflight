@@ -16,10 +16,18 @@ from ..errors import (
     SyncConflictError,
     WrongState,
 )
-from ..machine import Action, State
+from ..machine import TERMINAL_STATES, Action, State
 from ..models import Attestation, RunDoc, SetupFailure, Stage, StageRecord
 from ..store import CurrentRunExists
-from ._session import Session, _apply, _envelope_for, _new_run_id, _now
+from ._session import (
+    Session,
+    _apply,
+    _envelope_for,
+    _new_run_id,
+    _now,
+    _start_command,
+    worktree_identity,
+)
 
 
 def _import_evidence_through_machine(doc: RunDoc, evidence: Attestation) -> None:
@@ -43,28 +51,64 @@ def _import_evidence_through_machine(doc: RunDoc, evidence: Attestation) -> None
     _apply(doc, Action.MERGEBACK_OK)
 
 
+def _orphan(session: Session, run: RunDoc, *, reason: str) -> None:
+    """Detach an idle run without destroying its evidence or validation work."""
+    with session.store.try_operation(run.run_id) as idle:
+        if not idle:
+            raise WrongState(
+                f"run {run.run_id} is executing a command and cannot be replaced",
+                state=run.state.value,
+                run_id=run.run_id,
+                next_instruction="Wait for the active command to finish, then retry.",
+                next_command="agentic-preflight status",
+            )
+        with session.store.transaction(run.run_id) as doc:
+            if doc.state not in TERMINAL_STATES:
+                _apply(doc, Action.ORPHAN)
+            doc.orphaned_reason = reason
+        session.store.clear_run(run.run_id)
+        session.store.append_event(run.run_id, {"event": "orphaned", "reason": reason})
+
+
+def _resume_existing(session: Session, run: RunDoc) -> Envelope:
+    from .lifecycle import status
+
+    envelope = status(session)
+    envelope.data["resumed"] = True
+    envelope.data["resume_reason"] = "matching active run"
+    return envelope
+
+
+def _claim_alias(session: Session, owner_id: str, run_id: str) -> None:
+    current = session.store.get_active(owner_id)
+    if current and current != run_id:
+        try:
+            existing = session.store.load_run(current)
+        except Exception:  # noqa: BLE001 - a dangling alias is safe to reclaim
+            session.store.clear_active_if(owner_id, current)
+        else:
+            if existing.state in TERMINAL_STATES:
+                session.store.clear_active_if(owner_id, current)
+            else:
+                raise CurrentRunExists(current)
+    if session.store.get_active(owner_id) != run_id:
+        session.store.claim_active(owner_id, run_id)
+
+
 def start(
     session: Session,
     *,
     base_ref: str | None = None,
     intent: str | None = None,
+    replace: bool = False,
 ) -> Envelope:
-    repo = session.repo_root
+    repo = session.caller_root
     # Starting is the one command that deliberately reads the working copy.
     # Every later command uses the snapshot persisted below.
     cfg = load_config(repo)
     session.config = cfg
     if cfg.worktree.mode != "in_place":
         session.store.set_worktrees_root(worktree.resolve_root(repo, cfg.worktree.root))
-
-    current = session.store.get_current()
-    if current:
-        raise WrongState(
-            f"run {current} is already active; the validation runner has a single lease",
-            run_id=current,
-            next_instruction="Finish, clean up, or abort the active run before starting another.",
-            next_command="agentic-preflight status",
-        )
 
     intent = (intent or "").strip()
     if not intent:
@@ -87,6 +131,64 @@ def start(
     base_ref = base_ref or cfg.general.base_ref
     branch = gitx.current_branch(repo)
     head_sha = gitx.rev_parse(repo, "HEAD")
+    snapshot = cfg.model_dump(mode="json")
+    resolved_config_digest = config_digest(snapshot)
+
+    current = session.store.get_active(session.owner_id)
+    if current:
+        try:
+            existing = session.store.load_run(current)
+        except Exception:  # noqa: BLE001 - a dangling pointer has no work to preserve
+            session.store.clear_active_if(session.owner_id, current)
+        else:
+            if existing.state in TERMINAL_STATES:
+                session.store.clear_run(existing.run_id)
+            else:
+                if existing.source_worktree_id and existing.source_worktree_id != session.owner_id:
+                    raise WrongState(
+                        f"run {existing.run_id} belongs to another source worktree",
+                        state=existing.state.value,
+                        run_id=existing.run_id,
+                        data={"source_worktree_path": existing.source_worktree_path},
+                        next_instruction="Run `start` from the recorded source worktree.",
+                        next_command="agentic-preflight status",
+                    )
+                expected = existing.source_head_sha or existing.head_sha
+                stale = head_sha != expected or branch != existing.branch
+                matches = (
+                    not stale
+                    and existing.intent == intent
+                    and existing.base_ref == base_ref
+                    and existing.config_digest == resolved_config_digest
+                )
+                if matches:
+                    return _resume_existing(session, existing)
+                if stale:
+                    _orphan(session, existing, reason="source worktree moved")
+                elif replace:
+                    _orphan(session, existing, reason="replaced by a new start")
+                else:
+                    command = _start_command(
+                        intent,
+                        base_ref=base_ref,
+                        default_base_ref=cfg.general.base_ref,
+                        replace=True,
+                    )
+                    raise WrongState(
+                        f"run {existing.run_id} is already active in this worktree",
+                        state=existing.state.value,
+                        run_id=existing.run_id,
+                        data={
+                            "existing_intent": existing.intent,
+                            "requested_intent": intent,
+                            "source_worktree_path": existing.source_worktree_path,
+                        },
+                        next_instruction=(
+                            "Resume the matching run, or explicitly replace it. Replacement "
+                            "orphans the old run without deleting its evidence or fixes."
+                        ),
+                        next_command=command,
+                    )
     try:
         merge_base = gitx.merge_base(repo, base_ref, "HEAD")
     except gitx.GitError as exc:
@@ -100,8 +202,6 @@ def start(
         )
 
     run_id = _new_run_id()
-    snapshot = cfg.model_dump(mode="json")
-    resolved_config_digest = config_digest(snapshot)
     run = RunDoc(
         run_id=run_id,
         state=State.CREATED,
@@ -112,25 +212,29 @@ def start(
         source_head_sha=head_sha,
         intent=intent,
         intent_source="user",
+        source_worktree_id=session.owner_id,
+        source_worktree_path=str(repo.resolve()),
+        owner_ids=[session.owner_id],
         config_snapshot=snapshot,
         config_digest=resolved_config_digest,
         created_at=_now(),
     )
     # Persist the intent *before* the git call, so a crash mid-create leaves a
     # record for `gc` to reconcile rather than an orphan nobody knows about.
-    session.store.create_run(run)
-    try:
-        session.store.claim_current(run_id)
-    except CurrentRunExists as exc:
-        with session.store.transaction(run_id) as doc:
-            _apply(doc, Action.ABORT)
-            doc.worktree_released = True
-        raise WrongState(
-            f"run {exc.run_id} is already active; the validation runner has a single lease",
-            run_id=exc.run_id,
-            next_instruction="Finish, clean up, or abort the active run before starting another.",
-            next_command="agentic-preflight status",
-        ) from exc
+    with session.store.operation(run_id):
+        session.store.create_run(run)
+        try:
+            session.store.claim_active(session.owner_id, run_id)
+        except CurrentRunExists as exc:
+            with session.store.transaction(run_id) as doc:
+                _apply(doc, Action.ABORT)
+                doc.worktree_released = True
+            raise WrongState(
+                f"run {exc.run_id} is already active in this worktree",
+                run_id=exc.run_id,
+                next_instruction="Finish, clean up, or abort the active run before starting another.",
+                next_command="agentic-preflight status",
+            ) from exc
     session.store.append_event(
         run_id,
         {
@@ -166,7 +270,7 @@ def start(
         with session.store.transaction(run_id) as doc:
             _apply(doc, Action.ABORT)
             doc.worktree_released = True
-        session.store.clear_current_if(run_id)
+        session.store.clear_run(run_id)
         raise NeedsHuman(
             str(exc),
             run_id=run_id,
@@ -178,14 +282,34 @@ def start(
             next_command="agentic-preflight gc",
         ) from exc
 
+    validation_owner = worktree_identity(wt_path)
     with session.store.transaction(run_id) as doc:
         doc.worktree_path = str(wt_path)
         doc.worktree_branch = wt_branch
+    try:
+        _claim_alias(session, validation_owner, run_id)
+    except CurrentRunExists as exc:
+        with session.store.transaction(run_id) as doc:
+            _apply(doc, Action.ABORT)
+            doc.worktree_released = False
+        session.store.clear_run(run_id)
+        raise NeedsHuman(
+            f"validation worktree is still owned by run {exc.run_id}",
+            run_id=run_id,
+            data={"worktree_path": str(wt_path), "conflicting_run_id": exc.run_id},
+            next_instruction="Inspect both runs before reclaiming the validation checkout.",
+            next_command="agentic-preflight status --all",
+        ) from exc
+
+    with session.store.transaction(run_id) as doc:
+        if validation_owner not in doc.owner_ids:
+            doc.owner_ids.append(validation_owner)
         _apply(doc, Action.CREATE_WORKTREE)
         _apply(doc, Action.BEGIN_SYNC)
 
     try:
-        sync_result = syncmod.synchronize(repo, wt_path, base_ref=base_ref)
+        with session.store.resource("sync"), session.store.resource("notes"):
+            sync_result = syncmod.synchronize(repo, wt_path, base_ref=base_ref)
     except syncmod.SyncConflict as exc:
         with session.store.transaction(run_id) as doc:
             doc.sync_base_sha = exc.base_sha
@@ -224,7 +348,7 @@ def start(
         with session.store.transaction(run_id) as doc:
             _apply(doc, Action.ABORT)
             doc.worktree_released = True
-        session.store.set_current(None)
+        session.store.clear_run(run_id)
         raise EmptyDiff(
             "the branch has no changes after synchronizing with the fresh remote base",
             next_instruction="The requested change is already present upstream.",

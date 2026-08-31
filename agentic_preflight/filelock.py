@@ -67,6 +67,27 @@ def _acquire(handle) -> None:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
 
 
+def _try_acquire(handle) -> bool:
+    """Take the lock without waiting, returning whether it was available."""
+    if sys.platform == "win32":
+        handle.seek(0)
+        try:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, _LOCK_BYTE)
+        except OSError as exc:
+            if exc.errno in {errno.EACCES, errno.EDEADLOCK}:
+                return False
+            raise
+        return True
+    else:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            if exc.errno in {errno.EACCES, errno.EAGAIN}:
+                return False
+            raise
+        return True
+
+
 def _release(handle) -> None:
     if sys.platform == "win32":
         handle.seek(0)
@@ -96,3 +117,20 @@ def exclusive(path: Path | str) -> Iterator[None]:
             yield
         finally:
             _release(handle)
+
+
+@contextmanager
+def try_exclusive(path: Path | str) -> Iterator[bool]:
+    """Attempt an exclusive lock without waiting and report whether it was taken."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "ab+") as handle:
+        if sys.platform == "win32" and os.fstat(handle.fileno()).st_size < _LOCK_BYTE:
+            handle.write(b"\0")
+            handle.flush()
+        acquired = _try_acquire(handle)
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                _release(handle)

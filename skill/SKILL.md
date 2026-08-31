@@ -41,6 +41,9 @@ Python here never calls a model — every judgment in this workflow is yours.
 8. **Never merge a high-risk `manual_merge` pull request or enable auto-merge.** The
    hosted check fails while auto-merge is enabled; when successful, it records that the
    user must perform the merge and is not authorization for the agent to merge.
+9. **Runs belong to source worktrees, not clones.** Other linked worktrees may have
+   independent active runs. Use `status` for the invoking worktree, `status --all` for
+   the clone inventory, and `agentic-preflight --run RUN_ID ...` for explicit recovery.
 
 ## The loop
 
@@ -215,7 +218,8 @@ stops — do not improvise a recovery from the symptom alone.
 | Merge-back conflict (exit 4, isolated modes only) | Paste `data.resolution` verbatim and stop |
 | Stage red after max attempts (exit 4) | Stop retrying; show a stage log, or abort if baseline setup never produced one |
 | Hosted CI failed | Fix on the source branch, re-run the whole gate |
-| Stale head (exit 3, `stale_run`) | `abort --force`, then the fresh `start` it returns |
+| Stale head (exit 3, `stale_run`) | Run `start` again; it preserves the old run as `ORPHANED` |
+| Abandoned run | `status --all`; inspect explicitly with `--run RUN_ID` |
 | Diff too large (exit 2, `diff_too_large`) | Exclude generated globs; never review part of it |
 | No command configured (exit 2, `needs_command`) | Pick from `data.candidates`; distrust the first green |
 | Setup failed (exit 2, `setup_failed`) | Obey `status`: abort initial setup or preserve the baseline retry |

@@ -67,6 +67,30 @@ def test_the_lock_can_be_taken_again_by_the_same_process(tmp_path):
         pass
 
 
+def test_a_nonblocking_probe_reports_contention_and_later_success(tmp_path):
+    lock = tmp_path / "run.lock"
+    probe = textwrap.dedent(
+        """
+        import sys
+        from agentic_preflight import filelock
+        with filelock.try_exclusive(sys.argv[1]) as acquired:
+            sys.stdout.write(str(acquired))
+        """
+    )
+
+    with filelock.exclusive(lock):
+        result = subprocess.run(
+            [sys.executable, "-c", probe, str(lock)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert result.stdout == "False"
+
+    with filelock.try_exclusive(lock) as acquired:
+        assert acquired is True
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="the retry loop is the Windows path")
 def test_a_lock_error_that_is_not_contention_is_raised_rather_than_retried(tmp_path, monkeypatch):
     """Contention resolves by waiting; a bad descriptor never will.
