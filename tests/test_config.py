@@ -131,9 +131,7 @@ def test_pr_modes_are_explicit_configuration_options(tmp_repo, tmp_path, mode):
     assert cfg.pr.mode == mode
 
 
-def test_automatic_cleanup_can_be_disabled_with_the_public_camel_case_key(
-    tmp_repo, tmp_path
-):
+def test_automatic_cleanup_can_be_disabled_with_the_public_camel_case_key(tmp_repo, tmp_path):
     (tmp_repo / ".agentic-preflight.toml").write_text(
         "[pr]\nmode = 'auto'\nautomatedCleanup = false\n"
     )
