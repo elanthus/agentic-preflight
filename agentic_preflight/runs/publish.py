@@ -120,7 +120,7 @@ def gate(session: Session) -> Envelope:
     if opens_pr and session.config.pr.automated_cleanup:
         cleanup_instruction = (
             " Automated cleanup is enabled: after opening or reusing the pull request, "
-            "disclose the exact cleanup scope, poll that PR every 60 seconds, and clean up "
+            "disclose the exact cleanup scope, poll that PR every 5 minutes, and clean up "
             "only after the merge is verified."
         )
     elif opens_pr:

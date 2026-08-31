@@ -252,7 +252,7 @@ confirmation. Otherwise ask whether to push, and ask again if the summary differ
 materially from what the user authorized. In `[pr] mode = "auto"`, the committed
 configuration is standing authorization to open or reuse the pull request automatically
 after the confirmed push and preflight finish. When `automated_cleanup` is true, the
-agent also enters the disclosed 60-second merge poll and run-scoped cleanup lifecycle;
+agent also enters the disclosed 5-minute merge poll and run-scoped cleanup lifecycle;
 when false, it stops after hosted checks until the user explicitly requests cleanup. In
 manual PR mode, provide a compare URL instead. High risk does not change publication:
 after user confirmation, token mode may
@@ -277,7 +277,7 @@ to `gc`.
 
 Pull-request creation and hosted CI monitoring are deliberately outside this CLI. On
 GitHub, automatic PR mode uses `gh pr create`, `gh pr checks`, and `gh run view`. When
-`automated_cleanup` is true, it also starts a 60-second `gh pr view` state poll after
+`automated_cleanup` is true, it also starts a 5-minute `gh pr view` state poll after
 `finish`; when false, it stops after hosted checks until the user explicitly requests
 cleanup. Manual PR mode provides a compare URL and never creates the PR. Cleanup remains
 a run-scoped host or forge operation. For an automatically opened or reused PR with
