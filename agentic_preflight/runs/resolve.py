@@ -188,7 +188,9 @@ def respond(
         envelope.next_instruction = "Keep responding until nothing blocks, then verify."
         envelope.next_command = _respond_command(next_finding.id)
     else:
-        actionable = findingsmod.actionable([finding for finding in stored if finding.stage is stage])
+        actionable = findingsmod.actionable(
+            [finding for finding in stored if finding.stage is stage]
+        )
         if actionable:
             envelope.next_instruction = (
                 "This stage is green, but an auto-fix finding is still open. Fix it, "
