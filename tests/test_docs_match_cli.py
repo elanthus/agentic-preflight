@@ -269,12 +269,17 @@ def test_the_skill_documents_all_high_risk_approval_modes():
 def test_automatic_prs_are_polled_and_cleaned_without_a_second_approval():
     text = SKILL.read_text(encoding="utf-8")
     assert "wait 60 seconds" in text
-    assert "url,state,mergedAt,headRefName,baseRefName" in text
+    assert 'gh pr view "$PR_URL" --json' in text
+    assert "url,state,mergedAt,headRefName,headRefOid,baseRefName" in text
+    assert "never rely on the current branch" in text
+    assert "expected gated head commit" in text
+    assert "Re-resolve the local and remote source-branch tips" in text
+    assert "preserve both source branches" in text
     assert "Do not ask for a separate cleanup confirmation" in text
     assert "If the PR closes without" in text
     assert "preserve every cleanup target" in text
     assert "cleanup in the same turn without asking again" in text
-    assert "delete the local PR source branch and the remote PR source branch" in text
+    assert "Delete either source branch" in text
 
 
 def test_the_skill_documents_the_project_uninstall_trigger_and_scope():

@@ -121,7 +121,7 @@ $ agentic-preflight gc
 # create one automatically without asking about PR creation.
 $ gh pr create --title "Use constant-time password comparison" --body-file pr-body.md
 $ gh pr checks --watch
-$ gh pr view --json url,state,mergedAt,headRefName,baseRefName
+$ gh pr view "$PR_URL" --json url,state,mergedAt,headRefName,headRefOid,baseRefName
 
 # While state is OPEN, wait 60 seconds and query those same fields again.
 # If it is MERGED, perform the disclosed run-scoped cleanup. If it is CLOSED
@@ -293,18 +293,22 @@ describes the verified change before calling `gh pr create`.
 
 When an automatic pull request is opened or an existing one is reused, report its URL
 and disclose the exact run-scoped cleanup targets before monitoring begins: the PR head
-and base branches, this run's validation worktree and `ap/*` branch, the local PR branch,
-and its remote branch. Then query that exact PR with `gh pr view --json
-url,state,mergedAt,headRefName,baseRefName`. While it remains open, wait 60 seconds
-between queries; use the host's durable wait or recurring-task mechanism when available
-so monitoring survives an ordinary turn boundary. Do not poll more frequently, silently
+and base branches, the expected gated head commit, this run's validation worktree and
+`ap/*` branch, the local PR branch, and its remote branch. Record the full PR URL as
+`PR_URL`, then query it explicitly with `gh pr view "$PR_URL" --json
+url,state,mergedAt,headRefName,headRefOid,baseRefName`; never rely on the current branch
+to select the PR. Require the returned URL, branches, and `headRefOid` to match the
+disclosed PR and gated commit. While it remains open, wait 60 seconds between identical
+queries; use the host's durable wait or recurring-task mechanism when available so
+monitoring survives an ordinary turn boundary. Do not poll more frequently, silently
 stop after checks pass, or impose an arbitrary timeout.
 
 If a check fails, inspect and repair it through the normal hosted-CI playbook, push the
-newly gated head, and resume the same 60-second PR-state loop. If the PR closes without
-being merged, stop monitoring and preserve every cleanup target. If the user cancels
-monitoring, stop without cleanup. Only a terminal `MERGED` state with a non-null
-`mergedAt` value advances to automatic cleanup.
+newly gated head, disclose and record that new expected head commit, and resume the same
+60-second PR-state loop. If the PR closes without being merged, stop monitoring and
+preserve every cleanup target. If the user cancels monitoring, stop without cleanup.
+Only a terminal `MERGED` state with a non-null `mergedAt` value advances to automatic
+cleanup.
 
 ## What to publish, and what it proves
 
@@ -355,16 +359,22 @@ For an automatically opened or reused PR, the disclosed cleanup scope and `[pr] 
 "auto"` authorize the whole run-scoped cleanup operation once monitoring verifies the
 merge. An explicit later user cleanup request grants the same authorization for any
 other PR. In either case, inspect the exact targets and verify through `gh` that the PR
-is merged, then perform the cleanup in the same turn without asking again. Re-check the
-merge and head/base branches immediately before mutation, switch a clean source checkout
-to the base branch when necessary, remove only that run's validation worktree and `ap/*`
-branch, delete the local PR source branch and the remote PR source branch, then
-fast-forward the base checkout with `git pull --ff-only` so it contains the merged result.
+is merged, then perform the cleanup in the same turn without asking again. Immediately
+before mutation, query the recorded full PR URL again for `url`, `state`, `mergedAt`,
+`headRefName`, `headRefOid`, and `baseRefName`; do not infer the PR from the current
+checkout. Re-resolve the local and remote source-branch tips. Delete either source branch
+only when the PR head, local tip, and remote tip that exist still equal the disclosed
+expected head commit. If any of those commits changed, preserve both source branches and
+report the mismatch, but still reclaim this run's validation worktree and `ap/*` branch
+when their run identity and the PR's URL, merged state, and head/base branch names match.
+Switch a clean source checkout to the base branch when necessary, then fast-forward it
+with `git pull --ff-only` so it contains the merged result.
 
 Stop instead of deleting if the PR is not merged, the checkout is dirty, the PR head or
-base differs from the disclosed cleanup scope, or a branch is checked out in an
-unrelated worktree. Cleanup never performs a blanket `ap/*` deletion. Afterward, report
-the exact targets removed and whether the remote branch was already absent.
+base branch name differs from the disclosed cleanup scope, or a branch is checked out
+in an unrelated worktree. Cleanup never performs a blanket `ap/*` deletion. Afterward,
+report the exact targets removed, every preserved mismatch, and whether either source
+branch was already absent.
 
 For a pushed run with no PR, follow `finish` with `gc`. `gc` compares original fixes
 with post-mergeback history using stable patch IDs. Only patch-equivalent fixes are

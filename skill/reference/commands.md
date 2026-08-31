@@ -276,7 +276,9 @@ GitHub, automatic PR mode uses `gh pr create`, `gh pr checks`, `gh run view`, an
 60-second `gh pr view` state poll after `finish`; manual PR mode provides a compare URL
 and never creates the PR. Cleanup remains a run-scoped host or forge operation. For an
 automatically opened or reused PR, the skill discloses its exact targets before polling
-and performs that cleanup after GitHub verifies the merge; a later explicit cleanup
+and performs that cleanup after GitHub verifies the merge. Monitoring always selects the
+recorded full PR URL, and source branches are deleted only when the PR, local branch, and
+remote branch still reference the disclosed gated head commit. A later explicit cleanup
 request authorizes the equivalent operation for other PRs.
 
 ## Inspection and recovery
