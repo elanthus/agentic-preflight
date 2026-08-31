@@ -150,8 +150,9 @@ the worktree; paths outside the changed-file set (review) or documentation allow
 All-or-nothing — one bad finding rejects the batch.
 
 ### `agentic-preflight respond --id F001 --action fixed|dismissed|accepted [--commit SHA] [--note TEXT]`
-- `fixed` requires `--commit`. The commit is verified three ways: it exists, it touches
-  the finding's file, and it contains no `copy_files` path.
+- `fixed` requires `--commit`. The commit is verified four ways: it exists, it touches
+  the finding's file, it contains no `copy_files` path, and in `reusable` or `strict`
+  mode it is reachable from the validation worktree's current `HEAD`.
 - `dismissed` and `accepted` require `--note`.
 - Unknown id exits 3 listing the valid ids. Each finding is resolved once.
 - Non-blocking findings may be resolved after their review or docs stage is green. A
