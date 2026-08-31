@@ -301,6 +301,14 @@ def submit_findings(
     if blocking:
         envelope.next_instruction = "Resolve each blocking finding with `respond`."
         envelope.next_command = _respond_command(blocking[0].id)
+    else:
+        actionable = findingsmod.actionable(stage_findings)
+        if actionable:
+            envelope.next_instruction = (
+                "This stage is green, but an auto-fix finding is still open. Fix it, "
+                "or record why it is not worth fixing with `--action accepted --note`."
+            )
+            envelope.next_command = _respond_command(actionable[0].id)
     return envelope
 
 

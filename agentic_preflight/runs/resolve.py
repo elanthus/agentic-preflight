@@ -27,6 +27,7 @@ from ._session import (
     _respond_command,
     _start_command,
 )
+from .review_coverage import reopen_if_stale
 
 RESPONSE_ACTIONS = ("fixed", "dismissed", "accepted")
 
@@ -55,9 +56,12 @@ def respond(
     _require_state(
         run,
         State.REVIEW_BLOCKED,
+        State.REVIEW_GREEN,
         State.DOCS_BLOCKED,
+        State.DOCS_GREEN,
         command="respond",
     )
+    active_stage = _require_finding_stage(run)
 
     stored = session.store.load_findings(run.run_id)
     target = next((f for f in stored if f.id == finding_id), None)
@@ -115,6 +119,7 @@ def respond(
         docs_blocking_severities=session.config.docs.blocking_severities,
     )
 
+    responded_from_green = False
     with session.store.transaction(run.run_id) as doc:
         for fix_commit in new_commits:
             if fix_commit not in doc.fix_commits:
@@ -122,8 +127,8 @@ def respond(
         if accepting_in_place_fix:
             doc.head_sha = new_commits[-1]
             doc.source_head_sha = new_commits[-1]
-        if doc.state in (State.REVIEW_BLOCKED, State.DOCS_BLOCKED):
-            _apply(doc, Action.RESPOND)
+        responded_from_green = doc.state in (State.REVIEW_GREEN, State.DOCS_GREEN)
+        _apply(doc, Action.RESPOND)
         doc.changed_files = changed_files
         doc.risk = assessment
         run = doc
@@ -140,7 +145,25 @@ def respond(
         },
     )
 
-    stage = _require_finding_stage(run)
+    if action == "fixed" and responded_from_green:
+        run, reopened = reopen_if_stale(session, run)
+        if reopened:
+            return _envelope_for(
+                run,
+                stage=Stage.REVIEW.value,
+                data={
+                    "finding": target.model_dump(mode="json"),
+                    "coverage_invalidated": True,
+                    "risk": assessment.model_dump(mode="json"),
+                },
+                next_instruction=(
+                    "The repair changed the reviewed snapshot. Review the complete "
+                    "current diff and rerun every applicable stage."
+                ),
+                next_command="agentic-preflight context",
+            )
+
+    stage = active_stage
     severities = (
         session.config.review.blocking_severities
         if stage is Stage.REVIEW
@@ -165,8 +188,16 @@ def respond(
         envelope.next_instruction = "Keep responding until nothing blocks, then verify."
         envelope.next_command = _respond_command(next_finding.id)
     else:
-        envelope.next_instruction = "Nothing blocks this stage any more. Verify it."
-        envelope.next_command = "agentic-preflight verify"
+        actionable = findingsmod.actionable([finding for finding in stored if finding.stage is stage])
+        if actionable:
+            envelope.next_instruction = (
+                "This stage is green, but an auto-fix finding is still open. Fix it, "
+                "or record why it is not worth fixing with `--action accepted --note`."
+            )
+            envelope.next_command = _respond_command(actionable[0].id)
+        elif run.state in (State.REVIEW_BLOCKED, State.DOCS_BLOCKED):
+            envelope.next_instruction = "Nothing blocks this stage any more. Verify it."
+            envelope.next_command = "agentic-preflight verify"
     return envelope
 
 

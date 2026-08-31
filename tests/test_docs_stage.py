@@ -221,6 +221,92 @@ def test_a_medium_docs_finding_does_not_block(review_green, tmp_path):
     )
     env = review_green.run("submit-findings", "--file", path)
     assert env["state"] == "DOCS_GREEN"
+    assert env["next"]["command"].startswith("agentic-preflight respond --id F001")
+
+
+def test_a_nonblocking_docs_finding_can_be_accepted_with_a_note(review_green, tmp_path):
+    review_green.run("context", "--section", "docs")
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "path": "README.md",
+                "severity": "medium",
+                "action": "auto_fix",
+                "title": "could mention the flag",
+            }
+        ],
+    )
+    review_green.run("submit-findings", "--file", path)
+
+    env = review_green.run(
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        "accepted",
+        "--note",
+        "Correct, but the flag is intentionally undocumented until it is stable.",
+    )
+
+    assert env["state"] == "DOCS_GREEN"
+    assert env["data"]["finding"]["status"] == "accepted"
+    assert env["data"]["finding"]["response_note"].startswith("Correct")
+    assert env["next"]["command"] == "agentic-preflight stage run lint"
+    status = review_green.run("status")
+    assert status["data"]["findings"][0]["status"] == "accepted"
+    assert status["data"]["findings"][0]["response_note"].startswith("Correct")
+
+
+def test_fixing_a_nonblocking_docs_finding_registers_the_commit_and_reopens_review(
+    feature_repo, tmp_path
+):
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[commands]\nlint = 'true'\ntest = 'true'\n\n[worktree]\nmode = 'reusable'\n",
+    )
+    commit_all(feature_repo, "configure isolated preflight")
+    agent = ScriptedAgent(feature_repo)
+    started = agent.run("start")
+    wt = started["data"]["worktree_path"]
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("context", "--section", "docs")
+    finding_path = findings_json(
+        tmp_path,
+        [
+            {
+                "path": "README.md",
+                "severity": "medium",
+                "action": "auto_fix",
+                "title": "the flag documentation is stale",
+            }
+        ],
+    )
+    agent.run("submit-findings", "--file", finding_path)
+
+    write(wt, "README.md", "# demo\n\nThe loud flag is supported.\n")
+    fix_sha = commit_all(wt, "docs: explain the loud flag")
+    env = agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", fix_sha)
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert env["data"]["coverage_invalidated"] is True
+    assert env["data"]["finding"]["status"] == "fixed"
+    status = agent.run("status")
+    assert status["data"]["fix_commits"] == [fix_sha]
+
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("context", "--section", "docs")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
+    merged = agent.run("mergeback")
+
+    assert merged["state"] == "VERIFIED"
+    assert merged["data"]["applied"] == [fix_sha]
+    assert "loud flag is supported" in (feature_repo / "README.md").read_text(encoding="utf-8")
 
 
 def test_a_high_docs_finding_blocks(review_green, tmp_path):
