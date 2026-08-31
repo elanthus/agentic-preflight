@@ -309,6 +309,55 @@ def test_fixing_a_nonblocking_docs_finding_registers_the_commit_and_reopens_revi
     assert "loud flag is supported" in (feature_repo / "README.md").read_text(encoding="utf-8")
 
 
+def test_a_fix_commit_must_be_in_the_validation_worktree_history(feature_repo, tmp_path):
+    from tests.conftest import git
+
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[commands]\nlint = 'true'\ntest = 'true'\n\n[worktree]\nmode = 'reusable'\n",
+    )
+    commit_all(feature_repo, "configure isolated preflight")
+    agent = ScriptedAgent(feature_repo)
+    started = agent.run("start")
+    wt = started["data"]["worktree_path"]
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("context", "--section", "docs")
+    finding_path = findings_json(
+        tmp_path,
+        [
+            {
+                "path": "README.md",
+                "severity": "medium",
+                "action": "auto_fix",
+                "title": "the flag documentation is stale",
+            }
+        ],
+    )
+    agent.run("submit-findings", "--file", finding_path)
+
+    validation_branch = git("branch", "--show-current", cwd=wt)
+    git("switch", "-c", "detached-repair", cwd=wt)
+    write(wt, "README.md", "# demo\n\nRepair on the wrong branch.\n")
+    unrelated_sha = commit_all(wt, "docs: repair on another ref")
+    git("switch", validation_branch, cwd=wt)
+
+    env = agent.run(
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        "fixed",
+        "--commit",
+        unrelated_sha,
+        expect=ExitCode.PRECONDITION,
+    )
+
+    assert env["error"]["code"] == "invalid_response"
+    assert "not part of the validation checkout's current history" in env["error"]["message"]
+
+
 def test_a_high_docs_finding_blocks(review_green, tmp_path):
     review_green.run("context", "--section", "docs")
     path = findings_json(

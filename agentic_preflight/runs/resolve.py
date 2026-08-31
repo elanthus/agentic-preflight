@@ -27,6 +27,7 @@ from ._session import (
     _respond_command,
     _start_command,
 )
+from .review import _skip_docs_if_disabled
 from .review_coverage import reopen_if_stale
 
 RESPONSE_ACTIONS = ("fixed", "dismissed", "accepted")
@@ -169,9 +170,11 @@ def respond(
         if stage is Stage.REVIEW
         else session.config.docs.blocking_severities
     )
-    remaining = findingsmod.blocking(
-        [f for f in stored if f.stage is stage], blocking_severities=severities
-    )
+    stage_findings = [finding for finding in stored if finding.stage is stage]
+    remaining = findingsmod.blocking(stage_findings, blocking_severities=severities)
+    actionable = findingsmod.actionable(stage_findings)
+    if not remaining and not actionable:
+        run = _skip_docs_if_disabled(session, run)
 
     envelope = _envelope_for(
         run,
@@ -188,9 +191,6 @@ def respond(
         envelope.next_instruction = "Keep responding until nothing blocks, then verify."
         envelope.next_command = _respond_command(next_finding.id)
     else:
-        actionable = findingsmod.actionable(
-            [finding for finding in stored if finding.stage is stage]
-        )
         if actionable:
             envelope.next_instruction = (
                 "This stage is green, but an auto-fix finding is still open. Fix it, "
@@ -213,6 +213,14 @@ def _verify_fix_commit(session: Session, run: RunDoc, target, commit: str) -> st
         )
 
     full_sha = gitx.rev_parse(wt, commit)
+
+    if not _is_in_place(run, session.config) and not gitx.is_ancestor(wt, full_sha, "HEAD"):
+        raise InvalidResponse(
+            f"commit {commit[:8]} is not part of the validation checkout's current "
+            "history; apply the repair in the validation worktree before responding",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
 
     if not gitx.commit_touches(wt, full_sha, target.path):
         raise InvalidResponse(

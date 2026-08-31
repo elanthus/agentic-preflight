@@ -274,7 +274,9 @@ def submit_findings(
         _apply(doc, Action.SUBMIT_BLOCKING if blocking else Action.SUBMIT_CLEAN)
         run = doc
 
-    run = _skip_docs_if_disabled(session, run)
+    actionable = findingsmod.actionable(stage_findings)
+    if not blocking and not actionable:
+        run = _skip_docs_if_disabled(session, run)
 
     session.store.append_event(
         run.run_id,
@@ -302,7 +304,6 @@ def submit_findings(
         envelope.next_instruction = "Resolve each blocking finding with `respond`."
         envelope.next_command = _respond_command(blocking[0].id)
     else:
-        actionable = findingsmod.actionable(stage_findings)
         if actionable:
             envelope.next_instruction = (
                 "This stage is green, but an auto-fix finding is still open. Fix it, "
