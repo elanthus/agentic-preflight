@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml/badge.svg)](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml)
 [![Coverage](https://raw.githubusercontent.com/elanthus/agentic-preflight/badges/coverage.svg)](https://github.com/elanthus/agentic-preflight/tree/badges)
-[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.5.2/pyproject.toml)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.5.2/LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.5.2.1/pyproject.toml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.5.2.1/LICENSE)
 
 **Stops your coding agent from pushing unverified work.**
 
@@ -110,7 +110,7 @@ For a human-only final push, set `[gate] mode = "manual"`.
 
 Installing a single agent, checking a skill into one repository, upgrading, and using
 other Agent Skills clients are covered in
-[installation guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.2/docs/installation.md).
+[installation guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.2.1/docs/installation.md).
 
 ## How it works
 
@@ -142,7 +142,7 @@ run the final software test command. After lint, it takes an explicit `SKIP_TEST
 transition through `TEST_GREEN` and records the test stage as `skipped` with its reason,
 so the exception is visible in `status` and the commit's attestation note. Any source or
 otherwise unclassified file keeps tests mandatory.
-[change-scope reference](https://github.com/elanthus/agentic-preflight/blob/v0.5.2/docs/change-scope.md)
+[change-scope reference](https://github.com/elanthus/agentic-preflight/blob/v0.5.2.1/docs/change-scope.md)
 lists the exact classification.
 
 Risk is classified separately from that execution scope and from diff size. Repository
@@ -158,7 +158,7 @@ By default the run happens directly in the current checkout, which suits a clean
 dedicated one-agent/one-PR worktree. Two isolated modes keep the source checkout
 untouched during verification. All three, along with dependency handling and secret
 protection, are described in the
-[worktree-modes guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.2/docs/worktree-modes.md).
+[worktree-modes guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.2.1/docs/worktree-modes.md).
 
 Run ownership is scoped to that source worktree, not the clone. Multiple agents can gate
 different PR branches concurrently from linked worktrees; `status` in each checkout
@@ -184,7 +184,7 @@ The hook reads the tip's note in `refs/notes/agentic-preflight`, never touches t
 network, and never mutates anything. It is deliberately fail-open when the executable is
 unavailable. Existing-hook composition, force-push policy, and the exact failure modes
 are covered in the
-[pre-push hook guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.2/docs/pre-push-hook.md).
+[pre-push hook guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.2.1/docs/pre-push-hook.md).
 
 ## Portable attestations and CI enforcement
 
@@ -201,7 +201,7 @@ agentic-preflight verify HEAD
 
 The note schema, fail-closed CI check, protected-base verifier pattern, and high-risk
 approval workflow are documented in
-[Portable attestations and CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.5.2/docs/attestations-and-ci.md).
+[Portable attestations and CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.5.2.1/docs/attestations-and-ci.md).
 
 ## Limits
 
@@ -222,7 +222,7 @@ know all three before relying on it:
 
 Attestation mutability, history-rewrite reuse, environment drift, and the boundary of
 what a green run proves are covered in the
-[limits guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.2/docs/limits.md).
+[limits guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.2.1/docs/limits.md).
 
 ## Configuration
 
@@ -230,7 +230,7 @@ what a green run proves are covered in the
 `~/.config/agentic-preflight/config.toml`. Unknown keys are errors that name the key.
 `init` writes a commented starting configuration. The complete example, every section,
 and the behavior behind the less-obvious keys live in the
-[configuration reference](https://github.com/elanthus/agentic-preflight/blob/v0.5.2/docs/configuration.md).
+[configuration reference](https://github.com/elanthus/agentic-preflight/blob/v0.5.2.1/docs/configuration.md).
 
 **The configuration executes committed code.** During a run, `[worktree]
 setup_command` runs at `start`, every `[commands]` entry runs at its lint or test
@@ -257,7 +257,7 @@ build.
 ## Requirements
 
 - A supported macOS/Linux/Windows and Python combination from the
-  [compatibility policy](https://github.com/elanthus/agentic-preflight/blob/v0.5.2/COMPATIBILITY.md)
+  [compatibility policy](https://github.com/elanthus/agentic-preflight/blob/v0.5.2.1/COMPATIBILITY.md)
 - git 2.30+
 - A POSIX shell, only for stage commands that use shell grammar such as pipes or `&&`.
   Plain commands run without one. On Windows this is the shell Git for Windows
@@ -267,8 +267,8 @@ build.
 
 ## Development
 
-See the [contributor guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.2/CONTRIBUTING.md)
-for the full workflow and [support guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.2/SUPPORT.md)
+See the [contributor guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.2.1/CONTRIBUTING.md)
+for the full workflow and [support guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.2.1/SUPPORT.md)
 for help channels. CI rejects overall coverage below 85% and also installs the built
 wheel as a `uv` tool before invoking its CLI.
 
@@ -312,4 +312,4 @@ OpenAI Codex and Anthropic Claude.
 
 ## License
 
-Apache 2.0. See the [license](https://github.com/elanthus/agentic-preflight/blob/v0.5.2/LICENSE).
+Apache 2.0. See the [license](https://github.com/elanthus/agentic-preflight/blob/v0.5.2.1/LICENSE).
