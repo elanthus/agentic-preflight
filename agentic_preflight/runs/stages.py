@@ -19,7 +19,7 @@ from ..errors import (
     StageFailed,
     StaleRun,
 )
-from ..machine import Action, State
+from ..machine import Action, State, legal_actions
 from ..models import RunDoc, SetupFailure, Stage, StageRecord
 from ..stages import detect, shellstage
 from ._session import (
@@ -46,7 +46,6 @@ class _BaselineSetupFailure(Exception):
 
 
 class _StageSpec(TypedDict):
-    ready: tuple[State, State, State]
     running: State
     run: Action
     retry: Action
@@ -57,7 +56,6 @@ class _StageSpec(TypedDict):
 
 _STAGE_STATES: dict[str, _StageSpec] = {
     "lint": {
-        "ready": (State.DOCS_GREEN, State.LINT_RED, State.LINT_RUNNING),
         "running": State.LINT_RUNNING,
         "run": Action.RUN_LINT,
         "retry": Action.RETRY_LINT,
@@ -66,7 +64,6 @@ _STAGE_STATES: dict[str, _StageSpec] = {
         "red": State.LINT_RED,
     },
     "test": {
-        "ready": (State.LINT_GREEN, State.TEST_RED, State.TEST_RUNNING),
         "running": State.TEST_RUNNING,
         "run": Action.RUN_TEST,
         "retry": Action.RETRY_TEST,
@@ -74,6 +71,16 @@ _STAGE_STATES: dict[str, _StageSpec] = {
         "failed": Action.TEST_FAILED,
         "red": State.TEST_RED,
     },
+}
+
+
+_STAGE_READY_STATES: dict[str, tuple[State, ...]] = {
+    stage_name: tuple(
+        state
+        for state in State
+        if {spec["run"], spec["retry"], spec["failed"]}.intersection(legal_actions(state))
+    )
+    for stage_name, spec in _STAGE_STATES.items()
 }
 
 
@@ -102,12 +109,21 @@ def _recover_interrupted_stage(
 
 
 def _register_stage_fix_commits(
-    session: Session, run: RunDoc, stage: Stage, record_entry: StageRecord
+    session: Session,
+    run: RunDoc,
+    stage: Stage,
+    spec: _StageSpec,
+    record_entry: StageRecord,
 ) -> tuple[RunDoc, bool]:
     """Register committed repairs made after a red stage attempt."""
     wt = run.worktree_path or session.repo_root
     current_head = gitx.rev_parse(wt, "HEAD")
     if record_entry.head_sha and record_entry.head_sha != current_head:
+        if run.state is not spec["red"]:
+            with session.store.transaction(run.run_id) as doc:
+                invalidate_stage_result(doc, stage)
+                run = doc
+            return run, False
         if not gitx.is_ancestor(wt, record_entry.head_sha, current_head):
             raise StaleRun(
                 f"the validation branch no longer descends from the {stage.value} "
@@ -128,7 +144,7 @@ def _register_stage_fix_commits(
                 if commit not in doc.fix_commits:
                     doc.fix_commits.append(commit)
             entry = doc.stages.get(stage) or StageRecord()
-            entry.head_sha = current_head
+            entry.head_sha = None
             doc.stages[stage] = entry
             if _is_in_place(doc, session.config):
                 doc.head_sha = current_head
@@ -217,7 +233,7 @@ def run_stage(
                 data={"coverage_invalidated": True},
                 next_command="agentic-preflight context",
             )
-    _require_state(run, *spec["ready"], command=f"stage run {stage_name}")
+    _require_state(run, *_STAGE_READY_STATES[stage_name], command=f"stage run {stage_name}")
     run = _recover_interrupted_stage(session, run, stage, spec)
     record_entry = run.stages.get(stage) or StageRecord()
     worktree_path = _require_worktree(run)
@@ -232,7 +248,7 @@ def run_stage(
             next_command="git status",
         )
 
-    run, restarted = _register_stage_fix_commits(session, run, stage, record_entry)
+    run, restarted = _register_stage_fix_commits(session, run, stage, spec, record_entry)
     if restarted:
         return _envelope_for(
             run,
