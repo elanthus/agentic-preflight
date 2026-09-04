@@ -125,6 +125,9 @@ call twice.
   allowlist, with `exists`, `size`, and `touched_by_diff`. From `REVIEW_GREEN` this
   opens the docs stage.
 
+Both sections also include `data.grounding`, a deterministic, bounded retrieval of
+repository-owned ownership, documentation, convention, history, and policy context.
+
 Exits 2 with `data.mode = "diff_too_large"` when the diff exceeds `[diff] max_bytes`.
 The diff is never truncated — narrow it with `[diff] exclude` or raise the limit.
 

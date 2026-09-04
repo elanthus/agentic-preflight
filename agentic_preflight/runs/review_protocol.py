@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from .. import diff as diffmod
 from .. import gitx
+from .. import grounding as groundingmod
 from ..errors import InvalidFindings
 from ..models import FindingSubmission, ReviewSubmission, RunDoc, Stage
 from ..stages import docs as docsstage
@@ -48,8 +49,16 @@ def context_data(
 ) -> dict[str, Any]:
     """Build the single canonical bundle used by context and command review."""
     worktree_path = _require_worktree(run)
+    grounding = groundingmod.assemble(session, run, bundle.files)
+    grounding_sha256 = groundingmod.digest(grounding)
     review_manifest = (
-        diffmod.build_review_manifest(worktree_path, bundle) if section == "review" else None
+        diffmod.build_review_manifest(
+            worktree_path,
+            bundle,
+            grounding_sha256=grounding_sha256,
+        )
+        if section == "review"
+        else None
     )
     data: dict[str, Any] = {
         "section": section,
@@ -63,6 +72,7 @@ def context_data(
         "diff": bundle.text,
         "diff_bytes": bundle.total_bytes,
         "risk": run.risk.model_dump(mode="json") if run.risk is not None else None,
+        "grounding": grounding,
     }
     if review_manifest is not None:
         data["review_coverage"] = review_manifest.as_dict()
