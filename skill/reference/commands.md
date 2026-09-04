@@ -146,6 +146,21 @@ configured command, zero exit code, and SHA-256 of redacted captured output alon
 coverage in the schema-v4 attestation. Repairs invalidate all of that evidence and
 require a fresh command review.
 
+### `agentic-preflight review compare [--file PATH]`
+Compares the run's accepted review submission with an independent second submission while
+leaving the state and stored findings unchanged. `--file` accepts a strict review
+submission or a persisted executor submission. Without `--file`, a run whose accepted
+executor is `in_harness` launches the configured `[review] command` once as a shadow review
+over the same context bundle. Shadow output follows the normal copied-file secret redaction
+path and is stored in `logs/review-compare.txt`; it does not consume retry attempts.
+
+Both submissions must bind to the accepted manifest, and the worktree `HEAD` must still
+equal the reviewed head. A mismatch exits 3. Findings match when they cite the same unit
+and path and their line numbers are equal or within three lines. The command writes the
+unit counts, agreed and reviewer-only findings, severity disagreements, and agreement rate
+to `review-compare.json`, appends a `review_compared` event, and returns the summary as
+`data`. It is legal from `REVIEW_GREEN` onward and never advances the run.
+
 ### `agentic-preflight submit-findings --file PATH`
 `PATH` may be `-` for stdin. Review requires
 `{"coverage":{"manifest":"<from context>","examined":"all"},"findings":[...]}`.

@@ -51,6 +51,9 @@ trust-domain selection, resumability, and immutable inputs.
 Agentic Preflight is a deterministic state machine with a JSON-over-stdout CLI. It runs
 on macOS, Linux, and Windows.
 
+[Independent review and agreement](docs/independent-review.md) shows how to run and measure
+a second command-line reviewer over the same review bundle.
+
 ## Quickstart
 
 From a repository using a supported Python version (currently 3.11 through 3.13) and

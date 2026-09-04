@@ -21,7 +21,7 @@ from ..models import (
 )
 from ..stages import change_scope
 from ..stages import docs as docsstage
-from . import review_coverage, review_protocol
+from . import review_compare, review_coverage, review_protocol
 from ._session import (
     Session,
     _apply,
@@ -280,6 +280,16 @@ def submit_findings(
             doc.stages[Stage.REVIEW] = entry
         _apply(doc, Action.SUBMIT_BLOCKING if blocking else Action.SUBMIT_CLEAN)
         run = doc
+
+    if stage is Stage.REVIEW and manifest is not None and coverage is not None:
+        review_compare.persist_submission(
+            session,
+            run,
+            executor=_executor,
+            manifest=manifest.manifest,
+            head_sha=coverage.head_sha,
+            findings=submissions,
+        )
 
     actionable = findingsmod.actionable(stage_findings)
     if not blocking and not actionable:
