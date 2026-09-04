@@ -8,6 +8,8 @@ from pathlib import Path
 from . import gitx
 from .attestation import NOTES_REF
 
+OperationInProgress = gitx.OperationInProgress
+
 
 class SyncConflict(Exception):
     """A rebase conflicted and was aborted back to its original head."""
@@ -53,7 +55,11 @@ def _origin_base_ref(base_ref: str) -> tuple[str, str]:
 
 
 def rebase_onto(worktree_path: Path | str, base_ref: str) -> tuple[str, str]:
-    """Rebase one clean worktree, aborting and reporting any conflict."""
+    """Rebase one clean worktree, aborting only a conflict this call started."""
+    operation = gitx.operation_in_progress(worktree_path)
+    if operation is not None:
+        raise OperationInProgress(operation, worktree_path)
+
     before = gitx.rev_parse(worktree_path, "HEAD")
     base_sha = gitx.rev_parse(worktree_path, base_ref)
     if gitx.is_ancestor(worktree_path, base_sha, "HEAD"):
@@ -74,7 +80,21 @@ def rebase_onto(worktree_path: Path | str, base_ref: str) -> tuple[str, str]:
         ).stdout.splitlines()
         if line.strip()
     ]
-    gitx.run(worktree_path, "rebase", "--abort", check=False)
+    rebase_head_path = gitx.git_path(worktree_path, "REBASE_HEAD")
+    rebase_head = gitx.run(
+        worktree_path,
+        "rev-parse",
+        "--verify",
+        "REBASE_HEAD^{commit}",
+        check=False,
+    )
+    started_here = (
+        rebase_head_path.exists()
+        and rebase_head.returncode == 0
+        and gitx.is_ancestor(worktree_path, rebase_head.stdout.strip(), before)
+    )
+    if started_here:
+        gitx.run(worktree_path, "rebase", "--abort", check=False)
     raise SyncConflict(
         base_ref=base_ref,
         base_sha=base_sha,

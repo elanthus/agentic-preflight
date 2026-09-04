@@ -25,7 +25,12 @@ recovery path from another worktree in the clone.
 ### `agentic-preflight init [--force] [--no-hook]`
 Installs the pre-push hook and writes `.agentic-preflight.toml` if absent. Refuses to
 replace a pre-push hook it did not write (exit 3, `hook_exists`) — `--force`
-overrides. Does not clobber an existing config.
+overrides. Does not clobber an existing config. `data.hook_path` is the absolute path
+Git will execute, `data.hook_installed` confirms that installation left that path
+containing `agentic-preflight hook-check`, and `data.hooks_path_overridden` reports
+whether the effective path is outside the common Git directory's `hooks/` directory.
+With `--no-hook`, the effective path and override state are still reported, while
+`hook_installed` is false.
 
 The default `in_place` mode uses the current checkout and reports
 `data.worktree_root: null`. In isolated `reusable` and `strict` modes, worktrees default
@@ -207,6 +212,12 @@ project does not use.
 `logs/<stage>.txt`; the envelope carries head 50 and tail 200 lines with a `truncated`
 flag. Stops with exit 4 after `[stage] max_attempts` failures.
 
+If a lint or test process is killed or times out outside the harness, its persisted
+`*_RUNNING` state is recoverable. `stage run lint|test` is the legal retry from that state:
+it first records the interrupted process as a red attempt with exit code 125 and reason
+`interrupted`, then retries normally. The interrupted attempt counts toward `[stage]`
+`max_attempts`.
+
 **A command that no-ops and exits 0 is indistinguishable from one that passed.**
 Exit-code-only is deliberate — parsing output is brittle — but it assumes the command
 is *capable* of failing. The first green from a newly configured `[commands]` entry
@@ -259,8 +270,8 @@ after user confirmation, token mode may
 push it. The summary's `approval_mode` says whether the user must merge manually, a
 GitHub Environment must approve, or an eligible peer must approve the exact head. In
 `manual_merge`, never merge or enable auto-merge even when the hosted check is green.
-Only `[gate] mode = "manual"` exits 4 and hands over the literal `git push` command for a
-person to run.
+Only `[gate] mode = "manual"` exits 4 and puts the literal `git push` command in
+`data.manual_command` for a person to run; the agent must not run it.
 
 ### `agentic-preflight push --confirm TOKEN [--dry-run]`
 Requires the token from `gate` and atomically pushes both the branch and
@@ -291,7 +302,10 @@ authorizes the equivalent operation for other PRs.
 
 ### `agentic-preflight status [--all]`
 Legal in **every** state and the universal recovery entry point. Reports state, seq,
-findings, staleness, worktree path, and the gate token. Never raises for a wedged run.
+findings, staleness, worktree path, the gate token, and `data.hook` with the effective
+hook's `path` and `active` state. Hook-resolution failures report `path: null`,
+`active: false`, and a short `error` instead of breaking recovery. Never raises for a
+wedged run.
 In `MERGEBACK_CONFLICT`, it replays the durable conflict report and points back to the
 legal `mergeback` retry.
 `--all` inventories stored and active runs across every linked worktree in the clone.

@@ -134,6 +134,22 @@ class IntentRequired(AgenticError):
     exit_code = ExitCode.PRECONDITION
 
 
+class OperationInProgress(AgenticError):
+    """A checkout has a Git operation only its user may finish or abort."""
+
+    code = "operation_in_progress"
+    exit_code = ExitCode.PRECONDITION
+
+    def __init__(self, operation: str, path: str, **kwargs: Any) -> None:
+        kwargs.setdefault("data", {"operation": operation, "path": path})
+        kwargs.setdefault(
+            "next_instruction",
+            f"Stop and tell the user to finish or abort their own `git {operation}` first.",
+        )
+        kwargs.setdefault("next_command", "git status")
+        super().__init__(f"git {operation} is already in progress in {path}", **kwargs)
+
+
 class SyncConflictError(AgenticError):
     code = "sync_conflict"
     exit_code = ExitCode.NEEDS_HUMAN

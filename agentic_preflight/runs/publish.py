@@ -80,10 +80,10 @@ def gate(session: Session) -> Envelope:
                 "manual_command": f"git push --atomic origin {run.branch} {NOTES_REF}",
             },
             next_instruction=(
-                "Show the user this summary and ask them to review the change and run "
-                "the push themselves."
+                "Show the user this summary and data.manual_command, then stop; the user "
+                "must review the change and run the push themselves."
             ),
-            next_command=f"git push --atomic origin {run.branch} {NOTES_REF}",
+            next_command="agentic-preflight status",
         )
 
     summary.token = gatemod.mint_token()

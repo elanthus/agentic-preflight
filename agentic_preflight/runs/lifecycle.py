@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import gitx
+from .. import gitx, hook
 from .. import risk as riskmod
 from ..envelope import Envelope
 from ..errors import (
@@ -245,6 +245,22 @@ def _unlanded_fix_commits(repo: Path, run: RunDoc) -> list[str]:
         return list(run.fix_commits)
 
 
+def _hook_status(repo: Path) -> dict[str, str | bool | None]:
+    """Inspect the effective hook without compromising status as the recovery path."""
+    path: Path | None = None
+    try:
+        path = gitx.hook_path(repo, "pre-push")
+        return {"path": str(path), "active": hook.contains_hook_check(path)}
+    except Exception as exc:  # noqa: BLE001 - status must survive every hook-path failure
+        message = str(exc).strip()
+        reason = message.splitlines()[0][:200] if message else type(exc).__name__
+        return {
+            "path": str(path) if path is not None else None,
+            "active": False,
+            "error": reason,
+        }
+
+
 def status(session: Session, *, all_runs: bool = False) -> Envelope:
     """Legal in every state, and the universal recovery entry point.
 
@@ -275,10 +291,11 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             )
         return Envelope(data={"active": active, "runs": summaries, "count": len(summaries)})
 
+    hook_status = _hook_status(session.caller_root)
     run_id = session.active_run_id()
     if not run_id:
         return Envelope(
-            data={"has_run": False},
+            data={"has_run": False, "hook": hook_status},
             next_instruction="No run is active. Start one.",
             next_command=START_COMMAND,
         )
@@ -289,7 +306,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
         if session.selected_run_id is None:
             session.store.clear_active_if(session.owner_id, run_id)
         return Envelope(
-            data={"has_run": False, "dangling_run_id": run_id},
+            data={"has_run": False, "dangling_run_id": run_id, "hook": hook_status},
             next_instruction="The recorded run is missing. Start a fresh one.",
             next_command=START_COMMAND,
         )
@@ -301,6 +318,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
                 "has_run": False,
                 "previous_run_id": run.run_id,
                 "previous_state": run.state.value,
+                "hook": hook_status,
             },
             next_instruction="The previous run is terminal. Start a new one.",
             next_command=START_COMMAND,
@@ -325,6 +343,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
         run,
         data={
             "has_run": True,
+            "hook": hook_status,
             "seq": run.seq,
             "branch": run.branch,
             "base_ref": run.base_ref,

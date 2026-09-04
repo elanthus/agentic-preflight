@@ -237,8 +237,8 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
     ),
     _S.LINT_RUNNING: _state(
-        "Lint execution was interrupted; inspect the recorded run.",
-        _STATUS,
+        "Lint execution was interrupted; run lint again to record the interruption and retry.",
+        "agentic-preflight stage run lint",
         (_A.LINT_PASSED, _S.LINT_GREEN),
         (_A.LINT_FAILED, _S.LINT_RED),
     ),
@@ -255,8 +255,8 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         (_A.SKIP_TEST, _S.TEST_GREEN),
     ),
     _S.TEST_RUNNING: _state(
-        "Test execution was interrupted; inspect the recorded run.",
-        _STATUS,
+        "Test execution was interrupted; run tests again to record the interruption and retry.",
+        "agentic-preflight stage run test",
         (_A.TEST_PASSED, _S.TEST_GREEN),
         (_A.TEST_FAILED, _S.TEST_RED),
     ),

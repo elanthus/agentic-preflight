@@ -13,6 +13,9 @@ from ..errors import (
     MergebackConflictError,
     NeedsHuman,
 )
+from ..errors import (
+    OperationInProgress as OperationInProgressError,
+)
 from ..machine import Action, State
 from ..models import RunDoc, Stage
 from ._session import (
@@ -80,6 +83,16 @@ def mergeback(session: Session) -> Envelope:
     """Attest in-place validation or merge isolated fixes onto the source branch."""
     run = _load_current(session)
     in_place = _is_in_place(run, session.config)
+    repo = session.repo_root
+    operation = gitx.operation_in_progress(repo)
+    if operation is not None:
+        raise OperationInProgressError(
+            operation,
+            str(repo),
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+
     retrying_conflict = run.state is State.MERGEBACK_CONFLICT
     if not retrying_conflict:
         _assert_fresh(session, run)
@@ -100,7 +113,6 @@ def mergeback(session: Session) -> Envelope:
         command="mergeback",
     )
 
-    repo = session.repo_root
     if in_place:
         if not gitx.is_clean(repo):
             raise DirtyTree(
@@ -184,6 +196,13 @@ def mergeback(session: Session) -> Envelope:
                     worktree_branch=worktree_branch,
                     worktree_path=worktree_path,
                 )
+    except gitx.OperationInProgress as exc:
+        raise OperationInProgressError(
+            exc.operation,
+            exc.path,
+            state=run.state.value,
+            run_id=run.run_id,
+        ) from exc
     except (mergebackmod.MergebackConflict, syncmod.SyncConflict) as exc:
         with session.store.transaction(run.run_id) as doc:
             _apply(doc, Action.MERGEBACK_FAILED)

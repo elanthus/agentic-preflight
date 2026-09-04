@@ -30,6 +30,36 @@ BLOCKING = [
 ]
 
 
+def _create_empty_cherry_pick_stop(repo: Path) -> tuple[str, str, Path, Path]:
+    """Start a real two-commit sequence whose first pick is already applied."""
+    starting_branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=repo)
+    git("switch", "-c", "user-pick-source", cwd=repo)
+    write(repo, "user-a.txt", "already present\n")
+    first = commit_all(repo, "user commit A")
+    write(repo, "user-b.txt", "still pending\n")
+    second = commit_all(repo, "user commit B")
+    git("switch", starting_branch, cwd=repo)
+    git("cherry-pick", first, cwd=repo)
+
+    stopped = subprocess.run(
+        ["git", "cherry-pick", first, second],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert stopped.returncode == 1
+    cherry_pick_head = Path(git("rev-parse", "--git-path", "CHERRY_PICK_HEAD", cwd=repo))
+    sequencer = Path(git("rev-parse", "--git-path", "sequencer", cwd=repo))
+    if not cherry_pick_head.is_absolute():
+        cherry_pick_head = repo / cherry_pick_head
+    if not sequencer.is_absolute():
+        sequencer = repo / sequencer
+    assert cherry_pick_head.is_file()
+    assert sequencer.is_dir()
+    assert git("status", "--porcelain", cwd=repo) == ""
+    return first, second, cherry_pick_head, sequencer
+
+
 @pytest.fixture
 def ready(feature_repo, tmp_path):
     """Drive a run to TEST_GREEN, optionally with a fix commit in the worktree."""
@@ -450,6 +480,70 @@ def test_conflict_leaves_no_cherry_pick_in_progress(tmp_repo):
     assert git("rev-parse", "HEAD", cwd=tmp_repo) == pre_sha
     assert git("status", "--porcelain", cwd=tmp_repo) == ""
     assert not (tmp_repo / ".git" / "CHERRY_PICK_HEAD").exists()
+
+
+def test_cherry_pick_refuses_to_abort_the_users_paused_sequence(tmp_repo):
+    from agentic_preflight import mergeback
+
+    _, second, cherry_pick_head, sequencer = _create_empty_cherry_pick_stop(tmp_repo)
+    before_head = git("rev-parse", "HEAD", cwd=tmp_repo)
+    before_status = git("status", "--porcelain", cwd=tmp_repo)
+
+    caught: Exception | None = None
+    try:
+        mergeback.cherry_pick_fixes(
+            tmp_repo,
+            [second],
+            worktree_branch="ap/x",
+            worktree_path=str(tmp_repo),
+        )
+    except Exception as exc:  # noqa: BLE001 - identifies the BASE failure by assertion below
+        caught = exc
+
+    assert cherry_pick_head.is_file(), "mergeback aborted the user's paused cherry-pick"
+    assert sequencer.is_dir()
+    assert type(caught).__name__ == "OperationInProgress"
+    assert getattr(caught, "operation", None) == "cherry-pick"
+    assert git("rev-parse", "HEAD", cwd=tmp_repo) == before_head
+    assert git("status", "--porcelain", cwd=tmp_repo) == before_status
+
+
+def test_mergeback_reports_the_users_paused_cherry_pick_as_a_precondition(ready, feature_repo):
+    first, second, _, _ = _create_empty_cherry_pick_stop(feature_repo)
+    git("cherry-pick", "--abort", cwd=feature_repo)
+    agent, _ = ready()
+
+    stopped = subprocess.run(
+        ["git", "cherry-pick", first, second],
+        cwd=feature_repo,
+        capture_output=True,
+        text=True,
+    )
+    assert stopped.returncode == 1
+    cherry_pick_head = Path(
+        git(
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "CHERRY_PICK_HEAD",
+            cwd=feature_repo,
+        )
+    )
+    before_head = git("rev-parse", "HEAD", cwd=feature_repo)
+    before_status = git("status", "--porcelain", cwd=feature_repo)
+
+    refused = agent.run("mergeback", expect=ExitCode.PRECONDITION)
+
+    assert refused["error"]["code"] == "operation_in_progress"
+    assert refused["data"] == {"operation": "cherry-pick", "path": str(feature_repo)}
+    assert refused["next"]["command"] == "git status"
+    assert refused["state"] == "TEST_GREEN"
+    assert cherry_pick_head.is_file()
+    assert git("rev-parse", "HEAD", cwd=feature_repo) == before_head
+    assert git("status", "--porcelain", cwd=feature_repo) == before_status
+
+    git("cherry-pick", "--abort", cwd=feature_repo)
+    assert agent.run("mergeback")["state"] == "VERIFIED"
 
 
 def test_conflict_aborts_the_entire_fix_stack_and_preserves_unrelated_work(tmp_repo):

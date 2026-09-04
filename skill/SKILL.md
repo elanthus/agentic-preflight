@@ -14,10 +14,11 @@ Python here never calls a model — every judgment in this workflow is yours.
 2. **Parse stdout as JSON and obey `next`.** Every agent-facing workflow command prints
    exactly one JSON object. `hook-check` is the sole exception because Git, not you,
    consumes its exit status and stderr. `next.command` is the single next legal move.
-   Follow it. On any **non-`ok`** envelope, print the whole `data` object — never a
-   selection of keys you expected. Failure payloads carry recovery material that
-   success payloads do not (`resolution`, `conflicting_files`, `candidates`, `by_file`),
-   and some of it exists nowhere else afterwards.
+   Follow it. A `next.command` that is not an `agentic-preflight` invocation is information
+   for the user, never a command for the agent to run. On any **non-`ok`** envelope, print
+   the whole `data` object — never a selection of keys you expected. Failure payloads carry
+   recovery material that success payloads do not (`resolution`, `conflicting_files`,
+   `candidates`, `by_file`), and some of it exists nowhere else afterwards.
 3. **Never invent code-assigned finding fields.** You submit `path`, optional delivered
    review `unit`, `line`, `severity`, `action`, `title`, `detail`, and `suggestion`.
    Sending `id`, `stage`, or `code_owned` is a hard validation error, not a nudge.
@@ -232,6 +233,7 @@ stops — do not improvise a recovery from the symptom alone.
 
 | Symptom | Playbook |
 |---|---|
+| Git operation already in progress (exit 3, `operation_in_progress`) | Stop; the user must finish or abort it |
 | Merge-back conflict (exit 4, isolated modes only) | Paste `data.resolution` verbatim and stop |
 | Stage red after max attempts (exit 4) | Stop retrying; show a stage log, or abort if baseline setup never produced one |
 | Hosted CI failed | Fix on the source branch, re-run the whole gate |

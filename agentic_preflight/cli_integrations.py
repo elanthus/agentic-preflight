@@ -164,17 +164,18 @@ def init_command(force: bool, no_hook: bool) -> None:
     try:
         finish(initcmd.init(repo_root, force=force, install_hook=not no_hook))
     except FileExistsError as exc:
-        fail(
-            as_error(
-                "hook_exists",
-                f"a pre-push hook already exists at {exc} and was not written by "
-                f"agentic-preflight; refusing to replace it",
-                ExitCode.PRECONDITION,
-                "Inspect the existing hook. Re-run with --force to replace it, or "
-                "merge the `agentic-preflight hook-check` call into it by hand.",
-                "agentic-preflight init --force",
-            )
+        hook_path = str(exc)
+        error = as_error(
+            "hook_exists",
+            f"a pre-push hook already exists at {hook_path} and was not written by "
+            f"agentic-preflight; refusing to replace it",
+            ExitCode.PRECONDITION,
+            f"Add `agentic-preflight hook-check` to the existing hook at {hook_path}, "
+            "or re-run with --force to replace it.",
+            "agentic-preflight init --force",
         )
+        error.data["hook_path"] = hook_path
+        fail(error)
 
 
 COMMANDS = (integrations, init_command)

@@ -1,10 +1,61 @@
+import os
+import shlex
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-from agentic_preflight import attestation, gitx
+from agentic_preflight import attestation, gitx, sync
+from agentic_preflight.envelope import ExitCode
 from agentic_preflight.sync import SyncConflict, synchronize
 from tests.conftest import commit_all, git, write
+from tests.driver import ScriptedAgent
+
+
+def _pause_interactive_rebase(repo: Path, tmp_path: Path) -> Path:
+    """Stop a real interactive rebase at edit without dirtying the checkout."""
+    write(repo, "first.txt", "first feature commit\n")
+    commit_all(repo, "first feature commit")
+    write(repo, "second.txt", "second feature commit\n")
+    commit_all(repo, "second feature commit")
+
+    editor = tmp_path / "mark_first_commit_for_edit.py"
+    editor.write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        "path = Path(sys.argv[1])\n"
+        "todo = path.read_text(encoding='utf-8')\n"
+        "path.write_text(todo.replace('pick ', 'edit ', 1), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    env = {
+        **os.environ,
+        "GIT_EDITOR": "true",
+        "GIT_SEQUENCE_EDITOR": f"{shlex.quote(sys.executable)} {shlex.quote(str(editor))}",
+    }
+    result = subprocess.run(
+        ["git", "rebase", "-i", "main"],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    rebase_dir = Path(git("rev-parse", "--git-path", "rebase-merge", cwd=repo))
+    if not rebase_dir.is_absolute():
+        rebase_dir = repo / rebase_dir
+    assert rebase_dir.is_dir()
+    assert git("status", "--porcelain", cwd=repo) == ""
+
+    # Move the base after the pause so the old implementation gets past its
+    # ancestry shortcut, attempts another rebase, and exposes the destructive
+    # unconditional --abort behavior this test guards.
+    base_worktree = tmp_path / "advanced-main"
+    git("worktree", "add", str(base_worktree), "main", cwd=repo)
+    write(base_worktree, "upstream.txt", "main advanced while the user was paused\n")
+    commit_all(base_worktree, "advance main during paused rebase")
+    return rebase_dir
 
 
 def test_sync_fetches_and_rebases_the_worktree_onto_fresh_origin(
@@ -165,3 +216,36 @@ def test_sync_aborts_and_reports_conflicts(feature_repo: Path, bare_remote: Path
     assert exc.value.conflicting_files == ["src/app.py"]
     assert git("rev-parse", "HEAD", cwd=worktree_path) == before
     assert not (worktree_path / ".git" / "rebase-merge").exists()
+
+
+def test_rebase_refuses_to_abort_the_users_paused_interactive_rebase(
+    feature_repo: Path, tmp_path: Path
+):
+    rebase_dir = _pause_interactive_rebase(feature_repo, tmp_path)
+    before_head = git("rev-parse", "HEAD", cwd=feature_repo)
+    before_status = git("status", "--porcelain", cwd=feature_repo)
+
+    caught: Exception | None = None
+    try:
+        sync.rebase_onto(feature_repo, "main")
+    except Exception as exc:  # noqa: BLE001 - identifies the BASE failure by assertion below
+        caught = exc
+
+    assert rebase_dir.is_dir(), "rebase_onto aborted the user's paused interactive rebase"
+    assert type(caught).__name__ == "OperationInProgress"
+    assert getattr(caught, "operation", None) == "rebase"
+    assert git("rev-parse", "HEAD", cwd=feature_repo) == before_head
+    assert git("status", "--porcelain", cwd=feature_repo) == before_status
+
+    agent = ScriptedAgent(feature_repo)
+    refused = agent.run("start", expect=ExitCode.PRECONDITION)
+
+    assert refused["error"]["code"] == "operation_in_progress"
+    assert refused["data"] == {"operation": "rebase", "path": str(feature_repo)}
+    assert refused["next"]["command"] == "git status"
+    assert rebase_dir.is_dir()
+    assert git("rev-parse", "HEAD", cwd=feature_repo) == before_head
+    assert git("status", "--porcelain", cwd=feature_repo) == before_status
+
+    git("rebase", "--abort", cwd=feature_repo)
+    assert agent.run("start")["state"] == "REVIEW_AWAITING_FINDINGS"
