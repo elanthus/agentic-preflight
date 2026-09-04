@@ -5,7 +5,6 @@ from __future__ import annotations
 from .. import diff as diffmod
 from .. import findings as findingsmod
 from .. import gitx
-from .. import grounding as groundingmod
 from .. import risk as riskmod
 from ..envelope import Envelope
 from ..errors import (
@@ -21,7 +20,7 @@ from ..models import (
 )
 from ..stages import change_scope
 from ..stages import docs as docsstage
-from . import review_coverage, review_protocol
+from . import review_compare, review_coverage, review_protocol
 from ._session import (
     Session,
     _apply,
@@ -194,12 +193,7 @@ def submit_findings(
     manifest = None
     coverage = None
     if stage is Stage.REVIEW:
-        grounding = groundingmod.assemble(session, run, bundle.files)
-        manifest = diffmod.build_review_manifest(
-            worktree_path,
-            bundle,
-            grounding_sha256=groundingmod.digest(grounding),
-        )
+        manifest = review_protocol.grounded_manifest(session, run, bundle)
         submissions, coverage = review_coverage.validate(
             submissions,
             manifest=manifest,
@@ -280,6 +274,16 @@ def submit_findings(
             doc.stages[Stage.REVIEW] = entry
         _apply(doc, Action.SUBMIT_BLOCKING if blocking else Action.SUBMIT_CLEAN)
         run = doc
+
+    if stage is Stage.REVIEW and manifest is not None and coverage is not None:
+        review_compare.persist_submission(
+            session,
+            run,
+            executor=_executor,
+            manifest=manifest.manifest,
+            head_sha=coverage.head_sha,
+            findings=submissions,
+        )
 
     actionable = findingsmod.actionable(stage_findings)
     if not blocking and not actionable:

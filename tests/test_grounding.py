@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import shlex
 import sys
+from pathlib import Path
 
 import pytest
 
 from agentic_preflight.config import ConfigError, load_config
 from agentic_preflight.errors import ExitCode
 from agentic_preflight.grounding import digest
+from agentic_preflight.runs._session import open_session
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
@@ -40,6 +42,20 @@ def _submit(agent: ScriptedAgent, path, findings: list[dict]) -> dict:
         encoding="utf-8",
     )
     return agent.run("submit-findings", "--file", str(path))
+
+
+def _concurrent_worktree_on_another_branch(repo: Path, tmp_path: Path, branch: str) -> Path:
+    """A linked worktree on its own branch that also touches ``src/app.py``.
+
+    Shares ``repo``'s git-common-dir run store, the way the "reusable" and
+    "strict" worktree modes' genuinely concurrent runs do.
+    """
+    path = tmp_path / branch.replace("/", "-")
+    git("branch", branch, "main", cwd=repo)
+    git("worktree", "add", str(path), branch, cwd=repo)
+    write(path, "src/app.py", "def greet(name):\n    return f'hey {name}'\n")
+    commit_all(path, "change the greeting from a concurrent worktree")
+    return path
 
 
 @pytest.fixture
@@ -114,6 +130,68 @@ def test_context_retrieves_all_repository_grounding_sources(grounded_repo):
     )
     assert any(entry["kind"] == "policy" for entry in entries)
     assert all(entry["bytes"] > 0 and isinstance(entry["truncated"], bool) for entry in entries)
+
+
+def test_context_skips_a_same_branch_prior_run_with_corrupt_findings(grounded_repo):
+    repo, prior_run_id = grounded_repo
+    session = open_session(repo)
+    session.store.findings_path(prior_run_id).write_text("not json", encoding="utf-8")
+
+    agent = ScriptedAgent(repo)
+    agent.run("start")
+    entries = agent.run("context")["data"]["grounding"]["entries"]
+
+    assert all(entry.get("source") != prior_run_id for entry in entries)
+
+
+def test_grounding_ignores_a_finding_from_a_concurrent_run_on_another_branch(
+    feature_repo, tmp_path
+):
+    """A concurrent run in another linked worktree must not flip `grounding_sha256`.
+
+    It shares the same git-common-dir run store, and records a finding on a
+    path this run also changed, in the window between this run's `context`
+    call and its `submit-findings` call.
+    """
+    _write_sources(feature_repo)
+    commit_all(feature_repo, "add repository context")
+    concurrent_repo = _concurrent_worktree_on_another_branch(feature_repo, tmp_path, "feature/y")
+
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    first = agent.run("context")["data"]
+    first_manifest = first["review_coverage"]["manifest"]
+    first_digest = first["review_coverage"]["grounding_sha256"]
+
+    concurrent_agent = ScriptedAgent(concurrent_repo)
+    concurrent_agent.run("start")
+    concurrent_agent.run("context")
+    _submit(
+        concurrent_agent,
+        tmp_path / "concurrent-findings.json",
+        [
+            {
+                "path": "src/app.py",
+                "severity": "low",
+                "action": "auto_fix",
+                "title": "Recorded from an unrelated concurrent branch",
+                "detail": "A different worktree's own review, on a different branch.",
+            }
+        ],
+    )
+
+    second = agent.run("context")["data"]
+    assert second["review_coverage"]["grounding_sha256"] == first_digest
+    assert second["review_coverage"]["manifest"] == first_manifest
+    assert all(entry["kind"] != "prior_finding" for entry in second["grounding"]["entries"])
+
+    payload = tmp_path / "first-findings.json"
+    payload.write_text(
+        json.dumps({"coverage": {"manifest": first_manifest, "examined": "all"}, "findings": []}),
+        encoding="utf-8",
+    )
+    submitted = agent.run("submit-findings", "--file", str(payload))
+    assert submitted["state"] == "REVIEW_GREEN"
 
 
 def test_codeowners_uses_the_first_file_and_last_matching_rule(feature_repo):

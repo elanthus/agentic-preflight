@@ -78,6 +78,32 @@ def review_run() -> None:
     finish_locked(runs.run_review_command)
 
 
+@review.command("compare")
+@click.option(
+    "--file",
+    "file_path",
+    default=None,
+    help="Second review submission; otherwise run the configured shadow reviewer.",
+)
+@command
+def review_compare(file_path: str | None) -> None:
+    """Compare in-harness and command review submissions."""
+    payload = None
+    if file_path is not None:
+        try:
+            payload = json.loads(Path(file_path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            fail(
+                as_error(
+                    "invalid_findings",
+                    f"comparison file is not valid JSON: {exc}",
+                    ExitCode.PRECONDITION,
+                )
+            )
+            return
+    finish_locked(lambda session: runs.compare_reviews(session, payload))
+
+
 @click.command()
 @click.option("--id", "finding_id", required=True, help="Finding id, e.g. F001.")
 @click.option(

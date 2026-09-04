@@ -18,8 +18,10 @@ Retrieval uses this fixed priority order:
    includes the matching lines with one line of surrounding context.
 3. **Conventions.** Root `AGENTS.md` and `CLAUDE.md` are included when present, followed
    by repository files selected through `[context] extra_paths`.
-4. **Review history.** Findings from earlier runs in the same clone are included when
-   their path is changed in the current run. The current run is excluded.
+4. **Review history.** Findings from earlier runs on the same branch are included when
+   their path is changed in the current run. The current run is excluded, and so are
+   runs on other branches — including genuinely concurrent runs the "reusable" and
+   "strict" worktree modes support in other linked worktrees.
 5. **Policy.** The path-policy reasons for the changed files are included. Reasons derived
    from the current run's findings are excluded because those findings are review output,
    not repository knowledge.
@@ -54,8 +56,10 @@ gitignore-style rules as path policy.
 The review coverage manifest contains the SHA-256 digest of the compact, sorted-key JSON
 grounding block. A submission therefore matches only the diff, Git snapshot, exclusions,
 review units, and grounding that `context` delivered. The current run's own findings are
-excluded from history and policy grounding, so the grounding block and its digest remain
-stable for the life of a reviewed snapshot.
+excluded from history and policy grounding, and history grounding only looks at other
+runs on the same branch, so the grounding block and its digest remain stable for the life
+of a reviewed snapshot regardless of what other runs on other branches do concurrently in
+other linked worktrees.
 
 There is no language model, embedding service, HTTP client, or network access in this
 layer. Selection is deterministic term and path matching over committed Git files and

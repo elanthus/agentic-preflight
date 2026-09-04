@@ -11,6 +11,7 @@ from .mergeback import mergeback
 from .publish import finish, gate, push
 from .resolve import RESPONSE_ACTIONS, respond
 from .review import context, submit_findings, verify
+from .review_compare import compare_reviews
 from .review_executor import run_review_command
 from .stages import logs, run_stage
 from .start import start
@@ -20,6 +21,7 @@ __all__ = [
     "STATE_DIR_NAME",
     "Session",
     "abort",
+    "compare_reviews",
     "context",
     "events",
     "finish",
