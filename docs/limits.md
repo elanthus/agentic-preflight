@@ -4,6 +4,27 @@ The [README](../README.md#limits) states the three that matter most: the gate is
 rather than a security boundary, `git push --no-verify` defeats it by design, and the
 confirmation token is ceremony rather than a secret. This page covers the rest.
 
+## Repository content is untrusted input
+
+The agent receives repository-controlled text in diffs and changed-file names, commit
+subjects and messages, stage output and logs, review-command findings, and detected
+command candidates. Preserving that text verbatim is necessary for review and diagnosis,
+so the tool can label its source but cannot sanitize it into trustworthy instructions or
+decide whether an authorization claim embedded in it is genuine.
+
+Detected manifest commands carry `trust: "repo_manifest"`. Workflow `run:` lines carry
+`trust: "untrusted"`, their source begins with `untrusted:workflow:`, and they are never
+copied into `next.command`; the agent must show the exact command to the user and obtain
+approval before first use. The gate keeps the live confirmation token only in
+`data.token`, while gate and push dry-run envelopes use a `<token>` placeholder in
+`next.command`; the agent replaces it from the gate data only after authorization.
+
+These labels and placements make repository text distinguishable from protocol guidance
+and prevent the CLI from directly proposing a workflow-supplied shell command. They do not
+sandbox repository commands or stop a shell-capable agent that ignores its installed skill,
+misreads repository content as instructions, or invokes Git directly. Agentic Preflight
+remains an advisory gate rather than a security boundary.
+
 ## History rewrites invalidate green
 
 The normal attestation note is bound to an exact SHA. In the default in-place mode,

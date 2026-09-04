@@ -27,6 +27,12 @@ def test_stage_detection_combines_sources_in_priority_order(tmp_path):
     assert candidates[0].as_dict() == {
         "command": "pytest",
         "source": "pyproject.toml",
+        "trust": "repo_manifest",
+    }
+    assert candidates[-1].as_dict() == {
+        "command": "pytest integration-tests",
+        "source": "untrusted:workflow:.github/workflows/ci.yml",
+        "trust": "untrusted",
     }
 
 

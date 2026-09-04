@@ -139,10 +139,11 @@ def gate(session: Session) -> Envelope:
             "user explicitly requested a push, publish, or asked to create or open a pull "
             "request in this task, that request authorizes this push when the summary "
             "matches the requested work; proceed without asking again. Otherwise, ask "
-            "whether to push and wait for their answer."
+            "whether to push and wait for their answer. After user authorization, the "
+            "agent substitutes data.token for <token> in next.command."
             f"{risk_instruction}{manual_pr_instruction}{cleanup_instruction}"
         ),
-        next_command=f"agentic-preflight push --confirm {summary.token}",
+        next_command="agentic-preflight push --confirm <token>",
     )
 
 
@@ -176,7 +177,7 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
                 "pushed": False,
             },
             next_instruction="Dry run only; nothing was pushed.",
-            next_command=f"agentic-preflight push --confirm {run.gate_token}",
+            next_command="agentic-preflight push --confirm <token>",
         )
 
     with session.store.resource("notes"):
