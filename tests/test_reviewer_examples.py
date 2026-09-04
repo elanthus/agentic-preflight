@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import shlex
 import stat
@@ -22,6 +21,7 @@ from tests.driver import ScriptedAgent
 
 ROOT = Path(__file__).parent.parent
 EXAMPLES = ROOT / "docs" / "examples"
+PLATFORM = sys.platform
 
 FAKE_REVIEWER = """\
 #!{python}
@@ -56,9 +56,25 @@ else:
 
 def install_fake(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(FAKE_REVIEWER.format(python=sys.executable), encoding="utf-8")
-    path.chmod(path.stat().st_mode | stat.S_IXUSR)
-    return path
+    fake = path.parent / "fake_reviewer.py" if PLATFORM == "win32" else path
+    fake.write_text(FAKE_REVIEWER.format(python=sys.executable), encoding="utf-8")
+    if PLATFORM == "win32":
+        shim = path.with_suffix(".cmd")
+        shim.write_text(f'@"{sys.executable}" "{fake}" %*\n', encoding="utf-8")
+        return shim
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    return fake
+
+
+@pytest.mark.parametrize("reviewer", ["codex", "claude"])
+def test_install_fake_writes_windows_command_shim(tmp_path, monkeypatch, reviewer):
+    monkeypatch.setattr(sys.modules[__name__], "PLATFORM", "win32")
+
+    shim = install_fake(tmp_path / "bin with spaces" / reviewer)
+
+    fake = shim.parent / "fake_reviewer.py"
+    assert shim == fake.with_name(f"{reviewer}.cmd")
+    assert shim.read_text(encoding="utf-8") == f'@"{sys.executable}" "{fake}" %*\n'
 
 
 def toml_command_line(command: str) -> str:
@@ -99,7 +115,7 @@ def test_reviewer_wrapper_runs_end_to_end(
 ):
     fake = install_fake(tmp_path / "bin" / reviewer)
     capture = tmp_path / "prompt.txt"
-    monkeypatch.setenv("PATH", os.pathsep.join([str(fake.parent), os.environ.get("PATH", "")]))
+    monkeypatch.setenv(f"AP_{reviewer.upper()}_BIN", str(fake))
     monkeypatch.setenv("FAKE_CAPTURE", str(capture))
     if finding:
         monkeypatch.setenv("FAKE_FINDING", "1")
@@ -131,15 +147,16 @@ def test_reviewer_wrapper_failures_are_visible_in_review_log(
     feature_repo, tmp_path, monkeypatch, reviewer, failure
 ):
     fake = install_fake(tmp_path / "bin" / reviewer)
-    monkeypatch.setenv("PATH", os.pathsep.join([str(fake.parent), os.environ.get("PATH", "")]))
     configure_example(feature_repo, reviewer)
     if failure == "missing":
         monkeypatch.setenv(f"AP_{reviewer.upper()}_BIN", str(tmp_path / "does-not-exist"))
         expected = "not found"
     elif failure == "no_json":
+        monkeypatch.setenv(f"AP_{reviewer.upper()}_BIN", str(fake))
         monkeypatch.setenv("FAKE_NO_JSON", "1")
         expected = "no JSON"
     else:
+        monkeypatch.setenv(f"AP_{reviewer.upper()}_BIN", str(fake))
         monkeypatch.setenv("FAKE_SLEEP", "1")
         monkeypatch.setenv("AP_REVIEWER_TIMEOUT", "1")
         expected = "timed out"
