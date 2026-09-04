@@ -248,7 +248,10 @@ def _history_entries(
             continue
         if other_run.branch != run.branch:
             continue
-        findings = sorted(session.store.load_findings(run_id), key=lambda finding: finding.id)
+        try:
+            findings = sorted(session.store.load_findings(run_id), key=lambda finding: finding.id)
+        except Exception:  # noqa: BLE001, S112 - history must survive one corrupt record
+            continue
         for finding in findings:
             if finding.path not in changed:
                 continue

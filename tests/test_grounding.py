@@ -10,6 +10,7 @@ import pytest
 from agentic_preflight.config import ConfigError, load_config
 from agentic_preflight.errors import ExitCode
 from agentic_preflight.grounding import digest
+from agentic_preflight.runs._session import open_session
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
@@ -129,6 +130,18 @@ def test_context_retrieves_all_repository_grounding_sources(grounded_repo):
     )
     assert any(entry["kind"] == "policy" for entry in entries)
     assert all(entry["bytes"] > 0 and isinstance(entry["truncated"], bool) for entry in entries)
+
+
+def test_context_skips_a_same_branch_prior_run_with_corrupt_findings(grounded_repo):
+    repo, prior_run_id = grounded_repo
+    session = open_session(repo)
+    session.store.findings_path(prior_run_id).write_text("not json", encoding="utf-8")
+
+    agent = ScriptedAgent(repo)
+    agent.run("start")
+    entries = agent.run("context")["data"]["grounding"]["entries"]
+
+    assert all(entry.get("source") != prior_run_id for entry in entries)
 
 
 def test_grounding_ignores_a_finding_from_a_concurrent_run_on_another_branch(
