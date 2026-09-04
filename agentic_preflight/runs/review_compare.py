@@ -258,6 +258,52 @@ def _finding_dict(finding: FindingSubmission) -> dict[str, Any]:
     return finding.model_dump(mode="json")
 
 
+def _line_distance(a: FindingSubmission, b: FindingSubmission) -> int:
+    if a.line is None or b.line is None:
+        return 0
+    return abs(a.line - b.line)
+
+
+def _match_findings(
+    a_findings: list[FindingSubmission], b_findings: list[FindingSubmission]
+) -> dict[int, int]:
+    """Deterministic maximum-cardinality bipartite match, nearest line first.
+
+    Greedy pairing can strand a matchable finding when an earlier one claims
+    its only counterpart (see PR review discussion). Augmenting paths
+    (Kuhn's algorithm) guarantee maximum cardinality regardless of visit
+    order; visiting each side's candidates nearest-line-first is only a
+    tie-breaker among matchings of that same maximum size.
+    """
+    candidates: dict[int, list[int]] = {
+        a_index: sorted(
+            (
+                b_index
+                for b_index, right in enumerate(b_findings)
+                if left.unit == right.unit and _same_location(left, right)
+            ),
+            key=lambda b_index: (_line_distance(left, b_findings[b_index]), b_index),
+        )
+        for a_index, left in enumerate(a_findings)
+    }
+    match_b: dict[int, int] = {}
+
+    def augment(a_index: int, visited: set[int]) -> bool:
+        for b_index in candidates[a_index]:
+            if b_index in visited:
+                continue
+            visited.add(b_index)
+            if b_index not in match_b or augment(match_b[b_index], visited):
+                match_b[b_index] = a_index
+                return True
+        return False
+
+    for a_index in range(len(a_findings)):
+        augment(a_index, set())
+
+    return {a_index: b_index for b_index, a_index in match_b.items()}
+
+
 def _summarise(
     manifest: diffmod.ReviewManifest,
     a: dict[str, Any],
@@ -273,28 +319,18 @@ def _summarise(
     only_b_units = b_units - a_units
     flagged = a_units | b_units
 
+    matches = _match_findings(a_findings, b_findings)
     agreed: list[dict[str, Any]] = []
     severity_disagreements: list[dict[str, Any]] = []
-    unmatched_b = set(range(len(b_findings)))
-    unmatched_a: list[FindingSubmission] = []
-    for left in a_findings:
-        match = next(
-            (
-                index
-                for index in sorted(unmatched_b)
-                if left.unit == b_findings[index].unit and _same_location(left, b_findings[index])
-            ),
-            None,
-        )
-        if match is None:
-            unmatched_a.append(left)
-            continue
-        unmatched_b.remove(match)
-        right = b_findings[match]
+    for a_index, b_index in sorted(matches.items()):
+        left = a_findings[a_index]
+        right = b_findings[b_index]
         pair = {"a": _finding_dict(left), "b": _finding_dict(right)}
         agreed.append(pair)
         if left.severity != right.severity:
             severity_disagreements.append(pair)
+    unmatched_a = [left for index, left in enumerate(a_findings) if index not in matches]
+    unmatched_b = [index for index in range(len(b_findings)) if index not in matches.values()]
 
     denominator = len(flagged)
     return {
@@ -311,7 +347,7 @@ def _summarise(
         "findings": {
             "agreed": agreed,
             "only_a": [_finding_dict(finding) for finding in unmatched_a],
-            "only_b": [_finding_dict(b_findings[index]) for index in sorted(unmatched_b)],
+            "only_b": [_finding_dict(b_findings[index]) for index in unmatched_b],
             "severity_disagreements": severity_disagreements,
         },
         "agreement_rate": len(both) / denominator if denominator else None,

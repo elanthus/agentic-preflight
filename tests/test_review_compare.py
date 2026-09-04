@@ -9,10 +9,45 @@ import sys
 from pathlib import Path
 
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.models import FindingAction, FindingSubmission, Severity
 from agentic_preflight.runs._session import open_session
+from agentic_preflight.runs.review_compare import _match_findings
 from tests.conftest import commit_all, write
 from tests.driver import ScriptedAgent
 from tests.test_review_executor import REVIEWER
+
+
+def _finding(line: int) -> FindingSubmission:
+    return FindingSubmission(
+        path="src/app.py",
+        unit="U0001",
+        line=line,
+        severity=Severity.MEDIUM,
+        action=FindingAction.ASK_USER,
+        title="finding",
+    )
+
+
+def test_match_findings_prefers_more_matches_over_nearest_line():
+    """A at 13 then 10; B at 10 then 16: 10-10 and 13-16 beat a lone 13-10 pair."""
+    a_findings = [_finding(13), _finding(10)]
+    b_findings = [_finding(10), _finding(16)]
+
+    matches = _match_findings(a_findings, b_findings)
+
+    assert matches == {0: 1, 1: 0}
+
+
+def test_match_findings_finds_maximum_matching_not_just_the_first_available():
+    """A0 can pair with B0 or B1; A1 can only pair with B0. Claiming B0 for A0
+    first (its earliest match by index) strands A1, even though reassigning
+    A0 to B1 lets both sides match."""
+    a_findings = [_finding(10), _finding(8)]
+    b_findings = [_finding(10), _finding(12)]
+
+    matches = _match_findings(a_findings, b_findings)
+
+    assert matches == {0: 1, 1: 0}
 
 
 def toml_command_line(command: str) -> str:
