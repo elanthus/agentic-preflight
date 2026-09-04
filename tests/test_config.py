@@ -11,6 +11,10 @@ def test_defaults_apply_when_no_config_file_exists(tmp_repo, tmp_path):
     assert cfg.review.command is None
     assert cfg.review.require_command_for == []
     assert cfg.docs.enabled is True
+    assert cfg.context.enabled is True
+    assert cfg.context.max_bytes == 24_000
+    assert cfg.context.entry_max_bytes == 4_000
+    assert cfg.context.extra_paths == []
     assert cfg.worktree.copy_files == [".env"]
     assert cfg.worktree.root is None
     assert cfg.worktree.mode == "in_place"
@@ -173,6 +177,14 @@ def test_policy_rejects_unsafe_patterns(tmp_repo, tmp_path, pattern):
     with pytest.raises(ConfigError) as exc:
         load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
     assert "human_review_paths" in str(exc.value)
+
+
+@pytest.mark.parametrize("pattern", ["", "/absolute.md", "rules/../secrets.md"])
+def test_context_rejects_unsafe_extra_paths(tmp_repo, tmp_path, pattern):
+    (tmp_repo / ".agentic-preflight.toml").write_text(f"[context]\nextra_paths = [{pattern!r}]\n")
+    with pytest.raises(ConfigError) as exc:
+        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert "[context] extra_paths" in str(exc.value)
 
 
 def test_worktree_mode_rejects_an_unknown_value(tmp_repo, tmp_path):

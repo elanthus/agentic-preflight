@@ -152,6 +152,7 @@ class ReviewCoverage(BaseModel):
 
     manifest: str = Field(pattern=r"^[0-9a-f]{64}$")
     head_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    grounding_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     total_units: int = Field(ge=0)
     cited_units: list[ReviewUnitId] = Field(default_factory=list)
     clean_units: list[ReviewUnitId] = Field(default_factory=list)
@@ -169,10 +170,11 @@ class ReviewCoverage(BaseModel):
             raise ValueError("coverage unit counts do not account for the manifest")
         return self
 
-    def summary(self) -> dict[str, str | int | list[str]]:
+    def summary(self) -> dict[str, str | int | list[str] | None]:
         return {
             "manifest": self.manifest,
             "head_sha": self.head_sha,
+            "grounding_sha256": self.grounding_sha256,
             "total_units": self.total_units,
             "cited_count": len(self.cited_units),
             "clean_count": len(self.clean_units),

@@ -56,6 +56,12 @@ paths = []
 require_changelog = false
 blocking_severities = ["critical", "high"]
 
+[context]
+enabled = true
+max_bytes = 24000
+entry_max_bytes = 4000
+extra_paths = []
+
 [diff]
 max_bytes = 200000
 # Setting exclude REPLACES the eight built-in globs rather than adding to them.
@@ -150,6 +156,20 @@ outside the default surface, so add them here rather than working around the rej
 `require_changelog` makes a changelog entry mandatory for the docs stage. The CLI
 records a missing entry as a code-owned finding, which remains blocking regardless of
 `[docs] blocking_severities`.
+
+## Grounded context ([context])
+
+`context` retrieves deterministic repository knowledge related to the changed paths and
+returns it in `data.grounding`. The default sources are CODEOWNERS, matching files under
+`docs/**`, root `AGENTS.md` and `CLAUDE.md`, relevant findings from earlier local runs,
+and the deterministic policy reasons for the change. See
+[Grounded context](context-grounding.md) for the matching and ordering rules.
+
+`enabled = false` returns an explicit empty grounding block. `max_bytes` limits the sum
+of included entry byte counts, and `entry_max_bytes` truncates document excerpts and
+convention contents on a line boundary. `extra_paths` adds repository-specific rule files;
+entries may be exact repo-relative paths or globs using the same matching rules as policy
+paths. Absolute paths and any path containing `..` are rejected.
 
 ## Oversized diffs (`[diff]`)
 

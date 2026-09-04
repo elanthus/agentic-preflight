@@ -41,9 +41,14 @@ def path_matches(path: str, pattern: str) -> bool:
     least one separator — so ``**/*.min.js`` would miss a top-level
     ``app.min.js``. Retrying without the prefix closes that.
     """
+    anchored = pattern.startswith("/")
+    if anchored:
+        pattern = pattern[1:]
+    if pattern.endswith("/"):
+        pattern += "**"
     if fnmatch.fnmatchcase(path, pattern):
         return True
-    return pattern.startswith("**/") and fnmatch.fnmatchcase(path, pattern[3:])
+    return not anchored and pattern.startswith("**/") and fnmatch.fnmatchcase(path, pattern[3:])
 
 
 def is_excluded(path: str, patterns: list[str] | tuple[str, ...]) -> bool:
@@ -123,6 +128,7 @@ class ReviewManifest:
     diff_sha256: str
     units: tuple[ReviewUnit, ...]
     excluded_files: tuple[str, ...]
+    grounding_sha256: str | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -130,6 +136,7 @@ class ReviewManifest:
             "base": self.base_sha,
             "head": self.head_sha,
             "diff_sha256": self.diff_sha256,
+            "grounding_sha256": self.grounding_sha256,
             "total_units": len(self.units),
             "units": [unit.as_dict() for unit in self.units],
             "excluded_files": list(self.excluded_files),
@@ -171,7 +178,11 @@ def _review_unit_parts(
     return parts
 
 
-def build_review_manifest(repo: Path | str, bundle: DiffBundle) -> ReviewManifest:
+def build_review_manifest(
+    repo: Path | str,
+    bundle: DiffBundle,
+    grounding_sha256: str | None = None,
+) -> ReviewManifest:
     """Derive stable review units and a digest from the exact included diff."""
     units: list[ReviewUnit] = []
     for path in bundle.files:
@@ -197,10 +208,11 @@ def build_review_manifest(repo: Path | str, bundle: DiffBundle) -> ReviewManifes
     head_sha = gitx.rev_parse(repo, bundle.head)
     diff_sha256 = hashlib.sha256(bundle.text.encode()).hexdigest()
     payload = {
-        "version": 1,
+        "version": 2,
         "base": base_sha,
         "head": head_sha,
         "diff_sha256": diff_sha256,
+        "grounding_sha256": grounding_sha256,
         "excluded_files": list(bundle.excluded),
         "units": [unit.as_dict() for unit in units],
     }
@@ -212,6 +224,7 @@ def build_review_manifest(repo: Path | str, bundle: DiffBundle) -> ReviewManifes
         base_sha=base_sha,
         head_sha=head_sha,
         diff_sha256=diff_sha256,
+        grounding_sha256=grounding_sha256,
         units=tuple(units),
         excluded_files=tuple(bundle.excluded),
     )

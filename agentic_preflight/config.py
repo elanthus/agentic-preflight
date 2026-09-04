@@ -73,6 +73,15 @@ class DocsSection(_Section):
     blocking_severities: list[str] = Field(default_factory=lambda: ["critical", "high"])
 
 
+class ContextSection(_Section):
+    """Deterministic repository context delivered beside the review diff."""
+
+    enabled: bool = True
+    max_bytes: int = Field(default=24_000, ge=1)
+    entry_max_bytes: int = Field(default=4_000, ge=1)
+    extra_paths: list[str] = Field(default_factory=list)
+
+
 class DiffSection(_Section):
     """The budget tripwire. Over ``max_bytes``, `context` refuses rather than
     truncating; ``exclude`` is the intended remedy and ships pre-loaded with the
@@ -129,6 +138,7 @@ class Config(BaseModel):
     review: ReviewSection = Field(default_factory=ReviewSection)
     policy: PolicySection = Field(default_factory=PolicySection)
     docs: DocsSection = Field(default_factory=DocsSection)
+    context: ContextSection = Field(default_factory=ContextSection)
     diff: DiffSection = Field(default_factory=DiffSection)
     worktree: WorktreeSection = Field(default_factory=WorktreeSection)
     gate: GateSection = Field(default_factory=GateSection)
@@ -206,6 +216,12 @@ def _validate_enums(cfg: Config) -> None:
                     f"[policy] {field}: patterns must be non-empty, repo-relative, "
                     f"and may not contain '..': {pattern!r}"
                 )
+    for pattern in cfg.context.extra_paths:
+        if not pattern or pattern.startswith("/") or ".." in pattern.split("/"):
+            raise ConfigError(
+                "[context] extra_paths: patterns must be non-empty, repo-relative, "
+                f"and may not contain '..': {pattern!r}"
+            )
 
 
 def _describe(exc: ValidationError, source: Path) -> str:

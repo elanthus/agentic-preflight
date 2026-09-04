@@ -136,6 +136,8 @@ Review submissions bind an `examined: "all"` assertion to the manifest returned 
 `context`. Findings cite a review unit when their path and line do not identify one
 unambiguously. The CLI derives a compact receipt: units cited by findings and every
 remaining unit explicitly examined clean. A findings-only review payload is rejected.
+The [grounded context layer](docs/context-grounding.md) adds bounded repository-owned
+knowledge to that snapshot without a model or network access.
 
 When every changed file is documentation or standard CI configuration, the gate does not
 run the final software test command. After lint, it takes an explicit `SKIP_TEST`
