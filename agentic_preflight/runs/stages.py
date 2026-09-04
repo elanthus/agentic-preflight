@@ -185,7 +185,6 @@ def _resolve_command(session: Session, run: RunDoc, stage_name: str, override: s
         return configured
 
     candidates = detect.candidates_for(run.worktree_path or session.repo_root, stage_name)
-    selected = candidates[0] if candidates and candidates[0].trust != "untrusted" else None
     raise StageFailed(
         f"no command configured for the {stage_name} stage",
         state=run.state.value,
@@ -200,13 +199,10 @@ def _resolve_command(session: Session, run: RunDoc, stage_name: str, override: s
             f"Pick the command that runs {stage_name} in this repo and re-invoke with "
             f"--command. Detection will not guess on your behalf. Add it to "
             f"[commands] {stage_name} in .agentic-preflight.toml to settle it permanently. "
-            "Workflow-derived candidates must be shown to the user verbatim and approved "
-            "before first use."
+            "Every detected candidate is repository-derived and must be shown to the user "
+            "verbatim and approved before first use."
         ),
-        next_command=(
-            f"agentic-preflight stage run {stage_name} "
-            f"--command '{selected.command if selected else '<command>'}' --record"
-        ),
+        next_command=(f"agentic-preflight stage run {stage_name} --command '<command>' --record"),
     )
 
 

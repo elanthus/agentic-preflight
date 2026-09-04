@@ -13,14 +13,14 @@ so the tool can label its source but cannot sanitize it into trustworthy instruc
 decide whether an authorization claim embedded in it is genuine.
 
 Detected manifest commands carry `trust: "repo_manifest"`. Workflow `run:` lines carry
-`trust: "untrusted"`, their source begins with `untrusted:workflow:`, and they are never
-copied into `next.command`; the agent must show the exact command to the user and obtain
-approval before first use. The gate keeps the live confirmation token only in
+`trust: "untrusted"`, and their source begins with `untrusted:workflow:`. No detected
+candidate is copied into `next.command`; the agent must show the exact command to the user
+and obtain approval before first use. The gate keeps the live confirmation token only in
 `data.token`, while gate and push dry-run envelopes use a `<token>` placeholder in
 `next.command`; the agent replaces it from the gate data only after authorization.
 
 These labels and placements make repository text distinguishable from protocol guidance
-and prevent the CLI from directly proposing a workflow-supplied shell command. They do not
+and prevent the CLI from directly proposing a repository-supplied shell command. They do not
 sandbox repository commands or stop a shell-capable agent that ignores its installed skill,
 misreads repository content as instructions, or invokes Git directly. Agentic Preflight
 remains an advisory gate rather than a security boundary.

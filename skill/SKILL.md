@@ -247,7 +247,7 @@ stops — do not improvise a recovery from the symptom alone.
 | Stale head (exit 3, `stale_run`) | Run `start` again; it preserves the old run as `ORPHANED` |
 | Abandoned run | `status --all`; inspect explicitly with `--run RUN_ID` |
 | Diff too large (exit 2, `diff_too_large`) | Exclude generated globs; never review part of it |
-| No command configured (exit 2, `needs_command`) | Pick from `data.candidates`; distrust the first green |
+| No command configured (exit 2, `needs_command`) | Show candidates; require user selection and approval; distrust the first green |
 | Setup failed (exit 2, `setup_failed`) | Obey `status`: abort initial setup or preserve the baseline retry |
 | Stage far slower than normal | Check `[worktree] mode` before raising `max_attempts` |
 | Copy refused (exit 3) | `copy_files` entry is not gitignored; do not work around it |

@@ -203,8 +203,8 @@ guesses: it exits 2 with `data.mode = "needs_command"` and candidates from
 `pyproject.toml`, `package.json`, `Makefile`, `justfile`, and CI workflows. Every candidate
 has `command`, `source`, and `trust` fields. Manifest candidates carry
 `trust: "repo_manifest"`; workflow `run:` lines carry `trust: "untrusted"` and a source
-prefixed with `untrusted:workflow:`. An untrusted candidate is never copied into
-`next.command`; show its exact command to the user and obtain approval before first use.
+prefixed with `untrusted:workflow:`. No detected candidate is copied into `next.command`;
+show its exact command to the user and obtain approval before first use.
 
 A repo with none of those manifests — Unity, Unreal, Godot, Xcode, most engine and
 mobile projects — will *always* exit 2 here with an empty `data.candidates`. That is
