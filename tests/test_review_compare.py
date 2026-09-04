@@ -15,14 +15,19 @@ from tests.driver import ScriptedAgent
 from tests.test_review_executor import REVIEWER
 
 
+def toml_command_line(command: str) -> str:
+    value = f"'{command}'" if "'" not in command else json.dumps(command)
+    return f"command = {value}"
+
+
 def configure_in_harness(repo: Path, *, shadow_capture: Path | None = None) -> None:
     command = ""
     if shadow_capture is not None:
         write(repo, "reviewer.py", REVIEWER)
-        command = (
-            f"command = "
-            f"{shlex.join([sys.executable, 'reviewer.py', 'valid', str(shadow_capture)])!r}\n"
+        command = toml_command_line(
+            shlex.join([sys.executable, "reviewer.py", "valid", str(shadow_capture)])
         )
+        command += "\n"
     write(
         repo,
         ".agentic-preflight.toml",

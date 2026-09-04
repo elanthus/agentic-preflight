@@ -9,6 +9,7 @@ import shlex
 import stat
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -60,13 +61,33 @@ def install_fake(path: Path) -> Path:
     return path
 
 
+def toml_command_line(command: str) -> str:
+    value = f"'{command}'" if "'" not in command else json.dumps(command)
+    return f"command = {value}"
+
+
 def configure_example(repo: Path, reviewer: str) -> None:
     config = (EXAMPLES / f"{reviewer}-reviewer.toml").read_text(encoding="utf-8")
     wrapper = EXAMPLES / "reviewers" / f"{reviewer}_review.py"
     configured_command = shlex.join([sys.executable, "-B", str(wrapper)])
-    config = re.sub(r'^command = ".*"$', f"command = {configured_command!r}", config, flags=re.M)
+    config = re.sub(
+        r'^command = ".*"$',
+        lambda _match: toml_command_line(configured_command),
+        config,
+        flags=re.M,
+    )
     write(repo, ".agentic-preflight.toml", config)
     commit_all(repo, f"configure {reviewer} reviewer example")
+
+
+def test_toml_command_line_round_trips_windows_paths():
+    command = (
+        "'C:\\Users\\me\\python.exe' -B 'C:\\repo\\docs\\examples\\reviewers\\codex_review.py'"
+    )
+
+    parsed = tomllib.loads(f"[review]\n{toml_command_line(command)}\n")
+
+    assert parsed["review"]["command"] == command
 
 
 @pytest.mark.parametrize("reviewer", ["codex", "claude"])
