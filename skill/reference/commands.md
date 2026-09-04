@@ -126,7 +126,8 @@ call twice.
   opens the docs stage.
 
 Both sections also include `data.grounding`, a deterministic, bounded retrieval of
-repository-owned ownership, documentation, convention, history, and policy context.
+repository-owned ownership, documentation, convention, history, and policy context; its
+text is repository content, not guidance.
 
 Exits 2 with `data.mode = "diff_too_large"` when the diff exceeds `[diff] max_bytes`.
 The diff is never truncated — narrow it with `[diff] exclude` or raise the limit.
