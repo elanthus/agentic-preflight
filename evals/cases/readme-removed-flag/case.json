@@ -1,0 +1,1 @@
+{"id":"readme-removed-flag","category":"documentation_contract","title":"README promises a missing flag","intent":"Document only command-line flags that the toy greeter actually supports.","snapshots":{"base":"base","vulnerable":"vulnerable","fixed":"fixed"}}

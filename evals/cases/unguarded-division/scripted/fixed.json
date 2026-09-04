@@ -1,0 +1,1 @@
+{"findings":[{"path":"toycalc/service.py","line":5,"severity":"high","action":"auto_fix","title":"Division still lacks a guard","detail":"This deliberate dry-run false positive claims the correctness bug remains."}]}

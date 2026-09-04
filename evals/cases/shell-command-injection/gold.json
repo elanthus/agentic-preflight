@@ -1,0 +1,1 @@
+{"mechanism":"A caller-controlled branch is interpolated into a shell command and can execute extra commands.","path":"deploy/runner.py","lines":[6,6],"category":"security","severity":["critical","critical"],"fixed_expectation":"absent"}

@@ -1,0 +1,1 @@
+{"mechanism":"The page slice subtracts one from the exclusive end and drops each page's last item.","path":"catalog/pager.py","lines":[5,5],"category":"correctness","severity":["medium","high"],"fixed_expectation":"absent"}

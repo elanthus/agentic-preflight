@@ -1,0 +1,1 @@
+{"id":"golden-matches-bug","category":"evaluation_integrity","title":"Golden output is changed to bless a bug","intent":"Preserve punctuation in the toy formatter and keep its golden regression fixture authoritative.","snapshots":{"base":"base","vulnerable":"vulnerable","fixed":"fixed"}}

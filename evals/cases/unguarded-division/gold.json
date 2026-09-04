@@ -1,0 +1,1 @@
+{"mechanism":"The new division path divides by zero instead of preserving the explicit domain error.","path":"toycalc/service.py","lines":[3,3],"category":"correctness","severity":["high","high"],"fixed_expectation":"absent"}

@@ -1,0 +1,1 @@
+{"mechanism":"The added test only iterates constants and never invokes or asserts on the counter behavior.","path":"tests/test_counter.py","lines":[3,4],"category":"evaluation_integrity","severity":["medium","high"],"fixed_expectation":"absent"}

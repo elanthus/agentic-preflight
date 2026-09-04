@@ -1,0 +1,1 @@
+{"id":"off-by-one-page","category":"correctness","title":"Pagination drops the final item","intent":"Add offset pagination to the toy catalog and keep every item in each requested page.","snapshots":{"base":"base","vulnerable":"vulnerable","fixed":"fixed"}}

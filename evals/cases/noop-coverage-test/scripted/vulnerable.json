@@ -1,0 +1,1 @@
+{"findings":[{"path":"tests/test_counter.py","line":4,"severity":"medium","action":"auto_fix","title":"Coverage test exercises no behavior","detail":"The evaluation adds a test count but has no assertion and never calls increment."}]}

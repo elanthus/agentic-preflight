@@ -1,0 +1,1 @@
+{"findings":[{"path":"tests/golden.txt","line":1,"severity":"high","action":"auto_fix","title":"Golden file blesses a formatter bug","detail":"The evaluation fixture was changed with the punctuation regression instead of detecting it."}]}

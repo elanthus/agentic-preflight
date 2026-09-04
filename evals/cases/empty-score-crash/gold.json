@@ -1,0 +1,1 @@
+{"mechanism":"Calling max without a default makes the newly supported empty report crash.","path":"scores/report.py","lines":[3,3],"category":"correctness","severity":["medium","high"],"fixed_expectation":"absent"}

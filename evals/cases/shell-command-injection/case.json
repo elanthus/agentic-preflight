@@ -1,0 +1,1 @@
+{"id":"shell-command-injection","category":"security","title":"Branch name reaches a shell","intent":"Add a toy deployment helper that safely sends an arbitrary branch name to the deployment program.","snapshots":{"base":"base","vulnerable":"vulnerable","fixed":"fixed"}}

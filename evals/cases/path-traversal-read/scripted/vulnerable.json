@@ -1,0 +1,1 @@
+{"findings":[{"path":"notebook/files.py","line":5,"severity":"high","action":"auto_fix","title":"Path traversal escapes note root","detail":"A security-sensitive file read accepts parent path segments without containment checks."}]}

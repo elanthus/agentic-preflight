@@ -1,0 +1,1 @@
+{"findings":[{"path":"CHANGELOG.md","line":3,"severity":"medium","action":"auto_fix","title":"Changelog claims a phantom fix","detail":"The documentation contract says duplicate queue jobs are fixed, but code still appends every job."}]}

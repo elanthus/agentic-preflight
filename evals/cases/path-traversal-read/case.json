@@ -1,0 +1,1 @@
+{"id":"path-traversal-read","category":"security","title":"Notes escape their storage root","intent":"Read named notes from the toy notebook while keeping every read inside its configured storage root.","snapshots":{"base":"base","vulnerable":"vulnerable","fixed":"fixed"}}

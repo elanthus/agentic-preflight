@@ -1,0 +1,1 @@
+{"findings":[{"path":"tests/test_slug.py","line":6,"severity":"high","action":"auto_fix","title":"Test still ignores formatter result","detail":"This deliberate dry-run false positive claims the assertion remains self-referential."}]}

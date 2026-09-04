@@ -1,0 +1,1 @@
+{"mechanism":"The supplied note name is joined directly to the root, so parent segments can read arbitrary files.","path":"notebook/files.py","lines":[5,5],"category":"security","severity":["high","critical"],"fixed_expectation":"absent"}
