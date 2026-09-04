@@ -209,10 +209,26 @@ def _convention_entries(
 def _history_entries(
     session: Session, run: RunDoc, changed_files: list[str]
 ) -> list[dict[str, Any]]:
+    """Return prior findings from runs on this run's own branch.
+
+    ``list_runs()`` spans every run recorded under the shared git-common-dir
+    store, including runs the "reusable" and "strict" worktree modes are
+    running concurrently in other linked worktrees on other branches. Without
+    the branch filter, a finding one of those genuinely concurrent runs
+    records on a path this run also changed would flip `grounding_sha256`
+    between this run's `context` and `submit-findings` calls even though
+    nothing about this run's own reviewed snapshot changed.
+    """
     changed = set(changed_files)
     entries = []
     for run_id in session.store.list_runs():
         if run_id == run.run_id:
+            continue
+        try:
+            other_run = session.store.load_run(run_id)
+        except Exception:  # noqa: BLE001, S112 - history must survive one corrupt record
+            continue
+        if other_run.branch != run.branch:
             continue
         findings = sorted(session.store.load_findings(run_id), key=lambda finding: finding.id)
         for finding in findings:
