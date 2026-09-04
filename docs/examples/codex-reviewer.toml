@@ -36,7 +36,16 @@ blocking_severities = ["critical", "high"]
 
 [diff]
 max_bytes = 200000
-exclude = ["*.lock", "*-lock.json", "vendor/**", "**/*.min.js"]
+exclude = [
+    "*.lock",
+    "*-lock.json",
+    "vendor/**",
+    "**/*.min.js",
+    "**/*.min.css",
+    "**/__snapshots__/**",
+    "**/*.pb.go",
+    "**/*_pb2.py",
+]
 
 [worktree]
 mode = "in_place"
