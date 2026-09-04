@@ -94,8 +94,11 @@ def _recover_interrupted_stage(
         entry = doc.stages.get(stage) or StageRecord()
         entry.status = "red"
         entry.attempts += 1
+        entry.command = None
         entry.exit_code = 125
         entry.reason = "interrupted"
+        entry.output_sha256 = None
+        entry.log_path = None
         entry.finished_at = _now()
         entry.head_sha = gitx.rev_parse(_require_worktree(doc), "HEAD")
         doc.stages[stage] = entry

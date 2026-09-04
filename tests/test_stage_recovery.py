@@ -93,3 +93,25 @@ def test_interrupted_stage_counts_toward_max_attempts(feature_repo, tmp_path):
     assert lint["attempts"] == 1
     assert lint["exit_code"] == 125
     assert lint["reason"] == "interrupted"
+
+
+def test_interrupted_retry_clears_the_prior_attempt_s_artifacts(feature_repo, tmp_path):
+    """A stale command/log/hash from the prior red attempt must not survive."""
+    agent = _docs_green(feature_repo, tmp_path, max_attempts=2)
+    agent.run(
+        "stage", "run", "lint", "--command", "exit 1", "--record", expect=ExitCode.STAGE_FAILED
+    )
+    first = agent.run("status")["data"]["stages"]["lint"]
+    assert first["command"]
+    assert first["log_path"]
+    assert first["output_sha256"]
+
+    _force_running(feature_repo, Action.RETRY_LINT)
+    env = agent.run("stage", "run", "lint", expect=ExitCode.NEEDS_HUMAN)
+
+    assert env["error"]["code"] == "max_attempts"
+    lint = agent.run("status")["data"]["stages"]["lint"]
+    assert lint["reason"] == "interrupted"
+    assert lint["command"] is None
+    assert lint["log_path"] is None
+    assert lint["output_sha256"] is None
