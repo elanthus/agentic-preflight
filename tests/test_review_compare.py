@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import sys
 from pathlib import Path
@@ -171,6 +172,31 @@ def test_shadow_compare_preserves_state_and_findings(feature_repo, tmp_path):
     assert compared["data"]["executors"] == ["in_harness", "command"]
     assert (session.store.logs_dir(run_id) / "review-compare.txt").exists()
     assert json.loads(capture.read_text(encoding="utf-8")) == context["data"]
+
+
+def test_compare_uses_grounded_context_manifest(feature_repo, tmp_path):
+    write(feature_repo, "AGENTS.md", "# Repository guidance\n\nReview every changed line.\n")
+    configure_in_harness(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    context = agent.run("context")
+    coverage = context["data"]["review_coverage"]
+    submit_review(agent, tmp_path / "clean.json", [])
+    second = tmp_path / "command.json"
+    second.write_text(
+        json.dumps(
+            {
+                "coverage": {"manifest": coverage["manifest"], "examined": "all"},
+                "findings": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    compared = agent.run("review", "compare", "--file", str(second))
+
+    assert compared["data"]["manifest"] == coverage["manifest"]
+    assert re.fullmatch(r"[0-9a-f]{64}", coverage["grounding_sha256"])
 
 
 def test_compare_refuses_when_reviewed_head_is_stale(feature_repo, tmp_path):

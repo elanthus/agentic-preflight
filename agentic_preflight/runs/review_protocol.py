@@ -33,6 +33,37 @@ def bundle_for(session: Session, run: RunDoc) -> diffmod.DiffBundle:
     )
 
 
+def grounded_manifest(
+    session: Session,
+    run: RunDoc,
+    bundle: diffmod.DiffBundle,
+    *,
+    grounding: dict[str, Any] | None = None,
+) -> diffmod.ReviewManifest:
+    """Bind review coverage to the grounding delivered with this diff snapshot.
+
+    Accepted findings update the run's risk assessment.  That must not rewrite
+    the grounding digest already accepted for an unchanged reviewed HEAD.
+    """
+    worktree_path = _require_worktree(run)
+    review_grounding = (
+        grounding if grounding is not None else groundingmod.assemble(session, run, bundle.files)
+    )
+    grounding_sha256 = groundingmod.digest(review_grounding)
+    coverage = run.review_coverage
+    if (
+        coverage is not None
+        and coverage.head_sha == gitx.rev_parse(worktree_path, bundle.head)
+        and coverage.grounding_sha256 is not None
+    ):
+        grounding_sha256 = coverage.grounding_sha256
+    return diffmod.build_review_manifest(
+        worktree_path,
+        bundle,
+        grounding_sha256=grounding_sha256,
+    )
+
+
 def effective_executor(session: Session, run: RunDoc) -> ReviewExecutor:
     """Resolve policy overrides before accepting or launching a review."""
     if run.risk is not None and run.risk.level.value in session.config.review.require_command_for:
@@ -46,20 +77,13 @@ def context_data(
     *,
     section: str,
     bundle: diffmod.DiffBundle,
+    review_manifest: diffmod.ReviewManifest | None = None,
 ) -> dict[str, Any]:
     """Build the single canonical bundle used by context and command review."""
     worktree_path = _require_worktree(run)
     grounding = groundingmod.assemble(session, run, bundle.files)
-    grounding_sha256 = groundingmod.digest(grounding)
-    review_manifest = (
-        diffmod.build_review_manifest(
-            worktree_path,
-            bundle,
-            grounding_sha256=grounding_sha256,
-        )
-        if section == "review"
-        else None
-    )
+    if section == "review" and review_manifest is None:
+        review_manifest = grounded_manifest(session, run, bundle, grounding=grounding)
     data: dict[str, Any] = {
         "section": section,
         "worktree_path": run.worktree_path,
