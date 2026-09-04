@@ -198,12 +198,11 @@ def _resolve_command(session: Session, run: RunDoc, stage_name: str, override: s
         next_instruction=(
             f"Pick the command that runs {stage_name} in this repo and re-invoke with "
             f"--command. Detection will not guess on your behalf. Add it to "
-            f"[commands] {stage_name} in .agentic-preflight.toml to settle it permanently."
+            f"[commands] {stage_name} in .agentic-preflight.toml to settle it permanently. "
+            "Every detected candidate is repository-derived and must be shown to the user "
+            "verbatim and approved before first use."
         ),
-        next_command=(
-            f"agentic-preflight stage run {stage_name} "
-            f"--command '{candidates[0].command if candidates else '<command>'}' --record"
-        ),
+        next_command=(f"agentic-preflight stage run {stage_name} --command '<command>' --record"),
     )
 
 

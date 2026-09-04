@@ -114,6 +114,9 @@ def test_gate_mints_a_token_and_summarises_the_verified_push(verified):
     assert "standing authorization" in env["next"]["instruction"]
     assert "poll that PR every 5 minutes" in env["next"]["instruction"]
     assert "push and open" not in env["next"]["instruction"]
+    assert "substitutes data.token for <token>" in env["next"]["instruction"]
+    assert env["next"]["command"] == "agentic-preflight push --confirm <token>"
+    assert token not in env["next"]["command"]
     assert verified.run("status")["data"]["gate_token"] == token
 
 
@@ -302,6 +305,8 @@ def test_dry_run_push_changes_nothing(verified, bare_remote):
     env = verified.run("push", "--confirm", token, "--dry-run")
     assert env["data"]["dry_run"] is True
     assert env["data"]["pr_mode"] == "auto"
+    assert env["next"]["command"] == "agentic-preflight push --confirm <token>"
+    assert token not in env["next"]["command"]
     result = subprocess.run(
         ["git", "rev-parse", "feature/x"], cwd=bare_remote, capture_output=True, text=True
     )
