@@ -9,7 +9,7 @@ import pytest
 from agentic_preflight.config import ConfigError, load_config
 from agentic_preflight.errors import ExitCode
 from agentic_preflight.grounding import digest
-from tests.conftest import commit_all, write
+from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
 
@@ -350,3 +350,17 @@ def test_context_extra_paths_reject_parent_traversal(feature_repo, tmp_path):
 
     with pytest.raises(ConfigError, match=r"\[context\] extra_paths"):
         load_config(feature_repo, user_config_dir=tmp_path / "nowhere")
+
+
+def test_context_skips_a_tracked_source_staged_but_not_committed(feature_repo):
+    _write_sources(feature_repo)
+    commit_all(feature_repo, "add repository context")
+
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    write(feature_repo, "docs/staged.md", "src/app.py is mentioned here but never committed.\n")
+    git("add", "docs/staged.md", cwd=feature_repo)
+
+    entries = agent.run("context")["data"]["grounding"]["entries"]
+
+    assert all(entry.get("source") != "docs/staged.md" for entry in entries)

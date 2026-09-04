@@ -40,14 +40,21 @@ def path_matches(path: str, pattern: str) -> bool:
     The one gap is a leading ``**/``, which under plain fnmatch would demand at
     least one separator — so ``**/*.min.js`` would miss a top-level
     ``app.min.js``. Retrying without the prefix closes that.
+
+    A bare (unanchored) directory pattern like ``src/`` has the opposite gap:
+    appending ``**`` alone only matches at the root, so ``nested/src/app.py``
+    needs the same pattern retried with a ``**/`` prefix to match at any depth.
     """
     anchored = pattern.startswith("/")
     if anchored:
         pattern = pattern[1:]
+    bare_directory = not anchored and pattern.endswith("/")
     if pattern.endswith("/"):
         pattern += "**"
     if fnmatch.fnmatchcase(path, pattern):
         return True
+    if bare_directory:
+        return fnmatch.fnmatchcase(path, f"**/{pattern}")
     return not anchored and pattern.startswith("**/") and fnmatch.fnmatchcase(path, pattern[3:])
 
 

@@ -42,8 +42,18 @@ def _tracked_files(repo: Path | str) -> list[str]:
     return sorted(path for path in output.split("\0") if path)
 
 
-def _blob_text(repo: Path | str, path: str) -> str:
-    return gitx.run(repo, "show", f"HEAD:{path}").stdout
+def _blob_text(repo: Path | str, path: str) -> str | None:
+    """Read a tracked path's committed content, or ``None`` if it has none.
+
+    ``_tracked_files`` lists the index, which can include a path staged but not
+    yet committed. Reading such a path from ``HEAD`` raises rather than
+    returning empty text, so callers must treat that as "skip this source",
+    not as a reason to fail the whole grounding bundle.
+    """
+    try:
+        return gitx.run(repo, "show", f"HEAD:{path}").stdout
+    except gitx.GitError:
+        return None
 
 
 def _truncate_lines(text: str, max_bytes: int) -> tuple[str, bool]:
@@ -66,9 +76,12 @@ def _codeowners_entries(
     source = next((path for path in _CODEOWNERS_PATHS if path in tracked), None)
     if source is None:
         return []
+    text = _blob_text(repo, source)
+    if text is None:
+        return []
 
     rules: list[tuple[str, list[str]]] = []
-    for raw_line in _blob_text(repo, source).splitlines():
+    for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -160,6 +173,8 @@ def _doc_entries(
     entries = []
     for source in sorted(path for path in tracked if path.startswith("docs/")):
         text = _blob_text(repo, source)
+        if text is None:
+            continue
         matches = _matching_terms(text, terms)
         if not matches:
             continue
@@ -196,7 +211,10 @@ def _convention_entries(
 ) -> list[dict[str, Any]]:
     entries = []
     for source in _convention_sources(tracked, extra_paths):
-        content, truncated = _truncate_lines(_blob_text(repo, source), entry_max_bytes)
+        raw_content = _blob_text(repo, source)
+        if raw_content is None:
+            continue
+        content, truncated = _truncate_lines(raw_content, entry_max_bytes)
         entries.append(
             _entry(
                 {"kind": "convention", "source": source, "content": content},

@@ -141,6 +141,11 @@ def test_leading_slash_anchors_a_directory_pattern():
     assert diff.path_matches("nested/src/app.py", "/src/") is False
 
 
+def test_bare_directory_pattern_matches_at_any_depth():
+    assert diff.path_matches("src/app.py", "src/") is True
+    assert diff.path_matches("nested/src/app.py", "src/") is True
+
+
 def test_grounding_digest_is_exposed_and_changes_the_review_manifest(feature_repo):
     base = git("rev-parse", "main", cwd=feature_repo)
     bundle = diff.build_bundle(feature_repo, base)
