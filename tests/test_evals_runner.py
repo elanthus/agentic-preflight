@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import time
 from pathlib import Path
 
 import pytest
@@ -47,6 +49,28 @@ def test_summary_json_is_byte_identical_across_runs(tmp_path):
     eval_run.run_evaluation(out=second, **kwargs)
 
     assert (first / "summary.json").read_bytes() == (second / "summary.json").read_bytes()
+
+
+def test_build_repo_copies_changed_same_size_file_with_fresh_mtime(tmp_path):
+    copied = tmp_path / "wrong-config-default"
+    shutil.copytree(CASES / "wrong-config-default", copied)
+    old_timestamp = 1_000_000_000
+    for snapshot in ("vulnerable", "fixed"):
+        for path in (copied / snapshot).rglob("*"):
+            if path.is_file():
+                os.utime(path, (old_timestamp, old_timestamp))
+    case = eval_run.load_case(copied)
+    repository = tmp_path / "repo"
+
+    copy_started = time.time()
+    commits, env = eval_run._build_repo(case, repository, mode="dry", executor=None, grounding="on")
+
+    assert len(set(commits.values())) == 3
+    fixed_files = eval_run._git(
+        repository, env, "show", "--name-only", "--format=", commits["fixed"]
+    ).splitlines()
+    assert "docs/configuration.md" in fixed_files
+    assert (repository / "docs" / "configuration.md").stat().st_mtime >= copy_started
 
 
 def test_real_mode_requires_authorization_and_reports_projected_calls(

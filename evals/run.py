@@ -173,7 +173,7 @@ def _copy_snapshot(source: Path, repo: Path) -> None:
                 shutil.rmtree(path)
             else:
                 path.unlink()
-    shutil.copytree(source, repo, dirs_exist_ok=True)
+    shutil.copytree(source, repo, dirs_exist_ok=True, copy_function=shutil.copyfile)
 
 
 def _config_text(*, mode: str, executor: str | None, grounding: str) -> str:
