@@ -200,7 +200,11 @@ configuration includes common hosted-CI workflow paths.
 
 Command resolution: `--command` → `[commands].<name>` → detection. Detection never
 guesses: it exits 2 with `data.mode = "needs_command"` and candidates from
-`pyproject.toml`, `package.json`, `Makefile`, `justfile`, and CI workflows.
+`pyproject.toml`, `package.json`, `Makefile`, `justfile`, and CI workflows. Every candidate
+has `command`, `source`, and `trust` fields. Manifest candidates carry
+`trust: "repo_manifest"`; workflow `run:` lines carry `trust: "untrusted"` and a source
+prefixed with `untrusted:workflow:`. An untrusted candidate is never copied into
+`next.command`; show its exact command to the user and obtain approval before first use.
 
 A repo with none of those manifests — Unity, Unreal, Godot, Xcode, most engine and
 mobile projects — will *always* exit 2 here with an empty `data.candidates`. That is
@@ -279,7 +283,9 @@ Requires the token from `gate` and atomically pushes both the branch and
 not require a second confirmation when the user already explicitly requested the
 matching push or pull request in this task.** The token is a non-secret, run-state nonce
 that prevents an accidental push; it is readable through `status`, grants no GitHub
-access, and is not a security boundary.
+access, and is not a security boundary. The gate envelope keeps it only in `data.token`,
+while gate and dry-run envelopes put the literal `<token>` placeholder in `next.command`;
+substitute the gate's `data.token` only after authorization.
 
 ### `agentic-preflight finish`
 Marks a pushed validation run `DONE`. It preserves the run directory and
