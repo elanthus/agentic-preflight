@@ -74,7 +74,11 @@ class EvalCase:
 
 
 def discover_cases(root: Path = CASES_ROOT) -> Iterable[Path]:
-    return (path for path in sorted(root.iterdir()) if path.is_dir())
+    return (
+        path
+        for path in sorted(root.iterdir())
+        if path.is_dir() and not path.name.startswith(".") and (path / "case.json").is_file()
+    )
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -263,7 +267,8 @@ def _assert_bundle_is_clean(case: EvalCase, context: dict[str, Any]) -> None:
     if "gold.json" in serialized:
         raise LeakageError("review bundle contains gold.json text")
     serialized_gold = json.dumps(case.gold, sort_keys=True, separators=(",", ":"))
-    if serialized_gold in serialized:
+    escaped_gold = json.dumps(serialized_gold)[1:-1]
+    if serialized_gold in serialized or escaped_gold in serialized:
         raise LeakageError("review bundle contains the serialized gold record")
     if data.get("intent") != case.metadata["intent"]:
         raise LeakageError("review bundle intent differs from case.json intent")

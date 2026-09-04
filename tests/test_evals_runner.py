@@ -83,6 +83,40 @@ def test_gold_leakage_inside_snapshot_is_rejected(tmp_path):
         )
 
 
+def test_discover_cases_ignores_hidden_and_non_case_directories(tmp_path):
+    cases_root = tmp_path / "cases"
+    copied = cases_root / "unguarded-division"
+    shutil.copytree(CASES / "unguarded-division", copied)
+    (cases_root / ".ruff_cache").mkdir()
+    (cases_root / "notes").mkdir()
+
+    assert list(eval_run.discover_cases(cases_root)) == [copied]
+
+
+@pytest.mark.parametrize(
+    ("data", "message"),
+    [
+        ({"gold_reference": "gold.json"}, r"gold\.json"),
+        ({"gold_record": "$serialized_gold"}, "serialized gold record"),
+        ({"intent": "a different intent"}, "intent differs"),
+    ],
+)
+def test_bundle_leakage_is_rejected(data, message):
+    case = eval_run.load_case(CASES / "unguarded-division")
+    data = {"intent": case.metadata["intent"], **data}
+    if data.get("gold_record") == "$serialized_gold":
+        data["gold_record"] = json.dumps(case.gold, sort_keys=True, separators=(",", ":"))
+
+    with pytest.raises(eval_run.LeakageError, match=message):
+        eval_run._assert_bundle_is_clean(case, {"data": data})
+
+
+def test_clean_bundle_passes_leakage_check():
+    case = eval_run.load_case(CASES / "unguarded-division")
+
+    eval_run._assert_bundle_is_clean(case, {"data": {"intent": case.metadata["intent"]}})
+
+
 def test_corpus_is_balanced_and_scripts_exercise_nontrivial_rates():
     cases = [eval_run.load_case(path) for path in eval_run.discover_cases()]
     category_counts = {
