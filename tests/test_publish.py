@@ -190,6 +190,12 @@ def test_manual_gate_mode_refuses_to_proceed_at_all(feature_repo, bare_remote, t
     env = agent.run("gate", expect=ExitCode.NEEDS_HUMAN)
     assert env["error"]["code"] == "manual_gate"
     assert "git push" in json.dumps(env["data"])
+    assert env["next"]["command"] == "agentic-preflight status"
+    assert "git push" not in env["next"]["command"]
+    assert env["data"]["manual_command"].startswith("git push --atomic origin ")
+    assert "data.manual_command" in env["next"]["instruction"]
+    assert "stop" in env["next"]["instruction"]
+    assert agent.run("status")["state"] == "VERIFIED"
 
 
 def test_manual_pr_mode_pushes_but_hands_pr_creation_to_the_user(

@@ -264,8 +264,8 @@ after user confirmation, token mode may
 push it. The summary's `approval_mode` says whether the user must merge manually, a
 GitHub Environment must approve, or an eligible peer must approve the exact head. In
 `manual_merge`, never merge or enable auto-merge even when the hosted check is green.
-Only `[gate] mode = "manual"` exits 4 and hands over the literal `git push` command for a
-person to run.
+Only `[gate] mode = "manual"` exits 4 and puts the literal `git push` command in
+`data.manual_command` for a person to run; the agent must not run it.
 
 ### `agentic-preflight push --confirm TOKEN [--dry-run]`
 Requires the token from `gate` and atomically pushes both the branch and
