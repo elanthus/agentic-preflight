@@ -212,6 +212,12 @@ project does not use.
 `logs/<stage>.txt`; the envelope carries head 50 and tail 200 lines with a `truncated`
 flag. Stops with exit 4 after `[stage] max_attempts` failures.
 
+If a lint or test process is killed or times out outside the harness, its persisted
+`*_RUNNING` state is recoverable. `stage run lint|test` is the legal retry from that state:
+it first records the interrupted process as a red attempt with exit code 125 and reason
+`interrupted`, then retries normally. The interrupted attempt counts toward `[stage]`
+`max_attempts`.
+
 **A command that no-ops and exits 0 is indistinguishable from one that passed.**
 Exit-code-only is deliberate — parsing output is brittle — but it assumes the command
 is *capable* of failing. The first green from a newly configured `[commands]` entry

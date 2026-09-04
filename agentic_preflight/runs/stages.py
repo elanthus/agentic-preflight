@@ -46,7 +46,8 @@ class _BaselineSetupFailure(Exception):
 
 
 class _StageSpec(TypedDict):
-    ready: tuple[State, State]
+    ready: tuple[State, State, State]
+    running: State
     run: Action
     retry: Action
     passed: Action
@@ -56,7 +57,8 @@ class _StageSpec(TypedDict):
 
 _STAGE_STATES: dict[str, _StageSpec] = {
     "lint": {
-        "ready": (State.DOCS_GREEN, State.LINT_RED),
+        "ready": (State.DOCS_GREEN, State.LINT_RED, State.LINT_RUNNING),
+        "running": State.LINT_RUNNING,
         "run": Action.RUN_LINT,
         "retry": Action.RETRY_LINT,
         "passed": Action.LINT_PASSED,
@@ -64,7 +66,8 @@ _STAGE_STATES: dict[str, _StageSpec] = {
         "red": State.LINT_RED,
     },
     "test": {
-        "ready": (State.LINT_GREEN, State.TEST_RED),
+        "ready": (State.LINT_GREEN, State.TEST_RED, State.TEST_RUNNING),
+        "running": State.TEST_RUNNING,
         "run": Action.RUN_TEST,
         "retry": Action.RETRY_TEST,
         "passed": Action.TEST_PASSED,
@@ -72,6 +75,30 @@ _STAGE_STATES: dict[str, _StageSpec] = {
         "red": State.TEST_RED,
     },
 }
+
+
+def _recover_interrupted_stage(
+    session: Session, run: RunDoc, stage: Stage, spec: _StageSpec
+) -> RunDoc:
+    """Turn a persisted running state into an explicit retryable failure."""
+    if run.state is not spec["running"]:
+        return run
+    with session.store.transaction(run.run_id) as doc:
+        entry = doc.stages.get(stage) or StageRecord()
+        entry.status = "red"
+        entry.attempts += 1
+        entry.exit_code = 125
+        entry.reason = "interrupted"
+        entry.finished_at = _now()
+        entry.head_sha = gitx.rev_parse(_require_worktree(doc), "HEAD")
+        doc.stages[stage] = entry
+        _apply(doc, spec["failed"])
+        run = doc
+    session.store.append_event(
+        run.run_id,
+        {"event": f"{stage.value}_interrupted", "attempts": entry.attempts},
+    )
+    return run
 
 
 def _register_stage_fix_commits(
@@ -191,6 +218,8 @@ def run_stage(
                 next_command="agentic-preflight context",
             )
     _require_state(run, *spec["ready"], command=f"stage run {stage_name}")
+    run = _recover_interrupted_stage(session, run, stage, spec)
+    record_entry = run.stages.get(stage) or StageRecord()
     worktree_path = _require_worktree(run)
 
     if not gitx.is_clean(worktree_path):
