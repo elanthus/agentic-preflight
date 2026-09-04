@@ -497,7 +497,7 @@ def test_cherry_pick_refuses_to_abort_the_users_paused_sequence(tmp_repo):
             worktree_branch="ap/x",
             worktree_path=str(tmp_repo),
         )
-    except Exception as exc:  # the assertion below identifies the public refusal
+    except Exception as exc:  # noqa: BLE001 - identifies the BASE failure by assertion below
         caught = exc
 
     assert cherry_pick_head.is_file(), "mergeback aborted the user's paused cherry-pick"
@@ -541,6 +541,9 @@ def test_mergeback_reports_the_users_paused_cherry_pick_as_a_precondition(ready,
     assert cherry_pick_head.is_file()
     assert git("rev-parse", "HEAD", cwd=feature_repo) == before_head
     assert git("status", "--porcelain", cwd=feature_repo) == before_status
+
+    git("cherry-pick", "--abort", cwd=feature_repo)
+    assert agent.run("mergeback")["state"] == "VERIFIED"
 
 
 def test_conflict_aborts_the_entire_fix_stack_and_preserves_unrelated_work(tmp_repo):

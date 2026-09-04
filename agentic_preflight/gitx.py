@@ -58,6 +58,15 @@ class GitError(Exception):
         self.stderr = stderr
 
 
+class OperationInProgress(Exception):
+    """A checkout already belongs to a user-started porcelain operation."""
+
+    def __init__(self, operation: str, path: Path | str) -> None:
+        self.operation = operation
+        self.path = str(Path(path).resolve())
+        super().__init__(f"git {operation} is already in progress in {self.path}")
+
+
 def run(cwd: Path | str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     result = subprocess.run(
         [_git_executable(), *args],
@@ -115,6 +124,25 @@ def hook_path(cwd: Path | str, name: str) -> Path:
     """Return the hook path Git will execute, including ``core.hooksPath``."""
     raw = out(cwd, "rev-parse", "--path-format=absolute", "--git-path", f"hooks/{name}")
     return Path(raw)
+
+
+def git_path(cwd: Path | str, name: str) -> Path:
+    """Resolve a per-worktree Git state path without assuming ``.git`` is a directory."""
+    raw = out(cwd, "rev-parse", "--git-path", name)
+    path = Path(raw)
+    return path if path.is_absolute() else Path(cwd) / path
+
+
+def operation_in_progress(cwd: Path | str) -> str | None:
+    """Report porcelain state that a new operation must not adopt or abort."""
+    for operation, names in (
+        ("rebase", ("rebase-merge", "rebase-apply")),
+        ("cherry-pick", ("CHERRY_PICK_HEAD",)),
+        ("merge", ("MERGE_HEAD",)),
+    ):
+        if any(git_path(cwd, name).exists() for name in names):
+            return operation
+    return None
 
 
 def repo_root(cwd: Path | str) -> Path:

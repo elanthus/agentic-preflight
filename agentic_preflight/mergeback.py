@@ -28,6 +28,8 @@ from pathlib import Path
 
 from . import gitx
 
+OperationInProgress = gitx.OperationInProgress
+
 
 class MergebackConflict(Exception):
     """A cherry-pick conflicted. The branch has been restored."""
@@ -89,12 +91,43 @@ def _conflicting_files(repo: Path | str) -> list[str]:
     return [line for line in output.splitlines() if line.strip()]
 
 
-def _abort_and_restore(repo: Path | str, pre_sha: str, pre_status: str) -> bool:
+def _abort_and_restore(
+    repo: Path | str,
+    pre_sha: str,
+    pre_status: str,
+    fix_commits: list[str],
+) -> bool:
     """Abort the cherry-pick and confirm the branch is byte-for-byte restored.
 
+    A failed start can expose somebody else's ``CHERRY_PICK_HEAD``. Ownership
+    must be established before aborting so their sequencer is never adopted.
     The confirmation matters as much as the abort: reporting "restored" without
     checking would be a guess about the one thing the user most needs to trust.
     """
+    cherry_pick_head = gitx.run(
+        repo,
+        "rev-parse",
+        "--verify",
+        "CHERRY_PICK_HEAD^{commit}",
+        check=False,
+    )
+    resolved_fixes = {
+        resolved.stdout.strip()
+        for commit in fix_commits
+        if (
+            resolved := gitx.run(
+                repo,
+                "rev-parse",
+                "--verify",
+                f"{commit}^{{commit}}",
+                check=False,
+            )
+        ).returncode
+        == 0
+    }
+    if cherry_pick_head.returncode != 0 or cherry_pick_head.stdout.strip() not in resolved_fixes:
+        return False
+
     aborted = gitx.run(repo, "cherry-pick", "--abort", check=False)
     if aborted.returncode != 0:
         return False
@@ -115,6 +148,10 @@ def cherry_pick_fixes(
 ) -> MergebackResult:
     """Apply fix commits in order, aborting cleanly on the first conflict."""
     repo = Path(repo)
+    operation = gitx.operation_in_progress(repo)
+    if operation is not None:
+        raise OperationInProgress(operation, repo)
+
     pre_sha = gitx.rev_parse(repo, "HEAD")
     pre_status = gitx.out(repo, "status", "--porcelain=v1", "--untracked-files=all")
 
@@ -126,7 +163,7 @@ def cherry_pick_fixes(
             conflicts = _conflicting_files(repo)
             head = gitx.run(repo, "rev-parse", "CHERRY_PICK_HEAD", check=False)
             conflicting = head.stdout.strip() if head.returncode == 0 else fix_commits[0]
-            restored = _abort_and_restore(repo, pre_sha, pre_status)
+            restored = _abort_and_restore(repo, pre_sha, pre_status, fix_commits)
             raise MergebackConflict(
                 f"cherry-picking {conflicting[:8]} conflicted with the branch",
                 ConflictReport(

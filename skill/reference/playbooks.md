@@ -6,6 +6,12 @@ as a failed command. The universal recovery rule still comes first: **any exit 3
 `status` → obey `next`.** `status` is legal in every state, and when you are unsure
 where a run is, it is always the right call.
 
+## Git operation already in progress (exit 3, `operation_in_progress`)
+
+Stop and tell the user that the reported checkout already has a rebase, cherry-pick,
+or merge in progress. They must finish or abort their own operation before retrying the
+reported command. Agentic Preflight will not abort an operation it did not start.
+
 ## Merge-back conflict (exit 4, isolated modes only)
 
 The branch has already been restored exactly and your fix commits are safe in the

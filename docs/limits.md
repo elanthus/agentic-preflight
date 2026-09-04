@@ -21,6 +21,10 @@ their synchronized commit is not the source branch that will be pushed.
 
 Cherry-picked merge-back is handled via tree-equivalence attestation.
 
+Agentic Preflight refuses to start or merge back while the checkout has a rebase,
+cherry-pick, or merge in progress. Finish or abort that Git operation yourself first;
+the tool never aborts an operation it did not start.
+
 ## Isolated worktrees can differ from your environment
 
 In-place mode deliberately uses the checkout's existing dependencies and ignored files. An

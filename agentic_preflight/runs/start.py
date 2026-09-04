@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from .. import attestation as attestationmod
 from .. import gitx, risk, worktree
 from .. import sync as syncmod
@@ -15,6 +17,9 @@ from ..errors import (
     SetupFailed,
     SyncConflictError,
     WrongState,
+)
+from ..errors import (
+    OperationInProgress as OperationInProgressError,
 )
 from ..machine import TERMINAL_STATES, Action, State
 from ..models import Attestation, RunDoc, SetupFailure, Stage, StageRecord
@@ -120,6 +125,18 @@ def start(
             ),
             next_command='agentic-preflight start --intent "<user objective and acceptance criteria>"',
         )
+
+    operation_path: Path | None = None
+    if cfg.worktree.mode == "in_place":
+        operation_path = repo
+    elif cfg.worktree.mode == "reusable":
+        reusable_path = session.store.worktrees_dir / "runner"
+        if (reusable_path / ".git").is_file():
+            operation_path = reusable_path
+    if operation_path is not None:
+        operation = gitx.operation_in_progress(operation_path)
+        if operation is not None:
+            raise OperationInProgressError(operation, str(operation_path.resolve()))
 
     if not gitx.is_clean(repo):
         raise DirtyTree(
@@ -310,6 +327,18 @@ def start(
     try:
         with session.store.resource("sync"), session.store.resource("notes"):
             sync_result = syncmod.synchronize(repo, wt_path, base_ref=base_ref)
+    except syncmod.OperationInProgress as exc:
+        with session.store.transaction(run_id) as doc:
+            _apply(doc, Action.SYNC_FAILED)
+            run = doc
+        report: dict[str, object] = {"operation": exc.operation, "path": exc.path}
+        session.store.append_event(run_id, {"event": "sync_refused", **report})
+        raise OperationInProgressError(
+            exc.operation,
+            exc.path,
+            state=run.state.value,
+            run_id=run_id,
+        ) from exc
     except syncmod.SyncConflict as exc:
         with session.store.transaction(run_id) as doc:
             doc.sync_base_sha = exc.base_sha

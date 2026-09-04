@@ -6,8 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agentic_preflight import attestation, gitx
-from agentic_preflight import sync
+from agentic_preflight import attestation, gitx, sync
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.sync import SyncConflict, synchronize
 from tests.conftest import commit_all, git, write
@@ -229,7 +228,7 @@ def test_rebase_refuses_to_abort_the_users_paused_interactive_rebase(
     caught: Exception | None = None
     try:
         sync.rebase_onto(feature_repo, "main")
-    except Exception as exc:  # the assertion below identifies the public refusal
+    except Exception as exc:  # noqa: BLE001 - identifies the BASE failure by assertion below
         caught = exc
 
     assert rebase_dir.is_dir(), "rebase_onto aborted the user's paused interactive rebase"
@@ -238,7 +237,8 @@ def test_rebase_refuses_to_abort_the_users_paused_interactive_rebase(
     assert git("rev-parse", "HEAD", cwd=feature_repo) == before_head
     assert git("status", "--porcelain", cwd=feature_repo) == before_status
 
-    refused = ScriptedAgent(feature_repo).run("start", expect=ExitCode.PRECONDITION)
+    agent = ScriptedAgent(feature_repo)
+    refused = agent.run("start", expect=ExitCode.PRECONDITION)
 
     assert refused["error"]["code"] == "operation_in_progress"
     assert refused["data"] == {"operation": "rebase", "path": str(feature_repo)}
@@ -246,3 +246,6 @@ def test_rebase_refuses_to_abort_the_users_paused_interactive_rebase(
     assert rebase_dir.is_dir()
     assert git("rev-parse", "HEAD", cwd=feature_repo) == before_head
     assert git("status", "--porcelain", cwd=feature_repo) == before_status
+
+    git("rebase", "--abort", cwd=feature_repo)
+    assert agent.run("start")["state"] == "REVIEW_AWAITING_FINDINGS"

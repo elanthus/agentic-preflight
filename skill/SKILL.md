@@ -233,6 +233,7 @@ stops — do not improvise a recovery from the symptom alone.
 
 | Symptom | Playbook |
 |---|---|
+| Git operation already in progress (exit 3, `operation_in_progress`) | Stop; the user must finish or abort it |
 | Merge-back conflict (exit 4, isolated modes only) | Paste `data.resolution` verbatim and stop |
 | Stage red after max attempts (exit 4) | Stop retrying; show a stage log, or abort if baseline setup never produced one |
 | Hosted CI failed | Fix on the source branch, re-run the whole gate |

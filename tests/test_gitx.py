@@ -18,6 +18,22 @@ def test_current_branch_reads_the_checked_out_branch(feature_repo):
     assert gitx.current_branch(feature_repo) == "feature/x"
 
 
+def test_operation_in_progress_is_absent_in_an_idle_checkout(tmp_repo):
+    assert gitx.operation_in_progress(tmp_repo) is None
+
+
+def test_operation_in_progress_detects_a_real_merge(tmp_repo):
+    git("switch", "-c", "merge-side", cwd=tmp_repo)
+    write(tmp_repo, "side.txt", "side\n")
+    commit_all(tmp_repo, "add side file")
+    git("switch", "main", cwd=tmp_repo)
+    write(tmp_repo, "main.txt", "main\n")
+    commit_all(tmp_repo, "add main file")
+    git("merge", "--no-commit", "merge-side", cwd=tmp_repo)
+
+    assert gitx.operation_in_progress(tmp_repo) == "merge"
+
+
 def test_rev_parse_resolves_a_ref_to_a_full_sha(tmp_repo):
     sha = gitx.rev_parse(tmp_repo, "HEAD")
     assert len(sha) == 40
