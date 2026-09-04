@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import gitx
 from .attestation import NOTES_REF
 from .envelope import ExitCode
 
@@ -31,6 +32,8 @@ if ! command -v agentic-preflight >/dev/null 2>&1; then
 fi
 exec agentic-preflight hook-check
 """
+
+HOOK_MARKER = b"agentic-preflight hook-check"
 
 
 @dataclass
@@ -133,16 +136,29 @@ def _block_message(sha: str, *, headline: str, reason: str, fix: str) -> str:
     )
 
 
-def install(git_dir: Path | str, *, force: bool = False) -> tuple[Path, bool]:
+def contains_hook_check(path: Path) -> bool:
+    """Recognize composition as well as the exact hook installed by this tool."""
+    return path.is_file() and HOOK_MARKER in path.read_bytes()
+
+
+def install(repo_root: Path | str, *, force: bool = False) -> tuple[Path, bool]:
     """Write the pre-push hook. Returns (path, newly_written).
 
     Refuses to clobber a hook we did not write: someone else's pre-push hook is
     important to their workflow, and silently replacing it would be exactly the kind
     of unreviewed change this tool exists to prevent.
     """
-    hooks_dir = Path(git_dir) / "hooks"
+    try:
+        path = gitx.hook_path(repo_root, "pre-push")
+    except gitx.GitError:
+        if (Path(repo_root) / ".git").exists():
+            raise
+        # Before repository-root resolution was introduced, callers could pass a plain
+        # directory to generate the portable script. Preserve that narrow compatibility;
+        # repository callers always use Git's effective hook path above.
+        path = Path(repo_root) / "hooks" / "pre-push"
+    hooks_dir = path.parent
     hooks_dir.mkdir(parents=True, exist_ok=True)
-    path = hooks_dir / "pre-push"
 
     if path.exists() and not force:
         # Read bytes, not text. The ownership marker is ASCII, while somebody
@@ -150,7 +166,7 @@ def install(git_dir: Path | str, *, force: bool = False) -> tuple[Path, bool]:
         # failing to decode it must not turn "this hook is not ours, refuse to
         # touch it" into an unhandled error.
         existing = path.read_bytes()
-        if b"agentic-preflight hook-check" not in existing:
+        if HOOK_MARKER not in existing:
             raise FileExistsError(str(path))
         return path, False
 

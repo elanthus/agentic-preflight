@@ -95,33 +95,89 @@ def test_init_is_idempotent(feature_repo):
     assert env["ok"] is True
 
 
-def test_hook_installer_directly_refuses_and_then_replaces_a_foreign_hook(tmp_path):
-    path = tmp_path / "hooks" / "pre-push"
-    path.parent.mkdir()
+def test_init_installs_at_a_relative_core_hooks_path_and_blocks_a_real_push(
+    feature_repo, bare_remote
+):
+    git("config", "core.hooksPath", ".githooks", cwd=feature_repo)
+
+    env = ScriptedAgent(feature_repo).run("init")
+
+    path = Path(feature_repo) / ".githooks" / "pre-push"
+    result = subprocess.run(
+        ["git", "push", "origin", "feature/x"],
+        cwd=feature_repo,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "agentic-preflight: push blocked" in result.stderr
+    assert path.exists()
+    assert not (Path(feature_repo) / ".git" / "hooks" / "pre-push").exists()
+    assert env["data"]["hook_installed"] is True
+    assert env["data"]["hook_path"] == str(path.resolve())
+    assert env["data"]["hooks_path_overridden"] is True
+
+
+def test_init_refuses_a_foreign_hook_at_the_effective_hooks_path(feature_repo):
+    git("config", "core.hooksPath", ".githooks", cwd=feature_repo)
+    path = write(feature_repo, ".githooks/pre-push", "#!/bin/sh\necho foreign\n")
+
+    env = ScriptedAgent(feature_repo).run("init", expect=ExitCode.PRECONDITION)
+
+    resolved = str(path.resolve())
+    assert env["error"]["code"] == "hook_exists"
+    assert resolved in env["error"]["message"]
+    assert env["data"]["hook_path"] == resolved
+    assert resolved in env["next"]["instruction"]
+    assert path.read_text(encoding="utf-8") == "#!/bin/sh\necho foreign\n"
+    assert not (Path(feature_repo) / ".git" / "hooks" / "pre-push").exists()
+
+
+def test_status_reports_when_the_effective_hook_is_bypassed(feature_repo):
+    agent = ScriptedAgent(feature_repo)
+    agent.run("init")
+
+    active = agent.run("status")["data"]["hook"]
+    assert active == {
+        "path": str((Path(feature_repo) / ".git" / "hooks" / "pre-push").resolve()),
+        "active": True,
+    }
+
+    git("config", "core.hooksPath", ".githooks", cwd=feature_repo)
+    bypassed = agent.run("status")["data"]["hook"]
+    assert bypassed == {
+        "path": str((Path(feature_repo) / ".githooks" / "pre-push").resolve()),
+        "active": False,
+    }
+
+
+def test_hook_installer_directly_refuses_and_then_replaces_a_foreign_hook(feature_repo):
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    path.parent.mkdir(exist_ok=True)
     path.write_text("#!/bin/sh\necho existing\n")
 
     with pytest.raises(FileExistsError):
-        hook.install(tmp_path)
+        hook.install(feature_repo)
 
-    installed, written = hook.install(tmp_path, force=True)
+    installed, written = hook.install(feature_repo, force=True)
     assert installed == path
     assert written is True
     assert "agentic-preflight hook-check" in path.read_text(encoding="utf-8")
 
-    installed, written = hook.install(tmp_path)
+    installed, written = hook.install(feature_repo)
     assert installed == path
     assert written is False
 
 
-def test_a_foreign_hook_that_is_not_utf8_is_still_refused(tmp_path):
+def test_a_foreign_hook_that_is_not_utf8_is_still_refused(feature_repo):
     """Someone else's hook is arbitrary bytes, and refusing it must not depend
     on those bytes decoding as text."""
-    path = tmp_path / "hooks" / "pre-push"
-    path.parent.mkdir()
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    path.parent.mkdir(exist_ok=True)
     path.write_bytes(b"#!/bin/sh\n# \xff\xfe not valid utf-8\necho existing\n")
 
     with pytest.raises(FileExistsError):
-        hook.install(tmp_path)
+        hook.install(feature_repo)
 
     assert b"echo existing" in path.read_bytes()
 
@@ -130,6 +186,11 @@ def test_init_reports_in_place_default(feature_repo):
     env = ScriptedAgent(feature_repo).run("init", "--no-hook")
     assert env["data"]["worktree_mode"] == "in_place"
     assert env["data"]["worktree_root"] is None
+    assert env["data"]["hook_path"] == str(
+        (Path(feature_repo) / ".git" / "hooks" / "pre-push").resolve()
+    )
+    assert env["data"]["hook_installed"] is False
+    assert env["data"]["hooks_path_overridden"] is False
 
 
 # -- hook-check as a pure predicate -----------------------------------------

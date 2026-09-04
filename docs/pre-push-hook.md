@@ -22,9 +22,16 @@ fail-closed remote attestation check described in
 
 ## Existing hooks
 
-`init` does not compose with an existing `pre-push` hook. If Husky, pre-commit, or a
-custom hook already owns that path, `init` refuses to change it. Add
-`agentic-preflight hook-check` to the existing hook manually if both are needed.
+`init` asks Git for the hook it will actually execute with
+`git rev-parse --git-path hooks/pre-push`. This honors `core.hooksPath`, including
+paths configured by tools such as Husky and lefthook. If no hook exists at the effective
+path, `init` creates its parent directory and installs the hook there. If a foreign hook
+is already present, `init` refuses to change it and reports its real path.
+
+To compose with Husky or lefthook, add `agentic-preflight hook-check` to their
+pre-push script at the path reported by `init`, and let its nonzero exit stop the push.
+`status` reports `hook.path` and `hook.active`; `active` is true only when the effective
+hook contains that command, so a `core.hooksPath` change cannot silently hide the gate.
 
 Treat `init --force` as replacement, not composition: it overwrites the existing hook
 and removes whatever behavior that hook previously provided.

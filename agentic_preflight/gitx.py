@@ -111,6 +111,12 @@ def git_dir(cwd: Path | str) -> Path:
     return Path(raw)
 
 
+def hook_path(cwd: Path | str, name: str) -> Path:
+    """Return the hook path Git will execute, including ``core.hooksPath``."""
+    raw = out(cwd, "rev-parse", "--path-format=absolute", "--git-path", f"hooks/{name}")
+    return Path(raw)
+
+
 def repo_root(cwd: Path | str) -> Path:
     return Path(out(cwd, "rev-parse", "--show-toplevel"))
 

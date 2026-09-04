@@ -89,13 +89,14 @@ def init(repo_root: Path | str, *, force: bool = False, install_hook: bool = Tru
         config_path.write_text(DEFAULT_CONFIG, encoding="utf-8", newline="\n")
         config_written = True
 
-    hook_path = None
+    path = gitx.hook_path(repo_root, "pre-push")
+    hook_path = str(path)
     hook_installed = False
+    hooks_path_overridden = not path.is_relative_to(git_dir / "hooks")
     if install_hook:
-        path, written = hook.install(git_dir, force=force)
+        path, _ = hook.install(repo_root, force=force)
         hook_path = str(path)
-        hook_installed = True
-        _ = written
+        hook_installed = hook.contains_hook_check(path)
 
     cfg = load_config(repo_root)
     instruction = (
@@ -110,6 +111,7 @@ def init(repo_root: Path | str, *, force: bool = False, install_hook: bool = Tru
             "config_written": config_written,
             "hook_path": hook_path,
             "hook_installed": hook_installed,
+            "hooks_path_overridden": hooks_path_overridden,
             "worktree_root": (
                 None
                 if cfg.worktree.mode == "in_place"

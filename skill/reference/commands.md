@@ -25,7 +25,12 @@ recovery path from another worktree in the clone.
 ### `agentic-preflight init [--force] [--no-hook]`
 Installs the pre-push hook and writes `.agentic-preflight.toml` if absent. Refuses to
 replace a pre-push hook it did not write (exit 3, `hook_exists`) — `--force`
-overrides. Does not clobber an existing config.
+overrides. Does not clobber an existing config. `data.hook_path` is the absolute path
+Git will execute, `data.hook_installed` confirms that installation left that path
+containing `agentic-preflight hook-check`, and `data.hooks_path_overridden` reports
+whether the effective path is outside the common Git directory's `hooks/` directory.
+With `--no-hook`, the effective path and override state are still reported, while
+`hook_installed` is false.
 
 The default `in_place` mode uses the current checkout and reports
 `data.worktree_root: null`. In isolated `reusable` and `strict` modes, worktrees default
@@ -291,7 +296,10 @@ authorizes the equivalent operation for other PRs.
 
 ### `agentic-preflight status [--all]`
 Legal in **every** state and the universal recovery entry point. Reports state, seq,
-findings, staleness, worktree path, and the gate token. Never raises for a wedged run.
+findings, staleness, worktree path, the gate token, and `data.hook` with the effective
+hook's `path` and `active` state. Hook-resolution failures report `path: null`,
+`active: false`, and a short `error` instead of breaking recovery. Never raises for a
+wedged run.
 In `MERGEBACK_CONFLICT`, it replays the durable conflict report and points back to the
 legal `mergeback` retry.
 `--all` inventories stored and active runs across every linked worktree in the clone.
