@@ -5,6 +5,7 @@ from __future__ import annotations
 from .. import diff as diffmod
 from .. import findings as findingsmod
 from .. import gitx
+from .. import grounding as groundingmod
 from .. import risk as riskmod
 from ..envelope import Envelope
 from ..errors import (
@@ -193,12 +194,18 @@ def submit_findings(
     manifest = None
     coverage = None
     if stage is Stage.REVIEW:
-        manifest = diffmod.build_review_manifest(worktree_path, bundle)
+        grounding = groundingmod.assemble(session, run, bundle.files)
+        manifest = diffmod.build_review_manifest(
+            worktree_path,
+            bundle,
+            grounding_sha256=groundingmod.digest(grounding),
+        )
         submissions, coverage = review_coverage.validate(
             submissions,
             manifest=manifest,
             submitted_manifest=coverage_manifest,
         )
+        coverage = coverage.model_copy(update={"grounding_sha256": manifest.grounding_sha256})
     elif any(submission.unit is not None for submission in submissions):
         raise InvalidFindings("docs findings cannot cite review units")
     existing = session.store.load_findings(run.run_id)

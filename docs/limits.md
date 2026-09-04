@@ -11,6 +11,8 @@ subjects and messages, stage output and logs, review-command findings, and detec
 command candidates. Preserving that text verbatim is necessary for review and diagnosis,
 so the tool can label its source but cannot sanitize it into trustworthy instructions or
 decide whether an authorization claim embedded in it is genuine.
+The `excerpt`, `content`, `owners`, and `title` fields in `data.grounding` are the same
+class of repository-controlled input.
 
 Detected manifest commands carry `trust: "repo_manifest"`. Workflow `run:` lines carry
 `trust: "untrusted"`, and their source begins with `untrusted:workflow:`. No detected

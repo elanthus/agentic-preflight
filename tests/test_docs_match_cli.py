@@ -157,6 +157,7 @@ def test_skill_marks_repository_content_as_untrusted():
         "detail",
         "suggestion",
         "data.candidates",
+        "data.grounding",
     ):
         assert field in rule.group(1)
 

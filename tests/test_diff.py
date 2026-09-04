@@ -136,6 +136,27 @@ def test_patterns_that_should_not_match(path, pattern):
     assert diff.path_matches(path, pattern) is False
 
 
+def test_leading_slash_anchors_a_directory_pattern():
+    assert diff.path_matches("src/app.py", "/src/") is True
+    assert diff.path_matches("nested/src/app.py", "/src/") is False
+
+
+def test_bare_directory_pattern_matches_at_any_depth():
+    assert diff.path_matches("src/app.py", "src/") is True
+    assert diff.path_matches("nested/src/app.py", "src/") is True
+
+
+def test_grounding_digest_is_exposed_and_changes_the_review_manifest(feature_repo):
+    base = git("rev-parse", "main", cwd=feature_repo)
+    bundle = diff.build_bundle(feature_repo, base)
+
+    first = diff.build_review_manifest(feature_repo, bundle, grounding_sha256="a" * 64)
+    second = diff.build_review_manifest(feature_repo, bundle, grounding_sha256="b" * 64)
+
+    assert first.manifest != second.manifest
+    assert first.as_dict()["grounding_sha256"] == "a" * 64
+
+
 def test_excluded_files_are_dropped_and_recorded(feature_repo):
     base = git("rev-parse", "main", cwd=feature_repo)
     write(feature_repo, "uv.lock", "generated = true\n" * 50)
