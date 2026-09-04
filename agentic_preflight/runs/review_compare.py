@@ -151,7 +151,13 @@ def _shadow_submission(
             run,
         )
     bundle = review_protocol.bundle_for(session, run)
-    data = review_protocol.context_data(session, run, section="review", bundle=bundle)
+    data = review_protocol.context_data(
+        session,
+        run,
+        section="review",
+        bundle=bundle,
+        review_manifest=manifest,
+    )
     stdin_text = json.dumps(data, sort_keys=True, separators=(",", ":"))
     worktree = _require_worktree(run)
     try:
@@ -326,7 +332,7 @@ def compare_reviews(session: Session, payload: Any | None = None) -> Envelope:
             f"worktree HEAD {current_head} does not match reviewed HEAD {coverage.head_sha}", run
         )
     bundle = review_protocol.bundle_for(session, run)
-    manifest = diffmod.build_review_manifest(worktree, bundle)
+    manifest = review_protocol.grounded_manifest(session, run, bundle)
     if manifest.manifest != coverage.manifest:
         raise _refusal("the current review manifest does not match the accepted submission", run)
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 from .. import diff as diffmod
 from .. import findings as findingsmod
 from .. import gitx
-from .. import grounding as groundingmod
 from .. import risk as riskmod
 from ..envelope import Envelope
 from ..errors import (
@@ -194,12 +193,7 @@ def submit_findings(
     manifest = None
     coverage = None
     if stage is Stage.REVIEW:
-        grounding = groundingmod.assemble(session, run, bundle.files)
-        manifest = diffmod.build_review_manifest(
-            worktree_path,
-            bundle,
-            grounding_sha256=groundingmod.digest(grounding),
-        )
+        manifest = review_protocol.grounded_manifest(session, run, bundle)
         submissions, coverage = review_coverage.validate(
             submissions,
             manifest=manifest,
