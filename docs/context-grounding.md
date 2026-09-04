@@ -20,8 +20,9 @@ Retrieval uses this fixed priority order:
    by repository files selected through `[context] extra_paths`.
 4. **Review history.** Findings from earlier runs in the same clone are included when
    their path is changed in the current run. The current run is excluded.
-5. **Policy.** The deterministic risk reasons for the changed files are included from
-   the run's policy assessment.
+5. **Policy.** The path-policy reasons for the changed files are included. Reasons derived
+   from the current run's findings are excluded because those findings are review output,
+   not repository knowledge.
 
 Every entry reports its UTF-8 byte size and whether retrieved text was truncated.
 `entry_max_bytes` limits each documentation excerpt and convention file, truncating only
@@ -53,7 +54,8 @@ gitignore-style rules as path policy.
 The review coverage manifest contains the SHA-256 digest of the compact, sorted-key JSON
 grounding block. A submission therefore matches only the diff, Git snapshot, exclusions,
 review units, and grounding that `context` delivered. The current run's own findings are
-excluded from history so submitting findings cannot change that digest mid-review.
+excluded from history and policy grounding, so the grounding block and its digest remain
+stable for the life of a reviewed snapshot.
 
 There is no language model, embedding service, HTTP client, or network access in this
 layer. Selection is deterministic term and path matching over committed Git files and

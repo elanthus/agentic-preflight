@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 from . import gitx
 from . import risk as riskmod
 from .diff import path_matches
-from .models import Finding, RunDoc
+from .models import RunDoc
 
 if TYPE_CHECKING:
     from .runs._session import Session
@@ -236,19 +236,20 @@ def _history_entries(
     return entries
 
 
-def _policy_entries(
-    session: Session, run: RunDoc, changed_files: list[str]
-) -> list[dict[str, Any]]:
-    assessment = run.risk
-    if assessment is None:
-        findings: list[Finding] = session.store.load_findings(run.run_id)
-        assessment = riskmod.assess(
-            changed_files,
-            findings,
-            policy=session.config.policy,
-            review_blocking_severities=session.config.review.blocking_severities,
-            docs_blocking_severities=session.config.docs.blocking_severities,
-        )
+def _policy_entries(session: Session, changed_files: list[str]) -> list[dict[str, Any]]:
+    """Return path-policy reasons that stay fixed for the review snapshot.
+
+    Finding-derived reasons describe the current run's own output, not repository
+    knowledge. Including them would make the grounding digest drift after a submission
+    even though the reviewed snapshot had not changed.
+    """
+    assessment = riskmod.assess(
+        changed_files,
+        [],
+        policy=session.config.policy,
+        review_blocking_severities=session.config.review.blocking_severities,
+        docs_blocking_severities=session.config.docs.blocking_severities,
+    )
     return [
         _entry(
             {
@@ -295,7 +296,7 @@ def assemble(session: Session, run: RunDoc, changed_files: list[str]) -> dict[st
             _convention_entries(repo, tracked, config.extra_paths, config.entry_max_bytes),
         ),
         ("prior_finding", _history_entries(session, run, changed_files)),
-        ("policy", _policy_entries(session, run, changed_files)),
+        ("policy", _policy_entries(session, changed_files)),
     )
     entries, dropped = _apply_total_budget(groups, config.max_bytes)
     return {"enabled": True, "entries": entries, "dropped": dropped}

@@ -8,6 +8,7 @@ import pytest
 
 from agentic_preflight.config import ConfigError, load_config
 from agentic_preflight.errors import ExitCode
+from agentic_preflight.grounding import digest
 from tests.conftest import commit_all, write
 from tests.driver import ScriptedAgent
 
@@ -194,6 +195,50 @@ def test_context_is_byte_stable_and_manifest_is_grounding_bound(grounded_repo):
         first["review_coverage"]["grounding_sha256"]
         == second["review_coverage"]["grounding_sha256"]
     )
+
+
+def test_policy_grounding_stays_stable_after_a_finding_is_accepted(feature_repo, tmp_path):
+    _write_sources(feature_repo)
+    commit_all(feature_repo, "add repository context")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+
+    review = agent.run("context")["data"]
+    submitted = _submit(
+        agent,
+        tmp_path / "blocking-findings.json",
+        [
+            {
+                "path": "src/app.py",
+                "severity": "high",
+                "action": "auto_fix",
+                "title": "Record a blocking review finding",
+                "detail": "The current run's output must not become repository grounding.",
+            }
+        ],
+    )
+    assert submitted["state"] == "REVIEW_BLOCKED"
+    assert any(reason["kind"] == "finding" for reason in submitted["data"]["risk"]["reasons"])
+
+    agent.run(
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        "accepted",
+        "--note",
+        "Accepted to keep the reviewed snapshot unchanged.",
+    )
+    verified = agent.run("verify")
+    assert verified["state"] == "REVIEW_GREEN"
+
+    docs = agent.run("context", "--section", "docs")["data"]
+    review_policy = [entry for entry in review["grounding"]["entries"] if entry["kind"] == "policy"]
+    docs_policy = [entry for entry in docs["grounding"]["entries"] if entry["kind"] == "policy"]
+
+    assert docs_policy == review_policy
+    assert all(entry["reason"]["kind"] != "finding" for entry in docs_policy)
+    assert digest(docs["grounding"]) == review["review_coverage"]["grounding_sha256"]
 
 
 def test_committed_convention_change_invalidates_an_old_manifest(feature_repo, tmp_path):
