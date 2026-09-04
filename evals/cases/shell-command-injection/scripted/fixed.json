@@ -1,0 +1,1 @@
+{"findings":[{"path":"deploy/runner.py","line":6,"severity":"critical","action":"auto_fix","title":"Shell injection remains","detail":"This deliberate dry-run false positive claims the list form is unsafe."}]}

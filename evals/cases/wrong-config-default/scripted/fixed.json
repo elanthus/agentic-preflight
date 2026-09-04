@@ -1,0 +1,1 @@
+{"findings":[{"path":"docs/configuration.md","line":5,"severity":"medium","action":"auto_fix","title":"Configuration default still disagrees","detail":"This deliberate dry-run false positive claims the documented default remains wrong."}]}

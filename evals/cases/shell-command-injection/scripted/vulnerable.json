@@ -1,0 +1,1 @@
+{"findings":[{"path":"deploy/runner.py","line":6,"severity":"critical","action":"auto_fix","title":"Shell injection through branch","detail":"The security boundary passes caller-controlled text to a shell command."}]}

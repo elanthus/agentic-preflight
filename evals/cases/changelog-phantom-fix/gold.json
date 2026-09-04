@@ -1,0 +1,1 @@
+{"mechanism":"The changelog claims duplicate jobs were fixed, but the implementation is unchanged and still appends duplicates.","path":"CHANGELOG.md","lines":[3,3],"category":"documentation_contract","severity":["medium","high"],"fixed_expectation":"absent"}

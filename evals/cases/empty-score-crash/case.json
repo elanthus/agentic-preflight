@@ -1,0 +1,1 @@
+{"id":"empty-score-crash","category":"correctness","title":"Empty reports crash","intent":"Let the toy score report summarize any submitted score list, including an empty list.","snapshots":{"base":"base","vulnerable":"vulnerable","fixed":"fixed"}}

@@ -1,0 +1,5 @@
+extend = "../pyproject.toml"
+
+[lint]
+# These snippets intentionally contain bad tests and vulnerable code for reviewer input.
+ignore = ["F401", "PLR0124", "S101", "S105", "S602"]

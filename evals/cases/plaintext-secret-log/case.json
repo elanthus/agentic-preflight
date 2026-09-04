@@ -1,0 +1,1 @@
+{"id":"plaintext-secret-log","category":"security","title":"Authentication token is logged","intent":"Add toy authentication diagnostics without exposing the supplied credential in logs.","snapshots":{"base":"base","vulnerable":"vulnerable","fixed":"fixed"}}

@@ -1,0 +1,1 @@
+{"findings":[{"path":"docs/configuration.md","line":5,"severity":"medium","action":"auto_fix","title":"Documented default disagrees with code","detail":"The documentation contract says 60 seconds, but WorkerConfig defaults to 30."}]}

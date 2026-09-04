@@ -1,0 +1,1 @@
+{"id":"changelog-phantom-fix","category":"documentation_contract","title":"Changelog claims an absent fix","intent":"Keep the toy queue changelog truthful about whether duplicate jobs are fixed.","snapshots":{"base":"base","vulnerable":"vulnerable","fixed":"fixed"}}

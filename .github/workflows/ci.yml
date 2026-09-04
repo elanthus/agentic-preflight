@@ -103,6 +103,28 @@ jobs:
           print("wheel contents verified")
           PY
 
+  regression-eval-dry:
+    name: public regression eval dry run
+    runs-on: ubuntu-latest
+    continue-on-error: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      - name: Install development environment
+        run: uv sync --group dev
+
+      - name: Run the scripted regression eval
+        run: uv run python evals/run.py --mode dry --out "$RUNNER_TEMP/evals"
+
+      - name: Upload regression eval summary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: regression-eval-dry
+          path: ${{ runner.temp }}/evals/summary.md
+
   publish-coverage-badge:
     name: publish coverage badge
     needs: test

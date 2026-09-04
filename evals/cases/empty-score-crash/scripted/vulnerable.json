@@ -1,0 +1,1 @@
+{"findings":[{"path":"scores/report.py","line":3,"severity":"medium","action":"auto_fix","title":"Empty report crashes","detail":"The correctness requirement includes empty input, but max([]) raises ValueError."}]}

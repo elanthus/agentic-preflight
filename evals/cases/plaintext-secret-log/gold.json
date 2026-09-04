@@ -1,0 +1,1 @@
+{"mechanism":"The diagnostic interpolates the complete authentication token into plaintext logs.","path":"auth/check.py","lines":[3,3],"category":"security","severity":["high","critical"],"fixed_expectation":"absent"}

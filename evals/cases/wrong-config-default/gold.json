@@ -1,0 +1,1 @@
+{"mechanism":"The configuration guide says the timeout defaults to 60 seconds while code still defaults to 30.","path":"docs/configuration.md","lines":[5,5],"category":"documentation_contract","severity":["medium","medium"],"fixed_expectation":"absent"}

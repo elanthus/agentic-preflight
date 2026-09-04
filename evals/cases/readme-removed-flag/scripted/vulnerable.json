@@ -1,0 +1,1 @@
+{"findings":[{"path":"README.md","line":5,"severity":"medium","action":"auto_fix","title":"README documents a missing flag","detail":"The documentation contract promises --json, but the CLI parser does not define it."}]}

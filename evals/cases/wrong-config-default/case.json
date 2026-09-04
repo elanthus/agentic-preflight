@@ -1,0 +1,1 @@
+{"id":"wrong-config-default","category":"documentation_contract","title":"Configuration default is documented incorrectly","intent":"Document the toy worker timeout default exactly as implemented.","snapshots":{"base":"base","vulnerable":"vulnerable","fixed":"fixed"}}

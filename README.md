@@ -54,6 +54,13 @@ on macOS, Linux, and Windows.
 [Independent review and agreement](docs/independent-review.md) shows how to run and measure
 a second command-line reviewer over the same review bundle.
 
+## Regression eval
+
+The [public regression eval](docs/regression-eval.md) is a synthetic smoke corpus that drives
+the real command-review product path across vulnerable and fixed toy snapshots. Its dry mode
+checks deterministic plumbing and scoring; it is not the private decision-quality evaluation,
+and its results are not comparable to that evaluation.
+
 ## Quickstart
 
 From a repository using a supported Python version (currently 3.11 through 3.13) and

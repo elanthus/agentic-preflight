@@ -1,0 +1,1 @@
+{"mechanism":"The README newly promises --json even though the toy CLI exposes no such flag.","path":"README.md","lines":[5,5],"category":"documentation_contract","severity":["medium","high"],"fixed_expectation":"absent"}

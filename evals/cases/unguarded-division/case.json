@@ -1,0 +1,1 @@
+{"id":"unguarded-division","category":"correctness","title":"Division loses its zero guard","intent":"Add a reusable division helper to the toy calculator without changing error behavior.","snapshots":{"base":"base","vulnerable":"vulnerable","fixed":"fixed"}}
