@@ -181,7 +181,32 @@ def test_compare_uses_grounded_context_manifest(feature_repo, tmp_path):
     agent.run("start")
     context = agent.run("context")
     coverage = context["data"]["review_coverage"]
-    submit_review(agent, tmp_path / "clean.json", [])
+    unit = next(item["id"] for item in coverage["units"] if item["path"] == "src/app.py")
+    submitted = submit_review(
+        agent,
+        tmp_path / "finding.json",
+        [
+            {
+                "unit": unit,
+                "path": "src/app.py",
+                "line": 1,
+                "severity": "high",
+                "action": "auto_fix",
+                "title": "Record finding-derived risk",
+            }
+        ],
+    )
+    assert any(reason["kind"] == "finding" for reason in submitted["data"]["risk"]["reasons"])
+    agent.run(
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        "accepted",
+        "--note",
+        "Accepted to keep the reviewed HEAD unchanged.",
+    )
+    agent.run("verify")
     second = tmp_path / "command.json"
     second.write_text(
         json.dumps(

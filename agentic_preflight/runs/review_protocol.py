@@ -40,23 +40,12 @@ def grounded_manifest(
     *,
     grounding: dict[str, Any] | None = None,
 ) -> diffmod.ReviewManifest:
-    """Bind review coverage to the grounding delivered with this diff snapshot.
-
-    Accepted findings update the run's risk assessment.  That must not rewrite
-    the grounding digest already accepted for an unchanged reviewed HEAD.
-    """
+    """Bind review coverage to the grounding delivered with this diff snapshot."""
     worktree_path = _require_worktree(run)
     review_grounding = (
         grounding if grounding is not None else groundingmod.assemble(session, run, bundle.files)
     )
     grounding_sha256 = groundingmod.digest(review_grounding)
-    coverage = run.review_coverage
-    if (
-        coverage is not None
-        and coverage.head_sha == gitx.rev_parse(worktree_path, bundle.head)
-        and coverage.grounding_sha256 is not None
-    ):
-        grounding_sha256 = coverage.grounding_sha256
     return diffmod.build_review_manifest(
         worktree_path,
         bundle,
