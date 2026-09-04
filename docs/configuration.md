@@ -239,6 +239,9 @@ process restarts, and every repair invalidates the prior executor and coverage e
 Attestation schema v4 records `executor` for every review; command reviews also record
 the configured command, exit code, and redacted output digest.
 
+See [Independent review and agreement](independent-review.md) for worked Codex and Claude
+configurations and the two-reviewer comparison report.
+
 ## Deterministic risk policy (`[policy]`)
 
 Risk and review size answer different questions. `[diff] max_bytes` is only the maximum

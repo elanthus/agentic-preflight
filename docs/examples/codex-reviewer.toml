@@ -1,0 +1,58 @@
+# Complete repository configuration using Codex as an independent reviewer.
+# Each `review run` or shadow `review compare` invokes one ephemeral Codex model call,
+# which can consume paid API quota. AP_REVIEWER_MODEL changes the model and its cost.
+[general]
+base_ref = "main"
+
+[commands]
+lint = "ruff check ."
+test = "pytest"
+
+[stage]
+# The wrapper defaults to 600 seconds; leave it time to report its own timeout cleanly.
+timeout_seconds = 660
+max_attempts = 5
+
+[review]
+blocking_severities = ["critical", "high"]
+max_findings = 50
+require_fix_commits = true
+executor = "command"
+command = "python3 -B docs/examples/reviewers/codex_review.py"
+# Alternative: keep executor = "in_harness" and require the paid command only for high risk.
+# require_command_for = ["high"]
+require_command_for = []
+
+[policy]
+human_review_paths = [".agentic-preflight.toml", ".github/workflows/**", "CODEOWNERS"]
+high_risk_paths = ["db/migrations/**", "infra/**"]
+medium_risk_paths = ["dependencies/**"]
+
+[docs]
+enabled = true
+paths = []
+require_changelog = false
+blocking_severities = ["critical", "high"]
+
+[diff]
+max_bytes = 200000
+exclude = ["*.lock", "*-lock.json", "vendor/**", "**/*.min.js"]
+
+[worktree]
+mode = "in_place"
+copy_files = []
+
+[gate]
+mode = "token"
+
+[pr]
+mode = "auto"
+automatedCleanup = true
+
+[approval]
+mode = "manual_merge"
+environment = "high-risk-review"
+
+[hook]
+enabled = true
+allow_force_push = false
