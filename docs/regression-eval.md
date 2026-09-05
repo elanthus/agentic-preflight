@@ -47,8 +47,9 @@ map. The category measure is intentionally heuristic: it can confirm vocabulary,
 the reviewer's reasoning is sound. Severity and category agreement are reported separately
 and never gate execution.
 
-`summary.json` records `method_version: public-smoke-v2` and contains per-case snapshot evidence and aggregate catch, fixed false-positive,
-unresolved, severity-agreement, and category-agreement values for each grounding setting.
+`summary.json` records `method_version: public-smoke-v2` and contains per-case snapshot
+evidence and aggregate catch, fixed false-positive, unresolved, severity-agreement, and
+category-agreement values for each grounding setting.
 `summary.md` presents the same case outcomes and aggregates in one table.
 
 ## Running dry mode
@@ -92,7 +93,7 @@ claimed as provider-blinded evidence: the reviewed workspace could reveal the se
 condition and the other snapshot. Version 2 changes this input boundary without changing
 the location-based scoring rule. Do not relabel old reports as version 2.
 
-The separate [public evaluation implementation](https://github.com/elanthus/preflight-eval-results)
+The separate [public evaluation implementation](https://github.com/elanthus/preflight-eval-results/tree/5f98146bd67f445aecb9d340e067b3609a97620d)
 publishes the decision-quality library, synthetic paired replay, and versioned limitations
 of the historical aggregate results. Its offline replay uses scripted adjudication and makes
 no provider calls. It does not reproduce the private corpus or measure model quality.
