@@ -11,15 +11,20 @@ only when the whole diff qualifies; one unclassified file is enough to require t
 
 ## What counts as documentation
 
-- Markdown, MDX, reStructuredText, and AsciiDoc files
-- The standard documentation surface: `README*`, `docs/**`, agent instructions such as
-  `.claude/rules/**` and `.github/instructions/**`, plus `PRODUCT.md` and `DESIGN.md`
-- Anything listed in `[docs] paths`
+- Markdown (`.md`), reStructuredText (`.rst`), and AsciiDoc (`.adoc`) files
+- Extensionless root `README`, `CONTRIBUTING`, and `CHANGELOG` files
+- Plain `.txt` files on the standard documentation surface or selected by `[docs] paths`
+
+The documentation review surface is broader than this exception. Executable examples,
+MDX components, and unknown file types keep tests mandatory even under `docs/**` or a
+configured `[docs] paths` glob. A name such as `README.sh` is still software.
 
 ## What counts as CI configuration
 
-Common paths for GitHub Actions, CircleCI, GitLab CI, Azure Pipelines, Bitbucket
-Pipelines, Buildkite, Travis CI, AppVeyor, and Jenkins.
+Recognized YAML paths for GitHub Actions, CircleCI, GitLab CI, Azure Pipelines,
+Bitbucket Pipelines, Buildkite, Travis CI, and AppVeyor. Scripts in these directories
+keep tests mandatory. Jenkinsfiles also keep tests mandatory because they contain
+executable pipeline code.
 
 ## Why the skip is recorded rather than silent
 

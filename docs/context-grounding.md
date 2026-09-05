@@ -12,6 +12,9 @@ Retrieval uses this fixed priority order:
 1. **Code owners.** The first available file among `.github/CODEOWNERS`, `CODEOWNERS`,
    and `docs/CODEOWNERS` supplies the owners for each changed path. Later matching rules
    win, as they do in CODEOWNERS.
+   A matching rule without owners clears prior ownership. `docs/*` matches immediate
+   children only; recursive ownership uses `docs/**` or `docs/`. If the first CODEOWNERS
+   file is omitted by a read limit, retrieval does not fall back to a lower-priority file.
 2. **Documentation.** Tracked files under `docs/**`, including architecture decision
    records, are selected when their text contains a whole-token reference to a changed
    path, filename, Python module name, or package-relative module path. Each result
@@ -31,6 +34,18 @@ Every entry reports its UTF-8 byte size and whether retrieved text was truncated
 at a line boundary. `max_bytes` limits the sum of entry byte counts. Once the next entry
 in priority order would exceed that total, it and all later entries are omitted;
 `grounding.dropped` reports omitted counts by kind.
+
+Source reads have separate limits from this output budget. The CLI inventories committed
+blob IDs and sizes with one `git ls-tree` call, then reads selected content with one
+`git cat-file --batch` call. It reads at most 1 MiB per source, 16 MiB in total, and
+1,024 sources, selected in path order. Known binary formats and non-regular Git entries
+are omitted before content reads; NUL-containing content is omitted after reading.
+Oversized sources are omitted whole rather than searched only in part. When sources are
+omitted, `grounding.omitted_sources` reports counts under `binary`, `non_regular`,
+`oversized`, or `read_budget`. These counts are included in the grounding digest.
+
+Each call uses the committed tree, so staged additions are excluded and object IDs keep
+the batched reads on the inventoried snapshot. There is no mutable content cache.
 
 The defaults are:
 

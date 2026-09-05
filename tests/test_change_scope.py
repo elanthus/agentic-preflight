@@ -1,12 +1,14 @@
+import pytest
+
 from agentic_preflight.stages.change_scope import tests_are_not_applicable as not_applicable
 
 
 def test_documentation_only_changes_do_not_need_software_tests():
-    assert not_applicable(["README.md", "docs/guide.mdx"])
+    assert not_applicable(["README.md", "docs/guide.rst"])
 
 
 def test_ci_configuration_only_changes_do_not_need_software_tests():
-    assert not_applicable([".github/workflows/ci.yml", ".circleci/config.yml", "Jenkinsfile"])
+    assert not_applicable([".github/workflows/ci.yml", ".circleci/config.yml"])
 
 
 def test_documentation_and_ci_configuration_may_be_mixed():
@@ -27,3 +29,40 @@ def test_configured_documentation_paths_are_honoured():
 
 def test_an_empty_change_set_is_not_skippable():
     assert not not_applicable([])
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "docs/examples/reviewers/codex_review.py",
+        "docs/demo-fixture.sh",
+        ".buildkite/deploy.py",
+        ".circleci/test_helper.py",
+        ".github/workflows/helper.js",
+        "README.sh",
+        "CONTRIBUTING.py",
+        "docs/unknown.custom",
+        "handbook/custom.xyz",
+        "handbook/app.py",
+        "docs/component.mdx",
+        "Jenkinsfile",
+        "Jenkinsfile.release",
+    ],
+)
+def test_source_and_unknown_files_keep_tests_even_on_documentation_surface(path):
+    assert not not_applicable([path], extra_doc_paths=["**"])
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "README",
+        "CONTRIBUTING",
+        "CHANGELOG",
+        "docs/notes.txt",
+        ".buildkite/pipeline.yaml",
+        ".gitlab/ci/includes/test.yml",
+    ],
+)
+def test_recognized_prose_and_ci_configuration_still_qualify(path):
+    assert not_applicable([path])
