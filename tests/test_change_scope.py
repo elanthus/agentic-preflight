@@ -66,3 +66,11 @@ def test_source_and_unknown_files_keep_tests_even_on_documentation_surface(path)
 )
 def test_recognized_prose_and_ci_configuration_still_qualify(path):
     assert not_applicable([path])
+
+
+@pytest.mark.parametrize(
+    "executable", ["docs/component.mdx", "docs/example.py", "Jenkinsfile", ".circleci/run.sh"]
+)
+def test_one_executable_prevents_skips_in_mixed_documentation_changes(executable):
+    for paths in (["README.md", executable], [executable, ".github/workflows/ci.yml"]):
+        assert not not_applicable(paths, extra_doc_paths=["**"])

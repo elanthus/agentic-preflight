@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 import time
 from pathlib import Path
 
@@ -25,6 +26,7 @@ def test_dry_run_scores_scripted_misses_and_false_positives(tmp_path):
         case_ids=("unguarded-division", "off-by-one-page"),
     )
 
+    assert summary["method_version"] == "public-smoke-v2"
     for setting in ("on", "off"):
         result = summary["grounding"][setting]
         assert result["catch_rate"] == 0.5
@@ -54,22 +56,36 @@ def test_summary_json_is_byte_identical_across_runs(tmp_path):
 def test_build_repo_copies_changed_same_size_file_with_fresh_mtime(tmp_path):
     copied = tmp_path / "wrong-config-default"
     shutil.copytree(CASES / "wrong-config-default", copied)
+    # Build a same-size transition in the two-commit base -> selected layout.
+    # The production case's base file has a different size from both review trees.
+    relative = Path("docs/configuration.md")
+    base_file = copied / "base" / relative
+    fixed_file = copied / "fixed" / relative
+    base_file.write_bytes((copied / "vulnerable" / relative).read_bytes())
+    assert base_file.read_bytes() != fixed_file.read_bytes()
+    assert base_file.stat().st_size == fixed_file.stat().st_size
     old_timestamp = 1_000_000_000
-    for snapshot in ("vulnerable", "fixed"):
-        for path in (copied / snapshot).rglob("*"):
-            if path.is_file():
-                os.utime(path, (old_timestamp, old_timestamp))
+    for path in (base_file, fixed_file):
+        os.utime(path, (old_timestamp, old_timestamp))
+    assert base_file.stat().st_mtime_ns == fixed_file.stat().st_mtime_ns
     case = eval_run.load_case(copied)
     repository = tmp_path / "repo"
 
     copy_started = time.time()
-    commits, env = eval_run._build_repo(case, repository, mode="dry", executor=None, grounding="on")
+    commits, env = eval_run._build_repo(
+        case, repository, snapshot="fixed", mode="dry", executor=None, grounding="on"
+    )
 
-    assert len(set(commits.values())) == 3
+    assert len(set(commits.values())) == 2
     fixed_files = eval_run._git(
         repository, env, "show", "--name-only", "--format=", commits["fixed"]
     ).splitlines()
     assert "docs/configuration.md" in fixed_files
+    for snapshot, source in (("base", base_file), ("fixed", fixed_file)):
+        assert (
+            eval_run._git(repository, env, "show", f"{commits[snapshot]}:docs/configuration.md")
+            == source.read_text(encoding="utf-8").strip()
+        )
     assert (repository / "docs" / "configuration.md").stat().st_mtime >= copy_started
 
 
@@ -197,3 +213,80 @@ def test_eval_case_is_well_formed(case_dir):
             (case_dir / "scripted" / f"{snapshot}.json").read_text(encoding="utf-8")
         )
         eval_run.validate_script(script)
+
+
+@pytest.mark.parametrize("snapshot", ["vulnerable", "fixed"])
+@pytest.mark.parametrize("case_dir", tuple(eval_run.discover_cases()), ids=lambda path: path.name)
+def test_reviewer_git_history_contains_only_selected_snapshot(tmp_path, snapshot, case_dir):
+    case = eval_run.load_case(case_dir)
+    repo = tmp_path / "review"
+    commits, env = eval_run._build_repo(
+        case, repo, snapshot=snapshot, mode="dry", executor=None, grounding="on"
+    )
+    assert set(commits) == {"base", snapshot}
+    assert eval_run._git(repo, env, "rev-list", "--all", "--count") == "2"
+    history = eval_run._git(repo, env, "log", "--all", "--format=%s")
+    refs = eval_run._git(repo, env, "for-each-ref", "--format=%(refname)")
+    assert set(history.splitlines()) == {"Proposed change", "Initial snapshot"}
+    for token in (case.id, "vulnerable", "fixed"):
+        assert token not in history + refs
+
+    # Hash every source file; identical content shared with an allowed tree is safe.
+    def snapshot_oids(name):
+        return {
+            eval_run._git(repo, env, "hash-object", str(path))
+            for path in (case.directory / name).rglob("*")
+            if path.is_file()
+        }
+
+    other = "fixed" if snapshot == "vulnerable" else "vulnerable"
+    allowed_oids = snapshot_oids("base") | snapshot_oids(snapshot)
+    unselected_only_oids = snapshot_oids(other) - allowed_oids
+    assert unselected_only_oids, "case must exercise exclusion of distinct snapshot content"
+    # Include unreachable objects, not just blobs reachable from the two commits.
+    objects = eval_run._git(repo, env, "cat-file", "--batch-all-objects", "--batch-check")
+    object_oids = {line.split()[0] for line in objects.splitlines()}
+    assert unselected_only_oids.isdisjoint(object_oids)
+
+
+@pytest.mark.parametrize("executor", ["codex", "claude"])
+@pytest.mark.parametrize("snapshot", ["vulnerable", "fixed"])
+def test_actual_provider_stdin_excludes_scorer_identity(tmp_path, monkeypatch, executor, snapshot):
+    # The fake provider captures bytes after the real CLI and worked wrapper.
+    # It is a subprocess boundary test; no model or network is involved.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "provider-input.txt"
+    provider = bin_dir / executor
+    provider.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, pathlib, sys\n"
+        "assert 'AP_EVAL_SCRIPT' not in os.environ\n"
+        "pathlib.Path(os.environ['CAPTURE_INPUT']).write_text(sys.stdin.read())\n"
+        "print(json.dumps({'findings': []}))\n",
+        encoding="utf-8",
+    )
+    provider.chmod(0o755)
+    if sys.platform == "win32":
+        shim = provider.with_suffix(".cmd")
+        shim.write_text(f'@"{sys.executable}" "{provider}" %*\n', encoding="utf-8")
+        provider = shim
+    monkeypatch.setenv(f"AP_{executor.upper()}_BIN", str(provider))
+    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("CAPTURE_INPUT", str(capture))
+    monkeypatch.setenv("AP_EVAL_SCRIPT", "must-not-be-inherited/fixed.json")
+    case = eval_run.load_case(CASES / "unguarded-division")
+    result = eval_run.run_case_snapshot(
+        case,
+        snapshot=snapshot,
+        mode="real",
+        executor=executor,
+        grounding="on",
+        workspace=tmp_path / "workspace",
+    )
+    assert result["status"] == "resolved"
+    sent = capture.read_text()
+    assert "Review this change independently" in sent
+    for token in (case.id, "gold.json", '"snapshot"', '"case_id"'):
+        assert token not in sent
+    assert json.dumps(case.gold, sort_keys=True) not in sent

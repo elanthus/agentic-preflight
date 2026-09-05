@@ -53,3 +53,58 @@ def test_omitted_first_codeowners_file_does_not_fall_back_to_another():
         )
         == []
     )
+
+
+def test_documented_github_rule_precedence_and_email_owners():
+    """Conformance to GitHub's CODEOWNERS examples, including empty overrides."""
+    rules = "\n".join(
+        [
+            "* @fallback",
+            "*.js @javascript # trailing comment",
+            "*.go owners@example.invalid",
+            "/apps/ @apps",
+            "/apps/github",
+            "/apps/github/special.py @special @second",
+            "docs/* @docs",
+            "**/logs @logs",
+            "[ab].js @unsupported",
+            "!app.js @unsupported",
+        ]
+    )
+    paths = [
+        "app.js",
+        "nested/app.js",
+        "a.js",
+        "APP.JS",
+        "src/a.go",
+        "apps/service/app.py",
+        "apps/github/main.py",
+        "apps/github/special.py",
+        "docs/guide.md",
+        "docs/nested/guide.md",
+        "nested/logs/event.txt",
+        "other/apps/app.py",
+    ]
+    entries = _codeowners_entries({"CODEOWNERS": rules}, paths, {"CODEOWNERS"})
+    owners = {entry["path"]: entry["owners"] for entry in entries}
+    assert owners == {
+        "app.js": ["@javascript"],
+        "nested/app.js": ["@javascript"],
+        "a.js": ["@javascript"],
+        "APP.JS": ["@fallback"],
+        "src/a.go": ["owners@example.invalid"],
+        "apps/service/app.py": ["@apps"],
+        "apps/github/main.py": [],
+        "apps/github/special.py": ["@special", "@second"],
+        "docs/guide.md": ["@docs"],
+        "docs/nested/guide.md": ["@fallback"],
+        "nested/logs/event.txt": ["@logs"],
+        "other/apps/app.py": ["@fallback"],
+    }
+
+
+def test_first_codeowners_location_wins_even_when_empty():
+    texts = {".github/CODEOWNERS": "", "CODEOWNERS": "* @root", "docs/CODEOWNERS": "* @docs"}
+    assert _codeowners_entries(texts, ["app.py"], set(texts)) == []
+    del texts[".github/CODEOWNERS"]
+    assert _codeowners_entries(texts, ["app.py"], set(texts))[0]["owners"] == ["@root"]
