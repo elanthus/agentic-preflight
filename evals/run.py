@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -224,8 +225,16 @@ def _commit(repo: Path, env: dict[str, str], message: str) -> str:
 
 
 def _build_repo(
-    case: EvalCase, destination: Path, *, mode: str, executor: str | None, grounding: str
+    case: EvalCase,
+    destination: Path,
+    *,
+    snapshot: str,
+    mode: str,
+    executor: str | None,
+    grounding: str,
 ) -> tuple[dict[str, str], dict[str, str]]:
+    if snapshot not in {"vulnerable", "fixed"}:
+        raise EvaluationError("only vulnerable and fixed snapshots are reviewed")
     destination.mkdir(parents=True)
     env = {**os.environ, **DETERMINISTIC_GIT_ENV}
     _git(destination, env, "init", "-q", "--initial-branch", "main")
@@ -233,13 +242,12 @@ def _build_repo(
     (destination / ".agentic-preflight.toml").write_text(
         _config_text(mode=mode, executor=executor, grounding=grounding), encoding="utf-8"
     )
-    base = _commit(destination, env, f"Create {case.id} base")
-    _git(destination, env, "switch", "-q", "-c", f"feature/{case.id}")
-    _copy_snapshot(case.directory / "vulnerable", destination)
-    vulnerable = _commit(destination, env, f"Introduce {case.id} regression")
-    _copy_snapshot(case.directory / "fixed", destination)
-    fixed = _commit(destination, env, f"Fix {case.id} regression")
-    return {"base": base, "vulnerable": vulnerable, "fixed": fixed}, env
+    base = _commit(destination, env, "Initial snapshot")
+    _git(destination, env, "switch", "-q", "-c", "review/change")
+    # Never put the unselected snapshot in refs, reflogs, or the object database.
+    _copy_snapshot(case.directory / snapshot, destination)
+    selected = _commit(destination, env, "Proposed change")
+    return {"base": base, snapshot: selected}, env
 
 
 def _cli(repo: Path, env: dict[str, str], *argv: str) -> tuple[dict[str, Any], int]:
@@ -264,6 +272,10 @@ def _require_cli_ok(command: str, payload: dict[str, Any], code: int) -> None:
 def _assert_bundle_is_clean(case: EvalCase, context: dict[str, Any]) -> None:
     data = context.get("data", {})
     serialized = json.dumps(data, sort_keys=True, separators=(",", ":"))
+    if case.id in serialized:
+        raise LeakageError("review bundle contains the case identity")
+    if any(key in data for key in ("case_id", "snapshot", "gold", "expected_findings")):
+        raise LeakageError("review bundle contains scorer-only metadata")
     if "gold.json" in serialized:
         raise LeakageError("review bundle contains gold.json text")
     serialized_gold = json.dumps(case.gold, sort_keys=True, separators=(",", ":"))
@@ -332,16 +344,18 @@ def run_case_snapshot(
 ) -> dict[str, Any]:
     if snapshot not in {"vulnerable", "fixed"}:
         raise EvaluationError("only vulnerable and fixed snapshots are reviewed")
-    repo = workspace / f"{case.id}-{snapshot}-{grounding}"
-    shas, env = _build_repo(case, repo, mode=mode, executor=executor, grounding=grounding)
-    if snapshot == "vulnerable":
-        _git(repo, env, "switch", "-q", "-c", f"feature/{case.id}-vulnerable", shas[snapshot])
+    repo = workspace / f"review-{uuid.uuid4().hex}"
+    shas, env = _build_repo(
+        case, repo, snapshot=snapshot, mode=mode, executor=executor, grounding=grounding
+    )
     env["AP_EVAL_EXECUTOR"] = str(
         ROOT / "evals" / "scripted_executor.py"
         if mode == "dry"
         else EXAMPLES_ROOT / "reviewers" / f"{executor}_review.py"
     )
-    env["AP_EVAL_SCRIPT"] = str(case.directory / "scripted" / f"{snapshot}.json")
+    env.pop("AP_EVAL_SCRIPT", None)
+    if mode == "dry":
+        env["AP_EVAL_SCRIPT"] = str(case.directory / "scripted" / f"{snapshot}.json")
 
     init, code = _cli(repo, env, "init", "--no-hook")
     _require_cli_ok("init --no-hook", init, code)
@@ -527,6 +541,7 @@ def run_evaluation(
         for key in ("catch", "fixed_false_positive", "severity_agreement", "category_agreement")
     }
     summary = {
+        "method_version": "public-smoke-v2",
         "mode": mode,
         "executor": effective_executor,
         "cases": list(selected_ids),

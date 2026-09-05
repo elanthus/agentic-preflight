@@ -47,6 +47,13 @@ omitted, `grounding.omitted_sources` reports counts under `binary`, `non_regular
 Each call uses the committed tree, so staged additions are excluded and object IDs keep
 the batched reads on the inventoried snapshot. There is no mutable content cache.
 
+CODEOWNERS matching is covered by regression cases derived from
+[GitHub’s documented examples](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners),
+including file precedence, anchored paths, directory wildcards, multiple owners, and ownerless
+overrides. Unsupported negation and character-class rules are ignored. This local grounding
+uses the reviewed HEAD, whereas GitHub selects review owners from the PR base branch. It
+does not validate accounts or their repository access and does not enforce branch protection.
+
 The defaults are:
 
 ```toml

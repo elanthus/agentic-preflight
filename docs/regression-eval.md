@@ -13,15 +13,21 @@ evaluation.
 
 The corpus contains 12 plainly fictional toy projects: three each for correctness, security,
 evaluation integrity, and documentation contract failures. Every case has three complete
-trees. The runner commits the base tree on `main`, commits the vulnerable tree on a feature
-branch, and commits the fixed tree after it. Fixed snapshots are false-positive controls.
+trees. Method `public-smoke-v2` builds a separate repository for each reviewed snapshot: the
+base tree on `main`, followed by only the selected tree on `review/change`. Commit subjects
+are `Initial snapshot` and `Proposed change`; the repository directory uses a random opaque
+identifier. The unselected snapshot is never written to refs, reflogs, or the object database.
+Fixed snapshots are false-positive controls.
 
 Each scorer-only `gold.json` names one mechanism, vulnerable path and line range, category,
 severity range, and the expectation that the finding is absent after the fix. Gold is never
 copied into a fixture repository. Before review, the runner also rejects any snapshot that
 contains `gold.json`, asserts that the serialized context bundle contains neither that name
-nor the serialized gold record, and asserts that the delivered intent exactly equals the
-case intent.
+nor the serialized gold record or case ID, rejects top-level scorer labels, and asserts that
+the delivered intent exactly equals the case intent. Regression tests capture actual provider
+stdin through both worked wrappers for both snapshots, and inspect all Git objects for the
+unselected snapshot. Real mode removes inherited `AP_EVAL_SCRIPT` from the subprocess
+environment; only dry mode receives the scripted answer path.
 
 Dry mode uses canned findings, but still creates real Git repositories and invokes the real
 CLI in subprocesses for `init --no-hook`, `start --intent`, `context`, and `review run`.
@@ -41,7 +47,7 @@ map. The category measure is intentionally heuristic: it can confirm vocabulary,
 the reviewer's reasoning is sound. Severity and category agreement are reported separately
 and never gate execution.
 
-`summary.json` contains per-case snapshot evidence and aggregate catch, fixed false-positive,
+`summary.json` records `method_version: public-smoke-v2` and contains per-case snapshot evidence and aggregate catch, fixed false-positive,
 unresolved, severity-agreement, and category-agreement values for each grounding setting.
 `summary.md` presents the same case outcomes and aggregates in one table.
 
@@ -77,3 +83,16 @@ the breadth, ambiguity, or base rates of production changes. Scripted dry mode p
 product plumbing and scoring math, not reviewer judgment. Real mode adds reviewer behavior but
 costs model calls and remains sensitive to model and tool versions. Neither mode measures the
 private evaluation, and its rates must not be compared with private decision-quality results.
+
+## Method versions and evidence
+
+`public-smoke-v1` (reports without `method_version`) created base, vulnerable, and fixed
+commits in one repository and exposed case labels in Git metadata. Those runs cannot be
+claimed as provider-blinded evidence: the reviewed workspace could reveal the selected
+condition and the other snapshot. Version 2 changes this input boundary without changing
+the location-based scoring rule. Do not relabel old reports as version 2.
+
+The separate [public evaluation implementation](https://github.com/elanthus/preflight-eval-results)
+publishes the decision-quality library, synthetic paired replay, and versioned limitations
+of the historical aggregate results. Its offline replay uses scripted adjudication and makes
+no provider calls. It does not reproduce the private corpus or measure model quality.

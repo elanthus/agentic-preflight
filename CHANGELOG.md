@@ -7,6 +7,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- Public smoke evaluation method v2 isolates each selected snapshot in a neutral Git
+  repository, rejects case IDs in reviewer context, and excludes inherited scripted
+  answers from real provider processes. Provider-stdin and Git-object regression tests
+  cover both reviewer wrappers and snapshots.
+- Mixed documentation/executable skip tests and GitHub-example CODEOWNERS conformance
+  tests protect the conservative classification and ownership fixes below.
+
 - Executable examples, MDX components, Jenkinsfiles, and unknown file types no longer
   inherit automatic test skips from documentation or CI directory globs.
 - CODEOWNERS grounding honors ownerless overrides and directory-aware matching.

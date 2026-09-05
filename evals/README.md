@@ -1,7 +1,9 @@
 # Public regression eval
 
 This directory is a synthetic smoke corpus for the real Agentic Preflight product path.
-Each tiny, plainly fictional project has base, vulnerable, and fixed snapshots. The runner
+Method `public-smoke-v2` gives each reviewed snapshot an isolated two-commit Git repository
+with neutral metadata. Each tiny, plainly fictional project has base, vulnerable, and fixed
+snapshots. The runner
 creates real Git repositories and drives `init`, `start`, `context`, and command review
 through `python -m agentic_preflight`.
 
