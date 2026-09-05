@@ -116,11 +116,14 @@ def review_relevant_config(snapshot: dict[str, Any]) -> dict[str, Any]:
     ``general.base_ref`` selects the trust boundary being merged into,
     ``review`` governs the executor and blocking policy, ``policy`` governs
     risk-derived executor escalation, ``context`` governs grounding delivery,
-    and ``diff`` governs which files and hunks are in scope at all.
+    ``diff`` governs which files and hunks are in scope at all, and ``stage``
+    governs the command executor's timeout and retry bound
+    (``review_executor.py``, ``review_retry.py``) — an execution dependency
+    even though an in-harness review never reads it.
     """
     return {
         section: snapshot.get(section)
-        for section in ("general", "review", "policy", "context", "diff")
+        for section in ("general", "review", "policy", "context", "diff", "stage")
     }
 
 
@@ -181,12 +184,12 @@ def compute_docs_fingerprint(
     )
 
 
-def classify_review(
-    old: ReviewFingerprint | None, new: ReviewFingerprint
-) -> Classification:
+def classify_review(old: ReviewFingerprint | None, new: ReviewFingerprint) -> Classification:
     """Classify whether a prior green review remains applicable to ``new``."""
     if old is None:
-        return Classification(disposition=Disposition.UNKNOWN, reasons=(ReasonCode.FINGERPRINT_MISSING,))
+        return Classification(
+            disposition=Disposition.UNKNOWN, reasons=(ReasonCode.FINGERPRINT_MISSING,)
+        )
     if old.version != new.version:
         return Classification(
             disposition=Disposition.UNKNOWN,
@@ -217,7 +220,9 @@ def classify_review(
 def classify_docs(old: DocsFingerprint | None, new: DocsFingerprint) -> Classification:
     """Classify whether a prior green docs stage remains applicable to ``new``."""
     if old is None:
-        return Classification(disposition=Disposition.UNKNOWN, reasons=(ReasonCode.FINGERPRINT_MISSING,))
+        return Classification(
+            disposition=Disposition.UNKNOWN, reasons=(ReasonCode.FINGERPRINT_MISSING,)
+        )
     if old.version != new.version:
         return Classification(
             disposition=Disposition.UNKNOWN,

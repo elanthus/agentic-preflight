@@ -63,7 +63,7 @@ Every classification produces one `Disposition`:
 | `grounding_sha256` | `ReviewManifest.grounding_sha256` | CODEOWNERS, docs, conventions, and prior-finding context delivered with the diff (issue #80). |
 | `intent_sha256` | `attestation.intent_digest(run.intent)` | The objective the review was scoped against. |
 | `executor` | resolved `in_harness` / `command` | A policy-escalated command review is not equivalent to an in-harness one. |
-| `config_sha256` | `config_digest(review_relevant_config(snapshot))` | Only the `[general]`, `[review]`, `[policy]`, `[context]`, and `[diff]` sections — see below. |
+| `config_sha256` | `config_digest(review_relevant_config(snapshot))` | Only the `[general]`, `[review]`, `[policy]`, `[context]`, `[diff]`, and `[stage]` sections — see below. |
 
 ### Docs (`DocsFingerprint`)
 
@@ -84,6 +84,18 @@ change must not discard review or docs evidence that never read it. An
 undeclared configuration dependency is a bug in the relevant-config function, not
 something this contract can detect — the scope is deliberately narrow and
 enumerated rather than inferred.
+
+`[stage]` is declared relevant to review, not because review reads it directly,
+but because the command executor does: `review_executor.py` runs the configured
+review command under `[stage] timeout_seconds`, and `review_retry.py` bounds its
+retries with `[stage] max_attempts`. A shorter timeout or a smaller retry bound
+can change whether the same command still produces the same green result, so
+this is an execution dependency of the *executor*, not an unrelated section —
+even though an in-harness review never reads `[stage]` at all. Scoping stays
+conservative here: including `[stage]` unconditionally (rather than only when
+`executor == "command"`) means an in-harness review's fingerprint moves on a
+`[stage]` change too, which is over-invalidation, not under-invalidation — the
+safe direction when a dependency is real for only one of the two executors.
 
 Shell stages (lint, test) are out of scope for this slice. Their input contract
 must additionally declare which command/dependency/toolchain/environment/copied

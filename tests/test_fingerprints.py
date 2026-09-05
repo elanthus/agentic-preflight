@@ -127,9 +127,7 @@ def test_classify_review_invalidates_on_each_changed_input(field, value, reason)
 
 def test_classify_review_reports_every_changed_input_at_once():
     old = fp.ReviewFingerprint(**_review_kwargs())
-    new = fp.ReviewFingerprint(
-        **_review_kwargs(base_tree_sha="9" * 40, intent_sha256="9" * 64)
-    )
+    new = fp.ReviewFingerprint(**_review_kwargs(base_tree_sha="9" * 40, intent_sha256="9" * 64))
     result = fp.classify_review(old, new)
     assert result.disposition == fp.Disposition.INVALID
     assert set(result.reasons) == {
@@ -195,19 +193,59 @@ def test_docs_relevant_config_excludes_unrelated_sections():
     assert scoped["docs"] == {"enabled": True}
 
 
-def test_a_test_command_change_does_not_move_the_review_config_fingerprint(
-    feature_repo, tmp_path
-):
+def test_a_test_command_change_does_not_move_the_review_config_fingerprint(feature_repo, tmp_path):
     """Requirement 1: a `[commands] test` change must not discard review evidence."""
     _configure(feature_repo, "[commands]\nlint = 'true'\ntest = 'true'\n")
     base = git("rev-parse", "main", cwd=feature_repo)
     head = git("rev-parse", "HEAD", cwd=feature_repo)
     before = _review_fingerprint(feature_repo, tmp_path, base, head)
 
-    write(feature_repo, ".agentic-preflight.toml", "[commands]\nlint = 'true'\ntest = 'echo changed'\n")
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[commands]\nlint = 'true'\ntest = 'echo changed'\n",
+    )
     new_head = commit_all(feature_repo, "change the test command only")
 
     after = _review_fingerprint(feature_repo, tmp_path, base, new_head)
+    assert after.config_sha256 == before.config_sha256
+
+
+def test_a_stage_timeout_change_moves_the_review_config_fingerprint(feature_repo, tmp_path):
+    """The command executor's timeout and retry bound live in `[stage]`
+    (`review_executor.py`, `review_retry.py`), so a change there is a real
+    execution dependency of a command review, not an unrelated section."""
+    _configure(feature_repo, "[commands]\nlint = 'true'\ntest = 'true'\n")
+    base = git("rev-parse", "main", cwd=feature_repo)
+    head = git("rev-parse", "HEAD", cwd=feature_repo)
+    before = _review_fingerprint(feature_repo, tmp_path, base, head)
+
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[commands]\nlint = 'true'\ntest = 'true'\n\n[stage]\ntimeout_seconds = 30\n",
+    )
+    new_head = commit_all(feature_repo, "lower the stage timeout")
+
+    after = _review_fingerprint(feature_repo, tmp_path, base, new_head)
+    assert after.config_sha256 != before.config_sha256
+
+
+def test_stage_settings_do_not_affect_the_docs_config_fingerprint(feature_repo, tmp_path):
+    """Docs has no shell command of its own, so `[stage]` is not one of its inputs."""
+    _configure(feature_repo, "[commands]\nlint = 'true'\ntest = 'true'\n")
+    base = git("rev-parse", "main", cwd=feature_repo)
+    head = git("rev-parse", "HEAD", cwd=feature_repo)
+    before = _docs_fingerprint(feature_repo, tmp_path, base, head)
+
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[commands]\nlint = 'true'\ntest = 'true'\n\n[stage]\ntimeout_seconds = 30\n",
+    )
+    new_head = commit_all(feature_repo, "lower the stage timeout")
+
+    after = _docs_fingerprint(feature_repo, tmp_path, base, new_head)
     assert after.config_sha256 == before.config_sha256
 
 
@@ -215,7 +253,9 @@ def test_a_test_command_change_does_not_move_the_review_config_fingerprint(
 
 
 def test_a_history_only_rebase_leaves_the_review_fingerprint_reusable(feature_repo, tmp_path):
-    _configure(feature_repo, "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n")
+    _configure(
+        feature_repo, "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+    )
     base = git("rev-parse", "main", cwd=feature_repo)
     head = git("rev-parse", "HEAD", cwd=feature_repo)
     old = _review_fingerprint(feature_repo, tmp_path, base, head)
@@ -249,7 +289,9 @@ def test_a_history_only_rebase_leaves_the_docs_fingerprint_reusable(feature_repo
 def test_an_upstream_content_change_invalidates_review_even_with_the_same_patch(
     feature_repo, tmp_path
 ):
-    _configure(feature_repo, "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n")
+    _configure(
+        feature_repo, "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+    )
     base = git("rev-parse", "main", cwd=feature_repo)
     head = git("rev-parse", "HEAD", cwd=feature_repo)
     old = _review_fingerprint(feature_repo, tmp_path, base, head)
