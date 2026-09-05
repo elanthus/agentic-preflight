@@ -28,7 +28,12 @@ def _pattern_regex(pattern: str) -> re.Pattern[str] | None:
             pieces.append("/")
     # A matched directory owns its descendants, except the explicit `dir/*`
     # form, which GitHub documents as matching only immediate children.
-    suffix = "$" if segments[-1] == "*" and len(segments) > 1 and not directory else r"(?:/|$)"
+    if directory:
+        suffix = r"/"
+    elif segments[-1] == "*" and len(segments) > 1:
+        suffix = "$"
+    else:
+        suffix = r"(?:/|$)"
     return re.compile(prefix + "".join(pieces) + suffix)
 
 

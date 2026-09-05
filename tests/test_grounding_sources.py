@@ -1,7 +1,18 @@
+from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from agentic_preflight import gitx, grounding_sources
-from tests.conftest import commit_all, git, write
+from tests.conftest import commit_all, git
+
+
+def write(repo: Path, relpath: str, content: str) -> None:
+    # These tests assert committed blob bytes, so disable platform newline
+    # translation when creating the fixtures (including explicit CRLF inputs).
+    path = repo / relpath
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8", newline="")
 
 
 def test_hundreds_of_documents_use_two_processes_and_preserve_exact_text(tmp_repo):
@@ -35,14 +46,15 @@ def test_source_limits_are_applied_before_content_read(tmp_repo, monkeypatch):
     assert len(paths) == 5
 
 
-def test_snapshot_uses_committed_blobs(tmp_repo):
-    write(tmp_repo, "docs/a.md", "committed\n")
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+def test_snapshot_uses_committed_blobs(tmp_repo, newline):
+    write(tmp_repo, "docs/a.md", f"committed{newline}")
     commit_all(tmp_repo, "committed source")
     write(tmp_repo, "docs/a.md", "staged\n")
     write(tmp_repo, "docs/new.md", "not committed\n")
     git("add", ".", cwd=tmp_repo)
     texts, omitted, _ = grounding_sources.load(tmp_repo, lambda p: p.startswith("docs/"))
-    assert texts == {"docs/a.md": "committed\n"}
+    assert texts == {"docs/a.md": f"committed{newline}"}
     assert omitted == {}
 
 
