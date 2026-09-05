@@ -231,8 +231,10 @@ def verify_evidence(repo: Path | str, value: Attestation) -> None:
         severities = (
             cfg.docs.blocking_severities if stage is Stage.DOCS else cfg.review.blocking_severities
         )
-        if findings.blocking(item.origin.findings, blocking_severities=severities):
-            raise ValueError("reused evidence contains unresolved blocking findings")
+        if findings.blocking(
+            item.origin.findings, blocking_severities=severities
+        ) or findings.actionable(item.origin.findings):
+            raise ValueError("reused evidence contains unresolved blocking or actionable findings")
         for finding in item.origin.findings:
             all_findings.append(finding)
             for key in (finding.status.value, finding.severity.value):

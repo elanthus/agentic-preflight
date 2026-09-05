@@ -394,3 +394,44 @@ def test_three_branch_stack_refreshes_downstream_after_first_merge(
         assert attestation.verify(feature_repo, "HEAD").schema_version == 5
         agent.run("abort", "--force")
     assert len(calls) == 4
+
+
+@pytest.mark.parametrize(
+    ("action", "severity"), [("auto_fix", "low"), ("ask_user", "low"), ("no_op", "high")]
+)
+def test_verifier_preserves_unresolved_finding_requirements(
+    feature_repo, tmp_path, action, severity
+):
+    from agentic_preflight.digests import json_digest
+    from agentic_preflight.models import Finding
+
+    _prepare(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    _finish(agent, tmp_path)
+    value = attestation.verify(feature_repo, "HEAD")
+    payload = json.loads(attestation.encode(value))
+    origin = payload["evidence"]["docs"]["origin"]
+    finding = Finding(
+        id="F001",
+        stage=Stage.DOCS,
+        path="README.md",
+        action=action,
+        severity=severity,
+        title="Outstanding documentation decision",
+    )
+    origin["findings"] = [finding.model_dump(mode="json")]
+    payload["evidence"]["docs"]["origin_sha256"] = json_digest(origin)
+    payload["findings_summary"] = {"open": 1, severity: 1}
+    git(
+        "notes",
+        "--ref=agentic-preflight",
+        "add",
+        "-f",
+        "-m",
+        json.dumps(payload),
+        "HEAD",
+        cwd=feature_repo,
+    )
+    with pytest.raises(attestation.InvalidAttestation, match="unresolved"):
+        attestation.verify(feature_repo, "HEAD")
