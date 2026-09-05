@@ -5,6 +5,14 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Fixed
+
+- Executable examples, MDX components, Jenkinsfiles, and unknown file types no longer
+  inherit automatic test skips from documentation or CI directory globs.
+- CODEOWNERS grounding honors ownerless overrides and directory-aware matching.
+- Grounding batches committed source reads and limits per-source size, total bytes,
+  and source count. Omitted sources are reported in snapshot-bound context metadata.
+
 ## [0.5.2.1] - 2026-09-02
 
 ### Changed

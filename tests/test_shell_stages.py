@@ -206,6 +206,24 @@ def test_source_changes_still_require_software_tests(feature_repo, tmp_path):
     assert env["next"]["command"] == "agentic-preflight context --section docs"
 
 
+@pytest.mark.parametrize("path", ["docs/examples/reviewer.py", ".buildkite/deploy.py"])
+def test_executable_in_documentation_or_ci_directory_cannot_skip_tests(tmp_repo, tmp_path, path):
+    from tests.conftest import git
+
+    git("switch", "-c", "feature/helper", cwd=tmp_repo)
+    write(tmp_repo, path, "raise RuntimeError('broken helper')\n")
+    commit_all(tmp_repo, "add executable helper")
+    agent = ScriptedAgent(tmp_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("context", "--section", "docs")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    result = agent.run("stage", "run", "lint", "--command", "true", "--record")
+    assert result["state"] == "LINT_GREEN"
+    assert result["next"]["command"] == "agentic-preflight stage run test"
+
+
 def test_lint_runs_once_docs_are_green_and_points_to_tests(docs_green):
     agent = docs_green()
     env = agent.run("stage", "run", "lint", "--command", "true", "--record")

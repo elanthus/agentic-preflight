@@ -85,6 +85,42 @@ def out(cwd: Path | str, *args: str) -> str:
     return run(cwd, *args).stdout.strip()
 
 
+def read_blobs(cwd: Path | str, object_ids: Sequence[str]) -> list[bytes]:
+    """Read size-vetted immutable blobs in one process, preserving their raw bytes."""
+    if not object_ids:
+        return []
+    if any(re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", oid) is None for oid in object_ids):
+        raise ValueError("blob identities must be full Git object IDs")
+    result = subprocess.run(
+        [_git_executable(), "cat-file", "--batch"],
+        cwd=str(cwd),
+        input=("\n".join(object_ids) + "\n").encode("ascii"),
+        capture_output=True,
+    )
+    if result.returncode:
+        raise GitError(
+            ["cat-file", "--batch"],
+            result.returncode,
+            result.stderr.decode("utf-8", errors=_DECODE_ERRORS),
+        )
+    blobs = []
+    offset = 0
+    for oid in object_ids:
+        end = result.stdout.index(b"\n", offset)
+        actual_oid, kind, size = result.stdout[offset:end].split()
+        if actual_oid.decode("ascii") != oid or kind != b"blob":
+            raise ValueError("Git returned an unexpected blob identity or type")
+        offset = end + 1
+        end = offset + int(size)
+        if result.stdout[end : end + 1] != b"\n":
+            raise ValueError("Git returned an incomplete blob")
+        blobs.append(result.stdout[offset:end])
+        offset = end + 1
+    if offset != len(result.stdout):
+        raise ValueError("Git returned unexpected trailing blob data")
+    return blobs
+
+
 def _lines(text: str) -> list[str]:
     return [line for line in text.splitlines() if line.strip()]
 

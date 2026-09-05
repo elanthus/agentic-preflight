@@ -14,7 +14,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import gitx
+from . import codeowners, grounding_sources
 from . import risk as riskmod
 from .diff import path_matches
 from .models import RunDoc
@@ -37,25 +37,6 @@ def _entry(value: dict[str, Any], *, truncated: bool = False) -> dict[str, Any]:
     return completed
 
 
-def _tracked_files(repo: Path | str) -> list[str]:
-    output = gitx.run(repo, "ls-files", "-z").stdout
-    return sorted(path for path in output.split("\0") if path)
-
-
-def _blob_text(repo: Path | str, path: str) -> str | None:
-    """Read a tracked path's committed content, or ``None`` if it has none.
-
-    ``_tracked_files`` lists the index, which can include a path staged but not
-    yet committed. Reading such a path from ``HEAD`` raises rather than
-    returning empty text, so callers must treat that as "skip this source",
-    not as a reason to fail the whole grounding bundle.
-    """
-    try:
-        return gitx.run(repo, "show", f"HEAD:{path}").stdout
-    except gitx.GitError:
-        return None
-
-
 def _truncate_lines(text: str, max_bytes: int) -> tuple[str, bool]:
     if len(text.encode()) <= max_bytes:
         return text, False
@@ -71,14 +52,12 @@ def _truncate_lines(text: str, max_bytes: int) -> tuple[str, bool]:
 
 
 def _codeowners_entries(
-    repo: Path | str, tracked: set[str], changed_files: list[str]
+    texts: dict[str, str], changed_files: list[str], tracked: set[str]
 ) -> list[dict[str, Any]]:
     source = next((path for path in _CODEOWNERS_PATHS if path in tracked), None)
-    if source is None:
+    if source is None or source not in texts:
         return []
-    text = _blob_text(repo, source)
-    if text is None:
-        return []
+    text = texts[source]
 
     rules: list[tuple[str, list[str]]] = []
     for raw_line in text.splitlines():
@@ -86,16 +65,13 @@ def _codeowners_entries(
         if not line or line.startswith("#"):
             continue
         fields = line.split()
-        if len(fields) < 2:
-            continue
         pattern = fields[0]
         owners = []
         for owner in fields[1:]:
             if owner.startswith("#"):
                 break
             owners.append(owner)
-        if owners:
-            rules.append((pattern, owners))
+        rules.append((pattern, owners))
 
     entries = []
     for path in sorted(set(changed_files)):
@@ -103,7 +79,7 @@ def _codeowners_entries(
             (
                 (pattern, owners)
                 for pattern, owners in reversed(rules)
-                if path_matches(path, pattern)
+                if codeowners.matches(path, pattern)
             ),
             None,
         )
@@ -164,17 +140,14 @@ def _excerpt(text: str, terms: list[str]) -> str:
 
 
 def _doc_entries(
-    repo: Path | str,
-    tracked: set[str],
+    texts: dict[str, str],
     changed_files: list[str],
     entry_max_bytes: int,
 ) -> list[dict[str, Any]]:
     terms = _terms(changed_files)
     entries = []
-    for source in sorted(path for path in tracked if path.startswith("docs/")):
-        text = _blob_text(repo, source)
-        if text is None:
-            continue
+    for source in sorted(path for path in texts if path.startswith("docs/")):
+        text = texts[source]
         matches = _matching_terms(text, terms)
         if not matches:
             continue
@@ -204,16 +177,13 @@ def _convention_sources(tracked: set[str], extra_paths: list[str]) -> list[str]:
 
 
 def _convention_entries(
-    repo: Path | str,
-    tracked: set[str],
+    texts: dict[str, str],
     extra_paths: list[str],
     entry_max_bytes: int,
 ) -> list[dict[str, Any]]:
     entries = []
-    for source in _convention_sources(tracked, extra_paths):
-        raw_content = _blob_text(repo, source)
-        if raw_content is None:
-            continue
+    for source in _convention_sources(set(texts), extra_paths):
+        raw_content = texts[source]
         content, truncated = _truncate_lines(raw_content, entry_max_bytes)
         entries.append(
             _entry(
@@ -324,19 +294,29 @@ def assemble(session: Session, run: RunDoc, changed_files: list[str]) -> dict[st
         return {"enabled": False, "entries": [], "dropped": {}}
 
     repo = Path(run.worktree_path or session.repo_root)
-    tracked = set(_tracked_files(repo))
+    texts, omitted, tracked = grounding_sources.load(
+        repo,
+        lambda path: (
+            path.startswith("docs/")
+            or path in (*_CODEOWNERS_PATHS, *_CONVENTION_PATHS)
+            or any(path_matches(path, pattern) for pattern in config.extra_paths)
+        ),
+    )
     groups = (
-        ("codeowners", _codeowners_entries(repo, tracked, changed_files)),
-        ("doc", _doc_entries(repo, tracked, changed_files, config.entry_max_bytes)),
+        ("codeowners", _codeowners_entries(texts, changed_files, tracked)),
+        ("doc", _doc_entries(texts, changed_files, config.entry_max_bytes)),
         (
             "convention",
-            _convention_entries(repo, tracked, config.extra_paths, config.entry_max_bytes),
+            _convention_entries(texts, config.extra_paths, config.entry_max_bytes),
         ),
         ("prior_finding", _history_entries(session, run, changed_files)),
         ("policy", _policy_entries(session, changed_files)),
     )
     entries, dropped = _apply_total_budget(groups, config.max_bytes)
-    return {"enabled": True, "entries": entries, "dropped": dropped}
+    result = {"enabled": True, "entries": entries, "dropped": dropped}
+    if omitted:
+        result["omitted_sources"] = omitted
+    return result
 
 
 def digest(grounding: dict[str, Any]) -> str:

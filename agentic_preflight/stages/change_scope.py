@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
+
 from ..diff import path_matches
 from .docs import STANDARD_DOC_PATTERNS
 
@@ -9,28 +11,30 @@ from .docs import STANDARD_DOC_PATTERNS
 # than every file under ``.github``: actions, scripts, and application manifests
 # can contain executable software and still deserve tests.
 STANDARD_CI_PATTERNS: tuple[str, ...] = (
-    ".github/workflows/**",
-    ".circleci/**",
+    ".github/workflows/*.yml",
+    ".github/workflows/*.yaml",
+    ".circleci/*.yml",
+    ".circleci/*.yaml",
     ".gitlab-ci.yml",
     ".gitlab-ci.yaml",
-    ".gitlab/ci/**",
+    ".gitlab/ci/*.yml",
+    ".gitlab/ci/*.yaml",
     "azure-pipelines.yml",
     "azure-pipelines.yaml",
-    "azure-pipelines/**",
+    "azure-pipelines/*.yml",
+    "azure-pipelines/*.yaml",
     "bitbucket-pipelines.yml",
     "bitbucket-pipelines.yaml",
-    ".buildkite/**",
+    ".buildkite/*.yml",
+    ".buildkite/*.yaml",
     ".travis.yml",
     ".travis.yaml",
     "appveyor.yml",
     "appveyor.yaml",
-    "Jenkinsfile",
-    "Jenkinsfile.*",
 )
 
 DOCUMENTATION_FILE_PATTERNS: tuple[str, ...] = (
     "**/*.md",
-    "**/*.mdx",
     "**/*.rst",
     "**/*.adoc",
 )
@@ -48,10 +52,17 @@ def tests_are_not_applicable(
     """Return true when every changed path is documentation or CI configuration."""
     if not changed_files:
         return False
-    patterns = (
-        *STANDARD_DOC_PATTERNS,
-        *DOCUMENTATION_FILE_PATTERNS,
-        *(extra_doc_paths or []),
-        *STANDARD_CI_PATTERNS,
-    )
-    return all(any(_matches(path, pattern) for pattern in patterns) for path in changed_files)
+    doc_surface = (*STANDARD_DOC_PATTERNS, *(extra_doc_paths or []))
+
+    def qualifies(path: str) -> bool:
+        if any(_matches(path, pattern) for pattern in STANDARD_CI_PATTERNS):
+            return True
+        if any(_matches(path, pattern) for pattern in DOCUMENTATION_FILE_PATTERNS):
+            return True
+        # Documentation-review eligibility is broader than test-skip eligibility.
+        # In particular, docs/examples and configured globs can contain software.
+        if PurePosixPath(path).suffix == ".txt":
+            return any(_matches(path, pattern) for pattern in doc_surface)
+        return path in {"README", "CONTRIBUTING", "CHANGELOG"}
+
+    return all(qualifies(path) for path in changed_files)
