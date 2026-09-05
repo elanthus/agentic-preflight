@@ -249,6 +249,43 @@ def test_stage_settings_do_not_affect_the_docs_config_fingerprint(feature_repo, 
     assert after.config_sha256 == before.config_sha256
 
 
+@pytest.mark.parametrize("setting", ["timeout_seconds = 30", "max_attempts = 4"])
+def test_user_stage_settings_invalidate_command_review_without_git_changes(
+    feature_repo, tmp_path, setting
+):
+    _configure(feature_repo, "[review]\nexecutor = 'command'\ncommand = 'true'\n")
+    base = git("rev-parse", "main", cwd=feature_repo)
+    head = git("rev-parse", "HEAD", cwd=feature_repo)
+    bundle = diffmod.build_bundle(feature_repo, base, head)
+    manifest = diffmod.build_review_manifest(feature_repo, bundle, grounding_sha256="a" * 64)
+    user_dir = tmp_path / "user-config"
+
+    def fingerprint():
+        snapshot = config.load_config(feature_repo, user_config_dir=user_dir).model_dump(
+            mode="json"
+        )
+        return fp.compute_review_fingerprint(
+            feature_repo,
+            base_sha=base,
+            head_sha=head,
+            manifest=manifest,
+            executor="command",
+            intent="exercise the requested behavior safely",
+            config_snapshot=snapshot,
+        )
+
+    before = fingerprint()
+    write(user_dir, "config.toml", f"[stage]\n{setting}\n")
+    after = fingerprint()
+
+    assert git("rev-parse", "HEAD", cwd=feature_repo) == head
+    assert git("status", "--porcelain", cwd=feature_repo) == ""
+    assert after.config_sha256 != before.config_sha256
+    result = fp.classify_review(before, after)
+    assert result.disposition == fp.Disposition.INVALID
+    assert result.reasons == (fp.ReasonCode.CONFIG_CHANGED,)
+
+
 # -- computed against real git trees -----------------------------------------
 
 
