@@ -61,6 +61,8 @@ def build(
         if record is None:
             raise InvalidAttestation(f"{stage.value} stage has no recorded result")
         if record.status == "skipped":
+            if stage is Stage.LINT:
+                raise InvalidAttestation("lint stage is not green")
             stages[stage] = AttestedStage(status="skipped", reason=record.reason)
             continue
         if record.status != "green":
@@ -71,7 +73,22 @@ def build(
             exit_code=record.exit_code,
             output_sha256=record.output_sha256,
         )
-    return Attestation(
+    from .refresh_validation import base_supports_refresh, rebound_coverage, verify_evidence
+
+    use_refresh = (
+        run.worktree_path is not None
+        and set(run.evidence) == set(Stage)
+        and base_supports_refresh(run.worktree_path, run.merge_base_sha)
+    )
+    if use_refresh:
+        stages[Stage.REVIEW].coverage = rebound_coverage(
+            run.worktree_path or "",
+            run.evidence[Stage.REVIEW].origin,
+            head=sha,
+            base=run.merge_base_sha,
+        )
+    value = Attestation(
+        schema_version=5 if use_refresh else 4,
         sha=sha,
         tree_sha=tree_sha,
         branch=run.branch,
@@ -83,11 +100,20 @@ def build(
         green_at=datetime.now(UTC).isoformat(timespec="seconds"),
         stages=stages,
         findings_summary=findings_summary,
+        evidence=run.evidence if use_refresh else None,
+        config_snapshot=run.config_snapshot if use_refresh else None,
     )
+    if use_refresh:
+        verify_evidence(run.worktree_path or "", value)
+    return value
 
 
 def encode(value: Attestation) -> str:
-    return json.dumps(value.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    payload = value.model_dump(mode="json")
+    if value.schema_version == 4:
+        payload.pop("evidence")
+        payload.pop("config_snapshot")
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
 def decode(payload: str) -> Attestation:
@@ -122,6 +148,13 @@ def verify(repo: Path | str, sha: str) -> Attestation:
         raise InvalidAttestation(
             f"attestation tree {value.tree_sha} does not match commit tree {actual_tree}"
         )
+    if value.schema_version == 5:
+        from .refresh_validation import verify_evidence
+
+        try:
+            verify_evidence(repo, value)
+        except (ValueError, gitx.GitError) as exc:
+            raise InvalidAttestation(str(exc)) from exc
     return value
 
 

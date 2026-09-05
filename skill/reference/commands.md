@@ -82,8 +82,12 @@ cleanly and reported; no conflicted rebase is left in progress.
 If synchronization leaves the exact attested commit unchanged, the fresh base is already
 its ancestor, Git computes the same clean merge tree against the attestation's recorded
 base, and the effective configuration, user intent, branch, and base ref still match,
-`start` imports that evidence and returns `VERIFIED`. Any rewritten commit requires a
-fresh run, even when its tree is unchanged.
+legacy v4 `start` imports that evidence and returns `VERIFIED`.
+With a v5-capable protected base, `start` instead classifies local evidence per stage
+and returns the next required command. Equal base/head trees and matching context
+can preserve review and docs across rewritten commits. Shell stages require committed
+content contracts. Read `data.applicability`; `invalid` and `unknown` require a fresh
+stage, and later-stage candidates remain available while earlier stages are pending.
 Refuses a dirty tree (exit 3, `dirty_tree`) and a branch with no changes over the base
 (exit 3, `empty_diff`). In-place mode protects `[worktree] copy_files` where they are;
 isolated modes copy them. Every mode refuses an entry git is not already ignoring.
@@ -143,8 +147,8 @@ The review command inherits `[stage] timeout_seconds` and `max_attempts`. Non-ze
 timeout, malformed JSON, stale coverage, or invalid findings enter
 `REVIEW_COMMAND_RED` and consume one persisted attempt. A successful command records its
 configured command, zero exit code, and SHA-256 of redacted captured output alongside
-coverage in the schema-v4 attestation. Repairs invalidate all of that evidence and
-require a fresh command review.
+coverage in the schema-v4 attestation and its v5 successor. Changed review inputs require fresh command review;
+validated v5 derivation retains original process evidence and coverage provenance.
 
 ### `agentic-preflight review compare [--file PATH]`
 Compares the run's accepted review submission with an independent second submission while
@@ -192,7 +196,9 @@ CI. It checks the note schema, exact commit and tree binding, complete stage set
 process evidence for green lint/test stages. Fetch the notes ref before calling it in
 a fresh clone. Schema v4 requires the review executor and, for command
 review, its command, zero exit code, and redacted output digest. A missing or invalid
-note exits 2.
+note exits 2. V5 additionally verifies original execution digests, Git and configuration
+bindings, stage applicability, finding dispositions, and original/current review-unit
+accounting. This remains an offline check; it does not execute stages or fetch evidence.
 
 ### `agentic-preflight approval-check SHA --base SHA --reviews-file PATH --author LOGIN`
 CI-facing merge policy for an attested pull-request head. It recomputes path risk from

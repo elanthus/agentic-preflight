@@ -5,6 +5,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Added
+
+- Automatic per-stage evidence refresh after equivalent-content restacks, with
+  original execution provenance in v5 attestations. Review/docs compare content
+  and context; shell reuse requires committed input contracts. Producers preserve
+  v4 compatibility until the protected base supports the new consumer.
+
 ### Fixed
 
 - Public smoke evaluation method v2 isolates each selected snapshot in a neutral Git

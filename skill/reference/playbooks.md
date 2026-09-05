@@ -38,16 +38,21 @@ setup failure, no stage log exists; show `data.setup_failure` and obey the retur
 
 Inspect the failed check with `gh pr checks` and `gh run view --log-failed`. Fix and
 commit the source branch, then start a fresh synchronized preflight run with the
-original intent. Do not push the repair until the new review → docs → lint → test run
-reaches green. Push through the gate again, then resume check monitoring with `gh`.
+original intent. Follow the returned stage sequence, including any validated reuse,
+until the gate is green. Push through the gate again, then resume check monitoring with `gh`.
 
 ## Stale head (exit 3, `stale_run`)
 
-The branch moved after review began, so everything verified so far describes a tree
-that no longer exists. Run `agentic-preflight start` again with the original intent from
+The branch moved after review began. Run `agentic-preflight start` again with the original intent from
 the source worktree. `start` marks the stale run `ORPHANED`, preserves its evidence and
 isolated fixes, and creates the fresh run. Use `status --all` and
 `agentic-preflight --run RUN_ID status` when the old run needs inspection.
+
+Read `data.applicability` and follow `next.command`. Equivalent evidence can survive
+a history-only rewrite; changed content and unknown shell inputs require fresh
+stages. `consumer_unavailable` means the protected-base verifier does not support
+refresh yet, so complete the legacy stages and publish v4. Do not fix that condition
+by switching the hosted policy verifier to PR code.
 
 ## Abandoned run
 
