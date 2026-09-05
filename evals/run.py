@@ -274,6 +274,8 @@ def _assert_bundle_is_clean(case: EvalCase, context: dict[str, Any]) -> None:
     serialized = json.dumps(data, sort_keys=True, separators=(",", ":"))
     if case.id in serialized:
         raise LeakageError("review bundle contains the case identity")
+    # The product CLI does not emit these fields today. Keep this shape assertion
+    # against future runner enrichment; the serialized checks cover current inputs.
     if any(key in data for key in ("case_id", "snapshot", "gold", "expected_findings")):
         raise LeakageError("review bundle contains scorer-only metadata")
     if "gold.json" in serialized:

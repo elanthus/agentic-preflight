@@ -16,18 +16,22 @@ evaluation integrity, and documentation contract failures. Every case has three 
 trees. Method `public-smoke-v2` builds a separate repository for each reviewed snapshot: the
 base tree on `main`, followed by only the selected tree on `review/change`. Commit subjects
 are `Initial snapshot` and `Proposed change`; the repository directory uses a random opaque
-identifier. The unselected snapshot is never written to refs, reflogs, or the object database.
-Fixed snapshots are false-positive controls.
+identifier. The runner never copies or commits the unselected tree; blobs shared with the
+base or selected tree can legitimately appear in the object database. Fixed snapshots are
+false-positive controls.
 
 Each scorer-only `gold.json` names one mechanism, vulnerable path and line range, category,
 severity range, and the expectation that the finding is absent after the fix. Gold is never
 copied into a fixture repository. Before review, the runner also rejects any snapshot that
 contains `gold.json`, asserts that the serialized context bundle contains neither that name
-nor the serialized gold record or case ID, rejects top-level scorer labels, and asserts that
-the delivered intent exactly equals the case intent. Regression tests capture actual provider
-stdin through both worked wrappers for both snapshots, and inspect all Git objects for the
-unselected snapshot. Real mode removes inherited `AP_EVAL_SCRIPT` from the subprocess
-environment; only dry mode receives the scripted answer path.
+nor the serialized gold record or case ID, and asserts that the delivered intent exactly
+equals the case intent. A top-level scorer-label shape assertion guards against future runner
+enrichment; the product CLI does not emit those fields today. Regression tests capture actual
+provider stdin through both worked wrappers for both snapshots. Across every corpus case and
+both selected snapshots, they hash every file in all three trees and inspect all Git objects,
+including unreachable objects, for blobs unique to the unselected tree. Shared content from
+the base or selected tree is allowed. Real mode removes inherited `AP_EVAL_SCRIPT` from the
+subprocess environment; only dry mode receives the scripted answer path.
 
 Dry mode uses canned findings, but still creates real Git repositories and invokes the real
 CLI in subprocesses for `init --no-hook`, `start --intent`, `context`, and `review run`.
