@@ -147,7 +147,7 @@ The review command inherits `[stage] timeout_seconds` and `max_attempts`. Non-ze
 timeout, malformed JSON, stale coverage, or invalid findings enter
 `REVIEW_COMMAND_RED` and consume one persisted attempt. A successful command records its
 configured command, zero exit code, and SHA-256 of redacted captured output alongside
-coverage in v4 and v5 attestations. Changed review inputs require fresh command review;
+coverage in the schema-v4 attestation and its v5 successor. Changed review inputs require fresh command review;
 validated v5 derivation retains original process evidence and coverage provenance.
 
 ### `agentic-preflight review compare [--file PATH]`

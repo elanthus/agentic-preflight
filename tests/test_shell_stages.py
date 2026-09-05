@@ -371,6 +371,7 @@ def test_cross_stage_repairs_preserve_attempt_limits(docs_green, tmp_path):
         "command": None,
         "executor": None,
         "exit_code": None,
+        "fingerprint": None,
         "finished_at": None,
         "head_sha": None,
         "log_path": None,
