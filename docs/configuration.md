@@ -99,6 +99,13 @@ are recorded with the run events.
 Commit configuration changes **before** starting the run they should affect. This is also
 why the file must be committed before `start` and must not be edited mid-run.
 
+`agentic_preflight/fingerprints.py` additionally scopes that same snapshot per stage: a
+review fingerprint hashes only `[general]`, `[review]`, `[policy]`, `[context]`, and
+`[diff]`, and a docs fingerprint hashes only `[general]`, `[docs]`, and `[diff]`, so that
+changing an unrelated section (`[commands]`, for example) cannot by itself invalidate
+that stage's evidence. See [`docs/fingerprint-contract.md`](fingerprint-contract.md);
+this is not yet used by `start`.
+
 ## Pull-request publication (`[pr]`)
 
 `mode = "auto"` is the default and is standing authorization for pull-request creation.
