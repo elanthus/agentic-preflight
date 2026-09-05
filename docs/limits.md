@@ -44,6 +44,11 @@ their synchronized commit is not the source branch that will be pushed.
 
 Cherry-picked merge-back is handled via tree-equivalence attestation.
 
+A content-based fingerprint contract for reusing review and docs evidence across a
+history-only rebase is defined in
+[`docs/fingerprint-contract.md`](fingerprint-contract.md), but it is not yet wired
+into `start`; the paragraph above still describes current behavior.
+
 Agentic Preflight refuses to start or merge back while the checkout has a rebase,
 cherry-pick, or merge in progress. Finish or abort that Git operation yourself first;
 the tool never aborts an operation it did not start.
