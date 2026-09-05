@@ -99,3 +99,14 @@ commit:
 Keep GitHub Actions updates under normal code-owner and manual-merge policy even when
 they are grouped. For a frequently changing dependency pull request, finish review only
 after Dependabot has stopped rebasing it; every rebase changes the attested SHA.
+
+## Evidence reuse across rebases (in progress)
+
+The behavior above — a new SHA always requires a fresh review, docs, lint, and test
+run — is unchanged today. `agentic_preflight/fingerprints.py` adds a content-based
+applicability contract that classifies whether a prior green review or docs result
+would remain valid against a new commit, as a first step toward reusing that
+evidence instead of rerunning it after a rebase or restack. See
+[`docs/fingerprint-contract.md`](fingerprint-contract.md) for the contract and its
+rollout plan. It is not yet wired into `start`, and it does not change the version 4
+attestation schema.
