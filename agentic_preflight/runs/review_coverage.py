@@ -92,6 +92,7 @@ def _assign_units(
 def invalidate_stage_result(run: RunDoc, stage: Stage) -> None:
     """Discard stale process evidence without resetting its convergence guard."""
     prior = run.stages.pop(stage, None)
+    run.evidence.pop(stage, None)
     if prior is not None:
         run.stages[stage] = StageRecord(attempts=prior.attempts)
 
@@ -107,6 +108,7 @@ def reopen_if_stale(session: Session, run: RunDoc) -> tuple[RunDoc, bool]:
         reviewed_head = doc.review_coverage.head_sha if doc.review_coverage is not None else None
         doc.review_coverage = None
         invalidate_stage_result(doc, Stage.REVIEW)
+        invalidate_stage_result(doc, Stage.DOCS)
         invalidate_stage_result(doc, Stage.LINT)
         invalidate_stage_result(doc, Stage.TEST)
         _apply(doc, Action.INVALIDATE_REVIEW)

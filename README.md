@@ -8,11 +8,12 @@
 **Stops your coding agent from pushing unverified work.**
 
 Agentic Preflight records a review, test, documentation, and lint result against a
-commit, and a pre-push hook refuses a commit with no applicable green run. A
-freshly fetched base keeps green only when synchronization leaves the exact attested
-commit unchanged, that commit contains the fresh base, its clean merge result still
-matches the attested base, and the recorded branch, base ref, effective configuration,
-and user intent still match. Any rewritten commit requires a new run.
+commit, and a pre-push hook refuses a commit with no applicable green run. After a
+rebase or restack, `start` can reuse equivalent stage evidence when the protected-base
+verifier supports refresh. Changed or unknown inputs require fresh stages; shell
+reuse requires a committed input contract. Every rewritten commit receives its own
+note, preserving original execution provenance. See the
+[fingerprint contract](docs/fingerprint-contract.md) for applicability and rollout.
 
 ![A push blocked by the pre-push hook, a review that catches an unguarded division by
 zero, the fix verified, and the gate stopping to ask before it pushes](docs/demo.gif)

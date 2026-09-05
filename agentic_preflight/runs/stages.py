@@ -22,6 +22,7 @@ from ..errors import (
 from ..machine import Action, State, legal_actions
 from ..models import RunDoc, SetupFailure, Stage, StageRecord
 from ..stages import detect, shellstage
+from . import evidence
 from ._session import (
     Session,
     _apply,
@@ -396,6 +397,7 @@ def run_stage(
                 next_command=failure.next_command,
             ) from exc
 
+    input_fingerprint = evidence.fingerprint(session, run, stage, command=resolved)
     result = shellstage.run_stage(
         wt,
         resolved,
@@ -445,6 +447,13 @@ def run_stage(
     log_path.write_text(clean_output, encoding="utf-8", newline="\n")
 
     summary = shellstage.summarise(clean_output)
+    after_fingerprint = evidence.fingerprint(session, run, stage, command=resolved)
+    if input_fingerprint != after_fingerprint:
+        from ..fingerprints import ReasonCode
+
+        input_fingerprint = after_fingerprint.model_copy(
+            update={"unavailable": ReasonCode.INPUTS_UNAVAILABLE, "inputs_sha256": None}
+        )
 
     with session.store.transaction(run.run_id) as doc:
         entry = doc.stages.get(stage) or StageRecord()
@@ -456,6 +465,8 @@ def run_stage(
         entry.status = "green" if result.passed else "red"
         entry.finished_at = _now()
         entry.head_sha = gitx.rev_parse(wt, "HEAD")
+        entry.fingerprint = input_fingerprint
+        doc.evidence.pop(stage, None)
         if not result.passed:
             entry.attempts += 1
         doc.stages[stage] = entry
@@ -485,6 +496,7 @@ def run_stage(
     if result.passed:
         if stage is Stage.LINT:
             run = _skip_test_if_not_applicable(session, run)
+        run = evidence.advance(session, run)
         return _envelope_for(run, stage=stage_name, data=data)
 
     message = f"the {stage_name} stage failed (exit {result.exit_code})"

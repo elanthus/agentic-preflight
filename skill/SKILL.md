@@ -60,6 +60,14 @@ Python here never calls a model — every judgment in this workflow is yours.
 
 ## The loop
 
+After a restack or base update, run `start` with the original intent and follow
+`next.command`. With compatible evidence and a v5-capable protected base, the CLI
+may reuse review, docs, lint, or test independently. `data.applicability` explains
+candidate reuse, invalidation, or unknown inputs. Do not manually repeat imported
+stages, edit fingerprints, or rewrite original timestamps. `status` resumes the
+persisted sequence. Unknown inputs require a fresh stage; content-mode shell reuse
+requires a committed repository input contract.
+
 ```
 $ agentic-preflight start --intent "<the user's objective and acceptance criteria>"
 {"ok":true,"run_id":"r_4f2a","state":"REVIEW_AWAITING_FINDINGS",

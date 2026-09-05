@@ -1,123 +1,100 @@
 # Fingerprint contract for reusable preflight evidence
 
-Tracks [issue #85](https://github.com/elanthus/agentic-preflight/issues/85). This
-document is the fingerprint contract and derivation model that issue asks to write
-down before implementation, and it describes the first landed slice:
-`agentic_preflight/fingerprints.py`, which classifies whether a prior green
-**review** or **docs** result remains applicable to a new commit.
+After a history-only rebase or restack, `start` discovers applicable local evidence
+and returns the next required stage. `status` resumes after interruption. Review,
+docs, lint, and tests are classified independently. This implements
+[issue #85](https://github.com/elanthus/agentic-preflight/issues/85).
 
-## Status: library only, not yet wired in
+The protected base must support v5 attestations before refresh can activate; see
+[the rollout procedure](attestations-and-ci.md#evidence-reuse-across-rebases).
+Without that support, the CLI records `consumer_unavailable`, performs the normal
+local stages, and emits a compatible v4 note.
 
-This slice adds pure, unit-tested classification functions. It does **not** change
-what `agentic-preflight start` does, does not add fields to the version 4
-attestation schema, and does not let a reused stage attach to a new commit. Today,
-any rebase that produces a new SHA still requires a fresh review, docs, lint, and
-test run — see `docs/limits.md`. The remaining requirements from issue #85 —
-shell-stage input contracts, derived-attestation issuance, and state-machine
-auto-discovery of reusable evidence — are follow-up work, tracked as separate pull
-requests so each is reviewable on its own and so the attestation schema is not
-changed until a verifier that understands it can be installed first (this
-repository installs its verifier from the protected PR base — see
-`docs/attestations-and-ci.md`).
+## Applicability and audit identity
 
-## Why content, not identity
+Fingerprint version 2 describes content inputs. Original commit, base, branch,
+configuration digest, run, worktree ownership, execution time, findings, and
+coverage remain separate audit identity. A new commit always needs its own note.
 
-The current `attestation.reuse_exact` requires the *exact* attested commit SHA to
-still exist and be merge-equivalent to a fresh base. That is correct but stricter
-than necessary: rebasing or restacking a branch changes every downstream commit
-SHA even when no downstream tree changed at all. This contract asks a narrower
-question per stage: *did the content this stage's result actually depended on
-change?* A fingerprint is therefore built from tree SHAs and content digests, never
-from commit SHAs, commit counts, or reflog position.
+Matching patches alone are insufficient. Every stage binds both base and head
+trees. Upstream content changes invalidate review even with an unchanged patch.
+Retargeting checks the new base's consumer capability and content; current risk,
+executor, and hosted approval policy still apply.
 
-This is deliberately conservative. Matching trees prove the stage's declared
-inputs are byte-identical; they do not prove semantic equivalence of anything not
-captured in the fingerprint. Upstream code the current patch depends on but does
-not touch is exactly the base-tree input this contract binds to, which is why a
-base-tree change invalidates review even when the patch text is unchanged.
+| Disposition | Meaning |
+| --- | --- |
+| `reusable` | All inputs required by the supported contract match. |
+| `invalid` | Known inputs changed; `reasons` identifies the categories. |
+| `unknown` | Provenance, inputs, configuration dependencies, or consumer support cannot be established. Rerun. |
 
-## The three-value disposition
+`data.applicability` describes candidate evidence, not the outcome of a stage
+that ran freshly. Decisions and later-stage candidates persist on the run. A
+repair or changed input triggers another check before import or mergeback.
+Unresolved actionable or blocking findings cannot advance through reuse.
 
-Every classification produces one `Disposition`:
+## Review and documentation inputs
 
-- **`reusable`** — every declared input matches. The prior result may be carried
-  forward as-is.
-- **`invalid`** — at least one declared input changed. Reasons name every field
-  that differed, not just the first.
-- **`unknown`** — there is no prior fingerprint to compare (an older attestation
-  predates this contract, or was produced by a version of it this code no longer
-  understands), or the fingerprint version itself differs. Unknown always means
-  rerun; it is never treated as reusable. This is what keeps the contract safe to
-  extend later: a field this code cannot yet compare must not be silently ignored.
+Review binds base/head trees, included diff bytes, exclusions, delivered grounding
+(including conventions and prior findings), intent, effective executor, and the
+`[general]`, `[review]`, `[policy]`, `[context]`, `[diff]`, and `[stage]` sections.
+The last section governs command-review timeouts and retries.
 
-## Per-stage input contracts (v1)
+Docs binds base/head trees, intent, grounding, documentation content, and
+`[general]`, `[docs]`, `[diff]`, `[context]`, and `[policy]`. Its digest includes
+every inventory entry's complete bytes, path, existence, size, and whether the
+diff touches it. Same-length edits to ignored docs invalidate evidence. Changed
+docs between context and submission require fresh context.
 
-### Review (`ReviewFingerprint`)
+An unrelated user-level test-command change leaves review configuration unchanged.
+A committed configuration edit changes the head tree and must itself be reviewed.
+Unknown configuration sections prevent reuse even when their values match.
 
-| Field | Source | Why it must match |
-| --- | --- | --- |
-| `base_tree_sha` | `git rev-parse <base>^{tree}` | Upstream content the patch was written against. |
-| `head_tree_sha` | `git rev-parse <head>^{tree}` | The reviewed content itself. |
-| `diff_sha256` | `ReviewManifest.diff_sha256` | The exact included diff bytes, after exclusions. |
-| `excluded_files` | `ReviewManifest.excluded_files` | Which files review coverage does *not* claim to have seen. |
-| `grounding_sha256` | `ReviewManifest.grounding_sha256` | CODEOWNERS, docs, conventions, and prior-finding context delivered with the diff (issue #80). |
-| `intent_sha256` | `attestation.intent_digest(run.intent)` | The objective the review was scoped against. |
-| `executor` | resolved `in_harness` / `command` | A policy-escalated command review is not equivalent to an in-harness one. |
-| `config_sha256` | `config_digest(review_relevant_config(snapshot))` | Only the `[general]`, `[review]`, `[policy]`, `[context]`, `[diff]`, and `[stage]` sections — see below. |
+Review derivation recomputes both Git manifests, validates original coverage, and
+compares every original/current unit and exclusion. Only then can it replace the
+current coverage's commit and manifest identity. Original dispositions are retained.
 
-### Docs (`DocsFingerprint`)
+## Shell input contract
 
-| Field | Source | Why it must match |
-| --- | --- | --- |
-| `base_tree_sha` | same as review | Same upstream-content argument. |
-| `head_tree_sha` | same as review | The reviewed content itself. |
-| `doc_surface_sha256` | digest of `stages.docs.build_inventory(...)` | The documentation inventory (paths, existence, size, touched-by-diff) the docs stage was actually shown, not only its path list. |
-| `config_sha256` | `config_digest(docs_relevant_config(snapshot))` | Only `[general]`, `[docs]`, and `[diff]`. |
+Each stage needs a **committed** `[reuse.lint]` or `[reuse.test]` content contract.
+Its author asserts that the command depends only on tracked source, declared
+file/toolchain inputs, declared environment, platform, and configured execution
+and setup policy. This is a bounded assumption, not dependency discovery.
 
-### Scoped configuration, not the whole digest
+The fingerprint captures command and policy digests, base/head trees, and a
+combined digest of exact repository-relative files and their modes, declared
+absolute toolchain files, the resolved primary executable, declared environment
+variables (absent differs from empty), and OS name/release and machine architecture.
+Additional interpreters, libraries, installed dependencies, and configuration
+files must be declared if the command reads them.
 
-`RunDoc.config_digest` is the full effective-configuration digest and stays as the
-audit binding it already is. A fingerprint instead hashes only the configuration
-subset declared relevant to that stage (`review_relevant_config` /
-`docs_relevant_config`). This is requirement 1 from issue #85: a `[commands] test`
-change must not discard review or docs evidence that never read it. An
-undeclared configuration dependency is a bug in the relevant-config function, not
-something this contract can detect — the scope is deliberately narrow and
-enumerated rather than inferred.
+Every copied file must be declared. Missing optional input files are recorded as
+absent; unreadable files, directories, and symlinked repository inputs are unknown.
+Toolchain symlinks bind their resolved target identity and bytes. Login-shell
+commands are unknown because profiles are unsupported. History, time, external
+services, and undeclared dependencies are unsupported; leave the contract unset
+for commands that depend on them.
 
-`[stage]` is declared relevant to review, not because review reads it directly,
-but because the command executor does: `review_executor.py` runs the configured
-review command under `[stage] timeout_seconds`, and `review_retry.py` bounds its
-retries with `[stage] max_attempts`. A shorter timeout or a smaller retry bound
-can change whether the same command still produces the same green result, so
-this is an execution dependency of the *executor*, not an unrelated section —
-even though an in-harness review never reads `[stage]` at all. Scoping stays
-conservative here: including `[stage]` unconditionally (rather than only when
-`executor == "command"`) means an in-harness review's fingerprint moves on a
-`[stage]` change too, which is over-invalidation, not under-invalidation — the
-safe direction when a dependency is real for only one of the two executors.
+Inputs are captured before and after execution; changes prevent reuse. Only
+combined digests and reason categories are recorded, never environment values or
+input-file contents. V5 evidence rechecks these inputs even for an unchanged SHA.
+Legacy v4 exact-commit reuse keeps its existing compatibility contract.
 
-Shell stages (lint, test) are out of scope for this slice. Their input contract
-must additionally declare which command/dependency/toolchain/environment/copied
-inputs are supported for cross-commit reuse at all, per issue #85's safety rule
-that undeclared or unverifiable shell dependencies must prevent reuse — that is
-follow-up work, not an extension of `ReviewFingerprint`/`DocsFingerprint`.
+## Provenance, ownership, and recovery
 
-## Versioning
+Discovery uses finalized local execution records from the same source-worktree
+identity and branch. Other linked worktrees' records are not candidates. All
+three modes use the same classification/import path. A fresh clone with only
+historical notes needs a local run; this version does not reconstruct local
+execution/ownership records from portable notes.
 
-`FINGERPRINT_VERSION` is a single integer bumped whenever a fingerprint's field
-set or comparison semantics change. `classify_review`/`classify_docs` treat a
-version mismatch identically to a missing fingerprint: `unknown`, not `invalid`
-and never `reusable`. This is what lets the contract evolve without a stale
-consumer ever misreading a newer fingerprint shape as a match.
+A v5 note embeds one original execution per stage, its content digest, and the
+current fingerprint. Derivation adds refresh time and `equivalent_inputs`, keeping
+original timestamps, process hashes, findings, fixes, and coverage. Provenance is
+flattened to one origin: nested chains and unsupported fields/versions are rejected.
+The consumer recomputes available Git, manifest, configuration, executor, and
+applicability bindings and checks finding dispositions. It cannot independently
+measure the past local environment or authenticate an unsigned note.
 
-## What derivation will need (not yet built)
-
-Issuing a derived attestation for a new exact commit — requirement 5 of issue
-#85 — will need to record, per stage: the classification and its reasons, the
-original run/commit/evidence identity being derived from, the original execution
-timestamps, and a derivation reason and refresh time distinct from the original
-`green_at`. It must not mutate an existing note's SHA, and it must not claim a
-reused stage ran again. That work depends on this contract but is not part of it;
-this document will be extended alongside that implementation rather than
-guessing its shape now.
+Clean-checkout, synchronization, mergeback, publication authorization, and atomic
+branch/notes push rules still apply. Refresh authorizes no force-push, merge, or
+cleanup. CI-delegated tests remain separate work in #86.

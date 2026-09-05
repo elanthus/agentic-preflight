@@ -325,6 +325,25 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
         )
 
     findings = session.store.load_findings(run_id)
+    if (
+        run.state
+        in {
+            State.REVIEW_AWAITING_FINDINGS,
+            State.REVIEW_GREEN,
+            State.DOCS_AWAITING_FINDINGS,
+            State.DOCS_GREEN,
+            State.LINT_GREEN,
+        }
+        and _head_moved(session, run) is None
+    ):
+        from . import evidence
+
+        with session.store.try_operation(run.run_id) as idle:
+            if idle:
+                if not run.evidence_discovered:
+                    run = evidence.discover(session, run)
+                run = evidence.advance(session, run)
+                findings = session.store.load_findings(run_id)
     summary = {status.value: 0 for status in FindingStatus}
     for finding in findings:
         summary[finding.status.value] += 1
@@ -386,6 +405,10 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             "copied_files": run.copied_files,
             "findings": [f.model_dump(mode="json") for f in findings],
             "findings_summary": summary,
+            "applicability": {
+                stage.value: value.model_dump(mode="json")
+                for stage, value in run.applicability.items()
+            },
             "risk": assessment.model_dump(mode="json"),
         },
     )
