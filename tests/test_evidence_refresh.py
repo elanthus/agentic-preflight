@@ -2,12 +2,14 @@
 
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
 from agentic_preflight import attestation
 from agentic_preflight.models import Stage
 from agentic_preflight.stages import shellstage
+from agentic_preflight.store import Store
 from tests.conftest import commit_all, git, set_home, write
 from tests.driver import ScriptedAgent
 
@@ -435,3 +437,63 @@ def test_verifier_preserves_unresolved_finding_requirements(
     )
     with pytest.raises(attestation.InvalidAttestation, match="unresolved"):
         attestation.verify(feature_repo, "HEAD")
+
+
+def test_attestation_builder_rejects_skipped_lint(feature_repo, tmp_path):
+    _prepare(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    started = agent.run("start")
+    _finish(agent, tmp_path)
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    run = store.load_run(started["run_id"])
+    run.stages[Stage.LINT].status = "skipped"
+    with pytest.raises(attestation.InvalidAttestation, match="lint stage is not green"):
+        attestation.build(
+            run,
+            sha=run.head_sha,
+            tree_sha=git("rev-parse", "HEAD^{tree}", cwd=feature_repo),
+            docs_enabled=True,
+            findings_summary={},
+        )
+
+
+@pytest.mark.parametrize("missing_path", [False, True])
+def test_status_survives_unavailable_validation_worktree(feature_repo, missing_path):
+    _prepare(feature_repo, mode="strict")
+    agent = ScriptedAgent(feature_repo)
+    started = agent.run("start")
+    worktree = Path(started["data"]["worktree_path"])
+    if missing_path:
+        git("worktree", "remove", "--force", str(worktree), cwd=feature_repo)
+    else:
+        store = Store(feature_repo / ".git" / "agentic-preflight")
+        with store.transaction(started["run_id"]) as run:
+            run.worktree_path = None
+    status = agent.run("status")
+    assert status["data"]["has_run"]
+    assert status["run_id"] == started["run_id"]
+    assert status["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert status["data"]["reuse_error"]
+    assert status["data"]["findings"] == []
+
+
+def test_status_reloads_persisted_state_after_interrupted_reuse(feature_repo, monkeypatch):
+    from agentic_preflight.errors import WrongState
+    from agentic_preflight.fingerprints import Classification, Disposition, ReasonCode
+    from agentic_preflight.runs import evidence
+
+    _prepare(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+
+    def interrupted(session, run):
+        with session.store.transaction(run.run_id) as doc:
+            doc.applicability[Stage.REVIEW] = Classification(
+                disposition=Disposition.UNKNOWN, reasons=(ReasonCode.INPUTS_UNAVAILABLE,)
+            )
+        raise WrongState("interrupted import")
+
+    monkeypatch.setattr(evidence, "advance", interrupted)
+    status = agent.run("status")
+    assert status["data"]["reuse_error"] == "interrupted import"
+    assert status["data"]["applicability"]["review"]["reasons"] == ["inputs_unavailable"]

@@ -61,6 +61,8 @@ def build(
         if record is None:
             raise InvalidAttestation(f"{stage.value} stage has no recorded result")
         if record.status == "skipped":
+            if stage is Stage.LINT:
+                raise InvalidAttestation("lint stage is not green")
             stages[stage] = AttestedStage(status="skipped", reason=record.reason)
             continue
         if record.status != "green":
