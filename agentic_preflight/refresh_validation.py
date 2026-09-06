@@ -223,7 +223,8 @@ def verify_evidence(repo: Path | str, value: Attestation) -> None:
                 raise ValueError("current shell policy binding changed")
             configured_command = getattr(cfg.commands, stage.value)
             if (
-                current.status == "green"
+                value.schema_version == 6
+                and current.status == "green"
                 and configured_command
                 and current.command != configured_command
             ):

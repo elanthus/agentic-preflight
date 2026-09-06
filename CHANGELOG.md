@@ -7,6 +7,10 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- Publish and retain original Git commits referenced by refreshed attestations, and
+  retrieve them in fresh hosted consumers. Preserve local shell-command overrides
+  in v5 evidence while enforcing protected lint commands for CI delegation.
+
 - Classify attestation failures and add an explicit trusted hosted helper that retries
   only missing remote notes, pins the candidate and notes snapshot, and reports safe
   attempt diagnostics. Both hosted attestation and approval checks now use the helper

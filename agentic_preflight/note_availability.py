@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from . import attestation, gitx
+from . import attestation, evidence_transport, gitx
 from .models import Attestation
 
 DEFAULT_DELAYS = (2.0, 4.0, 8.0)
@@ -214,8 +214,24 @@ def check(
                         record["note_present"] = True
                         record["note_object"] = note[0]
                         with gitx.bounded_commands(GIT_TIMEOUT):
+                            decoded = attestation.decode(note[1])
+                            if decoded.sha != expected_head:
+                                raise attestation.InvalidAttestation(
+                                    "Note names a different commit", reason="commit_mismatch"
+                                )
+                            record["fetched_evidence_commits"] = []
+                            for sha in evidence_transport.missing(repo, decoded):
+                                target = f"{prefix}/evidence/{sha}"
+                                refs.append(target)
+                                fetched = source.fetch(evidence_transport.ref_for(sha), target)
+                                if fetched != sha:
+                                    raise attestation.InvalidAttestation(
+                                        "Fetched evidence ref names a different commit",
+                                        reason="commit_mismatch",
+                                    )
+                                record["fetched_evidence_commits"].append(sha)
                             value = attestation.verify_value(
-                                repo, attestation.decode(note[1]), expected_head, purpose="local"
+                                repo, decoded, expected_head, purpose="local"
                             )
                             result = evaluate(value)
                         freshness(record, "completion_head")

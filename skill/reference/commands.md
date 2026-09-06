@@ -326,8 +326,12 @@ Only `[gate] mode = "manual"` exits 4 and puts the literal `git push` command in
 `data.manual_command` for a person to run; the agent must not run it.
 
 ### `agentic-preflight push --confirm TOKEN [--dry-run]`
-Requires the token from `gate` and atomically pushes both the branch and
-`refs/notes/agentic-preflight`. **Require user authorization before running this, but do
+Requires the token from `gate`. It first publishes the original-commit refs required
+by v5/v6 evidence under `refs/agentic-preflight/evidence/<SHA>`, then atomically pushes
+the branch and `refs/notes/agentic-preflight`. A dependency publication failure stops
+before the branch push; retained evidence refs are safe to retry. Gate summaries, manual commands, and
+dry runs disclose the complete refspecs. These evidence refs survive ordinary
+run/worktree cleanup. **Require user authorization before running this, but do
 not require a second confirmation when the user already explicitly requested the
 matching push or pull request in this task.** The token is a non-secret, run-state nonce
 that prevents an accidental push; it is readable through `status`, grants no GitHub

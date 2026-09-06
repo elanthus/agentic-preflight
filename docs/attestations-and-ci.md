@@ -9,13 +9,16 @@ and carry no invented process evidence. Version 5 adds per-stage fingerprints an
 original execution provenance for refresh. Version 6 permits explicit pending test
 delegation with complete local review/docs/lint evidence. Versions earlier than 4 are rejected.
 
-`agentic-preflight push` atomically pushes the branch and
-`refs/notes/agentic-preflight`, so the attestation is not stranded in one clone. Git
+`agentic-preflight push` first publishes the original-commit refs needed by v5/v6
+evidence, then atomically pushes the branch and `refs/notes/agentic-preflight`.
+If publishing an original fails, the branch push does not start. An interrupted
+publication can leave retained evidence refs ready for a retry. Git
 does not fetch notes in an ordinary checkout; fetch the dedicated ref before reading or
 verifying it:
 
 ```bash
 git fetch origin refs/notes/agentic-preflight:refs/notes/agentic-preflight
+git fetch origin 'refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*'
 git notes --ref=refs/notes/agentic-preflight show HEAD
 agentic-preflight verify HEAD
 ```
@@ -38,6 +41,7 @@ A minimal GitHub Actions required check is:
   with:
     fetch-depth: 0
 - run: git fetch origin refs/notes/agentic-preflight:refs/notes/agentic-preflight
+- run: git fetch origin 'refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*'
 - name: Install the verifier that matches the attestation producer
   # Example for notes produced by the published v0.3.0 release. Replace this
   # with the exact matching release or immutable source revision.
@@ -91,6 +95,10 @@ It fetches notes into a temporary ref, records the actual notes commit, and read
 immutable tree. Strict verification and approval evaluation consume that same decoded
 note. A final head lookup must still match before success. Temporary refs are removed;
 the normal local notes ref is neither merged nor overwritten.
+For v5 evidence, missing original commits are fetched from exact
+`refs/agentic-preflight/evidence/<SHA>` refs in the same contributor remote and their
+identities are checked before verification. Missing or mismatched provenance is a
+permanent evidence/transport failure, not another missing-note retry.
 
 | Reason or policy result | Recovery |
 | --- | --- |
@@ -157,7 +165,8 @@ commit:
 3. Run the normal Agentic Preflight workflow against that exact branch tip. Do not amend,
    squash, or rebase it after review without refreshing; any new SHA needs its own note.
 4. When the workflow reaches its publication gate, run `agentic-preflight push`; it
-   atomically pushes the unchanged branch and `refs/notes/agentic-preflight` together.
+   publishes required original-commit evidence refs first, then atomically pushes
+   the unchanged branch and `refs/notes/agentic-preflight` together.
 5. Re-run the failed GitHub Actions workflows from the pull request. A notes-only push
    does not create a new `pull_request` event, so the original failed runs will not
    automatically notice the new attestation.
@@ -179,6 +188,14 @@ commits, execution times, commands/output digests, findings, and review manifest
 Refresh time is separate. The verifier recomputes available Git and policy
 bindings and validates every review unit before accepting transferred coverage.
 Unsigned provenance remains an audit record, not execution authentication.
+
+The publisher retains original commits locally and publishes their evidence refs
+before atomically publishing the branch and note. Gate summaries, manual push commands, and dry
+runs include these refs. Keep them while published notes reference them; ordinary
+run cleanup does not delete them. A fresh consumer fetches only the originals named
+by the selected note. Upgrade the publisher and hook as well as the protected
+consumer before relying on this transport. For an older note, republish from a
+clone that retains its original commits; a note's hashes cannot recover lost data.
 
 Upgrade trusted hosted consumers **before** enabling v5 production. In other
 repositories, deploy the compatible verifier, then commit `[reuse]` with

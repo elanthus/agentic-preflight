@@ -7,6 +7,14 @@ unless that exact SHA has a valid attestation for publication.
 The hook checks ref tips, not every commit newly reachable from them. Remote CI should
 verify the pull-request or branch-tip SHA when complete remote enforcement is required.
 
+Original execution commits travel as data under
+`refs/agentic-preflight/evidence/<SHA>`. The hook exempts only creation or unchanged
+publication of an evidence destination whose suffix equals the pushed object ID.
+Pushing such an object to a branch still requires valid publication evidence;
+replacing or deleting an evidence ref is blocked even when force pushes are allowed
+and the replacement has a valid attestation. Published notes may still depend on
+those original commits.
+
 For opt-in CI test delegation, the hook explicitly uses the publication predicate.
 It accepts schema 6 only after validating its local review/docs/lint evidence and
 protected-base delegation policy. Tests remain `delegated`, not green or skipped;

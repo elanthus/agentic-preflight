@@ -343,3 +343,60 @@ def test_peer_approval_uses_current_head_and_trusted_reviews(
     assert ci_merge.evaluate(feature_repo, api, 86)["merge_requirements_satisfied"] is True
     api.reviews.append({**review, "id": 2, "state": "CHANGES_REQUESTED"})
     assert ci_merge.evaluate(feature_repo, api, 86)["status"] == "approval_pending"
+
+
+@pytest.mark.parametrize("schema", [5, 6])
+def test_ci_rejects_lint_override_even_with_matching_config(delegated, fixed_clock, schema):
+    from agentic_preflight.digests import json_digest
+    from agentic_preflight.refresh_validation import json_digest_command
+
+    repo, _, policy, value = delegated
+    raw = value.model_dump(mode="json")
+    override = f'"{sys.executable}" -c "print(2)"'
+    raw["stages"]["lint"]["command"] = override
+    lint = raw["evidence"]["lint"]
+    lint["origin"]["result"]["command"] = override
+    lint["origin"]["fingerprint"]["command_sha256"] = json_digest_command(override)
+    lint["fingerprint"]["command_sha256"] = json_digest_command(override)
+    lint["origin_sha256"] = json_digest(lint["origin"])
+    if schema == 5:
+        raw["schema_version"] = 5
+        raw["green_at"] = NOW.isoformat()
+        raw["publication_ready_at"] = None
+        raw["test_delegation"] = None
+        # Supply valid local test provenance, independent of the overridden lint.
+        import copy
+
+        test = copy.deepcopy(lint)
+        test["origin"]["stage"] = "test"
+        from agentic_preflight.config import Config
+        from agentic_preflight.refresh_validation import shell_execution_config
+
+        cfg = Config.model_validate(raw["config_snapshot"])
+        test_command = cfg.commands.test
+        test["origin"]["result"]["command"] = test_command
+        for fp in (test["fingerprint"], test["origin"]["fingerprint"]):
+            fp["command_sha256"] = json_digest_command(test_command)
+            fp["config_sha256"] = json_digest(
+                {
+                    "execution": shell_execution_config(raw["config_snapshot"], Stage.TEST),
+                    "contract": None,
+                }
+            )
+        test["origin_sha256"] = json_digest(test["origin"])
+        raw["evidence"]["test"] = test
+        raw["stages"]["test"] = test["origin"]["result"]
+    overridden = attestation.decode(json.dumps(raw))
+    if schema == 5:
+        assert (
+            attestation.verify_value(repo, overridden, value.sha, purpose="publish") == overridden
+        )
+    api = remote_for(repo, policy, overridden)
+    result = ci_merge.evaluate(repo, api, 86)
+    assert result["status"] == "stale"
+    assert result["reason"] == (
+        "local lint execution differs from protected-base command"
+        if schema == 5
+        else "current shell command differs from configured command"
+    )
+    assert result["merge_requirements_satisfied"] is False

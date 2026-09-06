@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import shlex
+
 from .. import attestation as attestationmod
-from .. import gitx
+from .. import evidence_transport, gitx
 from .. import risk as riskmod
 from ..attestation import NOTES_REF
 from ..envelope import Envelope
@@ -57,6 +59,10 @@ def gate(session: Session) -> Envelope:
         portable = None
     if portable is not None:
         assessment = riskmod.include_attested_findings(assessment, portable.findings_summary)
+    refspecs = [f"{run.branch}:{run.branch}", f"{NOTES_REF}:{NOTES_REF}"]
+    evidence_refspecs = []
+    if portable is not None:
+        evidence_refspecs = evidence_transport.refspecs(portable)
     if run.risk != assessment or run.changed_files != changed_files:
         with session.store.transaction(run.run_id) as doc:
             doc.changed_files = changed_files
@@ -64,7 +70,7 @@ def gate(session: Session) -> Envelope:
             run = doc
     summary = gatemod.GateSummary(
         remote="origin",
-        refspec=f"{run.branch}:{run.branch} {NOTES_REF}:{NOTES_REF}",
+        refspec=" ".join([*evidence_refspecs, *refspecs]),
         branch=run.branch,
         base_ref=run.base_ref,
         pr_mode=session.config.pr.mode,
@@ -81,7 +87,11 @@ def gate(session: Session) -> Envelope:
             run_id=run.run_id,
             data={
                 **summary.as_dict(),
-                "manual_command": f"git push --atomic origin {run.branch} {NOTES_REF}",
+                "manual_command": " && ".join(
+                    shlex.join(["git", "push", "--atomic", "origin", *group])
+                    for group in (evidence_refspecs, refspecs)
+                    if group
+                ),
             },
             next_instruction=(
                 "Show the user this summary and data.manual_command, then stop; the user "
@@ -137,7 +147,14 @@ def gate(session: Session) -> Envelope:
         cleanup_instruction = ""
     return _envelope_for(
         run,
-        data=summary.as_dict(),
+        data={
+            **summary.as_dict(),
+            "push_commands": [
+                shlex.join(["git", "push", "--atomic", "origin", *group])
+                for group in (evidence_refspecs, refspecs)
+                if group
+            ],
+        },
         next_instruction=(
             "Show the user the remote, branch, and commit list in plain language. If the "
             "user explicitly requested a push, publish, or asked to create or open a pull "
@@ -168,12 +185,26 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
             next_command="agentic-preflight gate",
         )
 
+    try:
+        portable = attestationmod.verify(session.repo_root, run.head_sha, purpose="publish")
+    except (attestationmod.InvalidAttestation, gitx.GitError) as exc:
+        raise AttestationFailed(str(exc), next_command="agentic-preflight status") from exc
+    refspecs = [
+        f"{run.branch}:{run.branch}",
+        f"{NOTES_REF}:{NOTES_REF}",
+    ]
+    evidence_refspecs = evidence_transport.refspecs(portable)
+
     if dry_run:
         return _envelope_for(
             run,
             data={
                 "dry_run": True,
-                "would_push": f"origin {run.branch} {NOTES_REF}",
+                "would_push": " && ".join(
+                    shlex.join(["git", "push", "--atomic", "origin", *group])
+                    for group in (evidence_refspecs, refspecs)
+                    if group
+                ),
                 "branch": run.branch,
                 "base_ref": run.base_ref,
                 "pr_mode": session.config.pr.mode,
@@ -184,21 +215,31 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
             next_command="agentic-preflight push --confirm <token>",
         )
 
-    if run.test_delegation is not None:
-        try:
-            attestationmod.verify(session.repo_root, run.head_sha, purpose="publish")
-        except (attestationmod.InvalidAttestation, gitx.GitError) as exc:
-            raise AttestationFailed(str(exc), next_command="agentic-preflight status") from exc
-
     with session.store.resource("notes"):
         gitx.fetch_notes(session.repo_root, "origin", NOTES_REF)
+        try:
+            synchronized = attestationmod.read(session.repo_root, run.head_sha)
+        except attestationmod.InvalidAttestation as exc:
+            raise AttestationFailed(
+                "Attestation changed during notes synchronization; refresh before publication",
+                next_command="agentic-preflight status",
+            ) from exc
+        if synchronized != portable:
+            raise AttestationFailed(
+                "Attestation changed during notes synchronization; refresh before publication",
+                next_command="agentic-preflight status",
+            )
+        # Publish dependencies before exposing a note that requires them. Some
+        # servers reject hidden refs before processing the atomic ref transaction;
+        # a combined push can otherwise expose the branch despite that rejection.
+        if evidence_refspecs:
+            gitx.run(session.repo_root, "push", "--atomic", "origin", *evidence_refspecs)
         gitx.run(
             session.repo_root,
             "push",
             "--atomic",
             "origin",
-            f"{run.branch}:{run.branch}",
-            f"{NOTES_REF}:{NOTES_REF}",
+            *refspecs,
         )
 
     with session.store.transaction(run.run_id) as doc:
