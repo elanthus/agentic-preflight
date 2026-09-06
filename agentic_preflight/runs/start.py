@@ -23,7 +23,7 @@ from ..errors import (
 )
 from ..machine import TERMINAL_STATES, Action, State
 from ..models import Attestation, RunDoc, SetupFailure, Stage, StageRecord
-from ..store import CurrentRunExists
+from ..store import CurrentRunExists, UnknownRun
 from . import evidence
 from ._session import (
     Session,
@@ -91,7 +91,7 @@ def _claim_alias(session: Session, owner_id: str, run_id: str) -> None:
     if current and current != run_id:
         try:
             existing = session.store.load_run(current)
-        except Exception:  # noqa: BLE001 - a dangling alias is safe to reclaim
+        except UnknownRun:
             session.store.clear_active_if(owner_id, current)
         else:
             if existing.state in TERMINAL_STATES:
@@ -153,11 +153,11 @@ def start(
     snapshot = cfg.model_dump(mode="json")
     resolved_config_digest = config_digest(snapshot)
 
-    current = session.store.get_active(session.owner_id)
+    current = session.store.get_active(session.owner_id) or session.legacy_run_id
     if current:
         try:
             existing = session.store.load_run(current)
-        except Exception:  # noqa: BLE001 - a dangling pointer has no work to preserve
+        except UnknownRun:
             session.store.clear_active_if(session.owner_id, current)
         else:
             if existing.state in TERMINAL_STATES:

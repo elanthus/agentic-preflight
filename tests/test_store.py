@@ -149,3 +149,85 @@ def test_legacy_current_pointer_migrates_to_the_invoking_worktree(store):
     assert store.migrate_legacy_current("worktree-a") == "r_legacy"
     assert store.get_active("worktree-a") == "r_legacy"
     assert not store.current_path.exists()
+
+
+@pytest.mark.parametrize(
+    "kind",
+    ["unknown_field", "invalid_value", "malformed_json", "invalid_record", "invalid_encoding"],
+)
+def test_unreadable_run_errors_are_classified_without_values(store, kind):
+    from agentic_preflight.store import RunReadError
+    from tests.conftest import unreadable_run_bytes
+
+    run = make_run()
+    store.create_run(run)
+    path = store.run_path(run.run_id)
+    original = unreadable_run_bytes(run, kind)
+    path.write_bytes(original)
+    with pytest.raises(RunReadError) as caught:
+        store.load_run(run.run_id)
+    details = caught.value.details()
+    assert details["reason"] == (
+        "invalid_or_unsupported_schema" if kind in {"unknown_field", "invalid_value"} else kind
+    )
+    assert details["run_id"] == run.run_id
+    assert details["path"] == str(path)
+    assert "DO_NOT_ECHO_RECORD_VALUES" not in json.dumps(details)
+    if kind == "unknown_field":
+        assert details["fields"] == [
+            {
+                "location": ["review_coverage", "future_coverage_revision"],
+                "category": "extra_forbidden",
+            }
+        ]
+    assert path.read_bytes() == original
+
+
+def test_inventory_preserves_record_when_stat_is_denied(store, monkeypatch):
+    from pathlib import Path
+
+    store.create_run(make_run())
+    path = store.run_path("r_abc123")
+    stat = Path.stat
+
+    def denied(record, *args, **kwargs):
+        if record == path:
+            raise PermissionError(13, "private record value")
+        return stat(record, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", denied)
+    assert store.list_runs() == ["r_abc123"]
+
+
+@pytest.mark.parametrize("inventory", ["list_runs", "list_active"])
+def test_global_inventory_io_failure_is_not_an_empty_store(store, monkeypatch, inventory):
+    from pathlib import Path
+
+    def denied(path):
+        raise PermissionError(13, "inventory denied")
+
+    monkeypatch.setattr(Path, "iterdir", denied)
+    with pytest.raises(PermissionError):
+        getattr(store, inventory)()
+
+
+def test_unexpected_parser_bug_is_not_an_unreadable_record(store, monkeypatch):
+    store.create_run(make_run())
+
+    def bug(payload):
+        raise RuntimeError("parser bug")
+
+    monkeypatch.setattr("agentic_preflight.store._parse_run", bug)
+    with pytest.raises(RuntimeError, match="parser bug"):
+        store.load_run("r_abc123")
+
+
+@pytest.mark.parametrize("payload", ["null", "42", '"a string"', "[]"])
+def test_scalar_and_array_json_roots_are_controlled_errors(store, payload):
+    from agentic_preflight.store import RunReadError
+
+    store.create_run(make_run())
+    store.run_path("r_abc123").write_text(payload)
+    with pytest.raises(RunReadError) as rejected:
+        store.load_run("r_abc123")
+    assert rejected.value.reason == "invalid_record"

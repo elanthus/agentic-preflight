@@ -279,6 +279,7 @@ stops — do not improvise a recovery from the symptom alone.
 | Hosted CI failed | Inspect the failure; unchanged-source CI reruns preserve local evidence, while source repairs revalidate affected stages |
 | Stale head (exit 3, `stale_run`) | Run `start` again; it preserves the old run as `ORPHANED` |
 | Abandoned run | `status --all`; inspect explicitly with `--run RUN_ID` |
+| Unreadable shared run record | Preserve the record and ownership; use a compatible version or inspect its path |
 | Diff too large (exit 2, `diff_too_large`) | Exclude generated globs; never review part of it |
 | No command configured (exit 2, `needs_command`) | Show candidates; require user selection and approval; distrust the first green |
 | Setup failed (exit 2, `setup_failed`) | Obey `status`: abort initial setup or preserve the baseline retry |

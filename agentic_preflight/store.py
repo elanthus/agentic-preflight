@@ -26,6 +26,8 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from . import filelock
 from .models import Finding, RunDoc
 
@@ -59,15 +61,48 @@ _REMOVED_LIFECYCLE_STATES = {
 def _parse_run(payload: str) -> RunDoc:
     """Read current documents and migrate the removed hosted-PR lifecycle."""
     raw = json.loads(payload)
+    if not isinstance(raw, dict):
+        raise InvalidRunRoot("run record must be a JSON object")
     for field in _REMOVED_LIFECYCLE_FIELDS:
         raw.pop(field, None)
-    if raw.get("state") in _REMOVED_LIFECYCLE_STATES:
+    if isinstance(raw.get("state"), str) and raw["state"] in _REMOVED_LIFECYCLE_STATES:
         raw["state"] = "PUSHED"
     return RunDoc.model_validate(raw)
 
 
 class StoreError(Exception):
     """Base class for persistence failures."""
+
+
+RUN_READ_RECOVERY = (
+    "Use a compatible tool version or inspect the retained run record. "
+    "Do not replace the run or delete its ownership pointers; --force cannot "
+    "establish cleanup eligibility for an unreadable record."
+)
+
+
+class InvalidRunRoot(ValueError):
+    """A JSON value cannot represent a run document."""
+
+
+class RunReadError(StoreError):
+    """An existing record could not be read or validated; preserve its resources."""
+
+    def __init__(self, run_id: str, path: Path, reason: str, diagnostic: str, *, fields=None):
+        super().__init__(diagnostic)
+        self.run_id = run_id
+        self.path = path
+        self.reason = reason
+        self.fields = fields or []
+
+    def details(self) -> dict:
+        return {
+            "run_id": self.run_id,
+            "path": str(self.path),
+            "reason": self.reason,
+            "diagnostic": str(self),
+            "fields": self.fields,
+        }
 
 
 class UnknownRun(StoreError):
@@ -217,15 +252,64 @@ class Store:
 
     def load_run(self, run_id: str) -> RunDoc:
         path = self.run_path(run_id)
-        if not path.exists():
-            raise UnknownRun(run_id)
-        return _parse_run(path.read_text(encoding="utf-8"))
+        try:
+            payload = path.read_text(encoding="utf-8")
+        except FileNotFoundError as exc:
+            raise UnknownRun(run_id) from exc
+        except UnicodeDecodeError as exc:
+            raise RunReadError(
+                run_id, path, "invalid_encoding", "Run record is not UTF-8."
+            ) from exc
+        except OSError as exc:
+            raise RunReadError(
+                run_id,
+                path,
+                "io_error",
+                f"Cannot read run record ({type(exc).__name__}, errno {exc.errno}).",
+            ) from exc
+        try:
+            return _parse_run(payload)
+        except json.JSONDecodeError as exc:
+            raise RunReadError(
+                run_id,
+                path,
+                "malformed_json",
+                f"Invalid JSON at line {exc.lineno}, column {exc.colno}.",
+            ) from exc
+        except InvalidRunRoot as exc:
+            raise RunReadError(run_id, path, "invalid_record", str(exc)) from exc
+        except ValidationError as exc:
+            raise RunReadError(
+                run_id,
+                path,
+                "invalid_or_unsupported_schema",
+                "Run record does not match the supported schema; it may be incompatible or invalid.",
+                fields=[
+                    {"location": list(error["loc"]), "category": error["type"]}
+                    for error in exc.errors(
+                        include_url=False, include_context=False, include_input=False
+                    )
+                ],
+            ) from exc
 
     def list_runs(self) -> list[str]:
         runs = self.root / "runs"
-        if not runs.exists():
+        try:
+            entries = list(runs.iterdir())
+        except FileNotFoundError:
             return []
-        return sorted(p.name for p in runs.iterdir() if (p / "run.json").exists())
+        known = []
+        for entry in entries:
+            try:
+                (entry / "run.json").stat()
+            except FileNotFoundError:
+                continue
+            except OSError:
+                # Inability to inspect a record is not evidence of absence.
+                # load_run supplies the per-record diagnostic to callers.
+                pass
+            known.append(entry.name)
+        return sorted(known)
 
     @contextmanager
     def transaction(self, run_id: str, *, expect_seq: int | None = None) -> Iterator[RunDoc]:
@@ -325,10 +409,14 @@ class Store:
         return payload.strip() or None
 
     def list_active(self) -> dict[str, str]:
-        if not self.active_dir.exists():
+        try:
+            entries = list(self.active_dir.iterdir())
+        except FileNotFoundError:
             return {}
         active: dict[str, str] = {}
-        for path in self.active_dir.glob("*.run"):
+        for path in entries:
+            if path.suffix != ".run":
+                continue
             try:
                 run_id = path.read_text(encoding="utf-8").strip()
             except FileNotFoundError:
@@ -348,12 +436,20 @@ class Store:
     def migrate_legacy_current(self, owner_id: str) -> str | None:
         """Move the old clone-wide pointer to the invoking worktree once."""
         with filelock.exclusive(self.root / ".current.lock"):
-            if not self.current_path.exists():
+            try:
+                run_id = self.current_path.read_text(encoding="utf-8").strip()
+            except FileNotFoundError:
                 return self.get_active(owner_id)
-            run_id = self.current_path.read_text(encoding="utf-8").strip()
             if not run_id:
                 self.current_path.unlink(missing_ok=True)
                 return self.get_active(owner_id)
+            try:
+                self.load_run(run_id)
+            except RunReadError:
+                # Do not rewrite even legacy ownership for an unreadable run.
+                return self.get_active(owner_id) or run_id
+            except UnknownRun:
+                pass  # Preserve established missing-pointer recovery.
             with self._active_lock(owner_id):
                 current = self.get_active(owner_id)
                 if current is None:

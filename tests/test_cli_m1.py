@@ -509,3 +509,97 @@ def test_gc_reconciles_a_worktree_with_no_run_directory(agent, feature_repo):
 
     env = agent.run("gc")
     assert run_id in env["data"]["orphans"]
+
+
+@pytest.mark.parametrize("force", [False, True])
+@pytest.mark.parametrize("bad_id", ["r_a_unreadable", "r_z_unreadable"])
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "unknown_field",
+        "invalid_value",
+        "malformed_json",
+        "invalid_record",
+        "invalid_encoding",
+        "io_error",
+    ],
+)
+def test_gc_retains_unreadable_resources_and_collects_other_runs(
+    feature_repo, tmp_path, monkeypatch, force, bad_id, kind
+):
+    from agentic_preflight import runs
+    from tests.conftest import make_run, unreadable_run_bytes
+
+    session = runs.open_session(feature_repo)
+    store = session.store
+    for run_id in (bad_id, "r_m_collectible"):
+        wt = tmp_path / run_id
+        git("worktree", "add", "-b", f"ap/{run_id}", str(wt), "main", cwd=feature_repo)
+        run = make_run(run_id)
+        run.state = State.DONE
+        run.worktree_path = str(wt)
+        run.worktree_branch = f"ap/{run_id}"
+        run.config_snapshot = {"worktree": {"mode": "strict"}}
+        store.create_run(run)
+    bad = store.load_run(bad_id)
+    path = store.run_path(bad_id)
+    original = unreadable_run_bytes(bad, kind)
+    path.write_bytes(original)
+    store.set_active(session.owner_id, bad_id)
+    store.set_active("another-owner", bad_id)
+    aliases = {p.name: p.read_bytes() for p in store.active_dir.glob("*.run")}
+    branch = git("rev-parse", f"ap/{bad_id}", cwd=feature_repo)
+    if kind == "io_error":
+        read = Path.read_text
+        stat = Path.stat
+
+        def denied(record, *args, **kwargs):
+            if record == path:
+                raise PermissionError(13, "DO_NOT_ECHO_RECORD_VALUES")
+            return read(record, *args, **kwargs)
+
+        def denied_stat(record, *args, **kwargs):
+            if record == path:
+                raise PermissionError(13, "DO_NOT_ECHO_RECORD_VALUES")
+            return stat(record, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", denied)
+        monkeypatch.setattr(Path, "stat", denied_stat)
+    result = ScriptedAgent(feature_repo).run("gc", *(["--force"] if force else []))
+    assert result["data"]["removed"] == ["r_m_collectible"]
+    assert not (tmp_path / "r_m_collectible").exists()
+    assert bad_id in result["data"]["runs_known"]
+    assert bad_id not in result["data"]["orphans"]
+    retained = result["data"]["retained"]
+    assert len(retained) == 1
+    assert retained[0]["run_id"] == bad_id
+    assert retained[0]["path"] == str(path)
+    assert retained[0]["reason"] == (
+        "invalid_or_unsupported_schema" if kind in {"unknown_field", "invalid_value"} else kind
+    )
+    assert "DO_NOT_ECHO_RECORD_VALUES" not in json.dumps(result)
+    assert result["next"]["command"] is None
+    assert "compatible" in result["next"]["instruction"]
+    assert path.read_bytes() == original
+    assert (tmp_path / bad_id).exists()
+    assert git("rev-parse", f"ap/{bad_id}", cwd=feature_repo) == branch
+    assert {p.name: p.read_bytes() for p in store.active_dir.glob("*.run")} == aliases
+
+
+def test_gc_cleanup_failures_still_surface(feature_repo, monkeypatch):
+    from agentic_preflight import runs
+    from tests.conftest import make_run
+
+    store = runs.open_session(feature_repo).store
+    run = make_run()
+    run.state = State.DONE
+    run.worktree_path = str(feature_repo)
+    store.create_run(run)
+
+    def failed(*args):
+        raise OSError("cleanup failed")
+
+    monkeypatch.setattr("agentic_preflight.runs.lifecycle._release_run_worktree", failed)
+    result = ScriptedAgent(feature_repo).run("gc", expect=1)
+    assert result["error"]["code"] == "internal_error"
+    assert store.load_run(run.run_id).worktree_released is False

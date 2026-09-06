@@ -10,6 +10,8 @@ from concurrent.futures import ThreadPoolExecutor
 from importlib import import_module
 from pathlib import Path
 
+import pytest
+
 from agentic_preflight import runs
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.store import CurrentRunExists
@@ -280,3 +282,137 @@ def test_replace_preserves_an_isolated_validation_checkout(feature_repo):
     )
     assert old["state"] == "ORPHANED"
     assert old["worktree_released"] is False
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "unknown_field",
+        "invalid_value",
+        "malformed_json",
+        "invalid_record",
+        "invalid_encoding",
+        "io_error",
+    ],
+)
+def test_status_and_start_preserve_existing_unreadable_run(feature_repo, monkeypatch, kind):
+    from tests.conftest import make_run, unreadable_run_bytes
+
+    session = runs.open_session(feature_repo)
+    store = session.store
+    run = make_run()
+    store.create_run(run)
+    path = store.run_path(run.run_id)
+    original = unreadable_run_bytes(run, kind)
+    path.write_bytes(original)
+    store.set_active(session.owner_id, run.run_id)
+    store.set_active("second-alias", run.run_id)
+    aliases = store.list_active()
+    if kind == "io_error":
+        read = Path.read_text
+
+        def denied(record, *args, **kwargs):
+            if record == path:
+                raise PermissionError(13, "DO_NOT_ECHO_RECORD_VALUES")
+            return read(record, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", denied)
+    agent = ScriptedAgent(feature_repo)
+    for args in [("status",), ("--run", run.run_id, "status")]:
+        result = agent.run(*args)
+        assert result["run_id"] == run.run_id
+        assert result["data"]["has_run"] is True
+        assert result["data"]["readable"] is False
+        assert result["next"]["command"] is None
+        assert "compatible" in result["next"]["instruction"]
+        assert "DO_NOT_ECHO_RECORD_VALUES" not in json.dumps(result)
+    inventory = agent.run("status", "--all")
+    assert inventory["data"]["runs"][0]["readable"] is False
+    assert inventory["data"]["runs"][0]["active"] is True
+    assert "corrupt" not in inventory["data"]["runs"][0]
+    assert inventory["data"]["runs"][0]["reason"] == result["data"]["read_failure"]["reason"]
+    for args in [("start",), ("abort",)]:
+        failure = agent.run(*args, expect=3)
+        assert failure["error"]["code"] == "run_record_unreadable"
+        assert failure["next"]["command"] is None
+    assert store.list_active() == aliases
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize("command", ["status", "gc"])
+def test_missing_pointer_recovery_does_not_clear_concurrent_new_owner(
+    feature_repo, monkeypatch, command
+):
+    from agentic_preflight.store import Store
+    from tests.conftest import make_run
+
+    session = runs.open_session(feature_repo)
+    store = session.store
+    store.set_active(session.owner_id, "r_missing")
+    replacement = make_run("r_replacement")
+    replacement.source_worktree_id = session.owner_id
+    replacement.source_worktree_path = str(feature_repo)
+    clear = Store.clear_active_if
+
+    def changed(current_store, owner, run_id):
+        current_store.create_run(replacement)
+        current_store.set_active(owner, replacement.run_id)
+        return clear(current_store, owner, run_id)
+
+    monkeypatch.setattr(Store, "clear_active_if", changed)
+    ScriptedAgent(feature_repo).run(command)
+    assert store.get_active(session.owner_id) == replacement.run_id
+
+
+def test_missing_record_status_keeps_deliberate_dangling_recovery(feature_repo):
+    session = runs.open_session(feature_repo)
+    session.store.set_active(session.owner_id, "r_missing")
+    result = ScriptedAgent(feature_repo).run("status")
+    assert result["data"]["has_run"] is False
+    assert result["data"]["dangling_run_id"] == "r_missing"
+    assert session.store.get_active(session.owner_id) is None
+
+
+@pytest.mark.parametrize("args", [("status",), ("status", "--all"), ("gc",)])
+def test_programming_errors_do_not_clear_ownership(feature_repo, monkeypatch, args):
+    from agentic_preflight.store import Store
+    from tests.conftest import make_run
+
+    session = runs.open_session(feature_repo)
+    session.store.create_run(make_run())
+    session.store.set_active(session.owner_id, "r_abc123")
+
+    def bug(*args):
+        raise RuntimeError("unexpected parser bug")
+
+    monkeypatch.setattr(Store, "load_run", bug)
+    result = ScriptedAgent(feature_repo).run(*args, expect=1)
+    assert result["error"]["code"] == "internal_error"
+    assert session.store.get_active(session.owner_id) == "r_abc123"
+
+
+@pytest.mark.parametrize(
+    "args", [("status",), ("status", "--all"), ("gc",), ("gc", "--force"), ("start",)]
+)
+def test_unreadable_legacy_pointer_is_not_migrated_or_replaced(feature_repo, args):
+    from tests.conftest import make_run, unreadable_run_bytes
+
+    session = runs.open_session(feature_repo)
+    store = session.store
+    run = make_run()
+    store.create_run(run)
+    original = unreadable_run_bytes(run, "unknown_field")
+    store.run_path(run.run_id).write_bytes(original)
+    store.current_path.write_text(run.run_id + "\n")
+    pointer = store.current_path.read_bytes()
+    result = ScriptedAgent(feature_repo).run(*args, expect=3 if args == ("start",) else 0)
+    if args == ("status",):
+        assert result["data"]["has_run"] is True
+        assert result["data"]["readable"] is False
+    elif args == ("status", "--all"):
+        assert result["data"]["runs"][0]["active"] is True
+    elif args[0] == "gc":
+        assert result["data"]["retained"][0]["run_id"] == run.run_id
+    assert store.current_path.read_bytes() == pointer
+    assert store.list_active() == {}
+    assert store.run_path(run.run_id).read_bytes() == original
