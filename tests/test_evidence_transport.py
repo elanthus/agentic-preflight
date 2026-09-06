@@ -173,27 +173,56 @@ def test_hosted_provenance_failure_is_not_retried(published, bad):
     assert not git("for-each-ref", "refs/agentic-preflight/availability", cwd=runner)
 
 
-@pytest.mark.parametrize("destination", ["correct", "wrong_suffix", "branch", "replace", "delete"])
-def test_hook_exempts_only_immutable_evidence_destinations(destination):
+@pytest.mark.parametrize("allow_force_push", [False, True])
+@pytest.mark.parametrize("attested", [False, True])
+@pytest.mark.parametrize("ancestor", [False, True])
+@pytest.mark.parametrize(
+    "destination",
+    ["correct", "unchanged", "wrong_suffix", "branch", "replace", "replace_named", "delete"],
+)
+def test_hook_exempts_only_immutable_evidence_destinations(
+    destination, allow_force_push, attested, ancestor
+):
     sha = "a" * 40
     source = evidence_transport.ref_for(sha)
     target = source
     old = "0" * 40
-    if destination == "wrong_suffix":
+    if destination == "unchanged":
+        old = sha
+    elif destination == "wrong_suffix":
         target = evidence_transport.ref_for("b" * 40)
     elif destination == "branch":
         target = "refs/heads/main"
     elif destination == "replace":
         old = "b" * 40
+    elif destination == "replace_named":
+        old = sha
+        sha = "b" * 40
     elif destination == "delete":
         old = sha
         sha = "0" * 40
     decision = hook.evaluate(
         [hook.RefUpdate(source, sha, target, old)],
-        is_ancestor=lambda *_: False,
-        has_attestation=lambda _: False,
+        is_ancestor=lambda *_: ancestor,
+        has_attestation=lambda _: attested,
+        allow_force_push=allow_force_push,
     )
-    assert decision.allowed is (destination == "correct")
+    assert decision.allowed is (
+        destination in {"correct", "unchanged"} or (destination == "branch" and attested)
+    )
+
+
+def test_evidence_replacement_is_blocked_even_from_notes_source():
+    sha = "a" * 40
+    old = "b" * 40
+    decision = hook.evaluate(
+        [hook.RefUpdate(attestation.NOTES_REF, sha, evidence_transport.ref_for(old), old)],
+        is_ancestor=lambda *_: True,
+        has_attestation=lambda _: True,
+        allow_force_push=True,
+    )
+    assert decision.allowed is False
+    assert decision.reason == "evidence replacement"
 
 
 @pytest.mark.parametrize("change", ["delete", "replace", "malformed", "unrelated"])
