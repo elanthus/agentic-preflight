@@ -5,6 +5,12 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Fixed
+
+- Retain unreadable shared run records during garbage collection, report classified
+  diagnostics, and preserve ownership in status and start recovery. Unreadable records
+  remain protected even under forced collection.
+
 ### Added
 
 - Opt-in trusted GitHub Actions test authority, with separate publication and merge

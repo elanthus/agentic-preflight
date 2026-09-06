@@ -37,6 +37,7 @@ from ..refresh_validation import (
     verify_stage,
 )
 from ..shell_fingerprints import ShellFingerprint, classify_shell, compute_shell_fingerprint
+from ..store import RunReadError, UnknownRun
 from . import review_protocol
 from ._session import Session, _apply, _now, _require_worktree
 
@@ -156,7 +157,7 @@ def discover(session: Session, run: RunDoc) -> RunDoc:
             continue
         try:
             old = session.store.load_run(run_id)
-        except (OSError, ValueError, ValidationError):
+        except (OSError, ValueError, ValidationError, RunReadError, UnknownRun):
             continue
         if old.source_worktree_id != run.source_worktree_id or old.branch != run.branch:
             continue

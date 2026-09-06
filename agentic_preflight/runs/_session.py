@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from .. import findings as findingsmod
 from .. import gitx, worktree
 from ..config import Config, load_config
@@ -21,7 +23,7 @@ from ..errors import (
 )
 from ..machine import Action, IllegalTransition, State, next_state, recovery_hint
 from ..models import RunDoc, Stage
-from ..store import Store
+from ..store import RunReadError, Store, UnknownRun
 
 STATE_DIR_NAME = "agentic-preflight"
 
@@ -37,9 +39,10 @@ class Session:
     config: Config
     selected_run_id: str | None = None
     source_worktree_available: bool = True
+    legacy_run_id: str | None = None
 
     def active_run_id(self) -> str | None:
-        return self.selected_run_id or self.store.get_active(self.owner_id)
+        return self.selected_run_id or self.store.get_active(self.owner_id) or self.legacy_run_id
 
 
 def worktree_identity(cwd: Path | str) -> str:
@@ -56,20 +59,22 @@ def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) ->
     state_root = gitx.git_common_dir(cwd) / STATE_DIR_NAME
     store = Store(state_root)
     owner_id = worktree_identity(caller_root)
-    store.migrate_legacy_current(owner_id)
+    legacy_current = store.migrate_legacy_current(owner_id)
+    legacy_run_id = legacy_current if store.get_active(owner_id) is None else None
 
     # Once a run exists, its resolved snapshot is authoritative. This also
     # keeps a malformed or edited working-copy config from stranding `status`
     # or silently reshaping an in-flight gate.
     cfg = None
-    current = run_id or store.get_active(owner_id)
+    current = run_id or store.get_active(owner_id) or legacy_run_id
     active = None
     if current:
         try:
             active = store.load_run(current)
             if active.config_snapshot is not None:
                 cfg = Config.model_validate(active.config_snapshot)
-        except Exception:  # noqa: BLE001,S110 - a corrupt snapshot falls back to repo config
+        except (UnknownRun, RunReadError, ValidationError):
+            # Inspection must remain available without trusting an unreadable run.
             pass
     repo_root = caller_root
     source_worktree_available = True
@@ -89,6 +94,7 @@ def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) ->
         store=store,
         config=cfg,
         selected_run_id=run_id,
+        legacy_run_id=legacy_run_id,
         source_worktree_available=source_worktree_available,
     )
 
@@ -199,7 +205,7 @@ def _load_current(session: Session) -> RunDoc:
         raise NoRun()
     try:
         return session.store.load_run(run_id)
-    except Exception as exc:  # a dangling `current` pointer is a missing run
+    except UnknownRun as exc:
         raise NoRun(f"current run {run_id} is missing from the store") from exc
 
 

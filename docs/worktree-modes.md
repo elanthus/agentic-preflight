@@ -18,6 +18,13 @@ to invoke them. If that source checkout was deleted, `status`, `events`, and `lo
 available for inspection, but gated mutations fail with `source_worktree_missing` and
 direct recovery to `gc` from a surviving worktree in the same clone.
 
+The shared store can contain records written by another tool version. If a record
+cannot be read or validated, `status` reports its identity and diagnostic without
+clearing its ownership pointer. `status --all` includes it as unreadable rather than
+calling it corrupt. `gc` retains the record and its resources, even with `--force`,
+while collecting other eligible runs. Use a compatible version or inspect the record;
+never delete an alias merely to make an unreadable run look absent.
+
 A repeated `start` with the same head, intent, base, and effective configuration resumes
 the matching run. If the source head moved, `start` marks the old run `ORPHANED` and
 continues without deleting its evidence, validation checkout, or fix commits. A different

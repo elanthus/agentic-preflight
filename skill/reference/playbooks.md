@@ -76,6 +76,22 @@ retained unless `--force` is explicit. If the source checkout itself disappeared
 `source_worktree_missing` so fixes cannot be applied to the caller's unrelated checkout.
 Run `gc` from a surviving worktree in the same clone.
 
+## Unreadable shared run record
+
+Linked worktrees share a run store but may use different tool versions. `gc` retains
+records it cannot read or validate, reports their IDs, paths, reasons, and diagnostics
+in `data.retained`, and continues collecting understood runs. An unknown field alone
+means the schema is invalid or unsupported; it does not prove a newer producer or
+corruption. `--force` does not authorize deleting these records or their resources.
+
+Use the reported path to inspect the record or run a compatible tool version. Keep
+its JSON, worktree, branch, and active aliases intact. Both forms of `status` report
+unreadable records; single-run status preserves ownership and reports `has_run: true`
+and `readable: false`. Do not start a replacement run as if the record were missing.
+Mutating commands reject unreadable records with `run_record_unreadable` (exit 3).
+Only a confirmed missing file permits compare-and-clear pointer recovery. A global
+inventory or cleanup failure still fails the command and must be investigated.
+
 ## Diff too large (exit 2, `diff_too_large`)
 
 The diff is never truncated, so reviewing part of it is not an option. Look at

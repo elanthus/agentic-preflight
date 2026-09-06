@@ -298,3 +298,26 @@ def bare_remote(tmp_path: Path, tmp_repo: Path) -> Path:
     git("remote", "add", "origin", str(remote), cwd=tmp_repo)
     git("push", "-u", "origin", "main", cwd=tmp_repo)
     return remote
+
+
+def unreadable_run_bytes(run: RunDoc, kind: str) -> bytes:
+    """Synthetic mixed-version records; never rely on a real field staying unknown."""
+    import json
+
+    raw = run.model_dump(mode="json")
+    if kind == "unknown_field":
+        raw["review_coverage"] = {
+            "manifest": "a" * 64,
+            "head_sha": "b" * 40,
+            "total_units": 0,
+            "future_coverage_revision": "DO_NOT_ECHO_RECORD_VALUES",
+        }
+    elif kind == "invalid_value":
+        raw["state"] = ["DO_NOT_ECHO_RECORD_VALUES"]
+    elif kind == "malformed_json":
+        return b'{"DO_NOT_ECHO_RECORD_VALUES": '
+    elif kind == "invalid_record":
+        return b'["DO_NOT_ECHO_RECORD_VALUES"]'
+    elif kind == "invalid_encoding":
+        return b"\xffDO_NOT_ECHO_RECORD_VALUES"
+    return json.dumps(raw).encode()

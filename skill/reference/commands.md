@@ -356,6 +356,20 @@ Ends the run and releases the worktree. Exits 5 if unmerged fix commits would be
 `--force` discards them.
 
 ### `agentic-preflight gc [--force]`
+Unreadable run records are retained and reported individually in `data.retained`, with
+their run ID, path, reason, and diagnostic. Collection continues for other eligible runs.
+Reasons distinguish `invalid_or_unsupported_schema`, `malformed_json`, `invalid_record`
+(a non-object JSON root), `invalid_encoding`, `io_error`, and a confirmed `missing`
+record. Schema diagnostics list field locations and validation categories without record
+values; an unknown field does not establish which tool version wrote it.
+
+Even `--force` preserves unreadable records, their branches, worktrees, and ownership
+pointers. Use a compatible tool version or inspect the indicated record. Neither
+`status` nor `status --all` treats an unreadable record as absent: inspection reports
+`readable: false`, and single-run status keeps `has_run: true` with `data.read_failure`.
+Recovery guidance supplies no executable replacement command. Only confirmed absence
+permits stale-pointer recovery. Global inventory and cleanup failures still fail visibly.
+
 Reconciles run directories, git worktrees, and `ap/*` branches. For a terminal run,
 each fix commit is compared by stable patch ID with commits in that run's
 post-mergeback history. Patch-equivalent cherry-picks are safe to reclaim; anything

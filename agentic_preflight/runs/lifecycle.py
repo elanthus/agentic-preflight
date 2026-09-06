@@ -14,7 +14,7 @@ from ..errors import (
 )
 from ..machine import Action, State
 from ..models import FindingStatus, RunDoc
-from ..store import StoreError
+from ..store import RUN_READ_RECOVERY, RunReadError, StoreError, UnknownRun
 from ._session import (
     Session,
     _apply,
@@ -98,9 +98,19 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
     active = store.list_active()
     for owner_id, active_run_id in list(active.items()):
         if active_run_id not in known_runs:
-            store.clear_active_if(owner_id, active_run_id)
-            active.pop(owner_id, None)
+            try:
+                store.load_run(active_run_id)
+            except UnknownRun:
+                store.clear_active_if(owner_id, active_run_id)
+            except RunReadError:
+                known_runs.add(active_run_id)
+            else:
+                known_runs.add(active_run_id)
+    active = store.list_active()
     active_run_ids = set(active.values())
+    if session.legacy_run_id:
+        active_run_ids.add(session.legacy_run_id)
+    known_runs.update(active_run_ids)
     live_worktrees = {
         record["branch"].removeprefix("refs/heads/ap/"): record["worktree"]
         for record in gitx.list_worktrees(repo)
@@ -115,9 +125,25 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
     removed: list[str] = []
     retained: list[dict] = []
     orphans: list[str] = []
+    unreadable_retained = False
 
     for run_id in sorted(known_runs):
-        run = store.load_run(run_id)
+        try:
+            run = store.load_run(run_id)
+        except RunReadError as exc:
+            retained.append(exc.details())
+            unreadable_retained = True
+            continue
+        except UnknownRun:
+            retained.append(
+                {
+                    "run_id": run_id,
+                    "path": str(store.run_path(run_id)),
+                    "reason": "missing",
+                    "diagnostic": "Run record disappeared during collection.",
+                }
+            )
+            continue
         terminal = run.state in (State.ABORTED, State.DONE, State.ORPHANED)
         if not terminal:
             source_missing = bool(
@@ -216,8 +242,18 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
             "runs_known": sorted(known_runs),
             "active": store.list_active(),
         },
-        next_instruction=("Orphans were found; inspect them before removing." if orphans else None),
-        next_command="agentic-preflight gc --force" if orphans and not force else None,
+        next_instruction=(
+            RUN_READ_RECOVERY
+            if unreadable_retained
+            else "Orphans were found; inspect them before removing."
+            if orphans
+            else None
+        ),
+        next_command=(
+            "agentic-preflight gc --force"
+            if orphans and not force and not unreadable_retained
+            else None
+        ),
     )
 
 
@@ -266,18 +302,34 @@ def _hook_status(repo: Path) -> dict[str, str | bool | None]:
 def status(session: Session, *, all_runs: bool = False) -> Envelope:
     """Legal in every state, and the universal recovery entry point.
 
-    Deliberately never raises for a stale or wedged run: if `status` could fail,
-    an agent that had wandered off the path would have nowhere to go.
+    Expected record-read failures remain inspectable. Unexpected programming or
+    global inventory failures still surface rather than claiming records vanished.
     """
     if all_runs:
         active = session.store.list_active()
         active_run_ids = set(active.values())
+        if session.legacy_run_id:
+            active_run_ids.add(session.legacy_run_id)
         summaries = []
-        for known_run_id in session.store.list_runs():
+        for known_run_id in sorted(set(session.store.list_runs()) | active_run_ids):
             try:
                 known = session.store.load_run(known_run_id)
-            except Exception:  # noqa: BLE001 - inventory must survive one corrupt record
-                summaries.append({"run_id": known_run_id, "corrupt": True})
+            except RunReadError as exc:
+                summaries.append(
+                    {**exc.details(), "readable": False, "active": known_run_id in active_run_ids}
+                )
+                continue
+            except UnknownRun:
+                summaries.append(
+                    {
+                        "run_id": known_run_id,
+                        "path": str(session.store.run_path(known_run_id)),
+                        "reason": "missing",
+                        "diagnostic": "Run record is missing.",
+                        "readable": False,
+                        "active": known_run_id in active_run_ids,
+                    }
+                )
                 continue
             summaries.append(
                 {
@@ -291,7 +343,14 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
                     "updated_at": known.updated_at,
                 }
             )
-        return Envelope(data={"active": active, "runs": summaries, "count": len(summaries)})
+        return Envelope(
+            data={"active": active, "runs": summaries, "count": len(summaries)},
+            next_instruction=RUN_READ_RECOVERY
+            if any(
+                item.get("readable") is False and item["reason"] != "missing" for item in summaries
+            )
+            else None,
+        )
 
     hook_status = _hook_status(session.caller_root)
     run_id = session.active_run_id()
@@ -304,13 +363,24 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
 
     try:
         run = session.store.load_run(run_id)
-    except Exception:  # noqa: BLE001 - status is the recovery path for corrupt state
+    except UnknownRun:
         if session.selected_run_id is None:
             session.store.clear_active_if(session.owner_id, run_id)
         return Envelope(
             data={"has_run": False, "dangling_run_id": run_id, "hook": hook_status},
             next_instruction="The recorded run is missing. Start a fresh one.",
             next_command=START_COMMAND,
+        )
+    except RunReadError as exc:
+        return Envelope(
+            run_id=run_id,
+            data={
+                "has_run": True,
+                "readable": False,
+                "read_failure": exc.details(),
+                "hook": hook_status,
+            },
+            next_instruction=RUN_READ_RECOVERY,
         )
 
     if run.state in (State.ABORTED, State.DONE, State.ORPHANED) and session.selected_run_id is None:
