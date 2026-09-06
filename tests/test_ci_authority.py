@@ -279,12 +279,22 @@ def test_candidate_changes_reject_old_success(change):
         api.pull["mergeable"] = None
     else:
         api.policy += "max_age_seconds = 3600\n"
-    try:
+    if change in {"parents", "mergeable"}:
+        reason = (
+            "integration commit is stale"
+            if change == "parents"
+            else "integration commit is unavailable"
+        )
+        with pytest.raises(authority.CandidatePending, match=reason):
+            authority.snapshot(api, 86)
+    elif change in {"retarget", "repo"}:
+        with pytest.raises(ValueError, match="repository or retargeted base") as rejected:
+            authority.snapshot(api, 86)
+        assert type(rejected.value) is ValueError
+    else:
         current, cfg, _ = authority.snapshot(api, 86)
-    except ValueError:
-        return
-    assert current != old
-    assert authority.evaluate_tests(api, current, cfg, now=NOW)["status"] == "pending"
+        assert current != old
+        assert authority.evaluate_tests(api, current, cfg, now=NOW)["status"] == "pending"
 
 
 def test_dispatch_is_idempotent_and_prepare_rejects_forged_inputs():

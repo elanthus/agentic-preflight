@@ -107,9 +107,14 @@ def templates(directory: Path) -> None:
         raise AttestationFailed("workflow destination already exists; inspect it before replacing")
     directory.mkdir(parents=True, exist_ok=True)
     for name in names:
-        (directory / name).write_text(
-            source.joinpath(name).read_text(encoding="utf-8"), encoding="utf-8"
-        )
+        content = source.joinpath(name).read_text(encoding="utf-8")
+        try:
+            with (directory / name).open("x", encoding="utf-8") as handle:
+                handle.write(content)
+        except FileExistsError as exc:
+            raise AttestationFailed(
+                "workflow destination already exists; inspect it before replacing"
+            ) from exc
     finish(
         Envelope(
             data={"written": [str(directory / name) for name in names]},

@@ -20,6 +20,10 @@ class InvalidAttestation(ValueError):
     pass
 
 
+class DelegatedTestsPending(InvalidAttestation):
+    """Publication evidence is valid, but delegated tests are not local completion."""
+
+
 def output_digest(output: str) -> str:
     return hashlib.sha256(output.encode()).hexdigest()
 
@@ -191,7 +195,7 @@ def verify_value(
         except (ValueError, gitx.GitError) as exc:
             raise InvalidAttestation(str(exc)) from exc
         if purpose != "publish":
-            raise InvalidAttestation(
+            raise DelegatedTestsPending(
                 "tests are delegated, not locally green; use ci status --repo OWNER/REPO --pr N "
                 "to verify merge readiness, or verify --purpose publish for publication only"
             )

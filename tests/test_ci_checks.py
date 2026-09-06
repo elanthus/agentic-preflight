@@ -2,10 +2,11 @@
 
 import copy
 from importlib.resources import files
+from pathlib import Path
 
 import pytest
 
-from agentic_preflight import ci_checks, cli_ci
+from agentic_preflight import attestation, ci_checks, cli_ci
 from agentic_preflight.github_api import APIUnavailable
 from tests.driver import ScriptedAgent
 
@@ -130,9 +131,17 @@ def test_dispatch_outage_does_not_preserve_a_success(tmp_path, monkeypatch):
 
 def test_check_name_from_another_app_cannot_be_used_as_our_authority():
     api = CheckAPI()
-    api.checks = [{"id": 99, "app": {"id": 999}, "external_id": "agentic-preflight-ci-v1:forged"}]
+    api.checks = [
+        {
+            "id": 99,
+            "app": {"id": 999},
+            "external_id": "agentic-preflight-ci-v1:forged",
+            "head_sha": "a" * 40,
+        }
+    ]
     ci_checks.publish_check(api, "a" * 40, outcome(), app_id=30)
     assert api.writes[-1][0] == "POST"
+    assert api.checks[0]["app"] == {"id": 999}
     with pytest.raises(ValueError, match="dedicated GitHub App"):
         ci_checks.publish_check(api, "a" * 40, outcome(), app_id=999)
 
@@ -167,6 +176,7 @@ def test_templates_ship_and_never_overwrite(tmp_repo, tmp_path):
     assert "secrets." not in tests
     assert "Run delegated tests" in tests
     assert "Verify integration checkout" in tests
+    assert "timeout-minutes: 30" in tests
     reconcile = (
         files("agentic_preflight").joinpath("templates", "ci", "preflight-ci.yml").read_text()
     )
@@ -176,3 +186,45 @@ def test_templates_ship_and_never_overwrite(tmp_repo, tmp_path):
     assert "cancel-in-progress: false" in reconcile
     assert "inputs.candidate" not in reconcile
     assert "download-artifact" not in reconcile
+
+
+@pytest.mark.parametrize("name", ["preflight-tests.yml", "preflight-ci.yml"])
+def test_templates_preserve_concurrently_created_destination(tmp_repo, tmp_path, monkeypatch, name):
+    destination = tmp_path / "templates"
+    contested = destination / name
+    original_open = Path.open
+    raced = False
+
+    def competing_open(path, mode="r", *args, **kwargs):
+        nonlocal raced
+        if path == contested and mode in {"w", "x"} and not raced:
+            raced = True
+            with original_open(path, "w", encoding="utf-8") as handle:
+                handle.write("concurrently created workflow\n")
+        return original_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", competing_open)
+    result = ScriptedAgent(tmp_repo).run(
+        "ci", "templates", "--directory", str(destination), expect=2
+    )
+    assert raced
+    assert "already exists" in result["error"]["message"]
+    assert contested.read_text() == "concurrently created workflow\n"
+
+
+@pytest.mark.parametrize("delegated", [True, False])
+def test_verify_pending_guidance_uses_exception_type_not_message(tmp_repo, monkeypatch, delegated):
+    def reject(*args, **kwargs):
+        if delegated:
+            raise attestation.DelegatedTestsPending("Remote execution is incomplete")
+        raise attestation.InvalidAttestation("invalid evidence even though tests are delegated")
+
+    monkeypatch.setattr(attestation, "verify", reject)
+    result = ScriptedAgent(tmp_repo).run("verify", "HEAD", expect=2)
+    if delegated:
+        assert result["data"]["test_status"] == "delegated_pending"
+        assert result["next"]["command"] is None
+        assert "ci status --repo OWNER/REPO --pr N" in result["next"]["instruction"]
+    else:
+        assert "test_status" not in result["data"]
+        assert result["next"]["command"].startswith("git fetch origin")

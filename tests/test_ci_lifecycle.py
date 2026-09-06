@@ -113,7 +113,7 @@ def test_zero_local_test_executions_and_explicit_pending_schema(
     for key in ("command", "exit_code", "output_sha256", "finished_at", "fingerprint"):
         assert record[key] is None
     assert _has_valid_attestation(feature_repo, value.sha)
-    with pytest.raises(attestation.InvalidAttestation, match="tests are delegated"):
+    with pytest.raises(attestation.DelegatedTestsPending, match="tests are delegated"):
         attestation.verify(feature_repo, "HEAD")
     assert agent.run("verify", "HEAD", "--purpose", "publish")["data"]["purpose"] == "publish"
     agent.run("verify", "HEAD", expect=2)
