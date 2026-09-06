@@ -58,7 +58,11 @@ def test_start_preserves_green_when_the_attested_head_already_contains_the_fresh
     assert git("rev-parse", "HEAD", cwd=feature_repo) == head
 
 
-def test_start_requires_a_fresh_run_after_a_history_only_rebase(feature_repo, tmp_path):
+def test_legacy_consumer_requires_a_fresh_run_after_a_history_only_rebase(feature_repo, tmp_path):
+    """Keep the historical regression for bases that cannot consume v5 yet.
+
+    The enabled, three-mode reuse expectation is covered in test_evidence_refresh.
+    """
     agent = _green_run(feature_repo, tmp_path)
     old_head = git("rev-parse", "HEAD", cwd=feature_repo)
     agent.run("abort", "--force")

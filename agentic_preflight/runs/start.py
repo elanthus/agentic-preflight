@@ -24,11 +24,13 @@ from ..errors import (
 from ..machine import TERMINAL_STATES, Action, State
 from ..models import Attestation, RunDoc, SetupFailure, Stage, StageRecord
 from ..store import CurrentRunExists
+from . import evidence
 from ._session import (
     Session,
     _apply,
     _envelope_for,
     _new_run_id,
+    _next_hint,
     _now,
     _start_command,
     worktree_identity,
@@ -394,6 +396,10 @@ def start(
             intent=intent,
             config_digest=resolved_config_digest,
         )
+        # Refresh-capable evidence must recheck declared non-Git inputs even
+        # when the commit identity has not changed. Keep the legacy v4 contract.
+        if reused_attestation is not None and reused_attestation.schema_version == 5:
+            reused_attestation = None
     if reused_attestation is not None:
         assessment = risk.assess(
             changed,
@@ -547,10 +553,16 @@ def start(
         },
     )
 
+    run = evidence.advance(session, evidence.discover(session, run))
+
     return _envelope_for(
         run,
-        next_instruction="Fetch the diff before judging it.",
-        next_command="agentic-preflight context",
+        next_instruction="Fetch the diff before judging it."
+        if run.state is State.REVIEW_AWAITING_FINDINGS
+        else _next_hint(run.state)[0],
+        next_command="agentic-preflight context"
+        if run.state is State.REVIEW_AWAITING_FINDINGS
+        else _next_hint(run.state)[1],
         data={
             "worktree_path": str(wt_path),
             "worktree_branch": wt_branch,
@@ -568,5 +580,9 @@ def start(
             # Names only. Contents are never read, logged, or echoed.
             "copied_files": copied,
             "setup": setup_result,
+            "applicability": {
+                stage.value: value.model_dump(mode="json")
+                for stage, value in run.applicability.items()
+            },
         },
     )

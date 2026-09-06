@@ -13,9 +13,12 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from .digests import json_digest
+from .fingerprints import Classification, DocsFingerprint, ReviewFingerprint
 from .machine import State
+from .shell_fingerprints import ShellFingerprint
 
 SHA_PATTERN = r"^[0-9a-f]{7,40}$"
 
@@ -197,6 +200,7 @@ class StageRecord(BaseModel):
     log_path: str | None = None
     finished_at: str | None = None
     head_sha: str | None = None
+    fingerprint: StageFingerprint | None = None
 
 
 class SetupFailure(BaseModel):
@@ -249,6 +253,10 @@ class RunDoc(BaseModel):
 
     fix_commits: list[str] = Field(default_factory=list)
     stages: dict[Stage, StageRecord] = Field(default_factory=dict)
+    evidence: dict[Stage, StageEvidence] = Field(default_factory=dict)
+    reuse_candidates: dict[Stage, StageEvidence] = Field(default_factory=dict)
+    evidence_discovered: bool = False
+    applicability: dict[Stage, Classification] = Field(default_factory=dict)
     setup_failure: SetupFailure | None = None
 
     stale: bool = False
@@ -281,13 +289,79 @@ class AttestedStage(BaseModel):
     coverage: ReviewCoverage | None = None
 
 
+StageFingerprint = ReviewFingerprint | DocsFingerprint | ShellFingerprint
+
+
+class OriginalExecution(BaseModel):
+    """Immutable execution provenance, never another derived execution."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str = Field(min_length=1)
+    source_worktree_id: str = Field(min_length=1)
+    stage: Stage
+    head_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    base_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    branch: str = Field(min_length=1)
+    base_ref: str = Field(min_length=1)
+    config_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    finished_at: AwareDatetime
+    config_snapshot: dict[str, Any]
+    result: AttestedStage
+    fingerprint: StageFingerprint
+    findings: list[Finding] = Field(default_factory=list, max_length=1000)
+
+
+class StageEvidence(BaseModel):
+    """A result bound to current inputs, with a single immutable origin.
+
+    Flattened provenance cannot contain cycles or grow with each restack. A
+    digest detects accidental edits; it is not a signature of the execution.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal[1] = 1
+    origin: OriginalExecution
+    origin_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    fingerprint: StageFingerprint
+    refreshed_at: AwareDatetime | None = None
+    derivation_reason: Literal["equivalent_inputs"] | None = None
+
+    @model_validator(mode="after")
+    def validate_origin(self) -> StageEvidence:
+        if json_digest(self.origin.config_snapshot) != self.origin.config_sha256:
+            raise ValueError("original configuration digest does not match its snapshot")
+        if json_digest(self.origin.model_dump(mode="json")) != self.origin_sha256:
+            raise ValueError("original evidence digest does not match its contents")
+        if (self.refreshed_at is None) != (self.derivation_reason is None):
+            raise ValueError("refresh time and derivation reason must occur together")
+        if self.refreshed_at is not None and self.refreshed_at < self.origin.finished_at:
+            raise ValueError("refresh cannot predate original execution")
+        expected_types: dict[Stage, type[BaseModel]] = {
+            Stage.REVIEW: ReviewFingerprint,
+            Stage.DOCS: DocsFingerprint,
+            Stage.LINT: ShellFingerprint,
+            Stage.TEST: ShellFingerprint,
+        }
+        expected_type = expected_types[self.origin.stage]
+        if (
+            type(self.origin.fingerprint) is not expected_type
+            or type(self.fingerprint) is not expected_type
+        ):
+            raise ValueError("fingerprint type does not match its stage")
+        if any(finding.stage != self.origin.stage for finding in self.origin.findings):
+            raise ValueError("origin contains findings from another stage")
+        return self
+
+
 class Attestation(BaseModel):
     """The JSON document stored in ``refs/notes/agentic-preflight``."""
 
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["agentic-preflight-attestation"] = "agentic-preflight-attestation"
-    schema_version: Literal[4] = 4
+    schema_version: Literal[4, 5] = 4
     sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     tree_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     branch: str
@@ -299,9 +373,25 @@ class Attestation(BaseModel):
     green_at: str
     stages: dict[Stage, AttestedStage]
     findings_summary: dict[str, int] = Field(default_factory=dict)
+    evidence: dict[Stage, StageEvidence] | None = None
+    config_snapshot: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def complete_evidence(self) -> Attestation:
+        if self.schema_version == 4 and (
+            self.evidence is not None or self.config_snapshot is not None
+        ):
+            raise ValueError("v4 attestations cannot carry refresh evidence")
+        if self.schema_version == 5:
+            if (
+                self.config_snapshot is None
+                or json_digest(self.config_snapshot) != self.config_sha256
+            ):
+                raise ValueError("v5 configuration does not match its digest")
+            if self.evidence is None or set(self.evidence) != set(Stage):
+                raise ValueError("v5 requires a complete per-stage evidence set")
+            if any(item.origin.stage != stage for stage, item in self.evidence.items()):
+                raise ValueError("evidence is attached to the wrong stage")
         required = set(Stage)
         if set(self.stages) != required:
             missing = sorted(stage.value for stage in required - set(self.stages))
@@ -344,3 +434,7 @@ class Attestation(BaseModel):
             if evidence.status == "skipped" and not evidence.reason:
                 raise ValueError(f"skipped {stage.value} stage lacks a reason")
         return self
+
+
+RunDoc.model_rebuild()
+StageRecord.model_rebuild()

@@ -1,15 +1,12 @@
 """Deterministic applicability fingerprints for reusable preflight evidence.
 
-See ``docs/fingerprint-contract.md`` for the design this module implements, and
-issue #85 for the problem it is the first slice of.
+See ``docs/fingerprint-contract.md`` for the contract implemented for issue #85.
 
 This module answers one narrow question: *given the recorded inputs a stage's
 green result depended on, and the same inputs recomputed against a new commit,
 should that result be reused, discarded, or treated as unprovable?* It does not
-decide *when* to ask that question, store its answer on a run, or change what
-``agentic-preflight start`` does — that wiring, and the derived-attestation
-issuance that would let a reused stage survive onto a new commit, are tracked
-separately so this contract can be reviewed and tested on its own.
+decide when to ask that question or store its answer. ``runs.evidence`` owns that
+orchestration, and ``refresh_validation`` verifies derived attestations.
 
 Every fingerprint is intentionally a flat, ``extra="forbid"`` model over
 *content* identifiers (tree SHAs, content digests) rather than *history*
@@ -26,21 +23,25 @@ import hashlib
 import json
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import gitx
-from .attestation import intent_digest
-from .config import config_digest
 from .diff import ReviewManifest
-from .models import Sha
-from .stages import docs as docsstage
+from .digests import json_digest as config_digest
+
+Sha = Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
+
+
+def intent_digest(intent: str) -> str:
+    return hashlib.sha256(intent.encode()).hexdigest()
+
 
 #: Bumped whenever a fingerprint's field set or comparison semantics change.
 #: A version mismatch between an old and new fingerprint is treated the same
 #: as a missing fingerprint: ``unknown``, never ``reusable``.
-FINGERPRINT_VERSION = 1
+FINGERPRINT_VERSION = 2
 
 
 class Disposition(StrEnum):
@@ -65,6 +66,14 @@ class ReasonCode(StrEnum):
     EXECUTOR_CHANGED = "executor_changed"
     CONFIG_CHANGED = "config_changed"
     DOC_SURFACE_CHANGED = "doc_surface_changed"
+    COMMAND_CHANGED = "command_changed"
+    INPUTS_CHANGED = "inputs_changed"
+    INPUTS_UNAVAILABLE = "inputs_unavailable"
+    CONTRACT_UNDECLARED = "contract_undeclared"
+    CONFIG_UNSUPPORTED = "config_unsupported"
+    FINDINGS_UNRESOLVED = "findings_unresolved"
+    CONSUMER_UNAVAILABLE = "consumer_unavailable"
+    PROVENANCE_INVALID = "provenance_invalid"
 
 
 class Classification(BaseModel):
@@ -88,6 +97,7 @@ class ReviewFingerprint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: int = FINGERPRINT_VERSION
+    configuration_supported: bool = True
     base_tree_sha: Sha
     head_tree_sha: Sha
     diff_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -104,10 +114,39 @@ class DocsFingerprint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: int = FINGERPRINT_VERSION
+    configuration_supported: bool = True
     base_tree_sha: Sha
     head_tree_sha: Sha
     doc_surface_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     config_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    intent_sha256: str = Field(default="0" * 64, pattern=r"^[0-9a-f]{64}$")
+    grounding_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+_KNOWN_CONFIG = {
+    "reuse",
+    "general",
+    "commands",
+    "stage",
+    "review",
+    "policy",
+    "docs",
+    "context",
+    "diff",
+    "worktree",
+    "gate",
+    "pr",
+    "approval",
+    "hook",
+}
+
+
+def _scoped_config(snapshot: dict[str, Any], sections: tuple[str, ...]) -> dict[str, Any]:
+    # Future dependencies must not silently disappear from applicability checks.
+    return {
+        **{section: snapshot.get(section) for section in sections},
+        **{key: value for key, value in snapshot.items() if key not in _KNOWN_CONFIG},
+    }
 
 
 def review_relevant_config(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -121,15 +160,12 @@ def review_relevant_config(snapshot: dict[str, Any]) -> dict[str, Any]:
     (``review_executor.py``, ``review_retry.py``) — an execution dependency
     even though an in-harness review never reads it.
     """
-    return {
-        section: snapshot.get(section)
-        for section in ("general", "review", "policy", "context", "diff", "stage")
-    }
+    return _scoped_config(snapshot, ("general", "review", "policy", "context", "diff", "stage"))
 
 
 def docs_relevant_config(snapshot: dict[str, Any]) -> dict[str, Any]:
     """The configuration subset a docs fingerprint must bind to."""
-    return {section: snapshot.get(section) for section in ("general", "docs", "diff")}
+    return _scoped_config(snapshot, ("general", "docs", "diff", "context", "policy"))
 
 
 def compute_review_fingerprint(
@@ -144,6 +180,7 @@ def compute_review_fingerprint(
 ) -> ReviewFingerprint:
     """Fingerprint the inputs a green review of ``head_sha`` depended on."""
     return ReviewFingerprint(
+        configuration_supported=set(config_snapshot) <= _KNOWN_CONFIG,
         base_tree_sha=gitx.tree_sha(repo, base_sha),
         head_tree_sha=gitx.tree_sha(repo, head_sha),
         diff_sha256=manifest.diff_sha256,
@@ -163,6 +200,8 @@ def compute_docs_fingerprint(
     changed_files: list[str],
     doc_paths: list[str],
     config_snapshot: dict[str, Any],
+    intent: str = "",
+    grounding_sha256: str | None = None,
 ) -> DocsFingerprint:
     """Fingerprint the inputs a green docs stage against ``head_sha`` depended on.
 
@@ -171,16 +210,27 @@ def compute_docs_fingerprint(
     convention ``review_protocol.context_data`` and ``grounding.assemble``
     already rely on.
     """
+    from .stages import docs as docsstage
+
     inventory = docsstage.build_inventory(repo, changed_files, doc_paths)
-    payload = [entry.as_dict() for entry in inventory]
+    payload = [
+        {
+            **entry.as_dict(),
+            "content_sha256": hashlib.sha256((Path(repo) / entry.path).read_bytes()).hexdigest(),
+        }
+        for entry in inventory
+    ]
     doc_surface_sha256 = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     return DocsFingerprint(
+        configuration_supported=set(config_snapshot) <= _KNOWN_CONFIG,
         base_tree_sha=gitx.tree_sha(repo, base_sha),
         head_tree_sha=gitx.tree_sha(repo, head_sha),
         doc_surface_sha256=doc_surface_sha256,
         config_sha256=config_digest(docs_relevant_config(config_snapshot)),
+        intent_sha256=intent_digest(intent),
+        grounding_sha256=grounding_sha256,
     )
 
 
@@ -190,10 +240,14 @@ def classify_review(old: ReviewFingerprint | None, new: ReviewFingerprint) -> Cl
         return Classification(
             disposition=Disposition.UNKNOWN, reasons=(ReasonCode.FINGERPRINT_MISSING,)
         )
-    if old.version != new.version:
+    if old.version != FINGERPRINT_VERSION or new.version != FINGERPRINT_VERSION:
         return Classification(
             disposition=Disposition.UNKNOWN,
             reasons=(ReasonCode.FINGERPRINT_VERSION_MISMATCH,),
+        )
+    if not old.configuration_supported or not new.configuration_supported:
+        return Classification(
+            disposition=Disposition.UNKNOWN, reasons=(ReasonCode.CONFIG_UNSUPPORTED,)
         )
     reasons: list[ReasonCode] = []
     if old.base_tree_sha != new.base_tree_sha:
@@ -223,10 +277,14 @@ def classify_docs(old: DocsFingerprint | None, new: DocsFingerprint) -> Classifi
         return Classification(
             disposition=Disposition.UNKNOWN, reasons=(ReasonCode.FINGERPRINT_MISSING,)
         )
-    if old.version != new.version:
+    if old.version != FINGERPRINT_VERSION or new.version != FINGERPRINT_VERSION:
         return Classification(
             disposition=Disposition.UNKNOWN,
             reasons=(ReasonCode.FINGERPRINT_VERSION_MISMATCH,),
+        )
+    if not old.configuration_supported or not new.configuration_supported:
+        return Classification(
+            disposition=Disposition.UNKNOWN, reasons=(ReasonCode.CONFIG_UNSUPPORTED,)
         )
     reasons: list[ReasonCode] = []
     if old.base_tree_sha != new.base_tree_sha:
@@ -237,6 +295,10 @@ def classify_docs(old: DocsFingerprint | None, new: DocsFingerprint) -> Classifi
         reasons.append(ReasonCode.DOC_SURFACE_CHANGED)
     if old.config_sha256 != new.config_sha256:
         reasons.append(ReasonCode.CONFIG_CHANGED)
+    if old.intent_sha256 != new.intent_sha256:
+        reasons.append(ReasonCode.INTENT_CHANGED)
+    if old.grounding_sha256 != new.grounding_sha256:
+        reasons.append(ReasonCode.GROUNDING_CHANGED)
     if reasons:
         return Classification(disposition=Disposition.INVALID, reasons=tuple(reasons))
     return Classification(disposition=Disposition.REUSABLE)

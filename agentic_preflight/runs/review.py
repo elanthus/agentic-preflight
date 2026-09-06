@@ -20,7 +20,7 @@ from ..models import (
 )
 from ..stages import change_scope
 from ..stages import docs as docsstage
-from . import review_compare, review_coverage, review_protocol
+from . import evidence, review_compare, review_coverage, review_protocol
 from ._session import (
     Session,
     _apply,
@@ -53,6 +53,14 @@ def _skip_docs_if_disabled(session: Session, run: RunDoc) -> RunDoc:
     if session.config.docs.enabled or run.state is not State.REVIEW_GREEN:
         return run
     with session.store.transaction(run.run_id) as doc:
+        doc.stages[Stage.DOCS] = StageRecord(
+            status="skipped",
+            reason="disabled by configuration",
+            finished_at=_now(),
+            head_sha=gitx.rev_parse(_require_worktree(run), "HEAD"),
+            fingerprint=evidence.fingerprint(session, run, Stage.DOCS),
+        )
+        doc.evidence.pop(Stage.DOCS, None)
         _apply(doc, Action.SKIP_DOCS)
         run = doc
     session.store.append_event(run.run_id, {"event": "docs_skipped", "reason": "disabled"})
@@ -75,7 +83,9 @@ def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
             reason=reason,
             finished_at=_now(),
             head_sha=gitx.rev_parse(doc.worktree_path or session.repo_root, "HEAD"),
+            fingerprint=evidence.fingerprint(session, run, Stage.TEST, command=""),
         )
+        doc.evidence.pop(Stage.TEST, None)
         _apply(doc, Action.SKIP_TEST)
         run = doc
     session.store.append_event(
@@ -138,6 +148,12 @@ def context(session: Session, *, section: str = "review") -> Envelope:
         )
 
     data = review_protocol.context_data(session, run, section=section, bundle=bundle)
+    if section == "docs":
+        with session.store.transaction(run.run_id) as doc:
+            record = doc.stages.get(Stage.DOCS) or StageRecord()
+            record.fingerprint = evidence.fingerprint(session, run, Stage.DOCS)
+            doc.stages[Stage.DOCS] = record
+            run = doc
 
     envelope = _envelope_for(run, stage=section, data=data)
     if section == "docs":
@@ -203,6 +219,13 @@ def submit_findings(
     elif any(submission.unit is not None for submission in submissions):
         raise InvalidFindings("docs findings cannot cite review units")
     existing = session.store.load_findings(run.run_id)
+    stage_fingerprint = evidence.fingerprint(session, run, stage)
+    if stage is Stage.DOCS:
+        delivered = run.stages.get(Stage.DOCS)
+        if delivered is not None and delivered.fingerprint != stage_fingerprint:
+            raise InvalidFindings(
+                "documentation inputs changed; fetch fresh context --section docs"
+            )
 
     inventory = None
     if stage is Stage.DOCS:
@@ -272,6 +295,14 @@ def submit_findings(
                 entry.output_sha256 = None
                 entry.log_path = None
             doc.stages[Stage.REVIEW] = entry
+        else:
+            entry = doc.stages.get(Stage.DOCS) or StageRecord()
+            entry.status = "green"
+            entry.finished_at = _now()
+            entry.head_sha = gitx.rev_parse(worktree_path, "HEAD")
+            doc.stages[Stage.DOCS] = entry
+        entry.fingerprint = stage_fingerprint
+        doc.evidence.pop(stage, None)
         _apply(doc, Action.SUBMIT_BLOCKING if blocking else Action.SUBMIT_CLEAN)
         run = doc
 
@@ -288,6 +319,7 @@ def submit_findings(
     actionable = findingsmod.actionable(stage_findings)
     if not blocking and not actionable:
         run = _skip_docs_if_disabled(session, run)
+        run = evidence.advance(session, run)
 
     session.store.append_event(
         run.run_id,

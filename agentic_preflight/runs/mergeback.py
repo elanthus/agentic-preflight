@@ -18,6 +18,7 @@ from ..errors import (
 )
 from ..machine import Action, State
 from ..models import RunDoc, Stage
+from . import evidence
 from ._session import (
     Session,
     _apply,
@@ -97,6 +98,9 @@ def mergeback(session: Session) -> Envelope:
     if not retrying_conflict:
         _assert_fresh(session, run)
     if run.state is State.TEST_GREEN:
+        run = evidence.advance(session, run)
+        if run.state is not State.TEST_GREEN:
+            return _envelope_for(run, data={"inputs_invalidated": True})
         run, reopened = reopen_if_stale(session, run)
         if reopened:
             return _envelope_for(
@@ -260,6 +264,7 @@ def mergeback(session: Session) -> Envelope:
             next_command="agentic-preflight context",
         )
 
+    run = evidence.archive(session, run)
     entry = attestationmod.build(
         run,
         sha=result.post_sha,

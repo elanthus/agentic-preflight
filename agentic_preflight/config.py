@@ -13,13 +13,14 @@ exists to prevent.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from .digests import json_digest
+from .shell_fingerprints import ShellInputContract
 
 REPO_CONFIG_NAME = ".agentic-preflight.toml"
 USER_CONFIG_NAME = "config.toml"
@@ -47,6 +48,12 @@ class CommandsSection(_Section):
 class StageSection(_Section):
     timeout_seconds: int = Field(default=600, ge=1)
     max_attempts: int = Field(default=5, ge=1)
+
+
+class ReuseSection(_Section):
+    attestation_schema: Literal[4, 5] = 4
+    lint: ShellInputContract | None = None
+    test: ShellInputContract | None = None
 
 
 class ReviewSection(_Section):
@@ -135,6 +142,7 @@ class Config(BaseModel):
     general: GeneralSection = Field(default_factory=GeneralSection)
     commands: CommandsSection = Field(default_factory=CommandsSection)
     stage: StageSection = Field(default_factory=StageSection)
+    reuse: ReuseSection = Field(default_factory=ReuseSection)
     review: ReviewSection = Field(default_factory=ReviewSection)
     policy: PolicySection = Field(default_factory=PolicySection)
     docs: DocsSection = Field(default_factory=DocsSection)
@@ -149,8 +157,7 @@ class Config(BaseModel):
 
 def config_digest(snapshot: dict[str, Any]) -> str:
     """Return the stable digest used to bind validation evidence to config."""
-    payload = json.dumps(snapshot, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(payload.encode()).hexdigest()
+    return json_digest(snapshot)
 
 
 def _read_toml(path: Path) -> dict[str, Any]:

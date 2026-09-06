@@ -10,9 +10,11 @@ from ..envelope import Envelope
 from ..errors import (
     START_COMMAND,
     UnmergedWork,
+    WrongState,
 )
 from ..machine import Action, State
 from ..models import FindingStatus, RunDoc
+from ..store import StoreError
 from ._session import (
     Session,
     _apply,
@@ -325,6 +327,38 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
         )
 
     findings = session.store.load_findings(run_id)
+    reuse_error = None
+    if (
+        run.state
+        in {
+            State.REVIEW_AWAITING_FINDINGS,
+            State.REVIEW_GREEN,
+            State.DOCS_AWAITING_FINDINGS,
+            State.DOCS_GREEN,
+            State.LINT_GREEN,
+        }
+        and _head_moved(session, run) is None
+    ):
+        from . import evidence
+
+        with session.store.try_operation(run.run_id) as idle:
+            if idle:
+                try:
+                    if not run.evidence_discovered:
+                        run = evidence.discover(session, run)
+                    run = evidence.advance(session, run)
+                    findings = session.store.load_findings(run_id)
+                except (WrongState, OSError, gitx.GitError) as exc:
+                    # Reuse is optional; status remains the recovery path even
+                    # when a worktree disappears during evidence import.
+                    reuse_error = str(exc)
+                    try:
+                        recovered = session.store.load_run(run_id)
+                        recovered_findings = session.store.load_findings(run_id)
+                    except (OSError, ValueError, StoreError):
+                        pass
+                    else:
+                        run, findings = recovered, recovered_findings
     summary = {status.value: 0 for status in FindingStatus}
     for finding in findings:
         summary[finding.status.value] += 1
@@ -386,9 +420,15 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             "copied_files": run.copied_files,
             "findings": [f.model_dump(mode="json") for f in findings],
             "findings_summary": summary,
+            "applicability": {
+                stage.value: value.model_dump(mode="json")
+                for stage, value in run.applicability.items()
+            },
             "risk": assessment.model_dump(mode="json"),
         },
     )
+    if reuse_error is not None:
+        envelope.data["reuse_error"] = reuse_error
     if not session.source_worktree_available:
         envelope.next_instruction = (
             "The recorded source worktree no longer exists. Inspection remains available; "

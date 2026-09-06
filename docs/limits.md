@@ -27,27 +27,29 @@ sandbox repository commands or stop a shell-capable agent that ignores its insta
 misreads repository content as instructions, or invokes Git directly. Agentic Preflight
 remains an advisory gate rather than a security boundary.
 
-## History rewrites invalidate green
+## History rewrites require an exact-commit refresh
 
 The normal attestation note is bound to an exact SHA. In the default in-place mode,
-`start` preserves green only when synchronization leaves the exact attested commit
+legacy v4 `start` reuse preserves green only when synchronization leaves the exact attested commit
 unchanged, the freshly fetched base is already its ancestor, and Git computes the same
 clean merge tree against the recorded attestation base. Reuse also requires the same
 branch, base ref, effective user and repository configuration, and persisted user intent.
 Changing stage applicability, commands, policy, another setting, or the objective starts
 a fresh review even when local run records have been garbage-collected.
 
-Any rebase that produces a new commit SHA requires a fresh review, docs, lint, and test
-run, even when its tree is unchanged. The same is true for a merge conflict, branch
-change, or base-ref change. Isolated worktree modes do not reuse attestations because
-their synchronized commit is not the source branch that will be pushed.
+With a v5-capable protected base and sufficient local execution records, `start`
+can reuse equivalent evidence after a rebase in all three worktree modes. It
+compares base/head trees and stage-specific context and policy. Changed upstream
+content invalidates review even if the patch is unchanged. Other source-worktree
+identities and branches are not candidates.
 
 Cherry-picked merge-back is handled via tree-equivalence attestation.
 
-A content-based fingerprint contract for reusing review and docs evidence across a
-history-only rebase is defined in
-[`docs/fingerprint-contract.md`](fingerprint-contract.md), but it is not yet wired
-into `start`; the paragraph above still describes current behavior.
+Shell reuse requires a committed declaration of supported content inputs. Unknown
+dependencies, shell profiles, time, history, or external services prevent reuse.
+Fingerprints are equality checks under that explicit assumption, not dependency
+discovery. See the [fingerprint contract](fingerprint-contract.md). Without a
+compatible consumer, the CLI performs a legacy run and emits v4.
 
 Agentic Preflight refuses to start or merge back while the checkout has a rebase,
 cherry-pick, or merge in progress. Finish or abort that Git operation yourself first;
@@ -71,9 +73,11 @@ Use `--baseline` so a pre-existing failure is reported rather than blamed on you
 
 It proves what the gate reported: that the configured in-harness or command executor
 accounted for every included review unit in a snapshot-bound diff manifest, that the
-configured commands exited zero against that exact SHA, and which judgment calls were
+configured commands exited zero against their recorded execution commits, and which judgment calls were
 recorded along the way. Command review additionally carries its command, zero exit code,
-and redacted output digest. Excluded files remain explicitly outside that coverage.
+and redacted output digest. Derived stages preserve those original executions and
+record why their evidence applies to the new exact commit. Excluded files remain
+explicitly outside that coverage.
 
 It does not prove the review was good or that the agent understood every unit it marked
 clean. The same diff reviewed twice can yield different findings. Treat the Git note as

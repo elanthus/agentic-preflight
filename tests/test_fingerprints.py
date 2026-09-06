@@ -343,3 +343,73 @@ def test_an_upstream_content_change_invalidates_review_even_with_the_same_patch(
     result = fp.classify_review(old, new)
     assert result.disposition == fp.Disposition.INVALID
     assert result.reasons == (fp.ReasonCode.BASE_TREE_CHANGED,)
+
+
+def test_docs_detects_same_length_ignored_content_change(feature_repo, tmp_path):
+    write(feature_repo, ".gitignore", "docs/local.md\n")
+    commit_all(feature_repo, "ignore local documentation")
+    write(feature_repo, "docs/local.md", "before\n")
+    base = git("rev-parse", "main", cwd=feature_repo)
+    head = git("rev-parse", "HEAD", cwd=feature_repo)
+    before = _docs_fingerprint(feature_repo, tmp_path, base, head)
+    write(feature_repo, "docs/local.md", "after!\n")
+    after = _docs_fingerprint(feature_repo, tmp_path, base, head)
+    assert git("status", "--porcelain", cwd=feature_repo) == ""
+    assert fp.classify_docs(before, after).reasons == (fp.ReasonCode.DOC_SURFACE_CHANGED,)
+
+
+@pytest.mark.parametrize("kind", ["review", "docs"])
+@pytest.mark.parametrize("version", [1, 999])
+def test_equal_unsupported_versions_are_never_reusable(kind, version):
+    cls = fp.ReviewFingerprint if kind == "review" else fp.DocsFingerprint
+    kwargs = _review_kwargs() if kind == "review" else _docs_kwargs()
+    value = cls(**kwargs, version=version)
+    classify = fp.classify_review if kind == "review" else fp.classify_docs
+    assert classify(value, value).disposition == fp.Disposition.UNKNOWN
+
+
+@pytest.mark.parametrize("kind", ["review", "docs"])
+def test_unknown_configuration_dependencies_are_unknown(feature_repo, tmp_path, kind):
+    base = git("rev-parse", "main", cwd=feature_repo)
+    head = git("rev-parse", "HEAD", cwd=feature_repo)
+    snapshot = config.Config().model_dump(mode="json")
+    snapshot["future_policy"] = {"required": True}
+    if kind == "review":
+        manifest = diffmod.build_review_manifest(
+            feature_repo, diffmod.build_bundle(feature_repo, base, head)
+        )
+        value = fp.compute_review_fingerprint(
+            feature_repo,
+            base_sha=base,
+            head_sha=head,
+            manifest=manifest,
+            executor="in_harness",
+            intent="test",
+            config_snapshot=snapshot,
+        )
+        result = fp.classify_review(value, value)
+    else:
+        value = fp.compute_docs_fingerprint(
+            feature_repo,
+            base_sha=base,
+            head_sha=head,
+            changed_files=[],
+            doc_paths=[],
+            config_snapshot=snapshot,
+        )
+        result = fp.classify_docs(value, value)
+    assert result.disposition == fp.Disposition.UNKNOWN
+    assert result.reasons == (fp.ReasonCode.CONFIG_UNSUPPORTED,)
+
+
+@pytest.mark.parametrize(
+    ("field", "reason"),
+    [
+        ("intent_sha256", fp.ReasonCode.INTENT_CHANGED),
+        ("grounding_sha256", fp.ReasonCode.GROUNDING_CHANGED),
+    ],
+)
+def test_docs_invalidates_changed_delivered_context(field, reason):
+    before = fp.DocsFingerprint(**_docs_kwargs())
+    after = before.model_copy(update={field: "9" * 64})
+    assert fp.classify_docs(before, after).reasons == (reason,)

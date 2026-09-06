@@ -5,7 +5,8 @@ commit. The version 4 note includes the run identity, commit and tree hashes, de
 SHA-256 bindings for user intent and effective configuration, finding status and severity
 totals, and a complete stage set. Green lint and test stages include the exact command,
 exit code, and SHA-256 of the redacted captured output. Explicitly skipped stages say why
-and carry no invented process evidence. Earlier schema versions are rejected.
+and carry no invented process evidence. Version 5 adds per-stage fingerprints and
+original execution provenance for refresh. Versions earlier than 4 are rejected.
 
 `agentic-preflight push` atomically pushes the branch and
 `refs/notes/agentic-preflight`, so the attestation is not stranded in one clone. Git
@@ -27,7 +28,7 @@ command, zero exit code, and output hash.
 The verifier must support the schema emitted by the producer. Pin it to the same
 Agentic Preflight release, or to the same immutable source revision when validating
 attestations produced by an unreleased source build. Do not use a v0.3.0 verifier for a
-version 4 note: v0.3.0 accepts schema version 3, while current source accepts version 4.
+version 4 note: v0.3.0 accepts schema version 3, while current source accepts versions 4 and 5.
 
 A minimal GitHub Actions required check is:
 
@@ -89,7 +90,7 @@ commit:
    updates change trusted CI and release code.
 2. Check out the Dependabot pull request locally with `gh pr checkout <number>`.
 3. Run the normal Agentic Preflight workflow against that exact branch tip. Do not amend,
-   squash, or rebase it after review; any new SHA needs its own run.
+   squash, or rebase it after review without refreshing; any new SHA needs its own note.
 4. When the workflow reaches its publication gate, run `agentic-preflight push`; it
    atomically pushes the unchanged branch and `refs/notes/agentic-preflight` together.
 5. Re-run the failed GitHub Actions workflows from the pull request. A notes-only push
@@ -100,13 +101,24 @@ Keep GitHub Actions updates under normal code-owner and manual-merge policy even
 they are grouped. For a frequently changing dependency pull request, finish review only
 after Dependabot has stopped rebasing it; every rebase changes the attested SHA.
 
-## Evidence reuse across rebases (in progress)
+## Evidence reuse across rebases
 
-The behavior above — a new SHA always requires a fresh review, docs, lint, and test
-run — is unchanged today. `agentic_preflight/fingerprints.py` adds a content-based
-applicability contract that classifies whether a prior green review or docs result
-would remain valid against a new commit, as a first step toward reusing that
-evidence instead of rerunning it after a rebase or restack. See
-[`docs/fingerprint-contract.md`](fingerprint-contract.md) for the contract and its
-rollout plan. It is not yet wired into `start`, and it does not change the version 4
-attestation schema.
+After a rebase, run `start` with the original intent. With a compatible protected
+base, it classifies each stage, preserves applicable evidence, and returns the
+next command. `status` resumes after interruption. Shell stages rerun unless
+their committed content contracts are satisfied. See the
+[fingerprint contract](fingerprint-contract.md) for supported inputs and limits.
+
+The new exact commit receives a v5 note. Reused stages retain original runs,
+commits, execution times, commands/output digests, findings, and review manifests.
+Refresh time is separate. The verifier recomputes available Git and policy
+bindings and validates every review unit before accepting transferred coverage.
+Unsigned provenance remains an audit record, not execution authentication.
+
+Upgrade trusted hosted consumers **before** enabling v5 production. In other
+repositories, deploy the compatible verifier, then commit `[reuse]` with
+`attestation_schema = 5` on the protected base. This repository recognizes the
+consumer in its protected-base source. Until that consumer lands, its producer
+runs all required local stages and emits v4; it never executes the PR's verifier
+with policy credentials. Historical v4 notes without sufficient local
+fingerprints are not silently upgraded into reusable evidence.
