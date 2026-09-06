@@ -182,8 +182,12 @@ to inspect or recover a specific stored run.
 
 ## The pre-push hook
 
-`init` installs a pre-push hook that blocks a pushed ref when its tip has no green run
-recorded for that **exact SHA**:
+`init` installs a pre-push hook that requires valid publication evidence for the
+**exact SHA** being pushed. By default, that means a green local run. With protected
+GitHub Actions test authority enabled, completed local review, docs, and lint may
+authorize publication with tests explicitly pending. The live CI check then requires
+successful tests of the current integration commit before merge; see
+[CI test authority](docs/attestations-and-ci.md). A missing attestation blocks the push:
 
 ```
 agentic-preflight: push blocked.

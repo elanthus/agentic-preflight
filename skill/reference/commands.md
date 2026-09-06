@@ -215,13 +215,17 @@ a trusted workflow can dispatch the appropriate hosted job.
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
 Stages run in the fixed order docs → lint → test after review becomes green. Running lint
 before the potentially expensive test command means a committed mechanical lint repair
-cannot invalidate an already-green test result. After lint, the CLI automatically skips
+cannot invalidate an already-green test result. With local test authority, after lint
+the CLI automatically skips
 the software test command when every changed path is documentation or standard CI
 configuration. This is an explicit state-machine transition, not an agent judgment:
 `status` and the final attestation note the test stage as `skipped`. A mixed diff
 containing any other path still requires the configured test command. Documentation
 includes common markup files, the standard docs surface, and `[docs] paths`; CI
-configuration includes common hosted-CI workflow paths.
+configuration includes common hosted-CI workflow paths. With protected GitHub Actions
+test authority enabled, `stage run test` instead records explicit delegation without
+executing a local test command. The current integration commit must pass the configured
+remote jobs before merge, including for documentation-only changes.
 
 Command resolution: `--command` → `[commands].<name>` → detection. Detection never
 guesses: it exits 2 with `data.mode = "needs_command"` and candidates from
