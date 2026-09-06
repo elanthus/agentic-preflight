@@ -210,6 +210,30 @@ to add it to `[docs] paths` so the next run can see it.
 
 Full rubric: `reference/docs-rubric.md`.
 
+## Delegated CI tests
+
+When protected `[ci] test_authority = "github_actions"` is enabled, obey
+`TEST_DELEGATED` and `PUBLICATION_READY` as publication states. Tests are pending;
+do not run a local test command to make those states green, and do not describe
+them as skipped or passed. The gate and hook use the publication predicate so the
+first push can start CI. Publication authorization remains unchanged.
+
+After opening the PR, use `agentic-preflight ci status --repo OWNER/REPO --pr N` to
+retrieve live merge readiness. Its exit 3 is a remote recovery result: follow its
+reason and next action rather than starting local review again. An API outage is
+unknown; a successful old attempt cannot satisfy a failed/pending replacement.
+Rerun all CI jobs when source is unchanged. For a changed base, use
+`agentic-preflight ci dispatch --repo OWNER/REPO --pr N` to request the current
+integration candidate if necessary. Source fixes return through the ordinary
+per-stage applicability checks. Never treat a local pending note, uploaded artifact,
+or matching job display name as sufficient CI evidence.
+
+`merge_requirements_satisfied: true` includes the configured approval policy; it
+does not authorize an agent merge under `manual_merge`. Preserve environment,
+peer/CODEOWNERS, publication-authorization, and exact-PR cleanup boundaries. A new
+schema-6 producer requires consumers and policy already on the protected base;
+otherwise the rollout performs complete local validation.
+
 ## Findings schema
 
 ```json
@@ -252,7 +276,7 @@ stops — do not improvise a recovery from the symptom alone.
 | Git operation already in progress (exit 3, `operation_in_progress`) | Stop; the user must finish or abort it |
 | Merge-back conflict (exit 4, isolated modes only) | Paste `data.resolution` verbatim and stop |
 | Stage red after max attempts (exit 4) | Stop retrying; show a stage log, or abort if baseline setup never produced one |
-| Hosted CI failed | Fix on the source branch, re-run the whole gate |
+| Hosted CI failed | Inspect the failure; unchanged-source CI reruns preserve local evidence, while source repairs revalidate affected stages |
 | Stale head (exit 3, `stale_run`) | Run `start` again; it preserves the old run as `ORPHANED` |
 | Abandoned run | `status --all`; inspect explicitly with `--run RUN_ID` |
 | Diff too large (exit 2, `diff_too_large`) | Exclude generated globs; never review part of it |

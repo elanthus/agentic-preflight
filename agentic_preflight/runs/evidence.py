@@ -162,6 +162,7 @@ def discover(session: Session, run: RunDoc) -> RunDoc:
             continue
         if old.state not in {
             State.VERIFIED,
+            State.PUBLICATION_READY,
             State.AWAITING_PUSH_CONFIRM,
             State.PUSHED,
             State.DONE,
@@ -217,7 +218,13 @@ def _ready_stage(run: RunDoc) -> Stage | None:
 
 def reopen_changed_inputs(session: Session, run: RunDoc) -> RunDoc:
     """Preserve completed evidence before reopening changed review inputs."""
-    if run.state not in {State.REVIEW_GREEN, State.DOCS_GREEN, State.LINT_GREEN, State.TEST_GREEN}:
+    if run.state not in {
+        State.REVIEW_GREEN,
+        State.DOCS_GREEN,
+        State.LINT_GREEN,
+        State.TEST_GREEN,
+        State.TEST_DELEGATED,
+    }:
         return run
     changed = False
     for stage, record in run.stages.items():
@@ -238,6 +245,7 @@ def reopen_changed_inputs(session: Session, run: RunDoc) -> RunDoc:
     with session.store.transaction(run.run_id) as doc:
         doc.reuse_candidates.update(doc.evidence)
         doc.evidence = {}
+        doc.test_delegation = None
         doc.review_coverage = None
         doc.stages = {
             stage: StageRecord(attempts=record.attempts) for stage, record in doc.stages.items()
@@ -267,6 +275,11 @@ def advance(session: Session, run: RunDoc) -> RunDoc:
     decisions: dict[Stage, Classification] = {}
     current: dict[Stage, StageFingerprint] = {}
     for stage in Stage:
+        if stage is Stage.TEST and session.config.ci.test_authority == "github_actions":
+            decisions[stage] = Classification(
+                disposition=Disposition.UNKNOWN, reasons=(ReasonCode.FINGERPRINT_MISSING,)
+            )
+            continue
         item = run.reuse_candidates.get(stage)
         if item is None:
             decisions[stage] = Classification(

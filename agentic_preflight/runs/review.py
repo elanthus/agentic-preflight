@@ -69,7 +69,7 @@ def _skip_docs_if_disabled(session: Session, run: RunDoc) -> RunDoc:
 
 def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
     """Record an explicit test skip for documentation/CI-only diffs."""
-    if run.state is not State.LINT_GREEN:
+    if run.state is not State.LINT_GREEN or session.config.ci.test_authority == "github_actions":
         return run
     changed = gitx.changed_files(run.worktree_path or session.repo_root, run.merge_base_sha, "HEAD")
     if not change_scope.tests_are_not_applicable(

@@ -43,10 +43,12 @@ class State(StrEnum):
     TEST_RUNNING = "TEST_RUNNING"
     TEST_GREEN = "TEST_GREEN"
     TEST_RED = "TEST_RED"
+    TEST_DELEGATED = "TEST_DELEGATED"
 
     MERGEBACK_PENDING = "MERGEBACK_PENDING"
     MERGEBACK_CONFLICT = "MERGEBACK_CONFLICT"
     VERIFIED = "VERIFIED"
+    PUBLICATION_READY = "PUBLICATION_READY"
     AWAITING_PUSH_CONFIRM = "AWAITING_PUSH_CONFIRM"
     PUSHED = "PUSHED"
     DONE = "DONE"
@@ -83,6 +85,7 @@ class Action(StrEnum):
 
     RUN_TEST = "RUN_TEST"
     SKIP_TEST = "SKIP_TEST"
+    DELEGATE_TEST = "DELEGATE_TEST"
     TEST_PASSED = "TEST_PASSED"
     TEST_FAILED = "TEST_FAILED"
     RETRY_TEST = "RETRY_TEST"
@@ -90,6 +93,7 @@ class Action(StrEnum):
 
     BEGIN_MERGEBACK = "BEGIN_MERGEBACK"
     MERGEBACK_OK = "MERGEBACK_OK"
+    MERGEBACK_PUBLICATION_READY = "MERGEBACK_PUBLICATION_READY"
     MERGEBACK_FAILED = "MERGEBACK_FAILED"
     MERGEBACK_RETRY = "MERGEBACK_RETRY"
 
@@ -253,6 +257,7 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         "agentic-preflight stage run test",
         (_A.RUN_TEST, _S.TEST_RUNNING),
         (_A.SKIP_TEST, _S.TEST_GREEN),
+        (_A.DELEGATE_TEST, _S.TEST_DELEGATED),
     ),
     _S.TEST_RUNNING: _state(
         "Test execution was interrupted; run tests again to record the interruption and retry.",
@@ -272,10 +277,17 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         (_A.BEGIN_MERGEBACK, _S.MERGEBACK_PENDING),
         (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
     ),
+    _S.TEST_DELEGATED: _state(
+        "Tests are delegated to trusted CI and pending. Prepare publication evidence.",
+        "agentic-preflight mergeback",
+        (_A.BEGIN_MERGEBACK, _S.MERGEBACK_PENDING),
+        (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
+    ),
     _S.MERGEBACK_PENDING: _state(
         "Mergeback was interrupted; inspect the recorded run.",
         _STATUS,
         (_A.MERGEBACK_OK, _S.VERIFIED),
+        (_A.MERGEBACK_PUBLICATION_READY, _S.PUBLICATION_READY),
         (_A.MERGEBACK_FAILED, _S.MERGEBACK_CONFLICT),
         (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
     ),
@@ -287,6 +299,11 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
     ),
     _S.VERIFIED: _state(
         "Everything is green. Open the gate.",
+        "agentic-preflight gate",
+        (_A.GATE, _S.AWAITING_PUSH_CONFIRM),
+    ),
+    _S.PUBLICATION_READY: _state(
+        "Local requirements are satisfied for publication; CI tests remain pending. Open the gate.",
         "agentic-preflight gate",
         (_A.GATE, _S.AWAITING_PUSH_CONFIRM),
     ),

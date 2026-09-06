@@ -215,13 +215,17 @@ a trusted workflow can dispatch the appropriate hosted job.
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
 Stages run in the fixed order docs → lint → test after review becomes green. Running lint
 before the potentially expensive test command means a committed mechanical lint repair
-cannot invalidate an already-green test result. After lint, the CLI automatically skips
+cannot invalidate an already-green test result. With local test authority, after lint
+the CLI automatically skips
 the software test command when every changed path is documentation or standard CI
 configuration. This is an explicit state-machine transition, not an agent judgment:
 `status` and the final attestation note the test stage as `skipped`. A mixed diff
 containing any other path still requires the configured test command. Documentation
 includes common markup files, the standard docs surface, and `[docs] paths`; CI
-configuration includes common hosted-CI workflow paths.
+configuration includes common hosted-CI workflow paths. With protected GitHub Actions
+test authority enabled, `stage run test` instead records explicit delegation without
+executing a local test command. The current integration commit must pass the configured
+remote jobs before merge, including for documentation-only changes.
 
 Command resolution: `--command` → `[commands].<name>` → detection. Detection never
 guesses: it exits 2 with `data.mode = "needs_command"` and candidates from
@@ -367,6 +371,36 @@ The pre-push predicate. Reads git's stdin protocol, consults only the commit's
 it.
 
 ## Exit codes
+
+### Trusted CI commands
+
+- `agentic-preflight verify SHA --purpose publish` verifies local publication
+  readiness and may accept explicit pending CI tests. Default `verify SHA` requires
+  complete local evidence; neither command evaluates human merge approval.
+- `agentic-preflight ci status --repo OWNER/REPO --pr N` retrieves current published
+  local evidence and trusted integration jobs. Exit 0 and
+  `data.merge_requirements_satisfied: true` mean the merge predicate is satisfied.
+  Exit 3 distinguishes pending, failed, stale, expired, unavailable, and human
+  approval pending. Follow this command's remote recovery action directly.
+- `agentic-preflight ci dispatch --repo OWNER/REPO --pr N` requests the protected
+  workflow for the current integration candidate. It reuses existing requests;
+  `--force` requests a fresh complete run. It never supplies a test pass.
+- `agentic-preflight ci templates --directory PATH` writes the two protected
+  workflow templates without overwriting files. Review and install them on the
+  protected base before opting in.
+- `agentic-preflight ci prepare --repo OWNER/REPO --candidate JSON --candidate-id HASH --workflow-sha SHA`
+  is for the trusted preparation job. It validates the dispatched candidate against
+  GitHub and the protected workflow revision; the JSON is a request, not evidence.
+- `agentic-preflight ci reconcile --repo OWNER/REPO --check-app-id ID` is for the protected evaluator.
+  It dispatches current candidates and writes the combined required check for open
+  PRs. `--pr N` limits it to one PR. It requires the dedicated App's check/action write permissions and
+  must never run proposed code or read executable results from artifacts.
+
+These commands are independent of a local active run and work after `finish`.
+Live results do not require another notes push. Authentication or incomplete API
+data cannot turn an unknown result into success.
+
+### Exit-code reference
 
 `0` ok · `1` usage/internal · `2` stage failed · `3` precondition violated ·
 `4` human resolution required · `5` confirmation required · `10` hook block

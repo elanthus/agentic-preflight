@@ -7,6 +7,10 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Added
 
+- Opt-in trusted GitHub Actions test authority, with separate publication and merge
+  predicates, schema-6 pending delegation, protected integration-test workflow
+  templates, and live attempt-specific CI retrieval. Local tests remain the default.
+
 - Automatic per-stage evidence refresh after equivalent-content restacks, with
   original execution provenance in v5 attestations. Review/docs compare content
   and context; shell reuse requires committed input contracts. Producers preserve

@@ -36,7 +36,15 @@ setup failure, no stage log exists; show `data.setup_failure` and obey the retur
 
 ## Hosted CI failed
 
-Inspect the failed check with `gh pr checks` and `gh run view --log-failed`. Fix and
+Inspect the failed check with `gh pr checks` and `gh run view --log-failed`. For
+delegated tests, use `agentic-preflight ci status --repo OWNER/REPO --pr N` and follow
+its remote recovery action. A transient failure or rerun on the unchanged candidate
+does not require a new model review or local test run. Rerun all jobs; do not combine
+successful legs from different attempts. After a base update, dispatch the fresh
+integration candidate if the protected dispatcher has not done so. API outages are
+unknown results, never permission to merge.
+
+When source needs repair, fix and
 commit the source branch, then start a fresh synchronized preflight run with the
 original intent. Follow the returned stage sequence, including any validated reuse,
 until the gate is green. Push through the gate again, then resume check monitoring with `gh`.

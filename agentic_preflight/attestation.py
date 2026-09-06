@@ -6,6 +6,7 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from pydantic import ValidationError
 
@@ -17,6 +18,10 @@ NOTES_REF = "refs/notes/agentic-preflight"
 
 class InvalidAttestation(ValueError):
     pass
+
+
+class DelegatedTestsPending(InvalidAttestation):
+    """Publication evidence is valid, but delegated tests are not local completion."""
 
 
 def output_digest(output: str) -> str:
@@ -60,6 +65,9 @@ def build(
         record = run.stages.get(stage)
         if record is None:
             raise InvalidAttestation(f"{stage.value} stage has no recorded result")
+        if stage is Stage.TEST and record.status == "delegated" and run.test_delegation:
+            stages[stage] = AttestedStage(status="delegated", reason="trusted CI tests pending")
+            continue
         if record.status == "skipped":
             if stage is Stage.LINT:
                 raise InvalidAttestation("lint stage is not green")
@@ -73,12 +81,18 @@ def build(
             exit_code=record.exit_code,
             output_sha256=record.output_sha256,
         )
+    from .ci_policy import consumer_installed
     from .refresh_validation import base_supports_refresh, rebound_coverage, verify_evidence
 
-    use_refresh = (
+    delegated = run.test_delegation is not None
+    use_refresh = delegated or (
         run.worktree_path is not None
         and set(run.evidence) == set(Stage)
         and base_supports_refresh(run.worktree_path, run.merge_base_sha)
+        and (
+            not (run.config_snapshot or {}).get("ci")
+            or consumer_installed(run.worktree_path, run.merge_base_sha)
+        )
     )
     if use_refresh:
         stages[Stage.REVIEW].coverage = rebound_coverage(
@@ -88,7 +102,7 @@ def build(
             base=run.merge_base_sha,
         )
     value = Attestation(
-        schema_version=5 if use_refresh else 4,
+        schema_version=6 if delegated else 5 if use_refresh else 4,
         sha=sha,
         tree_sha=tree_sha,
         branch=run.branch,
@@ -97,7 +111,9 @@ def build(
         intent_sha256=intent_digest(run.intent or ""),
         config_sha256=run.config_digest,
         run_id=run.run_id,
-        green_at=datetime.now(UTC).isoformat(timespec="seconds"),
+        green_at=None if delegated else datetime.now(UTC).isoformat(timespec="seconds"),
+        publication_ready_at=datetime.now(UTC) if delegated else None,
+        test_delegation=run.test_delegation,
         stages=stages,
         findings_summary=findings_summary,
         evidence=run.evidence if use_refresh else None,
@@ -110,6 +126,9 @@ def build(
 
 def encode(value: Attestation) -> str:
     payload = value.model_dump(mode="json")
+    if value.schema_version < 6:
+        payload.pop("test_delegation")
+        payload.pop("publication_ready_at")
     if value.schema_version == 4:
         payload.pop("evidence")
         payload.pop("config_snapshot")
@@ -134,13 +153,26 @@ def read(repo: Path | str, sha: str) -> Attestation | None:
     return decode(payload)
 
 
-def verify(repo: Path | str, sha: str) -> Attestation:
+def verify(
+    repo: Path | str, sha: str, *, purpose: Literal["local", "publish"] = "local"
+) -> Attestation:
+    if purpose not in {"local", "publish"}:
+        raise InvalidAttestation("unknown verification purpose")
     resolved = gitx.rev_parse(repo, sha)
     value = read(repo, resolved)
     if value is None:
         raise InvalidAttestation(
             f"commit {resolved} has no agentic-preflight attestation in {NOTES_REF}"
         )
+    return verify_value(repo, value, resolved, purpose=purpose)
+
+
+def verify_value(
+    repo: Path | str, value: Attestation, resolved: str, *, purpose: Literal["local", "publish"]
+) -> Attestation:
+    """Validate an already decoded note, including notes retrieved through GitHub."""
+    if purpose not in {"local", "publish"}:
+        raise InvalidAttestation("unknown verification purpose")
     if value.sha != resolved:
         raise InvalidAttestation(f"attestation names {value.sha}, but it is attached to {resolved}")
     actual_tree = gitx.tree_sha(repo, resolved)
@@ -148,13 +180,25 @@ def verify(repo: Path | str, sha: str) -> Attestation:
         raise InvalidAttestation(
             f"attestation tree {value.tree_sha} does not match commit tree {actual_tree}"
         )
-    if value.schema_version == 5:
+    if value.schema_version in {5, 6}:
         from .refresh_validation import verify_evidence
 
         try:
             verify_evidence(repo, value)
         except (ValueError, gitx.GitError) as exc:
             raise InvalidAttestation(str(exc)) from exc
+    if value.schema_version == 6:
+        from .ci_policy import verify_declaration
+
+        try:
+            verify_declaration(repo, value)
+        except (ValueError, gitx.GitError) as exc:
+            raise InvalidAttestation(str(exc)) from exc
+        if purpose != "publish":
+            raise DelegatedTestsPending(
+                "tests are delegated, not locally green; use ci status --repo OWNER/REPO --pr N "
+                "to verify merge readiness, or verify --purpose publish for publication only"
+            )
     return value
 
 

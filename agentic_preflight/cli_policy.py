@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Literal
 
 import click
 
@@ -13,12 +14,14 @@ from .cli_support import command, finish, finish_locked
 from .envelope import Envelope, ExitCode
 from .errors import AttestationFailed, NeedsHuman
 from .gitx import GitError
+from .models import Stage
 
 
 @click.command()
 @click.argument("sha", required=False)
+@click.option("--purpose", type=click.Choice(["local", "publish"]), default="local")
 @command
-def verify(sha: str | None) -> None:
+def verify(sha: str | None, purpose: Literal["local", "publish"]) -> None:
     """Confirm an active review stage, or validate SHA's Git-note attestation."""
     if sha is not None:
         from . import attestation as attestationmod
@@ -26,8 +29,23 @@ def verify(sha: str | None) -> None:
 
         repo_root = gitx.repo_root(Path.cwd())
         try:
-            value = attestationmod.verify(repo_root, sha)
+            value = attestationmod.verify(repo_root, sha, purpose=purpose)
         except (attestationmod.InvalidAttestation, GitError) as exc:
+            if isinstance(exc, attestationmod.DelegatedTestsPending):
+                raise AttestationFailed(
+                    str(exc),
+                    data={
+                        "purpose": purpose,
+                        "test_status": "delegated_pending",
+                        "merge_requirements_satisfied": False,
+                    },
+                    next_instruction=(
+                        "Retrieve current trusted CI evidence with "
+                        "agentic-preflight ci status --repo OWNER/REPO --pr N, "
+                        "replacing OWNER/REPO and N with the repository and PR number. "
+                        "Do not repeat local review merely because tests are pending."
+                    ),
+                ) from exc
             raise AttestationFailed(
                 str(exc),
                 data={"sha": sha, "notes_ref": attestationmod.NOTES_REF},
@@ -43,6 +61,9 @@ def verify(sha: str | None) -> None:
             Envelope(
                 data={
                     "verified": True,
+                    "purpose": purpose,
+                    "test_status": value.stages[Stage.TEST].status,
+                    "merge_requirements_satisfied": False,
                     "sha": value.sha,
                     "tree_sha": value.tree_sha,
                     "notes_ref": attestationmod.NOTES_REF,
@@ -165,7 +186,7 @@ def _has_valid_attestation(repo_root: Path, sha: str) -> bool:
     from . import attestation as attestationmod
 
     try:
-        attestationmod.verify(repo_root, sha)
+        attestationmod.verify(repo_root, sha, purpose="publish")
     except (attestationmod.InvalidAttestation, GitError):
         return False
     return True

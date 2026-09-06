@@ -17,8 +17,9 @@ import tomllib
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_serializer
 
+from .ci_models import CISection
 from .digests import json_digest
 from .shell_fingerprints import ShellInputContract
 
@@ -143,6 +144,7 @@ class Config(BaseModel):
     commands: CommandsSection = Field(default_factory=CommandsSection)
     stage: StageSection = Field(default_factory=StageSection)
     reuse: ReuseSection = Field(default_factory=ReuseSection)
+    ci: CISection = Field(default_factory=CISection)
     review: ReviewSection = Field(default_factory=ReviewSection)
     policy: PolicySection = Field(default_factory=PolicySection)
     docs: DocsSection = Field(default_factory=DocsSection)
@@ -153,6 +155,15 @@ class Config(BaseModel):
     pr: PRSection = Field(default_factory=PRSection)
     approval: ApprovalSection = Field(default_factory=ApprovalSection)
     hook: HookSection = Field(default_factory=HookSection)
+
+    @model_serializer(mode="wrap")
+    def compatible_snapshot(self, handler):
+        result = handler(self)
+        # Keep default local v4/v5 snapshots consumable by protected bases that
+        # predate CI delegation. Non-default authority is explicitly versioned.
+        if self.ci == CISection():
+            result.pop("ci", None)
+        return result
 
 
 def config_digest(snapshot: dict[str, Any]) -> str:

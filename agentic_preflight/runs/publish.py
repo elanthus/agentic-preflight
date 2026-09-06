@@ -7,7 +7,7 @@ from .. import gitx
 from .. import risk as riskmod
 from ..attestation import NOTES_REF
 from ..envelope import Envelope
-from ..errors import ManualGate, NeedsConfirm
+from ..errors import AttestationFailed, ManualGate, NeedsConfirm
 from ..machine import Action, State
 from ..publish import gate as gatemod
 from ._session import (
@@ -28,7 +28,9 @@ def gate(session: Session) -> Envelope:
     """Summarise what would be pushed and mint a confirmation token."""
     run = _load_current(session)
     _assert_fresh(session, run)
-    _require_state(run, State.VERIFIED, State.AWAITING_PUSH_CONFIRM, command="gate")
+    _require_state(
+        run, State.VERIFIED, State.PUBLICATION_READY, State.AWAITING_PUSH_CONFIRM, command="gate"
+    )
 
     _remote_for(session, run)
     commits = [
@@ -48,8 +50,10 @@ def gate(session: Session) -> Envelope:
         docs_blocking_severities=session.config.docs.blocking_severities,
     )
     try:
-        portable = attestationmod.verify(session.repo_root, run.head_sha)
-    except (attestationmod.InvalidAttestation, gitx.GitError):
+        portable = attestationmod.verify(session.repo_root, run.head_sha, purpose="publish")
+    except (attestationmod.InvalidAttestation, gitx.GitError) as exc:
+        if run.test_delegation is not None:
+            raise AttestationFailed(str(exc), next_command="agentic-preflight status") from exc
         portable = None
     if portable is not None:
         assessment = riskmod.include_attested_findings(assessment, portable.findings_summary)
@@ -89,7 +93,7 @@ def gate(session: Session) -> Envelope:
     summary.token = gatemod.mint_token()
     with session.store.transaction(run.run_id) as doc:
         doc.gate_token = summary.token
-        if doc.state is State.VERIFIED:
+        if doc.state in {State.VERIFIED, State.PUBLICATION_READY}:
             _apply(doc, Action.GATE)
         run = doc
 
@@ -180,6 +184,12 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
             next_command="agentic-preflight push --confirm <token>",
         )
 
+    if run.test_delegation is not None:
+        try:
+            attestationmod.verify(session.repo_root, run.head_sha, purpose="publish")
+        except (attestationmod.InvalidAttestation, gitx.GitError) as exc:
+            raise AttestationFailed(str(exc), next_command="agentic-preflight status") from exc
+
     with session.store.resource("notes"):
         gitx.fetch_notes(session.repo_root, "origin", NOTES_REF)
         gitx.run(
@@ -251,7 +261,13 @@ def finish(session: Session) -> Envelope:
             "automated_cleanup": session.config.pr.automated_cleanup,
         },
         next_instruction=(
-            _worktree_completion(_worktree_mode(run, session.config)) + pr_instruction
+            _worktree_completion(_worktree_mode(run, session.config))
+            + (
+                " Publication is complete; tests remain pending. Use ci status after opening the PR."
+                if run.test_delegation
+                else ""
+            )
+            + pr_instruction
         ),
         next_command="agentic-preflight gc",
     )

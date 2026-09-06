@@ -124,6 +124,7 @@ class DocsFingerprint(BaseModel):
 
 
 _KNOWN_CONFIG = {
+    "ci",
     "reuse",
     "general",
     "commands",
