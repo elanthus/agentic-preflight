@@ -245,14 +245,22 @@ def verify_value(
 
         try:
             verify_evidence(repo, value)
-        except (ValueError, gitx.GitError) as exc:
+        except gitx.GitError as exc:
+            raise InvalidAttestation(
+                f"Git evidence validation failed with exit {exc.returncode}", reason="git_failure"
+            ) from exc
+        except ValueError as exc:
             raise InvalidAttestation(str(exc)) from exc
     if value.schema_version == 6:
         from .ci_policy import verify_declaration
 
         try:
             verify_declaration(repo, value)
-        except (ValueError, gitx.GitError) as exc:
+        except gitx.GitError as exc:
+            raise InvalidAttestation(
+                f"Git evidence validation failed with exit {exc.returncode}", reason="git_failure"
+            ) from exc
+        except ValueError as exc:
             raise InvalidAttestation(str(exc)) from exc
         if purpose != "publish":
             raise DelegatedTestsPending(
