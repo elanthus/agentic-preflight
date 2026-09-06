@@ -227,4 +227,6 @@ def test_verify_pending_guidance_uses_exception_type_not_message(tmp_repo, monke
         assert "ci status --repo OWNER/REPO --pr N" in result["next"]["instruction"]
     else:
         assert "test_status" not in result["data"]
-        assert result["next"]["command"].startswith("git fetch origin")
+        assert result["data"]["reason"] == "invalid_evidence"
+        assert result["next"]["command"] is None
+        assert "cannot repair a present invalid note" in result["next"]["instruction"]

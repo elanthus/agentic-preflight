@@ -92,7 +92,9 @@ def test_verify_sha_fails_closed_without_an_attestation(feature_repo):
     env = ScriptedAgent(feature_repo).run("verify", head, expect=ExitCode.STAGE_FAILED)
     assert env["error"]["code"] == "attestation_failed"
     assert env["data"]["notes_ref"] == NOTES_REF
-    assert "git fetch origin" in env["next"]["command"]
+    assert env["data"]["reason"] == "missing_note"
+    assert env["next"]["command"] is None
+    assert "fetch fresh notes" in env["next"]["instruction"]
 
 
 def test_documentation_only_gate_records_test_as_skipped(tmp_repo, tmp_path):
