@@ -35,41 +35,34 @@ jobs:
       - name: Install the trusted policy checker
         run: uv tool install --python 3.11 .
 
-      - name: Fetch the proposed head and its attestation
-        env:
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          HEAD_REPOSITORY_URL: ${{ github.event.pull_request.head.repo.clone_url }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          source_remote=origin
-          if [ "$HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ]; then
-            git remote add preflight-contributor "$HEAD_REPOSITORY_URL"
-            source_remote=preflight-contributor
-          fi
-          git fetch --no-tags "$source_remote" \
-            "refs/heads/$HEAD_REF:refs/remotes/preflight/head"
-          test "$(git rev-parse refs/remotes/preflight/head)" = "$HEAD_SHA"
-          git fetch --force --no-tags "$source_remote" \
-            "refs/notes/agentic-preflight:refs/notes/agentic-preflight"
-
       - name: Evaluate approval policy for the exact head
         id: policy
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REPOSITORY_URL: ${{ github.event.pull_request.head.repo.clone_url }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          source_remote=origin
+          if [ "$HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ]; then
+            git remote add preflight-contributor "$HEAD_REPOSITORY_URL"
+            source_remote=preflight-contributor
+          fi
           reviews_file="$RUNNER_TEMP/pull-request-reviews.json"
           result_file="$RUNNER_TEMP/approval-policy.json"
           gh api --paginate --slurp \
             "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews?per_page=100" \
             > "$reviews_file"
           policy_exit=0
-          agentic-preflight approval-check "$HEAD_SHA" \
+          agentic-preflight hosted-check "$HEAD_SHA" \
             --base "$BASE_SHA" \
+            --source-remote "$source_remote" \
+            --head-ref "refs/heads/$HEAD_REF" \
+            --mode approval \
             --reviews-file "$reviews_file" \
             --author "$PR_AUTHOR" \
             --report-only \
