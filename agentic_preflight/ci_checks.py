@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from . import ci_merge
@@ -41,10 +42,9 @@ def publish_check(api: GitHub, head: str, result: dict, *, app_id: int) -> None:
     }
     if not pending:
         body["conclusion"] = "success" if ready else "failure"
-    if owned:
-        published = api.request(
-            f"check-runs/{max(owned, key=lambda item: item['id'])['id']}", method="PATCH", body=body
-        )
+    latest = max(owned, key=lambda item: item["id"]) if owned else None
+    if latest and not (pending and latest.get("status") == "completed"):
+        published = api.request(f"check-runs/{latest['id']}", method="PATCH", body=body)
     else:
         published = api.request("check-runs", method="POST", body={**body, "head_sha": head})
     if not isinstance(published, dict) or published.get("app", {}).get("id") != app_id:
@@ -66,6 +66,12 @@ def reconcile(repo: Path, api: GitHub, *, check_app_id: int, pr: int | None = No
             "reason": "Rechecking current candidate and trusted CI authority",
         }
         publish_check(api, head, pending, app_id=check_app_id)
+        # Keep the head fallback pending; only the tested integration may pass.
+        initial_merge = pull.get("merge_commit_sha")
+        if isinstance(initial_merge, str) and re.fullmatch(r"[0-9a-f]{40}", initial_merge):
+            publish_check(api, initial_merge, pending, app_id=check_app_id)
+        else:
+            initial_merge = None
         # evaluate supplies precise unavailable/stale explanations even when
         # dispatch cannot establish a candidate. Do not let a dispatch failure
         # accidentally preserve a previous success.
@@ -96,13 +102,19 @@ def reconcile(repo: Path, api: GitHub, *, check_app_id: int, pr: int | None = No
                 "merge_requirements_satisfied": False,
                 "reason": "PR head changed during check publication",
             }
-        if result.get("candidate") and current["base"]["sha"] != result["candidate"]["base_sha"]:
+        candidate = result.get("candidate")
+        if candidate and (
+            current["base"]["sha"] != candidate["base_sha"]
+            or current["base"]["ref"] != candidate["base_branch"]
+            or current.get("merge_commit_sha") != candidate["merge_sha"]
+        ):
             result = {
                 **result,
                 "status": "stale",
                 "merge_requirements_satisfied": False,
-                "reason": "PR base changed during check publication",
+                "reason": "PR base or integration commit changed during check publication",
             }
-        publish_check(api, head, result, app_id=check_app_id)
+        subject = candidate["merge_sha"] if candidate else initial_merge or head
+        publish_check(api, subject, result, app_id=check_app_id)
         outcomes.append(result)
     return outcomes

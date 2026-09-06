@@ -16,25 +16,33 @@ class CheckAPI:
     def __init__(self):
         self.checks = []
         self.writes = []
-        self.pull = {"number": 86, "head": {"sha": "a" * 40}, "base": {"sha": "b" * 40}}
+        self.pull = {
+            "number": 86,
+            "head": {"sha": "a" * 40},
+            "base": {"sha": "b" * 40, "ref": "main"},
+            "merge_commit_sha": "c" * 40,
+        }
 
     def pages(self, path, key=None):
         if path.startswith("pulls"):
             return [self.pull]
         assert path.startswith("commits/")
         assert key == "check_runs"
-        return copy.deepcopy(self.checks)
+        subject = path.split("/")[1]
+        return copy.deepcopy([item for item in self.checks if item.get("head_sha") == subject])
 
     def request(self, path, *, method="GET", body=None):
         if method == "GET":
             return copy.deepcopy(self.pull)
         self.writes.append((method, path, copy.deepcopy(body)))
         if method == "POST":
-            self.checks.append({**body, "id": 1})
+            item = {**body, "id": max((item["id"] for item in self.checks), default=0) + 1}
+            self.checks.append(item)
         else:
-            self.checks[-1].update(body)
-        self.checks[-1]["app"] = {"id": 30}
-        return copy.deepcopy(self.checks[-1])
+            item = next(item for item in self.checks if item["id"] == int(path.split("/")[-1]))
+            item.update(body)
+        item["app"] = {"id": 30}
+        return copy.deepcopy(item)
 
 
 def outcome(status="success"):
@@ -44,7 +52,12 @@ def outcome(status="success"):
         "pr": 86,
         "merge_requirements_satisfied": status == "success",
         "reason": "test result",
-        "candidate": {"head_sha": "a" * 40, "base_sha": "b" * 40},
+        "candidate": {
+            "head_sha": "a" * 40,
+            "base_sha": "b" * 40,
+            "base_branch": "main",
+            "merge_sha": "c" * 40,
+        },
         "tests": {"run_url": "https://github.com/owner/repo/actions/runs/1"},
     }
 
@@ -81,7 +94,12 @@ def test_reconcile_maps_explicit_verdicts_and_updates_existing_check(tmp_path, m
         else "failure"
     )
     assert "Run:" in body["output"]["summary"]
-    assert len(api.checks) == 1
+    assert len(api.checks) == 2
+    head_check = next(item for item in api.checks if item["head_sha"] == "a" * 40)
+    merge_check = next(item for item in api.checks if item["head_sha"] == "c" * 40)
+    assert head_check["status"] == "in_progress"
+    assert head_check.get("conclusion") is None
+    assert merge_check["status"] == body["status"]
 
 
 def test_reconcile_cannot_pass_after_last_head_or_base_change(tmp_path, monkeypatch):

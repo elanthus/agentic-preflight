@@ -68,6 +68,10 @@ the current integration candidate. Scheduled reconciliation and explicit
 `ci dispatch --pr N` recover merge-ref computation delays and missed events.
 Workflow completion triggers evaluation; periodic reconciliation catches reruns,
 expiry, approval changes, and API recovery. Unchanged requests are idempotent.
+The completed required check belongs to the tested integration SHA. A separate
+head check remains pending, preventing GitHub's head-check fallback from accepting
+an old success after the base changes. Reconciliation revokes previous success on
+the known integration subject before looking up fresh evidence.
 
 The latest matching workflow run supersedes older successes. Its latest attempt
 alone supplies jobs; a partial rerun with missing required legs cannot inherit a
@@ -91,8 +95,8 @@ so a proposed workflow cannot obtain it. The evaluator validates the App identit
 on every check write. Strict up-to-date rules
 close the interval between an evaluator's final API read and a later base update;
 this design does not claim an atomic GitHub read-and-merge transaction. Merge queues
-are outside scope. Environment approval is consumed only in the protected,
-environment-gated evaluator job; agents cannot grant it. Manual-merge policy
+are outside scope. Environment approval is consumed from the protected approval
+job on the exact trusted test run; agents cannot grant it. Manual-merge policy
 continues to prohibit agent merge and auto-merge.
 
 GitHub documents the distinction between PR and protected-base events in

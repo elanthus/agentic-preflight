@@ -197,6 +197,14 @@ agent-provided result JSON are not test authority. The published Git note remain
 unsigned audit evidence for local review; this feature does not authenticate model
 judgment or implement the separate threat model in issue #25.
 
+The combined verdict is attached to the exact integration SHA. A head check stays
+pending: GitHub can fall back to head checks while a newly computed integration
+commit has no checks, and that fallback must never reuse an old success. Each
+reconciliation first marks both known subjects pending, then completes only the
+validated integration subject. This also works when other required checks run on
+the merge commit. See GitHub's
+[head-versus-merge check rules](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks).
+
 `ci status` retrieves the head repository's published note (including fork notes)
 and live GitHub results even after local
 `finish` or a restart. It fetches missing commit objects as inert Git data; it does
