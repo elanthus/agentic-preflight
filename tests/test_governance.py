@@ -13,7 +13,7 @@ def test_ci_verifies_attestations_with_the_protected_base_version():
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "trusted preflight attestation" in workflow
     assert "ref: ${{ github.event.pull_request.base.sha }}" in workflow
-    assert 'agentic-preflight verify "$ATTESTED_SHA"' in workflow
+    assert 'agentic-preflight hosted-check "$ATTESTED_SHA"' in workflow
     assert 'test ! -e "$UV_TOOL_BIN_DIR/ap"' in workflow
 
 
@@ -23,7 +23,8 @@ def test_high_risk_approval_runs_trusted_code_and_rechecks_on_reviews():
     assert "pull_request_review:" in workflow
     assert "ref: ${{ github.event.pull_request.base.sha }}" in workflow
     assert "high-risk human approval" in workflow
-    assert "agentic-preflight approval-check" in workflow
+    assert 'agentic-preflight hosted-check "$HEAD_SHA"' in workflow
+    assert "--mode approval" in workflow
     assert "--report-only" in workflow
     assert "auto_merge_enabled" in workflow
     assert "auto_merge_disabled" in workflow
@@ -51,61 +52,35 @@ def test_codeowners_protects_the_policy_and_verifier_surfaces():
         assert path in codeowners
 
 
-def test_legacy_workflow_failure_json_is_visible_and_exit_is_preserved(tmp_path):
-    import shutil
-    import subprocess
-    import textwrap
-
-    import pytest
-
-    bash = shutil.which("bash")
-    if bash is None:
-        pytest.skip("Bash is unavailable")
-    for filename, start, end in (
-        ("ci.yml", "          verify_exit=0", "\n\n  test:"),
-        ("human-approval.yml", "          policy_exit=0", "          approval_mode="),
-    ):
-        workflow = (ROOT / ".github/workflows" / filename).read_text()
-        script = textwrap.dedent(workflow[workflow.index(start) : workflow.index(end)])
-        result_file = tmp_path / "result.json"
-        result_file.write_text('{"ok":true,"data":{"approved":true}}')
-        # Execute the actual workflow fragment under GitHub's Bash error flags.
-        # The function supplies the same failure envelope as either legacy CLI.
-        harness = """
-agentic-preflight() { echo '{"ok":false,"data":{"reason":"missing_note"}}'; return 2; }
-ATTESTED_SHA=abc
-HEAD_SHA=abc
-BASE_SHA=def
-reviews_file=unused
-PR_AUTHOR=author
-result_file=$1
-"""
-        result = subprocess.run(
-            [
-                bash,
-                "--noprofile",
-                "--norc",
-                "-e",
-                "-o",
-                "pipefail",
-                "-c",
-                harness + script + "\necho UNREACHABLE",
-                "test",
-                str(result_file),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert result.returncode == 2, result.stderr
-        assert '"reason":"missing_note"' in result.stdout
-        assert "UNREACHABLE" not in result.stdout
-        assert '"approved":true' not in result.stdout
-
-
-def test_helper_rollout_keeps_existing_protected_base_commands():
+def test_workflows_share_the_protected_availability_helper():
     for filename in ("ci.yml", "human-approval.yml"):
         workflow = (ROOT / ".github/workflows" / filename).read_text()
-        assert "hosted-check" not in workflow
+        policy_step = _policy_script(filename)
+        assert policy_step.count("agentic-preflight hosted-check") == 1
         assert "ref: ${{ github.event.pull_request.base.sha }}" in workflow
-        assert "source_remote=preflight-contributor" in workflow
+        assert "BASE_SHA: ${{ github.event.pull_request.base.sha }}" in workflow
+        assert "HEAD_REF: ${{ github.event.pull_request.head.ref }}" in workflow
+        assert (
+            "HEAD_REPOSITORY_URL: ${{ github.event.pull_request.head.repo.clone_url }}" in workflow
+        )
+        assert "uv tool install --python 3.11 ." in workflow
+        assert '--base "$BASE_SHA"' in policy_step
+        assert '--head-ref "refs/heads/$HEAD_REF"' in policy_step
+        assert '--source-remote "$source_remote"' in policy_step
+        assert "git fetch" not in policy_step
+        assert "sleep " not in policy_step
+        assert "approval-check" not in policy_step
+
+
+def _policy_script(filename):
+    import textwrap
+
+    workflow = (ROOT / ".github/workflows" / filename).read_text()
+    label = (
+        "Fetch and verify the pull request attestation"
+        if filename == "ci.yml"
+        else "Evaluate approval policy for the exact head"
+    )
+    end = "\n  test:" if filename == "ci.yml" else "\n  environment:"
+    block = workflow[workflow.index("      - name: " + label) : workflow.index(end)]
+    return textwrap.dedent(block.split("        run: |\n", 1)[1])

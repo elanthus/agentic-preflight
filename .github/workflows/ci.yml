@@ -41,6 +41,7 @@ jobs:
       - name: Fetch and verify the pull request attestation
         env:
           ATTESTED_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           HEAD_REPOSITORY_URL: ${{ github.event.pull_request.head.repo.clone_url }}
@@ -50,14 +51,13 @@ jobs:
             git remote add preflight-contributor "$HEAD_REPOSITORY_URL"
             source_remote=preflight-contributor
           fi
-          git fetch --no-tags "$source_remote" \
-            "refs/heads/$HEAD_REF:refs/remotes/preflight/head"
-          test "$(git rev-parse refs/remotes/preflight/head)" = "$ATTESTED_SHA"
-          git fetch --force --no-tags "$source_remote" \
-            "refs/notes/agentic-preflight:refs/notes/agentic-preflight"
           result_file="$RUNNER_TEMP/attestation-result.json"
           verify_exit=0
-          agentic-preflight verify "$ATTESTED_SHA" > "$result_file" || verify_exit=$?
+          agentic-preflight hosted-check "$ATTESTED_SHA" \
+            --base "$BASE_SHA" \
+            --source-remote "$source_remote" \
+            --head-ref "refs/heads/$HEAD_REF" \
+            > "$result_file" || verify_exit=$?
           cat "$result_file"
           exit "$verify_exit"
 

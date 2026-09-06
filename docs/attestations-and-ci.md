@@ -110,12 +110,12 @@ URL credentials. CLI stdout contains one JSON envelope, including failure diagno
 The hosted shell caller must print that envelope and return the original command exit
 status before reading approval outputs.
 
-**Rollout:** this first step installs helper support and adds failure logging using
-commands already available on the current protected base. The repository workflows
-still use `verify` and `approval-check`; their note fetches do not yet retry. After this
-support merges, a separate PR will switch both callers to `hosted-check`. Never install
-or execute the proposed branch's helper with policy credentials to shortcut the rollout.
-The attestation wire format is unchanged.
+Both repository workflows now use `hosted-check` from their protected event-base
+installation. Helper support landed first in PR #96; workflow adoption followed in a
+separate PR so no caller depends on a command absent from its trusted base. Apply this
+order in other repositories too: merge compatible helper support before requiring it
+in hosted callers. Never execute proposed helper code with policy credentials to
+shortcut the rollout. The attestation wire format is unchanged.
 
 Same-head failure followed by a successful rerun does not establish replication delay
 as the cause. Compare the recorded snapshots and verifier identities between attempts;
