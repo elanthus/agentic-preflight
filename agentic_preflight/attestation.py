@@ -17,11 +17,48 @@ NOTES_REF = "refs/notes/agentic-preflight"
 
 
 class InvalidAttestation(ValueError):
-    pass
+    """A strict evidence failure with a machine-readable recovery category."""
+
+    def __init__(self, message: str, *, reason: str = "invalid_evidence") -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+def recovery(reason: str) -> str:
+    if reason in {"missing_note", "missing_notes_ref"}:
+        return (
+            "Confirm publication of the expected head and its note to the source remote; "
+            "fetch fresh notes or rerun the bounded hosted check. Local verify stays offline."
+        )
+    if reason == "incompatible_schema":
+        return (
+            "The verifier cannot understand this attestation format. Compare the trusted "
+            "verifier revision with the producer and roll out a compatible consumer or "
+            "emit a supported format. Unknown fields do not identify a producer version."
+        )
+    if reason == "verifier_mismatch":
+        return "Install and run the helper from the original protected event-base checkout."
+    if reason == "stale_candidate":
+        return "Run the check for the current PR event; never substitute its head into this event."
+    if reason in {"git_failure", "git_timeout", "io_failure"}:
+        return (
+            "Inspect Git access, authentication, permissions, and transport; absence is unproven."
+        )
+    if reason == "delegated_pending":
+        return (
+            "Use ci status for current trusted CI evidence; delegated tests are not locally green."
+        )
+    return (
+        "Inspect the invalid evidence and its commit/tree bindings. Restore valid evidence "
+        "for this exact head; fetching repeatedly cannot repair a present invalid note."
+    )
 
 
 class DelegatedTestsPending(InvalidAttestation):
     """Publication evidence is valid, but delegated tests are not local completion."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, reason="delegated_pending")
 
 
 def output_digest(output: str) -> str:
@@ -139,7 +176,25 @@ def decode(payload: str) -> Attestation:
     try:
         return Attestation.model_validate_json(payload)
     except ValidationError as exc:
-        raise InvalidAttestation(str(exc)) from exc
+        errors = exc.errors(include_input=False, include_context=False, include_url=False)
+        if any(error["type"] == "json_invalid" for error in errors):
+            reason = "malformed_payload"
+        elif any(
+            error["type"] == "extra_forbidden" or error["loc"] == ("schema_version",)
+            for error in errors
+        ):
+            reason = "incompatible_schema"
+        else:
+            reason = "invalid_evidence"
+        # Pydantic's formatted exception includes raw inputs. Keep note bodies private.
+        fields = ", ".join(
+            f"{'.'.join(map(str, error['loc'])) or '<root>'}: {error['type']}"
+            + (f" ({error['msg']})" if error["type"] == "value_error" else "")
+            for error in errors
+        )
+        raise InvalidAttestation(
+            f"attestation validation failed ({fields})", reason=reason
+        ) from exc
 
 
 def write(repo: Path | str, value: Attestation) -> None:
@@ -162,7 +217,8 @@ def verify(
     value = read(repo, resolved)
     if value is None:
         raise InvalidAttestation(
-            f"commit {resolved} has no agentic-preflight attestation in {NOTES_REF}"
+            f"commit {resolved} has no agentic-preflight attestation in {NOTES_REF}",
+            reason="missing_note",
         )
     return verify_value(repo, value, resolved, purpose=purpose)
 
@@ -174,25 +230,37 @@ def verify_value(
     if purpose not in {"local", "publish"}:
         raise InvalidAttestation("unknown verification purpose")
     if value.sha != resolved:
-        raise InvalidAttestation(f"attestation names {value.sha}, but it is attached to {resolved}")
+        raise InvalidAttestation(
+            f"attestation names {value.sha}, but it is attached to {resolved}",
+            reason="commit_mismatch",
+        )
     actual_tree = gitx.tree_sha(repo, resolved)
     if value.tree_sha != actual_tree:
         raise InvalidAttestation(
-            f"attestation tree {value.tree_sha} does not match commit tree {actual_tree}"
+            f"attestation tree {value.tree_sha} does not match commit tree {actual_tree}",
+            reason="tree_mismatch",
         )
     if value.schema_version in {5, 6}:
         from .refresh_validation import verify_evidence
 
         try:
             verify_evidence(repo, value)
-        except (ValueError, gitx.GitError) as exc:
+        except gitx.GitError as exc:
+            raise InvalidAttestation(
+                f"Git evidence validation failed with exit {exc.returncode}", reason="git_failure"
+            ) from exc
+        except ValueError as exc:
             raise InvalidAttestation(str(exc)) from exc
     if value.schema_version == 6:
         from .ci_policy import verify_declaration
 
         try:
             verify_declaration(repo, value)
-        except (ValueError, gitx.GitError) as exc:
+        except gitx.GitError as exc:
+            raise InvalidAttestation(
+                f"Git evidence validation failed with exit {exc.returncode}", reason="git_failure"
+            ) from exc
+        except ValueError as exc:
             raise InvalidAttestation(str(exc)) from exc
         if purpose != "publish":
             raise DelegatedTestsPending(

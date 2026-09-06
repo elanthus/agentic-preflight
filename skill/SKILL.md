@@ -276,6 +276,7 @@ stops — do not improvise a recovery from the symptom alone.
 | Git operation already in progress (exit 3, `operation_in_progress`) | Stop; the user must finish or abort it |
 | Merge-back conflict (exit 4, isolated modes only) | Paste `data.resolution` verbatim and stop |
 | Stage red after max attempts (exit 4) | Stop retrying; show a stage log, or abort if baseline setup never produced one |
+| Hosted attestation availability failure | Read the structured reason; retry only remote absence with the trusted bounded helper |
 | Hosted CI failed | Inspect the failure; unchanged-source CI reruns preserve local evidence, while source repairs revalidate affected stages |
 | Stale head (exit 3, `stale_run`) | Run `start` again; it preserves the old run as `ORPHANED` |
 | Abandoned run | `status --all`; inspect explicitly with `--run RUN_ID` |

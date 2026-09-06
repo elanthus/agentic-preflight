@@ -67,12 +67,17 @@ jobs:
           gh api --paginate --slurp \
             "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews?per_page=100" \
             > "$reviews_file"
+          policy_exit=0
           agentic-preflight approval-check "$HEAD_SHA" \
             --base "$BASE_SHA" \
             --reviews-file "$reviews_file" \
             --author "$PR_AUTHOR" \
             --report-only \
-            > "$result_file"
+            > "$result_file" || policy_exit=$?
+          cat "$result_file"
+          if [ "$policy_exit" -ne 0 ]; then
+            exit "$policy_exit"
+          fi
           approval_mode=$(jq -r '.data.approval_mode' "$result_file")
           approval_environment=$(jq -r '.data.approval_environment' "$result_file")
           requires_approval=$(jq -r '.data.requires_human_approval' "$result_file")
