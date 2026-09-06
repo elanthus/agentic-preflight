@@ -5,19 +5,18 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from . import approval, attestation, gitx
+from . import approval, attestation, evidence_transport, gitx
 from .ci_authority import Candidate, CandidatePending, evaluate_tests, snapshot
 from .ci_policy import enforce_local_policy
 from .config import Config
 from .github_api import APIUnavailable, GitHub
+from .models import Stage
 
 
 def published_attestation(repo: Path, api: GitHub, candidate: Candidate, cfg: Config):
     source = api.scoped(candidate.head_repository, public=not candidate.head_repository_private)
     value = attestation.decode(source.note(candidate.head_sha))
-    objects = {candidate.base_sha, candidate.head_sha, value.merge_base_sha}
-    for item in (value.evidence or {}).values():
-        objects.update((item.origin.head_sha, item.origin.base_sha))
+    objects = {candidate.base_sha, candidate.head_sha}
     missing = [
         sha
         for sha in sorted(objects)
@@ -48,12 +47,29 @@ def published_attestation(repo: Path, api: GitHub, candidate: Candidate, cfg: Co
                 f"https://github.com/{source.repository}.git",
                 *missing,
             )
+    for sha in evidence_transport.missing(repo, value):
+        gitx.run(
+            repo,
+            "-c",
+            f"core.hooksPath={os.devnull}",
+            "-c",
+            "credential.helper=!gh auth git-credential",
+            "fetch",
+            "--no-tags",
+            "--no-write-fetch-head",
+            f"https://github.com/{source.repository}.git",
+            evidence_transport.ref_for(sha),
+        )
+        # The requested ref name alone is not evidence of the object's identity.
+        gitx.rev_parse(repo, f"{sha}^{{commit}}")
     attestation.verify_value(repo, value, candidate.head_sha, purpose="publish")
     if value.config_snapshot is None:
         raise ValueError("CI merge verification requires per-stage local evidence (schema 5 or 6)")
     # The original declaration was checked against its original protected base.
     # Current remote CI policy replaces it without rewriting local review evidence.
     enforce_local_policy(Config.model_validate(value.config_snapshot), cfg, include_ci=False)
+    if cfg.commands.lint and value.stages[Stage.LINT].command != cfg.commands.lint:
+        raise ValueError("local lint execution differs from protected-base command")
     if value.base_ref not in {candidate.base_branch, f"origin/{candidate.base_branch}"}:
         raise ValueError("local evidence targets a different base branch")
     # A forward base update may change the integration tree without changing the

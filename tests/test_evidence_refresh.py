@@ -497,3 +497,25 @@ def test_status_reloads_persisted_state_after_interrupted_reuse(feature_repo, mo
     status = agent.run("status")
     assert status["data"]["reuse_error"] == "interrupted import"
     assert status["data"]["applicability"]["review"]["reasons"] == ["inputs_unavailable"]
+
+
+def test_fresh_v5_stages_preserve_explicit_command_overrides(feature_repo, tmp_path):
+    _prepare(feature_repo, contracts=False)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    payload = tmp_path / "review.json"
+    payload.write_text('{"coverage":{"manifest":"$context","examined":"all"},"findings":[]}')
+    agent.run("submit-findings", "--file", str(payload))
+    agent.run("context", "--section", "docs")
+    payload.write_text('{"findings":[]}')
+    agent.run("submit-findings", "--file", str(payload))
+    override = f'"{sys.executable}" -c "print(2)"'
+    for stage in ("lint", "test"):
+        agent.run("stage", "run", stage, "--command", override)
+    assert agent.run("mergeback")["state"] == "VERIFIED"
+    value = attestation.verify(feature_repo, "HEAD")
+    assert value.schema_version == 5
+    for stage in (Stage.LINT, Stage.TEST):
+        assert value.stages[stage].command == override
+        assert value.evidence[stage].origin.result.command == override

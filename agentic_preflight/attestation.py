@@ -198,6 +198,9 @@ def decode(payload: str) -> Attestation:
 
 
 def write(repo: Path | str, value: Attestation) -> None:
+    from . import evidence_transport
+
+    evidence_transport.retain(repo, value)
     gitx.write_note(repo, NOTES_REF, value.sha, encode(value))
 
 

@@ -78,6 +78,9 @@ Inputs are captured before and after execution; changes prevent reuse. Only
 combined digests and reason categories are recorded, never environment values or
 input-file contents. V5 evidence rechecks these inputs even for an unchanged SHA.
 Legacy v4 exact-commit reuse keeps its existing compatibility contract.
+Local `stage run --command` overrides remain valid execution evidence. Their
+resolved commands are fingerprinted; a different command prevents automatic reuse.
+Delegated CI separately requires lint to match its protected command policy.
 
 ## Provenance, ownership, and recovery
 
@@ -95,6 +98,17 @@ The consumer recomputes available Git, manifest, configuration, executor, and
 applicability bindings and checks finding dispositions. It cannot independently
 measure the past local environment or authenticate an unsigned note.
 
+Original Git commits are retained under `refs/agentic-preflight/evidence/<SHA>`.
+Publication sends those refs first, then atomically pushes the branch and notes.
+Failure to publish an original stops before branch publication; an interrupted
+publication can leave harmless retained evidence refs on the remote. Hosted consumers
+fetch missing originals from the contributor's evidence refs before verification;
+fetching a notes blob alone cannot retrieve commits named inside its JSON. These
+refs survive normal run/worktree cleanup and must remain while any published note
+depends on them. Upgrade the local publisher/hook and protected consumers before
+relying on this transport. Older notes can be republished from a clone that still
+has their original commits; missing originals cannot be reconstructed from hashes.
+
 Clean-checkout, synchronization, mergeback, publication authorization, and atomic
 branch/notes push rules still apply. Refresh authorizes no force-push, merge, or
-cleanup. CI-delegated tests remain separate work in #86.
+cleanup. For opt-in delegated tests, see [CI test authority](attestations-and-ci.md#delegating-tests-to-trusted-ci).
