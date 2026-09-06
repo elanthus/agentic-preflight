@@ -13,6 +13,8 @@ import re
 import subprocess
 import tempfile
 from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from agentic_preflight.stages.command import resolve_on_path
@@ -33,6 +35,19 @@ _DECODE_ERRORS = "backslashreplace"
 # the git that validates the repository that ships it. POSIX ``execvp``
 # searches PATH only; the absolute path pins Windows to the same rule.
 _RESOLVED_GIT: str | None = None
+
+
+_COMMAND_TIMEOUT: ContextVar[float | None] = ContextVar("git_command_timeout", default=None)
+
+
+@contextmanager
+def bounded_commands(seconds: float) -> Iterator[None]:
+    """Bound every Git subprocess in this context without changing offline defaults."""
+    token = _COMMAND_TIMEOUT.set(seconds)
+    try:
+        yield
+    finally:
+        _COMMAND_TIMEOUT.reset(token)
 
 
 def _git_executable() -> str:
@@ -67,7 +82,9 @@ class OperationInProgress(Exception):
         super().__init__(f"git {operation} is already in progress in {self.path}")
 
 
-def run(cwd: Path | str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+def run(
+    cwd: Path | str, *args: str, check: bool = True, timeout: float | None = None
+) -> subprocess.CompletedProcess:
     result = subprocess.run(
         [_git_executable(), *args],
         cwd=str(cwd),
@@ -75,6 +92,7 @@ def run(cwd: Path | str, *args: str, check: bool = True) -> subprocess.Completed
         text=True,
         encoding="utf-8",
         errors=_DECODE_ERRORS,
+        timeout=timeout if timeout is not None else _COMMAND_TIMEOUT.get(),
     )
     if check and result.returncode != 0:
         raise GitError(list(args), result.returncode, result.stderr)
@@ -96,6 +114,7 @@ def read_blobs(cwd: Path | str, object_ids: Sequence[str]) -> list[bytes]:
         cwd=str(cwd),
         input=("\n".join(object_ids) + "\n").encode("ascii"),
         capture_output=True,
+        timeout=_COMMAND_TIMEOUT.get(),
     )
     if result.returncode:
         raise GitError(
@@ -234,6 +253,7 @@ def _merge_tree_via_index(cwd: Path | str, left: str, right: str) -> str | None:
             text=True,
             encoding="utf-8",
             errors=_DECODE_ERRORS,
+            timeout=_COMMAND_TIMEOUT.get(),
         )
         if merged.returncode != 0:
             return None
@@ -245,6 +265,7 @@ def _merge_tree_via_index(cwd: Path | str, left: str, right: str) -> str | None:
             text=True,
             encoding="utf-8",
             errors=_DECODE_ERRORS,
+            timeout=_COMMAND_TIMEOUT.get(),
         )
         if written.returncode != 0:
             return None
@@ -356,6 +377,7 @@ def commit_patch_id(cwd: Path | str, sha: str) -> str | None:
         [_git_executable(), *show_args],
         cwd=str(cwd),
         capture_output=True,
+        timeout=_COMMAND_TIMEOUT.get(),
     )
     if patch.returncode != 0:
         raise GitError(
@@ -366,6 +388,7 @@ def commit_patch_id(cwd: Path | str, sha: str) -> str | None:
         cwd=str(cwd),
         input=patch.stdout,
         capture_output=True,
+        timeout=_COMMAND_TIMEOUT.get(),
     )
     if result.returncode != 0:
         raise GitError(
@@ -381,14 +404,17 @@ def commit_patch_id(cwd: Path | str, sha: str) -> str | None:
 
 
 def read_note(cwd: Path | str, notes_ref: str, sha: str) -> str | None:
-    result = run(cwd, "notes", f"--ref={notes_ref}", "show", sha, check=False)
-    if result.returncode == 1:
-        return None
-    if result.returncode != 0:
-        raise GitError(
-            ["notes", f"--ref={notes_ref}", "show", sha], result.returncode, result.stderr
-        )
-    return result.stdout.rstrip("\n")
+    # A successful list with no matching entry establishes absence; a failed
+    # `notes show` alone cannot distinguish a missing note from a read failure.
+    resolved = rev_parse(cwd, sha)
+    listing = out(cwd, "notes", f"--ref={notes_ref}", "list")
+    for line in listing.splitlines():
+        fields = line.split()
+        if len(fields) != 2:
+            raise GitError(["notes", "list"], 1, "unexpected notes listing")
+        if fields[1] == resolved:
+            return run(cwd, "cat-file", "blob", fields[0]).stdout.rstrip("\n")
+    return None
 
 
 def write_note(cwd: Path | str, notes_ref: str, sha: str, payload: str) -> None:

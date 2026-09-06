@@ -7,6 +7,11 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- Classify attestation failures and add an explicit trusted hosted helper that retries
+  only missing remote notes, pins the candidate and notes snapshot, and reports safe
+  attempt diagnostics. Existing hosted checks now show failure JSON; switching them
+  to the helper follows after protected-base support merges.
+
 - Retain unreadable shared run records during garbage collection, report classified
   diagnostics, and preserve ownership in status and start recovery. Unreadable records
   remain protected even under forced collection.

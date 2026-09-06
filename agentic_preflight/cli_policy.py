@@ -12,7 +12,7 @@ import click
 from . import runs
 from .cli_support import command, finish, finish_locked
 from .envelope import Envelope, ExitCode
-from .errors import AttestationFailed, NeedsHuman
+from .errors import AgenticError, AttestationFailed, NeedsHuman
 from .gitx import GitError
 from .models import Stage
 
@@ -46,16 +46,8 @@ def verify(sha: str | None, purpose: Literal["local", "publish"]) -> None:
                         "Do not repeat local review merely because tests are pending."
                     ),
                 ) from exc
-            raise AttestationFailed(
-                str(exc),
-                data={"sha": sha, "notes_ref": attestationmod.NOTES_REF},
-                next_instruction=(
-                    "Fetch refs/notes/agentic-preflight from the remote if CI does not "
-                    "have it; otherwise run a fresh preflight for this exact commit."
-                ),
-                next_command=(
-                    "git fetch origin refs/notes/agentic-preflight:refs/notes/agentic-preflight"
-                ),
+            raise _evidence_failure(
+                exc, {"sha": sha, "notes_ref": attestationmod.NOTES_REF}
             ) from exc
         finish(
             Envelope(
@@ -73,6 +65,16 @@ def verify(sha: str | None, purpose: Literal["local", "publish"]) -> None:
         )
         return
     finish_locked(runs.verify)
+
+
+def _evidence_failure(exc: Exception, data: dict) -> AttestationFailed:
+    from .attestation import InvalidAttestation, recovery
+
+    reason = exc.reason if isinstance(exc, InvalidAttestation) else "git_failure"
+    message = str(exc) if isinstance(exc, InvalidAttestation) else "Git evidence read failed"
+    return AttestationFailed(
+        message, data={**data, "reason": reason}, next_instruction=recovery(reason)
+    )
 
 
 @click.command("approval-check")
@@ -106,6 +108,7 @@ def approval_check(
 ) -> None:
     """Enforce configured merge handling when the attested change is high-risk."""
     from . import approval as approvalmod
+    from . import attestation as attestationmod
     from . import gitx
 
     try:
@@ -118,11 +121,17 @@ def approval_check(
             pull_request_author=author,
             environment_approved=environment_approved,
         )
+    except (attestationmod.InvalidAttestation, GitError) as exc:
+        raise _evidence_failure(exc, {"sha": sha, "base_sha": base_sha}) from exc
     except (ValueError, json.JSONDecodeError) as exc:
         raise AttestationFailed(
             f"cannot evaluate human approval: {exc}",
             data={"sha": sha, "base_sha": base_sha},
         ) from exc
+    _finish_approval(result, report_only=report_only)
+
+
+def _finish_approval(result: dict, *, report_only: bool) -> None:
     if result["requires_human_approval"] and not result["approved"] and not report_only:
         mode = result["approval_mode"]
         if mode == "environment":
@@ -144,6 +153,87 @@ def approval_check(
             )
         raise NeedsHuman(message, data=result, next_instruction=instruction)
     finish(Envelope(data=result))
+
+
+@click.command("hosted-check")
+@click.argument("sha")
+@click.option("--base", "base_sha", required=True, help="Original protected event-base SHA.")
+@click.option("--source-remote", required=True, help="Configured source remote (including forks).")
+@click.option("--head-ref", required=True, help="Full source refs/heads/... from the event.")
+@click.option("--mode", type=click.Choice(["verify", "approval"]), default="verify")
+@click.option("--reviews-file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--author")
+@click.option("--environment-approved", is_flag=True)
+@click.option("--report-only", is_flag=True)
+@command
+def hosted_check(
+    sha: str,
+    base_sha: str,
+    source_remote: str,
+    head_ref: str,
+    mode: str,
+    reviews_file: Path | None,
+    author: str | None,
+    environment_approved: bool,
+    report_only: bool,
+) -> None:
+    """Retry remote note absence, then verify/evaluate one pinned notes snapshot."""
+    from . import approval, gitx, note_availability
+    from .config import load_config
+    from .models import Attestation
+
+    repo = gitx.repo_root(Path.cwd())
+    reviews: object = []
+    if mode == "approval":
+        if reviews_file is None or author is None:
+            raise AgenticError("approval mode requires --reviews-file and --author")
+        try:
+            reviews = json.loads(reviews_file.read_text(encoding="utf-8"))
+        except (ValueError, OSError) as exc:
+            raise AttestationFailed(
+                "Cannot read reviews JSON", data={"reason": "invalid_reviews"}
+            ) from exc
+
+    def evaluate(value: Attestation) -> dict:
+        if mode == "verify":
+            return {
+                "verified": True,
+                "sha": value.sha,
+                "tree_sha": value.tree_sha,
+                "merge_requirements_satisfied": False,
+            }
+        return approval.evaluate_value(
+            repo,
+            value=value,
+            cfg=load_config(repo),
+            base_sha=base_sha,
+            head_sha=sha,
+            reviews=reviews,
+            pull_request_author=author or "",
+            environment_approved=environment_approved,
+        )
+
+    try:
+        result = note_availability.check(
+            repo,
+            remote=source_remote,
+            head_ref=head_ref,
+            expected_head=sha,
+            base_sha=base_sha,
+            evaluate=evaluate,
+        )
+    except note_availability.HostedCheckFailed as exc:
+        raise _evidence_failure(
+            exc, {"sha": sha, "base_sha": base_sha, "availability": exc.diagnostics}
+        ) from exc
+    except ValueError as exc:
+        raise AttestationFailed(
+            "Invalid hosted-check candidate or policy inputs", data={"reason": "invalid_inputs"}
+        ) from exc
+    if mode == "approval":
+        _finish_approval(result, report_only=report_only)
+    else:
+        finish(Envelope(data=result))
 
 
 @click.command("hook-check")
@@ -192,7 +282,7 @@ def _has_valid_attestation(repo_root: Path, sha: str) -> bool:
     return True
 
 
-COMMANDS = (verify, approval_check, hook_check)
+COMMANDS = (verify, approval_check, hosted_check, hook_check)
 
 
 def register(group: click.Group) -> None:

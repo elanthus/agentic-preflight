@@ -200,6 +200,25 @@ note exits 2. V5 additionally verifies original execution digests, Git and confi
 bindings, stage applicability, finding dispositions, and original/current review-unit
 accounting. This remains an offline check; it does not execute stages or fetch evidence.
 
+### `agentic-preflight hosted-check SHA --base SHA --source-remote NAME --head-ref refs/heads/BRANCH`
+Explicit trusted CI entry point. Requires the original event's full head/base SHAs and
+protected-base checkout. Resolves the configured source remote once, then retries only
+missing remote notes/ref availability, at most four attempts with 2/4/8-second delays.
+Git availability commands time out after 30 seconds. A fetched immutable notes snapshot
+supplies both strict verification and optional approval policy; local notes stay intact.
+Head changes during backoff, fetch, or completion fail as stale without adopting a new SHA.
+
+Default `--mode verify` checks complete local evidence. `--mode approval` also requires
+`--reviews-file PATH --author LOGIN`, and accepts `--report-only` and
+`--environment-approved` with the same policy meaning as `approval-check`. The workflow
+still enforces real environment approval and disables auto-merge for manual-merge mode.
+Delegated tests remain pending; use the separate trusted CI authority for merge readiness.
+
+Failures retain `attestation_failed` / exit 2 with `data.reason` and `data.availability`.
+Unmet approval remains exit 4 unless report-only. Diagnostic identities omit note bodies
+and URL credentials. See the hosted availability playbook for distinct recovery paths.
+Roll out this command on the protected base before adding workflow invocations.
+
 ### `agentic-preflight approval-check SHA --base SHA --reviews-file PATH --author LOGIN`
 CI-facing merge policy for an attested pull-request head. It recomputes path risk from
 the protected base configuration and uses attested finding-severity totals. Low- and

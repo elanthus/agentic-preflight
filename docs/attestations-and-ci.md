@@ -58,6 +58,70 @@ contributor's remote. The pull request cannot change the verifier that judges it
 Governance paths are also listed in `.github/CODEOWNERS`; enable **Require review from
 Code Owners** in the branch ruleset because the file alone only requests reviewers.
 
+## Bounded hosted note availability
+
+`verify SHA` remains offline and deterministic. `verify` and `approval-check` preserve
+exit code 2 and `attestation_failed` for evidence failures, with a structured
+`data.reason` and recovery instruction. They do not infer a producer version from an
+unknown field or invoke local review/tests to repair missing remote evidence.
+
+The explicit `hosted-check` command provides shared availability handling for trusted
+CI callers. Run the installed protected-base tool from the original event-base checkout:
+
+```bash
+agentic-preflight hosted-check "$HEAD_SHA" --base "$BASE_SHA" \
+  --source-remote "$source_remote" --head-ref "refs/heads/$HEAD_REF"
+```
+
+All SHAs and the branch name come from the original event. Resolve `source_remote`
+to the contributor's configured remote for a fork, as with the existing workflows.
+For policy evaluation, add `--mode approval --reviews-file "$reviews_file" --author
+"$PR_AUTHOR"`. The existing `--report-only` and `--environment-approved` options retain
+their meanings. The caller must still enforce auto-merge restrictions and the actual
+GitHub Environment gate; availability never grants either approval.
+
+The helper makes at most four attempts, waiting 2, 4, and 8 seconds between them.
+Each availability Git command has a 30-second timeout. Only a missing advertised
+notes ref or a missing expected-head note is retried. A fetch failure is not proof of
+absence and stops immediately, even if a previous local note exists. No sleep follows
+the final attempt. The library accepts injected delays, clock, and sleeper for tests.
+
+Each attempt checks the advertised and fetched PR head against the fixed event SHA.
+It fetches notes into a temporary ref, records the actual notes commit, and reads its
+immutable tree. Strict verification and approval evaluation consume that same decoded
+note. A final head lookup must still match before success. Temporary refs are removed;
+the normal local notes ref is neither merged nor overwritten.
+
+| Reason or policy result | Recovery |
+| --- | --- |
+| `missing_notes_ref`, `missing_note` | Confirm that the exact head and its note were published to the selected remote; rerun the bounded check after publication. |
+| `incompatible_schema` | Compare producer and protected verifier revisions. Install a compatible consumer first, or emit a supported format. Repeating local preflight alone does not repair compatibility. |
+| `malformed_payload`, `invalid_evidence`, `commit_mismatch`, `tree_mismatch` | Inspect and restore valid evidence for the exact commit. The present note is not retried. |
+| `stale_candidate` | Run the new event's check. The old event never borrows the new head or its note. |
+| `git_failure`, `git_timeout`, `io_failure` | Investigate access, authentication, transport, or local I/O. Raw Git stderr is omitted because it can contain credentials; the operation and exit/timeout remain visible. |
+| `verifier_mismatch` | Use the original protected event-base checkout and its installed tool. |
+| Unmet human approval / manual merge | Follow the existing approval policy. Availability does not retry or override that policy. |
+
+Save the workflow run ID and attempt, event head/base, source remote/repository,
+`availability.verifier_revision` (the protected checkout revision), verifier package
+version, and each attempt's advertised/fetched notes commit, observed/fetched head,
+note presence/object ID, reason, and elapsed time. Diagnostics omit note bodies and
+URL credentials. CLI stdout contains one JSON envelope, including failure diagnostics.
+The hosted shell caller must print that envelope and return the original command exit
+status before reading approval outputs.
+
+**Rollout:** this first step installs helper support and adds failure logging using
+commands already available on the current protected base. The repository workflows
+still use `verify` and `approval-check`; their note fetches do not yet retry. After this
+support merges, a separate PR will switch both callers to `hosted-check`. Never install
+or execute the proposed branch's helper with policy credentials to shortcut the rollout.
+The attestation wire format is unchanged.
+
+Same-head failure followed by a successful rerun does not establish replication delay
+as the cause. Compare the recorded snapshots and verifier identities between attempts;
+publication timing, concurrent notes updates, and visibility remain hypotheses until
+those observations distinguish them.
+
 ## High-risk merge handling
 
 High-risk merge handling is enforced by a separate `pull_request_target` workflow that

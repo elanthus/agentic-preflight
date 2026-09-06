@@ -55,7 +55,11 @@ jobs:
           test "$(git rev-parse refs/remotes/preflight/head)" = "$ATTESTED_SHA"
           git fetch --force --no-tags "$source_remote" \
             "refs/notes/agentic-preflight:refs/notes/agentic-preflight"
-          agentic-preflight verify "$ATTESTED_SHA"
+          result_file="$RUNNER_TEMP/attestation-result.json"
+          verify_exit=0
+          agentic-preflight verify "$ATTESTED_SHA" > "$result_file" || verify_exit=$?
+          cat "$result_file"
+          exit "$verify_exit"
 
   test:
     # Linux and Windows on every pull request. macOS is close enough to Linux
