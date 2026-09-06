@@ -6,7 +6,8 @@ SHA-256 bindings for user intent and effective configuration, finding status and
 totals, and a complete stage set. Green lint and test stages include the exact command,
 exit code, and SHA-256 of the redacted captured output. Explicitly skipped stages say why
 and carry no invented process evidence. Version 5 adds per-stage fingerprints and
-original execution provenance for refresh. Versions earlier than 4 are rejected.
+original execution provenance for refresh. Version 6 permits explicit pending test
+delegation with complete local review/docs/lint evidence. Versions earlier than 4 are rejected.
 
 `agentic-preflight push` atomically pushes the branch and
 `refs/notes/agentic-preflight`, so the attestation is not stranded in one clone. Git
@@ -28,7 +29,7 @@ command, zero exit code, and output hash.
 The verifier must support the schema emitted by the producer. Pin it to the same
 Agentic Preflight release, or to the same immutable source revision when validating
 attestations produced by an unreleased source build. Do not use a v0.3.0 verifier for a
-version 4 note: v0.3.0 accepts schema version 3, while current source accepts versions 4 and 5.
+version 4 note: v0.3.0 accepts schema version 3, while current source accepts versions 4, 5, and 6.
 
 A minimal GitHub Actions required check is:
 
@@ -122,3 +123,96 @@ consumer in its protected-base source. Until that consumer lands, its producer
 runs all required local stages and emits v4; it never executes the PR's verifier
 with policy credentials. Historical v4 notes without sufficient local
 fingerprints are not silently upgraded into reusable evidence.
+
+## Delegating tests to trusted CI
+
+CI delegation is opt-in. Publication and merge have separate verification purposes:
+
+| Command | Meaning |
+| --- | --- |
+| `agentic-preflight verify HEAD` | Complete local attestation; rejects pending delegation. It does not evaluate human merge approval. |
+| `agentic-preflight verify HEAD --purpose publish` | Local publication requirements satisfied; delegated tests may still be pending. |
+| `agentic-preflight ci status --repo OWNER/REPO --pr 86` | Current published local evidence, trusted integration tests, and configured human merge policy are satisfied only when `merge_requirements_satisfied` is true. |
+
+Schema 6 has a `delegated` test stage with no command, exit code, output hash, or
+execution timestamp. `green_at` is null; `publication_ready_at` records when the
+local publication requirements were satisfied. Three local stage origins preserve
+their actual execution provenance. The note includes the protected CI declaration
+and original policy revision, not a fabricated remote pass. Earlier consumers
+reject this schema. Default local snapshots retain the existing v4/v5 wire format.
+
+Install consumers before producers:
+
+1. Generate templates with `agentic-preflight ci templates --directory /tmp/preflight-ci`.
+   Review and copy them into `.github/workflows/` on the protected default/base branch.
+   Adapt the matrix and test commands in `preflight-tests.yml`, and the base branch
+   in `preflight-ci.yml`. The templates assume this Python package's source is
+   installed from that protected checkout. In another project, replace installation
+   with an immutable release/revision supporting schema 6. Do this in both workflows.
+2. Merge that consumer setup using complete local validation. Retrieve the numeric
+   repository ID with `gh api repos/OWNER/REPO --jq .id` and the workflow ID with
+   `gh api repos/OWNER/REPO/actions/workflows/preflight-tests.yml --jq .id`.
+   Commit the [CI declaration](configuration.md#protected-ci-tests) on the protected
+   base in a separate rollout; keep its PR on the local validation path until merged.
+3. Register and install a dedicated GitHub App with Actions/Checks write and
+   Contents/Pull requests read permissions for this repository. Set
+   `PREFLIGHT_CI_APP_ID` as a repository variable and `check_app_id` in protected
+   configuration. Store `PREFLIGHT_CI_PRIVATE_KEY` **only** as a secret in the
+   `preflight-authority` environment, with deployment branches restricted to the
+   exact protected base branch. Do not expose it as a repository-wide secret or to
+   proposed workflows. The template uses the official
+   [GitHub App token action](https://github.com/actions/create-github-app-token)
+   pinned to an immutable revision and scopes the token to this repository.
+4. Require **preflight merge readiness** specifically from that dedicated App.
+   Do not select the generic GitHub Actions app: another workflow can imitate a
+   job/check name from that source. The evaluator verifies the App identity of
+   its check writes and refuses a mismatched token.
+   Require branches to be up to date before merging, dismiss stale approvals, and
+   retain CODEOWNERS protection for configuration, workflows, and verifier code.
+   Replace a required legacy `verify HEAD` check when activating pending publication;
+   leaving it required would reject every delegated note. Preserve other required
+   checks and ownership/approval rules. Restrict check-writing credentials to the
+   trusted evaluator. For environment mode, configure actual required reviewers on
+   the named environment before enabling delegation.
+5. After the protected policy is installed, synchronize feature branches and run the
+   normal local sequence. `stage run test` records delegation without starting local
+   tests. Publish through the usual authorized gate and open the PR. This produces
+   the input CI needs without waiting for CI before the first push.
+
+The dispatcher runs on protected PR events and base pushes. It dispatches the test
+workflow on the protected base, passing the current head/base/integration identity.
+The API must confirm that the named base branch is protected and still at that SHA;
+retargeting to an unprotected branch cannot authorize an alternative policy.
+The preparation job validates that identity using GitHub's PR and commit APIs. Tests
+check out exactly that merge commit and run in isolated read-only jobs, including
+for fork and Dependabot PRs. Do not add write credentials, secrets, shared caches,
+or untrusted artifact execution to test jobs. The dispatcher/evaluator must never
+check out PR code, install its dependencies, or execute its local actions.
+
+The evaluator checks repository and workflow IDs, workflow path and protected
+definition revision, candidate digest, exact integration parents/tree, and every
+required job and execution step in the latest attempt of the latest matching run.
+A PR workflow with the same job name cannot satisfy those bindings. Artifacts and
+agent-provided result JSON are not test authority. The published Git note remains
+unsigned audit evidence for local review; this feature does not authenticate model
+judgment or implement the separate threat model in issue #25.
+
+`ci status` retrieves the head repository's published note (including fork notes)
+and live GitHub results even after local
+`finish` or a restart. It fetches missing commit objects as inert Git data; it does
+not overwrite local notes. No completion note or extra notes-only push is required.
+Run it from a repository checkout with authenticated `gh` access. The hosted
+reconciler updates the combined check on workflow events and every five minutes;
+scheduled Actions may be delayed by GitHub. Strict up-to-date branch protection is
+required because GitHub offers no atomic API-read-and-merge operation.
+
+Pending, failed, unavailable, expired, and stale results exit 3 with a reason,
+available run link, and next action. `ci status` is itself the recovery command for
+this remote lifecycle; a new local `start` is needed only when reported local
+evidence is invalid. Missing notes or API failures remain unknown. Rerun all jobs
+for a transient failure without repeating local model review. A base update gets a
+fresh integration run; dispatch explicitly with
+`agentic-preflight ci dispatch --repo OWNER/REPO --pr 86` if needed. This command is
+idempotent for an existing candidate; `--force` requests a fresh complete run.
+Source repairs use the ordinary per-stage evidence invalidation flow from #85.
+Manual-merge, environment, peer approval, and scoped cleanup requirements still apply.

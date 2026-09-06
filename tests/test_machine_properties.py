@@ -58,12 +58,16 @@ def test_pushed_is_unreachable_without_lint_green():
     assert not _reachable_paths(State.CREATED, State.PUSHED, avoid={State.LINT_GREEN})
 
 
-def test_pushed_is_unreachable_without_test_green():
-    assert not _reachable_paths(State.CREATED, State.PUSHED, avoid={State.TEST_GREEN})
+def test_pushed_is_unreachable_without_tests_or_explicit_delegation():
+    assert not _reachable_paths(
+        State.CREATED, State.PUSHED, avoid={State.TEST_GREEN, State.TEST_DELEGATED}
+    )
 
 
-def test_pushed_is_unreachable_without_verified():
-    assert not _reachable_paths(State.CREATED, State.PUSHED, avoid={State.VERIFIED})
+def test_pushed_is_unreachable_without_verified_or_publication_ready():
+    assert not _reachable_paths(
+        State.CREATED, State.PUSHED, avoid={State.VERIFIED, State.PUBLICATION_READY}
+    )
 
 
 def test_pushed_is_unreachable_without_the_gate():
@@ -82,8 +86,6 @@ def test_every_stage_gate_is_individually_load_bearing():
         State.REVIEW_GREEN,
         State.DOCS_GREEN,
         State.LINT_GREEN,
-        State.TEST_GREEN,
-        State.VERIFIED,
     ):
         assert not _reachable_paths(State.CREATED, State.PUSHED, avoid={gate}), (
             f"{gate.name} can be bypassed"
@@ -158,7 +160,7 @@ def test_a_random_walk_never_reaches_pushed_without_the_full_chain(actions):
             State.REVIEW_GREEN,
             State.DOCS_GREEN,
             State.LINT_GREEN,
-            State.TEST_GREEN,
-            State.VERIFIED,
         ):
             assert required in visited, f"reached PUSHED without {required.name}"
+        assert visited & {State.TEST_GREEN, State.TEST_DELEGATED}
+        assert visited & {State.VERIFIED, State.PUBLICATION_READY}

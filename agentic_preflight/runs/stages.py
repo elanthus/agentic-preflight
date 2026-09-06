@@ -10,6 +10,7 @@ from typing import TypedDict
 
 from .. import gitx, worktree
 from ..attestation import output_digest
+from ..ci_policy import base_enabled
 from ..envelope import Envelope
 from ..errors import (
     DirtyTree,
@@ -263,6 +264,40 @@ def run_stage(
             ),
             next_command="agentic-preflight context",
         )
+    if (
+        stage is Stage.TEST
+        and session.config.ci.test_authority == "github_actions"
+        and base_enabled(worktree_path, run.merge_base_sha)
+    ):
+        from ..ci_policy import declaration
+
+        if command is not None or baseline or record:
+            raise StageFailed(
+                "delegated tests do not accept local command, record, or baseline flags"
+            )
+        try:
+            requested = declaration(
+                worktree_path,
+                base=run.merge_base_sha,
+                head=run.head_sha,
+                base_ref=run.base_ref,
+                effective=session.config,
+            )
+        except (ValueError, gitx.GitError) as exc:
+            raise StageFailed(str(exc), stage="test") from exc
+        with session.store.transaction(run.run_id) as doc:
+            doc.test_delegation = requested
+            doc.stages[Stage.TEST] = StageRecord(
+                status="delegated", reason="trusted CI tests pending"
+            )
+            doc.evidence.pop(Stage.TEST, None)
+            _apply(doc, Action.DELEGATE_TEST)
+            run = doc
+        session.store.append_event(
+            run.run_id, {"event": "test_delegated", "subject": "integration"}
+        )
+        return _envelope_for(run, stage="test")
+
     if record_entry.attempts >= session.config.stage.max_attempts:
         setup_failure = run.setup_failure
         if (

@@ -93,6 +93,8 @@ def invalidate_stage_result(run: RunDoc, stage: Stage) -> None:
     """Discard stale process evidence without resetting its convergence guard."""
     prior = run.stages.pop(stage, None)
     run.evidence.pop(stage, None)
+    if stage is Stage.TEST:
+        run.test_delegation = None
     if prior is not None:
         run.stages[stage] = StageRecord(attempts=prior.attempts)
 

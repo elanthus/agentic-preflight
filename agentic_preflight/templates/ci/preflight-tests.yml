@@ -1,0 +1,94 @@
+# Install on the protected base before enabling [ci] producers. Customize the
+# test matrix/command HERE on that base; match required_jobs to every matrix leg.
+name: preflight trusted tests
+run-name: 'agentic-preflight-ci-v1 pr=${{ fromJSON(inputs.candidate).pr }} candidate=${{ inputs.candidate_id }}'
+on:
+  workflow_dispatch:
+    inputs:
+      candidate:
+        required: true
+        type: string
+      candidate_id:
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  prepare:
+    name: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    outputs:
+      merge_sha: ${{ steps.validate.outputs.merge_sha }}
+      approval_mode: ${{ steps.validate.outputs.approval_mode }}
+      approval_environment: ${{ steps.validate.outputs.approval_environment }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          enable-cache: false
+      - name: Install protected consumer
+        run: uv tool install --no-cache . --python 3.13
+      - name: Validate candidate
+        id: validate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AP_REPOSITORY: ${{ github.repository }}
+          AP_CANDIDATE: ${{ inputs.candidate }}
+          AP_CANDIDATE_ID: ${{ inputs.candidate_id }}
+          AP_WORKFLOW_SHA: ${{ github.sha }}
+        run: >-
+          agentic-preflight ci prepare --repo "$AP_REPOSITORY"
+          --candidate "$AP_CANDIDATE" --candidate-id "$AP_CANDIDATE_ID"
+          --workflow-sha "$AP_WORKFLOW_SHA"
+
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.13']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.prepare.outputs.merge_sha }}
+          persist-credentials: false
+      - name: Verify integration checkout
+        shell: bash
+        env:
+          AP_MERGE_SHA: ${{ needs.prepare.outputs.merge_sha }}
+        run: test "$(git rev-parse HEAD)" = "$AP_MERGE_SHA"
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: false
+      - name: Run delegated tests
+        shell: bash
+        # These commands run proposed code in an isolated, unprivileged job.
+        # No secrets, persisted checkout credentials, artifacts, or shared caches.
+        run: |
+          uv sync --no-cache --dev
+          uv run --no-cache pytest
+
+  approval:
+    name: approval
+    needs: [prepare, test]
+    if: needs.prepare.outputs.approval_mode == 'environment'
+    runs-on: ubuntu-latest
+    permissions: {}
+    environment: ${{ needs.prepare.outputs.approval_environment }}
+    steps:
+      - name: Environment released
+        run: echo 'The protected environment released this exact integration run.'

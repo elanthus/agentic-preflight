@@ -97,9 +97,9 @@ def mergeback(session: Session) -> Envelope:
     retrying_conflict = run.state is State.MERGEBACK_CONFLICT
     if not retrying_conflict:
         _assert_fresh(session, run)
-    if run.state is State.TEST_GREEN:
+    if run.state in {State.TEST_GREEN, State.TEST_DELEGATED}:
         run = evidence.advance(session, run)
-        if run.state is not State.TEST_GREEN:
+        if run.state not in {State.TEST_GREEN, State.TEST_DELEGATED}:
             return _envelope_for(run, data={"inputs_invalidated": True})
         run, reopened = reopen_if_stale(session, run)
         if reopened:
@@ -112,6 +112,7 @@ def mergeback(session: Session) -> Envelope:
     _require_state(
         run,
         State.TEST_GREEN,
+        State.TEST_DELEGATED,
         State.MERGEBACK_PENDING,
         State.MERGEBACK_CONFLICT,
         command="mergeback",
@@ -142,7 +143,7 @@ def mergeback(session: Session) -> Envelope:
                 next_command="git status",
             )
 
-    if run.state is State.TEST_GREEN:
+    if run.state in {State.TEST_GREEN, State.TEST_DELEGATED}:
         with session.store.transaction(run.run_id) as doc:
             _apply(doc, Action.BEGIN_MERGEBACK)
             run = doc
@@ -278,7 +279,9 @@ def mergeback(session: Session) -> Envelope:
     with session.store.transaction(run.run_id) as doc:
         doc.head_sha = result.post_sha
         doc.source_head_sha = result.post_sha
-        _apply(doc, Action.MERGEBACK_OK)
+        _apply(
+            doc, Action.MERGEBACK_PUBLICATION_READY if doc.test_delegation else Action.MERGEBACK_OK
+        )
         run = doc
 
     session.store.append_event(

@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from . import attestation, gitx, risk
-from .config import load_config
-from .models import RiskLevel
+from .config import Config, load_config
+from .models import Attestation, RiskLevel
 
 _DECISIVE_REVIEW_STATES = {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}
 _TRUSTED_AUTHOR_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
@@ -80,6 +80,30 @@ def evaluate(
     repo = Path(repo)
     value = attestation.verify(repo, head_sha)
     cfg = load_config(repo)
+    return evaluate_value(
+        repo,
+        value=value,
+        cfg=cfg,
+        base_sha=base_sha,
+        head_sha=head_sha,
+        reviews=reviews,
+        pull_request_author=pull_request_author,
+        environment_approved=environment_approved,
+    )
+
+
+def evaluate_value(
+    repo: Path | str,
+    *,
+    value: Attestation,
+    cfg: Config,
+    base_sha: str,
+    head_sha: str,
+    reviews: object,
+    pull_request_author: str,
+    environment_approved: bool = False,
+) -> dict[str, Any]:
+    """Combine validated evidence with a caller-supplied protected approval policy."""
     changed_files = gitx.changed_files(repo, base_sha, head_sha)
     path_assessment = risk.assess(
         changed_files,

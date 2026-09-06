@@ -15,6 +15,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from .ci_models import TestDelegation
 from .digests import json_digest
 from .fingerprints import Classification, DocsFingerprint, ReviewFingerprint
 from .machine import State
@@ -264,6 +265,7 @@ class RunDoc(BaseModel):
     superseded_by: str | None = None
     gate_token: str | None = None
     pushed_sha: str | None = None
+    test_delegation: TestDelegation | None = None
 
     created_at: str | None = None
     updated_at: str | None = None
@@ -280,7 +282,7 @@ class AttestedStage(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["green", "skipped"]
+    status: Literal["green", "skipped", "delegated"]
     executor: Literal["in_harness", "command"] | None = None
     command: str | None = None
     exit_code: int | None = None
@@ -361,7 +363,7 @@ class Attestation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["agentic-preflight-attestation"] = "agentic-preflight-attestation"
-    schema_version: Literal[4, 5] = 4
+    schema_version: Literal[4, 5, 6] = 4
     sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     tree_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     branch: str
@@ -370,7 +372,9 @@ class Attestation(BaseModel):
     intent_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     config_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     run_id: str
-    green_at: str
+    green_at: str | None
+    publication_ready_at: AwareDatetime | None = None
+    test_delegation: TestDelegation | None = None
     stages: dict[Stage, AttestedStage]
     findings_summary: dict[str, int] = Field(default_factory=dict)
     evidence: dict[Stage, StageEvidence] | None = None
@@ -378,18 +382,36 @@ class Attestation(BaseModel):
 
     @model_validator(mode="after")
     def complete_evidence(self) -> Attestation:
+        if self.schema_version < 6 and (
+            self.green_at is None
+            or self.test_delegation is not None
+            or self.publication_ready_at is not None
+            or any(item.status == "delegated" for item in self.stages.values())
+        ):
+            raise ValueError("legacy attestations must describe completed local validation")
+        if self.schema_version == 6 and (
+            self.green_at is not None
+            or self.publication_ready_at is None
+            or self.test_delegation is None
+            or self.stages.get(Stage.TEST, AttestedStage(status="skipped")).status != "delegated"
+            or any(
+                item.status == "delegated" for key, item in self.stages.items() if key != Stage.TEST
+            )
+        ):
+            raise ValueError("v6 requires explicit pending test delegation and publication time")
         if self.schema_version == 4 and (
             self.evidence is not None or self.config_snapshot is not None
         ):
             raise ValueError("v4 attestations cannot carry refresh evidence")
-        if self.schema_version == 5:
+        if self.schema_version in {5, 6}:
             if (
                 self.config_snapshot is None
                 or json_digest(self.config_snapshot) != self.config_sha256
             ):
-                raise ValueError("v5 configuration does not match its digest")
-            if self.evidence is None or set(self.evidence) != set(Stage):
-                raise ValueError("v5 requires a complete per-stage evidence set")
+                raise ValueError("configuration does not match its digest")
+            required_evidence = set(Stage) - ({Stage.TEST} if self.schema_version == 6 else set())
+            if self.evidence is None or set(self.evidence) != required_evidence:
+                raise ValueError("requires a complete local per-stage evidence set")
             if any(item.origin.stage != stage for stage, item in self.evidence.items()):
                 raise ValueError("evidence is attached to the wrong stage")
         required = set(Stage)

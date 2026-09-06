@@ -2,10 +2,19 @@
 
 `agentic-preflight init` installs an advisory pre-push hook. For each pushed ref, it
 checks the ref tip's Git note in `refs/notes/agentic-preflight` and blocks the update
-unless that exact SHA has a structurally valid green attestation.
+unless that exact SHA has a valid attestation for publication.
 
 The hook checks ref tips, not every commit newly reachable from them. Remote CI should
 verify the pull-request or branch-tip SHA when complete remote enforcement is required.
+
+For opt-in CI test delegation, the hook explicitly uses the publication predicate.
+It accepts schema 6 only after validating its local review/docs/lint evidence and
+protected-base delegation policy. Tests remain `delegated`, not green or skipped;
+the hook never waits for a CI run that cannot exist until the first push. Older
+consumers reject schema 6, so upgrade the protected verifier before enabling it.
+The required `preflight merge readiness` check and `agentic-preflight ci status`
+combine current remote test evidence with local evidence and human approval before
+merge. A successful pre-push check alone does not establish merge readiness.
 
 ## Failure behavior
 

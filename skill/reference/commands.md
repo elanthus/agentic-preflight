@@ -368,6 +368,36 @@ it.
 
 ## Exit codes
 
+### Trusted CI commands
+
+- `agentic-preflight verify SHA --purpose publish` verifies local publication
+  readiness and may accept explicit pending CI tests. Default `verify SHA` requires
+  complete local evidence; neither command evaluates human merge approval.
+- `agentic-preflight ci status --repo OWNER/REPO --pr N` retrieves current published
+  local evidence and trusted integration jobs. Exit 0 and
+  `data.merge_requirements_satisfied: true` mean the merge predicate is satisfied.
+  Exit 3 distinguishes pending, failed, stale, expired, unavailable, and human
+  approval pending. Follow this command's remote recovery action directly.
+- `agentic-preflight ci dispatch --repo OWNER/REPO --pr N` requests the protected
+  workflow for the current integration candidate. It reuses existing requests;
+  `--force` requests a fresh complete run. It never supplies a test pass.
+- `agentic-preflight ci templates --directory PATH` writes the two protected
+  workflow templates without overwriting files. Review and install them on the
+  protected base before opting in.
+- `agentic-preflight ci prepare --repo OWNER/REPO --candidate JSON --candidate-id HASH --workflow-sha SHA`
+  is for the trusted preparation job. It validates the dispatched candidate against
+  GitHub and the protected workflow revision; the JSON is a request, not evidence.
+- `agentic-preflight ci reconcile --repo OWNER/REPO --check-app-id ID` is for the protected evaluator.
+  It dispatches current candidates and writes the combined required check for open
+  PRs. `--pr N` limits it to one PR. It requires the dedicated App's check/action write permissions and
+  must never run proposed code or read executable results from artifacts.
+
+These commands are independent of a local active run and work after `finish`.
+Live results do not require another notes push. Authentication or incomplete API
+data cannot turn an unknown result into success.
+
+### Exit-code reference
+
 `0` ok · `1` usage/internal · `2` stage failed · `3` precondition violated ·
 `4` human resolution required · `5` confirmation required · `10` hook block
 

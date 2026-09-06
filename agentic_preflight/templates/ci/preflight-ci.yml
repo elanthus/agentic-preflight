@@ -1,0 +1,57 @@
+# Install on the protected default/base branch. Change "main" below if needed.
+# Require "preflight merge readiness", strict up-to-date branches and CODEOWNERS.
+name: preflight CI reconciliation
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  push:
+    branches: [main]
+  workflow_run:
+    workflows: [preflight trusted tests]
+    types: [requested, in_progress, completed]
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: preflight-ci-reconciliation
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    # Store the App key only in this environment, restricted to the protected
+    # base branch. A proposed workflow on another branch must not obtain it.
+    environment: preflight-authority
+    permissions:
+      contents: read
+    steps:
+      # Never substitute the PR head, merge ref, or an artifact for this checkout.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          enable-cache: false
+      - name: Install protected consumer
+        run: uv tool install --no-cache . --python 3.13
+      - name: Create dedicated check-authority token
+        id: authority-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        with:
+          app-id: ${{ vars.PREFLIGHT_CI_APP_ID }}
+          private-key: ${{ secrets.PREFLIGHT_CI_PRIVATE_KEY }}
+          permission-actions: write
+          permission-checks: write
+          permission-contents: read
+          permission-pull-requests: read
+      - name: Reconcile open PRs
+        env:
+          GH_TOKEN: ${{ steps.authority-token.outputs.token }}
+          AP_REPOSITORY: ${{ github.repository }}
+          AP_CHECK_APP_ID: ${{ vars.PREFLIGHT_CI_APP_ID }}
+        run: agentic-preflight ci reconcile --repo "$AP_REPOSITORY" --check-app-id "$AP_CHECK_APP_ID"
