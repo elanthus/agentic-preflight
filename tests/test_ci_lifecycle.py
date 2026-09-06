@@ -388,12 +388,15 @@ def test_ci_rejects_lint_override_even_with_matching_config(delegated, fixed_clo
         raw["stages"]["test"] = test["origin"]["result"]
     overridden = attestation.decode(json.dumps(raw))
     if schema == 5:
-        assert attestation.verify_value(repo, overridden, value.sha, purpose="publish") == overridden
+        assert (
+            attestation.verify_value(repo, overridden, value.sha, purpose="publish") == overridden
+        )
     api = remote_for(repo, policy, overridden)
     result = ci_merge.evaluate(repo, api, 86)
     assert result["status"] == "stale"
     assert result["reason"] == (
         "local lint execution differs from protected-base command"
-        if schema == 5 else "current shell command differs from configured command"
+        if schema == 5
+        else "current shell command differs from configured command"
     )
     assert result["merge_requirements_satisfied"] is False

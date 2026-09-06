@@ -217,7 +217,14 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
 
     with session.store.resource("notes"):
         gitx.fetch_notes(session.repo_root, "origin", NOTES_REF)
-        if attestationmod.read(session.repo_root, run.head_sha) != portable:
+        try:
+            synchronized = attestationmod.read(session.repo_root, run.head_sha)
+        except attestationmod.InvalidAttestation as exc:
+            raise AttestationFailed(
+                "Attestation changed during notes synchronization; refresh before publication",
+                next_command="agentic-preflight status",
+            ) from exc
+        if synchronized != portable:
             raise AttestationFailed(
                 "Attestation changed during notes synchronization; refresh before publication",
                 next_command="agentic-preflight status",

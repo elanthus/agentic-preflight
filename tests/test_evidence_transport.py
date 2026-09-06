@@ -54,9 +54,12 @@ def published(request, feature_repo, bare_remote, tmp_path):
     git("remote", "add", "origin", str(bare_remote), cwd=runner)
     git("fetch", "origin", "main:refs/remotes/origin/main", cwd=runner)
     git("checkout", "--detach", "origin/main", cwd=runner)
-    assert subprocess.run(
-        ["git", "cat-file", "-e", original.sha], cwd=runner, capture_output=True
-    ).returncode != 0
+    assert (
+        subprocess.run(
+            ["git", "cat-file", "-e", original.sha], cwd=runner, capture_output=True
+        ).returncode
+        != 0
+    )
     return runner, bare_remote, original, value, policy, feature_repo
 
 
@@ -64,8 +67,14 @@ def published(request, feature_repo, bare_remote, tmp_path):
 def test_fresh_hosted_checkout_fetches_unreachable_originals(published):
     runner, _, original, value, _, _ = published
     result = ScriptedAgent(runner).run(
-        "hosted-check", value.sha, "--base", value.merge_base_sha,
-        "--source-remote", "origin", "--head-ref", "refs/heads/feature/x",
+        "hosted-check",
+        value.sha,
+        "--base",
+        value.merge_base_sha,
+        "--source-remote",
+        "origin",
+        "--head-ref",
+        "refs/heads/feature/x",
     )
     assert result["data"]["verified"] is True
     assert original.sha in result["data"]["availability"]["attempts"][0]["fetched_evidence_commits"]
@@ -80,14 +89,21 @@ def test_ci_consumer_fetches_originals_from_contributor_refs(published, monkeypa
     # Build the API candidate in the producer, where all objects already exist.
     api = remote_for(producer, policy, value)
     monkeypatch.setattr(
-        api, "scoped",
+        api,
+        "scoped",
         lambda repository, **kwargs: SimpleNamespace(repository=repository, note=api.note),
     )
     candidate, cfg, _ = ci_merge.snapshot(api, 86)
     if bad_ref:
         # A wrong descendant ref still imports the expected ancestor object.
         descendant = git(
-            "commit-tree", original.tree_sha, "-p", original.sha, "-m", "wrong ref tip", cwd=producer
+            "commit-tree",
+            original.tree_sha,
+            "-p",
+            original.sha,
+            "-m",
+            "wrong ref tip",
+            cwd=producer,
         )
         git("fetch", str(producer), descendant, cwd=remote)
         git("update-ref", evidence_transport.ref_for(original.sha), descendant, cwd=remote)
@@ -97,7 +113,9 @@ def test_ci_consumer_fetches_originals_from_contributor_refs(published, monkeypa
     def local_transport(repo, *args, **kwargs):
         if "fetch" in args:
             fetched.append(args)
-            args = tuple(str(remote) if arg.startswith("https://github.com/") else arg for arg in args)
+            args = tuple(
+                str(remote) if arg.startswith("https://github.com/") else arg for arg in args
+            )
         return invoke(repo, *args, **kwargs)
 
     monkeypatch.setattr(ci_merge.gitx, "run", local_transport)
@@ -140,8 +158,15 @@ def test_hosted_provenance_failure_is_not_retried(published, bad):
     else:
         git("update-ref", ref, value.merge_base_sha, cwd=remote)
     result = ScriptedAgent(runner).run(
-        "hosted-check", value.sha, "--base", value.merge_base_sha,
-        "--source-remote", "origin", "--head-ref", "refs/heads/feature/x", expect=2,
+        "hosted-check",
+        value.sha,
+        "--base",
+        value.merge_base_sha,
+        "--source-remote",
+        "origin",
+        "--head-ref",
+        "refs/heads/feature/x",
+        expect=2,
     )
     assert result["data"]["reason"] == ("git_failure" if bad == "missing" else "commit_mismatch")
     assert len(result["data"]["availability"]["attempts"]) == 1
@@ -165,12 +190,13 @@ def test_hook_exempts_only_immutable_evidence_destinations(destination):
         sha = "0" * 40
     decision = hook.evaluate(
         [hook.RefUpdate(source, sha, target, old)],
-        is_ancestor=lambda *_: False, has_attestation=lambda _: False,
+        is_ancestor=lambda *_: False,
+        has_attestation=lambda _: False,
     )
     assert decision.allowed is (destination == "correct")
 
 
-@pytest.mark.parametrize("change", ["delete", "replace", "unrelated"])
+@pytest.mark.parametrize("change", ["delete", "replace", "malformed", "unrelated"])
 def test_notes_sync_preserves_selected_evidence(feature_repo, bare_remote, tmp_path, change):
     _prepare(feature_repo)
     git("fetch", str(feature_repo), "main:refs/heads/main", cwd=bare_remote)
@@ -180,18 +206,38 @@ def test_notes_sync_preserves_selected_evidence(feature_repo, bare_remote, tmp_p
     _finish(agent, tmp_path)
     value = attestation.verify(feature_repo, "HEAD")
     token = agent.run("gate")["data"]["token"]
-    git("fetch", str(feature_repo), f"{attestation.NOTES_REF}:{attestation.NOTES_REF}", cwd=bare_remote)
+    git(
+        "fetch",
+        str(feature_repo),
+        f"{attestation.NOTES_REF}:{attestation.NOTES_REF}",
+        cwd=bare_remote,
+    )
     git("config", "user.name", "Remote writer", cwd=bare_remote)
     git("config", "user.email", "writer@example.test", cwd=bare_remote)
     if change == "delete":
         git("notes", f"--ref={attestation.NOTES_REF}", "remove", value.sha, cwd=bare_remote)
     else:
-        target = value.sha if change == "replace" else value.merge_base_sha
-        note = attestation.encode(value.model_copy(update={"run_id": "r_other"}))
-        git("notes", f"--ref={attestation.NOTES_REF}", "add", "-f", "-m", note, target, cwd=bare_remote)
+        target = value.merge_base_sha if change == "unrelated" else value.sha
+        note = (
+            "{malformed"
+            if change == "malformed"
+            else attestation.encode(value.model_copy(update={"run_id": "r_other"}))
+        )
+        git(
+            "notes",
+            f"--ref={attestation.NOTES_REF}",
+            "add",
+            "-f",
+            "-m",
+            note,
+            target,
+            cwd=bare_remote,
+        )
     result = agent.run("push", "--confirm", token, expect=0 if change == "unrelated" else 2)
     if change == "unrelated":
         assert result["data"]["pushed"] is True
     else:
         assert "Attestation changed during notes synchronization" in result["error"]["message"]
-        assert not git("for-each-ref", "refs/heads/feature/x", evidence_transport.REF_PREFIX, cwd=bare_remote)
+        assert not git(
+            "for-each-ref", "refs/heads/feature/x", evidence_transport.REF_PREFIX, cwd=bare_remote
+        )
