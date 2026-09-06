@@ -70,7 +70,7 @@ def gate(session: Session) -> Envelope:
             run = doc
     summary = gatemod.GateSummary(
         remote="origin",
-        refspec=" ".join([*refspecs, *evidence_refspecs]),
+        refspec=" ".join([*evidence_refspecs, *refspecs]),
         branch=run.branch,
         base_ref=run.base_ref,
         pr_mode=session.config.pr.mode,
@@ -147,7 +147,14 @@ def gate(session: Session) -> Envelope:
         cleanup_instruction = ""
     return _envelope_for(
         run,
-        data=summary.as_dict(),
+        data={
+            **summary.as_dict(),
+            "push_commands": [
+                shlex.join(["git", "push", "--atomic", "origin", *group])
+                for group in (evidence_refspecs, refspecs)
+                if group
+            ],
+        },
         next_instruction=(
             "Show the user the remote, branch, and commit list in plain language. If the "
             "user explicitly requested a push, publish, or asked to create or open a pull "
@@ -193,7 +200,11 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
             run,
             data={
                 "dry_run": True,
-                "would_push": shlex.join(["origin", *evidence_refspecs, *refspecs]),
+                "would_push": " && ".join(
+                    shlex.join(["git", "push", "--atomic", "origin", *group])
+                    for group in (evidence_refspecs, refspecs)
+                    if group
+                ),
                 "branch": run.branch,
                 "base_ref": run.base_ref,
                 "pr_mode": session.config.pr.mode,
@@ -206,13 +217,16 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
 
     with session.store.resource("notes"):
         gitx.fetch_notes(session.repo_root, "origin", NOTES_REF)
+        if attestationmod.read(session.repo_root, run.head_sha) != portable:
+            raise AttestationFailed(
+                "Attestation changed during notes synchronization; refresh before publication",
+                next_command="agentic-preflight status",
+            )
         # Publish dependencies before exposing a note that requires them. Some
         # servers reject hidden refs before processing the atomic ref transaction;
         # a combined push can otherwise expose the branch despite that rejection.
         if evidence_refspecs:
-            gitx.run(
-                session.repo_root, "push", "--atomic", "origin", *evidence_refspecs
-            )
+            gitx.run(session.repo_root, "push", "--atomic", "origin", *evidence_refspecs)
         gitx.run(
             session.repo_root,
             "push",

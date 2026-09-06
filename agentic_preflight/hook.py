@@ -91,6 +91,17 @@ def evaluate(
 ) -> Decision:
     """Decide the push. ``is_ancestor(a, b)`` is injected so this stays pure."""
     for update in updates:
+        if update.is_deletion and update.remote_ref.startswith(REF_PREFIX):
+            return Decision(
+                allowed=False,
+                reason="evidence deletion",
+                message=_block_message(
+                    update.remote_sha,
+                    headline="retained evidence deletion",
+                    reason="published attestations may still require this original commit",
+                    fix="keep evidence refs while published notes depend on them",
+                ),
+            )
         if update.is_deletion or update.is_attestation_note or update.is_evidence_object:
             continue
 

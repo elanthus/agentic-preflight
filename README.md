@@ -206,12 +206,14 @@ are covered in the
 ## Portable attestations and CI enforcement
 
 Successful merge-back writes a versioned JSON attestation as a Git note on the exact
-commit. `agentic-preflight push` atomically pushes the branch and
-`refs/notes/agentic-preflight`, so the attestation is not stranded in one clone. To
+commit. `agentic-preflight push` first publishes original-commit evidence refs, then
+atomically pushes the branch and `refs/notes/agentic-preflight`, so the attestation
+and its required commits are available outside the producer's clone. To
 inspect one after an ordinary checkout:
 
 ```bash
 git fetch origin refs/notes/agentic-preflight:refs/notes/agentic-preflight
+git fetch origin 'refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*'
 git notes --ref=refs/notes/agentic-preflight show HEAD
 agentic-preflight verify HEAD
 ```

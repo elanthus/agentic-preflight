@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from pathlib import Path
 
 from . import approval, attestation, evidence_transport, gitx
@@ -48,20 +49,24 @@ def published_attestation(repo: Path, api: GitHub, candidate: Candidate, cfg: Co
                 *missing,
             )
     for sha in evidence_transport.missing(repo, value):
-        gitx.run(
-            repo,
-            "-c",
-            f"core.hooksPath={os.devnull}",
-            "-c",
-            "credential.helper=!gh auth git-credential",
-            "fetch",
-            "--no-tags",
-            "--no-write-fetch-head",
-            f"https://github.com/{source.repository}.git",
-            evidence_transport.ref_for(sha),
-        )
-        # The requested ref name alone is not evidence of the object's identity.
-        gitx.rev_parse(repo, f"{sha}^{{commit}}")
+        target = f"refs/agentic-preflight/ci-evidence/{uuid.uuid4().hex}"
+        try:
+            gitx.run(
+                repo,
+                "-c",
+                f"core.hooksPath={os.devnull}",
+                "-c",
+                "credential.helper=!gh auth git-credential",
+                "fetch",
+                "--no-tags",
+                "--no-write-fetch-head",
+                f"https://github.com/{source.repository}.git",
+                f"{evidence_transport.ref_for(sha)}:{target}",
+            )
+            if gitx.rev_parse(repo, f"{target}^{{commit}}") != sha:
+                raise ValueError("Fetched evidence ref names a different commit")
+        finally:
+            gitx.run(repo, "update-ref", "-d", target)
     attestation.verify_value(repo, value, candidate.head_sha, purpose="publish")
     if value.config_snapshot is None:
         raise ValueError("CI merge verification requires per-stage local evidence (schema 5 or 6)")
