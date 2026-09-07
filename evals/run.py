@@ -196,7 +196,7 @@ blocking_severities = ["critical", "high"]
 max_findings = 50
 require_fix_commits = true
 executor = "command"
-command = 'python3 -B "$AP_EVAL_EXECUTOR"'
+command = '"$AP_EVAL_PYTHON" -B "$AP_EVAL_EXECUTOR"'
 require_command_for = []
 
 [docs]
@@ -210,7 +210,7 @@ enabled = false
         prefix = re.sub(r'^test = ".*"$', 'test = "true"', prefix, flags=re.MULTILINE)
         prefix = re.sub(
             r'^command = ".*"$',
-            "command = 'python3 -B \"$AP_EVAL_EXECUTOR\"'",
+            'command = \'"$AP_EVAL_PYTHON" -B "$AP_EVAL_EXECUTOR"\'',
             prefix,
             flags=re.MULTILINE,
         )
@@ -350,6 +350,7 @@ def run_case_snapshot(
     shas, env = _build_repo(
         case, repo, snapshot=snapshot, mode=mode, executor=executor, grounding=grounding
     )
+    env["AP_EVAL_PYTHON"] = sys.executable
     env["AP_EVAL_EXECUTOR"] = str(
         ROOT / "evals" / "scripted_executor.py"
         if mode == "dry"
@@ -368,6 +369,11 @@ def run_case_snapshot(
     _assert_bundle_is_clean(case, context)
     reviewed, code = _cli(repo, env, "review", "run")
     if code != 0:
+        print(
+            f"Review failed for {case.id}/{snapshot} ({grounding}): "
+            + json.dumps(reviewed, sort_keys=True),
+            file=sys.stderr,
+        )
         return {
             "status": "unresolved",
             "exit_code": code,
