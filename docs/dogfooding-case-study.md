@@ -1,4 +1,10 @@
-# Case study: two weeks of dogfooding across four repositories
+# Case study: sustained dogfooding across four repositories
+
+Two observation windows, August 3–17 and August 18–September 6, 2026, contain 408
+merged PRs across the same four owner-operated repositories. Of those, 323 descriptions
+explicitly record Preflight use and 64 contain a concrete finding record. These are
+combined snapshot counts, not external adoption or distinct bugs fixed. The original
+snapshot is preserved below, followed by the newer evidence and its limits.
 
 From August 3 through August 17, 2026, Agentic Preflight was used while shipping work
 across four public repositories: this project, a citation-grounded news pipeline, an
@@ -10,7 +16,7 @@ browser and deployment evidence, and long-running cached agent workflows.
 This is an observational case study, not a controlled evaluation. It reports what the
 public pull-request record supports and states the limits of that evidence explicitly.
 
-## Snapshot
+## Original snapshot: August 3–17
 
 The observation window begins at `2026-08-03T00:00:00Z` and ends with the data collected
 on August 17 at approximately 20:40 UTC. Pull requests are counted by creation time.
@@ -67,7 +73,100 @@ review units in [`jobwright` #63](https://github.com/elanthus/jobwright/pull/63)
 numbers are review-manifest units, not lines of code, and a clean receipt proves only
 that every delivered unit was cited or marked examined clean.
 
-## What the gate caught
+## Follow-up: August 18–September 6
+
+The follow-up uses PR creation times from `2026-08-18T00:00:00Z` through
+`2026-09-06T23:59:59Z`, inclusive. A PR counts as merged only if its `mergedAt` is
+within that cutoff. The descriptions were collected on September 7, so they may include
+edits made after September 6; this is a retrospective reading of the public record,
+not a preserved September 6 description snapshot.
+
+| Repository | PRs opened | PRs merged | Merged PRs recording use | Merged PRs with a concrete finding record |
+|---|---:|---:|---:|---:|
+| `agentic-preflight` | 32 | 32 | 25 | 12 |
+| `news-briefing` | 91 | 91 | 67 | 7 |
+| `OSWorldTasks` | 59 | 59 | 46 | 6 |
+| `jobwright` | 75 | 73 | 63 | 15 |
+| **Follow-up total** | **257** | **255** | **201** | **40** |
+| **Original + follow-up** | **424** | **408** | **323** | **64** |
+
+The [follow-up evidence ledger](dogfooding-follow-up-2026-09-06-evidence.json) preserves
+all 257 PR identities and timestamps, the selected exact excerpts, exclusion reasons,
+and SHA-256 hashes of the retrieved descriptions. Each repository returned fewer than
+the requested 1,000 records. Collection used:
+
+```bash
+gh pr list --repo OWNER/REPOSITORY --state all \
+  --search 'created:2026-08-18..2026-09-06' --limit 1000 \
+  --json number,title,createdAt,mergedAt,closedAt,body,url
+```
+
+The substantive positive-evidence criteria from the original snapshot are retained.
+For the follow-up, manual adjudication also recognizes explicit zero-exit stage results
+and `TEST_GREEN`, preserving adjacent command/result lines together when Markdown
+formatting separates them. A successful stage records use; it does not prove that the
+entire workflow completed. Configuration descriptions and evidence explicitly attributed
+only to another PR do not qualify. For example,
+[`news-briefing` #160](https://github.com/elanthus/news-briefing/pull/160) describes the
+workflow and earlier findings, while
+[`OSWorldTasks` #127](https://github.com/elanthus/OSWorldTasks/pull/127) attributes its
+Preflight record to source PRs. Neither is counted as recorded use in this follow-up.
+
+Combined totals add the two disjoint snapshots without reclassifying the original
+ledger or updating its merge states. They exclude the unsampled remainder of August 17
+after 20:40:03 UTC and do not backfill later merges of PRs from the original window.
+[`jobwright` #179](https://github.com/elanthus/jobwright/pull/179), for example, was
+opened on September 6 but merged on September 7, so it contributes only to the
+follow-up's opened count. Counts include PRs merged into branches other than `main`;
+they are not counts of releases or independent deployments. The windows differ in
+length and work mix, so their raw totals are not a productivity comparison.
+
+### Three additional findings
+
+- **Preserve literal property names while adapting schemas.**
+  [`news-briefing` #146](https://github.com/elanthus/news-briefing/pull/146) records a
+  medium-severity finding: removing an unsupported schema keyword could also remove a
+  legitimate property named `uniqueItems`. Commit `e795a5f` distinguished schema-keyword
+  dictionaries from literal property maps. The description records a clean seven-unit
+  review after the repair.
+- **Make a spending cap cover the entire policy lifecycle.**
+  [`OSWorldTasks` #86](https://github.com/elanthus/OSWorldTasks/pull/86) records a
+  high-severity design finding: the proposed paid-call cap omitted calls during reset
+  or close. Commit `284c45d` prohibited provider calls outside `act` and counted retries
+  toward the per-action request limit. This was a correction to a design contract;
+  the PR did not run paid calls or demonstrate realized cost savings.
+- **Keep targeted evidence from being crowded out.**
+  [`jobwright` #164](https://github.com/elanthus/jobwright/pull/164) records a
+  high-severity finding: targeted topics could lose their slots within a retrieval
+  category. Commit `010b444` interleaved topic groups. The PR describes hermetic
+  regression coverage; it did not establish live model-quality gains.
+
+### Where the workflow still needed help
+
+A clean local review did not end the repair process. In
+[`agentic-preflight` #61](https://github.com/elanthus/agentic-preflight/pull/61), the
+record separates Preflight's initial redaction findings from CodeRabbit's follow-up
+findings and later repairs, including transient secret-file rewrites and incomplete
+SHA-256 repository support. In
+[`OSWorldTasks` #86](https://github.com/elanthus/OSWorldTasks/pull/86), the description
+records a clean revised diff before several further hosted-review rounds found gaps
+in recovery, provider-attempt accounting, and evidence persistence. Those subsequent
+findings are not presented here as Preflight's initial catches, and the changed
+snapshots do not support a numerical miss rate.
+
+Hosted CI also exposed an evidence-manifest problem in
+[`OSWorldTasks` #54](https://github.com/elanthus/OSWorldTasks/pull/54): editing
+`deploy/README.md` disturbed frozen evidence. The repair preserved the tracked file and
+required a fresh Preflight run. This is an example of CI supplying information beyond
+the local review record.
+
+The 40 follow-up finding records include documentation corrections, low-severity
+observations, and intentional `no_op` dispositions. Multiple PRs can also discuss the
+same issue. Neither 40 nor the combined 64 measures distinct defects fixed, prevented
+incidents, or reviewer recall. The newer record supports sustained use and documented
+repair loops while continuing to show why hosted checks and additional review matter.
+
+## What the original sample's gate caught
 
 The representative findings were semantic rather than syntax errors. Their PR records
 describe regression coverage added with the repairs and final configured stages green,
@@ -159,7 +258,7 @@ Long-running and paid workflows produced another recurring class of findings:
 All three defects were recovery-path defects. The happy path could pass while a resume,
 rescore, or cache hit violated the stronger contract.
 
-## How findings changed publication
+## How findings changed publication in the original sample
 
 The gate did more than write comments. Blocking findings stopped the state machine,
 repair commits changed the reviewed snapshot, and the next review used a new manifest.
@@ -195,8 +294,8 @@ made.
 
 ## Conclusion
 
-The two-week sample supports a bounded claim: Agentic Preflight repeatedly converted
-agent review judgments into snapshot-bound repair loops and publication decisions across
+The original sample and follow-up support a bounded claim: Agentic Preflight repeatedly
+converted agent review judgments into snapshot-bound repair loops and publication decisions across
 four materially different repositories. Its highest-value catches were semantic
 boundary failures—stale evidence, approval eligibility, secret normalization, trust
 domain selection, resumability, and immutable inputs—that deterministic tests alone had
