@@ -15,7 +15,7 @@ from ..envelope import Envelope
 from ..errors import InvalidFindings, StageFailed
 from ..machine import State
 from ..models import FindingSubmission, RunDoc, Stage
-from ..stages import shellstage
+from ..stages import protected_output, shellstage
 from . import review_coverage, review_protocol
 from ._session import Session, _envelope_for, _load_current, _require_state, _require_worktree
 
@@ -161,7 +161,7 @@ def _shadow_submission(
     stdin_text = json.dumps(data, sort_keys=True, separators=(",", ":"))
     worktree = _require_worktree(run)
     try:
-        secrets = shellstage.read_secrets(worktree, run.copied_files)
+        protection = protected_output.OutputProtection.capture(worktree, run.copied_files)
     except shellstage.SecretRedactionError as exc:
         raise StageFailed(
             "the shadow review cannot run because copied-file redaction is unavailable",
@@ -183,27 +183,16 @@ def _shadow_submission(
     if not gitx.is_clean(worktree):
         result.exit_code = result.exit_code or 1
         result.output += "\n[agentic-preflight] shadow review command changed the worktree"
-    try:
-        post_secrets = shellstage.read_secrets(worktree, run.copied_files)
-    except shellstage.SecretRedactionError:
-        post_secrets = []
-        redaction_failed = True
-    else:
-        redaction_failed = result.copied_files_changed
-    clean_output = (
-        shellstage.REDACTION_FAILURE_OUTPUT
-        if redaction_failed
-        else shellstage.redact(
-            result.output,
-            shellstage.combine_secrets(secrets, post_secrets),
-        )
-    )
-    log_path = session.store.logs_dir(run.run_id) / "review-compare.txt"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_text(clean_output, encoding="utf-8", newline="\n")
-    if redaction_failed:
+    protected = protection.finish(result, session.store.logs_dir(run.run_id) / "review-compare.txt")
+    result = protected.result
+    log_path = protected.log_path
+    if protected.failure_reason is not None:
         raise StageFailed(
-            "the shadow review output was withheld because redaction became unavailable",
+            (
+                "the shadow review output was withheld because redaction became unavailable"
+                if protected.redaction_error is not None
+                else "the shadow review output was withheld because a copied file changed during execution"
+            ),
             state=run.state.value,
             run_id=run.run_id,
             stage=Stage.REVIEW.value,

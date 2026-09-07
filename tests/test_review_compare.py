@@ -290,3 +290,21 @@ def test_compare_refuses_when_reviewed_head_is_stale(feature_repo, tmp_path):
 
     assert "HEAD" in refused["error"]["message"]
     assert refused["state"] == "DOCS_GREEN"
+
+
+def test_shadow_mutation_withholds_output_without_changing_review_state(feature_repo, tmp_path):
+    from agentic_preflight.stages.shellstage import REDACTION_FAILURE_OUTPUT
+
+    write(feature_repo, ".env", "SECRET=original-secret\n")
+    configure_in_harness(feature_repo, shadow_capture=tmp_path / "shadow-input.json")
+    script = feature_repo / "reviewer.py"
+    script.write_text(REVIEWER.replace("mode = sys.argv[1]", 'mode = "mutate_restore_secret"'))
+    commit_all(feature_repo, "configure shadow mutation")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    accepted = submit_review(agent, tmp_path / "findings.json", [])
+    env = agent.run("review", "compare", expect=ExitCode.STAGE_FAILED)
+    assert "copied file changed during execution" in env["error"]["message"]
+    assert Path(env["data"]["log_path"]).read_text() == REDACTION_FAILURE_OUTPUT
+    assert agent.run("status")["state"] == accepted["state"]
+    assert (feature_repo / ".env").read_text() == "SECRET=original-secret\n"
