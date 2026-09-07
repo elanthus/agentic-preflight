@@ -297,7 +297,14 @@ def test_candidate_changes_reject_old_success(change):
         assert authority.evaluate_tests(api, current, cfg, now=NOW)["status"] == "pending"
 
 
-def test_dispatch_is_idempotent_and_prepare_rejects_forged_inputs():
+def test_dispatch_is_idempotent_and_prepare_rejects_forged_inputs(monkeypatch):
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW if tz is not None else NOW.replace(tzinfo=None)
+
+    # Dispatch uses the wall clock; keep it aligned with the recorded job times.
+    monkeypatch.setattr(authority, "datetime", FixedDateTime)
     api = FakeGitHub()
     candidate, _ = api.succeed()
     assert authority.dispatch(api, 86)["dispatched"] is False
