@@ -89,7 +89,7 @@ The stages provide different checks:
 
 Equivalent-content rebases can reuse stage evidence after a compatible verifier is
 installed on the protected base. Shell stages also need committed input contracts;
-see the [fingerprint contract](docs/fingerprint-contract.md).
+see the [fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.5.3/docs/fingerprint-contract.md).
 
 Pull-request merge polling and post-merge cleanup are disabled by default. Set
 `[pr] automatedCleanup = true` to opt in.
