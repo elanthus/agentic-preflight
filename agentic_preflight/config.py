@@ -14,7 +14,7 @@ exists to prevent.
 from __future__ import annotations
 
 import tomllib
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Annotated, Any, Literal
 
 from pydantic import (
@@ -55,8 +55,15 @@ def _default_blocking_severities() -> list[SeverityName]:
 
 
 def _repo_relative_pattern(value: str) -> str:
-    if not value or value.startswith("/") or ".." in value.split("/"):
+    normalized = value.replace("\\", "/")
+    if (
+        not normalized
+        or normalized.startswith("/")
+        or PureWindowsPath(value).drive
+        or ".." in normalized.split("/")
+    ):
         raise ValueError("patterns must be non-empty, repo-relative, and may not contain '..'")
+    # Normalize only for validation; preserve accepted snapshot bytes and glob semantics.
     return value
 
 

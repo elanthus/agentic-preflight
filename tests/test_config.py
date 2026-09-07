@@ -182,12 +182,50 @@ def test_policy_rejects_unsafe_patterns(tmp_repo, tmp_path, pattern):
     assert "human_review_paths" in str(exc.value)
 
 
-@pytest.mark.parametrize("pattern", ["", "/absolute.md", "rules/../secrets.md"])
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "",
+        "/absolute.md",
+        "rules/../secrets.md",
+        r"..\private",
+        r"C:\private",
+        r"C:private",
+        r"\\server\share\private",
+        r"rules\..\private",
+        r"\private",
+    ],
+)
 def test_context_rejects_unsafe_extra_paths(tmp_repo, tmp_path, pattern):
     (tmp_repo / ".agentic-preflight.toml").write_text(f"[context]\nextra_paths = [{pattern!r}]\n")
     with pytest.raises(ConfigError) as exc:
         load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
     assert "[context] extra_paths" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        r"..\private",
+        r"C:\private",
+        r"C:private",
+        r"\\server\share\private",
+        r"rules\..\private",
+        r"\private",
+    ],
+)
+@pytest.mark.parametrize(
+    ("section", "key"),
+    [
+        ("context", "extra_paths"),
+        ("policy", "human_review_paths"),
+        ("policy", "high_risk_paths"),
+        ("policy", "medium_risk_paths"),
+    ],
+)
+def test_snapshot_rejects_windows_absolute_and_parent_patterns(section, key, pattern):
+    with pytest.raises(ValidationError, match="repo-relative"):
+        Config.model_validate({section: {key: [pattern]}})
 
 
 def test_worktree_mode_rejects_an_unknown_value(tmp_repo, tmp_path):
