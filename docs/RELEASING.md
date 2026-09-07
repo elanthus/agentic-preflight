@@ -36,12 +36,23 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
 
 ## Cutting a release
 
-1. Update `version` in `pyproject.toml`.
+1. Choose an unused version and update `version` in `pyproject.toml`. Run `uv lock`
+   to keep the local project version in `uv.lock` in sync.
 2. Update `CHANGELOG.md`, and re-pin the README's `blob/vX.Y.Z` documentation
    links to the new version. They deliberately point at released pages, so
    between releases the README on `main` can claim things — Windows support,
    for one — that the pages it links do not say yet; this bump is what closes
-   that gap.
+   that gap. Re-record the README animation against the release checkout:
+
+   ```bash
+   uv sync --group dev
+   PATH="$PWD/.venv/bin:$PATH" ./docs/demo-fixture.sh
+   PATH="$PWD/.venv/bin:$PATH" vhs docs/demo.tape
+   ```
+
+   This requires VHS, its recording dependencies, `zsh`, and `jq`. Watch the GIF
+   through the final `AWAITING_PUSH_CONFIRM` frame and check the demo run's status;
+   a successful renderer exit alone does not prove the recorded commands passed.
 3. Commit and merge to `main`.
 4. Run the full test matrix before tagging. Pull requests and pushes to `main` run
    only `ubuntu-latest` on Python 3.13. Scheduled
@@ -65,7 +76,9 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
 5. Tag and push:
 
    ```bash
-   git tag v0.5.2.1 && git push origin v0.5.2.1
+   release_version="$(uv run python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+   git tag "v$release_version"
+   git push origin "v$release_version"
    ```
 
 6. The tag run starts two jobs in parallel. `test` exercises the full matrix of

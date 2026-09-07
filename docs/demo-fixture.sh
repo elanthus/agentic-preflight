@@ -95,7 +95,7 @@ uvx ruff check .
 EOF
 
 # main: no percentage() yet. The feature branch adds it, so the reviewed diff
-# is the three files the recording shows as changed.
+# includes the CLI usage documentation shown in the docs stage.
 cat > calc.py <<'EOF'
 """Small arithmetic helpers used by the demo CLI."""
 
@@ -190,6 +190,10 @@ new = 'choices=["add", "subtract", "divide", "percentage"]'
 text = p.read_text()
 assert old in text, "main.py did not contain the expected choices list"
 p.write_text(text.replace(old, new))
+
+p = pathlib.Path("README.md")
+text = p.read_text()
+p.write_text(text.replace("python main.py divide 10 2", "python main.py divide 10 2\npython main.py percentage 50 200"))
 PYEOF
 
 cat >> tests/test_calc.py <<'EOF'

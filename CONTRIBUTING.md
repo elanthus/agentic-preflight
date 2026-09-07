@@ -25,6 +25,7 @@ Run the same core checks used by CI:
 
 ```bash
 uv run ruff check agentic_preflight tests
+uv run ruff format --check agentic_preflight tests
 uv run mypy agentic_preflight
 uv run pytest --cov=agentic_preflight --cov-report=term-missing
 ```
@@ -41,7 +42,7 @@ you ran. All CI checks, including the 85% coverage floor and built-wheel smoke t
 must pass before merge.
 
 Pull-request CI intentionally uses only Ubuntu and Python 3.13. The oldest supported
-macOS/Python boundary runs every Monday and Thursday, and the broad six-way matrix runs
+macOS/Python boundary runs every Monday and Thursday, and the full nine-combination matrix runs
 manually and on release tags; see [COMPATIBILITY.md](COMPATIBILITY.md).
 
 By submitting a contribution, you agree that it is licensed under the repository's
