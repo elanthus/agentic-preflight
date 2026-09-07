@@ -29,12 +29,37 @@ def test_dry_run_scores_scripted_misses_and_false_positives(tmp_path):
     assert summary["method_version"] == "public-smoke-v2"
     for setting in ("on", "off"):
         result = summary["grounding"][setting]
+        assert result["unresolved"] == 0, json.dumps(result, indent=2)
         assert result["catch_rate"] == 0.5
         assert result["fixed_false_positive_rate"] == 0.5
-        assert result["unresolved"] == 0
         assert result["cases"]["unguarded-division"]["catch"] is True
         assert result["cases"]["unguarded-division"]["fixed_false_positive"] is True
         assert result["cases"]["off-by-one-page"]["catch"] is False
+
+
+@pytest.mark.parametrize(
+    ("mode", "executor"), [("dry", None), ("real", "codex"), ("real", "claude")]
+)
+def test_reviewer_uses_active_python(tmp_path, monkeypatch, mode, executor):
+    import tomllib
+
+    from agentic_preflight.config import Config
+
+    config = Config.model_validate(
+        tomllib.loads(eval_run._config_text(mode=mode, executor=executor, grounding="on"))
+    )
+    # The reviewer script path contains spaces; the interpreter comes from the
+    # active environment rather than a python3 alias on a login-shell PATH.
+    executable = Path(sys.executable)
+    script = tmp_path / "reviewer script.py"
+    script.write_text("import sys; print(sys.executable)", encoding="utf-8")
+    monkeypatch.setenv("AP_EVAL_PYTHON", str(executable))
+    monkeypatch.setenv("AP_EVAL_EXECUTOR", str(script))
+    from agentic_preflight.stages import shellstage
+
+    result = shellstage.run_stage(tmp_path, config.review.command, timeout_seconds=30)
+    assert result.passed, result.output
+    assert Path(result.output.strip()).resolve() == executable.resolve()
 
 
 def test_summary_json_is_byte_identical_across_runs(tmp_path):
