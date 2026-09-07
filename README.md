@@ -12,7 +12,7 @@ review, documentation, lint, and test gates. It records the result against the e
 commit, then uses a pre-push hook to block publication when that evidence is missing or
 stale. The core CLI calls no model and needs no model API key.
 
-Evaluating the project for a portfolio or resume review? See the
+Interested in the design? See the
 [project evidence and engineering notes](docs/portfolio-review.md).
 
 ![A push blocked by the pre-push hook, a review that catches an unguarded division by
