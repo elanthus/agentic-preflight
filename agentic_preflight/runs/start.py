@@ -22,9 +22,10 @@ from ..errors import (
     OperationInProgress as OperationInProgressError,
 )
 from ..machine import TERMINAL_STATES, Action, State
-from ..models import Attestation, RunDoc, SetupFailure, Stage, StageRecord
+from ..models import Attestation, RunDoc, SetupFailure, Stage
 from ..store import CurrentRunExists, UnknownRun
 from . import evidence
+from ._evidence_install import install_stage, stage_record
 from ._session import (
     Session,
     _apply,
@@ -39,21 +40,14 @@ from ._session import (
 
 def _import_evidence_through_machine(doc: RunDoc, evidence: Attestation) -> None:
     """Replay imported evidence through every load-bearing green transition."""
+    doc.stages = {
+        stage: stage_record(result, finished_at=evidence.green_at, head_sha=doc.head_sha)
+        for stage, result in evidence.stages.items()
+    }
     _apply(doc, Action.SYNC_PASSED)
     _apply(doc, Action.BEGIN_REVIEW)
-    _apply(doc, Action.SUBMIT_CLEAN)
-    if evidence.stages[Stage.DOCS].status == "skipped":
-        _apply(doc, Action.SKIP_DOCS)
-    else:
-        _apply(doc, Action.BEGIN_DOCS)
-        _apply(doc, Action.SUBMIT_CLEAN)
-    _apply(doc, Action.RUN_LINT)
-    _apply(doc, Action.LINT_PASSED)
-    if evidence.stages[Stage.TEST].status == "skipped":
-        _apply(doc, Action.SKIP_TEST)
-    else:
-        _apply(doc, Action.RUN_TEST)
-        _apply(doc, Action.TEST_PASSED)
+    for stage in Stage:
+        install_stage(doc, stage, doc.stages[stage])
     _apply(doc, Action.BEGIN_MERGEBACK)
     _apply(doc, Action.MERGEBACK_OK)
 
@@ -418,18 +412,6 @@ def start(
             doc.sync_remote = sync_result.remote
             doc.changed_files = changed
             doc.risk = assessment
-            doc.stages = {
-                stage: StageRecord(
-                    status=evidence.status,
-                    command=evidence.command,
-                    reason=evidence.reason,
-                    exit_code=evidence.exit_code,
-                    output_sha256=evidence.output_sha256,
-                    finished_at=reused_attestation.green_at,
-                    head_sha=sync_result.head_after,
-                )
-                for stage, evidence in reused_attestation.stages.items()
-            }
             _import_evidence_through_machine(doc, reused_attestation)
             run = doc
         session.store.append_event(

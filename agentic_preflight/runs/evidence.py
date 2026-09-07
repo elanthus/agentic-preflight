@@ -39,6 +39,7 @@ from ..refresh_validation import (
 from ..shell_fingerprints import ShellFingerprint, classify_shell, compute_shell_fingerprint
 from ..store import RunReadError, UnknownRun
 from . import review_protocol
+from ._evidence_install import install_stage, stage_record
 from ._session import Session, _apply, _now, _require_worktree
 
 
@@ -353,36 +354,17 @@ def advance(session: Session, run: RunDoc) -> RunDoc:
         session.store.save_findings(run.run_id, stored_findings)
         result = item.origin.result
         with session.store.transaction(run.run_id) as doc:
-            doc.stages[stage] = StageRecord(
-                status=result.status,
-                executor=result.executor,
-                command=result.command,
-                reason=result.reason,
-                exit_code=result.exit_code,
-                output_sha256=result.output_sha256,
+            record = stage_record(
+                result,
                 finished_at=item.origin.finished_at.isoformat(),
                 head_sha=head,
-                fingerprint=current[stage],
             )
+            record.executor = result.executor
+            record.fingerprint = current[stage]
             doc.evidence[stage] = imported
             if stage is Stage.REVIEW:
                 doc.review_coverage = coverage
-                _apply(doc, Action.SUBMIT_CLEAN)
-            elif stage is Stage.DOCS:
-                if result.status == "skipped":
-                    _apply(doc, Action.SKIP_DOCS)
-                else:
-                    if doc.state is State.REVIEW_GREEN:
-                        _apply(doc, Action.BEGIN_DOCS)
-                    _apply(doc, Action.SUBMIT_CLEAN)
-            elif stage is Stage.LINT:
-                _apply(doc, Action.RUN_LINT)
-                _apply(doc, Action.LINT_PASSED)
-            elif result.status == "skipped":
-                _apply(doc, Action.SKIP_TEST)
-            else:
-                _apply(doc, Action.RUN_TEST)
-                _apply(doc, Action.TEST_PASSED)
+            install_stage(doc, stage, record)
             doc.risk = risk.assess(
                 doc.changed_files,
                 stored_findings,
