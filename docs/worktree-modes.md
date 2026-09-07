@@ -41,7 +41,8 @@ and lock-boundary decision.
 Work happens directly in the current checkout. This is intended for a clean, dedicated
 one-agent/one-PR worktree: the fresh-base rebase and accepted repair commits land
 directly on the PR branch, and `mergeback` becomes a no-op attestation of the exact SHA
-that passed every stage.
+whose local stages passed, were explicitly skipped, or supplied applicable reused
+evidence. With CI test authority, it records publication readiness with tests pending.
 
 Any uncommitted change or unaccounted branch movement stops the run. In-place mode reuses
 the checkout's existing dependency environment and does not run an automatic install; an
@@ -109,8 +110,9 @@ tests can run, and are protected by two independent guards:
    `respond` and `mergeback`, checked against commit content rather than ignore rules, so
    a `.gitignore` edited mid-run cannot open the hole.
 
-Isolated copies are mode `0600` and are removed explicitly when a reusable runner is
-released, or die with a strict worktree. In-place files are never moved or removed. Their
+Isolated copies are owner-only (`0600` on POSIX, a restricted ACL on Windows) and are
+removed explicitly when a reusable runner is released, or die with a strict worktree.
+In-place files are never moved or removed. Their
 dotenv assignment values (including exported, quoted, multiline, and short non-empty
 values) are redacted when they appear verbatim in captured stage output, before that
 output is written to a log or envelope. This is exact-value redaction, not a general

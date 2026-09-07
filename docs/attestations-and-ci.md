@@ -34,23 +34,34 @@ Agentic Preflight release, or to the same immutable source revision when validat
 attestations produced by an unreleased source build. Do not use a v0.3.0 verifier for a
 version 4 note: v0.3.0 accepts schema version 3, while current source accepts versions 4, 5, and 6.
 
-A minimal GitHub Actions required check is:
+For locally completed 0.5.3 attestations, these are example steps for a GitHub Actions
+job with `contents: read` permissions. The checkout selects the attested head and its
+repository, including for forks; it does not install or execute that source. Install
+Python 3.11–3.13 and `pipx` on the runner first. The pinned package must be published
+before this example can run.
 
 ```yaml
-- uses: actions/checkout@v4
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
   with:
+    repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+    ref: ${{ github.event.pull_request.head.sha || github.sha }}
     fetch-depth: 0
+    persist-credentials: false
 - run: git fetch origin refs/notes/agentic-preflight:refs/notes/agentic-preflight
 - run: git fetch origin 'refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*'
-- name: Install the verifier that matches the attestation producer
-  # Example for notes produced by the published v0.3.0 release. Replace this
-  # with the exact matching release or immutable source revision.
-  run: pipx install 'agentic-preflight==0.3.0'
+- name: Install the matching released verifier
+  run: pipx install 'agentic-preflight==0.5.3'
 - name: Verify the attested commit
   env:
     ATTESTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   run: agentic-preflight verify "$ATTESTED_SHA"
 ```
+
+This minimal example assumes public fetch access and immediate note availability.
+For protected policy enforcement, private repositories, and bounded availability
+recovery, use the protected-base `hosted-check` flow below. For delegated tests,
+use the separate [CI authority setup](#delegating-tests-to-trusted-ci); default
+`verify` deliberately rejects pending test evidence.
 
 Make that job a required status check in branch protection. The local hook remains
 fail-open and bypassable so it cannot brick a repository; the required remote check is

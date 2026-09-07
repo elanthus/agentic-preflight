@@ -1,7 +1,8 @@
 # Automatic evidence refresh
 
 Implementation design for [issue #85](https://github.com/elanthus/agentic-preflight/issues/85).
-This document is for maintainers implementing and reviewing the remaining work.
+Status: implemented in 0.5.3. This is the historical design for maintainers reviewing
+the implementation; its future-tense requirements describe the original plan.
 The implemented input and lifecycle contract is documented in
 [Fingerprint contract](fingerprint-contract.md). This design records the approach
 written before connecting the existing fingerprint library to the run lifecycle.

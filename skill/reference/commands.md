@@ -119,8 +119,9 @@ Note the interaction with `respond`: a fix commit containing a `copy_files` path
 rejected. Copied caches are inputs to the run, never part of the change.
 
 ### `agentic-preflight context [--section review|docs]`
-Returns the material for the active stage. Does not change state, so it is safe to
-call twice.
+Returns the material for the active stage. Review context can be fetched repeatedly.
+Docs context opens the docs stage from `REVIEW_GREEN` and snapshots its inputs; if
+review coverage is stale, it reopens review instead.
 
 - Both sections: `diff`, `changed_files`, `excluded_files`, `worktree_path`.
 - Review adds `review_coverage`: a snapshot-bound `manifest`, the exact `head`, and
@@ -240,8 +241,10 @@ the software test command when every changed path is documentation or standard C
 configuration. This is an explicit state-machine transition, not an agent judgment:
 `status` and the final attestation note the test stage as `skipped`. A mixed diff
 containing any other path still requires the configured test command. Documentation
-includes common markup files, the standard docs surface, and `[docs] paths`; CI
-configuration includes common hosted-CI workflow paths. With protected GitHub Actions
+includes `.md`, `.rst`, `.adoc`, root extensionless README/CONTRIBUTING/CHANGELOG, and
+`.txt` on the docs surface. Executable examples, MDX, unknown files, and Jenkinsfiles
+keep tests mandatory even under documentation or CI globs; CI configuration is limited
+to recognized hosted-CI YAML paths. With protected GitHub Actions
 test authority enabled, `stage run test` instead records explicit delegation without
 executing a local test command. The current integration commit must pass the configured
 remote jobs before merge, including for documentation-only changes.
@@ -407,9 +410,7 @@ The pre-push predicate. Reads git's stdin protocol, consults only the commit's
 `refs/notes/agentic-preflight` note, and exits 0 or 10. Not for you to call — git calls
 it.
 
-## Exit codes
-
-### Trusted CI commands
+## Trusted CI commands
 
 - `agentic-preflight verify SHA --purpose publish` verifies local publication
   readiness and may accept explicit pending CI tests. Default `verify SHA` requires
@@ -437,9 +438,11 @@ These commands are independent of a local active run and work after `finish`.
 Live results do not require another notes push. Authentication or incomplete API
 data cannot turn an unknown result into success.
 
-### Exit-code reference
+## Exit codes
 
 `0` ok · `1` usage/internal · `2` stage failed · `3` precondition violated ·
 `4` human resolution required · `5` confirmation required · `10` hook block
 
-Any exit 3 → run `status` → obey `next`.
+For local workflow exit 3 → run `status` → obey `next`. For `ci status` and other
+remote CI recovery results, follow their reason and next action directly; restarting a
+local run cannot repair pending or unavailable remote evidence.
