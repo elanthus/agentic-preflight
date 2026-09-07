@@ -15,6 +15,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from .attestation_schema import SchemaVersion, validate_version
 from .ci_models import TestDelegation
 from .digests import json_digest
 from .fingerprints import Classification, DocsFingerprint, ReviewFingerprint
@@ -363,7 +364,7 @@ class Attestation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["agentic-preflight-attestation"] = "agentic-preflight-attestation"
-    schema_version: Literal[4, 5, 6] = 4
+    schema_version: SchemaVersion = 4
     sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     tree_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     branch: str
@@ -382,38 +383,7 @@ class Attestation(BaseModel):
 
     @model_validator(mode="after")
     def complete_evidence(self) -> Attestation:
-        if self.schema_version < 6 and (
-            self.green_at is None
-            or self.test_delegation is not None
-            or self.publication_ready_at is not None
-            or any(item.status == "delegated" for item in self.stages.values())
-        ):
-            raise ValueError("legacy attestations must describe completed local validation")
-        if self.schema_version == 6 and (
-            self.green_at is not None
-            or self.publication_ready_at is None
-            or self.test_delegation is None
-            or self.stages.get(Stage.TEST, AttestedStage(status="skipped")).status != "delegated"
-            or any(
-                item.status == "delegated" for key, item in self.stages.items() if key != Stage.TEST
-            )
-        ):
-            raise ValueError("v6 requires explicit pending test delegation and publication time")
-        if self.schema_version == 4 and (
-            self.evidence is not None or self.config_snapshot is not None
-        ):
-            raise ValueError("v4 attestations cannot carry refresh evidence")
-        if self.schema_version in {5, 6}:
-            if (
-                self.config_snapshot is None
-                or json_digest(self.config_snapshot) != self.config_sha256
-            ):
-                raise ValueError("configuration does not match its digest")
-            required_evidence = set(Stage) - ({Stage.TEST} if self.schema_version == 6 else set())
-            if self.evidence is None or set(self.evidence) != required_evidence:
-                raise ValueError("requires a complete local per-stage evidence set")
-            if any(item.origin.stage != stage for stage, item in self.evidence.items()):
-                raise ValueError("evidence is attached to the wrong stage")
+        validate_version(self)
         required = set(Stage)
         if set(self.stages) != required:
             missing = sorted(stage.value for stage in required - set(self.stages))

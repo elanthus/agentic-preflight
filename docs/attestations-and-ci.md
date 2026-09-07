@@ -199,8 +199,9 @@ clone that retains its original commits; a note's hashes cannot recover lost dat
 
 Upgrade trusted hosted consumers **before** enabling v5 production. In other
 repositories, deploy the compatible verifier, then commit `[reuse]` with
-`attestation_schema = 5` on the protected base. This repository recognizes the
-consumer in its protected-base source. Until that consumer lands, its producer
+`attestation_schema = 5` on the protected base. Explicit declarations take
+precedence over the [legacy source-marker fallback](schema-compatibility.md#legacy-transition).
+Until that consumer lands, its producer
 runs all required local stages and emits v4; it never executes the PR's verifier
 with policy credentials. Historical v4 notes without sufficient local
 fingerprints are not silently upgraded into reusable evidence.

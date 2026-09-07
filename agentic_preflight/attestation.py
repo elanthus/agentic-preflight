@@ -3,25 +3,28 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import ValidationError
-
 from . import gitx
+from .attestation_schema import (
+    InvalidAttestation as InvalidAttestation,
+)
+from .attestation_schema import (
+    decode as decode,
+)
+from .attestation_schema import (
+    encode as encode,
+)
+from .attestation_schema import (
+    has_pending_tests,
+    has_refresh_evidence,
+    producer_schema,
+)
 from .models import Attestation, AttestedStage, RunDoc, Stage
 
 NOTES_REF = "refs/notes/agentic-preflight"
-
-
-class InvalidAttestation(ValueError):
-    """A strict evidence failure with a machine-readable recovery category."""
-
-    def __init__(self, message: str, *, reason: str = "invalid_evidence") -> None:
-        super().__init__(message)
-        self.reason = reason
 
 
 def recovery(reason: str) -> str:
@@ -139,7 +142,7 @@ def build(
             base=run.merge_base_sha,
         )
     value = Attestation(
-        schema_version=6 if delegated else 5 if use_refresh else 4,
+        schema_version=producer_schema(delegated=delegated, refresh_available=use_refresh),
         sha=sha,
         tree_sha=tree_sha,
         branch=run.branch,
@@ -159,42 +162,6 @@ def build(
     if use_refresh:
         verify_evidence(run.worktree_path or "", value)
     return value
-
-
-def encode(value: Attestation) -> str:
-    payload = value.model_dump(mode="json")
-    if value.schema_version < 6:
-        payload.pop("test_delegation")
-        payload.pop("publication_ready_at")
-    if value.schema_version == 4:
-        payload.pop("evidence")
-        payload.pop("config_snapshot")
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
-
-
-def decode(payload: str) -> Attestation:
-    try:
-        return Attestation.model_validate_json(payload)
-    except ValidationError as exc:
-        errors = exc.errors(include_input=False, include_context=False, include_url=False)
-        if any(error["type"] == "json_invalid" for error in errors):
-            reason = "malformed_payload"
-        elif any(
-            error["type"] == "extra_forbidden" or error["loc"] == ("schema_version",)
-            for error in errors
-        ):
-            reason = "incompatible_schema"
-        else:
-            reason = "invalid_evidence"
-        # Pydantic's formatted exception includes raw inputs. Keep note bodies private.
-        fields = ", ".join(
-            f"{'.'.join(map(str, error['loc'])) or '<root>'}: {error['type']}"
-            + (f" ({error['msg']})" if error["type"] == "value_error" else "")
-            for error in errors
-        )
-        raise InvalidAttestation(
-            f"attestation validation failed ({fields})", reason=reason
-        ) from exc
 
 
 def write(repo: Path | str, value: Attestation) -> None:
@@ -243,7 +210,7 @@ def verify_value(
             f"attestation tree {value.tree_sha} does not match commit tree {actual_tree}",
             reason="tree_mismatch",
         )
-    if value.schema_version in {5, 6}:
+    if has_refresh_evidence(value):
         from .refresh_validation import verify_evidence
 
         try:
@@ -254,7 +221,7 @@ def verify_value(
             ) from exc
         except ValueError as exc:
             raise InvalidAttestation(str(exc)) from exc
-    if value.schema_version == 6:
+    if has_pending_tests(value):
         from .ci_policy import verify_declaration
 
         try:

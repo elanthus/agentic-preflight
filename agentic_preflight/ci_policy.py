@@ -8,6 +8,7 @@ from pathlib import Path
 from . import gitx
 from .ci_models import TestDelegation
 from .config import Config, ConfigError, _validate_enums
+from .consumer_capabilities import consumer_installed as consumer_installed
 from .models import Attestation
 
 
@@ -33,19 +34,6 @@ def base_enabled(repo: Path | str, revision: str) -> bool:
     except (ValueError, gitx.GitError):
         return False
     return True
-
-
-def consumer_installed(repo: Path | str, revision: str) -> bool:
-    result = gitx.run(repo, "show", f"{revision}:agentic_preflight/ci_models.py", check=False)
-    if result.returncode == 0 and "\nclass TestDelegation(BaseModel):\n" in result.stdout:
-        return True
-    policy = gitx.run(repo, "show", f"{revision}:.agentic-preflight.toml", check=False)
-    if policy.returncode:
-        return False
-    try:
-        return tomllib.loads(policy.stdout).get("ci", {}).get("consumer_schema") == 6
-    except (ValueError, AttributeError):
-        return False
 
 
 def enforce_local_policy(effective: Config, protected: Config, *, include_ci: bool = True) -> None:
