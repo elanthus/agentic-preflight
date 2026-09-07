@@ -72,6 +72,47 @@ def remote_for(repo, policy, value):
     return api
 
 
+def test_review_comparison_remains_available_while_ci_tests_are_pending(
+    feature_repo, tmp_path, monkeypatch
+):
+    set_home(monkeypatch, tmp_path / "home")
+    configure(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    context = agent.run("context")
+    review = tmp_path / "review.json"
+    review.write_text(
+        json.dumps(
+            {
+                "coverage": {
+                    "manifest": context["data"]["review_coverage"]["manifest"],
+                    "examined": "all",
+                },
+                "findings": [],
+            }
+        )
+    )
+    agent.run("submit-findings", "--file", str(review))
+    agent.run("context", "--section", "docs")
+    docs = tmp_path / "docs.json"
+    docs.write_text('{"findings":[]}')
+    agent.run("submit-findings", "--file", str(docs))
+    agent.run("stage", "run", "lint")
+    assert agent.run("stage", "run", "test")["state"] == "TEST_DELEGATED"
+
+    for expected_state in ("TEST_DELEGATED", "PUBLICATION_READY"):
+        before = agent.run("status")
+        compared = agent.run("review", "compare", "--file", str(review))
+        assert compared["state"] == expected_state
+        assert compared["data"]["executors"] == ["in_harness", "command"]
+        assert compared["data"]["units"]["neither"] == compared["data"]["units"]["total"]
+        after = agent.run("status")
+        assert after["state"] == expected_state
+        assert after["data"]["stages"] == before["data"]["stages"]
+        if expected_state == "TEST_DELEGATED":
+            assert agent.run("mergeback")["state"] == "PUBLICATION_READY"
+
+
 @pytest.fixture
 def fixed_clock(monkeypatch):
     class FixedDatetime(datetime):

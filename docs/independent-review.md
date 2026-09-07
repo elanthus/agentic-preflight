@@ -12,7 +12,9 @@ The worked [Codex configuration](examples/codex-reviewer.toml) calls the standar
 [Codex wrapper](examples/reviewers/codex_review.py). The corresponding
 [Claude configuration](examples/claude-reviewer.toml) calls the
 [Claude wrapper](examples/reviewers/claude_review.py). Copy one complete TOML file to
-`.agentic-preflight.toml` and keep its wrapper at the documented path. Both configurations
+`.agentic-preflight.toml`, and copy its wrapper and the shared
+[_reviewer_common.py helper](examples/reviewers/_reviewer_common.py) into
+`docs/examples/reviewers/` in your repository. Both configurations
 set `executor = "command"`, so `agentic-preflight review run` replaces the coding agent's
 review with an independent model call.
 
@@ -35,6 +37,9 @@ When `[review] command` is configured, this launches one shadow command review o
 same bundle. It writes redacted process output to `logs/review-compare.txt`, but it does
 not submit those findings, consume review retries, or change the run state. A shadow
 comparison costs one model call.
+
+Comparison remains available while tests are delegated to CI and after publication
+evidence is prepared. It does not mark pending CI tests as passed.
 
 To compare with a submission produced elsewhere, avoid the shadow call:
 

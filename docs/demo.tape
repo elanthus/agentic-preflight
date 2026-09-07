@@ -51,7 +51,7 @@ Set TypingSpeed 20ms
 Set Padding 20
 
 Hide
-Type "export PYTHONPATH=$(pwd) && cd '/tmp/ap-demo/repo' && clear && jqs() { jq -c '{ok,state,next}'; } && jqc() { jq -c '{ok,state,data:{changed_files:.data.changed_files,review_units:.data.review_coverage.total_units},next}'; } && jqr() { p=$(agentic-preflight context); manifest=$(print -r -- $p | jq -r '.data.review_coverage.manifest'); print -r -- $p | jqc; } && aps() { jq --arg m $manifest --arg all all '. + {coverage:{manifest:$m,examined:$all}}' $1 | agentic-preflight submit-findings --file -; } && jqd() { jq -c '{ok,state,data:{doc_surface:.data.doc_surface},next}'; } && jqg() { jq -c '{ok,state,data:{token:.data.token,remote:.data.remote,branch:.data.branch,pr_mode:.data.pr_mode},next}'; } && jqb() { jq -c '{ok,state,blocking:[.blocking[]|{id,severity,title}],next}'; }"
+Type "export PYTHONPATH=$(pwd) && cd '/tmp/ap-demo/repo' && clear && jqs() { jq -c '{ok,state,next}'; } && jqc() { jq -c '{ok,state,data:{changed_files:.data.changed_files,review_units:.data.review_coverage.total_units},next}'; } && jqr() { p=$(agentic-preflight context); manifest=$(print -r -- $p | jq -r '.data.review_coverage.manifest'); print -r -- $p | jqc; } && aps() { jq --arg m $manifest --arg all all '. + {coverage:{manifest:$m,examined:$all}}' $1 | agentic-preflight submit-findings --file -; } && jqd() { jq -c '{ok,state,data:{doc_surface:.data.doc_surface},next}'; } && jqg() { jq '{ok,state,data:{remote:.data.remote,branch:.data.branch,risk:.data.risk.level,approval_mode:.data.approval_mode},next:{command:.next.command}}'; } && jqb() { jq -c '{ok,state,blocking:[.blocking[]|{id,severity,title}],next}'; }"
 Enter
 Sleep 500ms
 Show
@@ -133,11 +133,11 @@ Type "agentic-preflight stage run test | jqs"
 Enter
 Sleep 1800ms
 
-# 10. Merge fixes back, then open the gate.
+# 10. Merge fixes back, then show the gate target, risk, and next command.
 Type "agentic-preflight mergeback | jqs"
 Enter
 Sleep 1000ms
 
 Type "agentic-preflight gate | jqg"
 Enter
-Sleep 2800ms
+Sleep 5s

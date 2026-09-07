@@ -5,46 +5,60 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
-### Fixed
-
-- Publish and retain original Git commits referenced by refreshed attestations, and
-  retrieve them in fresh hosted consumers. Preserve local shell-command overrides
-  in v5 evidence while enforcing protected lint commands for CI delegation.
-
-- Classify attestation failures and add an explicit trusted hosted helper that retries
-  only missing remote notes, pins the candidate and notes snapshot, and reports safe
-  attempt diagnostics. Both hosted attestation and approval checks now use the helper
-  from the protected base, display failure JSON, and preserve the failing exit status.
-
-- Retain unreadable shared run records during garbage collection, report classified
-  diagnostics, and preserve ownership in status and start recovery. Unreadable records
-  remain protected even under forced collection.
-
 ### Added
 
 - Opt-in trusted GitHub Actions test authority, with separate publication and merge
   predicates, schema-6 pending delegation, protected integration-test workflow
   templates, and live attempt-specific CI retrieval. Local tests remain the default.
-
 - Automatic per-stage evidence refresh after equivalent-content restacks, with
   original execution provenance in v5 attestations. Review/docs compare content
   and context; shell reuse requires committed input contracts. Producers preserve
   v4 compatibility until the protected base supports the new consumer.
+- Snapshot-bound repository grounding for review and docs context, including
+  configuration, documentation, CODEOWNERS, and branch-scoped review history.
+- Independent review comparison with persisted executor submissions, agreement
+  reports, and worked Codex and Claude reviewer wrappers.
+- A public synthetic regression evaluation with isolated vulnerable/fixed snapshots,
+  a deterministic dry mode, case selection, and a CI smoke run.
+
+### Changed
+
+- Routine pull-request and main-branch CI runs use Linux with Python 3.13. Manual
+  and release runs retain all nine supported OS/Python combinations; scheduled
+  regression covers macOS 15 with Python 3.11 every Monday and Thursday.
+- Refresh the README animation against the current CLI, show a readable gate
+  summary, and document animation verification and lockfile updates before release.
 
 ### Fixed
 
+- Keep review comparison available in the CI-delegated and publication-ready states
+  without changing pending test evidence.
+- Publish and retain original Git commits referenced by refreshed attestations, and
+  retrieve them in fresh hosted consumers. Preserve local shell-command overrides
+  in v5 evidence while enforcing protected lint commands for CI delegation.
+- Guard publication snapshots and reject replacements of retained evidence refs,
+  including when branch force-pushes are allowed.
+- Classify attestation failures and add an explicit trusted hosted helper that retries
+  only missing remote notes, pins the candidate and notes snapshot, and reports safe
+  attempt diagnostics. Both hosted attestation and approval checks use the helper
+  from the protected base, display failure JSON, and preserve the failing exit status.
+- Retain unreadable shared run records during garbage collection, report classified
+  diagnostics, and preserve ownership in status and start recovery. Unreadable records
+  remain protected even under forced collection.
+- Recover interrupted shell stages without retaining stale command, log, or output
+  hashes. Refuse to start over an in-progress Git operation and honor Git's effective
+  hook path.
+- Validate configuration constraints on direct model construction as well as TOML
+  loading, including Windows absolute paths and traversal patterns.
 - Public smoke evaluation method v2 isolates each selected snapshot in a neutral Git
   repository, rejects case IDs in reviewer context, and excludes inherited scripted
-  answers from real provider processes. Provider-stdin and Git-object regression tests
-  cover both reviewer wrappers and snapshots.
-- Mixed documentation/executable skip tests and GitHub-example CODEOWNERS conformance
-  tests protect the conservative classification and ownership fixes below.
-
+  answers from real provider processes. Reviewer subprocesses use the active Python
+  interpreter.
 - Executable examples, MDX components, Jenkinsfiles, and unknown file types no longer
   inherit automatic test skips from documentation or CI directory globs.
 - CODEOWNERS grounding honors ownerless overrides and directory-aware matching.
-- Grounding batches committed source reads and limits per-source size, total bytes,
-  and source count. Omitted sources are reported in snapshot-bound context metadata.
+  Grounding limits per-source size, total bytes, and source count, and reports omitted
+  sources in snapshot-bound context metadata.
 
 ## [0.5.2.1] - 2026-09-02
 
