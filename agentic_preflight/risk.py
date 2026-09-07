@@ -7,6 +7,7 @@ from repository-owned path policy and the findings the review recorded.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Literal
 
 from . import findings as findingsmod
@@ -45,8 +46,8 @@ def assess(
     findings: list[Finding],
     *,
     policy: PolicySection,
-    review_blocking_severities: list[str],
-    docs_blocking_severities: list[str],
+    review_blocking_severities: Sequence[str],
+    docs_blocking_severities: Sequence[str],
 ) -> RiskAssessment:
     """Return the explainable policy verdict for one exact reviewed change."""
     reasons = [

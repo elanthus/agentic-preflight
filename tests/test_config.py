@@ -1,4 +1,7 @@
+import json
+
 import pytest
+from pydantic import ValidationError
 
 from agentic_preflight.config import Config, ConfigError, load_config
 
@@ -106,7 +109,7 @@ def test_review_executor_and_required_risk_levels_are_validated(tmp_repo, tmp_pa
     ("body", "message"),
     [
         ("executor = 'telepathy'", "executor"),
-        ("require_command_for = ['extreme']", "risk level"),
+        ("require_command_for = ['extreme']", "require_command_for"),
     ],
 )
 def test_review_executor_rejects_unknown_values(tmp_repo, tmp_path, body, message):
@@ -204,3 +207,89 @@ def test_all_worktree_modes_are_explicit_configuration_options(tmp_repo, tmp_pat
 def test_config_is_constructible_with_no_arguments():
     """Defaults must stand alone so tests and `init` can build one cheaply."""
     assert Config().general.base_ref == "main"
+
+
+@pytest.mark.parametrize(
+    ("section", "values", "key"),
+    [
+        ("gate", {"mode": "yolo"}, "mode"),
+        ("pr", {"mode": "sometimes"}, "mode"),
+        ("approval", {"mode": "hope"}, "mode"),
+        ("worktree", {"mode": "careless"}, "mode"),
+        ("review", {"executor": "telepathy"}, "executor"),
+        ("review", {"require_command_for": ["extreme"]}, "require_command_for"),
+        ("review", {"blocking_severities": ["spicy"]}, "blocking_severities"),
+        ("docs", {"blocking_severities": ["spicy"]}, "blocking_severities"),
+        ("approval", {"mode": "environment", "environment": "  "}, "environment"),
+        ("policy", {"human_review_paths": [""]}, "human_review_paths"),
+        ("policy", {"high_risk_paths": ["/absolute"]}, "high_risk_paths"),
+        ("policy", {"medium_risk_paths": ["src/../private"]}, "medium_risk_paths"),
+        ("context", {"extra_paths": ["../secret"]}, "extra_paths"),
+    ],
+)
+@pytest.mark.parametrize("source", ["repo", "user"])
+def test_invalid_values_fail_for_construction_snapshots_and_toml(
+    tmp_repo, tmp_path, section, values, key, source
+):
+    snapshot = {section: values}
+    for construct in (
+        lambda: Config(**snapshot),
+        lambda: Config.model_validate(snapshot),
+        lambda: Config.model_validate_json(json.dumps(snapshot)),
+    ):
+        with pytest.raises(ValidationError) as error:
+            construct()
+        assert section in str(error.value)
+        assert key in str(error.value)
+
+    user_dir = tmp_path / "userconf"
+    user_dir.mkdir()
+    path = tmp_repo / ".agentic-preflight.toml" if source == "repo" else user_dir / "config.toml"
+    path.write_text(
+        f"[{section}]\n" + "\n".join(f"{k} = {json.dumps(v)}" for k, v in values.items())
+    )
+    with pytest.raises(ConfigError) as error:
+        load_config(tmp_repo, user_config_dir=user_dir)
+    assert str(path) in str(error.value)
+    assert section in str(error.value)
+    assert key in str(error.value)
+
+
+def test_section_replacement_discards_invalid_overridden_values(tmp_repo, tmp_path):
+    user_dir = tmp_path / "userconf"
+    user_dir.mkdir()
+    (user_dir / "config.toml").write_text("[review]\nexecutor = 'invalid'\ncommand = 'old'\n")
+    (tmp_repo / ".agentic-preflight.toml").write_text("[review]\nmax_findings = 10\n")
+    cfg = load_config(tmp_repo, user_config_dir=user_dir)
+    assert cfg.review.executor == "in_harness"
+    assert cfg.review.command is None
+    assert cfg.review.max_findings == 10
+
+
+def test_valid_patterns_aliases_and_conditional_environment_round_trip():
+    snapshot = {
+        "policy": {"human_review_paths": ["src/**", "docs/*.md"]},
+        "context": {"extra_paths": ["rules/**"]},
+        "approval": {"mode": "manual_merge", "environment": ""},
+        "pr": {"automatedCleanup": False},
+    }
+    cfg = Config.model_validate(snapshot)
+    assert cfg.approval.environment == ""
+    assert cfg.pr.automated_cleanup is False
+    serialized = cfg.model_dump(mode="json")
+    assert Config.model_validate(serialized).model_dump(mode="json") == serialized
+    assert cfg.model_dump(mode="json", by_alias=True)["pr"]["automatedCleanup"] is False
+
+
+def test_multiple_invalid_sections_identify_their_own_source(tmp_repo, tmp_path):
+    user_dir = tmp_path / "userconf"
+    user_dir.mkdir()
+    user_file = user_dir / "config.toml"
+    repo_file = tmp_repo / ".agentic-preflight.toml"
+    user_file.write_text("[gate]\nmode = 'invalid'\n")
+    repo_file.write_text("[pr]\nmode = 'invalid'\n")
+    with pytest.raises(ConfigError) as error:
+        load_config(tmp_repo, user_config_dir=user_dir)
+    message = str(error.value)
+    assert f"in {user_file}: [gate] mode" in message
+    assert f"in {repo_file}: [pr] mode" in message

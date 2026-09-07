@@ -8,7 +8,7 @@ quietly drifting away from in-harness review.
 
 from __future__ import annotations
 
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from pydantic import ValidationError
 
@@ -57,7 +57,7 @@ def effective_executor(session: Session, run: RunDoc) -> ReviewExecutor:
     """Resolve policy overrides before accepting or launching a review."""
     if run.risk is not None and run.risk.level.value in session.config.review.require_command_for:
         return "command"
-    return cast(ReviewExecutor, session.config.review.executor)
+    return session.config.review.executor
 
 
 def context_data(

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from . import gitx
 from .ci_models import TestDelegation
-from .config import Config, ConfigError, _validate_enums
+from .config import Config
 from .consumer_capabilities import consumer_installed as consumer_installed
 from .models import Attestation
 
@@ -15,8 +15,7 @@ from .models import Attestation
 def parse_policy(contents: str) -> Config:
     try:
         cfg = Config.model_validate(tomllib.loads(contents))
-        _validate_enums(cfg)
-    except (ValueError, ConfigError) as exc:
+    except ValueError as exc:
         raise ValueError(f"invalid protected policy: {exc}") from exc
     if cfg.ci.test_authority != "github_actions":
         raise ValueError("protected base has not enabled a schema-6 CI consumer")

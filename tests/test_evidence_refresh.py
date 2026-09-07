@@ -58,6 +58,25 @@ def _restack(repo):
     git("update-ref", "refs/heads/main", new, base, cwd=repo)
 
 
+def test_invalid_snapshot_is_reported_as_invalid_attestation(feature_repo, tmp_path):
+    from agentic_preflight.digests import json_digest
+
+    _prepare(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    _finish(agent, tmp_path)
+    value = attestation.verify(feature_repo, "HEAD")
+    raw = json.loads(attestation.encode(value))
+    raw["config_snapshot"]["review"]["executor"] = "invalid"
+    raw["config_sha256"] = json_digest(raw["config_snapshot"])
+    with pytest.raises(attestation.InvalidAttestation) as error:
+        attestation.verify_value(
+            feature_repo, attestation.decode(json.dumps(raw)), value.sha, purpose="local"
+        )
+    assert error.value.reason == "invalid_evidence"
+    assert "review.executor" in str(error.value)
+
+
 @pytest.mark.parametrize("mode", ["in_place", "reusable", "strict"])
 def test_history_only_restack_reuses_all_stages_without_execution(
     feature_repo, tmp_path, monkeypatch, mode

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from . import diff, findings, gitx, risk
 from .attestation_schema import has_pending_tests
-from .config import Config, _validate_enums
+from .config import Config
 from .consumer_capabilities import base_supports_refresh as base_supports_refresh
 from .digests import json_digest
 from .fingerprints import (
@@ -94,7 +94,6 @@ def _verify_fingerprint(repo: Path | str, origin: OriginalExecution) -> None:
     if fp.head_tree_sha != gitx.tree_sha(repo, origin.head_sha):
         raise ValueError("original head tree does not match its fingerprint")
     cfg = Config.model_validate(origin.config_snapshot)
-    _validate_enums(cfg)
     if isinstance(fp, ReviewFingerprint):
         expected = json_digest(review_relevant_config(origin.config_snapshot))
         if fp.config_sha256 != expected or fp.executor != origin.result.executor:
@@ -162,7 +161,6 @@ def verify_evidence(repo: Path | str, value: Attestation) -> None:
     if value.evidence is None or value.config_snapshot is None:
         raise ValueError("refresh attestation lacks per-stage evidence or configuration")
     cfg = Config.model_validate(value.config_snapshot)
-    _validate_enums(cfg)
     if value.stages[Stage.LINT].status != "green":
         raise ValueError("lint evidence must be green")
     if (value.stages[Stage.DOCS].status == "skipped") == cfg.docs.enabled:

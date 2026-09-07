@@ -15,9 +15,17 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_serializer
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    model_serializer,
+    model_validator,
+)
 
 from .ci_models import CISection
 from .config_compatibility import compatible_snapshot
@@ -36,6 +44,23 @@ class ConfigError(Exception):
 
 class _Section(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+SeverityName = Literal["critical", "high", "medium", "low"]
+RiskName = Literal["low", "medium", "high"]
+
+
+def _default_blocking_severities() -> list[SeverityName]:
+    return ["critical", "high"]
+
+
+def _repo_relative_pattern(value: str) -> str:
+    if not value or value.startswith("/") or ".." in value.split("/"):
+        raise ValueError("patterns must be non-empty, repo-relative, and may not contain '..'")
+    return value
+
+
+RepoRelativePattern = Annotated[str, AfterValidator(_repo_relative_pattern)]
 
 
 class GeneralSection(_Section):
@@ -59,27 +84,27 @@ class ReuseSection(_Section):
 
 
 class ReviewSection(_Section):
-    blocking_severities: list[str] = Field(default_factory=lambda: ["critical", "high"])
+    blocking_severities: list[SeverityName] = Field(default_factory=_default_blocking_severities)
     max_findings: int = Field(default=50, ge=1)
     require_fix_commits: bool = True
-    executor: str = "in_harness"
+    executor: Literal["in_harness", "command"] = "in_harness"
     command: str | None = None
-    require_command_for: list[str] = Field(default_factory=list)
+    require_command_for: list[RiskName] = Field(default_factory=list)
 
 
 class PolicySection(_Section):
     """Deterministic risk rules layered underneath the agent's findings."""
 
-    human_review_paths: list[str] = Field(default_factory=list)
-    high_risk_paths: list[str] = Field(default_factory=list)
-    medium_risk_paths: list[str] = Field(default_factory=list)
+    human_review_paths: list[RepoRelativePattern] = Field(default_factory=list)
+    high_risk_paths: list[RepoRelativePattern] = Field(default_factory=list)
+    medium_risk_paths: list[RepoRelativePattern] = Field(default_factory=list)
 
 
 class DocsSection(_Section):
     enabled: bool = True
     paths: list[str] = Field(default_factory=list)
     require_changelog: bool = False
-    blocking_severities: list[str] = Field(default_factory=lambda: ["critical", "high"])
+    blocking_severities: list[SeverityName] = Field(default_factory=_default_blocking_severities)
 
 
 class ContextSection(_Section):
@@ -88,7 +113,7 @@ class ContextSection(_Section):
     enabled: bool = True
     max_bytes: int = Field(default=24_000, ge=1)
     entry_max_bytes: int = Field(default=4_000, ge=1)
-    extra_paths: list[str] = Field(default_factory=list)
+    extra_paths: list[RepoRelativePattern] = Field(default_factory=list)
 
 
 class DiffSection(_Section):
@@ -103,39 +128,36 @@ class DiffSection(_Section):
 class WorktreeSection(_Section):
     ttl_hours: int = Field(default=48, ge=1)
     root: str | None = None
-    mode: str = "in_place"
+    mode: Literal["in_place", "reusable", "strict"] = "in_place"
     copy_files: list[str] = Field(default_factory=lambda: [".env"])
     setup_command: str | None = None
 
 
 class GateSection(_Section):
-    mode: str = "token"
+    mode: Literal["token", "manual"] = "token"
 
 
 class PRSection(_Section):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    mode: str = "auto"
+    mode: Literal["auto", "manual"] = "auto"
     automated_cleanup: bool = Field(default=True, alias="automatedCleanup")
 
 
 class ApprovalSection(_Section):
-    mode: str = "manual_merge"
+    mode: Literal["manual_merge", "environment", "peer_review"] = "manual_merge"
     environment: str = "high-risk-review"
+
+    @model_validator(mode="after")
+    def nonempty_environment(self) -> ApprovalSection:
+        if self.mode == "environment" and not self.environment.strip():
+            raise ValueError("environment must not be empty")
+        return self
 
 
 class HookSection(_Section):
     enabled: bool = True
     allow_force_push: bool = False
-
-
-VALID_SEVERITIES = {"critical", "high", "medium", "low"}
-VALID_GATE_MODES = {"token", "manual"}
-VALID_PR_MODES = {"auto", "manual"}
-VALID_APPROVAL_MODES = {"manual_merge", "environment", "peer_review"}
-VALID_WORKTREE_MODES = {"in_place", "reusable", "strict"}
-VALID_REVIEW_EXECUTORS = {"in_harness", "command"}
-VALID_RISK_LEVELS = {"low", "medium", "high"}
 
 
 class Config(BaseModel):
@@ -175,78 +197,25 @@ def _read_toml(path: Path) -> dict[str, Any]:
         raise ConfigError(f"{path} is not valid TOML: {exc}") from exc
 
 
-def _validate_enums(cfg: Config) -> None:
-    """Checks pydantic cannot express as cleanly, phrased to name the offender."""
-    for section, values in (
-        ("review", cfg.review.blocking_severities),
-        ("docs", cfg.docs.blocking_severities),
-    ):
-        for severity in values:
-            if severity not in VALID_SEVERITIES:
-                raise ConfigError(
-                    f"[{section}] blocking_severities: unknown severity {severity!r}; "
-                    f"valid values are {sorted(VALID_SEVERITIES)}"
-                )
-    if cfg.review.executor not in VALID_REVIEW_EXECUTORS:
-        raise ConfigError(
-            f"[review] executor: unknown executor {cfg.review.executor!r}; "
-            f"valid values are {sorted(VALID_REVIEW_EXECUTORS)}"
-        )
-    for level in cfg.review.require_command_for:
-        if level not in VALID_RISK_LEVELS:
-            raise ConfigError(
-                f"[review] require_command_for: unknown risk level {level!r}; "
-                f"valid values are {sorted(VALID_RISK_LEVELS)}"
-            )
-    if cfg.gate.mode not in VALID_GATE_MODES:
-        raise ConfigError(
-            f"[gate] mode: unknown mode {cfg.gate.mode!r}; "
-            f"valid values are {sorted(VALID_GATE_MODES)}"
-        )
-    if cfg.pr.mode not in VALID_PR_MODES:
-        raise ConfigError(
-            f"[pr] mode: unknown mode {cfg.pr.mode!r}; valid values are {sorted(VALID_PR_MODES)}"
-        )
-    if cfg.approval.mode not in VALID_APPROVAL_MODES:
-        raise ConfigError(
-            f"[approval] mode: unknown mode {cfg.approval.mode!r}; "
-            f"valid values are {sorted(VALID_APPROVAL_MODES)}"
-        )
-    if cfg.approval.mode == "environment" and not cfg.approval.environment.strip():
-        raise ConfigError("[approval] environment must not be empty")
-    if cfg.worktree.mode not in VALID_WORKTREE_MODES:
-        raise ConfigError(
-            f"[worktree] mode: unknown mode {cfg.worktree.mode!r}; "
-            f"valid values are {sorted(VALID_WORKTREE_MODES)}"
-        )
-    for field, patterns in (
-        ("human_review_paths", cfg.policy.human_review_paths),
-        ("high_risk_paths", cfg.policy.high_risk_paths),
-        ("medium_risk_paths", cfg.policy.medium_risk_paths),
-    ):
-        for pattern in patterns:
-            if not pattern or pattern.startswith("/") or ".." in pattern.split("/"):
-                raise ConfigError(
-                    f"[policy] {field}: patterns must be non-empty, repo-relative, "
-                    f"and may not contain '..': {pattern!r}"
-                )
-    for pattern in cfg.context.extra_paths:
-        if not pattern or pattern.startswith("/") or ".." in pattern.split("/"):
-            raise ConfigError(
-                "[context] extra_paths: patterns must be non-empty, repo-relative, "
-                f"and may not contain '..': {pattern!r}"
-            )
-
-
-def _describe(exc: ValidationError, source: Path) -> str:
-    parts = []
+def _describe(exc: ValidationError, sources: dict[str, Path], default_source: Path) -> str:
+    by_source: dict[Path, list[str]] = {}
     for error in exc.errors():
+        top = str(error["loc"][0]) if error["loc"] else ""
+        parts = by_source.setdefault(sources.get(top, default_source), [])
         location = ".".join(str(item) for item in error["loc"])
         if error["type"] == "extra_forbidden":
             parts.append(f"unknown key {location!r}")
         else:
-            parts.append(f"{location}: {error['msg']}")
-    return f"invalid configuration in {source}: " + "; ".join(parts)
+            section, *keys = error["loc"]
+            label = f"[{section}] {'.'.join(map(str, keys))}" if keys else str(section)
+            detail = error["msg"]
+            if error["type"] == "literal_error":
+                detail += f"; got {error['input']!r}"
+            parts.append(f"{label}: {detail}")
+    return "; ".join(
+        f"invalid configuration in {source}: " + "; ".join(parts)
+        for source, parts in by_source.items()
+    )
 
 
 def load_config(
@@ -274,8 +243,6 @@ def load_config(
     try:
         cfg = Config.model_validate(merged)
     except ValidationError as exc:
-        top = str(exc.errors()[0]["loc"][0]) if exc.errors() else ""
-        raise ConfigError(_describe(exc, sources.get(top, repo_file))) from exc
+        raise ConfigError(_describe(exc, sources, repo_file)) from exc
 
-    _validate_enums(cfg)
     return cfg
