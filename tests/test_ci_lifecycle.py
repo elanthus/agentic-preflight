@@ -119,6 +119,49 @@ def test_zero_local_test_executions_and_explicit_pending_schema(
     agent.run("verify", "HEAD", expect=2)
 
 
+@pytest.mark.parametrize(
+    "flags", [("--command", "exit 0"), ("--command", ""), ("--record",), ("--baseline",)]
+)
+def test_delegation_rejects_local_flags_after_clean_worktree_check(
+    feature_repo, tmp_path, monkeypatch, flags
+):
+    set_home(monkeypatch, tmp_path / "home")
+    configure(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    payload = tmp_path / "review.json"
+    payload.write_text('{"coverage":{"manifest":"$context","examined":"all"},"findings":[]}')
+    agent.run("submit-findings", "--file", str(payload))
+    agent.run("context", "--section", "docs")
+    payload.write_text('{"findings":[]}')
+    agent.run("submit-findings", "--file", str(payload))
+    assert agent.run("stage", "run", "lint")["state"] == "LINT_GREEN"
+    before = agent.run("status")["data"]["stages"]
+
+    def unexpected_execution(*args, **kwargs):
+        pytest.fail("delegated tests must not execute a local or baseline command")
+
+    monkeypatch.setattr(shellstage, "run_stage", unexpected_execution)
+    dirty = feature_repo / "uncommitted.txt"
+    dirty.write_text("incidental output")
+    rejected = agent.run("stage", "run", "test", *flags, expect=3)
+    assert rejected["error"]["code"] == "dirty_tree"
+    dirty.unlink()
+
+    rejected = agent.run("stage", "run", "test", *flags, expect=2)
+    assert rejected["error"]["message"] == (
+        "delegated tests do not accept local command, record, or baseline flags"
+    )
+    status = agent.run("status")
+    assert status["state"] == "LINT_GREEN"
+    assert status["data"]["stages"] == before
+    assert not any(
+        event["event"] == "test_delegated" for event in agent.run("events")["data"]["events"]
+    )
+    assert agent.run("stage", "run", "test")["state"] == "TEST_DELEGATED"
+
+
 def test_default_still_runs_tests_and_preserves_legacy_wire(feature_repo, tmp_path, monkeypatch):
     set_home(monkeypatch, tmp_path / "home")
     configure(feature_repo, enabled=False)

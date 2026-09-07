@@ -41,6 +41,23 @@ Protocol, coverage, and retry do not import the coordinator. The executor hands 
 submission to the existing coordinator so command and in-harness review share one submission
 path.
 
+### Shell-stage boundary
+
+- `runs/stages.py` coordinates freshness and recovery checks, committed repairs, delegation,
+  attempt limits, output protection, local execution, and result persistence in that order.
+  A dirty validation worktree or a repair requiring renewed review stops before delegation
+  or local execution.
+- `runs/stage_delegation.py` checks trusted-CI policy and rejects local execution flags before
+  persisting pending test delegation. It returns an envelope when delegated and `None` when
+  the coordinator should continue locally.
+- `runs/stage_baseline.py` owns the scratch baseline worktree and setup-failure recovery.
+  It returns whether the baseline command failed. Failed setup instead records a red
+  attempt and raises with the same baseline retry command; no test result is manufactured.
+  A failing baseline never turns a failing local stage green.
+
+These helpers depend on shared session and state primitives, not the coordinator. Local
+result persistence and response construction stay in `runs/stages.py`.
+
 ### CLI boundary
 
 - `cli.py` defines the root group and registers command families.

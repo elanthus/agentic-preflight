@@ -3,25 +3,20 @@
 from __future__ import annotations
 
 import shlex
-from contextlib import suppress
-from dataclasses import dataclass
-from pathlib import Path
 from typing import TypedDict
 
 from .. import gitx, worktree
 from ..attestation import output_digest
-from ..ci_policy import base_enabled
 from ..envelope import Envelope
 from ..errors import (
     DirtyTree,
     MaxAttempts,
     NoLog,
-    SetupFailed,
     StageFailed,
     StaleRun,
 )
 from ..machine import Action, State, legal_actions
-from ..models import RunDoc, SetupFailure, Stage, StageRecord
+from ..models import RunDoc, Stage, StageRecord
 from ..stages import detect, protected_output, shellstage
 from . import evidence
 from ._session import (
@@ -38,13 +33,8 @@ from ._session import (
 )
 from .review import _skip_test_if_not_applicable
 from .review_coverage import invalidate_stage_result, reopen_if_stale
-
-
-@dataclass(frozen=True)
-class _BaselineSetupFailure(Exception):
-    command: str
-    exit_code: int
-    worktree_path: str
+from .stage_baseline import check_baseline
+from .stage_delegation import delegate_tests
 
 
 class _StageSpec(TypedDict):
@@ -208,6 +198,52 @@ def _resolve_command(session: Session, run: RunDoc, stage_name: str, override: s
     )
 
 
+def _check_attempt_limit(
+    session: Session, run: RunDoc, stage: Stage, record_entry: StageRecord
+) -> None:
+    """Stop repeated failures with recovery details appropriate to the last attempt."""
+    stage_name = stage.value
+    if record_entry.attempts >= session.config.stage.max_attempts:
+        setup_failure = run.setup_failure
+        if (
+            setup_failure is not None
+            and setup_failure.scope == "baseline"
+            and setup_failure.stage is stage
+        ):
+            raise MaxAttempts(
+                f"the {stage_name} baseline setup has failed {record_entry.attempts} times "
+                f"(max_attempts={session.config.stage.max_attempts}); stopping rather than "
+                "looping",
+                state=run.state.value,
+                run_id=run.run_id,
+                stage=stage_name,
+                data={
+                    "attempts": record_entry.attempts,
+                    "stage": stage_name,
+                    "setup_failure": setup_failure.model_dump(mode="json"),
+                },
+                next_instruction=(
+                    "The baseline setup never reached the stage, so there is no stage log. "
+                    "Abort this run, fix the setup environment, then start a fresh run."
+                ),
+                next_command="agentic-preflight abort --force",
+            )
+        raise MaxAttempts(
+            f"the {stage_name} stage has failed {record_entry.attempts} times "
+            f"(max_attempts={session.config.stage.max_attempts}); stopping rather than "
+            f"looping",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=stage_name,
+            data={"attempts": record_entry.attempts, "stage": stage_name},
+            next_instruction=(
+                "This needs a person. Show the user the stage log and the last failure, "
+                "and ask how to proceed."
+            ),
+            next_command=f"agentic-preflight logs --stage {stage_name}",
+        )
+
+
 def run_stage(
     session: Session,
     stage_name: str,
@@ -264,79 +300,13 @@ def run_stage(
             ),
             next_command="agentic-preflight context",
         )
-    if (
-        stage is Stage.TEST
-        and session.config.ci.test_authority == "github_actions"
-        and base_enabled(worktree_path, run.merge_base_sha)
-    ):
-        from ..ci_policy import declaration
+    delegated = delegate_tests(
+        session, run, stage, command=command, record=record, baseline=baseline
+    )
+    if delegated is not None:
+        return delegated
 
-        if command is not None or baseline or record:
-            raise StageFailed(
-                "delegated tests do not accept local command, record, or baseline flags"
-            )
-        try:
-            requested = declaration(
-                worktree_path,
-                base=run.merge_base_sha,
-                head=run.head_sha,
-                base_ref=run.base_ref,
-                effective=session.config,
-            )
-        except (ValueError, gitx.GitError) as exc:
-            raise StageFailed(str(exc), stage="test") from exc
-        with session.store.transaction(run.run_id) as doc:
-            doc.test_delegation = requested
-            doc.stages[Stage.TEST] = StageRecord(
-                status="delegated", reason="trusted CI tests pending"
-            )
-            doc.evidence.pop(Stage.TEST, None)
-            _apply(doc, Action.DELEGATE_TEST)
-            run = doc
-        session.store.append_event(
-            run.run_id, {"event": "test_delegated", "subject": "integration"}
-        )
-        return _envelope_for(run, stage="test")
-
-    if record_entry.attempts >= session.config.stage.max_attempts:
-        setup_failure = run.setup_failure
-        if (
-            setup_failure is not None
-            and setup_failure.scope == "baseline"
-            and setup_failure.stage is stage
-        ):
-            raise MaxAttempts(
-                f"the {stage_name} baseline setup has failed {record_entry.attempts} times "
-                f"(max_attempts={session.config.stage.max_attempts}); stopping rather than "
-                "looping",
-                state=run.state.value,
-                run_id=run.run_id,
-                stage=stage_name,
-                data={
-                    "attempts": record_entry.attempts,
-                    "stage": stage_name,
-                    "setup_failure": setup_failure.model_dump(mode="json"),
-                },
-                next_instruction=(
-                    "The baseline setup never reached the stage, so there is no stage log. "
-                    "Abort this run, fix the setup environment, then start a fresh run."
-                ),
-                next_command="agentic-preflight abort --force",
-            )
-        raise MaxAttempts(
-            f"the {stage_name} stage has failed {record_entry.attempts} times "
-            f"(max_attempts={session.config.stage.max_attempts}); stopping rather than "
-            f"looping",
-            state=run.state.value,
-            run_id=run.run_id,
-            stage=stage_name,
-            data={"attempts": record_entry.attempts, "stage": stage_name},
-            next_instruction=(
-                "This needs a person. Show the user the stage log and the last failure, "
-                "and ask how to proceed."
-            ),
-            next_command=f"agentic-preflight logs --stage {stage_name}",
-        )
+    _check_attempt_limit(session, run, stage, record_entry)
     resolved = _resolve_command(session, run, stage_name, command)
     try:
         protection = protected_output.OutputProtection.capture(worktree_path, run.copied_files)
@@ -367,70 +337,11 @@ def run_stage(
         run = doc
 
     wt = _require_worktree(run)
-    baseline_red = None
-    if baseline:
-        try:
-            baseline_red = _baseline_is_red(session, run, resolved)
-        except _BaselineSetupFailure as exc:
-            retry_command = shlex.join(
-                [
-                    "agentic-preflight",
-                    "stage",
-                    "run",
-                    stage_name,
-                    "--command",
-                    resolved,
-                    "--record",
-                    "--baseline",
-                ]
-            )
-            failure = SetupFailure(
-                scope="baseline",
-                stage=stage,
-                command=exc.command,
-                exit_code=exc.exit_code,
-                worktree_path=exc.worktree_path,
-                next_instruction=(
-                    "The stage was not evaluated against the base commit. Fix the setup "
-                    "environment, then retry the same stage with its baseline check."
-                ),
-                next_command=retry_command,
-            )
-            with session.store.transaction(run.run_id) as doc:
-                previous = doc.stages.get(stage) or StageRecord()
-                entry = StageRecord(
-                    status="red",
-                    attempts=previous.attempts + 1,
-                    command=resolved,
-                    reason="baseline setup command failed",
-                    finished_at=_now(),
-                    head_sha=gitx.rev_parse(wt, "HEAD"),
-                )
-                doc.stages[stage] = entry
-                doc.setup_failure = failure
-                _apply(doc, spec["failed"])
-                run = doc
-            session.store.append_event(
-                run.run_id,
-                {"event": "setup_failed", **failure.model_dump(mode="json")},
-            )
-            raise SetupFailed(
-                f"the baseline setup command failed (exit {exc.exit_code})",
-                state=run.state.value,
-                run_id=run.run_id,
-                stage=stage_name,
-                data={
-                    "scope": "baseline",
-                    "worktree_path": exc.worktree_path,
-                    "setup": {
-                        "kind": "custom",
-                        "command": exc.command,
-                        "exit_code": exc.exit_code,
-                    },
-                },
-                next_instruction=failure.next_instruction,
-                next_command=failure.next_command,
-            ) from exc
+    baseline_red = (
+        check_baseline(session, run, stage, resolved, failure_action=spec["failed"])
+        if baseline
+        else None
+    )
 
     input_fingerprint = evidence.fingerprint(session, run, stage, command=resolved)
     result = shellstage.run_stage(
@@ -543,41 +454,6 @@ def run_stage(
         next_instruction=instruction,
         next_command=f"agentic-preflight logs --stage {stage_name}",
     )
-
-
-def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
-    """Run the command against the base commit in a scratch worktree.
-
-    Answers the question that otherwise sends an agent chasing phantoms: is this
-    failure ours, or was the base already broken?
-    """
-    worktree_path = _require_worktree(run)
-    scratch = Path(worktree_path).parent / f"{run.run_id}-baseline"
-    branch = f"ap/{run.run_id}-baseline"
-    try:
-        worktree.create(session.repo_root, path=scratch, branch=branch, head_sha=run.merge_base_sha)
-        with suppress(worktree.CopyRefused):
-            worktree.copy_files(session.repo_root, scratch, session.config.worktree.copy_files)
-        if session.config.worktree.setup_command:
-            completed = worktree.run_setup(
-                scratch,
-                session.config.worktree.setup_command,
-                timeout_seconds=session.config.stage.timeout_seconds,
-            )
-            if completed.returncode != 0:
-                raise _BaselineSetupFailure(
-                    command=session.config.worktree.setup_command,
-                    exit_code=completed.returncode,
-                    worktree_path=str(scratch),
-                )
-        result = shellstage.run_stage(
-            scratch, command, timeout_seconds=session.config.stage.timeout_seconds
-        )
-        return not result.passed
-    except worktree.WorktreeError:
-        return False
-    finally:
-        worktree.remove(session.repo_root, scratch, branch=branch)
 
 
 def logs(session: Session, *, stage_name: str) -> Envelope:
