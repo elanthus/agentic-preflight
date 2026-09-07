@@ -14,7 +14,7 @@ from ..envelope import Envelope
 from ..errors import DiffTooLarge, InvalidFindings, StageFailed
 from ..machine import State
 from ..models import Stage
-from ..stages import shellstage
+from ..stages import protected_output, shellstage
 from . import review_protocol, review_retry
 from ._session import Session, _assert_fresh, _load_current, _require_state, _require_worktree
 from .review import submit_findings
@@ -69,7 +69,7 @@ def run_review_command(session: Session) -> Envelope:
 
     wt = _require_worktree(run)
     try:
-        secrets = shellstage.read_secrets(wt, run.copied_files)
+        protection = protected_output.OutputProtection.capture(wt, run.copied_files)
     except shellstage.SecretRedactionError as exc:
         raise StageFailed(
             "the review command cannot run because copied-file redaction is unavailable",
@@ -96,24 +96,14 @@ def run_review_command(session: Session) -> Envelope:
     if not gitx.is_clean(wt):
         result.exit_code = result.exit_code or 1
         result.output += "\n[agentic-preflight] review command changed the worktree"
-    redaction_error = None
-    try:
-        post_run_secrets = shellstage.read_secrets(wt, run.copied_files)
-    except shellstage.SecretRedactionError as exc:
-        redaction_error = exc
-        post_run_secrets = []
-    redaction_failure_reason = None
-    if redaction_error is not None:
-        redaction_failure_reason = "copied-file redaction became unavailable"
-    elif result.copied_files_changed:
-        redaction_failure_reason = "copied file changed during command execution"
+    protected = protection.finish(result, session.store.logs_dir(run.run_id) / "review.txt")
+    result = protected.result
+    clean_output = protected.clean_output
+    log_path = str(protected.log_path)
+    redaction_error = protected.redaction_error
+    redaction_failure_reason = protected.failure_reason
     if redaction_failure_reason is not None:
-        clean_output = shellstage.REDACTION_FAILURE_OUTPUT
-        log_path_obj = session.store.logs_dir(run.run_id) / "review.txt"
-        log_path_obj.parent.mkdir(parents=True, exist_ok=True)
-        log_path_obj.write_text(clean_output, encoding="utf-8", newline="\n")
-        log_path = str(log_path_obj)
-        safe_exit_code = result.exit_code if result.exit_code != 0 else 1
+        safe_exit_code = result.exit_code
         run = review_retry.fail(
             session,
             run,
@@ -149,15 +139,6 @@ def run_review_command(session: Session) -> Envelope:
             ),
             next_command="agentic-preflight review run",
         ) from redaction_error
-    clean_output = shellstage.redact(
-        result.output,
-        shellstage.combine_secrets(secrets, post_run_secrets),
-    )
-    log_path_obj = session.store.logs_dir(run.run_id) / "review.txt"
-    log_path_obj.parent.mkdir(parents=True, exist_ok=True)
-    log_path_obj.write_text(clean_output, encoding="utf-8", newline="\n")
-    log_path = str(log_path_obj)
-
     failure_reason = None
     payload: Any = None
     if not result.passed:

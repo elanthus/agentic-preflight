@@ -25,8 +25,13 @@ Keep thin, stable facades and split implementation by reason to change.
   It performs no state transitions.
 - `runs/review_coverage.py` binds findings to review units, creates complete coverage
   evidence, and invalidates evidence when `HEAD` changes.
-- `runs/review_executor.py` is the external-process adapter: prepare, execute, redact,
-  log, parse, and hand the submission to the same coordinator used by in-harness review.
+- `runs/review_executor.py` is the external-process adapter: prepare, execute, parse,
+  and hand the submission to the same coordinator used by in-harness review.
+- `stages/protected_output.py` shares copied-file secret snapshots, output withholding,
+  redaction, and log writing between review and shell-stage executors. Callers capture
+  secrets before recording the running state and retain their own execution, retry,
+  and failure handling. Review parses the original stdout only after output protection
+  succeeds; redacted output is the log and digest input.
 - `runs/review_retry.py` alone persists command running/red transitions, attempt counts,
   interrupted-run recovery, and successful process evidence.
 - `runs/__init__.py` remains the supported import facade.

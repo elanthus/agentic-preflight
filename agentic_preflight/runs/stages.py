@@ -22,7 +22,7 @@ from ..errors import (
 )
 from ..machine import Action, State, legal_actions
 from ..models import RunDoc, SetupFailure, Stage, StageRecord
-from ..stages import detect, shellstage
+from ..stages import detect, protected_output, shellstage
 from . import evidence
 from ._session import (
     Session,
@@ -339,7 +339,7 @@ def run_stage(
         )
     resolved = _resolve_command(session, run, stage_name, command)
     try:
-        secrets = shellstage.read_secrets(worktree_path, run.copied_files)
+        protection = protected_output.OutputProtection.capture(worktree_path, run.copied_files)
     except shellstage.SecretRedactionError as exc:
         retry = ["agentic-preflight", "stage", "run", stage_name]
         if command is not None:
@@ -451,35 +451,12 @@ def run_stage(
             copied_files_changed=result.copied_files_changed,
         )
 
-    redaction_error = None
-    try:
-        post_run_secrets = shellstage.read_secrets(wt, run.copied_files)
-    except shellstage.SecretRedactionError as exc:
-        redaction_error = exc
-        post_run_secrets = []
-    redaction_failure_reason = None
-    if redaction_error is not None:
-        redaction_failure_reason = "copied-file redaction became unavailable"
-    elif result.copied_files_changed:
-        redaction_failure_reason = "copied file changed during command execution"
-    if redaction_failure_reason is not None:
-        result = shellstage.StageResult(
-            command=result.command,
-            exit_code=result.exit_code if result.exit_code != 0 else 1,
-            output=shellstage.REDACTION_FAILURE_OUTPUT,
-            timed_out=result.timed_out,
-            copied_files_changed=result.copied_files_changed,
-        )
-        clean_output = result.output
-    else:
-        clean_output = shellstage.redact(
-            result.output,
-            shellstage.combine_secrets(secrets, post_run_secrets),
-        )
-
-    log_path = session.store.logs_dir(run.run_id) / f"{stage_name}.txt"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_text(clean_output, encoding="utf-8", newline="\n")
+    protected = protection.finish(result, session.store.logs_dir(run.run_id) / f"{stage_name}.txt")
+    result = protected.result
+    clean_output = protected.clean_output
+    log_path = protected.log_path
+    redaction_error = protected.redaction_error
+    redaction_failure_reason = protected.failure_reason
 
     summary = shellstage.summarise(clean_output)
     after_fingerprint = evidence.fingerprint(session, run, stage, command=resolved)

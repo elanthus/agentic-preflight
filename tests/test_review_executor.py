@@ -288,3 +288,23 @@ def test_committed_repairs_clear_review_evidence_and_require_a_fresh_command(fea
     assert review["status"] == "pending"
     assert review["executor"] is None
     assert agent.run("context")["next"]["command"] == "agentic-preflight review run"
+
+
+def test_review_parses_raw_stdout_while_logging_redacted_stdout_and_stderr(feature_repo):
+    from agentic_preflight.attestation import output_digest
+
+    write(feature_repo, ".env", "SECRET=all\n")
+    configure_reviewer(feature_repo)
+    script = feature_repo / "reviewer.py"
+    script.write_text(REVIEWER + '\nprint("all", file=sys.stderr)\n', encoding="utf-8")
+    commit_all(feature_repo, "emit a copied value in both reviewer streams")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+
+    env = agent.run("review", "run")
+
+    assert env["state"] == "DOCS_GREEN"
+    logged = Path(env["data"]["log_path"]).read_text(encoding="utf-8")
+    assert '"examined": "[redacted]"' in logged
+    assert logged.endswith("[redacted]\n")
+    assert env["data"]["output_sha256"] == output_digest(logged)
