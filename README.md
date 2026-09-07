@@ -135,7 +135,7 @@ branch protection. See
 [Portable attestations and CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.5.2.1/docs/attestations-and-ci.md)
 for setup and verification commands.
 
-## Understand the safety boundary
+## Limits
 
 **Agentic Preflight is an advisory quality gate, not a security boundary.**
 
