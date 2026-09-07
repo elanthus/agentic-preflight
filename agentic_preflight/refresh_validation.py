@@ -6,7 +6,9 @@ import tomllib
 from pathlib import Path
 
 from . import diff, findings, gitx, risk
+from .attestation_schema import has_pending_tests
 from .config import Config, _validate_enums
+from .consumer_capabilities import base_supports_refresh as base_supports_refresh
 from .digests import json_digest
 from .fingerprints import (
     FINGERPRINT_VERSION,
@@ -21,22 +23,8 @@ from .fingerprints import (
 from .models import Attestation, OriginalExecution, ReviewCoverage, Stage, StageEvidence
 from .shell_fingerprints import ShellFingerprint, ShellInputContract, classify_shell
 
-# Producers check this exact marker in the synchronized protected-base blob.
-# A base without the consumer gets a complete legacy run and a v4 note.
+# Retained for older producers during the documented capability transition.
 REFRESH_WIRE_VERSION = 5
-
-
-def base_supports_refresh(repo: Path | str, base: str) -> bool:
-    result = gitx.run(repo, "show", f"{base}:agentic_preflight/refresh_validation.py", check=False)
-    if result.returncode == 0 and "\nREFRESH_WIRE_VERSION = 5\n" in result.stdout:
-        return True
-    policy = gitx.run(repo, "show", f"{base}:.agentic-preflight.toml", check=False)
-    if policy.returncode != 0:
-        return False
-    try:
-        return tomllib.loads(policy.stdout).get("reuse", {}).get("attestation_schema") == 5
-    except (ValueError, AttributeError):
-        return False
 
 
 def shell_execution_config(snapshot: dict, stage: Stage) -> dict:
@@ -223,7 +211,7 @@ def verify_evidence(repo: Path | str, value: Attestation) -> None:
                 raise ValueError("current shell policy binding changed")
             configured_command = getattr(cfg.commands, stage.value)
             if (
-                value.schema_version == 6
+                has_pending_tests(value)
                 and current.status == "green"
                 and configured_command
                 and current.command != configured_command

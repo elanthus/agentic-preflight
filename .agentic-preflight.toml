@@ -1,6 +1,12 @@
 [general]
 base_ref = "main"
 
+[reuse]
+attestation_schema = 5
+
+[ci]
+consumer_schema = 6
+
 [commands]
 test = "uv run pytest"
 lint = "uv run ruff check . && uv run mypy agentic_preflight"

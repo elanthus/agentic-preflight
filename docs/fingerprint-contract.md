@@ -9,6 +9,9 @@ The protected base must support v5 attestations before refresh can activate; see
 [the rollout procedure](attestations-and-ci.md#evidence-reuse-across-rebases).
 Without that support, the CLI records `consumer_unavailable`, performs the normal
 local stages, and emits a compatible v4 note.
+Committed declarations take precedence over legacy source markers; see the
+[schema compatibility boundary](schema-compatibility.md) for the supported wire
+shapes, unchanged snapshot digest rules, and migration conditions.
 
 ## Applicability and audit identity
 

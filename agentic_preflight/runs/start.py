@@ -392,7 +392,9 @@ def start(
         )
         # Refresh-capable evidence must recheck declared non-Git inputs even
         # when the commit identity has not changed. Keep the legacy v4 contract.
-        if reused_attestation is not None and reused_attestation.schema_version == 5:
+        if reused_attestation is not None and attestationmod.has_refresh_evidence(
+            reused_attestation
+        ):
             reused_attestation = None
     if reused_attestation is not None:
         assessment = risk.assess(

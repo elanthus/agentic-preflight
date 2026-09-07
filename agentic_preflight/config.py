@@ -20,6 +20,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_serializer
 
 from .ci_models import CISection
+from .config_compatibility import compatible_snapshot
 from .digests import json_digest
 from .shell_fingerprints import ShellInputContract
 
@@ -158,12 +159,7 @@ class Config(BaseModel):
 
     @model_serializer(mode="wrap")
     def compatible_snapshot(self, handler):
-        result = handler(self)
-        # Keep default local v4/v5 snapshots consumable by protected bases that
-        # predate CI delegation. Non-default authority is explicitly versioned.
-        if self.ci == CISection():
-            result.pop("ci", None)
-        return result
+        return compatible_snapshot(handler(self), self.ci)
 
 
 def config_digest(snapshot: dict[str, Any]) -> str:

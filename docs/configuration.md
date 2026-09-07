@@ -118,8 +118,9 @@ itself invalidate that stage's evidence. See
 `attestation_schema` defaults to `4`. After installing a v5-capable trusted hosted
 verifier, set it to `5` on the protected base. A PR cannot enable v5 production by
 editing its own configuration: the producer checks the synchronized base. This
-repository also recognizes the consumer in its own protected-base source, allowing
-the consumer and inactive producer to ship together without breaking the old verifier.
+repository also supports a [legacy source-marker fallback](schema-compatibility.md#legacy-transition)
+when the capability key is absent. Explicit `4` disables refresh; malformed or
+unsupported declarations cannot be overridden by source markers.
 
 Review and docs can then reuse equivalent evidence automatically. Shell stages
 require separate committed input declarations. For example:
