@@ -206,13 +206,15 @@ def _describe(exc: ValidationError, sources: dict[str, Path], default_source: Pa
         if error["type"] == "extra_forbidden":
             parts.append(f"unknown key {location!r}")
         else:
-            section, *keys = error["loc"]
-            label = f"[{section}] {'.'.join(map(str, keys))}" if keys else str(section)
+            keys = error["loc"][1:]
+            label = f"[{top}] {'.'.join(map(str, keys))}" if keys else top or "<root>"
             detail = error["msg"]
             if error["type"] == "literal_error":
                 detail += f"; got {error['input']!r}"
             parts.append(f"{label}: {detail}")
-    return "; ".join(
+    if not by_source:
+        return f"invalid configuration in {default_source}: validation failed"
+    return "\n".join(
         f"invalid configuration in {source}: " + "; ".join(parts)
         for source, parts in by_source.items()
     )

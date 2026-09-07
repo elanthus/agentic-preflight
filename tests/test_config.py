@@ -3,7 +3,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from agentic_preflight.config import Config, ConfigError, load_config
+from agentic_preflight.config import Config, ConfigError, _describe, load_config
 
 
 def test_defaults_apply_when_no_config_file_exists(tmp_repo, tmp_path):
@@ -293,3 +293,18 @@ def test_multiple_invalid_sections_identify_their_own_source(tmp_repo, tmp_path)
     message = str(error.value)
     assert f"in {user_file}: [gate] mode" in message
     assert f"in {repo_file}: [pr] mode" in message
+    assert "\ninvalid configuration in " in message
+
+
+def test_root_validation_error_keeps_default_source(tmp_path):
+    with pytest.raises(ValidationError) as error:
+        Config.model_validate([])
+    source = tmp_path / "config.toml"
+    message = _describe(error.value, {}, source)
+    assert f"invalid configuration in {source}: <root>:" in message
+
+
+def test_empty_validation_errors_still_have_a_message(tmp_path):
+    error = ValidationError.from_exception_data("Config", [])
+    source = tmp_path / "config.toml"
+    assert _describe(error, {}, source) == f"invalid configuration in {source}: validation failed"
