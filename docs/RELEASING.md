@@ -39,10 +39,9 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
 1. Choose an unused version and update `version` in `pyproject.toml`. Run `uv lock`
    to keep the local project version in `uv.lock` in sync.
 2. Update `CHANGELOG.md`, and re-pin the README's `blob/vX.Y.Z` documentation
-   links to the new version. They deliberately point at released pages, so
-   between releases the README on `main` can claim things — Windows support,
-   for one — that the pages it links do not say yet; this bump is what closes
-   that gap. Re-record the README animation against the release checkout:
+   links to the new version. Check each target against the release tree; the
+   new tag links will become available when the tag is pushed. Re-record the README
+   animation against the release checkout:
 
    ```bash
    uv sync --group dev

@@ -5,6 +5,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+## [0.5.3] - 2026-09-07
+
 ### Added
 
 - Opt-in trusted GitHub Actions test authority, with separate publication and merge
@@ -34,6 +36,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- Correct release and upgrade guidance, the pinned CI verifier example, shell-execution
+  recovery, Windows copy permissions, and documentation/test-skip contracts.
 - Keep review comparison available in the CI-delegated and publication-ready states
   without changing pending test evidence.
 - Publish and retain original Git commits referenced by refreshed attestations, and
@@ -461,6 +465,7 @@ First tagged pre-release.
 Windows is not supported because the implementation requires `fcntl`, Bash, and POSIX
 process groups.
 
+[0.5.3]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.3
 [0.5.2.1]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.2.1
 [0.5.2]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.2
 [0.5.1]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.1

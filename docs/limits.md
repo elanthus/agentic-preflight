@@ -1,6 +1,6 @@
 # Limits
 
-The [README](../README.md#limits) states the three that matter most: the gate is advisory
+The [README](../README.md#limits) introduces the main limits: the gate is advisory
 rather than a security boundary, `git push --no-verify` defeats it by design, and the
 confirmation token is ceremony rather than a secret. This page covers the rest.
 
@@ -73,11 +73,13 @@ Use `--baseline` so a pre-existing failure is reported rather than blamed on you
 
 It proves what the gate reported: that the configured in-harness or command executor
 accounted for every included review unit in a snapshot-bound diff manifest, that the
-configured commands exited zero against their recorded execution commits, and which judgment calls were
-recorded along the way. Command review additionally carries its command, zero exit code,
+executed green commands exited zero against their recorded execution commits, and which
+judgment calls were recorded along the way. Command review additionally carries its command, zero exit code,
 and redacted output digest. Derived stages preserve those original executions and
 record why their evidence applies to the new exact commit. Excluded files remain
-explicitly outside that coverage.
+explicitly outside that coverage. Skipped stages record a reason, not a successful
+execution. A publication-ready record with delegated tests is not a green local test
+run; current remote results must be checked separately with `ci status`.
 
 It does not prove the review was good or that the agent understood every unit it marked
 clean. The same diff reviewed twice can yield different findings. Treat the Git note as

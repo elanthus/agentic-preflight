@@ -1,6 +1,7 @@
 # Trusted CI test authority
 
-Issue #86 introduces an opt-in publication path. The default remains local review,
+Status: implemented in 0.5.3. This document records the design for issue #86 and its
+opt-in publication path. The default remains local review,
 documentation review, lint, and tests. The selected CI subject is the integration
 commit: GitHub's merge of the current PR head with its current base.
 
@@ -89,7 +90,8 @@ run identity, attempt, and job results before returning success.
 
 Install the consumer and workflow templates on the protected default/base branch
 first; configure IDs and required matrix jobs there, then enable the producer in
-a later PR. This implementation's own PR continues to execute tests locally.
+a later PR. The initial implementation was validated locally; this repository still
+uses local test authority.
 Require the combined check, dismiss stale approvals, and require branches to be
 up to date before merging. Keep CODEOWNERS protection for policy and workflows.
 Restrict check-writing credentials to trusted evaluators. Require the combined

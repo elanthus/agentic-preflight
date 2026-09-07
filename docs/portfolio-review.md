@@ -25,14 +25,14 @@ the real command-review product path across vulnerable and fixed toy snapshots. 
 mode checks deterministic plumbing and scoring. It is not the private decision-quality
 evaluation, and its results are not comparable to that evaluation.
 
-The [independent-review study](independent-review.md) explains how the project runs and
+The [independent-review guide](independent-review.md) explains how the project runs and
 measures a second command-line reviewer over the same snapshot-bound review bundle.
 
 The README animation is real CLI output recorded with
 [VHS](https://github.com/charmbracelet/vhs). Run
-`./docs/demo-fixture.sh && vhs docs/demo.tape` from a source checkout to regenerate it in
-a throwaway repository containing the demonstrated unguarded division defect. The
-coding agent supplies the judgment between commands; the package supplies the workflow
+the [release guide’s recording procedure](RELEASING.md#cutting-a-release) from a source
+checkout to regenerate it with that checkout’s CLI in a throwaway repository containing
+the demonstrated unguarded division defect. The coding agent supplies the judgment between commands; the package supplies the workflow
 and record.
 
 ## Engineering choices
@@ -85,7 +85,7 @@ make different tradeoffs about workflow ownership and what the durable record pr
 | Publication approval | Automatically forwards the validated branch after the local pipeline | Shows the exact remote, branch, commits, and risk before a token-gated push, or refuses its own push in manual mode |
 | Local architecture | Runs a daemon, proxy repository, SQLite store, TUI, and disposable worktrees | Runs as a daemonless JSON-over-stdout CLI with file-based state and an agent skill |
 | Validation checkout | Always isolates the pipeline in a disposable worktree | Offers in-place, reusable isolated, and fresh strict worktree modes |
-| Hosted lifecycle | Creates PRs across several forges, monitors CI, and can auto-fix failures | Keeps hosted lifecycle outside the stateful core and delegates GitHub operations to the active agent and `gh` |
+| Hosted lifecycle | Creates PRs across several forges, monitors CI, and can auto-fix failures | Uses the active agent and `gh` for PR creation, check monitoring, and opt-in cleanup; opt-in test authority adds protected dispatch and live CI verification in the CLI |
 | Runtime and platforms | Ships as a Go application for macOS, Linux, and Windows | Ships as a Python package for supported macOS, Linux, and Windows combinations |
 
 ## Scope of the evidence

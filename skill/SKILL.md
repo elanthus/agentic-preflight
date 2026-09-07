@@ -265,6 +265,10 @@ numbering, they do not restart. Full field reference:
 **Universal recovery rule: any exit 3 → run `status` → obey `next`.** `status` is legal
 in every state. If you are ever unsure where you are, that is always the right call.
 
+For trusted CI commands, follow the remote recovery reason and next action described
+under [Delegated CI tests](#delegated-ci-tests); a local `status` cannot resolve remote
+pending, failed, or unavailable evidence.
+
 ## Failure playbooks
 
 Recovery detail lives in `reference/playbooks.md`. Read the matching entry when a run

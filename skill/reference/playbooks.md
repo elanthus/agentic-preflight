@@ -4,7 +4,8 @@ Entries are keyed by symptom, with the exit code and error code given where the 
 supplies one — several of these surface as a slow or wrong-looking stage rather than
 as a failed command. The universal recovery rule still comes first: **any exit 3 → run
 `status` → obey `next`.** `status` is legal in every state, and when you are unsure
-where a run is, it is always the right call.
+where a run is, it is always the right call. Trusted CI commands are the exception:
+follow their remote recovery reason and next action directly, as described below.
 
 ## Git operation already in progress (exit 3, `operation_in_progress`)
 
@@ -174,10 +175,12 @@ the wrong content and is a false green.
 
 ## Green in your shell, red under the gate
 
-Stages run through a non-interactive login Bash shell. Its `PATH` can differ from your
-interactive shell: version-manager shims (nvm, rbenv, pyenv, asdf) may be absent, but
-inherited or login-profile configuration can also keep them available. Compare `PATH`
-and the toolchain version *inside the stage* against the project's declared range before
+Simple commands run directly when their program resolves, without sourcing a login
+profile. Commands that need shell interpretation or whose program cannot be resolved
+fall back to a non-interactive login shell (Bash, or `sh` on POSIX when Bash is absent;
+Git Bash on Windows). Version-manager shims may be absent;
+inherited or login-profile configuration can also keep them available. Prefer an explicit interpreter or manager command such as `uv run pytest`.
+Compare `PATH` and the toolchain version *inside the stage* against the project's declared range before
 you debug the code — a native module built for another ABI fails as missing bindings,
 not as a version error. A repo with no `.nvmrc` (or equivalent) has nothing pinning it,
 so this bites fresh clones and CI too, not just the gate.

@@ -102,6 +102,11 @@ enabled = true
 allow_force_push = false
 ```
 
+Two legacy fields remain accepted and snapshotted: `[review] require_fix_commits`
+(default `true`) and `[worktree] ttl_hours` (default `48`, minimum `1`). Neither changes
+current behavior: a `fixed` response always needs a commit, and runs never expire solely
+because of age. Leave them at their defaults.
+
 ## Configuration is snapshotted per run
 
 The resolved configuration is snapshotted when `start` creates a run. Editing
@@ -156,9 +161,11 @@ Input values and file contents never appear in fingerprint diagnostics.
 ## Pull-request publication (`[pr]`)
 
 `mode = "auto"` is the default and is standing authorization for pull-request creation.
-The gate still asks only whether to push. After the user approves that push and preflight
-finishes, the agent automatically opens the pull request—or reuses one that already
-exists for the branch—without a PR-specific approval prompt.
+An explicit request to push, publish, or open a pull request authorizes the matching
+push. The agent shows the remote, branch, commits, and risk, and asks for push approval
+only when that authorization is missing or the scope materially differs. After the
+authorized push and preflight finish, it opens or reuses the pull request without a
+second approval prompt.
 
 `mode = "manual"` keeps pull-request creation in the user's hands. The agent may still
 push through the configured gate, but it never opens the pull request and provides a
@@ -207,9 +214,10 @@ allowlist: a docs finding filed against a path outside it is rejected, which is 
 about the allowlist rather than a verdict on the finding. Repos often keep binding rules
 outside the default surface, so add them here rather than working around the rejection.
 
-`require_changelog` makes a changelog entry mandatory for the docs stage. The CLI
-records a missing entry as a code-owned finding, which remains blocking regardless of
-`[docs] blocking_severities`.
+`require_changelog` requires the diff to touch an existing changelog on the docs
+surface. The CLI records an untouched changelog as a code-owned finding, which remains
+blocking regardless of `[docs] blocking_severities`. It does not create a missing
+changelog or judge the entry’s content; the reviewer checks that content.
 
 ## Grounded context ([context])
 
@@ -249,7 +257,7 @@ exclude = [
 ]
 ```
 
-Setting a shorter list — including the abbreviated one in the README example — drops the
+Setting a shorter list — including the abbreviated one in the complete example above — drops the
 globs you leave out. If you want to add a project-specific pattern, copy this list and
 append to it rather than writing a fresh one.
 
