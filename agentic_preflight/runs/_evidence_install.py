@@ -28,7 +28,6 @@ def install_stage(doc: RunDoc, stage: Stage, record: StageRecord) -> None:
     Synchronization and mergeback remain the caller's responsibility. Refresh
     may reach docs either before or after its context has been delivered.
     """
-    doc.stages[stage] = record
     if stage is Stage.REVIEW:
         _apply(doc, Action.SUBMIT_CLEAN)
     elif stage is Stage.DOCS:
@@ -46,3 +45,4 @@ def install_stage(doc: RunDoc, stage: Stage, record: StageRecord) -> None:
     else:
         _apply(doc, Action.RUN_TEST)
         _apply(doc, Action.TEST_PASSED)
+    doc.stages[stage] = record

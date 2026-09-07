@@ -39,6 +39,7 @@ def test_import_handles_green_and_skipped_results(stage, state, destination, sta
         with pytest.raises(WrongState):
             install_stage(run, stage, record)
         assert run.state is state
+        assert stage not in run.stages
         return
     install_stage(run, stage, record)
     assert run.state is destination
@@ -52,3 +53,4 @@ def test_import_cannot_bypass_an_unfinished_preceding_stage():
     with pytest.raises(WrongState):
         install_stage(run, Stage.LINT, record)
     assert run.state is State.REVIEW_AWAITING_FINDINGS
+    assert Stage.LINT not in run.stages
