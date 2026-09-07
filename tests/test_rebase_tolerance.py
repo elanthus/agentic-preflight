@@ -2,6 +2,8 @@
 
 import hashlib
 
+import pytest
+
 from agentic_preflight import attestation, config
 from tests.conftest import commit_all, git, set_home, write
 from tests.driver import ScriptedAgent
@@ -184,3 +186,62 @@ def test_a_different_effective_config_forces_a_fresh_review(feature_repo, tmp_pa
     env = ScriptedAgent(feature_repo).run("start")
     assert env["state"] == "REVIEW_AWAITING_FINDINGS"
     assert git("rev-parse", "HEAD", cwd=feature_repo) == head
+
+
+@pytest.mark.parametrize("consumer", [False, True], ids=["exact-v4", "refresh-v5"])
+def test_reuse_paths_install_the_same_results_through_stage_transitions(
+    feature_repo, tmp_path, monkeypatch, consumer
+):
+    from agentic_preflight.machine import Action
+    from agentic_preflight.models import Stage
+    from agentic_preflight.runs import _evidence_install
+    from agentic_preflight.store import Store
+    from tests.test_evidence_refresh import _finish, _prepare
+
+    _prepare(feature_repo, consumer=consumer)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    _finish(agent, tmp_path)
+    original = attestation.verify(feature_repo, "HEAD")
+    assert original.schema_version == (5 if consumer else 4)
+    agent.run("abort", "--force")
+    actions = []
+    apply = _evidence_install._apply
+
+    def tracked(doc, action):
+        actions.append(action)
+        apply(doc, action)
+
+    monkeypatch.setattr(_evidence_install, "_apply", tracked)
+    env = ScriptedAgent(feature_repo).run("start")
+    assert env["state"] == ("TEST_GREEN" if consumer else "VERIFIED")
+    assert actions == [
+        Action.SUBMIT_CLEAN,
+        Action.BEGIN_DOCS,
+        Action.SUBMIT_CLEAN,
+        Action.RUN_LINT,
+        Action.LINT_PASSED,
+        Action.RUN_TEST,
+        Action.TEST_PASSED,
+    ]
+    run = Store(feature_repo / ".git" / "agentic-preflight").load_run(env["run_id"])
+    for stage in Stage:
+        record = run.stages[stage]
+        result = original.stages[stage]
+        for field in ("status", "command", "reason", "exit_code", "output_sha256"):
+            assert getattr(record, field) == getattr(result, field)
+        assert record.head_sha == original.sha
+        if consumer:
+            assert original.evidence is not None
+            assert run.evidence[stage].origin == original.evidence[stage].origin
+            assert record.executor == result.executor
+            assert record.finished_at == original.evidence[stage].origin.finished_at.isoformat()
+        else:
+            assert record.finished_at == original.green_at
+            assert record.executor is None
+            assert record.fingerprint is None
+    if consumer:
+        assert run.review_coverage is not None
+    else:
+        assert run.review_coverage is None
+        assert run.evidence == {}
