@@ -27,7 +27,7 @@ class OutputProtection:
 
     worktree_path: Path
     copied_files: list[str]
-    _secrets: list[str] = field(repr=False)
+    _secrets: list[str] = field(repr=False, compare=False)
 
     @classmethod
     def capture(cls, worktree_path: Path | str, copied_files: list[str]) -> OutputProtection:

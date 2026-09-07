@@ -103,19 +103,18 @@ def run_review_command(session: Session) -> Envelope:
     redaction_error = protected.redaction_error
     redaction_failure_reason = protected.failure_reason
     if redaction_failure_reason is not None:
-        safe_exit_code = result.exit_code
         run = review_retry.fail(
             session,
             run,
             command=command,
-            exit_code=safe_exit_code,
+            exit_code=result.exit_code,
             clean_output=clean_output,
             log_path=log_path,
             reason=redaction_failure_reason,
         )
         failure_data = {
             "command": command,
-            "exit_code": safe_exit_code,
+            "exit_code": result.exit_code,
             "copied_files": run.copied_files,
             "log_path": log_path,
             **shellstage.summarise(clean_output),
