@@ -26,7 +26,8 @@ def verified(feature_repo, bare_remote, tmp_path):
         feature_repo,
         ".agentic-preflight.toml",
         "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
-        "\n[worktree]\nmode = 'reusable'\n",
+        "\n[worktree]\nmode = 'reusable'\n"
+        "\n[pr]\nautomatedCleanup = true\n",
     )
     commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
@@ -235,16 +236,16 @@ def test_manual_pr_mode_pushes_but_hands_pr_creation_to_the_user(
     assert "do not open the pull request" in finished["next"]["instruction"]
 
 
-def test_automatic_cleanup_can_be_disabled_without_disabling_automatic_pr_creation(
+def test_automatic_cleanup_is_disabled_by_default_without_disabling_automatic_pr_creation(
     feature_repo, bare_remote, tmp_path
 ):
     write(
         feature_repo,
         ".agentic-preflight.toml",
         "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
-        "\n[pr]\nmode = 'auto'\nautomatedCleanup = false\n",
+        "\n[pr]\nmode = 'auto'\n",
     )
-    commit_all(feature_repo, "disable automatic PR cleanup")
+    commit_all(feature_repo, "configure automatic PR publication")
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     agent.run("context")

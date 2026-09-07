@@ -23,6 +23,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Pull-request merge monitoring and automatic post-merge cleanup are now disabled by
+  default. Set `[pr] automatedCleanup = true` to opt in; automatic pull-request creation
+  and hosted-check monitoring remain unchanged.
 - Routine pull-request and main-branch CI runs use Linux with Python 3.13. Manual
   and release runs retain all nine supported OS/Python combinations; scheduled
   regression covers macOS 15 with Python 3.11 every Monday and Thursday.
