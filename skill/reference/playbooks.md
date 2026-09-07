@@ -178,8 +178,8 @@ the wrong content and is a false green.
 Simple commands run directly when their program resolves, without sourcing a login
 profile. Commands that need shell interpretation or whose program cannot be resolved
 fall back to a non-interactive login shell (Bash, or `sh` on POSIX when Bash is absent;
-Git Bash on Windows). Version-manager shims may therefore differ from your interactive
-shell. Prefer an explicit interpreter or manager command such as `uv run pytest`.
+Git Bash on Windows). Version-manager shims may be absent;
+inherited or login-profile configuration can also keep them available. Prefer an explicit interpreter or manager command such as `uv run pytest`.
 Compare `PATH` and the toolchain version *inside the stage* against the project's declared range before
 you debug the code — a native module built for another ABI fails as missing bindings,
 not as a version error. A repo with no `.nvmrc` (or equivalent) has nothing pinning it,
