@@ -29,7 +29,7 @@ def check_baseline(
     stage_name = stage.value
     wt = _require_worktree(run)
     try:
-        return _baseline_is_red(session, run, command)
+        return _baseline_is_red(session, run, command, worktree_path=wt)
     except _BaselineSetupFailure as exc:
         retry_command = shlex.join(
             [
@@ -92,13 +92,12 @@ def check_baseline(
         ) from exc
 
 
-def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
+def _baseline_is_red(session: Session, run: RunDoc, command: str, *, worktree_path: str) -> bool:
     """Run the command against the base commit in a scratch worktree.
 
     Answers the question that otherwise sends an agent chasing phantoms: is this
     failure ours, or was the base already broken?
     """
-    worktree_path = _require_worktree(run)
     scratch = Path(worktree_path).parent / f"{run.run_id}-baseline"
     branch = f"ap/{run.run_id}-baseline"
     try:

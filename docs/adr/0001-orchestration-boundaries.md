@@ -51,7 +51,7 @@ path.
   persisting pending test delegation. It returns an envelope when delegated and `None` when
   the coordinator should continue locally.
 - `runs/stage_baseline.py` owns the scratch baseline worktree and setup-failure recovery.
-  It returns whether the baseline command failed. Failed setup instead records a red
+  It returns whether the baseline command failed. On setup failure it records a red
   attempt and raises with the same baseline retry command; no test result is manufactured.
   A failing baseline never turns a failing local stage green.
 
