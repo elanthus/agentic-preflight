@@ -44,7 +44,7 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
    that gap.
 3. Commit and merge to `main`.
 4. Run the full test matrix before tagging. Pull requests and pushes to `main` run
-   only `ubuntu-latest` and `windows-latest` on Python 3.13. Scheduled
+   only `ubuntu-latest` on Python 3.13. Scheduled
    Monday/Thursday regression covers macOS 15 with Python 3.11, but a manual run of
    the CI workflow is the pre-release check across all nine supported combinations:
 

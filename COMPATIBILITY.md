@@ -51,10 +51,8 @@ directory, so a repository cannot supply the program that validates it.
 The supported combinations receive different validation frequencies so pull-request
 feedback stays fast:
 
-- Pull requests and pushes to `main` run on `ubuntu-latest` and `windows-latest` with
-  Python 3.13. Windows is in the pull-request job rather than a scheduled one because
-  it is the platform whose failures are least likely to be noticed by a contributor
-  working on macOS or Linux.
+- Pull requests and pushes to `main` run on `ubuntu-latest` with Python 3.13
+  to conserve GitHub Actions minutes.
 - A scheduled regression run covers the oldest supported boundary, macOS 15 with
   Python 3.11, every Monday and Thursday.
 - Manual CI runs and release tags cover Python 3.11, 3.12, and 3.13 on
