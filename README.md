@@ -41,11 +41,13 @@ Three things separate it from a checklist in a prompt:
 
 ## Dogfooding case study
 
-From August 3–17, 2026, the public history of four repositories contains 153 merged pull
-requests. Of those, 122 PR descriptions explicitly record Agentic Preflight use, and 24
-conservatively record at least one concrete finding. The recurring catches were semantic
-boundary failures: stale evidence reuse, approval eligibility, secret normalization,
-trust-domain selection, resumability, and immutable inputs.
+Across two observation windows—August 3–17 and August 18–September 6, 2026—the public
+record of four owner-operated repositories contains 408 merged pull requests. Of those,
+323 descriptions explicitly record Agentic Preflight use and 64 contain a concrete
+finding record, including documentation issues and deliberately retained observations.
+The follow-up adds schema-adaptation, spending-cap, and retrieval-coverage findings,
+alongside cases where later review and CI still found gaps. This is evidence of sustained
+dogfooding, not external adoption or a count of distinct bugs fixed.
 
 [Read the evidence, representative findings, methodology, and limits](docs/dogfooding-case-study.md).
 
