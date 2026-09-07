@@ -27,9 +27,8 @@ does.
 Three things separate it from a checklist in a prompt:
 
 - **Within a run, no gate can be bypassed.** An inapplicable test or disabled docs stage
-  advances only through an explicit skip transition that records why. No path exists from
-  review to push without traversing every load-bearing gate. That property is proved by
-  enumerating every path through the machine, not by testing a few of them.
+  advances only through an explicit skip transition that records why. There is no path
+  from review to push that skips a load-bearing gate.
 - **Your agent judges by default; this keeps the record.** The core CLI has no API key
   and calls no model. It drives the coding agent already active in your workspace, while
   an optional command executor lets repository policy require an independent reviewer
@@ -39,20 +38,10 @@ Three things separate it from a checklist in a prompt:
   history without producing a green attestation. A record that can only report success
   is marketing.
 
-## Dogfooding case study
-
-Across two observation windows—August 3–17 and August 18–September 6, 2026—the public
-record of four owner-operated repositories contains 408 merged pull requests. Of those,
-323 descriptions explicitly record Agentic Preflight use and 64 contain a concrete
-finding record, including documentation issues and deliberately retained observations.
-The follow-up adds schema-adaptation, spending-cap, and retrieval-coverage findings,
-alongside cases where later review and CI still found gaps. This is evidence of sustained
-dogfooding, not external adoption or a count of distinct bugs fixed.
-
-[Read the evidence, representative findings, methodology, and limits](docs/dogfooding-case-study.md).
-
 Agentic Preflight is a deterministic state machine with a JSON-over-stdout CLI. It runs
-on macOS, Linux, and Windows.
+on macOS, Linux, and Windows. It has been running against its own repository and three
+others for weeks; see the [dogfooding case study](docs/dogfooding-case-study.md) if you
+want the usage evidence before you adopt it.
 
 [Independent review and agreement](docs/independent-review.md) shows how to run and measure
 a second command-line reviewer over the same review bundle.
