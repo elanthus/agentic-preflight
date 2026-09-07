@@ -17,6 +17,7 @@ make ``respond --id F001`` ambiguous once a run has touched two stages.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from .machine import State
@@ -143,7 +144,7 @@ def validate_and_assign(
 def blocking(
     items: list[Finding],
     *,
-    blocking_severities: list[str],
+    blocking_severities: Sequence[str],
 ) -> list[Finding]:
     """The blocking set: unresolved findings required by code or policy.
 

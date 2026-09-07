@@ -24,6 +24,19 @@ required_jobs = ["linux", "windows"]
 """
 
 
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        "[review]\nexecutor = 'invalid'\n",
+        "[policy]\nhuman_review_paths = ['../private']\n",
+        "[approval]\nmode = 'environment'\nenvironment = ''\n",
+    ],
+)
+def test_invalid_protected_models_keep_policy_error_boundary(invalid):
+    with pytest.raises(ValueError, match="invalid protected policy"):
+        parse_policy(POLICY + invalid)
+
+
 class FakeGitHub:
     repository = "owner/repo"
 

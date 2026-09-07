@@ -19,6 +19,19 @@ from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
 
+def test_invalid_snapshot_config_preserves_session_inspection(feature_repo):
+    from agentic_preflight.runs._session import open_session
+
+    agent = ScriptedAgent(feature_repo)
+    started = agent.run("start")
+    session = open_session(feature_repo)
+    with session.store.transaction(started["run_id"]) as doc:
+        doc.config_snapshot["worktree"]["mode"] = "invalid"
+    reopened = open_session(feature_repo)
+    assert reopened.config.worktree.mode == "in_place"
+    assert reopened.active_run_id() == started["run_id"]
+
+
 def _second_feature_worktree(feature_repo: Path, tmp_path: Path) -> Path:
     path = tmp_path / "feature-y"
     git("branch", "feature/y", "main", cwd=feature_repo)

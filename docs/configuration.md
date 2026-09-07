@@ -7,6 +7,12 @@ commented starting file; the example below includes every supported section.
 `~/.config/agentic-preflight/config.toml`. Unknown keys are errors that name the key
 rather than being ignored.
 
+Configuration models enforce the same mode, severity, risk-level, approval-environment,
+and constrained path rules for file loading and stored snapshots. Python callers can
+use `Config(...)` or `Config.model_validate(...)` without a separate validation step.
+File-loading errors identify the affected section/key and the file that supplied it,
+after section-wise layering.
+
 > **Warning: the configuration executes committed code.** During a run, `[worktree]
 > setup_command` runs at `start`, every `[commands]` entry runs at its lint or test
 > stage, and `[review] command` runs when command review is in effect (`executor =
