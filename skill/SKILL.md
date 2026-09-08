@@ -23,9 +23,10 @@ Python here never calls a model — every judgment in this workflow is yours.
    review `unit`, `line`, `severity`, `action`, `title`, `detail`, and `suggestion`.
    Sending `id`, `stage`, or `code_owned` is a hard validation error, not a nudge.
 4. **Never run `git push --no-verify`.** It exists for humans, not for you.
-5. **Never push without user authorization.** Authorization may come from an explicit
-   request to push, publish, or create/open a pull request, or from the user's applicable
-   standing instructions. For example, if those instructions authorize committing and
+5. **Never push without user authorization.** An explicit request to push, publish, or
+   create/open a pull request authorizes the matching push in that task. Authorization
+   may also come from the user's applicable standing instructions. For example, if
+   those instructions authorize committing and
    pushing fixes when addressing existing PR feedback, a request to address that
    feedback authorizes the corresponding fixes on that PR's existing head branch.
    After `gate`, show what will be pushed and proceed without asking a second time
