@@ -161,9 +161,14 @@ Input values and file contents never appear in fingerprint diagnostics.
 ## Pull-request publication (`[pr]`)
 
 `mode = "auto"` is the default and is standing authorization for pull-request creation.
-An explicit request to push, publish, or open a pull request authorizes the matching
-push. The agent shows the remote, branch, commits, and risk, and asks for push approval
-only when that authorization is missing or the scope materially differs. After the
+An explicit request to push, publish, or open a pull request, or applicable standing
+user instructions, authorizes the matching push. For example, standing instructions
+may authorize pushing corresponding fixes to an existing PR's head branch when the
+user asks to address its feedback. That permission does not cover a different remote
+or branch, force-push, merge, destructive action, or materially broader work; those
+require separate approval, subject to the skill's merge restrictions. The agent shows
+the remote, branch, commits, and risk, and asks for push approval only when authorization
+is missing or the scope materially differs. After the
 authorized push and preflight finish, it opens or reuses the pull request without a
 second approval prompt.
 
@@ -178,8 +183,9 @@ agent disclose the exact cleanup scope, poll an automatically opened or reused p
 request every 5 minutes, and remove only the disclosed run-scoped targets after GitHub
 verifies the merge.
 
-This is independent of `[gate] mode`. The token gate lets the agent push after explicit
-user agreement; the manual gate refuses to push and hands the command to a person.
+This is independent of `[gate] mode`. The token gate lets the agent push with matching
+user authorization, including applicable standing instructions; the manual gate
+refuses to push and hands the command to a person.
 
 ## High-risk merge handling (`[approval]`)
 

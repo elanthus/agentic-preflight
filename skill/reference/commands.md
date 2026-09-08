@@ -311,11 +311,16 @@ the exact commit. False returns to review with all snapshot-bound stage evidence
 ### `agentic-preflight gate`
 Mints a confirmation token and summarises the remote, refspec, branch, and commits.
 The summary also includes the configured PR mode, `automated_cleanup` setting, and
-deterministic risk classification and verdict. An explicit request in the current task
-to push, publish, or create/open a pull request authorizes the matching push; show the
-summary and proceed without a second
-confirmation. Otherwise ask whether to push, and ask again if the summary differs
-materially from what the user authorized. In `[pr] mode = "auto"`, the committed
+deterministic risk classification and verdict. Authorization may come from an explicit
+request to push, publish, or create/open a pull request, or from the user's applicable
+standing instructions. For example, a request to address existing PR feedback authorizes
+pushing the corresponding fixes to that PR's existing head branch when the user's
+standing instructions grant that permission. Show the matching summary and proceed
+without a second confirmation. Otherwise ask whether to push, and ask again if the
+summary differs materially from what the user authorized. Authorization for PR feedback
+fixes does not cover a different remote or branch, force-push, merge, destructive action,
+or materially broader work; those require separate approval, subject to the skill's
+merge restrictions. In `[pr] mode = "auto"`, the committed
 configuration is standing authorization to open or reuse the pull request automatically
 after the confirmed push and preflight finish. When `automated_cleanup` is true, the
 agent also enters the disclosed 5-minute merge poll and run-scoped cleanup lifecycle;
@@ -335,8 +340,8 @@ the branch and `refs/notes/agentic-preflight`. A dependency publication failure 
 before the branch push; retained evidence refs are safe to retry. Gate summaries, manual commands, and
 dry runs disclose the complete refspecs. These evidence refs survive ordinary
 run/worktree cleanup. **Require user authorization before running this, but do
-not require a second confirmation when the user already explicitly requested the
-matching push or pull request in this task.** The token is a non-secret, run-state nonce
+not require a second confirmation when the matching push is already covered by the
+user's explicit request or applicable standing instructions.** The token is a non-secret, run-state nonce
 that prevents an accidental push; it is readable through `status`, grants no GitHub
 access, and is not a security boundary. The gate envelope keeps it only in `data.token`,
 while gate and dry-run envelopes put the literal `<token>` placeholder in `next.command`;
