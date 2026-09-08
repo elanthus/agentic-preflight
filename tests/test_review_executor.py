@@ -160,8 +160,19 @@ def test_unreadable_copied_file_blocks_review_command_before_execution(feature_r
 
     assert env["state"] == "REVIEW_AWAITING_FINDINGS"
     assert env["data"]["copied_file"].endswith("/.env")
+    assert env["data"]["reviewer_invocations"] == 0
     assert "redaction is unavailable" in env["error"]["message"]
     assert "review" not in agent.run("status")["data"]["stages"]
+
+
+def test_command_review_success_reports_one_wrapper_launch(feature_repo):
+    configure_reviewer(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+
+    env = agent.run("review", "run")
+
+    assert env["data"]["reviewer_invocations"] == 1
 
 
 def test_review_output_is_withheld_if_a_copied_file_becomes_unreadable(feature_repo):
@@ -213,6 +224,7 @@ def test_max_attempts_survive_a_new_process(feature_repo):
 
     assert env["error"]["code"] == "max_attempts"
     assert env["data"]["attempts"] == 2
+    assert env["data"]["reviewer_invocations"] == 0
 
 
 def test_interrupted_command_is_recorded_before_a_new_process_retries(feature_repo):

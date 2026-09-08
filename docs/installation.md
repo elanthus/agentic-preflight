@@ -51,6 +51,17 @@ discovery directory: `.agents/skills` for Codex, `.claude/skills` for Claude Cod
 `.config/agents/skills` for Amp. It refuses to overwrite local edits unless you pass
 `--force`.
 
+Copies intentionally do not follow the source checkout or the installed package. That
+separation is why a managed skill can be `outdated` after a CLI or source update: it is
+not an installer failure. Use `agentic-preflight integrations status` to inspect each
+bundle, then refresh only reviewed source with `./install.sh` or, after upgrading a
+published tool, `agentic-preflight integrations update`. Both paths replace an
+unmodified managed bundle atomically and refuse a locally modified or unmanaged bundle.
+The convenience `install.sh` accepts only agent names and deliberately has no force mode.
+After inspecting and preserving customizations, an operator who intentionally needs a
+replacement can reinstall the reviewed checkout, then use the explicit lifecycle command,
+for example `agentic-preflight integrations update codex claude --force`.
+
 ## Upgrading
 
 The skill is copied, not linked, so upgrading the CLI does not refresh installed copies.

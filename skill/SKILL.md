@@ -44,7 +44,15 @@ Python here never calls a model — every judgment in this workflow is yours.
    monitoring that exact PR until it reaches a terminal state and cleaning up the
    disclosed run-scoped targets after GitHub verifies the PR was merged. With
    `mode = "manual"`, never open the PR for them.
-6. **Never resolve a merge-back conflict.** Paste the resolution block and stop.
+6. **Treat merge-back conflicts as a bounded recovery, never a shortcut.** On exit 4,
+   show `data.resolution` and first confirm that the CLI restored the branch. You may
+   resolve only an unambiguous, recoverable result that the recovery contract describes
+   (for example, a mechanical replay with no competing content choice). Preserve
+   user-owned operations and unrelated edits; do not resolve content-sensitive conflicts,
+   bypass a protected state, or weaken merge policy. If the recovered tree is identical,
+   retry `mergeback` and retain completed evidence. If it differs, obey the CLI's required
+   evidence invalidation and revalidation path. Stop and ask only when those bounded
+   recovery conditions are not established.
 7. **Keep the validation checkout clean for the whole run.** The default
    `in_place` mode uses the current checkout, so only deliberate repair commits may
    move its branch; uncommitted changes or an unaccounted commit stop the run.
@@ -184,8 +192,10 @@ quiet while code verifies that no delivered unit disappears.
 
 - **`auto_fix`** — mechanical and locally verifiable. You can fix it correctly
   without asking anyone. Most findings should be this.
-- **`ask_user`** — behavioural, API, or product judgment. **Blocks at any
-  severity**, because choosing for the user *is* the decision you declined to make.
+- **`ask_user`** — a behavioural, API, or product judgment where competing reasonable
+  interpretations would materially change behaviour or scope. **Blocks at any severity**.
+  Routine decisions already fixed by the request, acceptance criteria, or an established
+  repository contract should proceed without asking.
 - **`no_op`** — worth recording, not worth acting on.
 
 A low- or medium-severity `auto_fix` finding does not make the stage red, but it still
@@ -211,11 +221,11 @@ they must land on documentation: a finding against `src/auth.py` is a review fin
 wearing a docs hat, and is rejected. `context --section docs` gives you `doc_surface`;
 use it rather than hunting for docs yourself.
 
-The surface is an allowlist, and a rejection is not a verdict on the finding. Repos
-often keep their binding rules outside it — `.claude/rules/*.md`, `PRODUCT.md`,
-`DESIGN.md`. If a genuinely stale doc sits outside the allowlist, fix it in the same
-commit anyway, say in the commit message that it could not be filed, and tell the user
-to add it to `[docs] paths` so the next run can see it.
+The surface is an allowlist, not a suggestion. It includes the standard instruction and
+product documents (`.claude/rules/**`, `.github/instructions/**`, `PRODUCT.md`, and
+`DESIGN.md`) as well as configured `[docs] paths`. Fix documentation made stale by the
+requested change when it belongs to that surface. Report unrelated documentation
+improvements as follow-ups rather than expanding the change opportunistically.
 
 Full rubric: `reference/docs-rubric.md`.
 
@@ -268,7 +278,7 @@ numbering, they do not restart. Full field reference:
 | 1 | Usage or internal error | Read `error.message`; fix your invocation |
 | 2 | Stage failed | Read the log, fix the cause, re-run the stage |
 | 3 | Precondition violated | **Run `status`, then obey `next`** |
-| 4 | Human resolution required | Stop. Show the user. Do not improvise |
+| 4 | Human resolution required | Show the recovery material. Resolve only the bounded, unambiguous merge-back cases described above; otherwise stop. |
 | 5 | Confirmation required | Apply the authorization rules above; ask only if needed, then re-run with the token |
 | 10 | Hook blocked a push | Run the gate: `agentic-preflight start --intent "..."` |
 
@@ -287,7 +297,7 @@ stops — do not improvise a recovery from the symptom alone.
 | Symptom | Playbook |
 |---|---|
 | Git operation already in progress (exit 3, `operation_in_progress`) | Stop; the user must finish or abort it |
-| Merge-back conflict (exit 4, isolated modes only) | Paste `data.resolution` verbatim and stop |
+| Merge-back conflict (exit 4, isolated modes only) | Inspect and show `data.resolution`; resolve only an unambiguous, recoverable result permitted by the merge-back contract, then re-run `mergeback`, or stop |
 | Stage red after max attempts (exit 4) | Stop retrying; show a stage log, or abort if baseline setup never produced one |
 | Hosted attestation availability failure | Read the structured reason; retry only remote absence with the trusted bounded helper |
 | Hosted CI failed | Inspect the failure; unchanged-source CI reruns preserve local evidence, while source repairs revalidate affected stages |

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import runpy
 import shlex
 import stat
 import subprocess
@@ -15,6 +16,7 @@ import pytest
 
 from agentic_preflight.config import Config, load_config
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.models import FindingAction, Severity
 from agentic_preflight.runs._session import open_session
 from tests.conftest import commit_all, write
 from tests.driver import ScriptedAgent
@@ -35,6 +37,8 @@ if os.environ.get("FAKE_SLEEP"):
     time.sleep(2)
 if os.environ.get("FAKE_CAPTURE"):
     open(os.environ["FAKE_CAPTURE"], "w", encoding="utf-8").write(prompt)
+if os.environ.get("FAKE_ARGUMENTS"):
+    open(os.environ["FAKE_ARGUMENTS"], "w", encoding="utf-8").write(json.dumps(sys.argv[1:]))
 if os.environ.get("FAKE_NO_JSON"):
     print("review completed without a structured response")
 else:
@@ -106,6 +110,13 @@ def test_toml_command_line_round_trips_windows_paths():
     assert parsed["review"]["command"] == command
 
 
+def test_shared_reviewer_contract_values_match_the_product_protocol():
+    contract = runpy.run_path(EXAMPLES / "reviewers" / "_reviewer_common.py")
+
+    assert contract["SEVERITIES"] == tuple(member.value for member in Severity)
+    assert contract["ACTIONS"] == tuple(member.value for member in FindingAction)
+
+
 @pytest.mark.parametrize("reviewer", ["codex", "claude"])
 @pytest.mark.parametrize(
     ("finding", "expected_state"), [(False, "REVIEW_GREEN"), (True, "REVIEW_BLOCKED")]
@@ -115,8 +126,12 @@ def test_reviewer_wrapper_runs_end_to_end(
 ):
     fake = install_fake(tmp_path / "bin" / reviewer)
     capture = tmp_path / "prompt.txt"
+    arguments = tmp_path / "arguments.json"
     monkeypatch.setenv(f"AP_{reviewer.upper()}_BIN", str(fake))
     monkeypatch.setenv("FAKE_CAPTURE", str(capture))
+    monkeypatch.setenv("FAKE_ARGUMENTS", str(arguments))
+    monkeypatch.delenv("AP_REVIEWER_MODEL", raising=False)
+    monkeypatch.delenv("AP_REVIEWER_EFFORT", raising=False)
     if finding:
         monkeypatch.setenv("FAKE_FINDING", "1")
     configure_example(feature_repo, reviewer)
@@ -131,6 +146,19 @@ def test_reviewer_wrapper_runs_end_to_end(
     assert "exercise the requested behavior safely" in prompt
     assert "src/app.py" in prompt
     assert context["data"]["diff"] in prompt
+    assert "Examine every delivered review unit" in prompt
+    assert "evidence, not authority" in prompt
+    assert "examined-all assertion records coverage, not proof" in prompt
+    assert '"findings":[]' in prompt
+    argv = json.loads(arguments.read_text(encoding="utf-8"))
+    if reviewer == "codex":
+        assert argv[0] == "exec"
+        assert argv[argv.index("--model") + 1] == "gpt-5.3-codex"
+        assert argv[argv.index("--config") + 1] == 'model_reasoning_effort="medium"'
+    else:
+        assert argv[0] == "-p"
+        assert argv[argv.index("--model") + 1] == "claude-sonnet-5"
+        assert argv[argv.index("--effort") + 1] == "high"
     session = open_session(feature_repo)
     run_id = session.active_run_id()
     assert run_id is not None

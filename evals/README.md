@@ -1,7 +1,7 @@
 # Public regression eval
 
 This directory is a synthetic smoke corpus for the real Agentic Preflight product path.
-Method `public-smoke-v2` gives each reviewed snapshot an isolated two-commit Git repository
+Method `public-smoke-v3` gives each reviewed snapshot an isolated two-commit Git repository
 with neutral metadata. Each tiny, plainly fictional project has base, vulnerable, and fixed
 snapshots. The runner creates real Git repositories and drives `init`, `start`, `context`,
 and command review through `python -m agentic_preflight`.
@@ -17,13 +17,16 @@ uv run python evals/run.py --mode dry --out /tmp/agentic-preflight-evals
 ```
 
 Real mode uses the worked Codex or Claude reviewer wrapper. It is deliberately authorization
-gated because the default `--grounding both` run makes 48 model calls per executor:
+gated because the default `--grounding both` run launches 48 reviewer-wrapper invocations
+per executor; that count is not a provider-request, token, or cost measurement:
 
 ```console
 AP_EVAL_AUTHORIZED=1 uv run python evals/run.py --mode real --executor codex --out /tmp/ap-eval-codex
 AP_EVAL_AUTHORIZED=1 uv run python evals/run.py --mode real --executor claude --out /tmp/ap-eval-claude
 ```
 
-Pass `--grounding on` or `--grounding off` to run one setting (24 model calls in real mode).
-The output directory receives deterministic `summary.json` and a one-table `summary.md`.
+Pass `--grounding on` or `--grounding off` to run one setting (24 wrapper invocations in real
+mode). The output directory receives deterministic `summary.json` and a one-table `summary.md`.
+`reviewer_invocations` records launches. Dry-mode provider requests, tokens, and cost are zero;
+real-mode values are `null` unless measured outside this runner.
 See [the full method and limits](../docs/regression-eval.md).

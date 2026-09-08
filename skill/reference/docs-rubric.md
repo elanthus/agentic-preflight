@@ -11,6 +11,10 @@ Documentation can always be improved, and a stage that reports every possible
 improvement generates noise on every run — and a noisy gate is a gate someone
 disables. This rubric is built around obligation, not aspiration.
 
+Fix documentation made stale by the requested change. Report unrelated documentation
+improvements as follow-ups; do not broaden a focused change merely because the docs
+could be improved.
+
 **Zero findings is a normal, common, and correct outcome.** Most code changes create no
 documentation obligation at all. Reporting zero is doing the job properly.
 

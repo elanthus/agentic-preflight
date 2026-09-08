@@ -37,6 +37,7 @@ def run_review_command(session: Session) -> Envelope:
             state=run.state.value,
             run_id=run.run_id,
             stage=Stage.REVIEW.value,
+            data={"reviewer_invocations": 0},
             next_command="agentic-preflight context",
         )
     command = session.config.review.command
@@ -46,7 +47,11 @@ def run_review_command(session: Session) -> Envelope:
             state=run.state.value,
             run_id=run.run_id,
             stage=Stage.REVIEW.value,
-            data={"mode": "needs_command", "stage": Stage.REVIEW.value},
+            data={
+                "mode": "needs_command",
+                "stage": Stage.REVIEW.value,
+                "reviewer_invocations": 0,
+            },
             next_instruction="Configure the independent reviewer command and retry.",
             next_command="agentic-preflight review run",
         )
@@ -62,6 +67,7 @@ def run_review_command(session: Session) -> Envelope:
             state=run.state.value,
             run_id=run.run_id,
             stage=Stage.REVIEW.value,
+            data={"reviewer_invocations": 0},
             next_command="agentic-preflight context",
         )
     data = review_protocol.context_data(session, run, section="review", bundle=bundle)
@@ -76,7 +82,7 @@ def run_review_command(session: Session) -> Envelope:
             state=run.state.value,
             run_id=run.run_id,
             stage=Stage.REVIEW.value,
-            data={"copied_file": str(exc.path)},
+            data={"copied_file": str(exc.path), "reviewer_invocations": 0},
             next_instruction=(
                 "Restore the reported copied file as readable text, or remove it from "
                 "[worktree] copy_files, then retry the review command."
@@ -115,6 +121,7 @@ def run_review_command(session: Session) -> Envelope:
         failure_data = {
             "command": command,
             "exit_code": result.exit_code,
+            "reviewer_invocations": 1,
             "copied_files": run.copied_files,
             "log_path": log_path,
             **shellstage.summarise(clean_output),
@@ -167,6 +174,7 @@ def run_review_command(session: Session) -> Envelope:
             data={
                 "command": command,
                 "exit_code": result.exit_code,
+                "reviewer_invocations": 1,
                 "timed_out": result.timed_out,
                 "log_path": log_path,
                 **shellstage.summarise(clean_output),
@@ -199,7 +207,12 @@ def run_review_command(session: Session) -> Envelope:
             state=run.state.value,
             run_id=run.run_id,
             stage=Stage.REVIEW.value,
-            data={"command": command, "exit_code": 0, "log_path": log_path},
+            data={
+                "command": command,
+                "exit_code": 0,
+                "log_path": log_path,
+                "reviewer_invocations": 1,
+            },
             next_command="agentic-preflight review run",
         ) from exc
     envelope.data.update(
@@ -207,6 +220,7 @@ def run_review_command(session: Session) -> Envelope:
             "executor": "command",
             "command": command,
             "exit_code": 0,
+            "reviewer_invocations": 1,
             "output_sha256": output_digest(clean_output),
             "log_path": log_path,
         }

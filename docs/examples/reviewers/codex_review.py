@@ -14,6 +14,7 @@ from _reviewer_common import (
     read_context,
     read_optional,
     report_error,
+    reviewer_effort,
     reviewer_prompt,
     run_cli,
 )
@@ -23,7 +24,10 @@ def main() -> int:
     try:
         context = read_context()
         executable = os.environ.get("AP_CODEX_BIN", "codex")
+        # These flags were verified against Codex CLI 0.153.0. The model and
+        # medium-effort default preserve a balanced example configuration.
         model = os.environ.get("AP_REVIEWER_MODEL", "gpt-5.3-codex")
+        effort = reviewer_effort("medium")
         with tempfile.TemporaryDirectory(prefix="ap-codex-review-") as directory:
             output_path = Path(directory) / "final.txt"
             argv = [
@@ -34,6 +38,8 @@ def main() -> int:
                 "read-only",
                 "--model",
                 model,
+                "--config",
+                f'model_reasoning_effort="{effort}"',
                 "-C",
                 str(context.get("worktree_path", ".")),
                 "-o",
