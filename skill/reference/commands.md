@@ -298,11 +298,14 @@ the fix commits onto the source branch; only paths those commits may overwrite a
 blocked, while unrelated tracked edits and untracked files are left alone.
 
 On conflict: aborts immediately, verifies the branch is byte-for-byte restored, exits 4
-with `data.resolution`, and stores that full report in the event log. **Never
-auto-resolves.** After a person resolves it, `mergeback` is legal again: an exact tree
-is attested without rerunning completed stages; a different tree becomes the validation
-checkout's new snapshot and returns the active run to review before any stage can be
-trusted again.
+with `data.resolution`, and stores that full report in the event log. The CLI never
+auto-resolves. First inspect and show the recovery block. An agent may resolve only when
+the intended result is unambiguous, recoverable, and directly supported by that block;
+it must preserve unrelated edits and user-owned operations, and cannot make a
+content-sensitive choice or bypass protected merge policy. Otherwise a person must
+decide. After resolution, `mergeback` is legal again: an exact tree is attested without
+rerunning completed stages; a different tree becomes the validation checkout's new
+snapshot and returns the active run to review before any stage can be trusted again.
 
 On success: compares the branch tree against the worktree tree. `tree_equivalent: true`
 means the verified content is byte-identical and a Git-note attestation is written for

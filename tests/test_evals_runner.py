@@ -26,7 +26,12 @@ def test_dry_run_scores_scripted_misses_and_false_positives(tmp_path):
         case_ids=("unguarded-division", "off-by-one-page"),
     )
 
-    assert summary["method_version"] == "public-smoke-v2"
+    assert summary["method_version"] == "public-smoke-v3"
+    assert summary["reviewer_invocations"] == 8
+    assert summary["provider_requests"] == 0
+    assert summary["provider_tokens"] == 0
+    assert summary["provider_cost_usd"] == 0
+    assert summary["model_calls"] == 0
     for setting in ("on", "off"):
         result = summary["grounding"][setting]
         assert result["unresolved"] == 0, json.dumps(result, indent=2)
@@ -114,7 +119,7 @@ def test_build_repo_copies_changed_same_size_file_with_fresh_mtime(tmp_path):
     assert (repository / "docs" / "configuration.md").stat().st_mtime >= copy_started
 
 
-def test_real_mode_requires_authorization_and_reports_projected_calls(
+def test_real_mode_requires_authorization_and_reports_projected_wrapper_invocations(
     tmp_path, monkeypatch, capsys
 ):
     monkeypatch.delenv("AP_EVAL_AUTHORIZED", raising=False)
@@ -124,9 +129,10 @@ def test_real_mode_requires_authorization_and_reports_projected_calls(
     )
 
     captured = capsys.readouterr()
-    expected_calls = len(tuple(eval_run.discover_cases())) * 2 * 2
+    expected_invocations = len(tuple(eval_run.discover_cases())) * 2 * 2
     assert exit_code == 2
-    assert f"{expected_calls} model calls" in captured.err
+    assert f"{expected_invocations} reviewer wrapper invocations" in captured.err
+    assert "provider requests, tokens, and cost are unavailable" in captured.err
     assert "AP_EVAL_AUTHORIZED=1" in captured.err
     assert not (tmp_path / "results").exists()
 

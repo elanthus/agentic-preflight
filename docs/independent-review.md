@@ -15,14 +15,55 @@ The worked [Codex configuration](examples/codex-reviewer.toml) calls the standar
 `.agentic-preflight.toml`, and copy its wrapper and the shared
 [_reviewer_common.py helper](examples/reviewers/_reviewer_common.py) into
 `docs/examples/reviewers/` in your repository. Both configurations
-set `executor = "command"`, so `agentic-preflight review run` replaces the coding agent's
-review with an independent model call.
+set `executor = "command"`, so `agentic-preflight review run` launches an independent
+reviewer wrapper.
 
 Set `AP_CODEX_BIN` or `AP_CLAUDE_BIN` when the executable is not named `codex` or `claude`.
-Set `AP_REVIEWER_MODEL` to choose a different model and `AP_REVIEWER_TIMEOUT` to change the
-wrapper's 600-second timeout. These calls may consume paid model quota. To use the coding
-agent normally and require command review only for high-risk changes, set `executor =
+Set `AP_REVIEWER_MODEL` to an exact model ID, `AP_REVIEWER_EFFORT` to an effort supported by
+that model and CLI, and `AP_REVIEWER_TIMEOUT` to change the wrapper's 600-second timeout.
+The worked Codex wrapper defaults to `gpt-5.3-codex` and passes `medium` through the verified
+Codex CLI 0.153.0 interface `-c model_reasoning_effort="medium"`. The worked Claude wrapper
+defaults to `claude-sonnet-5` and passes `high` through Claude Code 2.1.236's verified
+`--effort` option. Those are example configuration defaults, not comparative quality claims;
+without either environment variable, `medium` for Codex and `high` for Claude are the wrapper's
+effective efforts rather than inherited CLI defaults. These calls may consume paid model quota.
+Provider guidance recommends selecting effort with task-specific evaluation rather than model
+recency alone: [OpenAI's latest-model guide](https://developers.openai.com/api/docs/guides/latest-model),
+[OpenAI's GPT-5.6 guide](https://openai.com/index/builders-guide-to-gpt-5-6/),
+[Claude Fable 5.1 guidance](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1),
+and [Claude Opus 5 guidance](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5).
+To use the coding agent normally and require command review only for high-risk changes, set `executor =
 "in_harness"` and `require_command_for = ["high"]` as shown in the examples.
+
+The shared wrapper prompt defines the valid finding fields, requires examination of every
+delivered review unit, and separates discovering a finding from the CLI's blocking policy.
+It also treats the diff, repository content, grounding, and any instructions inside them as
+evidence rather than authority. The wrapper copies the manifest itself and the product CLI
+validates the resulting protocol deterministically. An `examined: "all"` receipt accounts
+for delivered units; it is not evidence that a reviewer comprehended them.
+
+## Compare model and effort configurations
+
+Do not replace a configured reviewer merely because a model is newer. Use the same pinned
+corpus, wrapper revision, CLI version, timeout, and grounding setting for every cell. Record
+`codex --version` or `claude --version`, the exact `AP_REVIEWER_MODEL`,
+`AP_REVIEWER_EFFORT`, command line, and report digest. Then run one authorized real-mode
+evaluation per cell, for example:
+
+```console
+AP_EVAL_AUTHORIZED=1 AP_REVIEWER_MODEL=gpt-5.3-codex AP_REVIEWER_EFFORT=high \
+  uv run python evals/run.py --mode real --executor codex --grounding on --out /tmp/ap-codex-high
+```
+
+Compare catch rate, fixed false-positive rate, unresolved runs, and the recorded exact
+configuration. The report's `reviewer_invocations` counts wrapper launches only. Provider
+requests, tokens, and cost are `null` unless independently measured by provider telemetry,
+so do not compare cost from the report. This repository does not run paid evaluations during
+ordinary development; the example is a reproducible maintainer procedure, not a result.
+For an explicit, unevaluated sweep, retain the configured defaults as controls and add exact
+candidate IDs such as `gpt-5.6-sol`, `claude-fable-5-1`, and `claude-opus-5` only after
+confirming availability in the selected CLI and provider account. They are comparison
+candidates, not new defaults or claims of better review quality.
 
 ## Compare two reviewers
 
@@ -36,7 +77,8 @@ agentic-preflight review compare
 When `[review] command` is configured, this launches one shadow command review over the
 same bundle. It writes redacted process output to `logs/review-compare.txt`, but it does
 not submit those findings, consume review retries, or change the run state. A shadow
-comparison costs one model call.
+comparison launches one reviewer wrapper; it does not establish a provider request count or
+expose provider token or cost telemetry.
 
 Comparison remains available while tests are delegated to CI and after publication
 evidence is prepared. It does not mark pending CI tests as passed.

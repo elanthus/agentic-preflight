@@ -27,7 +27,7 @@ contains `gold.json`, asserts that the serialized context bundle contains neithe
 nor the serialized gold record or case ID, and asserts that the delivered intent exactly
 equals the case intent. A top-level scorer-label shape assertion guards against future runner
 enrichment; the product CLI does not emit those fields today. Regression tests capture actual
-provider stdin through both worked wrappers for both snapshots. Across every corpus case and
+reviewer-wrapper stdin through both worked wrappers for both snapshots. Across every corpus case and
 both selected snapshots, they hash every file in all three trees and inspect all Git objects,
 including unreachable objects, for blobs unique to the unselected tree. Shared content from
 the base or selected tree is allowed. Real mode removes inherited `AP_EVAL_SCRIPT` from the
@@ -51,14 +51,14 @@ map. The category measure is intentionally heuristic: it can confirm vocabulary,
 the reviewer's reasoning is sound. Severity and category agreement are reported separately
 and never gate execution.
 
-`summary.json` records `method_version: public-smoke-v2` and contains per-case snapshot
+`summary.json` records `method_version: public-smoke-v3` and contains per-case snapshot
 evidence and aggregate catch, fixed false-positive, unresolved, severity-agreement, and
 category-agreement values for each grounding setting.
 `summary.md` presents the same case outcomes and aggregates in one table.
 
 ## Running dry mode
 
-Dry mode makes no model calls:
+Dry mode launches the scripted reviewer wrapper for each snapshot, but makes no provider calls:
 
 ```console
 uv run python evals/run.py --mode dry --out /tmp/agentic-preflight-evals
@@ -70,8 +70,8 @@ Use `--grounding on` or `--grounding off` for one setting; the default is `both`
 
 Real mode consumes the worked configurations and standard-library wrappers in
 `docs/examples/`. It refuses to start unless `AP_EVAL_AUTHORIZED=1` is present. With 12 cases,
-two reviewed snapshots, and two grounding settings, each command below makes exactly
-`12 × 2 × 2 = 48` model calls for its selected executor:
+two reviewed snapshots, and two grounding settings, each command below launches exactly
+`12 × 2 × 2 = 48` reviewer-wrapper invocations for its selected executor:
 
 ```console
 AP_EVAL_AUTHORIZED=1 uv run python evals/run.py --mode real --executor codex --out /tmp/ap-eval-codex
@@ -79,14 +79,26 @@ AP_EVAL_AUTHORIZED=1 uv run python evals/run.py --mode real --executor claude --
 ```
 
 These commands are prepared for maintainer authorization; they are not run by CI. Selecting
-one grounding setting halves the call count to 24.
+one grounding setting halves the wrapper-invocation count to 24. A wrapper invocation is not
+a provider request: a CLI can fail before calling a provider, retry, use tools, or make more
+than one provider request. `summary.json` records `reviewer_invocations` and marks
+`provider_requests`, `provider_tokens`, and `provider_cost_usd` as `null`; those measurements
+are unavailable unless separately collected from provider telemetry. In dry mode all three are
+known zero. The legacy v2
+`model_calls` integer labeled wrapper invocations, not actual provider calls. New v3 reports
+use `model_calls: null` in real mode and `reviewer_invocations` instead. This is a deliberate
+type change: typed consumers must branch on `method_version` and migrate to
+`reviewer_invocations`, rather than treating a v3 `model_calls` value as numeric.
+`AP_EVAL_AUTHORIZED=1` authorizes the disclosed wrapper launches only; it is not a
+provider-request or spend cap.
 
 ## Honest limits
 
 The corpus is synthetic and tiny. Its defects are deliberately legible and do not represent
 the breadth, ambiguity, or base rates of production changes. Scripted dry mode proves the
 product plumbing and scoring math, not reviewer judgment. Real mode adds reviewer behavior but
-costs model calls and remains sensitive to model and tool versions. Neither mode measures the
+launches external reviewer wrappers and remains sensitive to model and tool versions. Neither
+mode measures the
 private evaluation, and its rates must not be compared with private decision-quality results.
 
 ## Method versions and evidence
@@ -95,7 +107,9 @@ private evaluation, and its rates must not be compared with private decision-qua
 commits in one repository and exposed case labels in Git metadata. Those runs cannot be
 claimed as provider-blinded evidence: the reviewed workspace could reveal the selected
 condition and the other snapshot. Version 2 changes this input boundary without changing
-the location-based scoring rule. Do not relabel old reports as version 2.
+the location-based scoring rule. Version 3 changes only report accounting: it separates
+observable wrapper invocations from unavailable provider telemetry. Do not relabel old reports
+as version 2 or version 3.
 
 The separate [public evaluation implementation](https://github.com/elanthus/preflight-eval-results/tree/5f98146bd67f445aecb9d340e067b3609a97620d)
 publishes the decision-quality library, synthetic paired replay, and versioned limitations

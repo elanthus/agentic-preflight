@@ -383,6 +383,9 @@ def run_case_snapshot(
             "matched": None,
             "severity_agreement": None,
             "category_agreement": None,
+            # One command-review wrapper was launched. It may make zero, one, or
+            # multiple provider requests; this product path cannot observe that.
+            "reviewer_invocations": 1,
         }
     run_id = str(reviewed["run_id"])
     submission = _recorded_submission(repo, run_id)
@@ -401,6 +404,7 @@ def run_case_snapshot(
         "category_agreement": (
             _category_agrees(first, str(case.metadata["category"])) if first else None
         ),
+        "reviewer_invocations": 1,
     }
 
 
@@ -478,8 +482,16 @@ def _markdown(summary: dict[str, Any]) -> str:
         )
     lines.append("| " + " | ".join(row) + " |")
     lines.append("")
+    provider_accounting = (
+        "0 (dry mode)"
+        if summary["provider_requests"] == 0
+        else "unavailable (real mode; not inferred from wrapper invocations)"
+    )
     lines.append(
-        f"Unresolved snapshots: {summary['unresolved']}. Model calls: {summary['model_calls']}."
+        "Unresolved snapshots: "
+        f"{summary['unresolved']}. Reviewer wrapper invocations: "
+        f"{summary['reviewer_invocations']}. Provider requests, tokens, and cost: "
+        f"{provider_accounting}."
     )
     lines.append("")
     return "\n".join(lines)
@@ -502,9 +514,11 @@ def run_evaluation(
     if not settings or any(item not in {"on", "off"} for item in settings):
         raise EvaluationError("grounding must contain on, off, or both")
     if mode == "real" and os.environ.get("AP_EVAL_AUTHORIZED") != "1":
-        calls = len(selected_ids) * 2 * len(settings)
+        invocations = len(selected_ids) * 2 * len(settings)
         raise EvaluationError(
-            f"real mode would make {calls} model calls; set AP_EVAL_AUTHORIZED=1 to authorize"
+            f"real mode would launch {invocations} reviewer wrapper invocations; actual provider "
+            "requests, tokens, and cost are unavailable from this runner. Set "
+            "AP_EVAL_AUTHORIZED=1 to authorize"
         )
     if mode not in {"dry", "real"}:
         raise EvaluationError("mode must be dry or real")
@@ -549,7 +563,7 @@ def run_evaluation(
         for key in ("catch", "fixed_false_positive", "severity_agreement", "category_agreement")
     }
     summary = {
-        "method_version": "public-smoke-v2",
+        "method_version": "public-smoke-v3",
         "mode": mode,
         "executor": effective_executor,
         "cases": list(selected_ids),
@@ -559,7 +573,19 @@ def run_evaluation(
         "unresolved": sum(item["unresolved"] for item in grounding_results.values()),
         "severity_agreement": aggregates["severity_agreement"],
         "category_agreement": aggregates["category_agreement"],
-        "model_calls": len(selected_ids) * 2 * len(settings) if mode == "real" else 0,
+        "reviewer_invocations": sum(
+            snapshot["reviewer_invocations"]
+            for setting in grounding_results.values()
+            for case in setting["cases"].values()
+            for snapshot in (case["vulnerable"], case["fixed"])
+        ),
+        # v2's integer model_calls field meant wrapper invocations. Preserve
+        # zero for model-free dry runs; make real-mode usage unavailable rather
+        # than presenting an invocation count as a provider request count.
+        "model_calls": 0 if mode == "dry" else None,
+        "provider_requests": 0 if mode == "dry" else None,
+        "provider_tokens": 0 if mode == "dry" else None,
+        "provider_cost_usd": 0 if mode == "dry" else None,
     }
     out.mkdir(parents=True, exist_ok=True)
     (out / "summary.json").write_text(

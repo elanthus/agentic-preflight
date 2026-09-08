@@ -1,6 +1,8 @@
 # Complete repository configuration using Claude as an independent reviewer.
-# Each `review run` or shadow `review compare` invokes one Claude model call, which can
-# consume paid API quota. AP_REVIEWER_MODEL changes the model and its cost.
+# Each `review run` or shadow `review compare` invokes the reviewer wrapper once. The
+# wrapper does not expose provider request, token, or cost telemetry; do not infer it
+# from this invocation. Defaults: `claude-sonnet-5` at explicit `high` effort (Claude Code
+# 2.1.236, via `--effort`).
 [general]
 base_ref = "main"
 
@@ -19,6 +21,7 @@ max_findings = 50
 require_fix_commits = true
 executor = "command"
 command = "python3 -B docs/examples/reviewers/claude_review.py"
+# Set AP_REVIEWER_MODEL and AP_REVIEWER_EFFORT to exact values supported by your Claude CLI.
 # Alternative: keep executor = "in_harness" and require the paid command only for high risk.
 # require_command_for = ["high"]
 require_command_for = []

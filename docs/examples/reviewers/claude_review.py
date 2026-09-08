@@ -11,6 +11,7 @@ from _reviewer_common import (
     extract_findings,
     read_context,
     report_error,
+    reviewer_effort,
     reviewer_prompt,
     run_cli,
 )
@@ -20,7 +21,9 @@ def main() -> int:
     try:
         context = read_context()
         executable = os.environ.get("AP_CLAUDE_BIN", "claude")
-        model = os.environ.get("AP_REVIEWER_MODEL", "sonnet")
+        # These flags were verified against Claude Code 2.1.236.
+        model = os.environ.get("AP_REVIEWER_MODEL", "claude-sonnet-5")
+        effort = reviewer_effort("high")
         result = run_cli(
             [
                 executable,
@@ -31,6 +34,8 @@ def main() -> int:
                 "plan",
                 "--model",
                 model,
+                "--effort",
+                effort,
             ],
             reviewer_prompt(context),
         )

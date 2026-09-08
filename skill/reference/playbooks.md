@@ -15,17 +15,20 @@ reported command. Agentic Preflight will not abort an operation it did not start
 
 ## Merge-back conflict (exit 4, isolated modes only)
 
-The branch has already been restored exactly and your fix commits are safe in the
-worktree. Paste `data.resolution` to the user verbatim and **stop**. Do not
-cherry-pick, do not force, do not pick a side. A conflict is a content decision and
-it is not yours to make.
+First inspect and show `data.resolution`. Resolve only when all of the recovery
+contract's boundaries are established: `branch_restored` is `true`, no pre-existing
+user-owned Git operation exists, the intended tree is unambiguous, and the emitted
+recovery sequence permits that result. Do not cherry-pick outside the emitted sequence,
+force, or choose between competing content. If any boundary is not established, stop and
+ask the user.
 
-The full conflict report is stored in the event log and replayed by `status`. After a
-person resolves or restores the reported paths, `mergeback` is the legal retry and
-completed verification remains intact when the resulting tree is still identical to
-the verified tree. A different tree resets the validation checkout and active run to
-review, clearing the old review, lint, and test evidence. Before concluding the conflict
-is real, check the user's tree was clean — see non-negotiable 7.
+The full conflict report is stored in the event log and replayed by `status`. After the
+bounded recovery resolves or restores the reported paths, `mergeback` is the legal retry
+and completed verification remains intact only when the resulting tree is identical to
+the verified tree. Any non-equivalent resolved tree re-enters the active run's full
+applicable validation path, clearing snapshot-bound review, lint, and test evidence.
+Before concluding the conflict is real, check the user's tree was clean — see
+non-negotiable 7.
 
 ## Stage red after max attempts (exit 4)
 
