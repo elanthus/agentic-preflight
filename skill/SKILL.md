@@ -49,8 +49,10 @@ Python here never calls a model — every judgment in this workflow is yours.
    resolve only an unambiguous, recoverable result that the recovery contract describes
    (for example, a mechanical replay with no competing content choice). Preserve
    user-owned operations and unrelated edits; do not resolve content-sensitive conflicts,
-   bypass a protected state, or weaken merge policy. If the resulting tree differs, obey
-   the CLI's required evidence invalidation and revalidation path. Otherwise stop and ask.
+   bypass a protected state, or weaken merge policy. If the recovered tree is identical,
+   retry `mergeback` and retain completed evidence. If it differs, obey the CLI's required
+   evidence invalidation and revalidation path. Stop and ask only when those bounded
+   recovery conditions are not established.
 7. **Keep the validation checkout clean for the whole run.** The default
    `in_place` mode uses the current checkout, so only deliberate repair commits may
    move its branch; uncommitted changes or an unaccounted commit stop the run.

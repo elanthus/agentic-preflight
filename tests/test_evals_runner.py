@@ -137,6 +137,12 @@ def test_real_mode_requires_authorization_and_reports_projected_wrapper_invocati
     assert not (tmp_path / "results").exists()
 
 
+def test_reviewer_invocation_count_comes_from_the_command_review_envelope():
+    assert eval_run._reviewer_invocations({"data": {"reviewer_invocations": 0}}) == 0
+    assert eval_run._reviewer_invocations({"data": {"reviewer_invocations": 1}}) == 1
+    assert eval_run._reviewer_invocations({"data": {}}) == 0
+
+
 def test_gold_leakage_inside_snapshot_is_rejected(tmp_path):
     copied = tmp_path / "unguarded-division"
     shutil.copytree(CASES / "unguarded-division", copied)

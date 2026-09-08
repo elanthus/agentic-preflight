@@ -36,7 +36,11 @@ def require_attempt(session: Session, run: RunDoc) -> None:
         state=run.state.value,
         run_id=run.run_id,
         stage=Stage.REVIEW.value,
-        data={"attempts": entry.attempts, "stage": Stage.REVIEW.value},
+        data={
+            "attempts": entry.attempts,
+            "stage": Stage.REVIEW.value,
+            "reviewer_invocations": 0,
+        },
         next_instruction="This independent reviewer needs human intervention.",
         next_command="agentic-preflight status",
     )

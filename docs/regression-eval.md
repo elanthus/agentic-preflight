@@ -13,7 +13,7 @@ evaluation.
 
 The corpus contains 12 plainly fictional toy projects: three each for correctness, security,
 evaluation integrity, and documentation contract failures. Every case has three complete
-trees. Method `public-smoke-v2` builds a separate repository for each reviewed snapshot: the
+trees. Method `public-smoke-v3` retains v2's separate repository for each reviewed snapshot: the
 base tree on `main`, followed by only the selected tree on `review/change`. Commit subjects
 are `Initial snapshot` and `Proposed change`; the repository directory uses a random opaque
 identifier. The runner never copies or commits the unselected tree; blobs shared with the

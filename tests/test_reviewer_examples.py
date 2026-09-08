@@ -130,6 +130,8 @@ def test_reviewer_wrapper_runs_end_to_end(
     monkeypatch.setenv(f"AP_{reviewer.upper()}_BIN", str(fake))
     monkeypatch.setenv("FAKE_CAPTURE", str(capture))
     monkeypatch.setenv("FAKE_ARGUMENTS", str(arguments))
+    monkeypatch.delenv("AP_REVIEWER_MODEL", raising=False)
+    monkeypatch.delenv("AP_REVIEWER_EFFORT", raising=False)
     if finding:
         monkeypatch.setenv("FAKE_FINDING", "1")
     configure_example(feature_repo, reviewer)

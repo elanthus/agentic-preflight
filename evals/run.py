@@ -335,6 +335,13 @@ def _category_agrees(finding: dict[str, Any], category: str) -> bool:
     return any(word in text for word in CATEGORY_WORDS[category])
 
 
+def _reviewer_invocations(envelope: dict[str, Any]) -> int:
+    """Read the command-review launch count from the product envelope."""
+    data = envelope.get("data")
+    value = data.get("reviewer_invocations") if isinstance(data, dict) else 0
+    return value if isinstance(value, int) and value >= 0 else 0
+
+
 def run_case_snapshot(
     case: EvalCase,
     *,
@@ -383,9 +390,7 @@ def run_case_snapshot(
             "matched": None,
             "severity_agreement": None,
             "category_agreement": None,
-            # One command-review wrapper was launched. It may make zero, one, or
-            # multiple provider requests; this product path cannot observe that.
-            "reviewer_invocations": 1,
+            "reviewer_invocations": _reviewer_invocations(reviewed),
         }
     run_id = str(reviewed["run_id"])
     submission = _recorded_submission(repo, run_id)
@@ -404,7 +409,7 @@ def run_case_snapshot(
         "category_agreement": (
             _category_agrees(first, str(case.metadata["category"])) if first else None
         ),
-        "reviewer_invocations": 1,
+        "reviewer_invocations": _reviewer_invocations(reviewed),
     }
 
 
