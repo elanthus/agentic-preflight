@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml/badge.svg)](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml)
 [![Coverage](https://raw.githubusercontent.com/elanthus/agentic-preflight/badges/coverage.svg)](https://github.com/elanthus/agentic-preflight/tree/badges)
-[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.5.3/pyproject.toml)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.5.3/LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/pyproject.toml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/LICENSE)
 
 **Stop your coding agent from pushing unverified work.**
 
@@ -46,7 +46,7 @@ Make and commit your product change, then ask your coding agent to invoke
 `$agentic-preflight` in Codex or `/agentic-preflight` in Claude Code. The installed skill
 drives the run, presents any findings, and follows each command returned by the CLI.
 
-The [installation guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3/docs/installation.md)
+The [installation guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/installation.md)
 covers source installs, upgrades, project-scoped skills, other Agent Skills clients,
 and removal.
 
@@ -90,7 +90,7 @@ The stages provide different checks:
 
 Equivalent-content rebases can reuse stage evidence after a compatible verifier is
 installed on the protected base. Shell stages also need committed input contracts;
-see the [fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.5.3/docs/fingerprint-contract.md).
+see the [fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/fingerprint-contract.md).
 
 Pull-request merge polling and post-merge cleanup are disabled by default. Set
 `[pr] automatedCleanup = true` to opt in.
@@ -107,7 +107,7 @@ Set `[worktree] mode` to `reusable` or `strict` when validation should leave the
 checkout untouched. Isolated worktrees do not inherit `.venv`, `node_modules`, `.env`,
 or other ignored files. Configure `setup_command` for dependencies and `copy_files` for
 required ignored files. The
-[worktree-modes guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3/docs/worktree-modes.md)
+[worktree-modes guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/worktree-modes.md)
 explains the tradeoffs and recovery behavior.
 
 ## Configure repository policy
@@ -125,7 +125,7 @@ Use it to set:
 
 Unknown keys are errors. Commit configuration changes before starting the run they
 should affect; a run snapshots its resolved configuration. See the
-[configuration reference](https://github.com/elanthus/agentic-preflight/blob/v0.5.3/docs/configuration.md)
+[configuration reference](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/configuration.md)
 for every option and a complete example.
 
 > **Warning:** A repository can configure setup, lint, test, and independent-review
@@ -142,7 +142,7 @@ The local hook checks the commit being pushed. A protected-base GitHub workflow 
 verify the note and enforce the configured high-risk approval mode before merge. This
 requires forge configuration; committing `.agentic-preflight.toml` alone does not change
 branch protection. See
-[Portable attestations and CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.5.3/docs/attestations-and-ci.md)
+[Portable attestations and CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/attestations-and-ci.md)
 for setup and verification commands.
 
 ## Limits
@@ -159,13 +159,13 @@ for setup and verification commands.
   attestation.
 
 Set `[gate] mode = "manual"` if the CLI must refuse to perform the final push itself.
-Read the [limits guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3/docs/limits.md)
+Read the [limits guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/limits.md)
 before relying on attestations or evidence reuse for policy enforcement.
 
 ## Requirements
 
 - A supported macOS, Linux, or Windows and Python combination from the
-  [compatibility policy](https://github.com/elanthus/agentic-preflight/blob/v0.5.3/COMPATIBILITY.md)
+  [compatibility policy](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/COMPATIBILITY.md)
 - Git 2.30+
 - A POSIX shell when a configured command needs shell interpretation or its program
   cannot be resolved directly; on Windows, Git for Windows provides it
@@ -173,9 +173,9 @@ before relying on attestations or evidence reuse for policy enforcement.
 
 ## Help and development
 
-Use the [support guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3/SUPPORT.md)
+Use the [support guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/SUPPORT.md)
 for help and security-reporting routes. Contributors should start with the
-[contributor guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3/CONTRIBUTING.md).
+[contributor guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/CONTRIBUTING.md).
 
 Agentic Preflight is Apache 2.0 licensed. It was created by
 [@elanthus](https://github.com/elanthus) with development contributions from OpenAI Codex
