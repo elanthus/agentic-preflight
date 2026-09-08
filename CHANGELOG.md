@@ -5,6 +5,28 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+## [0.5.3.1] - 2026-09-08
+
+### Changed
+
+- Pin the worked Codex and Claude reviewer configurations to explicit model and effort
+  defaults, strengthen their untrusted-input and complete-coverage contracts, and document
+  a reproducible model-and-effort comparison procedure without making unevaluated quality
+  or cost claims.
+- Explain why managed integration bundles can become outdated and how to refresh reviewed,
+  unmodified copies without overwriting local customizations.
+
+### Fixed
+
+- Preserve applicable standing user authorization through the gate, status, and recovery
+  guidance. Matching PR-feedback fixes can proceed without a redundant confirmation, while
+  changes to the remote, branch, merge, history, or requested scope still require separate
+  approval.
+- Report command-review wrapper launches explicitly and update the public smoke evaluation
+  to method `public-smoke-v3`. Real-mode reports no longer present wrapper invocations as
+  provider requests: provider request, token, and cost telemetry remain unavailable unless
+  measured independently, while dry mode records their known zero values.
+
 ## [0.5.3] - 2026-09-07
 
 ### Added
@@ -465,6 +487,7 @@ First tagged pre-release.
 Windows is not supported because the implementation requires `fcntl`, Bash, and POSIX
 process groups.
 
+[0.5.3.1]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.3.1
 [0.5.3]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.3
 [0.5.2.1]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.2.1
 [0.5.2]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.2
