@@ -7,29 +7,40 @@
 
 **Stop your coding agent from pushing unverified work.**
 
-Agentic Preflight guides the coding agent already working in your repository through
-review, documentation, lint, and test gates. It records the result against the exact
-commit, then uses a pre-push hook to block publication when that evidence is missing or
-stale. The core CLI calls no model and needs no model API key.
+Agentic Preflight is a local quality gate for Codex, Claude Code, Cursor, OpenCode,
+and Amp. It guides the coding agent already working in your repository through review,
+documentation, lint, and test gates, then records the result against the exact commit.
+Its pre-push hook blocks the normal push path when that evidence is missing or stale.
 
-Interested in the design? See the
-[project evidence and engineering notes](docs/portfolio-review.md).
+- **Use the agent you already have.** The core CLI calls no model and needs no model API
+  key.
+- **Make every gate visible.** Skips, failures, findings, and approvals remain part of the
+  recorded run instead of disappearing into a prompt transcript.
+- **Bind green results to the code that earned them.** A changed commit, configuration,
+  or intent cannot silently inherit unrelated evidence.
 
-![A push blocked by the pre-push hook, a review that catches an unguarded division by
-zero, the fix verified, and the gate stopping to ask before it pushes](docs/demo.gif)
+Across two dogfooding windows covering 408 merged pull requests in four owner-operated
+repositories, 323 descriptions recorded Agentic Preflight use and 64 contained a
+concrete finding record. These are observational dogfooding results, not external
+adoption or a count of distinct bugs. Read the
+[case study and its evidence limits](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/dogfooding-case-study.md).
+
+![A push blocked by the pre-push hook, followed by review of an unguarded division, a verified fix, and a gate that shows the publication target](https://raw.githubusercontent.com/elanthus/agentic-preflight/v0.5.3.1/docs/demo.gif)
 
 ## Quickstart
 
 You need Git 2.30+, Python 3.11 through 3.13, and
-[`uv`](https://docs.astral.sh/uv/getting-started/installation/). From any directory:
+[`uv`](https://docs.astral.sh/uv/getting-started/installation/). Install the CLI and the
+integrations for the coding agents you use:
 
 ```bash
 uv tool install agentic-preflight
 agentic-preflight integrations install codex claude cursor opencode amp
 ```
 
-Install only the coding-agent integrations you use. Then initialize each repository
-you want to protect:
+Remove the integration names you do not use.
+
+Then initialize each repository you want to protect:
 
 ```bash
 cd your-repo
@@ -46,17 +57,45 @@ Make and commit your product change, then ask your coding agent to invoke
 `$agentic-preflight` in Codex or `/agentic-preflight` in Claude Code. The installed skill
 drives the run, presents any findings, and follows each command returned by the CLI.
 
+If you try to push the changed commit before its run is green, the hook stops the push
+and tells you how to start or resume verification. After the run passes, the agent shows
+the target remote, branch, commits, and risk before publication.
+
+An explicit request or applicable standing user instructions can authorize the matching
+push, including PR-feedback fixes on the existing head branch when those instructions
+permit it. The agent asks only when authorization is missing or the scope materially
+differs. Set `[gate] mode = "manual"` when only a person should run the final Git command.
+
 The [installation guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/installation.md)
 covers source installs, upgrades, project-scoped skills, other Agent Skills clients,
 and removal.
 
-If you try to push the changed commit before its run is green, the hook stops the push
-and tells you to invoke the installed skill. After verification, the agent shows the
-target remote, branch, commits, and risk before publication. An explicit request or
-applicable standing user instructions can authorize the matching push, including PR
-feedback fixes on the existing head branch when those instructions permit it. The agent
-asks only when authorization is missing or the scope materially differs. Set `[gate]
-mode = "manual"` when only a person should run the final Git command.
+If Agentic Preflight earns a place in your workflow, consider
+[starring the repository](https://github.com/elanthus/agentic-preflight) so other coding-agent
+users can find it.
+
+## What Agentic Preflight adds
+
+Agentic Preflight complements prompts, ordinary Git hooks, hosted CI, and human review.
+It does not replace them.
+
+Prompt instructions can ask an agent to review its work and run tests, but the resulting
+conversation is not a durable, commit-bound gate. Traditional hooks run deterministic
+commands well, while hosted CI validates code after publication. Agentic Preflight joins
+those checks into an ordered, resumable workflow before push and records what happened
+against the commit that passed.
+
+That distinction matters when:
+
+- an agent reports a successful command from an earlier revision;
+- a fix changes code after review or testing;
+- repository policy requires documentation review or independent review;
+- a rebase changes commit identity; or
+- a high-risk path requires a specific human-approval mode.
+
+The gate is deliberately advisory. It makes missing or stale evidence visible in the
+normal workflow, but it is not a security boundary and a person can bypass the local
+hook with `git push --no-verify`.
 
 ## What happens during a run
 
@@ -68,47 +107,35 @@ review -> documentation -> lint -> test -> merge-back -> gate -> push
 
 At the start of a run, the agent supplies your objective and acceptance criteria. When
 `origin` exists, Agentic Preflight fetches it and rebases the validation checkout onto
-the fresh base before review. Every agent-facing command returns one JSON object with
-the single next legal command, so interrupted work can resume from recorded state.
+the fresh base before review. Every agent-facing workflow command returns one JSON
+object with the single next legal command, so an interrupted run can resume from
+recorded state.
 
 The stages provide different checks:
 
-- **Review** inventories the changed hunks and non-text files, then requires the reviewer
-  to account for the complete snapshot. Findings remain recorded with their disposition.
+- **Review** inventories changed hunks and non-text files, then requires the reviewer to
+  account for the complete snapshot. Findings remain recorded with their disposition.
 - **Documentation** checks configured documentation for claims made stale by the change.
-- **Lint and test** run the commands configured for the repository and record their exit
-  codes and output hashes. Documentation- and CI-only changes skip the software test
-  command through an explicit recorded transition when test authority is local. With
-  opt-in trusted CI test authority, publication proceeds with tests pending and the
-  current integration commit must pass protected CI before merge.
+- **Lint and test** run the repository's configured commands and record their exit codes
+  and output hashes. Documentation- and CI-only changes skip the software test command
+  through an explicit recorded transition when test authority is local. With opt-in
+  trusted CI test authority, publication proceeds with tests pending and the current
+  integration commit must pass protected CI before merge.
 - **Merge-back and approval** verify that the reviewed content matches the source branch,
-  classify risk from repository policy and findings, and show the target remote, branch,
-  and commits before publication.
+  derive risk from repository policy and findings, and disclose the publication target.
 - **Push** atomically publishes the branch and its Git-note attestation. Automatic PR mode
-  then lets the agent create or reuse a GitHub pull request and monitor its checks; manual
-  PR mode returns a compare URL instead.
+  then lets the agent create or reuse a GitHub pull request and monitor its checks;
+  manual PR mode returns a compare URL instead.
 
 Equivalent-content rebases can reuse stage evidence after a compatible verifier is
-installed on the protected base. Shell stages also need committed input contracts;
-see the [fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/fingerprint-contract.md).
+installed on the protected base. Shell stages also need committed input contracts; see
+the [fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/fingerprint-contract.md).
 
 Pull-request merge polling and post-merge cleanup are disabled by default. Set
 `[pr] automatedCleanup = true` to opt in.
 
 Run `agentic-preflight status` in the source worktree to inspect or resume its run. Use
 `agentic-preflight status --all` to inventory runs across linked worktrees.
-
-## Choose a worktree mode
-
-The default `in_place` mode validates in the current checkout. It suits a clean,
-dedicated one-agent/one-PR worktree and can reuse that checkout's installed dependencies.
-
-Set `[worktree] mode` to `reusable` or `strict` when validation should leave the source
-checkout untouched. Isolated worktrees do not inherit `.venv`, `node_modules`, `.env`,
-or other ignored files. Configure `setup_command` for dependencies and `copy_files` for
-required ignored files. The
-[worktree-modes guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/worktree-modes.md)
-explains the tradeoffs and recovery behavior.
 
 ## Configure repository policy
 
@@ -124,7 +151,7 @@ Use it to set:
 - automatic or manual push and pull-request behavior.
 
 Unknown keys are errors. Commit configuration changes before starting the run they
-should affect; a run snapshots its resolved configuration. See the
+should affect; each run snapshots its resolved configuration. See the
 [configuration reference](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/configuration.md)
 for every option and a complete example.
 
@@ -132,7 +159,19 @@ for every option and a complete example.
 > commands that execute with your privileges. Run Agentic Preflight only in repositories
 > whose code and build commands you are willing to execute.
 
-## Use attestations in CI
+## Choose a validation checkout
+
+The default `in_place` mode validates in the current checkout. It suits a clean,
+dedicated one-agent/one-PR worktree and can reuse that checkout's installed dependencies.
+
+Set `[worktree] mode` to `reusable` or `strict` when validation should leave the source
+checkout untouched. Isolated worktrees do not inherit `.venv`, `node_modules`, `.env`,
+or other ignored files. Configure `setup_command` for dependencies and `copy_files` for
+required ignored files. The
+[worktree-modes guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/worktree-modes.md)
+explains the tradeoffs, concurrency model, secret handling, and recovery behavior.
+
+## Enforce attestations in CI
 
 A successful merge-back writes a versioned JSON attestation as a Git note on the exact
 commit. The note records review coverage, finding dispositions, stage results, policy,
@@ -144,6 +183,29 @@ requires forge configuration; committing `.agentic-preflight.toml` alone does no
 branch protection. See
 [Portable attestations and CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/attestations-and-ci.md)
 for setup and verification commands.
+
+## Architecture, evaluation, and evidence
+
+The user workflow above is backed by design records, executable tests, and published
+evaluation material. Start with
+[Project evidence and engineering notes](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/portfolio-review.md)
+for a portfolio-oriented overview, or follow the question you want to investigate:
+
+| Question | Design or evidence |
+|---|---|
+| Where does responsibility pass between the coding agent, CLI, and shell commands? | [ADR 0001: orchestration boundaries](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/adr/0001-orchestration-boundaries.md) |
+| How can linked worktrees run independent gates safely? | [ADR 0002: worktree-scoped run ownership](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/adr/0002-scope-run-ownership-to-worktrees.md) |
+| What repository context reaches review, and how is untrusted content bounded? | [Grounded context](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/context-grounding.md) |
+| When can evidence survive a rebase or restack? | [Fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/fingerprint-contract.md) and [automatic evidence refresh](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/evidence-refresh-design.md) |
+| How are attestations consumed across producer versions and CI? | [Schema compatibility](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/schema-compatibility.md), [CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/attestations-and-ci.md), and [trusted CI test authority](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/ci-test-authority-design.md) |
+| What does a second reviewer add, and how are reviewers compared? | [Independent review and agreement](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/independent-review.md) |
+| What public evidence supports the project, and what does it not prove? | [Dogfooding case study](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/dogfooding-case-study.md) and [public regression eval](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/regression-eval.md) |
+
+The implementation uses real Git repositories in its integration tests rather than
+mocking Git behavior. CI rejects overall test coverage below 85% and installs the built
+wheel as a `uv` tool before invoking the CLI. The
+[contributor guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/CONTRIBUTING.md)
+describes the local development workflow.
 
 ## Limits
 
