@@ -136,6 +136,42 @@ def test_push_rejects_missing_and_wrong_tokens_without_changing_state(verified):
     assert status["data"]["gate_token"] == token
 
 
+@pytest.mark.parametrize("entry", ["gate", "status", "missing_token", "wrong_token"])
+def test_standing_authorization_guidance_survives_gate_and_recovery(
+    verified, feature_repo, bare_remote, entry
+):
+    gate = verified.run("gate")
+    token = gate["data"]["token"]
+    remote_refs = git("show-ref", cwd=bare_remote)
+
+    if entry == "gate":
+        env = gate
+    elif entry == "status":
+        env = verified.run("status")
+    else:
+        args = ("--confirm", "wrong-token") if entry == "wrong_token" else ()
+        env = verified.run("push", *args, expect=ExitCode.NEEDS_CONFIRM)
+        assert env["next"]["command"] == "agentic-preflight gate"
+
+    instruction = env["next"]["instruction"]
+    assert "applicable standing instructions" in instruction
+    assert "summary matches" in instruction
+    assert "proceed without asking again" in instruction
+    assert "authorization is missing or the scope materially differs" in instruction
+    if entry == "gate":
+        assert "existing PR's head branch" in instruction
+        assert "different remote or branch, force-push, merge" in instruction
+
+    # Guidance never publishes on its own or bypasses the confirmation token.
+    assert git("show-ref", cwd=bare_remote) == remote_refs
+    assert verified.run("status")["data"]["gate_token"] == token
+    pushed = verified.run("push", "--confirm", token)
+    assert pushed["state"] == "PUSHED"
+    assert git("rev-parse", "feature/x", cwd=bare_remote) == git(
+        "rev-parse", "HEAD", cwd=feature_repo
+    )
+
+
 def test_push_with_the_right_token_succeeds(verified, feature_repo, bare_remote):
     token = verified.run("gate")["data"]["token"]
     env = verified.run("push", "--confirm", token)

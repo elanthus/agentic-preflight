@@ -308,7 +308,9 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         (_A.GATE, _S.AWAITING_PUSH_CONFIRM),
     ),
     _S.AWAITING_PUSH_CONFIRM: _state(
-        "Show the user the gate summary and ask before pushing.",
+        "Show the user the gate summary. When the summary matches the user's explicit "
+        "request or applicable standing instructions, proceed without asking again. "
+        "Ask whether to push only if authorization is missing or the scope materially differs.",
         "agentic-preflight push --confirm <token>",
         (_A.PUSH, _S.PUSHED),
     ),

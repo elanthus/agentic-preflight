@@ -183,8 +183,9 @@ agent disclose the exact cleanup scope, poll an automatically opened or reused p
 request every 5 minutes, and remove only the disclosed run-scoped targets after GitHub
 verifies the merge.
 
-This is independent of `[gate] mode`. The token gate lets the agent push after explicit
-user agreement; the manual gate refuses to push and hands the command to a person.
+This is independent of `[gate] mode`. The token gate lets the agent push with matching
+user authorization, including applicable standing instructions; the manual gate
+refuses to push and hands the command to a person.
 
 ## High-risk merge handling (`[approval]`)
 

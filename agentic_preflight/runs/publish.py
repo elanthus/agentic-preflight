@@ -158,9 +158,15 @@ def gate(session: Session) -> Envelope:
         next_instruction=(
             "Show the user the remote, branch, and commit list in plain language. If the "
             "user explicitly requested a push, publish, or asked to create or open a pull "
-            "request in this task, that request authorizes this push when the summary "
-            "matches the requested work; proceed without asking again. Otherwise, ask "
-            "whether to push and wait for their answer. After user authorization, the "
+            "request in this task, or the user's applicable standing instructions authorize "
+            "this push, proceed without asking again when the summary matches that "
+            "authorization. For example, standing instructions may authorize pushing "
+            "corresponding fixes to an existing PR's head branch when asked to address "
+            "its feedback. Ask whether to push and wait for an answer only if authorization "
+            "is missing or the scope materially differs. Authorization for PR feedback "
+            "fixes does not cover a different remote or branch, force-push, merge, "
+            "destructive action, or materially broader work; those require separate "
+            "approval, subject to the existing merge restrictions. After user authorization, the "
             "agent substitutes data.token for <token> in next.command."
             f"{risk_instruction}{manual_pr_instruction}{cleanup_instruction}"
         ),
@@ -179,8 +185,11 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
             state=run.state.value,
             run_id=run.run_id,
             next_instruction=(
-                "Run `gate`, show the user what would be pushed, ask for their "
-                "agreement, then push with the token."
+                "Run `gate` and show the user what would be pushed. When the summary "
+                "matches the user's explicit request or applicable standing instructions, "
+                "proceed without asking again. Ask whether to push only if authorization "
+                "is missing or the scope materially differs. After authorization, push "
+                "with the token."
             ),
             next_command="agentic-preflight gate",
         )
