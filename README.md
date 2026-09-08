@@ -52,10 +52,11 @@ and removal.
 
 If you try to push the changed commit before its run is green, the hook stops the push
 and tells you to invoke the installed skill. After verification, the agent shows the
-target remote, branch, commits, and risk before publication. A request to push, publish,
-or open a pull request already authorizes the matching push; otherwise, the agent asks
-at that point. Set `[gate] mode = "manual"` when only a person should run the final Git
-command.
+target remote, branch, commits, and risk before publication. An explicit request or
+applicable standing user instructions can authorize the matching push, including PR
+feedback fixes on the existing head branch when those instructions permit it. The agent
+asks only when authorization is missing or the scope materially differs. Set `[gate]
+mode = "manual"` when only a person should run the final Git command.
 
 ## What happens during a run
 

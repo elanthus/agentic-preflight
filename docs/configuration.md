@@ -161,9 +161,14 @@ Input values and file contents never appear in fingerprint diagnostics.
 ## Pull-request publication (`[pr]`)
 
 `mode = "auto"` is the default and is standing authorization for pull-request creation.
-An explicit request to push, publish, or open a pull request authorizes the matching
-push. The agent shows the remote, branch, commits, and risk, and asks for push approval
-only when that authorization is missing or the scope materially differs. After the
+An explicit request to push, publish, or open a pull request, or applicable standing
+user instructions, authorizes the matching push. For example, standing instructions
+may authorize pushing corresponding fixes to an existing PR's head branch when the
+user asks to address its feedback. That permission does not cover a different remote
+or branch, force-push, merge, destructive action, or materially broader work; those
+require separate approval, subject to the skill's merge restrictions. The agent shows
+the remote, branch, commits, and risk, and asks for push approval only when authorization
+is missing or the scope materially differs. After the
 authorized push and preflight finish, it opens or reuses the pull request without a
 second approval prompt.
 
