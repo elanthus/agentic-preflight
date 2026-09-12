@@ -57,7 +57,9 @@ The implementation emphasizes Git semantics and durable, inspectable evidence:
 
 The principal design boundaries are recorded in
 [ADR 0001](adr/0001-orchestration-boundaries.md) and
-[ADR 0002](adr/0002-scope-run-ownership-to-worktrees.md). The
+[ADR 0002](adr/0002-scope-run-ownership-to-worktrees.md).
+[State-machine guarantees and recovery](state-machine.md) distinguishes graph ordering
+from coordinator checks, local record commits, and reconciliation of Git effects. The
 [fingerprint contract](fingerprint-contract.md) specifies when stage evidence may apply
 to a rewritten commit, and the [context-grounding design](context-grounding.md) explains
 how reviews receive bounded repository-owned context without a model or network call.

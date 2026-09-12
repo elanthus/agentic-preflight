@@ -57,9 +57,6 @@ def test_a_write_survives_a_reader_that_holds_the_document_briefly(store):
 
 def test_the_replace_is_retried_until_it_succeeds(store, monkeypatch):
     """Simulated on every platform so the retry cannot rot on POSIX-only CI."""
-    monkeypatch.setattr(store_module.sys, "platform", "win32")
-    monkeypatch.setattr(store_module.time, "sleep", lambda _: None)
-
     real_replace = os.replace
     attempts = []
 
@@ -69,8 +66,11 @@ def test_the_replace_is_retried_until_it_succeeds(store, monkeypatch):
             raise PermissionError(13, "target is in use")
         return real_replace(src, dst)
 
-    monkeypatch.setattr(store_module.os, "replace", flaky)
-    store.create_run(make_run(branch="feature/retried"))
+    with monkeypatch.context() as simulated:
+        simulated.setattr(store_module.sys, "platform", "win32")
+        simulated.setattr(store_module.time, "sleep", lambda _: None)
+        simulated.setattr(store_module.os, "replace", flaky)
+        store.create_run(make_run(branch="feature/retried"))
 
     assert len(attempts) == 3
     assert store.load_run("r_abc123").branch == "feature/retried"

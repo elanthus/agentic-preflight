@@ -7,14 +7,15 @@ and prove none exists.
 
 from __future__ import annotations
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from agentic_preflight.machine import (
-    TRANSITIONS,
     Action,
     IllegalTransition,
     State,
+    _state,
     legal_actions,
     next_state,
 )
@@ -122,9 +123,14 @@ def test_every_state_except_created_is_reachable():
     assert unreachable == set(), f"unreachable states: {[s.name for s in unreachable]}"
 
 
-def test_the_transition_table_is_deterministic():
-    """One target per (state, action) — the property the tests above rely on."""
-    assert len(TRANSITIONS) == len(set(TRANSITIONS.keys()))
+def test_duplicate_actions_are_rejected_before_a_dictionary_can_hide_them():
+    with pytest.raises(ValueError, match="duplicate action"):
+        _state(
+            None,
+            None,
+            (Action.GATE, State.AWAITING_PUSH_CONFIRM),
+            (Action.GATE, State.PUSHED),
+        )
 
 
 # -- random walks -----------------------------------------------------------

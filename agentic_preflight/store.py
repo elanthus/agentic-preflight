@@ -26,7 +26,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from . import filelock
 from .models import Finding, RunDoc
@@ -56,6 +56,15 @@ _REMOVED_LIFECYCLE_STATES = {
     "CI_TIMED_OUT",
     "PR_MERGED",
 }
+
+
+class _RunUpdate(BaseModel):
+    """Write-ahead record for one run/findings commit; never includes Git effects."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run: RunDoc
+    findings: list[Finding]
 
 
 def _parse_run(payload: str) -> RunDoc:
@@ -251,6 +260,12 @@ class Store:
         return run
 
     def load_run(self, run_id: str) -> RunDoc:
+        with filelock.exclusive(self.run_dir(run_id) / ".lock"):
+            self._recover_update(run_id)
+            return self._load_run(run_id)
+
+    def _load_run(self, run_id: str) -> RunDoc:
+        """Read under the caller's run lock, retaining structured read errors."""
         path = self.run_path(run_id)
         try:
             payload = path.read_text(encoding="utf-8")
@@ -312,19 +327,29 @@ class Store:
         return sorted(known)
 
     @contextmanager
-    def transaction(self, run_id: str, *, expect_seq: int | None = None) -> Iterator[RunDoc]:
+    def transaction(
+        self,
+        run_id: str,
+        *,
+        expect_seq: int | None = None,
+        findings: list[Finding] | None = None,
+    ) -> Iterator[RunDoc]:
         """Read-modify-write a run document under an exclusive lock.
 
         The document yielded is a fresh load; mutate it in place. It is written
         back — with ``seq`` bumped — only if the body completes without raising,
-        so an exception anywhere in the body leaves the on-disk state untouched.
+        so an exception in the body leaves the records untouched. When findings
+        accompany the run, a durable journal commits both: readers finish an
+        interrupted installation before returning either record. An I/O error
+        after journal publication may therefore represent a committed update.
         """
         path = self.run_path(run_id)
         if not path.exists():
             raise UnknownRun(run_id)
 
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
-            run = _parse_run(path.read_text(encoding="utf-8"))
+            self._recover_update(run_id)
+            run = self._load_run(run_id)
             if expect_seq is not None and run.seq != expect_seq:
                 raise StaleWrite(run_id, expect_seq, run.seq)
 
@@ -332,20 +357,69 @@ class Store:
 
             run.seq += 1
             run.updated_at = _utcnow()
-            _atomic_write(path, run.model_dump_json(indent=2))
+            if findings is None:
+                _atomic_write(path, run.model_dump_json(indent=2))
+            else:
+                update = _RunUpdate(run=run, findings=findings)
+                _atomic_write(self.update_path(run_id), update.model_dump_json(indent=2))
+                self._recover_update(run_id)
+
+    def update_path(self, run_id: str) -> Path:
+        return self.run_dir(run_id) / "pending-update.json"
+
+    def _recover_update(self, run_id: str) -> None:
+        """Roll forward a committed pair while holding the run lock.
+
+        Validate before overwriting anything. The journal is retained on every
+        failure, including an unsupported record or an unexpected sequence.
+        """
+        path = self.update_path(run_id)
+        try:
+            payload = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return
+        except (UnicodeDecodeError, OSError) as exc:
+            raise RunReadError(
+                run_id, path, "unreadable_pending_update", "Pending run update cannot be read."
+            ) from exc
+        try:
+            update = _RunUpdate.model_validate_json(payload)
+            current = self._load_run(run_id)
+            if update.run.run_id != run_id or not (
+                update.run.seq == current.seq + 1
+                or (update.run.seq == current.seq and update.run == current)
+            ):
+                raise ValueError("pending update does not follow the current run")
+        except ValueError as exc:
+            raise RunReadError(
+                run_id,
+                path,
+                "invalid_pending_update",
+                "Pending run update is invalid; preserve it.",
+            ) from exc
+        _atomic_write(
+            self.findings_path(run_id),
+            json.dumps([f.model_dump(mode="json") for f in update.findings], indent=2),
+        )
+        _atomic_write(self.run_path(run_id), update.run.model_dump_json(indent=2))
+        path.unlink()
 
     # -- findings ------------------------------------------------------------
 
     def load_findings(self, run_id: str) -> list[Finding]:
-        path = self.findings_path(run_id)
-        if not path.exists():
-            return []
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        return [Finding.model_validate(item) for item in payload]
+        with filelock.exclusive(self.run_dir(run_id) / ".lock"):
+            self._recover_update(run_id)
+            path = self.findings_path(run_id)
+            if not path.exists():
+                return []
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return [Finding.model_validate(item) for item in payload]
 
     def save_findings(self, run_id: str, findings: list[Finding]) -> None:
         payload = json.dumps([f.model_dump(mode="json") for f in findings], indent=2)
-        _atomic_write(self.findings_path(run_id), payload)
+        with filelock.exclusive(self.run_dir(run_id) / ".lock"):
+            self._recover_update(run_id)
+            _atomic_write(self.findings_path(run_id), payload)
 
     # -- events --------------------------------------------------------------
 

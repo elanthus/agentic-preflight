@@ -5,6 +5,24 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Fixed
+
+- Allow changed lint inputs to invalidate completed lint through the state machine.
+- Recover findings and their run-state transition together after an interrupted write,
+  preventing duplicate findings when a partially installed submission is retried.
+- Reconcile a completed merge-back after attestation or run-record persistence fails,
+  without applying fix commits again. Changed source content or validation inputs
+  require a fresh run.
+- Preserve completed source rebases and recorded conflict-retry context across
+  merge-back interruptions; different human resolutions still require renewed review.
+
+### Added
+
+- Failure-injection coverage for local record installation, process interruption,
+  merge-back and successful remote publication before local state persistence.
+- A maintainer guide separating state-machine ordering guarantees from evidence
+  checks, storage commits and Git recovery responsibilities.
+
 ## [0.5.3.1] - 2026-09-08
 
 ### Changed

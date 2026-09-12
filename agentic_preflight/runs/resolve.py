@@ -121,7 +121,7 @@ def respond(
     )
 
     responded_from_green = False
-    with session.store.transaction(run.run_id) as doc:
+    with session.store.transaction(run.run_id, findings=stored) as doc:
         for fix_commit in new_commits:
             if fix_commit not in doc.fix_commits:
                 doc.fix_commits.append(fix_commit)
@@ -134,7 +134,6 @@ def respond(
         doc.risk = assessment
         run = doc
 
-    session.store.save_findings(run.run_id, stored)
     session.store.append_event(
         run.run_id,
         {

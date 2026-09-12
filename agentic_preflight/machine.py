@@ -1,9 +1,9 @@
 """The state machine: state enum, transition table, and legality queries.
 
-Every other module consumes this. The anti-skip guarantee of the whole tool
-rests on a single property of the table below: there is no entry that carries a
-run from a review/docs state into a lint, test, or push state. Stage-skipping is
-not forbidden by prose, it is *unrepresentable*.
+The table enforces stage ordering: publication paths must visit every required
+gate, including explicit skip or delegation transitions. Coordinators separately
+validate evidence, authorize actions, and reconcile external effects. Graph
+reachability alone does not prove those obligations. See docs/state-machine.md.
 
 Transitions are a pure function: ``(State, Action) -> State``, exactly one
 target per pair. Where the design sketches a conditional branch (a findings
@@ -132,7 +132,10 @@ def _state(
     command: str | None,
     *transitions: tuple[Action, State],
 ) -> StateDescription:
-    return StateDescription(dict(transitions), instruction, command)
+    targets = dict(transitions)
+    if len(targets) != len(transitions):
+        raise ValueError("duplicate action in state declaration")
+    return StateDescription(targets, instruction, command)
 
 
 def _stage_cycle(
@@ -258,6 +261,7 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         (_A.RUN_TEST, _S.TEST_RUNNING),
         (_A.SKIP_TEST, _S.TEST_GREEN),
         (_A.DELEGATE_TEST, _S.TEST_DELEGATED),
+        (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
     ),
     _S.TEST_RUNNING: _state(
         "Test execution was interrupted; run tests again to record the interruption and retry.",
@@ -284,8 +288,8 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
     ),
     _S.MERGEBACK_PENDING: _state(
-        "Mergeback was interrupted; inspect the recorded run.",
-        _STATUS,
+        "Retry mergeback to reconcile the recorded operation before continuing.",
+        "agentic-preflight mergeback",
         (_A.MERGEBACK_OK, _S.VERIFIED),
         (_A.MERGEBACK_PUBLICATION_READY, _S.PUBLICATION_READY),
         (_A.MERGEBACK_FAILED, _S.MERGEBACK_CONFLICT),
