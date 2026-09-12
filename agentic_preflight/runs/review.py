@@ -52,13 +52,16 @@ def _skip_docs_if_disabled(session: Session, run: RunDoc) -> RunDoc:
     """
     if session.config.docs.enabled or run.state is not State.REVIEW_GREEN:
         return run
+    # Grounding can read other runs. Never nest those locks inside this run's
+    # record lock; the command's operation lock already serializes its work.
+    fingerprint = evidence.fingerprint(session, run, Stage.DOCS)
     with session.store.transaction(run.run_id) as doc:
         doc.stages[Stage.DOCS] = StageRecord(
             status="skipped",
             reason="disabled by configuration",
             finished_at=_now(),
             head_sha=gitx.rev_parse(_require_worktree(run), "HEAD"),
-            fingerprint=evidence.fingerprint(session, run, Stage.DOCS),
+            fingerprint=fingerprint,
         )
         doc.evidence.pop(Stage.DOCS, None)
         _apply(doc, Action.SKIP_DOCS)
@@ -77,13 +80,14 @@ def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
     ):
         return run
     reason = "changes are limited to documentation and CI configuration"
+    fingerprint = evidence.fingerprint(session, run, Stage.TEST, command="")
     with session.store.transaction(run.run_id) as doc:
         doc.stages[Stage.TEST] = StageRecord(
             status="skipped",
             reason=reason,
             finished_at=_now(),
             head_sha=gitx.rev_parse(doc.worktree_path or session.repo_root, "HEAD"),
-            fingerprint=evidence.fingerprint(session, run, Stage.TEST, command=""),
+            fingerprint=fingerprint,
         )
         doc.evidence.pop(Stage.TEST, None)
         _apply(doc, Action.SKIP_TEST)
@@ -149,9 +153,10 @@ def context(session: Session, *, section: str = "review") -> Envelope:
 
     data = review_protocol.context_data(session, run, section=section, bundle=bundle)
     if section == "docs":
+        fingerprint = evidence.fingerprint(session, run, Stage.DOCS)
         with session.store.transaction(run.run_id) as doc:
             record = doc.stages.get(Stage.DOCS) or StageRecord()
-            record.fingerprint = evidence.fingerprint(session, run, Stage.DOCS)
+            record.fingerprint = fingerprint
             doc.stages[Stage.DOCS] = record
             run = doc
 
@@ -268,8 +273,6 @@ def submit_findings(
         if injected is not None:
             accepted = [*accepted, injected]
             combined = [*combined, injected]
-    session.store.save_findings(run.run_id, combined)
-
     stage_findings = [f for f in combined if f.stage is stage]
     blocking = findingsmod.blocking(stage_findings, blocking_severities=blocking_severities)
     assessment = riskmod.assess(
@@ -280,7 +283,7 @@ def submit_findings(
         docs_blocking_severities=session.config.docs.blocking_severities,
     )
 
-    with session.store.transaction(run.run_id) as doc:
+    with session.store.transaction(run.run_id, findings=combined) as doc:
         doc.risk = assessment
         if coverage is not None:
             doc.review_coverage = coverage

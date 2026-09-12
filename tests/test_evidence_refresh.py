@@ -327,6 +327,45 @@ def test_unchanged_head_still_rechecks_declared_environment(feature_repo, tmp_pa
     assert result["data"]["applicability"]["test"]["reasons"] == ["inputs_changed"]
 
 
+@pytest.mark.parametrize("completed", ["lint", "test"])
+def test_changed_lint_inputs_reopen_through_cli_recovery(
+    feature_repo, tmp_path, monkeypatch, completed
+):
+    _prepare(feature_repo)
+    config = feature_repo / ".agentic-preflight.toml"
+    lint, test = config.read_text().split("[reuse.test]")
+    config.write_text(
+        lint.replace("environment = []", 'environment = ["AP_LINT_MODE"]') + "[reuse.test]" + test
+    )
+    commit_all(feature_repo, "declare lint environment input")
+    monkeypatch.setenv("AP_LINT_MODE", "before")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    payload = tmp_path / "review.json"
+    payload.write_text('{"coverage":{"manifest":"$context","examined":"all"},"findings":[]}')
+    agent.run("submit-findings", "--file", str(payload))
+    agent.run("context", "--section", "docs")
+    payload.write_text('{"findings":[]}')
+    agent.run("submit-findings", "--file", str(payload))
+    agent.run("stage", "run", "lint")
+    if completed == "test":
+        agent.run("stage", "run", "test")
+    monkeypatch.setenv("AP_LINT_MODE", "after")
+    recovered = agent.run("status" if completed == "lint" else "mergeback")
+    assert recovered["state"] == "DOCS_GREEN"
+    status = agent.run("status")
+    assert "reuse_error" not in status["data"]
+    assert status["data"]["stages"]["lint"]["status"] == "pending"
+    assert status["next"]["command"] == "agentic-preflight stage run lint"
+    lint_result = agent.run("stage", "run", "lint")
+    if completed == "test":
+        assert lint_result["state"] == "TEST_GREEN"  # The unchanged test evidence is reusable.
+    else:
+        agent.run("stage", "run", "test")
+    assert agent.run("mergeback")["state"] == "VERIFIED"
+
+
 def test_another_linked_source_worktree_cannot_borrow_evidence(feature_repo, tmp_path):
     _prepare(feature_repo)
     agent = ScriptedAgent(feature_repo)

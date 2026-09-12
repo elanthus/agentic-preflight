@@ -441,7 +441,10 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
     )
 
     tip = _head_moved(session, run)
-    stale = run.state is not State.MERGEBACK_CONFLICT and (run.stale or tip is not None)
+    pending_mergeback = run.state is State.MERGEBACK_PENDING and run.mergeback_attempt is not None
+    stale = run.state is not State.MERGEBACK_CONFLICT and (
+        run.stale or (not pending_mergeback and tip is not None)
+    )
 
     envelope = _envelope_for(
         run,
@@ -477,6 +480,9 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             "gate_token": run.gate_token,
             "pushed_sha": run.pushed_sha,
             "fix_commits": run.fix_commits,
+            "mergeback_attempt": (
+                run.mergeback_attempt.model_dump(mode="json") if run.mergeback_attempt else None
+            ),
             "review_coverage": (
                 run.review_coverage.summary() if run.review_coverage is not None else None
             ),

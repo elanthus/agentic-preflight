@@ -105,6 +105,88 @@ def ready(feature_repo, tmp_path):
 # -- the happy path ---------------------------------------------------------
 
 
+@pytest.mark.parametrize("boundary", ["git", "attestation", "run_record"])
+def test_pending_mergeback_reconciles_completed_git_effects(
+    ready, feature_repo, monkeypatch, boundary
+):
+    from agentic_preflight import attestation
+    from agentic_preflight import mergeback as mergebackmod
+    from agentic_preflight import store as storemod
+
+    agent, wt = ready(with_fix=True)
+    before = git("rev-parse", "HEAD", cwd=feature_repo)
+    original_pick = mergebackmod.cherry_pick_fixes
+    original_write = storemod._atomic_write
+
+    def interrupted_pick(*args, **kwargs):
+        original_pick(*args, **kwargs)
+        raise OSError("interrupted after Git completed")
+
+    def interrupted_note(*args, **kwargs):
+        raise OSError("attestation storage unavailable")
+
+    def interrupted_record(path, payload):
+        if path.name == "run.json" and json.loads(payload)["state"] == "VERIFIED":
+            raise OSError("interrupted before recording verified state")
+        original_write(path, payload)
+
+    with monkeypatch.context() as fault:
+        if boundary == "git":
+            fault.setattr(mergebackmod, "cherry_pick_fixes", interrupted_pick)
+        elif boundary == "attestation":
+            fault.setattr(attestation, "write", interrupted_note)
+        else:
+            fault.setattr(storemod, "_atomic_write", interrupted_record)
+        agent.run("mergeback", expect=1)
+
+    applied = git("rev-parse", "HEAD", cwd=feature_repo)
+    assert applied != before
+    status = agent.run("status")
+    assert status["state"] == "MERGEBACK_PENDING"
+    assert status["next"]["command"] == "agentic-preflight mergeback"
+    assert status["data"]["mergeback_attempt"]["source_sha"] == before
+
+    def never_reapply(*args, **kwargs):
+        pytest.fail("a completed mergeback must not cherry-pick a second time")
+
+    monkeypatch.setattr(mergebackmod, "cherry_pick_fixes", never_reapply)
+    recovered = agent.run("mergeback")
+    assert recovered["state"] == "VERIFIED"
+    assert git("rev-parse", "HEAD", cwd=feature_repo) == applied
+    assert attestation.verify(feature_repo, applied).tree_sha == git(
+        "rev-parse", "HEAD^{tree}", cwd=wt
+    )
+
+
+@pytest.mark.parametrize("change", ["source", "validation", "branch"])
+def test_pending_mergeback_rejects_changes_outside_recorded_attempt(
+    ready, feature_repo, monkeypatch, change
+):
+    from agentic_preflight import attestation
+
+    agent, wt = ready(with_fix=True)
+
+    def interrupted(*args, **kwargs):
+        raise OSError("attestation unavailable")
+
+    with monkeypatch.context() as fault:
+        fault.setattr(attestation, "write", interrupted)
+        agent.run("mergeback", expect=1)
+    if change == "branch":
+        git("switch", "-c", "different-branch", cwd=feature_repo)
+    else:
+        target = feature_repo if change == "source" else Path(wt)
+        write(target, "unexpected.txt", "unreviewed content\n")
+        commit_all(target, "unrelated change after interruption")
+    before = git("rev-parse", "HEAD", cwd=feature_repo)
+    env = agent.run("mergeback", expect=3)
+    assert env["error"]["code"] == "stale_run"
+    assert git("rev-parse", "HEAD", cwd=feature_repo) == before
+    status = agent.run("status")
+    assert status["data"]["stale"] is True
+    assert status["next"]["command"].startswith("agentic-preflight start")
+
+
 def test_default_in_place_mode_records_repairs_and_attests_without_cherry_pick(
     feature_repo, tmp_path
 ):

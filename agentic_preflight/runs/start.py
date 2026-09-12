@@ -167,7 +167,7 @@ def start(
                         next_command="agentic-preflight status",
                     )
                 expected = existing.source_head_sha or existing.head_sha
-                stale = head_sha != expected or branch != existing.branch
+                stale = existing.stale or head_sha != expected or branch != existing.branch
                 matches = (
                     not stale
                     and existing.intent == intent

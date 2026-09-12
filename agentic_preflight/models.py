@@ -219,6 +219,16 @@ class SetupFailure(BaseModel):
     stage: Stage | None = None
 
 
+class MergebackAttempt(BaseModel):
+    """Inputs saved before modifying the source checkout."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    validation_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    validation_tree: str = Field(pattern=r"^[0-9a-f]{40}$")
+
+
 class RunDoc(BaseModel):
     """The persisted state document, ``runs/<run_id>/run.json``."""
 
@@ -254,6 +264,7 @@ class RunDoc(BaseModel):
     risk: RiskAssessment | None = None
 
     fix_commits: list[str] = Field(default_factory=list)
+    mergeback_attempt: MergebackAttempt | None = None
     stages: dict[Stage, StageRecord] = Field(default_factory=dict)
     evidence: dict[Stage, StageEvidence] = Field(default_factory=dict)
     reuse_candidates: dict[Stage, StageEvidence] = Field(default_factory=dict)

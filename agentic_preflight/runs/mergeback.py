@@ -12,12 +12,13 @@ from ..errors import (
     DirtyTree,
     MergebackConflictError,
     NeedsHuman,
+    StaleRun,
 )
 from ..errors import (
     OperationInProgress as OperationInProgressError,
 )
 from ..machine import Action, State
-from ..models import RunDoc, Stage
+from ..models import MergebackAttempt, RunDoc, Stage
 from . import evidence
 from ._session import (
     Session,
@@ -31,6 +32,55 @@ from ._session import (
     _worktree_mode,
 )
 from .review_coverage import invalidate_stage_result, reopen_if_stale
+
+
+def _reject_pending(session: Session, run: RunDoc, message: str) -> None:
+    with session.store.transaction(run.run_id) as doc:
+        doc.stale = True
+    raise StaleRun(
+        message,
+        state=run.state.value,
+        run_id=run.run_id,
+        next_command="agentic-preflight status",
+    )
+
+
+def _completed_attempt(session: Session, run: RunDoc) -> mergebackmod.MergebackResult | None:
+    """Reconcile a pending attempt only against its recorded validation snapshot."""
+    attempt = run.mergeback_attempt
+    if run.state is not State.MERGEBACK_PENDING or attempt is None:
+        return None
+    wt = _require_worktree(run)
+    repo = session.repo_root
+    if (
+        gitx.current_branch(repo) != run.branch
+        or gitx.rev_parse(wt, "HEAD") != attempt.validation_sha
+        or gitx.tree_sha(wt) != attempt.validation_tree
+        or not gitx.is_clean(wt)
+    ):
+        _reject_pending(
+            session,
+            run,
+            "pending mergeback no longer matches its recorded branch or validation snapshot",
+        )
+    current = gitx.rev_parse(repo, "HEAD")
+    if current == attempt.source_sha:
+        return None
+    if gitx.tree_sha(repo) != attempt.validation_tree or not gitx.is_ancestor(
+        repo, run.sync_base_sha or run.merge_base_sha, current
+    ):
+        _reject_pending(
+            session,
+            run,
+            "source moved during pending mergeback without reaching the recorded verified tree",
+        )
+    return mergebackmod.MergebackResult(
+        pre_sha=attempt.source_sha,
+        post_sha=current,
+        applied=list(run.fix_commits),
+        local_tree_sha=attempt.validation_tree,
+        worktree_tree_sha=attempt.validation_tree,
+    )
 
 
 def _reset_non_equivalent_merge_to_review(
@@ -95,7 +145,8 @@ def mergeback(session: Session) -> Envelope:
         )
 
     retrying_conflict = run.state is State.MERGEBACK_CONFLICT
-    if not retrying_conflict:
+    recovered = _completed_attempt(session, run)
+    if not retrying_conflict and recovered is None:
         _assert_fresh(session, run)
     if run.state in {State.TEST_GREEN, State.TEST_DELEGATED}:
         run = evidence.advance(session, run)
@@ -143,17 +194,23 @@ def mergeback(session: Session) -> Envelope:
                 next_command="git status",
             )
 
-    if run.state in {State.TEST_GREEN, State.TEST_DELEGATED}:
+    if run.state in {State.TEST_GREEN, State.TEST_DELEGATED, State.MERGEBACK_CONFLICT}:
+        if gitx.current_branch(repo) != run.branch:
+            raise StaleRun("mergeback requires the recorded source branch")
+        attempt = MergebackAttempt(
+            source_sha=gitx.rev_parse(repo, "HEAD"),
+            validation_sha=gitx.rev_parse(_require_worktree(run), "HEAD"),
+            validation_tree=gitx.tree_sha(_require_worktree(run)),
+        )
         with session.store.transaction(run.run_id) as doc:
-            _apply(doc, Action.BEGIN_MERGEBACK)
-            run = doc
-    elif run.state is State.MERGEBACK_CONFLICT:
-        with session.store.transaction(run.run_id) as doc:
-            _apply(doc, Action.MERGEBACK_RETRY)
+            doc.mergeback_attempt = attempt
+            _apply(doc, Action.MERGEBACK_RETRY if retrying_conflict else Action.BEGIN_MERGEBACK)
             run = doc
 
     try:
-        if in_place:
+        if recovered is not None:
+            result = recovered
+        elif in_place:
             current = gitx.rev_parse(repo, "HEAD")
             tree = gitx.tree_sha(repo, "HEAD")
             result = mergebackmod.MergebackResult(

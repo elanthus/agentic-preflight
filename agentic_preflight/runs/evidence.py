@@ -351,9 +351,8 @@ def advance(session: Session, run: RunDoc) -> RunDoc:
                 f.model_copy(update={"id": f"F{next_id + index:03d}"})
                 for index, f in enumerate(item.origin.findings)
             )
-        session.store.save_findings(run.run_id, stored_findings)
         result = item.origin.result
-        with session.store.transaction(run.run_id) as doc:
+        with session.store.transaction(run.run_id, findings=stored_findings) as doc:
             record = stage_record(
                 result,
                 finished_at=item.origin.finished_at.isoformat(),

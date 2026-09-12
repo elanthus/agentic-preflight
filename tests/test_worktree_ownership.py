@@ -76,6 +76,20 @@ def test_two_linked_worktrees_can_run_gates_independently(feature_repo, tmp_path
     assert first["run_id"] not in inventory["active"].values()
 
 
+def test_a_marked_stale_run_is_not_resumed_even_when_source_head_matches(feature_repo):
+    from agentic_preflight import runs
+    from agentic_preflight.machine import State
+
+    agent = ScriptedAgent(feature_repo)
+    started = agent.run("start")
+    session = runs.open_session(feature_repo)
+    with session.store.transaction(started["run_id"]) as doc:
+        doc.stale = True
+    replacement = agent.run("start")
+    assert replacement["run_id"] != started["run_id"]
+    assert session.store.load_run(started["run_id"]).state is State.ORPHANED
+
+
 def test_moving_the_source_head_orphans_the_stale_run_on_the_next_start(feature_repo, tmp_path):
     agent = ScriptedAgent(feature_repo)
     first = agent.run("start", "--intent", "prepare the original head")
