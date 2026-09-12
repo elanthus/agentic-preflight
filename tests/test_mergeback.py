@@ -64,7 +64,7 @@ def _create_empty_cherry_pick_stop(repo: Path) -> tuple[str, str, Path, Path]:
 def ready(feature_repo, tmp_path):
     """Drive a run to TEST_GREEN, optionally with a fix commit in the worktree."""
 
-    def build(*, with_fix=True, fix_content=None):
+    def build(*, with_fix=True, fix_content=None, fresh_base=False):
         write(
             feature_repo,
             ".agentic-preflight.toml",
@@ -72,6 +72,11 @@ def ready(feature_repo, tmp_path):
             "\n[worktree]\nmode = 'reusable'\n",
         )
         commit_all(feature_repo, "configure agentic-preflight")
+        if fresh_base:
+            git("switch", "main", cwd=feature_repo)
+            write(feature_repo, "upstream.txt", "new upstream content\n")
+            commit_all(feature_repo, "advance main before validation")
+            git("switch", "feature/x", cwd=feature_repo)
         agent = ScriptedAgent(feature_repo)
         env = agent.run("start")
         wt = env["data"]["worktree_path"]
@@ -103,6 +108,72 @@ def ready(feature_repo, tmp_path):
 
 
 # -- the happy path ---------------------------------------------------------
+
+
+@pytest.mark.parametrize("tampered", [False, True])
+def test_pending_mergeback_recovers_the_completed_source_rebase(
+    ready, feature_repo, monkeypatch, tampered
+):
+    from agentic_preflight import sync
+
+    agent, wt = ready(fresh_base=True)
+    source = git("rev-parse", "HEAD", cwd=feature_repo)
+    original = sync.rebase_onto
+
+    def interrupted(*args, **kwargs):
+        original(*args, **kwargs)
+        raise OSError("interrupted after source rebase")
+
+    with monkeypatch.context() as fault:
+        fault.setattr(sync, "rebase_onto", interrupted)
+        agent.run("mergeback", expect=1)
+    rebased = git("rev-parse", "HEAD", cwd=feature_repo)
+    assert rebased != source
+    assert git("rev-parse", "HEAD^{tree}", cwd=feature_repo) != git(
+        "rev-parse", "HEAD^{tree}", cwd=wt
+    )
+    status = agent.run("status")
+    assert status["state"] == "MERGEBACK_PENDING"
+    assert status["data"]["stale"] is False
+    if tampered:
+        write(feature_repo, "unexpected.txt", "unreviewed content\n")
+        tip = commit_all(feature_repo, "unrelated change after rebase")
+        rejected = agent.run("mergeback", expect=3)
+        assert rejected["error"]["code"] == "stale_run"
+        assert git("rev-parse", "HEAD", cwd=feature_repo) == tip
+    else:
+
+        def never_rebase(*args, **kwargs):
+            pytest.fail("the completed source rebase must not run again")
+
+        monkeypatch.setattr(sync, "rebase_onto", never_rebase)
+        recovered = agent.run("mergeback")
+        assert recovered["state"] == "VERIFIED"
+        assert git("rev-parse", "HEAD^", cwd=feature_repo) == rebased
+        assert git("rev-parse", "HEAD^{tree}", cwd=feature_repo) == git(
+            "rev-parse", "HEAD^{tree}", cwd=wt
+        )
+
+
+def _interrupt_persisted_retry(agent, monkeypatch):
+    from agentic_preflight import store as storemod
+
+    original = storemod._atomic_write
+
+    def interrupted(path, payload):
+        original(path, payload)
+        if path.name == "run.json":
+            record = json.loads(payload)
+            if record["state"] == "MERGEBACK_PENDING":
+                assert record["mergeback_attempt"]["retrying_conflict"] is True
+                raise OSError("interrupted after retry transaction")
+
+    with monkeypatch.context() as fault:
+        fault.setattr(storemod, "_atomic_write", interrupted)
+        agent.run("mergeback", expect=1)
+    status = agent.run("status")
+    assert status["state"] == "MERGEBACK_PENDING"
+    assert status["data"]["stale"] is False
 
 
 @pytest.mark.parametrize("boundary", ["git", "attestation", "run_record"])
@@ -292,7 +363,10 @@ def test_mergeback_is_illegal_before_tests_pass(feature_repo, tmp_path):
 # -- the conflict contract: the single most important test -----------------
 
 
-def test_conflict_aborts_and_restores_the_branch_exactly(feature_repo, tmp_path):
+@pytest.mark.parametrize("interrupted_retry", [False, True])
+def test_conflict_aborts_and_restores_the_branch_exactly(
+    feature_repo, tmp_path, monkeypatch, interrupted_retry
+):
     """Construct a guaranteed conflict and assert the full abort contract."""
     write(
         feature_repo,
@@ -374,12 +448,17 @@ def test_conflict_aborts_and_restores_the_branch_exactly(feature_repo, tmp_path)
     write(feature_repo, "src/app.py", "TOTALLY DIFFERENT WORKTREE CONTENT\n")
     git("add", "src/app.py", cwd=feature_repo)
     git("cherry-pick", "--continue", cwd=feature_repo)
+    if interrupted_retry:
+        _interrupt_persisted_retry(agent, monkeypatch)
     verified = agent.run("mergeback")
     assert verified["state"] == "VERIFIED"
     assert verified["data"]["tree_equivalent"] is True
 
 
-def test_different_human_conflict_resolution_restarts_review(feature_repo, tmp_path):
+@pytest.mark.parametrize("interrupted_retry", [False, True])
+def test_different_human_conflict_resolution_restarts_review(
+    feature_repo, tmp_path, monkeypatch, interrupted_retry
+):
     write(
         feature_repo,
         ".agentic-preflight.toml",
@@ -425,6 +504,8 @@ def test_different_human_conflict_resolution_restarts_review(feature_repo, tmp_p
     git("add", "src/app.py", cwd=feature_repo)
     git("cherry-pick", "--continue", cwd=feature_repo)
 
+    if interrupted_retry:
+        _interrupt_persisted_retry(agent, monkeypatch)
     restarted = agent.run("mergeback")
 
     assert restarted["state"] == "REVIEW_AWAITING_FINDINGS"

@@ -227,6 +227,8 @@ class MergebackAttempt(BaseModel):
     source_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     validation_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     validation_tree: str = Field(pattern=r"^[0-9a-f]{40}$")
+    rebased_tree: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
+    retrying_conflict: bool = False
 
 
 class RunDoc(BaseModel):

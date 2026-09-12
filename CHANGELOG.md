@@ -13,6 +13,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - Reconcile a completed merge-back after attestation or run-record persistence fails,
   without applying fix commits again. Changed source content or validation inputs
   require a fresh run.
+- Preserve completed source rebases and recorded conflict-retry context across
+  merge-back interruptions; different human resolutions still require renewed review.
 
 ### Added
 

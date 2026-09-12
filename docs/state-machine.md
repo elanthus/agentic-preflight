@@ -89,16 +89,24 @@ run again.
 | --- | --- |
 | Lint inputs change after lint completed | Evidence invalidation can leave `LINT_GREEN`, preserving original evidence and requiring affected stages again. Unchanged earlier stages may be reused. |
 | Merge-back has not changed the source | Retry against the recorded source and validation snapshot. |
+| The source rebase completed before fix application | If its tree matches the recorded synchronized baseline and contains the synchronized base, continue applying fixes without rebasing again. A different tree is rejected. |
+| A conflict retry was recorded before interruption | Preserve its retry context and compare against the attempt's source commit. An identical resolution retains validation; a different resolution reopens review. |
 | Merge-back changed the source, but attestation or state persistence failed | With no Git operation in progress, retry accepts the completed result only when the source branch and validation snapshot still match the attempt, the source tree equals the recorded validated tree, and the synchronized base remains an ancestor. Existing dirty-path checks still apply. It does not cherry-pick the fixes again. |
 | Pending merge-back encounters different source content, branch or validation snapshot | Preserve the work, mark the run stale and direct recovery through `status` to a fresh run. Do not adopt the changed content as verified. |
 | A Git sequence is still in progress | Report the operation. Never automatically finish or abort a user-owned sequence. |
 | Remote push succeeded but local `PUSHED` persistence failed | With unchanged source and valid evidence, retry the same atomic push and then record completion. Remote changes or a rejected push remain errors; retry never force-pushes. |
 
-The merge-back attempt records the source commit, validation commit and validation
-tree before modifying the source. Reconciliation establishes equivalent reviewed
-content under those bindings; it does not authenticate who produced the current
-Git history. A partially completed rebase or cherry-pick that has not reached the
-recorded target is not treated as a completed merge-back.
+The merge-back attempt records the source commit, validation commit, validation
+tree and conflict-retry context before modifying the source. When the original
+source needs rebasing, it also records the expected tree from the synchronized
+validation baseline, before isolated fixes. This recognizes a completed rebase
+even if the process exits before recording its completion. It permits further
+fix application, not publication of the intermediate tree. A manually changed
+source cannot borrow the original baseline as an expected rebase result.
+
+Reconciliation establishes equivalent reviewed content under these bindings; it
+does not authenticate who produced the current Git history. An in-progress Git
+sequence or an unknown intermediate tree is not treated as a completed merge-back.
 
 `status` is an inspection and recovery command, not a read-only endpoint. Store
 reads can finish committed local updates; status can also discover/import reusable

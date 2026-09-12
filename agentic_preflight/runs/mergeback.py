@@ -45,15 +45,18 @@ def _reject_pending(session: Session, run: RunDoc, message: str) -> None:
     )
 
 
-def _completed_attempt(session: Session, run: RunDoc) -> mergebackmod.MergebackResult | None:
+def _reconcile_attempt(
+    session: Session, run: RunDoc
+) -> tuple[bool, mergebackmod.MergebackResult | None]:
     """Reconcile a pending attempt only against its recorded validation snapshot."""
     attempt = run.mergeback_attempt
     if run.state is not State.MERGEBACK_PENDING or attempt is None:
-        return None
+        return False, None
     wt = _require_worktree(run)
     repo = session.repo_root
     if (
-        gitx.current_branch(repo) != run.branch
+        run.stale
+        or gitx.current_branch(repo) != run.branch
         or gitx.rev_parse(wt, "HEAD") != attempt.validation_sha
         or gitx.tree_sha(wt) != attempt.validation_tree
         or not gitx.is_clean(wt)
@@ -65,16 +68,19 @@ def _completed_attempt(session: Session, run: RunDoc) -> mergebackmod.MergebackR
         )
     current = gitx.rev_parse(repo, "HEAD")
     if current == attempt.source_sha:
-        return None
-    if gitx.tree_sha(repo) != attempt.validation_tree or not gitx.is_ancestor(
-        repo, run.sync_base_sha or run.merge_base_sha, current
-    ):
+        return True, None
+    current_tree = gitx.tree_sha(repo)
+    on_base = gitx.is_ancestor(repo, run.sync_base_sha or run.merge_base_sha, current)
+    if on_base and current_tree != attempt.validation_tree and current_tree == attempt.rebased_tree:
+        # The source rebase completed, but the fix stack has not been applied.
+        return True, None
+    if current_tree != attempt.validation_tree or not on_base:
         _reject_pending(
             session,
             run,
             "source moved during pending mergeback without reaching the recorded verified tree",
         )
-    return mergebackmod.MergebackResult(
+    return True, mergebackmod.MergebackResult(
         pre_sha=attempt.source_sha,
         post_sha=current,
         applied=list(run.fix_commits),
@@ -144,9 +150,13 @@ def mergeback(session: Session) -> Envelope:
             run_id=run.run_id,
         )
 
-    retrying_conflict = run.state is State.MERGEBACK_CONFLICT
-    recovered = _completed_attempt(session, run)
-    if not retrying_conflict and recovered is None:
+    retrying_conflict = run.state is State.MERGEBACK_CONFLICT or (
+        run.state is State.MERGEBACK_PENDING
+        and run.mergeback_attempt is not None
+        and run.mergeback_attempt.retrying_conflict
+    )
+    reconciled, recovered = _reconcile_attempt(session, run)
+    if not retrying_conflict and not reconciled:
         _assert_fresh(session, run)
     if run.state in {State.TEST_GREEN, State.TEST_DELEGATED}:
         run = evidence.advance(session, run)
@@ -197,10 +207,22 @@ def mergeback(session: Session) -> Envelope:
     if run.state in {State.TEST_GREEN, State.TEST_DELEGATED, State.MERGEBACK_CONFLICT}:
         if gitx.current_branch(repo) != run.branch:
             raise StaleRun("mergeback requires the recorded source branch")
+        source_sha = gitx.rev_parse(repo, "HEAD")
+        # head_sha is the synchronized validation baseline before isolated fixes.
+        # Only the unchanged original source can borrow that expected rebase tree.
+        rebased_tree = None
+        if (
+            not in_place
+            and source_sha == (run.source_head_sha or run.head_sha)
+            and not gitx.is_ancestor(repo, run.sync_base_sha or run.merge_base_sha, source_sha)
+        ):
+            rebased_tree = gitx.tree_sha(_require_worktree(run), run.head_sha)
         attempt = MergebackAttempt(
-            source_sha=gitx.rev_parse(repo, "HEAD"),
+            source_sha=source_sha,
             validation_sha=gitx.rev_parse(_require_worktree(run), "HEAD"),
             validation_tree=gitx.tree_sha(_require_worktree(run)),
+            rebased_tree=rebased_tree,
+            retrying_conflict=retrying_conflict,
         )
         with session.store.transaction(run.run_id) as doc:
             doc.mergeback_attempt = attempt
