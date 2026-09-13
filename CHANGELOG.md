@@ -5,6 +5,11 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Removed
+
+- **Breaking:** Remove the obsolete `model_calls` compatibility field from public smoke
+  evaluation summaries and advance their method version to `public-smoke-v4`.
+
 ### Fixed
 
 - Allow changed lint inputs to invalidate completed lint through the state machine.
