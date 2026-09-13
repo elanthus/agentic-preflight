@@ -5,6 +5,11 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Removed
+
+- **Breaking:** Remove support for installing the pre-push hook into a plain directory;
+  hook installation now requires a Git repository.
+
 ### Fixed
 
 - Allow changed lint inputs to invalidate completed lint through the state machine.

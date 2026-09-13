@@ -73,11 +73,11 @@ def test_findings_round_trip_non_ascii(store):
     assert loaded[0].path == "src/café.py"
 
 
-def test_the_pre_push_hook_is_written_with_unix_line_endings(tmp_path):
+def test_the_pre_push_hook_is_written_with_unix_line_endings(tmp_repo):
     """Git runs this with its own ``sh``; a CRLF shebang makes the interpreter unfindable."""
-    hook.install(tmp_path)
+    path, _ = hook.install(tmp_repo)
 
-    raw = (tmp_path / "hooks" / "pre-push").read_bytes()
+    raw = path.read_bytes()
 
     assert b"\r\n" not in raw
     assert raw.startswith(b"#!/bin/sh\n")
