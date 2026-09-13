@@ -1,4 +1,4 @@
-"""Stable CLI root: command registration and the shared protocol export."""
+"""Stable CLI root and command registration."""
 
 from __future__ import annotations
 
@@ -10,9 +10,6 @@ from .cli_ci import ci
 from .cli_integrations import register as register_integrations
 from .cli_policy import register as register_policy
 from .cli_runs import register as register_runs
-from .cli_support import command
-
-__all__ = ["command", "main"]
 
 
 def _use_utf8_streams() -> None:

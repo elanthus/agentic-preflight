@@ -5,6 +5,12 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Removed
+
+- **Breaking:** Remove the compatibility integration install and uninstall wrappers and
+  the CLI module's `command` re-export; callers must use the operation-based integration
+  API and import `command` from `agentic_preflight.cli_support` directly.
+
 ### Fixed
 
 - Allow changed lint inputs to invalidate completed lint through the state machine.
