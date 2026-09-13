@@ -145,10 +145,8 @@ class GateSection(_Section):
 
 
 class PRSection(_Section):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
     mode: Literal["auto", "manual"] = "auto"
-    automated_cleanup: bool = Field(default=False, alias="automatedCleanup")
+    automated_cleanup: bool = False
 
 
 class ApprovalSection(_Section):

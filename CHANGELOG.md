@@ -5,6 +5,11 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Changed
+
+- **Breaking:** Rename the `[pr] automatedCleanup` configuration key to
+  `[pr] automated_cleanup`; the former spelling is now rejected as an unknown key.
+
 ### Fixed
 
 - Allow changed lint inputs to invalidate completed lint through the state machine.
