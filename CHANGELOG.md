@@ -5,6 +5,12 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Changed
+
+- Add a protected-verifier cutover runbook that identifies the v1 trust boundary,
+  orders issues #123-#137, scopes the authorized bootstrap, refreshes the trusted
+  baseline, and requires a fresh pull-request rehearsal before release.
+
 ### Fixed
 
 - Allow changed lint inputs to invalidate completed lint through the state machine.
