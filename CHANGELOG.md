@@ -7,6 +7,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Removed
 
+- **Breaking:** Remove the compatibility integration install and uninstall wrappers and
+  the CLI module's `command` re-export; callers must use `manage_integrations` and import
+  `command` from `cli_support` directly.
 - **Breaking:** Remove the legacy no-op `[review] require_fix_commits` and
   `[worktree] ttl_hours` configuration fields; configurations that still set either
   field now fail validation as unknown keys.

@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from agentic_preflight.cli import command
+from agentic_preflight.cli_support import command
 from agentic_preflight.envelope import Envelope, ExitCode, emit, error_envelope
 from agentic_preflight.errors import WrongState
 

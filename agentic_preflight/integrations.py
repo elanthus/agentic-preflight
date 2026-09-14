@@ -456,37 +456,3 @@ def manage_integrations(
             }
         )
     return results
-
-
-def install_integrations(
-    agents: Iterable[str],
-    *,
-    scope: str = "user",
-    custom_roots: Iterable[Path] = (),
-    force: bool = False,
-    update_only: bool = False,
-    home: Path | None = None,
-    project_root: Path | None = None,
-    source_dir: Path | None = None,
-    source_version: str | None = None,
-) -> list[dict]:
-    """Compatibility API for install and update callers."""
-    return manage_integrations(
-        IntegrationOperation.UPDATE if update_only else IntegrationOperation.INSTALL,
-        agents,
-        scope=scope,
-        custom_roots=custom_roots,
-        force=force,
-        home=home,
-        project_root=project_root,
-        source_dir=source_dir,
-        source_version=source_version,
-    )
-
-
-def uninstall_integrations(
-    agents: Iterable[str],
-    **kwargs,
-) -> list[dict]:
-    """Compatibility API for uninstall callers."""
-    return manage_integrations(IntegrationOperation.UNINSTALL, agents, **kwargs)
