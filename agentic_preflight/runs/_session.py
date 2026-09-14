@@ -71,14 +71,13 @@ def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) ->
     if current:
         try:
             active = store.load_run(current)
-            if active.config_snapshot is not None:
-                cfg = Config.model_validate(active.config_snapshot)
+            cfg = Config.model_validate(active.config_snapshot)
         except (UnknownRun, RunReadError, ValidationError):
             # Inspection must remain available without trusting an unreadable run.
             pass
     repo_root = caller_root
     source_worktree_available = True
-    if active is not None and active.source_worktree_path:
+    if active is not None:
         source = Path(active.source_worktree_path)
         if source.exists():
             repo_root = source
@@ -211,13 +210,12 @@ def _load_current(session: Session) -> RunDoc:
 
 def _head_moved(session: Session, run: RunDoc) -> str | None:
     """Return the current tip if it differs from the reviewed one."""
-    source = Path(run.source_worktree_path) if run.source_worktree_path else session.repo_root
+    source = Path(run.source_worktree_path)
     try:
         tip = gitx.rev_parse(source, "HEAD")
     except (gitx.GitError, OSError):
         return None
-    expected = run.source_head_sha or run.head_sha
-    return None if tip == expected else tip
+    return None if tip == run.source_head_sha else tip
 
 
 def _assert_fresh(session: Session, run: RunDoc) -> None:
@@ -243,16 +241,13 @@ def _assert_fresh(session: Session, run: RunDoc) -> None:
     )
 
 
-def _worktree_mode(run: RunDoc, fallback: Config) -> str:
-    """Return the snapshotted lifecycle, treating pre-feature runs as strict."""
-    if run.config_snapshot is None:
-        return fallback.worktree.mode
-    section = run.config_snapshot.get("worktree", {})
-    return section.get("mode", "strict")
+def _worktree_mode(run: RunDoc) -> str:
+    """Return the snapshotted worktree lifecycle."""
+    return Config.model_validate(run.config_snapshot).worktree.mode
 
 
-def _is_in_place(run: RunDoc, fallback: Config) -> bool:
-    return _worktree_mode(run, fallback) == "in_place"
+def _is_in_place(run: RunDoc) -> bool:
+    return _worktree_mode(run) == "in_place"
 
 
 def _worktree_completion(mode: str) -> str:
@@ -267,7 +262,7 @@ def _worktree_completion(mode: str) -> str:
 def _release_run_worktree(session: Session, run: RunDoc) -> None:
     if not run.worktree_path or run.worktree_released:
         return
-    mode = _worktree_mode(run, session.config)
+    mode = _worktree_mode(run)
     if mode == "in_place":
         return
     if mode == "reusable":

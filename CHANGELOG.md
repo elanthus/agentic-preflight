@@ -12,6 +12,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- **Breaking:** Require all creation-time run-record fields and reject records that omit
+  their source identity, configuration snapshot, creation timestamp, or intent source.
 - **Breaking:** Require Git 2.38 or newer and remove the index-based fallback for
   computing merge trees.
 

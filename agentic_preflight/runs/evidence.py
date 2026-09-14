@@ -48,7 +48,7 @@ def fingerprint(
 ) -> StageFingerprint:
     wt = _require_worktree(run)
     head = gitx.rev_parse(wt, "HEAD")
-    snapshot = run.config_snapshot or session.config.model_dump(mode="json")
+    snapshot = run.config_snapshot
     if stage in {Stage.LINT, Stage.TEST}:
         configured = getattr(session.config.commands, stage.value)
         result = compute_shell_fingerprint(
@@ -126,14 +126,14 @@ def archive(session: Session, run: RunDoc) -> RunDoc:
         )
         origin = OriginalExecution(
             run_id=run.run_id,
-            source_worktree_id=run.source_worktree_id or session.owner_id,
+            source_worktree_id=run.source_worktree_id,
             stage=stage,
             head_sha=record.head_sha or run.head_sha,
             base_sha=run.merge_base_sha,
             branch=run.branch,
             base_ref=run.base_ref,
-            config_sha256=run.config_digest or "",
-            config_snapshot=run.config_snapshot or {},
+            config_sha256=run.config_digest,
+            config_snapshot=run.config_snapshot,
             finished_at=datetime.fromisoformat(record.finished_at),
             result=result,
             fingerprint=record.fingerprint,
@@ -160,7 +160,9 @@ def discover(session: Session, run: RunDoc) -> RunDoc:
             old = session.store.load_run(run_id)
         except (OSError, ValueError, ValidationError, RunReadError, UnknownRun):
             continue
-        if old.source_worktree_id != run.source_worktree_id or old.branch != run.branch:
+        if old.source_worktree_id != run.source_worktree_id:
+            continue
+        if old.branch != run.branch:
             continue
         if old.state not in {
             State.VERIFIED,
@@ -173,7 +175,7 @@ def discover(session: Session, run: RunDoc) -> RunDoc:
         }:
             continue
         prior_runs.append(old)
-    prior_runs.sort(key=lambda old: (old.created_at or "", old.run_id), reverse=True)
+    prior_runs.sort(key=lambda old: (old.created_at, old.run_id), reverse=True)
     for old in prior_runs:
         for stage, item in old.evidence.items():
             if item.origin.source_worktree_id != run.source_worktree_id:

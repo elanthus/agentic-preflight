@@ -141,7 +141,7 @@ def _register_stage_fix_commits(
             entry = doc.stages.get(stage) or StageRecord()
             entry.head_sha = None
             doc.stages[stage] = entry
-            if _is_in_place(doc, session.config):
+            if _is_in_place(doc):
                 doc.head_sha = current_head
                 doc.source_head_sha = current_head
             doc.review_coverage = None
@@ -258,9 +258,7 @@ def run_stage(
     stage = Stage(stage_name)
     record_entry = run.stages.get(stage) or StageRecord()
     accepting_repair = (
-        _is_in_place(run, session.config)
-        and run.state is spec["red"]
-        and record_entry.head_sha is not None
+        _is_in_place(run) and run.state is spec["red"] and record_entry.head_sha is not None
     )
     if not accepting_repair:
         _assert_fresh(session, run)

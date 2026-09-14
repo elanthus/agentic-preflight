@@ -80,8 +80,6 @@ def build(
     docs_enabled: bool,
     findings_summary: dict[str, int],
 ) -> Attestation:
-    if run.config_digest is None:
-        raise InvalidAttestation("run has no effective configuration digest")
     if run.review_coverage is None:
         raise InvalidAttestation("review stage has no coverage evidence")
     review_record = run.stages.get(Stage.REVIEW)
@@ -130,7 +128,7 @@ def build(
         and set(run.evidence) == set(Stage)
         and base_supports_refresh(run.worktree_path, run.merge_base_sha)
         and (
-            not (run.config_snapshot or {}).get("ci")
+            not run.config_snapshot.get("ci")
             or consumer_installed(run.worktree_path, run.merge_base_sha)
         )
     )
