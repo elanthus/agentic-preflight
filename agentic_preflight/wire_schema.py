@@ -3,65 +3,12 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
-from .digests import json_digest
-
 if TYPE_CHECKING:
     from .models import Attestation
-
-SchemaVersion = Literal[4, 5, 6]
-
-
-def producer_schema(*, delegated: bool, refresh_available: bool) -> SchemaVersion:
-    return 6 if delegated else 5 if refresh_available else 4
-
-
-def has_refresh_evidence(value: Attestation) -> bool:
-    return value.schema_version in {5, 6}
-
-
-def has_pending_tests(value: Attestation) -> bool:
-    return value.schema_version == 6
-
-
-def validate_version(value: Attestation) -> None:
-    from .models import AttestedStage, Stage
-
-    if value.schema_version < 6 and (
-        value.green_at is None
-        or value.test_delegation is not None
-        or value.publication_ready_at is not None
-        or any(item.status == "delegated" for item in value.stages.values())
-    ):
-        raise ValueError("legacy attestations must describe completed local validation")
-    if value.schema_version == 6 and (
-        value.green_at is not None
-        or value.publication_ready_at is None
-        or value.test_delegation is None
-        or value.stages.get(Stage.TEST, AttestedStage(status="skipped")).status != "delegated"
-        or any(
-            item.status == "delegated" for key, item in value.stages.items() if key != Stage.TEST
-        )
-    ):
-        raise ValueError("v6 requires explicit pending test delegation and publication time")
-    if value.schema_version == 4 and (
-        value.evidence is not None or value.config_snapshot is not None
-    ):
-        raise ValueError("v4 attestations cannot carry refresh evidence")
-    if value.schema_version in {5, 6}:
-        if (
-            value.config_snapshot is None
-            or json_digest(value.config_snapshot) != value.config_sha256
-        ):
-            raise ValueError("configuration does not match its digest")
-        required_evidence = set(Stage) - ({Stage.TEST} if value.schema_version == 6 else set())
-        if value.evidence is None or set(value.evidence) != required_evidence:
-            raise ValueError("requires a complete local per-stage evidence set")
-        if any(item.origin.stage != stage for stage, item in value.evidence.items()):
-            raise ValueError("evidence is attached to the wrong stage")
 
 
 class InvalidAttestation(ValueError):
@@ -74,12 +21,6 @@ class InvalidAttestation(ValueError):
 
 def encode(value: Attestation) -> str:
     payload = value.model_dump(mode="json")
-    if value.schema_version < 6:
-        payload.pop("test_delegation")
-        payload.pop("publication_ready_at")
-    if value.schema_version == 4:
-        payload.pop("evidence")
-        payload.pop("config_snapshot")
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 

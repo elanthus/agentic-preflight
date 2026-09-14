@@ -18,11 +18,6 @@ from .wire_schema import (
 from .wire_schema import (
     encode as encode,
 )
-from .wire_schema import (
-    has_pending_tests,
-    has_refresh_evidence,
-    producer_schema,
-)
 
 NOTES_REF = "refs/notes/agentic-preflight"
 
@@ -122,16 +117,20 @@ def build(
     from .refresh_validation import rebound_coverage, verify_evidence
 
     delegated = run.test_delegation is not None
-    use_refresh = delegated or (run.worktree_path is not None and set(run.evidence) == set(Stage))
-    if use_refresh:
-        stages[Stage.REVIEW].coverage = rebound_coverage(
-            run.worktree_path or "",
-            run.evidence[Stage.REVIEW].origin,
-            head=sha,
-            base=run.merge_base_sha,
-        )
+    required_evidence = set(Stage) - ({Stage.TEST} if delegated else set())
+    if run.worktree_path is None:
+        raise InvalidAttestation("run has no validation worktree for evidence verification")
+    if set(run.evidence) != required_evidence:
+        raise InvalidAttestation("run lacks complete per-stage evidence")
+    stages[Stage.REVIEW].coverage = rebound_coverage(
+        run.worktree_path,
+        run.evidence[Stage.REVIEW].origin,
+        head=sha,
+        base=run.merge_base_sha,
+    )
     value = Attestation(
-        schema_version=producer_schema(delegated=delegated, refresh_available=use_refresh),
+        schema_version=7,
+        outcome="tests_pending" if delegated else "verified",
         sha=sha,
         tree_sha=tree_sha,
         branch=run.branch,
@@ -145,11 +144,10 @@ def build(
         test_delegation=run.test_delegation,
         stages=stages,
         findings_summary=findings_summary,
-        evidence=run.evidence if use_refresh else None,
-        config_snapshot=run.config_snapshot if use_refresh else None,
+        evidence=run.evidence,
+        config_snapshot=run.config_snapshot,
     )
-    if use_refresh:
-        verify_evidence(run.worktree_path or "", value)
+    verify_evidence(run.worktree_path, value)
     return value
 
 
@@ -199,18 +197,17 @@ def verify_value(
             f"attestation tree {value.tree_sha} does not match commit tree {actual_tree}",
             reason="tree_mismatch",
         )
-    if has_refresh_evidence(value):
-        from .refresh_validation import verify_evidence
+    from .refresh_validation import verify_evidence
 
-        try:
-            verify_evidence(repo, value)
-        except gitx.GitError as exc:
-            raise InvalidAttestation(
-                f"Git evidence validation failed with exit {exc.returncode}", reason="git_failure"
-            ) from exc
-        except ValueError as exc:
-            raise InvalidAttestation(str(exc)) from exc
-    if has_pending_tests(value):
+    try:
+        verify_evidence(repo, value)
+    except gitx.GitError as exc:
+        raise InvalidAttestation(
+            f"Git evidence validation failed with exit {exc.returncode}", reason="git_failure"
+        ) from exc
+    except ValueError as exc:
+        raise InvalidAttestation(str(exc)) from exc
+    if value.outcome == "tests_pending":
         from .ci_policy import verify_declaration
 
         try:
@@ -227,50 +224,3 @@ def verify_value(
                 "to verify merge readiness, or verify --purpose publish for publication only"
             )
     return value
-
-
-def _has_reusable_stage_results(value: Attestation) -> bool:
-    """Require the mandatory lint result and the terminal test outcome."""
-    return value.stages[Stage.LINT].status == "green" and value.stages[Stage.TEST].status in {
-        "green",
-        "skipped",
-    }
-
-
-def reuse_exact(
-    repo: Path | str,
-    *,
-    sha: str,
-    base_sha: str,
-    branch: str,
-    base_ref: str,
-    intent: str,
-    config_digest: str,
-) -> Attestation | None:
-    """Reuse green only when the exact attested SHA remains merge-equivalent."""
-    repo = Path(repo)
-    target_sha = gitx.rev_parse(repo, sha)
-    try:
-        verified = verify(repo, target_sha)
-    except InvalidAttestation:
-        return None
-    reusable_metadata = (
-        verified.branch == branch
-        and verified.base_ref == base_ref
-        and verified.intent_sha256 == intent_digest(intent)
-        and verified.config_sha256 == config_digest
-        and _has_reusable_stage_results(verified)
-        and gitx.is_ancestor(repo, base_sha, target_sha)
-    )
-    if not reusable_metadata:
-        return None
-    try:
-        fresh_merge_tree = gitx.merge_tree(repo, base_sha, target_sha)
-        attested_merge_tree = gitx.merge_tree(repo, verified.merge_base_sha, target_sha)
-    except gitx.GitError:
-        return None
-    return (
-        verified
-        if fresh_merge_tree is not None and fresh_merge_tree == attested_merge_tree
-        else None
-    )

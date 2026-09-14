@@ -79,7 +79,8 @@ The pull-request cleanup setting is now spelled `[pr] automated_cleanup`; the fo
 camelCase spelling is rejected as an unknown key. Automatic PR creation and hosted-check
 monitoring are unchanged.
 
-Upgrade the publisher, hook installation, and trusted verifier together, then follow
+Upgrade the publisher, hook installation, and trusted verifier together because schema
+version 7 does not read earlier attestations. Then follow
 the [CI delegation setup](attestations-and-ci.md#delegating-tests-to-trusted-ci) when
 enabling protected CI authority. Existing default configurations continue to execute
 tests locally.

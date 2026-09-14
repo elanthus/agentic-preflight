@@ -214,7 +214,8 @@ def test_every_config_section_is_documented_in_the_configuration_reference():
 
 
 def test_current_wire_version_is_consistent_across_reference_docs():
-    schema = Attestation.model_fields["schema_version"].default
+    schema = 7
+    assert Attestation.model_fields["schema_version"].is_required()
     assert f"version {schema} note" in ATTESTATIONS_AND_CI.read_text(encoding="utf-8")
     assert f"schema v{schema}" in CONFIGURATION.read_text(encoding="utf-8")
 

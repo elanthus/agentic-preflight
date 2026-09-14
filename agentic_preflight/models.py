@@ -20,7 +20,6 @@ from .digests import json_digest
 from .fingerprints import Classification, DocsFingerprint, ReviewFingerprint
 from .machine import State
 from .shell_fingerprints import ShellFingerprint
-from .wire_schema import SchemaVersion, validate_version
 
 SHA_PATTERN = r"^[0-9a-f]{7,40}$"
 
@@ -385,7 +384,8 @@ class Attestation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["agentic-preflight-attestation"] = "agentic-preflight-attestation"
-    schema_version: SchemaVersion = 4
+    schema_version: Literal[7]
+    outcome: Literal["verified", "tests_pending"]
     sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     tree_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     branch: str
@@ -399,12 +399,11 @@ class Attestation(BaseModel):
     test_delegation: TestDelegation | None = None
     stages: dict[Stage, AttestedStage]
     findings_summary: dict[str, int] = Field(default_factory=dict)
-    evidence: dict[Stage, StageEvidence] | None = None
-    config_snapshot: dict[str, Any] | None = None
+    evidence: dict[Stage, StageEvidence]
+    config_snapshot: dict[str, Any]
 
     @model_validator(mode="after")
     def complete_evidence(self) -> Attestation:
-        validate_version(self)
         required = set(Stage)
         if set(self.stages) != required:
             missing = sorted(stage.value for stage in required - set(self.stages))
@@ -414,6 +413,37 @@ class Attestation(BaseModel):
             raise ValueError("review stage must be green")
         if self.stages[Stage.REVIEW].coverage is None:
             raise ValueError("green review stage lacks coverage evidence")
+        if self.outcome == "verified":
+            if (
+                self.green_at is None
+                or self.publication_ready_at is not None
+                or self.test_delegation is not None
+                or any(item.status == "delegated" for item in self.stages.values())
+            ):
+                raise ValueError("verified outcome requires completed local validation")
+            required_evidence = required
+        else:
+            if (
+                self.green_at is not None
+                or self.publication_ready_at is None
+                or self.test_delegation is None
+                or self.stages[Stage.TEST].status != "delegated"
+                or any(
+                    item.status == "delegated"
+                    for stage, item in self.stages.items()
+                    if stage is not Stage.TEST
+                )
+            ):
+                raise ValueError(
+                    "tests_pending outcome requires explicit test delegation and publication time"
+                )
+            required_evidence = required - {Stage.TEST}
+        if json_digest(self.config_snapshot) != self.config_sha256:
+            raise ValueError("configuration does not match its digest")
+        if set(self.evidence) != required_evidence:
+            raise ValueError("requires the outcome's complete local per-stage evidence set")
+        if any(item.origin.stage != stage for stage, item in self.evidence.items()):
+            raise ValueError("evidence is attached to the wrong stage")
         for stage, evidence in self.stages.items():
             process_fields = (
                 evidence.command,

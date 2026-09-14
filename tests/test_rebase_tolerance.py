@@ -56,67 +56,6 @@ def test_start_rechecks_refresh_evidence_when_attested_head_contains_fresh_base(
     assert git("rev-parse", "HEAD", cwd=feature_repo) == head
 
 
-def test_exact_attestation_requires_the_fresh_base_to_be_an_ancestor(feature_repo, tmp_path):
-    agent = _green_run(feature_repo, tmp_path)
-    target = git("rev-parse", "HEAD", cwd=feature_repo)
-    resolved_config_digest = config.config_digest(
-        config.load_config(feature_repo).model_dump(mode="json")
-    )
-    agent.run("abort", "--force")
-
-    git("switch", "main", cwd=feature_repo)
-    main = git("rev-parse", "HEAD", cwd=feature_repo)
-    main_tree = git("rev-parse", "HEAD^{tree}", cwd=feature_repo)
-    base = git("commit-tree", main_tree, "-p", main, "-m", "divergent fresh base", cwd=feature_repo)
-    git("update-ref", "refs/heads/main", base, main, cwd=feature_repo)
-
-    assert (
-        attestation.reuse_exact(
-            feature_repo,
-            sha=target,
-            base_sha=base,
-            branch="feature/x",
-            base_ref="main",
-            intent="exercise the requested behavior safely",
-            config_digest=resolved_config_digest,
-        )
-        is None
-    )
-
-
-def test_exact_attestation_requires_the_original_and_fresh_merges_to_match(feature_repo, tmp_path):
-    agent = _green_run(feature_repo, tmp_path)
-    target = git("rev-parse", "HEAD", cwd=feature_repo)
-    fresh_base = git("rev-parse", "main", cwd=feature_repo)
-    value = attestation.verify(feature_repo, target)
-    resolved_config_digest = config.config_digest(
-        config.load_config(feature_repo).model_dump(mode="json")
-    )
-    agent.run("abort", "--force")
-
-    git("switch", "main", cwd=feature_repo)
-    write(feature_repo, "README.md", "# divergent base content\n")
-    divergent_base = commit_all(feature_repo, "create a different merge outcome")
-    git("switch", "feature/x", cwd=feature_repo)
-    attestation.write(
-        feature_repo,
-        value.model_copy(update={"merge_base_sha": divergent_base}),
-    )
-
-    assert (
-        attestation.reuse_exact(
-            feature_repo,
-            sha=target,
-            base_sha=fresh_base,
-            branch="feature/x",
-            base_ref="main",
-            intent="exercise the requested behavior safely",
-            config_digest=resolved_config_digest,
-        )
-        is None
-    )
-
-
 def test_a_different_user_intent_forces_a_fresh_review(feature_repo, tmp_path):
     agent = _green_run(feature_repo, tmp_path)
     head = git("rev-parse", "HEAD", cwd=feature_repo)
@@ -163,7 +102,7 @@ def test_a_different_docs_config_reuses_review_but_forces_fresh_docs(
     assert git("rev-parse", "HEAD", cwd=feature_repo) == head
 
 
-def test_reuse_paths_install_the_same_results_through_stage_transitions(
+def test_unchanged_attested_commit_imports_green_through_refresh(
     feature_repo, tmp_path, monkeypatch
 ):
     from agentic_preflight.machine import Action
@@ -177,7 +116,7 @@ def test_reuse_paths_install_the_same_results_through_stage_transitions(
     agent.run("start")
     _finish(agent, tmp_path)
     original = attestation.verify(feature_repo, "HEAD")
-    assert original.schema_version == 5
+    assert original.outcome == "verified"
     agent.run("abort", "--force")
     actions = []
     apply = _evidence_install._apply
@@ -189,6 +128,10 @@ def test_reuse_paths_install_the_same_results_through_stage_transitions(
     monkeypatch.setattr(_evidence_install, "_apply", tracked)
     env = ScriptedAgent(feature_repo).run("start")
     assert env["state"] == "TEST_GREEN"
+    assert set(env["data"]["applicability"]) == {stage.value for stage in Stage}
+    assert all(
+        result["disposition"] == "reusable" for result in env["data"]["applicability"].values()
+    )
     assert actions == [
         Action.SUBMIT_CLEAN,
         Action.BEGIN_DOCS,

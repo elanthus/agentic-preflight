@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import attestation as attestationmod
 from .. import gitx, risk, worktree
 from .. import sync as syncmod
 from ..config import config_digest, load_config
@@ -22,10 +21,9 @@ from ..errors import (
     OperationInProgress as OperationInProgressError,
 )
 from ..machine import TERMINAL_STATES, Action, State
-from ..models import Attestation, RunDoc, SetupFailure, Stage
+from ..models import RunDoc, SetupFailure
 from ..store import CurrentRunExists, UnknownRun
 from . import evidence
-from ._evidence_install import install_stage, stage_record
 from ._session import (
     Session,
     _apply,
@@ -36,20 +34,6 @@ from ._session import (
     _start_command,
     worktree_identity,
 )
-
-
-def _import_evidence_through_machine(doc: RunDoc, evidence: Attestation) -> None:
-    """Replay imported evidence through every load-bearing green transition."""
-    doc.stages = {
-        stage: stage_record(result, finished_at=evidence.green_at, head_sha=doc.head_sha)
-        for stage, result in evidence.stages.items()
-    }
-    _apply(doc, Action.SYNC_PASSED)
-    _apply(doc, Action.BEGIN_REVIEW)
-    for stage in Stage:
-        install_stage(doc, stage, doc.stages[stage])
-    _apply(doc, Action.BEGIN_MERGEBACK)
-    _apply(doc, Action.MERGEBACK_OK)
 
 
 def _orphan(session: Session, run: RunDoc, *, reason: str) -> None:
@@ -381,74 +365,6 @@ def start(
         raise EmptyDiff(
             "the branch has no changes after synchronizing with the fresh remote base",
             next_instruction="The requested change is already present upstream.",
-        )
-
-    reused_attestation = None
-    if in_place:
-        reused_attestation = attestationmod.reuse_exact(
-            repo,
-            sha=sync_result.head_after,
-            base_sha=sync_result.base_sha,
-            branch=branch,
-            base_ref=base_ref,
-            intent=intent,
-            config_digest=resolved_config_digest,
-        )
-        # Refresh-capable evidence must recheck declared non-Git inputs even
-        # when the commit identity has not changed. Keep the legacy v4 contract.
-        if reused_attestation is not None and attestationmod.has_refresh_evidence(
-            reused_attestation
-        ):
-            reused_attestation = None
-    if reused_attestation is not None:
-        assessment = risk.assess(
-            changed,
-            [],
-            policy=cfg.policy,
-            review_blocking_severities=cfg.review.blocking_severities,
-            docs_blocking_severities=cfg.docs.blocking_severities,
-        )
-        assessment = risk.include_attested_findings(assessment, reused_attestation.findings_summary)
-        with session.store.transaction(run_id) as doc:
-            doc.head_sha = sync_result.head_after
-            doc.source_head_sha = sync_result.head_after
-            doc.merge_base_sha = sync_result.base_sha
-            doc.sync_base_sha = sync_result.base_sha
-            doc.sync_base_ref = sync_result.base_ref
-            doc.sync_remote = sync_result.remote
-            doc.changed_files = changed
-            doc.risk = assessment
-            _import_evidence_through_machine(doc, reused_attestation)
-            run = doc
-        session.store.append_event(
-            run_id,
-            {
-                "event": "attestation_reused",
-                "sha": sync_result.head_after,
-                "base_sha": sync_result.base_sha,
-                "tree_sha": reused_attestation.tree_sha,
-            },
-        )
-        return _envelope_for(
-            run,
-            data={
-                "worktree_path": str(wt_path),
-                "worktree_branch": wt_branch,
-                "worktree_mode": cfg.worktree.mode,
-                "branch": branch,
-                "base_ref": base_ref,
-                "head_sha": sync_result.head_after,
-                "merge_base_sha": sync_result.base_sha,
-                "sync": sync_result.as_dict(),
-                "changed_files": changed,
-                "risk": assessment.model_dump(mode="json"),
-                "attestation_reused": True,
-            },
-            next_instruction=(
-                "The synchronized head still has its green attestation and contains the "
-                "fresh base. Green was preserved; open the gate."
-            ),
-            next_command="agentic-preflight gate",
         )
 
     copied = (

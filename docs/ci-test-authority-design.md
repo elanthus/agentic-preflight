@@ -7,7 +7,8 @@ commit: GitHub's merge of the current PR head with its current base.
 
 ## Two predicates
 
-`verify --purpose publish` accepts complete local evidence or schema 6 evidence
+`verify --purpose publish` accepts a schema version 7 `verified` outcome or a
+`tests_pending` outcome
 with review, docs, and lint satisfied and tests explicitly delegated. It does not
 say tests passed. The gate and pre-push hook use this predicate so the first push
 can create CI work. `verify` retains its complete-local default; it rejects a
@@ -16,12 +17,12 @@ predicate: it retrieves current GitHub evidence and combines it with local
 attestation validation and existing approval policy. Missing authority is pending
 or unavailable, never success. Publication authorization remains a separate gate.
 
-Schema 6 stores the protected CI policy declaration and its original base revision,
+The `tests_pending` outcome stores the protected CI policy declaration and its original base revision,
 plus the original local evidence for review, docs, and lint. Its test stage is
 `delegated`, with no command, exit code, output digest, execution time, or synthetic
 test evidence. `green_at` is null; `publication_ready_at` describes publication
-readiness. Schemas 4 and 5 retain their existing wire format. Schema 6 is emitted
-only when the protected base's committed CI policy authorizes delegation.
+readiness. It is emitted only when the protected base's committed CI policy authorizes
+delegation; `verified` uses the same schema with complete local test evidence.
 
 ## Protected execution and authority
 

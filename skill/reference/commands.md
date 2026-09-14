@@ -79,11 +79,8 @@ Before review, the command fetches the configured base from `origin` when availa
 rebases the validation checkout onto that exact fresh base. In-place mode therefore
 rebases the PR branch itself. A sync conflict is aborted
 cleanly and reported; no conflicted rebase is left in progress.
-If synchronization leaves the exact attested commit unchanged, the fresh base is already
-its ancestor, Git computes the same clean merge tree against the attestation's recorded
-base, and the effective configuration, user intent, branch, and base ref still match,
-legacy v4 `start` imports that evidence and returns `VERIFIED`.
-`start` classifies complete local evidence per stage and returns the next required
+`start` classifies complete local evidence per stage, including when synchronization
+leaves the exact attested commit unchanged, and returns the next required
 command. Equal base/head trees and matching context
 can preserve review and docs across rewritten commits. Shell stages require committed
 content contracts. Read `data.applicability`; `invalid` and `unknown` require a fresh
@@ -148,8 +145,8 @@ The review command inherits `[stage] timeout_seconds` and `max_attempts`. Non-ze
 timeout, malformed JSON, stale coverage, or invalid findings enter
 `REVIEW_COMMAND_RED` and consume one persisted attempt. A successful command records its
 configured command, zero exit code, and SHA-256 of redacted captured output alongside
-coverage in the schema-v4 attestation and its v5 successor. Changed review inputs require fresh command review;
-validated v5 derivation retains original process evidence and coverage provenance.
+coverage in the schema-v7 attestation. Changed review inputs require fresh command
+review; validated derivation retains original process evidence and coverage provenance.
 
 ### `agentic-preflight review compare [--file PATH]`
 Compares the run's accepted review submission with an independent second submission while
@@ -195,11 +192,12 @@ it to green. Exits 2 listing the outstanding blocking set if anything remains.
 With a SHA, validates the portable attestation in `refs/notes/agentic-preflight` for
 CI. It checks the note schema, exact commit and tree binding, complete stage set, and
 process evidence for green lint/test stages. Fetch the notes ref before calling it in
-a fresh clone. Schema v4 requires the review executor and, for command
-review, its command, zero exit code, and redacted output digest. A missing or invalid
-note exits 2. V5 additionally verifies original execution digests, Git and configuration
-bindings, stage applicability, finding dispositions, and original/current review-unit
-accounting. This remains an offline check; it does not execute stages or fetch evidence.
+a fresh clone. Schema v7 requires an explicit `verified` or `tests_pending` outcome,
+complete outcome-appropriate stage evidence, and the full configuration snapshot. It
+verifies original execution digests, Git and configuration bindings, stage applicability,
+finding dispositions, and original/current review-unit accounting. A missing, earlier,
+or invalid note exits 2. This remains an offline check; it does not execute stages or
+fetch evidence.
 
 ### `agentic-preflight hosted-check SHA --base SHA --source-remote NAME --head-ref refs/heads/BRANCH`
 Explicit trusted CI entry point. Requires the original event's full head/base SHAs and
@@ -338,7 +336,7 @@ Only `[gate] mode = "manual"` exits 4 and puts the literal `git push` command in
 
 ### `agentic-preflight push --confirm TOKEN [--dry-run]`
 Requires the token from `gate`. It first publishes the original-commit refs required
-by v5/v6 evidence under `refs/agentic-preflight/evidence/<SHA>`, then atomically pushes
+by attestation evidence under `refs/agentic-preflight/evidence/<SHA>`, then atomically pushes
 the branch and `refs/notes/agentic-preflight`. A dependency publication failure stops
 before the branch push; retained evidence refs are safe to retry. Gate summaries, manual commands, and
 dry runs disclose the complete refspecs. These evidence refs survive ordinary

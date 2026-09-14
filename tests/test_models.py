@@ -19,6 +19,7 @@ from agentic_preflight.models import (
     Stage,
     StageRecord,
 )
+from tests.attestation_helpers import make_attestation
 
 
 def _submission(**over):
@@ -170,26 +171,16 @@ def _attestation_stages():
 
 
 def test_attestation_requires_a_complete_stage_set_and_shell_evidence():
-    payload = {
-        "sha": "a" * 40,
-        "tree_sha": "b" * 40,
-        "branch": "feature/x",
-        "base_ref": "main",
-        "merge_base_sha": "c" * 40,
-        "intent_sha256": "d" * 64,
-        "config_sha256": "e" * 64,
-        "run_id": "r_test",
-        "green_at": "2026-01-01T00:00:00+00:00",
-        "stages": _attestation_stages(),
-    }
+    payload = make_attestation(stages=_attestation_stages()).model_dump(mode="json")
     attestation = Attestation(**payload)
-    assert attestation.schema_version == 4
+    assert attestation.schema_version == 7
+    assert attestation.outcome == "verified"
     assert attestation.stages[Stage.TEST].command == "pytest"
 
-    payload["schema_version"] = 3
+    payload["schema_version"] = 6
     with pytest.raises(ValidationError, match="schema_version"):
         Attestation(**payload)
-    payload["schema_version"] = 4
+    payload["schema_version"] = 7
 
     payload["stages"] = {**_attestation_stages(), Stage.TEST: AttestedStage(status="green")}
     with pytest.raises(ValidationError, match="lacks process evidence"):
@@ -199,18 +190,7 @@ def test_attestation_requires_a_complete_stage_set_and_shell_evidence():
 def test_attestation_allows_an_explicit_shell_stage_skip_without_fake_evidence():
     stages = _attestation_stages()
     stages[Stage.TEST] = AttestedStage(status="skipped", reason="docs-only change")
-    value = Attestation(
-        sha="a" * 40,
-        tree_sha="b" * 40,
-        branch="feature/docs",
-        base_ref="main",
-        merge_base_sha="c" * 40,
-        intent_sha256="d" * 64,
-        config_sha256="e" * 64,
-        run_id="r_test",
-        green_at="2026-01-01T00:00:00+00:00",
-        stages=stages,
-    )
+    value = make_attestation(stages=stages, branch="feature/docs")
     assert value.stages[Stage.TEST].output_sha256 is None
 
 
@@ -218,35 +198,16 @@ def test_attestation_rejects_a_skip_without_a_reason():
     stages = _attestation_stages()
     stages[Stage.TEST] = AttestedStage(status="skipped")
     with pytest.raises(ValidationError, match="lacks a reason"):
-        Attestation(
-            sha="a" * 40,
-            tree_sha="b" * 40,
-            branch="feature/docs",
-            base_ref="main",
-            merge_base_sha="c" * 40,
-            intent_sha256="d" * 64,
-            config_sha256="e" * 64,
-            run_id="r_test",
-            green_at="2026-01-01T00:00:00+00:00",
-            stages=stages,
-        )
+        make_attestation(stages=stages, branch="feature/docs")
 
 
 def test_command_review_attestation_requires_process_evidence():
     stages = _attestation_stages()
     review = stages[Stage.REVIEW]
     stages[Stage.REVIEW] = review.model_copy(update={"executor": "command"})
-    payload = {
-        "sha": "a" * 40,
-        "tree_sha": "b" * 40,
-        "branch": "feature/x",
-        "base_ref": "main",
-        "merge_base_sha": "c" * 40,
-        "intent_sha256": "d" * 64,
-        "config_sha256": "e" * 64,
-        "run_id": "r_test",
-        "green_at": "2026-01-01T00:00:00+00:00",
-        "stages": stages,
+    payload = make_attestation(stages=_attestation_stages()).model_dump(mode="json")
+    payload["stages"] = {
+        stage.value: value.model_dump(mode="json") for stage, value in stages.items()
     }
     with pytest.raises(ValidationError, match="command review lacks process evidence"):
         Attestation(**payload)
@@ -259,7 +220,39 @@ def test_command_review_attestation_requires_process_evidence():
             "output_sha256": "f" * 64,
         }
     )
+    payload["stages"]["review"] = stages[Stage.REVIEW].model_dump(mode="json")
+    payload["evidence"]["review"]["origin"]["result"] = payload["stages"]["review"]
+    payload["evidence"]["review"]["origin"]["fingerprint"]["executor"] = "command"
+    payload["evidence"]["review"]["fingerprint"]["executor"] = "command"
+    from agentic_preflight.digests import json_digest
+
+    payload["evidence"]["review"]["origin_sha256"] = json_digest(
+        payload["evidence"]["review"]["origin"]
+    )
     assert Attestation(**payload).stages[Stage.REVIEW].executor == "command"
+
+
+def test_attestation_requires_schema_version_and_explicit_outcome():
+    payload = make_attestation(stages=_attestation_stages()).model_dump(mode="json")
+    payload.pop("schema_version")
+    with pytest.raises(ValidationError, match="schema_version"):
+        Attestation.model_validate(payload)
+
+    payload = make_attestation(stages=_attestation_stages()).model_dump(mode="json")
+    payload.pop("outcome")
+    with pytest.raises(ValidationError, match="outcome"):
+        Attestation.model_validate(payload)
+
+
+@pytest.mark.parametrize("schema_version", [5, 6])
+def test_decode_rejects_old_attestation_notes(schema_version):
+    payload = make_attestation(stages=_attestation_stages()).model_dump(mode="json")
+    payload["schema_version"] = schema_version
+    import json
+
+    with pytest.raises(attestationmod.InvalidAttestation) as error:
+        attestationmod.decode(json.dumps(payload))
+    assert error.value.reason == "incompatible_schema"
 
 
 def test_attestation_build_refuses_to_invent_a_green_review_stage():

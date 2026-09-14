@@ -9,7 +9,7 @@ import pytest
 from agentic_preflight import attestation
 from agentic_preflight import note_availability as availability
 from agentic_preflight.envelope import ExitCode
-from agentic_preflight.models import Attestation
+from tests.attestation_helpers import make_attestation
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 from tests.test_approval import _stages
@@ -19,24 +19,18 @@ BASE = "b" * 40
 SNAPSHOTS = [str(i) * 40 for i in range(1, 5)]
 
 
-def evidence(head=HEAD, tree="c" * 40):
-    return Attestation(
-        sha=head,
-        tree_sha=tree,
-        branch="feature",
-        base_ref="main",
-        merge_base_sha=BASE,
-        intent_sha256="d" * 64,
-        config_sha256="e" * 64,
-        run_id="r_test",
-        green_at="2026-01-01T00:00:00+00:00",
-        stages=_stages(),
-        findings_summary={},
+def evidence(head=HEAD, tree="c" * 40, base=BASE):
+    return make_attestation(
+        stages=_stages(), sha=head, tree_sha=tree, merge_base_sha=base, branch="feature"
     )
 
 
 @pytest.fixture
 def remote(monkeypatch):
+    from agentic_preflight import refresh_validation
+
+    monkeypatch.setattr(refresh_validation, "verify_evidence", lambda *_: None)
+
     class FakeRemote:
         timeout = 30.0
         attempts = 0
@@ -73,6 +67,8 @@ def remote(monkeypatch):
             if ref.startswith("refs/heads/"):
                 type(self).attempts += 1
                 return self.fetch_head
+            if ref.startswith("refs/agentic-preflight/evidence/"):
+                return ref.rsplit("/", 1)[-1]
             return SNAPSHOTS[self.attempts - 1]
 
         def note(self, snapshot, head):
@@ -114,7 +110,7 @@ def test_only_absence_retries_selected_snapshot(remote, available_at):
     assert diag["attempts"][-1]["completion_head"] == HEAD
     assert diag["verifier_revision"] == BASE
     assert "SECRET" not in json.dumps(diag)
-    assert len(remote.cleanup) == 2
+    assert len(remote.cleanup) == 4
 
 
 @pytest.mark.parametrize("missing_ref", [True, False])
@@ -199,7 +195,12 @@ def test_unclassified_and_transport_failures_do_not_retry(remote, reason):
 
 
 @pytest.mark.parametrize("mode", ["verify", "peer_review", "environment", "manual_merge"])
-def test_git_snapshot_reads_remote_note_without_replacing_local_note(tmp_repo, tmp_path, mode):
+def test_git_snapshot_reads_remote_note_without_replacing_local_note(
+    tmp_repo, tmp_path, monkeypatch, mode
+):
+    from agentic_preflight import refresh_validation
+
+    monkeypatch.setattr(refresh_validation, "verify_evidence", lambda *_: None)
     if mode != "verify":
         write(
             tmp_repo,
@@ -211,7 +212,7 @@ def test_git_snapshot_reads_remote_note_without_replacing_local_note(tmp_repo, t
     write(tmp_repo, "src/new.py", "pass\n")
     head = commit_all(tmp_repo, "candidate")
     git("branch", "candidate", head, cwd=tmp_repo)
-    valid = evidence(head, git("rev-parse", f"{head}^{{tree}}", cwd=tmp_repo))
+    valid = evidence(head, git("rev-parse", f"{head}^{{tree}}", cwd=tmp_repo), base)
     attestation.write(tmp_repo, valid)
     source = tmp_path / "source.git"
     git("clone", "--bare", str(tmp_repo), str(source), cwd=tmp_repo)
@@ -373,7 +374,9 @@ def test_fetch_failure_never_uses_existing_note(remote, monkeypatch):
 def test_nested_git_failure_retains_safe_classification(remote, monkeypatch, validator):
     from agentic_preflight import ci_policy, refresh_validation
 
-    value = evidence().model_copy(update={"schema_version": 5 if validator == "refresh" else 6})
+    value = evidence().model_copy(
+        update={"outcome": "verified" if validator == "refresh" else "tests_pending"}
+    )
 
     def fail(*args):
         raise availability.gitx.GitError(["show", "SECRET"], 128, "SECRET transport failure")

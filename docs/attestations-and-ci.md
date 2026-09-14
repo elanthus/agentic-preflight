@@ -1,15 +1,15 @@
 # Portable attestations and CI enforcement
 
-Successful merge-back writes a versioned JSON attestation as a Git note on the exact
-commit. The version 4 note includes the run identity, commit and tree hashes, dedicated
-SHA-256 bindings for user intent and effective configuration, finding status and severity
-totals, and a complete stage set. Green lint and test stages include the exact command,
-exit code, and SHA-256 of the redacted captured output. Explicitly skipped stages say why
-and carry no invented process evidence. Version 5 adds per-stage fingerprints and
-original execution provenance for refresh. Version 6 permits explicit pending test
-delegation with complete local review/docs/lint evidence. Versions earlier than 4 are rejected.
+Successful merge-back writes a schema version 7 JSON attestation as a Git note on the
+exact commit. Every note includes an explicit `outcome`: `verified` means all local
+validation is complete, while `tests_pending` means review, docs, and lint are complete
+and tests are delegated to the recorded protected CI policy. Notes include the run
+identity, commit and tree hashes, dedicated SHA-256 bindings for user intent and the
+complete effective configuration snapshot, finding totals, stage fingerprints, and
+original execution provenance. Green shell stages include their command, exit code, and
+redacted-output digest; skipped stages say why. Earlier schema versions are rejected.
 
-`agentic-preflight push` first publishes the original-commit refs needed by v5/v6
+`agentic-preflight push` first publishes the original-commit refs needed by attestation
 evidence, then atomically pushes the branch and `refs/notes/agentic-preflight`.
 If publishing an original fails, the branch push does not start. An interrupted
 publication can leave retained evidence refs ready for a retry. Git
@@ -29,10 +29,10 @@ command, zero exit code, and output hash.
 
 ## Required GitHub check
 
-The verifier must support the schema emitted by the producer. Pin it to the same
+The verifier must support the schema emitted by the producer: schema version 7. Pin it to the same
 Agentic Preflight release, or to the same immutable source revision when validating
-attestations produced by an unreleased source build. Do not use a v0.3.0 verifier for a
-version 4 note: v0.3.0 accepts schema version 3, while current source accepts versions 4, 5, and 6.
+attestations produced by an unreleased source build. Earlier releases reject the current
+format, and the current verifier rejects notes from earlier releases.
 
 For locally completed 0.5.3 attestations, these are example steps for a GitHub Actions
 job with `contents: read` permissions. The checkout selects the attested head and its
@@ -106,7 +106,7 @@ It fetches notes into a temporary ref, records the actual notes commit, and read
 immutable tree. Strict verification and approval evaluation consume that same decoded
 note. A final head lookup must still match before success. Temporary refs are removed;
 the normal local notes ref is neither merged nor overwritten.
-For v5 evidence, missing original commits are fetched from exact
+For attestation evidence, missing original commits are fetched from exact
 `refs/agentic-preflight/evidence/<SHA>` refs in the same contributor remote and their
 identities are checked before verification. Missing or mismatched provenance is a
 permanent evidence/transport failure, not another missing-note retry.
@@ -194,7 +194,7 @@ next command. `status` resumes after interruption. Shell stages rerun unless
 their committed content contracts are satisfied. See the
 [fingerprint contract](fingerprint-contract.md) for supported inputs and limits.
 
-The new exact commit receives a v5 note. Reused stages retain original runs,
+The new exact commit receives a version 7 note. Reused stages retain original runs,
 commits, execution times, commands/output digests, findings, and review manifests.
 Refresh time is separate. The verifier recomputes available Git and policy
 bindings and validates every review unit before accepting transferred coverage.
@@ -208,10 +208,9 @@ by the selected note. Keep the publisher, hook, and protected verifier on the sa
 release before relying on this transport. For an older note, republish from a
 clone that retains its original commits; a note's hashes cannot recover lost data.
 
-Completed local runs emit v5 evidence when all stage provenance is available.
-Historical v4 notes without sufficient local fingerprints are not silently upgraded
-into reusable evidence. The tool never executes the PR's verifier with policy
-credentials.
+Every completed local run requires complete stage provenance before publication.
+Earlier notes are rejected rather than upgraded into reusable evidence. The tool never
+executes the PR's verifier with policy credentials.
 
 ## Delegating tests to trusted CI
 
@@ -223,12 +222,11 @@ CI delegation is opt-in. Publication and merge have separate verification purpos
 | `agentic-preflight verify HEAD --purpose publish` | Local publication requirements satisfied; delegated tests may still be pending. |
 | `agentic-preflight ci status --repo OWNER/REPO --pr 86` | Current published local evidence, trusted integration tests, and configured human merge policy are satisfied only when `merge_requirements_satisfied` is true. |
 
-Schema 6 has a `delegated` test stage with no command, exit code, output hash, or
-execution timestamp. `green_at` is null; `publication_ready_at` records when the
+The `tests_pending` outcome has a `delegated` test stage with no command, exit code,
+output hash, or execution timestamp. `green_at` is null; `publication_ready_at` records when the
 local publication requirements were satisfied. Three local stage origins preserve
 their actual execution provenance. The note includes the protected CI declaration
-and original policy revision, not a fabricated remote pass. Earlier consumers
-reject this schema.
+and original policy revision, not a fabricated remote pass.
 
 Install consumers before producers:
 
@@ -237,7 +235,7 @@ Install consumers before producers:
    Adapt the matrix and test commands in `preflight-tests.yml`, and the base branch
    in `preflight-ci.yml`. The templates assume this Python package's source is
    installed from that protected checkout. In another project, replace installation
-   with an immutable release/revision supporting schema 6. Do this in both workflows.
+   with an immutable release/revision supporting schema version 7. Do this in both workflows.
 2. Merge that consumer setup using complete local validation. Retrieve the numeric
    repository ID with `gh api repos/OWNER/REPO --jq .id` and the workflow ID with
    `gh api repos/OWNER/REPO/actions/workflows/preflight-tests.yml --jq .id`.

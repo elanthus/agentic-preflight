@@ -84,7 +84,7 @@ def test_history_only_restack_reuses_all_stages_without_execution(
     agent.run("start")
     _finish(agent, tmp_path)
     original = attestation.verify(feature_repo, "HEAD")
-    assert original.schema_version == 5
+    assert original.outcome == "verified"
     assert len(calls) == 2
     agent.run("abort", "--force")
     _restack(feature_repo)
@@ -123,7 +123,7 @@ def test_undeclared_shell_dependencies_rerun_only_shell_stages(feature_repo, tmp
     resumed.run("stage", "run", "lint")
     resumed.run("stage", "run", "test")
     resumed.run("mergeback")
-    assert attestation.verify(feature_repo, "HEAD").schema_version == 5
+    assert attestation.verify(feature_repo, "HEAD").outcome == "verified"
 
 
 def test_upstream_content_invalidates_review_even_with_an_unchanged_patch(feature_repo, tmp_path):
@@ -412,7 +412,7 @@ def test_three_branch_stack_refreshes_downstream_after_first_merge(
         result = agent.run("start", "--base-ref", base)
         assert result["state"] == "TEST_GREEN"
         agent.run("mergeback")
-        assert attestation.verify(feature_repo, "HEAD").schema_version == 5
+        assert attestation.verify(feature_repo, "HEAD").outcome == "verified"
         agent.run("abort", "--force")
     assert len(calls) == 4
 
@@ -518,7 +518,7 @@ def test_status_reloads_persisted_state_after_interrupted_reuse(feature_repo, mo
     assert status["data"]["applicability"]["review"]["reasons"] == ["inputs_unavailable"]
 
 
-def test_fresh_v5_stages_preserve_explicit_command_overrides(feature_repo, tmp_path):
+def test_fresh_verified_stages_preserve_explicit_command_overrides(feature_repo, tmp_path):
     _prepare(feature_repo, contracts=False)
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
@@ -534,7 +534,7 @@ def test_fresh_v5_stages_preserve_explicit_command_overrides(feature_repo, tmp_p
         agent.run("stage", "run", stage, "--command", override)
     assert agent.run("mergeback")["state"] == "VERIFIED"
     value = attestation.verify(feature_repo, "HEAD")
-    assert value.schema_version == 5
+    assert value.outcome == "verified"
     for stage in (Stage.LINT, Stage.TEST):
         assert value.stages[stage].command == override
         assert value.evidence[stage].origin.result.command == override
