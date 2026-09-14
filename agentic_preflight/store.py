@@ -225,7 +225,6 @@ class Store:
     # -- runs ----------------------------------------------------------------
 
     def create_run(self, run: RunDoc) -> RunDoc:
-        run.created_at = run.created_at or _utcnow()
         run.updated_at = run.created_at
         self.run_dir(run.run_id).mkdir(parents=True, exist_ok=True)
         _atomic_write(self.run_path(run.run_id), run.model_dump_json(indent=2))
