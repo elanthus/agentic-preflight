@@ -9,6 +9,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 - **Breaking:** Remove migration of the obsolete clone-wide active-run pointer; stray
   `current` files are ignored and left unchanged.
+- **Breaking:** Remove support for installing the pre-push hook into a plain directory;
+  hook installation now requires a Git repository.
 - **Breaking:** Remove protected-base consumer negotiation, including source-marker
   probing and the `[reuse]` schema-selection and `[ci]` consumer-version settings.
 - **Breaking:** Reject run records from earlier releases instead of migrating removed
