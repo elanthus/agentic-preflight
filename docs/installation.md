@@ -79,11 +79,10 @@ Merge polling and automatic post-merge cleanup now default to `false`; an existi
 explicit `[pr] automatedCleanup = true` remains enabled. Automatic PR creation and
 hosted-check monitoring are unchanged.
 
-Evidence refresh and CI delegation require compatible protected-base consumers before
-activation. Upgrade the publisher, hook installation, and trusted verifier together;
-follow the [consumer-first rollout](attestations-and-ci.md#evidence-reuse-across-rebases)
-and [CI delegation setup](attestations-and-ci.md#delegating-tests-to-trusted-ci).
-Existing default configurations continue to execute tests locally and emit schema 4.
+Upgrade the publisher, hook installation, and trusted verifier together, then follow
+the [CI delegation setup](attestations-and-ci.md#delegating-tests-to-trusted-ci) when
+enabling protected CI authority. Existing default configurations continue to execute
+tests locally.
 
 ## Scopes and other clients
 

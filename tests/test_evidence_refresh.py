@@ -1,4 +1,4 @@
-"""End-to-end refresh, provenance verification and producer/consumer rollout."""
+"""End-to-end refresh and provenance verification."""
 
 import json
 import sys
@@ -14,17 +14,7 @@ from tests.conftest import commit_all, git, set_home, write
 from tests.driver import ScriptedAgent
 
 
-def _prepare(repo, *, mode="in_place", contracts=True, consumer=True, commands_in_repo=True):
-    if consumer:
-        git("switch", "main", cwd=repo)
-        write(
-            repo,
-            "agentic_preflight/refresh_validation.py",
-            "# consumer\nREFRESH_WIRE_VERSION = 5\n",
-        )
-        commit_all(repo, "install protected-base consumer")
-        git("switch", "feature/x", cwd=repo)
-        git("rebase", "main", cwd=repo)
+def _prepare(repo, *, mode="in_place", contracts=True, commands_in_repo=True):
     command = json.dumps(f'"{sys.executable}" -c "print(1)"')
     body = f'[worktree]\nmode = "{mode}"\n'
     if commands_in_repo:
@@ -134,22 +124,6 @@ def test_undeclared_shell_dependencies_rerun_only_shell_stages(feature_repo, tmp
     resumed.run("stage", "run", "test")
     resumed.run("mergeback")
     assert attestation.verify(feature_repo, "HEAD").schema_version == 5
-
-
-def test_old_protected_base_gets_legacy_format_and_fresh_stages(feature_repo, tmp_path):
-    _prepare(feature_repo, consumer=False)
-    agent = ScriptedAgent(feature_repo)
-    agent.run("start")
-    _finish(agent, tmp_path)
-    original = attestation.verify(feature_repo, "HEAD")
-    assert original.schema_version == 4
-    payload = json.loads(attestation.encode(original))
-    assert "evidence" not in payload
-    assert "config_snapshot" not in payload
-    agent.run("abort", "--force")
-    _restack(feature_repo)
-    result = ScriptedAgent(feature_repo).run("start")
-    assert result["state"] == "REVIEW_AWAITING_FINDINGS"
 
 
 def test_upstream_content_invalidates_review_even_with_an_unchanged_patch(feature_repo, tmp_path):
@@ -378,19 +352,6 @@ def test_another_linked_source_worktree_cannot_borrow_evidence(feature_repo, tmp
     result = ScriptedAgent(other).run("start")
     assert result["state"] == "REVIEW_AWAITING_FINDINGS"
     assert result["data"]["applicability"]["review"]["reasons"] == ["fingerprint_missing"]
-
-
-def test_protected_configuration_enables_refresh_in_other_repositories(feature_repo, tmp_path):
-    git("switch", "main", cwd=feature_repo)
-    write(feature_repo, ".agentic-preflight.toml", "[reuse]\nattestation_schema = 5\n")
-    commit_all(feature_repo, "declare the deployed trusted consumer")
-    git("switch", "feature/x", cwd=feature_repo)
-    git("rebase", "main", cwd=feature_repo)
-    _prepare(feature_repo, consumer=False)
-    agent = ScriptedAgent(feature_repo)
-    agent.run("start")
-    _finish(agent, tmp_path)
-    assert attestation.verify(feature_repo, "HEAD").schema_version == 5
 
 
 def test_a_repair_reclassifies_preserved_later_evidence(feature_repo, tmp_path, monkeypatch):
