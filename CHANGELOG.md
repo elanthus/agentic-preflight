@@ -7,6 +7,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Removed
 
+- **Breaking:** Remove the legacy no-op `[review] require_fix_commits` and
+  `[worktree] ttl_hours` configuration fields; configurations that still set either
+  field now fail validation as unknown keys.
 - **Breaking:** Remove migration of the obsolete clone-wide active-run pointer; stray
   `current` files are ignored and left unchanged.
 - **Breaking:** Remove the obsolete `model_calls` compatibility field from public smoke
