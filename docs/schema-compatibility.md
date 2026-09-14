@@ -15,17 +15,14 @@ note formats or consumer rollout should use this contract with
 | 6 | Publication ready with tests pending in trusted CI | Local review/docs/lint evidence, configuration snapshot, delegation, publication time | Null `green_at`; no synthetic test execution |
 
 Decoding preserves the recorded version. Unknown versions, extra fields and
-cross-version evidence remain errors. Configuration snapshots retain their exact
-digest contract: default `[ci]` is omitted; non-default CI policy is included.
-No new configuration defaults or snapshot fields are introduced by this refactor.
+cross-version evidence remain errors.
 
 ## Decision
 
 Keep one normalized model for callers. Move version-specific validation, wire
 encoding/decoding, and producer schema selection into `wire_schema.py`.
 Shared stage validation stays on the model. This avoids three largely duplicated
-models and keeps existing construction and error handling compatible. A small
-configuration compatibility helper owns omission of default CI snapshots.
+models and keeps existing construction and error handling compatible.
 
 Evidence refresh is available whenever a run has complete stage provenance. CI
 delegation remains independently controlled by protected CI policy, proposed-policy
