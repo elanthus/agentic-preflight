@@ -11,10 +11,8 @@ from .cli_ci import ci
 from .cli_integrations import register as register_integrations
 from .cli_policy import register as register_policy
 from .cli_runs import register as register_runs
-from .cli_support import as_error, command, fail
+from .cli_support import as_error, fail
 from .envelope import ExitCode
-
-__all__ = ["command", "main"]
 
 
 def _use_utf8_streams() -> None:
