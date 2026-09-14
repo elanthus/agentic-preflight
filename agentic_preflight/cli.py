@@ -6,11 +6,13 @@ import sys
 
 import click
 
+from . import gitx
 from .cli_ci import ci
 from .cli_integrations import register as register_integrations
 from .cli_policy import register as register_policy
 from .cli_runs import register as register_runs
-from .cli_support import command
+from .cli_support import as_error, command, fail
+from .envelope import ExitCode
 
 __all__ = ["command", "main"]
 
@@ -44,6 +46,10 @@ def _use_utf8_streams() -> None:
 def main(ctx: click.Context, run_id: str | None) -> None:
     """Agent-driven quality gate. Every command prints one JSON object."""
     _use_utf8_streams()
+    try:
+        gitx.require_minimum_version()
+    except gitx.GitVersionError as exc:
+        fail(as_error("unsupported_git_version", str(exc), ExitCode.USAGE))
     ctx.ensure_object(dict)
     ctx.obj["run_id"] = run_id
 
