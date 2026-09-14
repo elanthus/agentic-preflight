@@ -148,9 +148,7 @@ def test_automated_cleanup_can_be_enabled(tmp_repo, tmp_path):
 
 def test_automated_cleanup_rejects_the_camel_case_key(tmp_repo, tmp_path):
     old_key = "automated" + "Cleanup"
-    (tmp_repo / ".agentic-preflight.toml").write_text(
-        f"[pr]\nmode = 'auto'\n{old_key} = true\n"
-    )
+    (tmp_repo / ".agentic-preflight.toml").write_text(f"[pr]\nmode = 'auto'\n{old_key} = true\n")
     with pytest.raises(ConfigError, match=rf"unknown key 'pr\.{old_key}'"):
         load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
 
