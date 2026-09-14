@@ -2,8 +2,6 @@
 
 import hashlib
 
-import pytest
-
 from agentic_preflight import attestation, config
 from tests.conftest import commit_all, git, set_home, write
 from tests.driver import ScriptedAgent
@@ -40,7 +38,7 @@ def test_attestation_uses_dedicated_intent_and_config_bindings(feature_repo, tmp
     assert value.findings_summary == {}
 
 
-def test_start_preserves_green_when_the_attested_head_already_contains_the_fresh_base(
+def test_start_rechecks_refresh_evidence_when_attested_head_contains_fresh_base(
     feature_repo, tmp_path
 ):
     agent = _green_run(feature_repo, tmp_path)
@@ -53,35 +51,9 @@ def test_start_preserves_green_when_the_attested_head_already_contains_the_fresh
     git("update-ref", "refs/heads/main", fresh_base, old_main, cwd=feature_repo)
 
     env = ScriptedAgent(feature_repo).run("start")
-    assert env["state"] == "VERIFIED"
-    assert env["next"]["command"] == "agentic-preflight gate"
-    assert env["data"]["attestation_reused"] is True
-    assert "reused_from_sha" not in env["data"]
-    assert git("rev-parse", "HEAD", cwd=feature_repo) == head
-
-
-def test_legacy_consumer_requires_a_fresh_run_after_a_history_only_rebase(feature_repo, tmp_path):
-    """Keep the historical regression for bases that cannot consume v5 yet.
-
-    The enabled, three-mode reuse expectation is covered in test_evidence_refresh.
-    """
-    agent = _green_run(feature_repo, tmp_path)
-    old_head = git("rev-parse", "HEAD", cwd=feature_repo)
-    agent.run("abort", "--force")
-    agent.run("gc")
-
-    main = git("rev-parse", "main", cwd=feature_repo)
-    main_tree = git("rev-parse", "main^{tree}", cwd=feature_repo)
-    new_main = git("commit-tree", main_tree, "-p", main, "-m", "empty upstream", cwd=feature_repo)
-    git("update-ref", "refs/heads/main", new_main, main, cwd=feature_repo)
-
-    env = ScriptedAgent(feature_repo).run("start")
     assert env["state"] == "REVIEW_AWAITING_FINDINGS"
     assert "attestation_reused" not in env["data"]
-
-    new_head = git("rev-parse", "HEAD", cwd=feature_repo)
-    assert new_head != old_head
-    assert attestation.read(feature_repo, new_head) is None
+    assert git("rev-parse", "HEAD", cwd=feature_repo) == head
 
 
 def test_exact_attestation_requires_the_fresh_base_to_be_an_ancestor(feature_repo, tmp_path):
@@ -156,7 +128,9 @@ def test_a_different_user_intent_forces_a_fresh_review(feature_repo, tmp_path):
     assert git("rev-parse", "HEAD", cwd=feature_repo) == head
 
 
-def test_a_different_effective_config_forces_a_fresh_review(feature_repo, tmp_path, monkeypatch):
+def test_a_different_docs_config_reuses_review_but_forces_fresh_docs(
+    feature_repo, tmp_path, monkeypatch
+):
     home = tmp_path / "home"
     set_home(monkeypatch, home)
     user_config = home / ".config" / "agentic-preflight" / "config.toml"
@@ -184,13 +158,13 @@ def test_a_different_effective_config_forces_a_fresh_review(feature_repo, tmp_pa
 
     user_config.write_text("[docs]\nenabled = true\n")
     env = ScriptedAgent(feature_repo).run("start")
-    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert env["state"] == "REVIEW_GREEN"
+    assert env["next"]["command"] == "agentic-preflight context --section docs"
     assert git("rev-parse", "HEAD", cwd=feature_repo) == head
 
 
-@pytest.mark.parametrize("consumer", [False, True], ids=["exact-v4", "refresh-v5"])
 def test_reuse_paths_install_the_same_results_through_stage_transitions(
-    feature_repo, tmp_path, monkeypatch, consumer
+    feature_repo, tmp_path, monkeypatch
 ):
     from agentic_preflight.machine import Action
     from agentic_preflight.models import Stage
@@ -198,12 +172,12 @@ def test_reuse_paths_install_the_same_results_through_stage_transitions(
     from agentic_preflight.store import Store
     from tests.test_evidence_refresh import _finish, _prepare
 
-    _prepare(feature_repo, consumer=consumer)
+    _prepare(feature_repo)
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     _finish(agent, tmp_path)
     original = attestation.verify(feature_repo, "HEAD")
-    assert original.schema_version == (5 if consumer else 4)
+    assert original.schema_version == 5
     agent.run("abort", "--force")
     actions = []
     apply = _evidence_install._apply
@@ -214,7 +188,7 @@ def test_reuse_paths_install_the_same_results_through_stage_transitions(
 
     monkeypatch.setattr(_evidence_install, "_apply", tracked)
     env = ScriptedAgent(feature_repo).run("start")
-    assert env["state"] == ("TEST_GREEN" if consumer else "VERIFIED")
+    assert env["state"] == "TEST_GREEN"
     assert actions == [
         Action.SUBMIT_CLEAN,
         Action.BEGIN_DOCS,
@@ -231,17 +205,8 @@ def test_reuse_paths_install_the_same_results_through_stage_transitions(
         for field in ("status", "command", "reason", "exit_code", "output_sha256"):
             assert getattr(record, field) == getattr(result, field)
         assert record.head_sha == original.sha
-        if consumer:
-            assert original.evidence is not None
-            assert run.evidence[stage].origin == original.evidence[stage].origin
-            assert record.executor == result.executor
-            assert record.finished_at == original.evidence[stage].origin.finished_at.isoformat()
-        else:
-            assert record.finished_at == original.green_at
-            assert record.executor is None
-            assert record.fingerprint is None
-    if consumer:
-        assert run.review_coverage is not None
-    else:
-        assert run.review_coverage is None
-        assert run.evidence == {}
+        assert original.evidence is not None
+        assert run.evidence[stage].origin == original.evidence[stage].origin
+        assert record.executor == result.executor
+        assert record.finished_at == original.evidence[stage].origin.finished_at.isoformat()
+    assert run.review_coverage is not None

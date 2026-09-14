@@ -20,13 +20,8 @@ Schema 6 stores the protected CI policy declaration and its original base revisi
 plus the original local evidence for review, docs, and lint. Its test stage is
 `delegated`, with no command, exit code, output digest, execution time, or synthetic
 test evidence. `green_at` is null; `publication_ready_at` describes publication
-readiness. Schemas 4 and 5 retain their existing wire format. Old consumers reject
-schema 6. An explicit schema-6 consumer declaration must already be committed to
-the protected base before a producer may delegate.
-The committed `[ci] consumer_schema = 6` declaration also advertises support for
-CI configuration snapshots without enabling delegation when `test_authority` is
-`local`. Declaration precedence and the bounded compatibility fallback are defined
-in [schema compatibility](schema-compatibility.md).
+readiness. Schemas 4 and 5 retain their existing wire format. Schema 6 is emitted
+only when the protected base's committed CI policy authorizes delegation.
 
 ## Protected execution and authority
 

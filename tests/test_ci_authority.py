@@ -16,7 +16,6 @@ NOW = datetime(2026, 9, 6, tzinfo=UTC)
 POLICY = """
 [ci]
 test_authority = "github_actions"
-consumer_schema = 6
 repository_id = 10
 workflow_id = 20
 check_app_id = 30
@@ -370,7 +369,6 @@ def test_no_run_and_api_outage_are_not_success():
     [
         {"repository_id": None},
         {"workflow_id": None},
-        {"consumer_schema": None},
         {"required_jobs": []},
         {"required_jobs": ["prepare"]},
         {"required_jobs": ["x", "x"]},
