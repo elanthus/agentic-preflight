@@ -1,8 +1,7 @@
-# Project evidence and engineering notes
+# Engineering notes and evidence
 
-This page collects the evaluation, implementation, and differentiation material that a
-portfolio or resume reviewer may want when assessing Agentic Preflight. Product users
-should start with the [README](../README.md).
+This page collects the evaluation, implementation, and differentiation material behind
+Agentic Preflight. Product users should start with the [README](../README.md).
 
 ## Sustained dogfooding
 
