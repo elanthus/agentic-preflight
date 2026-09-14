@@ -136,7 +136,126 @@ def _reset_non_equivalent_merge_to_review(
     return run
 
 
-def mergeback(session: Session) -> Envelope:  # noqa: C901  # tracked in #141
+def _check_dirty_paths(session: Session, run: RunDoc, *, in_place: bool) -> None:
+    """Reject only dirt that the selected mergeback mode cannot preserve."""
+    repo = session.repo_root
+    if in_place:
+        if not gitx.is_clean(repo):
+            raise DirtyTree(
+                "the in-place validation checkout has uncommitted changes",
+                state=run.state.value,
+                run_id=run.run_id,
+                next_instruction="Commit an intended repair and re-run the affected stages.",
+                next_command="git status",
+            )
+        return
+    affected_paths = gitx.changed_paths_in_commits(run.worktree_path or repo, run.fix_commits)
+    overlapping = gitx.status_for_paths(repo, affected_paths)
+    if overlapping:
+        raise DirtyTree(
+            "the working tree has changes on paths mergeback would overwrite",
+            state=run.state.value,
+            run_id=run.run_id,
+            data={"affected_paths": affected_paths, "overlapping_status": overlapping},
+            next_instruction=(
+                "Commit or stash the reported overlapping paths, then merge back. "
+                "Unrelated tracked and untracked files may remain."
+            ),
+            next_command="git status",
+        )
+
+
+def _record_attempt(
+    session: Session, run: RunDoc, *, in_place: bool, retrying_conflict: bool
+) -> RunDoc:
+    """Record the exact source and validation snapshots before mutation."""
+    if run.state not in {State.TEST_GREEN, State.TEST_DELEGATED, State.MERGEBACK_CONFLICT}:
+        return run
+    repo = session.repo_root
+    if gitx.current_branch(repo) != run.branch:
+        raise StaleRun("mergeback requires the recorded source branch")
+    source_sha = gitx.rev_parse(repo, "HEAD")
+    rebased_tree = None
+    if (
+        not in_place
+        and source_sha == run.source_head_sha
+        and not gitx.is_ancestor(repo, run.sync_base_sha or run.merge_base_sha, source_sha)
+    ):
+        rebased_tree = gitx.tree_sha(_require_worktree(run), run.head_sha)
+    attempt = MergebackAttempt(
+        source_sha=source_sha,
+        validation_sha=gitx.rev_parse(_require_worktree(run), "HEAD"),
+        validation_tree=gitx.tree_sha(_require_worktree(run)),
+        rebased_tree=rebased_tree,
+        retrying_conflict=retrying_conflict,
+    )
+    with session.store.transaction(run.run_id) as doc:
+        doc.mergeback_attempt = attempt
+        _apply(doc, Action.MERGEBACK_RETRY if retrying_conflict else Action.BEGIN_MERGEBACK)
+        return doc
+
+
+def _perform_merge(
+    session: Session,
+    run: RunDoc,
+    *,
+    in_place: bool,
+    retrying_conflict: bool,
+    recovered: mergebackmod.MergebackResult | None,
+) -> mergebackmod.MergebackResult:
+    """Produce the source result from recovery, in-place validation, or isolated fixes."""
+    repo = session.repo_root
+    if recovered is not None:
+        return recovered
+    if in_place:
+        current = gitx.rev_parse(repo, "HEAD")
+        tree = gitx.tree_sha(repo, "HEAD")
+        return mergebackmod.MergebackResult(
+            pre_sha=current,
+            post_sha=current,
+            applied=[],
+            local_tree_sha=tree,
+            worktree_tree_sha=tree,
+        )
+    worktree_path = _require_worktree(run)
+    worktree_branch = run.worktree_branch
+    if worktree_branch is None:
+        raise NeedsHuman(
+            "the active run has no validation branch",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+    sync_base = run.sync_base_sha or run.merge_base_sha
+    if not gitx.is_ancestor(repo, sync_base, "HEAD"):
+        if not gitx.is_clean(repo):
+            raise DirtyTree(
+                "the source worktree must be clean before rebasing onto the synchronized base",
+                state=run.state.value,
+                run_id=run.run_id,
+                next_instruction="Commit or stash the changes, then retry mergeback.",
+                next_command="git status",
+            )
+        syncmod.rebase_onto(repo, sync_base)
+    local_tree = gitx.tree_sha(repo)
+    verified_tree = gitx.tree_sha(worktree_path)
+    branch_moved = gitx.rev_parse(repo, "HEAD") != run.source_head_sha
+    if retrying_conflict and (local_tree == verified_tree or branch_moved):
+        return mergebackmod.MergebackResult(
+            pre_sha=gitx.rev_parse(repo, "HEAD"),
+            post_sha=gitx.rev_parse(repo, "HEAD"),
+            applied=[],
+            local_tree_sha=local_tree,
+            worktree_tree_sha=verified_tree,
+        )
+    return mergebackmod.cherry_pick_fixes(
+        repo,
+        run.fix_commits,
+        worktree_branch=worktree_branch,
+        worktree_path=worktree_path,
+    )
+
+
+def mergeback(session: Session) -> Envelope:
     """Attest in-place validation or merge isolated fixes onto the source branch."""
     run = _load_current(session)
     in_place = _is_in_place(run)
@@ -179,107 +298,17 @@ def mergeback(session: Session) -> Envelope:  # noqa: C901  # tracked in #141
         command="mergeback",
     )
 
-    if in_place:
-        if not gitx.is_clean(repo):
-            raise DirtyTree(
-                "the in-place validation checkout has uncommitted changes",
-                state=run.state.value,
-                run_id=run.run_id,
-                next_instruction="Commit an intended repair and re-run the affected stages.",
-                next_command="git status",
-            )
-    else:
-        affected_paths = gitx.changed_paths_in_commits(run.worktree_path or repo, run.fix_commits)
-        overlapping = gitx.status_for_paths(repo, affected_paths)
-        if overlapping:
-            raise DirtyTree(
-                "the working tree has changes on paths mergeback would overwrite",
-                state=run.state.value,
-                run_id=run.run_id,
-                data={"affected_paths": affected_paths, "overlapping_status": overlapping},
-                next_instruction=(
-                    "Commit or stash the reported overlapping paths, then merge back. "
-                    "Unrelated tracked and untracked files may remain."
-                ),
-                next_command="git status",
-            )
-
-    if run.state in {State.TEST_GREEN, State.TEST_DELEGATED, State.MERGEBACK_CONFLICT}:
-        if gitx.current_branch(repo) != run.branch:
-            raise StaleRun("mergeback requires the recorded source branch")
-        source_sha = gitx.rev_parse(repo, "HEAD")
-        # head_sha is the synchronized validation baseline before isolated fixes.
-        # Only the unchanged original source can borrow that expected rebase tree.
-        rebased_tree = None
-        if (
-            not in_place
-            and source_sha == run.source_head_sha
-            and not gitx.is_ancestor(repo, run.sync_base_sha or run.merge_base_sha, source_sha)
-        ):
-            rebased_tree = gitx.tree_sha(_require_worktree(run), run.head_sha)
-        attempt = MergebackAttempt(
-            source_sha=source_sha,
-            validation_sha=gitx.rev_parse(_require_worktree(run), "HEAD"),
-            validation_tree=gitx.tree_sha(_require_worktree(run)),
-            rebased_tree=rebased_tree,
-            retrying_conflict=retrying_conflict,
-        )
-        with session.store.transaction(run.run_id) as doc:
-            doc.mergeback_attempt = attempt
-            _apply(doc, Action.MERGEBACK_RETRY if retrying_conflict else Action.BEGIN_MERGEBACK)
-            run = doc
+    _check_dirty_paths(session, run, in_place=in_place)
+    run = _record_attempt(session, run, in_place=in_place, retrying_conflict=retrying_conflict)
 
     try:
-        if recovered is not None:
-            result = recovered
-        elif in_place:
-            current = gitx.rev_parse(repo, "HEAD")
-            tree = gitx.tree_sha(repo, "HEAD")
-            result = mergebackmod.MergebackResult(
-                pre_sha=current,
-                post_sha=current,
-                applied=[],
-                local_tree_sha=tree,
-                worktree_tree_sha=tree,
-            )
-        else:
-            worktree_path = _require_worktree(run)
-            worktree_branch = run.worktree_branch
-            if worktree_branch is None:
-                raise NeedsHuman(
-                    "the active run has no validation branch",
-                    state=run.state.value,
-                    run_id=run.run_id,
-                )
-            sync_base = run.sync_base_sha or run.merge_base_sha
-            if not gitx.is_ancestor(repo, sync_base, "HEAD"):
-                if not gitx.is_clean(repo):
-                    raise DirtyTree(
-                        "the source worktree must be clean before rebasing onto the synchronized base",
-                        state=run.state.value,
-                        run_id=run.run_id,
-                        next_instruction="Commit or stash the changes, then retry mergeback.",
-                        next_command="git status",
-                    )
-                syncmod.rebase_onto(repo, sync_base)
-            local_tree = gitx.tree_sha(repo)
-            verified_tree = gitx.tree_sha(worktree_path)
-            branch_moved = gitx.rev_parse(repo, "HEAD") != run.source_head_sha
-            if retrying_conflict and (local_tree == verified_tree or branch_moved):
-                result = mergebackmod.MergebackResult(
-                    pre_sha=gitx.rev_parse(repo, "HEAD"),
-                    post_sha=gitx.rev_parse(repo, "HEAD"),
-                    applied=[],
-                    local_tree_sha=local_tree,
-                    worktree_tree_sha=verified_tree,
-                )
-            else:
-                result = mergebackmod.cherry_pick_fixes(
-                    repo,
-                    run.fix_commits,
-                    worktree_branch=worktree_branch,
-                    worktree_path=worktree_path,
-                )
+        result = _perform_merge(
+            session,
+            run,
+            in_place=in_place,
+            retrying_conflict=retrying_conflict,
+            recovered=recovered,
+        )
     except gitx.OperationInProgress as exc:
         raise OperationInProgressError(
             exc.operation,

@@ -33,7 +33,36 @@ from .review_coverage import reopen_if_stale
 RESPONSE_ACTIONS = ("fixed", "dismissed", "accepted")
 
 
-def respond(  # noqa: C901  # tracked in #141
+def _validate_response(
+    session: Session,
+    run: RunDoc,
+    target,
+    finding_id: str,
+    action: str,
+    commit: str | None,
+    note: str | None,
+) -> str | None:
+    """Validate action-specific evidence and normalize the fix commit."""
+    if action == "fixed":
+        if not commit:
+            raise InvalidResponse(
+                f"resolving {finding_id} as fixed requires --commit <sha> naming the "
+                f"commit that fixes it",
+                state=run.state.value,
+                run_id=run.run_id,
+            )
+        return _verify_fix_commit(session, run, target, commit)
+    if not note:
+        raise InvalidResponse(
+            f"resolving {finding_id} as {action} requires --note explaining why; "
+            f"an unexplained dismissal is indistinguishable from an oversight",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+    return commit
+
+
+def respond(
     session: Session,
     *,
     finding_id: str,
@@ -79,22 +108,7 @@ def respond(  # noqa: C901  # tracked in #141
             run_id=run.run_id,
         )
 
-    if action == "fixed":
-        if not commit:
-            raise InvalidResponse(
-                f"resolving {finding_id} as fixed requires --commit <sha> naming the "
-                f"commit that fixes it",
-                state=run.state.value,
-                run_id=run.run_id,
-            )
-        commit = _verify_fix_commit(session, run, target, commit)
-    elif not note:
-        raise InvalidResponse(
-            f"resolving {finding_id} as {action} requires --note explaining why; "
-            f"an unexplained dismissal is indistinguishable from an oversight",
-            state=run.state.value,
-            run_id=run.run_id,
-        )
+    commit = _validate_response(session, run, target, finding_id, action, commit, note)
 
     new_commits = (
         _in_place_fix_commits(session, run, commit)

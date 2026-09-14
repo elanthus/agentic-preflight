@@ -177,7 +177,38 @@ def context(session: Session, *, section: str = "review") -> Envelope:
     return envelope
 
 
-def submit_findings(  # noqa: C901  # tracked in #141
+def _parse_stage_submission(session: Session, run: RunDoc, stage: Stage, payload, bundle):
+    """Parse review coverage or enforce the docs submission boundary."""
+    submissions, coverage_manifest = review_protocol.parse_submission(payload, stage=stage)
+    manifest = None
+    coverage = None
+    if stage is Stage.REVIEW:
+        manifest = review_protocol.grounded_manifest(session, run, bundle)
+        submissions, coverage = review_coverage.validate(
+            submissions,
+            manifest=manifest,
+            submitted_manifest=coverage_manifest,
+        )
+        coverage = coverage.model_copy(update={"grounding_sha256": manifest.grounding_sha256})
+    elif any(submission.unit is not None for submission in submissions):
+        raise InvalidFindings("docs findings cannot cite review units")
+    return submissions, manifest, coverage
+
+
+def _findings_next_hint(envelope: Envelope, blocking, actionable) -> None:
+    """Select the next finding-resolution instruction."""
+    if blocking:
+        envelope.next_instruction = "Resolve each blocking finding with `respond`."
+        envelope.next_command = _respond_command(blocking[0].id)
+    elif actionable:
+        envelope.next_instruction = (
+            "This stage is green, but an auto-fix finding is still open. Fix it, "
+            "or record why it is not worth fixing with `--action accepted --note`."
+        )
+        envelope.next_command = _respond_command(actionable[0].id)
+
+
+def submit_findings(
     session: Session,
     payload,
     *,
@@ -210,19 +241,7 @@ def submit_findings(  # noqa: C901  # tracked in #141
         )
     worktree_path = _require_worktree(run)
     bundle = review_protocol.bundle_for(session, run)
-    submissions, coverage_manifest = review_protocol.parse_submission(payload, stage=stage)
-    manifest = None
-    coverage = None
-    if stage is Stage.REVIEW:
-        manifest = review_protocol.grounded_manifest(session, run, bundle)
-        submissions, coverage = review_coverage.validate(
-            submissions,
-            manifest=manifest,
-            submitted_manifest=coverage_manifest,
-        )
-        coverage = coverage.model_copy(update={"grounding_sha256": manifest.grounding_sha256})
-    elif any(submission.unit is not None for submission in submissions):
-        raise InvalidFindings("docs findings cannot cite review units")
+    submissions, manifest, coverage = _parse_stage_submission(session, run, stage, payload, bundle)
     existing = session.store.load_findings(run.run_id)
     stage_fingerprint = evidence.fingerprint(session, run, stage)
     if stage is Stage.DOCS:
@@ -346,16 +365,7 @@ def submit_findings(  # noqa: C901  # tracked in #141
         },
         blocking=[f.model_dump(mode="json") for f in blocking],
     )
-    if blocking:
-        envelope.next_instruction = "Resolve each blocking finding with `respond`."
-        envelope.next_command = _respond_command(blocking[0].id)
-    else:
-        if actionable:
-            envelope.next_instruction = (
-                "This stage is green, but an auto-fix finding is still open. Fix it, "
-                "or record why it is not worth fixing with `--action accepted --note`."
-            )
-            envelope.next_command = _respond_command(actionable[0].id)
+    _findings_next_hint(envelope, blocking, actionable)
     return envelope
 
 

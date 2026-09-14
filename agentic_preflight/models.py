@@ -415,8 +415,61 @@ class Attestation(BaseModel):
             raise ValueError("schema_version must be the JSON integer 7")
         return value
 
+    def _required_evidence(self, required: set[Stage]) -> set[Stage]:
+        """Validate the outcome-specific fields and return its evidence set."""
+        if self.outcome == "verified":
+            if (
+                self.green_at is None
+                or self.publication_ready_at is not None
+                or self.test_delegation is not None
+                or any(item.status == "delegated" for item in self.stages.values())
+            ):
+                raise ValueError("verified outcome requires completed local validation")
+            return required
+        if (
+            self.green_at is not None
+            or self.publication_ready_at is None
+            or self.test_delegation is None
+            or self.stages[Stage.TEST].status != "delegated"
+            or any(
+                item.status == "delegated"
+                for stage, item in self.stages.items()
+                if stage is not Stage.TEST
+            )
+        ):
+            raise ValueError(
+                "tests_pending outcome requires explicit test delegation and publication time"
+            )
+        return required - {Stage.TEST}
+
+    @staticmethod
+    def _validate_stage_evidence(stage: Stage, evidence: AttestedStage) -> None:
+        """Validate process, coverage, and skip evidence for one stage."""
+        process_fields = (evidence.command, evidence.exit_code, evidence.output_sha256)
+        if stage is Stage.REVIEW:
+            if evidence.executor is None:
+                raise ValueError("green review stage lacks executor evidence")
+            if evidence.executor == "command":
+                if not evidence.command or evidence.exit_code != 0 or not evidence.output_sha256:
+                    raise ValueError("command review lacks process evidence")
+            elif any(value is not None for value in process_fields):
+                raise ValueError("in-harness review cannot carry process evidence")
+        elif stage in {Stage.LINT, Stage.TEST} and evidence.status == "green":
+            if not evidence.command or evidence.exit_code != 0 or not evidence.output_sha256:
+                raise ValueError(f"green {stage.value} stage lacks process evidence")
+        elif any(value is not None for value in process_fields):
+            raise ValueError(
+                f"{stage.value} stage cannot carry process evidence with status {evidence.status}"
+            )
+        if stage is not Stage.REVIEW and evidence.coverage is not None:
+            raise ValueError(f"{stage.value} stage cannot carry review coverage")
+        if stage is not Stage.REVIEW and evidence.executor is not None:
+            raise ValueError(f"{stage.value} stage cannot carry review executor")
+        if evidence.status == "skipped" and not evidence.reason:
+            raise ValueError(f"skipped {stage.value} stage lacks a reason")
+
     @model_validator(mode="after")
-    def complete_evidence(self) -> Attestation:  # noqa: C901  # tracked in #141
+    def complete_evidence(self) -> Attestation:
         required = set(Stage)
         if set(self.stages) != required:
             missing = sorted(stage.value for stage in required - set(self.stages))
@@ -426,31 +479,7 @@ class Attestation(BaseModel):
             raise ValueError("review stage must be green")
         if self.stages[Stage.REVIEW].coverage is None:
             raise ValueError("green review stage lacks coverage evidence")
-        if self.outcome == "verified":
-            if (
-                self.green_at is None
-                or self.publication_ready_at is not None
-                or self.test_delegation is not None
-                or any(item.status == "delegated" for item in self.stages.values())
-            ):
-                raise ValueError("verified outcome requires completed local validation")
-            required_evidence = required
-        else:
-            if (
-                self.green_at is not None
-                or self.publication_ready_at is None
-                or self.test_delegation is None
-                or self.stages[Stage.TEST].status != "delegated"
-                or any(
-                    item.status == "delegated"
-                    for stage, item in self.stages.items()
-                    if stage is not Stage.TEST
-                )
-            ):
-                raise ValueError(
-                    "tests_pending outcome requires explicit test delegation and publication time"
-                )
-            required_evidence = required - {Stage.TEST}
+        required_evidence = self._required_evidence(required)
         if json_digest(self.config_snapshot) != self.config_sha256:
             raise ValueError("configuration does not match its digest")
         if set(self.evidence) != required_evidence:
@@ -458,37 +487,7 @@ class Attestation(BaseModel):
         if any(item.origin.stage != stage for stage, item in self.evidence.items()):
             raise ValueError("evidence is attached to the wrong stage")
         for stage, evidence in self.stages.items():
-            process_fields = (
-                evidence.command,
-                evidence.exit_code,
-                evidence.output_sha256,
-            )
-            if stage is Stage.REVIEW:
-                if evidence.executor is None:
-                    raise ValueError("green review stage lacks executor evidence")
-                if evidence.executor == "command":
-                    if (
-                        not evidence.command
-                        or evidence.exit_code != 0
-                        or not evidence.output_sha256
-                    ):
-                        raise ValueError("command review lacks process evidence")
-                elif any(value is not None for value in process_fields):
-                    raise ValueError("in-harness review cannot carry process evidence")
-            elif stage in {Stage.LINT, Stage.TEST} and evidence.status == "green":
-                if not evidence.command or evidence.exit_code != 0 or not evidence.output_sha256:
-                    raise ValueError(f"green {stage.value} stage lacks process evidence")
-            elif any(value is not None for value in process_fields):
-                raise ValueError(
-                    f"{stage.value} stage cannot carry process evidence with "
-                    f"status {evidence.status}"
-                )
-            if stage is not Stage.REVIEW and evidence.coverage is not None:
-                raise ValueError(f"{stage.value} stage cannot carry review coverage")
-            if stage is not Stage.REVIEW and evidence.executor is not None:
-                raise ValueError(f"{stage.value} stage cannot carry review executor")
-            if evidence.status == "skipped" and not evidence.reason:
-                raise ValueError(f"skipped {stage.value} stage lacks a reason")
+            self._validate_stage_evidence(stage, evidence)
         return self
 
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import shlex
-from typing import TypedDict
+from typing import NoReturn, TypedDict
 
 from .. import gitx, worktree
 from ..attestation import output_digest
@@ -244,7 +244,118 @@ def _check_attempt_limit(
         )
 
 
-def run_stage(  # noqa: C901  # tracked in #141
+def _prepare_output_protection(
+    session: Session,
+    run: RunDoc,
+    stage_name: str,
+    worktree_path: str,
+    command: str | None,
+    *,
+    record: bool,
+    baseline: bool,
+):
+    """Capture copied-file secrets or map capture failure to the stage protocol."""
+    try:
+        return protected_output.OutputProtection.capture(worktree_path, run.copied_files)
+    except shellstage.SecretRedactionError as exc:
+        retry = ["agentic-preflight", "stage", "run", stage_name]
+        if command is not None:
+            retry.extend(("--command", command))
+        if record:
+            retry.append("--record")
+        if baseline:
+            retry.append("--baseline")
+        raise StageFailed(
+            f"the {stage_name} stage cannot run because copied-file redaction is unavailable",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=stage_name,
+            data={"copied_file": str(exc.path)},
+            next_instruction=(
+                "Restore the reported copied file as readable text, or remove it from "
+                "[worktree] copy_files, then retry the stage."
+            ),
+            next_command=shlex.join(retry),
+        ) from exc
+
+
+def _persist_stage_result(
+    session: Session,
+    run: RunDoc,
+    stage: Stage,
+    spec: _StageSpec,
+    resolved: str,
+    result: shellstage.StageResult,
+    clean_output: str,
+    log_path,
+    redaction_failure_reason: str | None,
+    input_fingerprint,
+) -> RunDoc:
+    """Persist the completed local result in its original transaction boundary."""
+    wt = _require_worktree(run)
+    with session.store.transaction(run.run_id) as doc:
+        entry = doc.stages.get(stage) or StageRecord()
+        entry.command = resolved
+        entry.reason = redaction_failure_reason
+        entry.exit_code = result.exit_code
+        entry.output_sha256 = output_digest(clean_output)
+        entry.log_path = str(log_path)
+        entry.status = "green" if result.passed else "red"
+        entry.finished_at = _now()
+        entry.head_sha = gitx.rev_parse(wt, "HEAD")
+        entry.fingerprint = input_fingerprint
+        doc.evidence.pop(stage, None)
+        if not result.passed:
+            entry.attempts += 1
+        doc.stages[stage] = entry
+        _apply(doc, spec["passed"] if result.passed else spec["failed"])
+        return doc
+
+
+def _stage_failure(
+    run: RunDoc,
+    stage_name: str,
+    result: shellstage.StageResult,
+    data: dict,
+    redaction_failure_reason: str | None,
+    redaction_error,
+    baseline_red,
+) -> NoReturn:
+    """Raise the failure variant selected by output protection and baseline status."""
+    message = f"the {stage_name} stage failed (exit {result.exit_code})"
+    instruction = "Read the log, fix the cause in the worktree, commit, then re-run the stage."
+    if redaction_failure_reason is not None:
+        message = (
+            f"the {stage_name} stage output was withheld because a copied file changed "
+            "during execution"
+            if redaction_error is None
+            else f"the {stage_name} stage output was withheld because redaction became unavailable"
+        )
+        instruction = (
+            "Restore every copied file to its intended contents, then retry the stage. "
+            "Commands must not rewrite [worktree] copy_files."
+        )
+    elif baseline_red:
+        message = (
+            f"the {stage_name} stage failed, but the base commit fails it too — "
+            f"this is pre-existing, not caused by the diff"
+        )
+        instruction = (
+            "The base commit already fails this stage, so the change under review is "
+            "not responsible. Tell the user rather than trying to fix it here."
+        )
+    raise StageFailed(
+        message,
+        state=run.state.value,
+        run_id=run.run_id,
+        stage=stage_name,
+        data=data,
+        next_instruction=instruction,
+        next_command=f"agentic-preflight logs --stage {stage_name}",
+    )
+
+
+def run_stage(
     session: Session,
     stage_name: str,
     *,
@@ -306,28 +417,15 @@ def run_stage(  # noqa: C901  # tracked in #141
 
     _check_attempt_limit(session, run, stage, record_entry)
     resolved = _resolve_command(session, run, stage_name, command)
-    try:
-        protection = protected_output.OutputProtection.capture(worktree_path, run.copied_files)
-    except shellstage.SecretRedactionError as exc:
-        retry = ["agentic-preflight", "stage", "run", stage_name]
-        if command is not None:
-            retry.extend(("--command", command))
-        if record:
-            retry.append("--record")
-        if baseline:
-            retry.append("--baseline")
-        raise StageFailed(
-            f"the {stage_name} stage cannot run because copied-file redaction is unavailable",
-            state=run.state.value,
-            run_id=run.run_id,
-            stage=stage_name,
-            data={"copied_file": str(exc.path)},
-            next_instruction=(
-                "Restore the reported copied file as readable text, or remove it from "
-                "[worktree] copy_files, then retry the stage."
-            ),
-            next_command=shlex.join(retry),
-        ) from exc
+    protection = _prepare_output_protection(
+        session,
+        run,
+        stage_name,
+        worktree_path,
+        command,
+        record=record,
+        baseline=baseline,
+    )
 
     with session.store.transaction(run.run_id) as doc:
         _apply(doc, spec["retry"] if doc.state is spec["red"] else spec["run"])
@@ -376,23 +474,18 @@ def run_stage(  # noqa: C901  # tracked in #141
             update={"unavailable": ReasonCode.INPUTS_UNAVAILABLE, "inputs_sha256": None}
         )
 
-    with session.store.transaction(run.run_id) as doc:
-        entry = doc.stages.get(stage) or StageRecord()
-        entry.command = resolved
-        entry.reason = redaction_failure_reason
-        entry.exit_code = result.exit_code
-        entry.output_sha256 = output_digest(clean_output)
-        entry.log_path = str(log_path)
-        entry.status = "green" if result.passed else "red"
-        entry.finished_at = _now()
-        entry.head_sha = gitx.rev_parse(wt, "HEAD")
-        entry.fingerprint = input_fingerprint
-        doc.evidence.pop(stage, None)
-        if not result.passed:
-            entry.attempts += 1
-        doc.stages[stage] = entry
-        _apply(doc, spec["passed"] if result.passed else spec["failed"])
-        run = doc
+    run = _persist_stage_result(
+        session,
+        run,
+        stage,
+        spec,
+        resolved,
+        result,
+        clean_output,
+        log_path,
+        redaction_failure_reason,
+        input_fingerprint,
+    )
 
     session.store.append_event(
         run.run_id,
@@ -420,37 +513,14 @@ def run_stage(  # noqa: C901  # tracked in #141
         run = evidence.advance(session, run)
         return _envelope_for(run, stage=stage_name, data=data)
 
-    message = f"the {stage_name} stage failed (exit {result.exit_code})"
-    instruction = "Read the log, fix the cause in the worktree, commit, then re-run the stage."
-    if redaction_failure_reason is not None:
-        message = (
-            f"the {stage_name} stage output was withheld because a copied file changed "
-            "during execution"
-            if redaction_error is None
-            else f"the {stage_name} stage output was withheld because redaction became unavailable"
-        )
-        instruction = (
-            "Restore every copied file to its intended contents, then retry the stage. "
-            "Commands must not rewrite [worktree] copy_files."
-        )
-    elif baseline_red:
-        message = (
-            f"the {stage_name} stage failed, but the base commit fails it too — "
-            f"this is pre-existing, not caused by the diff"
-        )
-        instruction = (
-            "The base commit already fails this stage, so the change under review is "
-            "not responsible. Tell the user rather than trying to fix it here."
-        )
-
-    raise StageFailed(
-        message,
-        state=run.state.value,
-        run_id=run.run_id,
-        stage=stage_name,
-        data=data,
-        next_instruction=instruction,
-        next_command=f"agentic-preflight logs --stage {stage_name}",
+    _stage_failure(
+        run,
+        stage_name,
+        result,
+        data,
+        redaction_failure_reason,
+        redaction_error,
+        baseline_red,
     )
 
 
