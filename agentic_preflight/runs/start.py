@@ -417,13 +417,14 @@ def start(
                 doc.changed_files = changed
                 doc.risk = assessment
                 doc.setup_failure = failure
+                _apply(doc, Action.SETUP_FAILED)
             session.store.append_event(
                 run_id,
                 {"event": "setup_failed", **failure.model_dump(mode="json")},
             )
             raise SetupFailed(
                 f"the setup command failed (exit {completed.returncode})",
-                state=State.SYNC_RUNNING.value,
+                state=State.SETUP_FAILED.value,
                 run_id=run_id,
                 stage="setup",
                 data={"worktree_path": str(wt_path), "setup": setup_result},

@@ -283,7 +283,6 @@ class RunDoc(BaseModel):
 
     stale: bool = False
     orphaned_reason: str | None = None
-    superseded_by: str | None = None
     gate_token: str | None = None
     pushed_sha: str | None = None
     test_delegation: TestDelegation | None = None

@@ -537,6 +537,7 @@ def test_gc_retains_unreadable_resources_and_collects_other_runs(
         git("worktree", "add", "-b", f"ap/{run_id}", str(wt), "main", cwd=feature_repo)
         run = make_run(run_id)
         run.state = State.DONE
+        run.pushed_sha = run.head_sha
         run.worktree_path = str(wt)
         run.worktree_branch = f"ap/{run_id}"
         run.config_snapshot = {"worktree": {"mode": "strict"}}
@@ -593,6 +594,7 @@ def test_gc_cleanup_failures_still_surface(feature_repo, monkeypatch):
     store = runs.open_session(feature_repo).store
     run = make_run()
     run.state = State.DONE
+    run.pushed_sha = run.head_sha
     run.worktree_path = str(feature_repo)
     store.create_run(run)
 

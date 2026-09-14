@@ -18,6 +18,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - Removed Python API: `install_integrations`, `uninstall_integrations`, and the
   `agentic_preflight.cli.command` re-export.
 - Eval report `method_version` is now `public-smoke-v4`; `model_calls` was removed.
+- Removed the unused `RunDoc.superseded_by` field.
 
 ### Removed
 
@@ -64,6 +65,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- Record an initial setup failure as `SETUP_FAILED` instead of leaving the run in
+  `SYNC_RUNNING`.
 - Classify run records with configuration snapshots that no longer validate as
   unsupported saved data, preserving the records and their work for inspection.
 - Allow changed lint inputs to invalidate completed lint through the state machine.
@@ -77,6 +80,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Added
 
+- Run-record invariant checks on every write.
 - Failure-injection coverage for local record installation, process interruption,
   merge-back and successful remote publication before local state persistence.
 - A maintainer guide separating state-machine ordering guarantees from evidence

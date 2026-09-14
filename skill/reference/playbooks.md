@@ -142,8 +142,9 @@ Unity `-runTests` invocation exits 0 having run zero tests.
 ## Setup failed (exit 2, `setup_failed`)
 
 Run `status` and obey its durable recovery command. An initial checkout setup failure
-returns `abort --force`; use it so reusable or strict worktrees cannot retain the active
-lease. A baseline setup failure returns the exact lint or test retry, including the
+is recorded as `SETUP_FAILED` and returns `abort --force`; use it so reusable or strict
+worktrees cannot retain the active lease. A baseline setup failure remains in its stage's
+red state and returns the exact lint or test retry, including the
 resolved command and `--baseline`. It does not have a stage log because the stage never
 ran, so do not replace that recovery with `logs --stage`.
 

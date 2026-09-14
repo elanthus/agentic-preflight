@@ -11,8 +11,9 @@ workflow or diagnosing an interrupted run.
 ## Flow and ownership
 
 ```text
-sync -> review -> documentation -> lint -> local tests -> merge-back -> VERIFIED
-                                     \-> delegated tests -> merge-back -> PUBLICATION_READY
+sync -- setup failure --> SETUP_FAILED -> abort
+  \-- setup passes --> review -> documentation -> lint -> local tests -> merge-back -> VERIFIED
+                                               \-> delegated tests -> merge-back -> PUBLICATION_READY
 
 VERIFIED or PUBLICATION_READY -> gate -> push -> finish
 ```
@@ -41,9 +42,13 @@ external commands or reviewer judgment; integration and failure-injection tests
 cover those separate obligations.
 
 `RunDoc` contains both lifecycle state and supporting evidence. Its schema validates
-record structure, not every relationship between those fields. Coordinators must
-check the relevant invariants before choosing a transition. Adding an action to
-the table without those checks does not make that action safe.
+record structure, while `run_invariants.py` checks their lifecycle relationships on
+every transaction write. Reads are not checked so recovery can inspect a record that
+the current version would refuse to write. Coordinators must still establish the
+evidence needed before choosing a transition. Adding an action to the table without
+those checks does not make that action safe. `stale` is the one lifecycle flag
+deliberately kept outside the enum because it can annotate many states and always means
+"start again."
 
 ## Local record commits
 

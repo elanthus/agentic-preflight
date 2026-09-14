@@ -306,7 +306,7 @@ stops — do not improvise a recovery from the symptom alone.
 | Unreadable shared run record | Preserve the record and ownership; inspect its path |
 | Diff too large (exit 2, `diff_too_large`) | Exclude generated globs; never review part of it |
 | No command configured (exit 2, `needs_command`) | Show candidates; require user selection and approval; distrust the first green |
-| Setup failed (exit 2, `setup_failed`) | Obey `status`: abort initial setup or preserve the baseline retry |
+| Setup failed (exit 2, `setup_failed`) | Obey `status`: abort `SETUP_FAILED` initial setup or preserve the baseline retry |
 | Stage far slower than normal | Check `[worktree] mode` before raising `max_attempts` |
 | Copy refused (exit 3) | `copy_files` entry is not gitignored; do not work around it |
 | Stage reports zero files to work on | Check whether `worktree_path` is under `.git/` |
