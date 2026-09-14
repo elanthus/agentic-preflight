@@ -72,6 +72,7 @@ def test_finding_carries_the_code_assigned_identity():
 
 def test_run_doc_round_trips_through_json():
     run = RunDoc(
+        schema_version=2,
         run_id="r_abc123",
         state=State.CREATED,
         branch="feature/x",
@@ -102,6 +103,22 @@ def test_run_doc_round_trips_through_json():
     assert restored.risk.level is RiskLevel.HIGH
     assert restored.setup_failure is not None
     assert restored.setup_failure.stage is Stage.LINT
+
+
+def test_run_doc_requires_schema_version():
+    raw = RunDoc(
+        schema_version=2,
+        run_id="r_abc123",
+        state=State.CREATED,
+        branch="feature/x",
+        base_ref="main",
+        merge_base_sha="a" * 40,
+        head_sha="b" * 40,
+    ).model_dump(mode="json")
+    raw.pop("schema_version")
+
+    with pytest.raises(ValidationError, match="schema_version"):
+        RunDoc.model_validate(raw)
 
 
 def _attestation_stages():
@@ -228,6 +245,7 @@ def test_attestation_build_refuses_to_invent_a_green_review_stage():
         clean_units=["U0001"],
     )
     run = RunDoc(
+        schema_version=2,
         run_id="r_test",
         state=State.TEST_GREEN,
         branch="feature/x",

@@ -11,7 +11,6 @@ class CISection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     test_authority: Literal["local", "github_actions"] = "local"
-    consumer_schema: Literal[6] | None = None
     repository_id: int | None = Field(default=None, gt=0)
     base_branch: str = "main"
     workflow_id: int | None = Field(default=None, gt=0)
@@ -26,8 +25,7 @@ class CISection(BaseModel):
     @model_validator(mode="after")
     def validate_authority(self) -> CISection:
         if self.test_authority == "github_actions" and (
-            self.consumer_schema != 6
-            or self.repository_id is None
+            self.repository_id is None
             or self.workflow_id is None
             or self.check_app_id is None
             or not self.base_branch.strip()
@@ -38,8 +36,8 @@ class CISection(BaseModel):
             )
         ):
             raise ValueError(
-                "CI delegation requires consumer_schema=6, repository/workflow/check-app IDs, "
-                "a base branch, and unique required test jobs (prepare/approval are reserved)"
+                "CI delegation requires repository/workflow/check-app IDs, a base branch, "
+                "and unique required test jobs (prepare/approval are reserved)"
             )
         return self
 

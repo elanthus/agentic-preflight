@@ -8,7 +8,6 @@ from pathlib import Path
 from . import gitx
 from .ci_models import TestDelegation
 from .config import Config
-from .consumer_capabilities import consumer_installed as consumer_installed
 from .models import Attestation
 
 
