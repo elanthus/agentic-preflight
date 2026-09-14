@@ -236,7 +236,7 @@ class RunDoc(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: int = 1
+    schema_version: Literal[2]
     run_id: str
     seq: int = 0
     state: State

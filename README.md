@@ -29,7 +29,7 @@ adoption or a count of distinct bugs. Read the
 
 ## Quickstart
 
-You need Git 2.30+, Python 3.11 through 3.13, and
+You need Git 2.38+, Python 3.11 through 3.13, and
 [`uv`](https://docs.astral.sh/uv/getting-started/installation/). Install the CLI and the
 integrations for the coding agents you use:
 
@@ -228,7 +228,7 @@ before relying on attestations or evidence reuse for policy enforcement.
 
 - A supported macOS, Linux, or Windows and Python combination from the
   [compatibility policy](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/COMPATIBILITY.md)
-- Git 2.30+
+- Git 2.38+
 - A POSIX shell when a configured command needs shell interpretation or its program
   cannot be resolved directly; on Windows, Git for Windows provides it
 - `gh` when the agent will create pull requests, inspect hosted checks, or verify merges
