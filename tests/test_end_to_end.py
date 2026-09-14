@@ -27,6 +27,12 @@ def findings_json(tmp_path, items):
     return str(path)
 
 
+def docs_findings_json(tmp_path, items):
+    path = tmp_path / "docs-findings.json"
+    path.write_text(json.dumps({"findings": items}))
+    return str(path)
+
+
 def test_the_full_happy_path(feature_repo, bare_remote, tmp_path):
     """review -> docs -> lint -> test -> mergeback -> gate -> push -> finish."""
     write(feature_repo, ".agentic-preflight.toml", CONFIG)
@@ -50,7 +56,7 @@ def test_the_full_happy_path(feature_repo, bare_remote, tmp_path):
     env = agent.run("context", "--section", "docs")
     assert env["data"]["doc_surface"]
 
-    env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    env = agent.run("submit-findings", "--file", docs_findings_json(tmp_path, []))
     assert env["state"] == "DOCS_GREEN"
 
     assert agent.run("stage", "run", "lint")["state"] == "LINT_GREEN"
@@ -138,7 +144,12 @@ def test_every_step_obeys_the_next_pointer(feature_repo, tmp_path):
             break
         argv = command.replace("agentic-preflight ", "").split()
         if argv[0] == "submit-findings":
-            argv = ["submit-findings", "--file", empty]
+            submission = (
+                docs_findings_json(tmp_path, [])
+                if env["state"] == "DOCS_AWAITING_FINDINGS"
+                else empty
+            )
+            argv = ["submit-findings", "--file", submission]
         env = agent.run(*argv)
         seen_states.append(env["state"])
 
@@ -159,7 +170,7 @@ def test_seq_increases_monotonically_across_a_run(feature_repo, tmp_path):
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     agent.run("context", "--section", "docs")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", docs_findings_json(tmp_path, []))
     seqs.append(agent.run("status")["data"]["seq"])
 
     assert seqs == sorted(seqs)
@@ -188,7 +199,7 @@ def test_finding_ids_are_never_reused_across_stages(feature_repo, tmp_path):
     agent.run(
         "submit-findings",
         "--file",
-        findings_json(
+        docs_findings_json(
             tmp_path,
             [
                 {"path": "README.md", "severity": "low", "action": "no_op", "title": "c"},

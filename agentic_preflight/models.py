@@ -150,6 +150,14 @@ class ReviewSubmission(BaseModel):
     findings: list[FindingSubmission]
 
 
+class DocsSubmission(BaseModel):
+    """Strict docs-stage payload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    findings: list[FindingSubmission]
+
+
 class ReviewCoverage(BaseModel):
     """Code-derived evidence that every unit in one diff snapshot was disposed."""
 

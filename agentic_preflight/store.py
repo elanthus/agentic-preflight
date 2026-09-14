@@ -207,11 +207,6 @@ class Store:
         return self.run_dir(run_id) / "logs"
 
     @property
-    def current_path(self) -> Path:
-        """The pre-v0.6 repository-wide pointer retained for migration."""
-        return self.root / "current"
-
-    @property
     def active_dir(self) -> Path:
         return self.root / "active"
 
@@ -490,31 +485,6 @@ class Store:
             if active_run_id == run_id and self.clear_active_if(owner_id, run_id):
                 cleared.append(owner_id)
         return cleared
-
-    def migrate_legacy_current(self, owner_id: str) -> str | None:
-        """Move the old clone-wide pointer to the invoking worktree once."""
-        with filelock.exclusive(self.root / ".current.lock"):
-            try:
-                run_id = self.current_path.read_text(encoding="utf-8").strip()
-            except FileNotFoundError:
-                return self.get_active(owner_id)
-            if not run_id:
-                self.current_path.unlink(missing_ok=True)
-                return self.get_active(owner_id)
-            try:
-                self.load_run(run_id)
-            except RunReadError:
-                # Do not rewrite even legacy ownership for an unreadable run.
-                return self.get_active(owner_id) or run_id
-            except UnknownRun:
-                pass  # Preserve established missing-pointer recovery.
-            with self._active_lock(owner_id):
-                current = self.get_active(owner_id)
-                if current is None:
-                    self._set_active_unlocked(owner_id, run_id)
-                    current = run_id
-            self.current_path.unlink(missing_ok=True)
-            return current
 
     @contextmanager
     def operation(self, run_id: str) -> Iterator[None]:
