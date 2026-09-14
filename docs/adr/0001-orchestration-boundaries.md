@@ -58,6 +58,23 @@ path.
 These helpers depend on shared session and state primitives, not the coordinator. Local
 result persistence and response construction stay in `runs/stages.py`.
 
+### Start boundary
+
+- `runs/start.py:start` is a thin coordinator that invokes the start phases in order.
+- `_check_preconditions` loads configuration and validates the source checkout.
+- `_resolve_existing_run` resumes, orphans, or rejects the active run as appropriate.
+- `_require_changes` resolves the merge base and rejects an empty source diff.
+- `_create_run_record` persists and claims the new run before validation work begins.
+- `_provision_validation_checkout` creates or acquires the configured checkout and claims
+  its ownership alias.
+- `_synchronize` updates the validation checkout against the authoritative base and handles
+  synchronization failures.
+- `_run_setup_command` copies configured files, assesses risk, and runs initial setup.
+- `_prime_review` persists the synchronized run, emits readiness, and advances evidence.
+
+The ordering and extent of every store transaction in these phases is part of the durable
+crash-recovery contract. Phase changes must not merge, split, or reorder those boundaries.
+
 ### CLI boundary
 
 - `cli.py` defines the root group and registers command families.
