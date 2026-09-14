@@ -72,7 +72,6 @@ class ReasonCode(StrEnum):
     CONTRACT_UNDECLARED = "contract_undeclared"
     CONFIG_UNSUPPORTED = "config_unsupported"
     FINDINGS_UNRESOLVED = "findings_unresolved"
-    CONSUMER_UNAVAILABLE = "consumer_unavailable"
     PROVENANCE_INVALID = "provenance_invalid"
 
 

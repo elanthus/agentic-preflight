@@ -9,6 +9,17 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 - **Breaking:** Remove the obsolete `model_calls` compatibility field from public smoke
   evaluation summaries and advance their method version to `public-smoke-v4`.
+- **Breaking:** Remove support for installing the pre-push hook into a plain directory;
+  hook installation now requires a Git repository.
+- **Breaking:** Remove protected-base consumer negotiation, including source-marker
+  probing and the `[reuse]` schema-selection and `[ci]` consumer-version settings.
+- **Breaking:** Reject run records from earlier releases instead of migrating removed
+  hosted pull-request lifecycle fields and states during loading.
+
+### Changed
+
+- **Breaking:** Require Git 2.38 or newer and remove the index-based fallback for
+  computing merge trees.
 
 ### Fixed
 
