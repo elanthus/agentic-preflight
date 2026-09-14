@@ -150,6 +150,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
                 State.CREATED,
                 State.WORKTREE_READY,
                 State.SYNC_RUNNING,
+                State.SETUP_FAILED,
             }
             stale = not start_in_progress and _head_moved(session, run) is not None
             abandoned_reason = None
@@ -514,7 +515,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             base_ref=run.base_ref,
             default_base_ref=session.config.general.base_ref,
         )
-    elif run.setup_failure is not None:
+    elif run.setup_failure is not None and run.setup_failure.scope == "baseline":
         envelope.next_instruction = run.setup_failure.next_instruction
         envelope.next_command = run.setup_failure.next_command
     elif run.state is State.MERGEBACK_CONFLICT:

@@ -369,6 +369,14 @@ class Store:
 
             yield run
 
+            # Import locally so run_invariants can expose a StoreError subtype
+            # without creating a module-import cycle.
+            from .run_invariants import RunInvariantViolation, violations
+
+            failed = violations(run)
+            if failed:
+                raise RunInvariantViolation(run_id, failed)
+
             run.seq += 1
             run.updated_at = _utcnow()
             if findings is None:

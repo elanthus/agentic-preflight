@@ -24,6 +24,7 @@ class State(StrEnum):
     WORKTREE_READY = "WORKTREE_READY"
     SYNC_RUNNING = "SYNC_RUNNING"
     SYNC_CONFLICT = "SYNC_CONFLICT"
+    SETUP_FAILED = "SETUP_FAILED"
     SYNC_GREEN = "SYNC_GREEN"
 
     REVIEW_AWAITING_FINDINGS = "REVIEW_AWAITING_FINDINGS"
@@ -62,6 +63,7 @@ class Action(StrEnum):
     BEGIN_SYNC = "BEGIN_SYNC"
     SYNC_PASSED = "SYNC_PASSED"
     SYNC_FAILED = "SYNC_FAILED"
+    SETUP_FAILED = "SETUP_FAILED"
     BEGIN_REVIEW = "BEGIN_REVIEW"
 
     SUBMIT_CLEAN = "SUBMIT_CLEAN"
@@ -193,9 +195,15 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         _STATUS,
         (_A.SYNC_PASSED, _S.SYNC_GREEN),
         (_A.SYNC_FAILED, _S.SYNC_CONFLICT),
+        (_A.SETUP_FAILED, _S.SETUP_FAILED),
     ),
     _S.SYNC_CONFLICT: _state(
         "The fresh-base rebase conflicted. Preserve the report and restart.",
+        "agentic-preflight abort --force",
+    ),
+    _S.SETUP_FAILED: _state(
+        "The validation checkout's setup command failed. Fix the command or its "
+        "environment, then abort this run and start a fresh one.",
         "agentic-preflight abort --force",
     ),
     _S.SYNC_GREEN: _state(

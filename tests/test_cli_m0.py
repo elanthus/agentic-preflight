@@ -90,7 +90,7 @@ def test_start_stops_when_the_setup_command_fails(agent, feature_repo):
     assert env["data"]["setup"]["exit_code"] == 7
     assert env["next"]["command"] == "agentic-preflight abort --force"
     status = agent.run("status")
-    assert status["state"] == "SYNC_RUNNING"
+    assert status["state"] == "SETUP_FAILED"
     assert status["data"]["setup_failure"]["scope"] == "initial"
     assert status["data"]["setup_failure"]["exit_code"] == 7
     assert status["next"]["command"] == "agentic-preflight abort --force"

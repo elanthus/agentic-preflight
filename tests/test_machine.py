@@ -21,6 +21,11 @@ def test_sync_is_load_bearing_before_review():
     assert next_state(State.SYNC_GREEN, Action.BEGIN_REVIEW) == State.REVIEW_AWAITING_FINDINGS
 
 
+def test_setup_failure_is_a_declared_state():
+    assert next_state(State.SYNC_RUNNING, Action.SETUP_FAILED) is State.SETUP_FAILED
+    assert recovery_hint(State.SETUP_FAILED).command == "agentic-preflight abort --force"
+
+
 def test_local_checks_run_review_then_docs_then_lint_then_test():
     assert next_state(State.REVIEW_GREEN, Action.BEGIN_DOCS) == State.DOCS_AWAITING_FINDINGS
     assert next_state(State.DOCS_GREEN, Action.RUN_LINT) == State.LINT_RUNNING
