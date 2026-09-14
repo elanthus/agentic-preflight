@@ -7,6 +7,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Removed
 
+- **Breaking:** Remove migration of the obsolete clone-wide active-run pointer; stray
+  `current` files are ignored and left unchanged.
 - **Breaking:** Remove the obsolete `model_calls` compatibility field from public smoke
   evaluation summaries and advance their method version to `public-smoke-v4`.
 - **Breaking:** Remove support for installing the pre-push hook into a plain directory;

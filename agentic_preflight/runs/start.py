@@ -147,7 +147,7 @@ def start(
     snapshot = cfg.model_dump(mode="json")
     resolved_config_digest = config_digest(snapshot)
 
-    current = session.store.get_active(session.owner_id) or session.legacy_run_id
+    current = session.store.get_active(session.owner_id)
     if current:
         try:
             existing = session.store.load_run(current)

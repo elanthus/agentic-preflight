@@ -155,15 +155,6 @@ def test_different_worktrees_can_claim_runs_concurrently(store):
     }
 
 
-def test_legacy_current_pointer_migrates_to_the_invoking_worktree(store):
-    store.current_path.parent.mkdir(parents=True, exist_ok=True)
-    store.current_path.write_text("r_legacy\n", encoding="utf-8")
-
-    assert store.migrate_legacy_current("worktree-a") == "r_legacy"
-    assert store.get_active("worktree-a") == "r_legacy"
-    assert not store.current_path.exists()
-
-
 @pytest.mark.parametrize(
     "kind",
     ["unknown_field", "invalid_value", "malformed_json", "invalid_record", "invalid_encoding"],
