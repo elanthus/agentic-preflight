@@ -38,6 +38,7 @@ _REPLACE_ATTEMPTS = 8
 _REPLACE_INITIAL_DELAY = 0.005
 _REPLACE_MAX_DELAY = 0.25
 
+
 class _RunUpdate(BaseModel):
     """Write-ahead record for one run/findings commit; never includes Git effects."""
 
