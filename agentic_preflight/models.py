@@ -149,6 +149,14 @@ class ReviewSubmission(BaseModel):
     findings: list[FindingSubmission]
 
 
+class DocsSubmission(BaseModel):
+    """Strict docs-stage payload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    findings: list[FindingSubmission]
+
+
 class ReviewCoverage(BaseModel):
     """Code-derived evidence that every unit in one diff snapshot was disposed."""
 
@@ -244,22 +252,22 @@ class RunDoc(BaseModel):
     base_ref: str
     merge_base_sha: str
     head_sha: str
-    source_head_sha: str | None = None
+    source_head_sha: str
     sync_base_sha: str | None = None
     sync_base_ref: str | None = None
     sync_remote: str | None = None
     intent: str | None = None
-    intent_source: str | None = None
+    intent_source: str
 
-    source_worktree_id: str | None = None
-    source_worktree_path: str | None = None
+    source_worktree_id: str
+    source_worktree_path: str
     owner_ids: list[str] = Field(default_factory=list)
     worktree_path: str | None = None
     worktree_branch: str | None = None
     worktree_released: bool = False
     copied_files: list[str] = Field(default_factory=list)
-    config_snapshot: dict[str, Any] | None = None
-    config_digest: str | None = None
+    config_snapshot: dict[str, Any]
+    config_digest: str
     changed_files: list[str] = Field(default_factory=list)
     review_coverage: ReviewCoverage | None = None
     risk: RiskAssessment | None = None
@@ -280,7 +288,7 @@ class RunDoc(BaseModel):
     pushed_sha: str | None = None
     test_delegation: TestDelegation | None = None
 
-    created_at: str | None = None
+    created_at: str
     updated_at: str | None = None
 
 

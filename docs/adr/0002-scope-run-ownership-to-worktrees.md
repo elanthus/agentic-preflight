@@ -47,8 +47,10 @@ Use locks at the resource they protect:
 - `reusable` mode retains its single-runner lease, while `in_place` and `strict` runs in
   other source worktrees continue independently.
 
-Migrate the legacy clone-wide `current` pointer to the first invoking worktree on access.
-Keep the old run record even when a newer worktree pointer already exists.
+The obsolete clone-wide `current` pointer is not part of the supported store format and
+is ignored. If a stray pointer exists, leave it byte-for-byte unchanged. Its referenced
+run record remains in durable history and garbage collection retains unsupported
+earlier-release records rather than translating or deleting them.
 
 ## Consequences
 

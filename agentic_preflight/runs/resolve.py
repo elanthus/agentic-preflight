@@ -49,9 +49,7 @@ def respond(
     check and expensive to miss, so none of them are taken on trust.
     """
     run = _load_current(session)
-    accepting_in_place_fix = (
-        _is_in_place(run, session.config) and action == "fixed" and commit is not None
-    )
+    accepting_in_place_fix = _is_in_place(run) and action == "fixed" and commit is not None
     if not accepting_in_place_fix:
         _assert_fresh(session, run)
     _require_state(
@@ -213,7 +211,7 @@ def _verify_fix_commit(session: Session, run: RunDoc, target, commit: str) -> st
 
     full_sha = gitx.rev_parse(wt, commit)
 
-    if not _is_in_place(run, session.config) and not gitx.is_ancestor(wt, full_sha, "HEAD"):
+    if not _is_in_place(run) and not gitx.is_ancestor(wt, full_sha, "HEAD"):
         raise InvalidResponse(
             f"commit {commit[:8]} is not part of the validation checkout's current "
             "history; apply the repair in the validation worktree before responding",

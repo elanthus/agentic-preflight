@@ -16,6 +16,12 @@ def agent(feature_repo):
 
 def findings_json(tmp_path, items):
     path = tmp_path / "findings.json"
+    path.write_text(json.dumps({"findings": items}))
+    return str(path)
+
+
+def review_findings_json(tmp_path, items):
+    path = tmp_path / "findings.json"
     path.write_text(
         json.dumps({"coverage": {"manifest": "$context", "examined": "all"}, "findings": items})
     )
@@ -26,7 +32,7 @@ def findings_json(tmp_path, items):
 def review_green(agent, tmp_path):
     agent.run("start")
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
     return agent
 
 
@@ -59,7 +65,7 @@ def test_inventory_flags_a_doc_the_diff_already_touched(agent, feature_repo, tmp
     commit_all(feature_repo, "document the flag")
     agent.run("start")
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
 
     env = agent.run("context", "--section", "docs")
     readme = next(i for i in env["data"]["doc_surface"] if i["path"] == "README.md")
@@ -72,7 +78,7 @@ def test_configured_docs_paths_join_the_inventory(agent, feature_repo, tmp_path)
     commit_all(feature_repo, "add a handbook")
     agent.run("start")
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
 
     env = agent.run("context", "--section", "docs")
     paths = {item["path"] for item in env["data"]["doc_surface"]}
@@ -86,7 +92,7 @@ def test_common_agent_rules_and_product_docs_are_included_by_default(agent, feat
     commit_all(feature_repo, "add project contracts")
     agent.run("start")
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
 
     env = agent.run("context", "--section", "docs")
     paths = {item["path"] for item in env["data"]["doc_surface"]}
@@ -171,7 +177,7 @@ def test_docs_finding_ids_continue_the_run_numbering(agent, feature_repo, tmp_pa
     agent.run(
         "submit-findings",
         "--file",
-        findings_json(
+        review_findings_json(
             tmp_path,
             [
                 {
@@ -271,7 +277,7 @@ def test_fixing_a_nonblocking_docs_finding_registers_the_commit_and_reopens_revi
     started = agent.run("start")
     wt = started["data"]["worktree_path"]
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
     agent.run("context", "--section", "docs")
     finding_path = findings_json(
         tmp_path,
@@ -297,7 +303,7 @@ def test_fixing_a_nonblocking_docs_finding_registers_the_commit_and_reopens_revi
     assert status["data"]["fix_commits"] == [fix_sha]
 
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
     agent.run("context", "--section", "docs")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     agent.run("stage", "run", "lint")
@@ -322,7 +328,7 @@ def test_a_fix_commit_must_be_in_the_validation_worktree_history(feature_repo, t
     started = agent.run("start")
     wt = started["data"]["worktree_path"]
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
     agent.run("context", "--section", "docs")
     finding_path = findings_json(
         tmp_path,
@@ -401,7 +407,7 @@ def test_require_changelog_injects_a_code_owned_finding(changelog_repo, tmp_path
     agent = ScriptedAgent(changelog_repo)
     agent.run("start")
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
     agent.run("context", "--section", "docs")
 
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
@@ -416,7 +422,7 @@ def test_the_injected_changelog_finding_is_owned_by_code_not_the_agent(changelog
     agent = ScriptedAgent(changelog_repo)
     agent.run("start")
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
     agent.run("context", "--section", "docs")
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     assert env["data"]["accepted"][0]["id"] == "F001"
@@ -435,7 +441,7 @@ def test_code_owned_changelog_blocks_when_high_is_excluded(changelog_repo, tmp_p
     agent = ScriptedAgent(changelog_repo)
     agent.run("start")
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
     agent.run("context", "--section", "docs")
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
 
@@ -451,7 +457,7 @@ def test_require_changelog_is_satisfied_when_the_changelog_was_touched(changelog
     agent = ScriptedAgent(changelog_repo)
     agent.run("start")
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
     agent.run("context", "--section", "docs")
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     assert env["state"] == "DOCS_GREEN"
@@ -472,7 +478,7 @@ def test_disabled_docs_stage_is_skipped_as_a_legal_transition(agent, feature_rep
     commit_all(feature_repo, "disable the docs stage")
     agent.run("start")
     agent.run("context")
-    env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    env = agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
     assert env["state"] == "DOCS_GREEN"
     assert "lint" in env["next"]["command"]
 
@@ -482,7 +488,7 @@ def test_docs_context_is_refused_when_the_stage_is_disabled(agent, feature_repo,
     commit_all(feature_repo, "disable the docs stage")
     agent.run("start")
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
     env = agent.run("context", "--section", "docs", expect=ExitCode.PRECONDITION)
     assert env["error"]["code"] == "wrong_state"
 
@@ -519,7 +525,7 @@ def test_respond_works_the_same_way_in_the_docs_stage(review_green, tmp_path, fe
     env = review_green.run("verify")
     assert env["state"] == "REVIEW_AWAITING_FINDINGS"
     review_green.run("context")
-    review_green.run("submit-findings", "--file", findings_json(tmp_path, []))
+    review_green.run("submit-findings", "--file", review_findings_json(tmp_path, []))
     review_green.run("context", "--section", "docs")
     env = review_green.run("submit-findings", "--file", findings_json(tmp_path, []))
     assert env["state"] == "DOCS_GREEN"

@@ -151,7 +151,7 @@ def _stage_cycle(
     awaiting_instruction = (
         "Review every delivered unit, then submit snapshot-bound coverage and findings."
         if label == "review"
-        else "Review the docs surface, then submit findings (an empty list is valid)."
+        else "Review the docs surface, then submit findings (an empty findings list is valid)."
     )
     awaiting_transitions = [
         (Action.SUBMIT_CLEAN, green),

@@ -16,7 +16,7 @@ from .. import diff as diffmod
 from .. import gitx
 from .. import grounding as groundingmod
 from ..errors import InvalidFindings
-from ..models import FindingSubmission, ReviewSubmission, RunDoc, Stage
+from ..models import DocsSubmission, FindingSubmission, ReviewSubmission, RunDoc, Stage
 from ..stages import docs as docsstage
 from ._session import Session, _require_worktree
 
@@ -107,16 +107,11 @@ def parse_submission(payload: Any, *, stage: Stage) -> tuple[list[FindingSubmiss
             raise InvalidFindings(describe_validation(exc)) from exc
         return submission.findings, submission.coverage.manifest
 
-    if isinstance(payload, dict):
-        payload = payload.get("findings", [])
-    if not isinstance(payload, list):
-        raise InvalidFindings(
-            "expected a JSON list of findings, or an object with a `findings` key"
-        )
     try:
-        return [FindingSubmission.model_validate(item) for item in payload], None
+        docs_submission = DocsSubmission.model_validate(payload)
     except ValidationError as exc:
         raise InvalidFindings(describe_validation(exc)) from exc
+    return docs_submission.findings, None
 
 
 def validate_command_output(payload: Any) -> None:

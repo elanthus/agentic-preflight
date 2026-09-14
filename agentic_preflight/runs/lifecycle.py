@@ -45,7 +45,7 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
     """
     run = _load_current(session)
 
-    isolated = not _is_in_place(run, session.config)
+    isolated = not _is_in_place(run)
     if isolated and run.fix_commits and not force:
         raise UnmergedWork(
             f"this run has {len(run.fix_commits)} fix commit(s) that were never merged "
@@ -108,8 +108,6 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
                 known_runs.add(active_run_id)
     active = store.list_active()
     active_run_ids = set(active.values())
-    if session.legacy_run_id:
-        active_run_ids.add(session.legacy_run_id)
     known_runs.update(active_run_ids)
     live_worktrees = {
         record["branch"].removeprefix("refs/heads/ap/"): record["worktree"]
@@ -146,12 +144,8 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
             continue
         terminal = run.state in (State.ABORTED, State.DONE, State.ORPHANED)
         if not terminal:
-            source_missing = bool(
-                run.source_worktree_path and not Path(run.source_worktree_path).exists()
-            )
-            source_alias_missing = bool(
-                run.source_worktree_id and active.get(run.source_worktree_id) != run.run_id
-            )
+            source_missing = not Path(run.source_worktree_path).exists()
+            source_alias_missing = active.get(run.source_worktree_id) != run.run_id
             start_in_progress = run.state in {
                 State.CREATED,
                 State.WORKTREE_READY,
@@ -202,7 +196,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
                 )
             continue
         store.clear_run(run_id)
-        if run.fix_commits and not force and not _is_in_place(run, session.config):
+        if run.fix_commits and not force and not _is_in_place(run):
             # Only DONE proves mergeback and publication completed. Aborted or
             # orphaned runs must retain every fix even if an unrelated commit
             # in branch history happens to share its patch ID.
@@ -308,8 +302,6 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
     if all_runs:
         active = session.store.list_active()
         active_run_ids = set(active.values())
-        if session.legacy_run_id:
-            active_run_ids.add(session.legacy_run_id)
         summaries = []
         for known_run_id in sorted(set(session.store.list_runs()) | active_run_ids):
             try:
@@ -471,7 +463,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             "source_worktree_available": session.source_worktree_available,
             "owner_ids": run.owner_ids,
             "worktree_branch": run.worktree_branch,
-            "worktree_mode": _worktree_mode(run, session.config),
+            "worktree_mode": _worktree_mode(run),
             "worktree_released": run.worktree_released,
             "config_digest": run.config_digest,
             "pr_mode": session.config.pr.mode,

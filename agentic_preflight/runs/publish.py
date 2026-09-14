@@ -311,7 +311,7 @@ def finish(session: Session) -> Envelope:
             "automated_cleanup": session.config.pr.automated_cleanup,
         },
         next_instruction=(
-            _worktree_completion(_worktree_mode(run, session.config))
+            _worktree_completion(_worktree_mode(run))
             + (
                 " Publication is complete; tests remain pending. Use ci status after opening the PR."
                 if run.test_delegation

@@ -13,7 +13,7 @@ evaluation.
 
 The corpus contains 12 plainly fictional toy projects: three each for correctness, security,
 evaluation integrity, and documentation contract failures. Every case has three complete
-trees. Method `public-smoke-v3` retains v2's separate repository for each reviewed snapshot: the
+trees. Method `public-smoke-v4` retains v2's separate repository for each reviewed snapshot: the
 base tree on `main`, followed by only the selected tree on `review/change`. Commit subjects
 are `Initial snapshot` and `Proposed change`; the repository directory uses a random opaque
 identifier. The runner never copies or commits the unselected tree; blobs shared with the
@@ -51,7 +51,7 @@ map. The category measure is intentionally heuristic: it can confirm vocabulary,
 the reviewer's reasoning is sound. Severity and category agreement are reported separately
 and never gate execution.
 
-`summary.json` records `method_version: public-smoke-v3` and contains per-case snapshot
+`summary.json` records `method_version: public-smoke-v4` and contains per-case snapshot
 evidence and aggregate catch, fixed false-positive, unresolved, severity-agreement, and
 category-agreement values for each grounding setting.
 `summary.md` presents the same case outcomes and aggregates in one table.
@@ -84,11 +84,7 @@ a provider request: a CLI can fail before calling a provider, retry, use tools, 
 than one provider request. `summary.json` records `reviewer_invocations` and marks
 `provider_requests`, `provider_tokens`, and `provider_cost_usd` as `null`; those measurements
 are unavailable unless separately collected from provider telemetry. In dry mode all three are
-known zero. The legacy v2
-`model_calls` integer labeled wrapper invocations, not actual provider calls. New v3 reports
-use `model_calls: null` in real mode and `reviewer_invocations` instead. This is a deliberate
-type change: typed consumers must branch on `method_version` and migrate to
-`reviewer_invocations`, rather than treating a v3 `model_calls` value as numeric.
+known zero.
 `AP_EVAL_AUTHORIZED=1` authorizes the disclosed wrapper launches only; it is not a
 provider-request or spend cap.
 

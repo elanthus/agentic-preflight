@@ -7,6 +7,10 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Removed
 
+- **Breaking:** Remove migration of the obsolete clone-wide active-run pointer; stray
+  `current` files are ignored and left unchanged.
+- **Breaking:** Remove the obsolete `model_calls` compatibility field from public smoke
+  evaluation summaries and advance their method version to `public-smoke-v4`.
 - **Breaking:** Remove support for installing the pre-push hook into a plain directory;
   hook installation now requires a Git repository.
 - **Breaking:** Remove protected-base consumer negotiation, including source-marker
@@ -19,6 +23,11 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - **Breaking:** Collapse attestations to required schema version 7 with an explicit
   `verified` or `tests_pending` outcome and complete refresh evidence; attestations from
   earlier releases are no longer readable.
+- **Breaking:** Require all creation-time run-record fields and reject records that omit
+  their source identity, configuration snapshot, creation timestamp, or intent source.
+- **Breaking:** Require docs findings submissions to use the strict
+  `{"findings": [...]}` object shape; bare lists, missing fields, and unknown fields are
+  rejected.
 - **Breaking:** Serialize every configuration section in snapshots, including the
   default `[ci]` policy, changing configuration digests for all new runs and attestations.
 - **Breaking:** Require Git 2.38 or newer and remove the index-based fallback for

@@ -139,7 +139,7 @@ def _reset_non_equivalent_merge_to_review(
 def mergeback(session: Session) -> Envelope:
     """Attest in-place validation or merge isolated fixes onto the source branch."""
     run = _load_current(session)
-    in_place = _is_in_place(run, session.config)
+    in_place = _is_in_place(run)
     repo = session.repo_root
     operation = gitx.operation_in_progress(repo)
     if operation is not None:
@@ -213,7 +213,7 @@ def mergeback(session: Session) -> Envelope:
         rebased_tree = None
         if (
             not in_place
-            and source_sha == (run.source_head_sha or run.head_sha)
+            and source_sha == run.source_head_sha
             and not gitx.is_ancestor(repo, run.sync_base_sha or run.merge_base_sha, source_sha)
         ):
             rebased_tree = gitx.tree_sha(_require_worktree(run), run.head_sha)
@@ -264,7 +264,7 @@ def mergeback(session: Session) -> Envelope:
                 syncmod.rebase_onto(repo, sync_base)
             local_tree = gitx.tree_sha(repo)
             verified_tree = gitx.tree_sha(worktree_path)
-            branch_moved = gitx.rev_parse(repo, "HEAD") != (run.source_head_sha or run.head_sha)
+            branch_moved = gitx.rev_parse(repo, "HEAD") != run.source_head_sha
             if retrying_conflict and (local_tree == verified_tree or branch_moved):
                 result = mergebackmod.MergebackResult(
                     pre_sha=gitx.rev_parse(repo, "HEAD"),
@@ -333,7 +333,7 @@ def mergeback(session: Session) -> Envelope:
             stage="review",
             data={
                 **result.as_dict(),
-                "worktree_mode": _worktree_mode(run, session.config),
+                "worktree_mode": _worktree_mode(run),
                 "validation_restarted": True,
             },
             next_instruction=(
@@ -372,9 +372,7 @@ def mergeback(session: Session) -> Envelope:
         },
     )
 
-    return _envelope_for(
-        run, data={**result.as_dict(), "worktree_mode": _worktree_mode(run, session.config)}
-    )
+    return _envelope_for(run, data={**result.as_dict(), "worktree_mode": _worktree_mode(run)})
 
 
 def _remote_for(session: Session, run: RunDoc) -> str:

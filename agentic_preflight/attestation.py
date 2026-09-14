@@ -75,8 +75,6 @@ def build(
     docs_enabled: bool,
     findings_summary: dict[str, int],
 ) -> Attestation:
-    if run.config_digest is None:
-        raise InvalidAttestation("run has no effective configuration digest")
     if run.review_coverage is None:
         raise InvalidAttestation("review stage has no coverage evidence")
     review_record = run.stages.get(Stage.REVIEW)
@@ -124,8 +122,6 @@ def build(
         raise InvalidAttestation("run has no validation worktree for evidence verification")
     if set(run.evidence) != required_evidence:
         raise InvalidAttestation("run lacks complete per-stage evidence")
-    if run.config_snapshot is None:
-        raise InvalidAttestation("run has no effective configuration snapshot")
     stages[Stage.REVIEW].coverage = rebound_coverage(
         run.worktree_path,
         run.evidence[Stage.REVIEW].origin,

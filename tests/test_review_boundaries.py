@@ -78,3 +78,16 @@ def test_protocol_parsing_keeps_docs_and_review_payloads_distinct():
 
     with pytest.raises(InvalidFindings):
         review_protocol.parse_submission([], stage=Stage.REVIEW)
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ([], "DocsSubmission"),
+        ({"findings": [], "unexpected": True}, "unexpected"),
+        ({}, "findings"),
+    ],
+)
+def test_docs_protocol_rejects_invalid_submission_shapes(payload, message):
+    with pytest.raises(InvalidFindings, match=message):
+        review_protocol.parse_submission(payload, stage=Stage.DOCS)
