@@ -3,7 +3,18 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from agentic_preflight.config import Config, ConfigError, _describe, load_config
+from agentic_preflight.ci_models import CISection
+from agentic_preflight.config import Config, ConfigError, _describe, config_digest, load_config
+
+
+def test_default_snapshot_contains_complete_ci_config_with_stable_digest():
+    cfg = Config()
+
+    first = cfg.model_dump(mode="json")
+    second = cfg.model_dump(mode="json")
+
+    assert first["ci"] == CISection().model_dump(mode="json")
+    assert config_digest(first) == config_digest(second)
 
 
 def test_defaults_apply_when_no_config_file_exists(tmp_repo, tmp_path):

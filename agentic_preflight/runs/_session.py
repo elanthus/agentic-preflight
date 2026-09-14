@@ -39,10 +39,9 @@ class Session:
     config: Config
     selected_run_id: str | None = None
     source_worktree_available: bool = True
-    legacy_run_id: str | None = None
 
     def active_run_id(self) -> str | None:
-        return self.selected_run_id or self.store.get_active(self.owner_id) or self.legacy_run_id
+        return self.selected_run_id or self.store.get_active(self.owner_id)
 
 
 def worktree_identity(cwd: Path | str) -> str:
@@ -59,14 +58,12 @@ def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) ->
     state_root = gitx.git_common_dir(cwd) / STATE_DIR_NAME
     store = Store(state_root)
     owner_id = worktree_identity(caller_root)
-    legacy_current = store.migrate_legacy_current(owner_id)
-    legacy_run_id = legacy_current if store.get_active(owner_id) is None else None
 
     # Once a run exists, its resolved snapshot is authoritative. This also
     # keeps a malformed or edited working-copy config from stranding `status`
     # or silently reshaping an in-flight gate.
     cfg = None
-    current = run_id or store.get_active(owner_id) or legacy_run_id
+    current = run_id or store.get_active(owner_id)
     active = None
     if current:
         try:
@@ -94,7 +91,6 @@ def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) ->
         store=store,
         config=cfg,
         selected_run_id=run_id,
-        legacy_run_id=legacy_run_id,
         source_worktree_available=source_worktree_available,
     )
 

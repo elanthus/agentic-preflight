@@ -10,6 +10,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - **Breaking:** Remove the legacy no-op `[review] require_fix_commits` and
   `[worktree] ttl_hours` configuration fields; configurations that still set either
   field now fail validation as unknown keys.
+- **Breaking:** Remove migration of the obsolete clone-wide active-run pointer; stray
+  `current` files are ignored and left unchanged.
 - **Breaking:** Remove the obsolete `model_calls` compatibility field from public smoke
   evaluation summaries and advance their method version to `public-smoke-v4`.
 - **Breaking:** Remove support for installing the pre-push hook into a plain directory;
@@ -26,6 +28,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - **Breaking:** Require docs findings submissions to use the strict
   `{"findings": [...]}` object shape; bare lists, missing fields, and unknown fields are
   rejected.
+- **Breaking:** Serialize every configuration section in snapshots, including the
+  default `[ci]` policy, changing configuration digests for all new runs and attestations.
 - **Breaking:** Require Git 2.38 or newer and remove the index-based fallback for
   computing merge trees.
 
