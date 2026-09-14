@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any, cast
 
 from .. import gitx, risk, worktree
 from .. import sync as syncmod
-from ..config import config_digest, load_config
+from ..config import Config, config_digest, load_config
 from ..envelope import Envelope
 from ..errors import (
     DirtyTree,
@@ -21,7 +23,7 @@ from ..errors import (
     OperationInProgress as OperationInProgressError,
 )
 from ..machine import TERMINAL_STATES, Action, State
-from ..models import RunDoc, SetupFailure
+from ..models import RiskAssessment, RunDoc, SetupFailure
 from ..store import CurrentRunExists, UnknownRun
 from . import evidence
 from ._session import (
@@ -80,13 +82,33 @@ def _claim_alias(session: Session, owner_id: str, run_id: str) -> None:
         session.store.claim_active(owner_id, run_id)
 
 
-def start(
-    session: Session,
-    *,
-    base_ref: str | None = None,
-    intent: str | None = None,
-    replace: bool = False,
-) -> Envelope:
+@dataclass(frozen=True)
+class _StartContext:
+    session: Session
+    cfg: Config
+    repo: Path
+    intent: str
+    base_ref: str
+    branch: str
+    head_sha: str
+    snapshot: dict[str, Any]
+    config_digest: str
+    merge_base: str | None = None
+    changed: list[str] | None = None
+    run_id: str | None = None
+    wt_path: Path | None = None
+    wt_branch: str | None = None
+    in_place: bool = False
+    reusable: bool = False
+    sync_result: syncmod.SyncResult | None = None
+    copied: list[str] | None = None
+    assessment: RiskAssessment | None = None
+    setup_result: dict[str, object] | None = None
+
+
+def _check_preconditions(
+    session: Session, *, base_ref: str | None, intent: str | None
+) -> _StartContext:
     repo = session.caller_root
     # Starting is the one command that deliberately reads the working copy.
     # Every later command uses the snapshot persisted below.
@@ -131,6 +153,22 @@ def start(
     snapshot = cfg.model_dump(mode="json")
     resolved_config_digest = config_digest(snapshot)
 
+    return _StartContext(
+        session=session,
+        cfg=cfg,
+        repo=repo,
+        intent=intent,
+        base_ref=base_ref,
+        branch=branch,
+        head_sha=head_sha,
+        snapshot=snapshot,
+        config_digest=resolved_config_digest,
+    )
+
+
+def _resolve_existing_run(ctx: _StartContext, *, replace: bool) -> Envelope | None:
+    session = ctx.session
+
     current = session.store.get_active(session.owner_id)
     if current:
         try:
@@ -152,14 +190,14 @@ def start(
                     )
                 stale = (
                     existing.stale
-                    or head_sha != existing.source_head_sha
-                    or branch != existing.branch
+                    or ctx.head_sha != existing.source_head_sha
+                    or ctx.branch != existing.branch
                 )
                 matches = (
                     not stale
-                    and existing.intent == intent
-                    and existing.base_ref == base_ref
-                    and existing.config_digest == resolved_config_digest
+                    and existing.intent == ctx.intent
+                    and existing.base_ref == ctx.base_ref
+                    and existing.config_digest == ctx.config_digest
                 )
                 if matches:
                     return _resume_existing(session, existing)
@@ -169,9 +207,9 @@ def start(
                     _orphan(session, existing, reason="replaced by a new start")
                 else:
                     command = _start_command(
-                        intent,
-                        base_ref=base_ref,
-                        default_base_ref=cfg.general.base_ref,
+                        ctx.intent,
+                        base_ref=ctx.base_ref,
+                        default_base_ref=ctx.cfg.general.base_ref,
                         replace=True,
                     )
                     raise WrongState(
@@ -180,7 +218,7 @@ def start(
                         run_id=existing.run_id,
                         data={
                             "existing_intent": existing.intent,
-                            "requested_intent": intent,
+                            "requested_intent": ctx.intent,
                             "source_worktree_path": existing.source_worktree_path,
                         },
                         next_instruction=(
@@ -189,45 +227,54 @@ def start(
                         ),
                         next_command=command,
                     )
-    try:
-        merge_base = gitx.merge_base(repo, base_ref, "HEAD")
-    except gitx.GitError as exc:
-        raise EmptyDiff(f"cannot find a merge base with {base_ref!r}: {exc}") from exc
+    return None
 
-    changed = gitx.changed_files(repo, merge_base, "HEAD")
+
+def _require_changes(ctx: _StartContext) -> _StartContext:
+    try:
+        merge_base = gitx.merge_base(ctx.repo, ctx.base_ref, "HEAD")
+    except gitx.GitError as exc:
+        raise EmptyDiff(f"cannot find a merge base with {ctx.base_ref!r}: {exc}") from exc
+
+    changed = gitx.changed_files(ctx.repo, merge_base, "HEAD")
     if not changed:
         raise EmptyDiff(
-            f"{branch} has no changes over {base_ref}; there is nothing to review",
+            f"{ctx.branch} has no changes over {ctx.base_ref}; there is nothing to review",
             next_instruction="Commit some work on a branch, then start a run.",
         )
+    return replace(ctx, merge_base=merge_base, changed=changed)
+
+
+def _create_run_record(ctx: _StartContext) -> _StartContext:
+    merge_base = cast(str, ctx.merge_base)
 
     run_id = _new_run_id()
     run = RunDoc(
         schema_version=2,
         run_id=run_id,
         state=State.CREATED,
-        branch=branch,
-        base_ref=base_ref,
+        branch=ctx.branch,
+        base_ref=ctx.base_ref,
         merge_base_sha=merge_base,
-        head_sha=head_sha,
-        source_head_sha=head_sha,
-        intent=intent,
+        head_sha=ctx.head_sha,
+        source_head_sha=ctx.head_sha,
+        intent=ctx.intent,
         intent_source="user",
-        source_worktree_id=session.owner_id,
-        source_worktree_path=str(repo.resolve()),
-        owner_ids=[session.owner_id],
-        config_snapshot=snapshot,
-        config_digest=resolved_config_digest,
+        source_worktree_id=ctx.session.owner_id,
+        source_worktree_path=str(ctx.repo.resolve()),
+        owner_ids=[ctx.session.owner_id],
+        config_snapshot=ctx.snapshot,
+        config_digest=ctx.config_digest,
         created_at=_now(),
     )
     # Persist the intent *before* the git call, so a crash mid-create leaves a
     # record for `gc` to reconcile rather than an orphan nobody knows about.
-    with session.store.operation(run_id):
-        session.store.create_run(run)
+    with ctx.session.store.operation(run_id):
+        ctx.session.store.create_run(run)
         try:
-            session.store.claim_active(session.owner_id, run_id)
+            ctx.session.store.claim_active(ctx.session.owner_id, run_id)
         except CurrentRunExists as exc:
-            with session.store.transaction(run_id) as doc:
+            with ctx.session.store.transaction(run_id) as doc:
                 _apply(doc, Action.ABORT)
                 doc.worktree_released = True
             raise WrongState(
@@ -236,42 +283,70 @@ def start(
                 next_instruction="Finish, clean up, or abort the active run before starting another.",
                 next_command="agentic-preflight status",
             ) from exc
-    session.store.append_event(
+    ctx.session.store.append_event(
         run_id,
         {
             "event": "run_created",
-            "head_sha": head_sha,
-            "config_digest": resolved_config_digest,
-            "config_snapshot": snapshot,
-            "intent": intent,
+            "head_sha": ctx.head_sha,
+            "config_digest": ctx.config_digest,
+            "config_snapshot": ctx.snapshot,
+            "intent": ctx.intent,
             "intent_source": "user",
         },
     )
 
-    in_place = cfg.worktree.mode == "in_place"
-    reusable = cfg.worktree.mode == "reusable"
-    wt_path = repo if in_place else session.store.worktrees_dir / ("runner" if reusable else run_id)
-    wt_branch = branch if in_place else f"ap/{run_id}"
+    in_place = ctx.cfg.worktree.mode == "in_place"
+    reusable = ctx.cfg.worktree.mode == "reusable"
+    wt_path = (
+        ctx.repo
+        if in_place
+        else ctx.session.store.worktrees_dir / ("runner" if reusable else run_id)
+    )
+    wt_branch = ctx.branch if in_place else f"ap/{run_id}"
+    return replace(
+        ctx,
+        run_id=run_id,
+        wt_path=wt_path,
+        wt_branch=wt_branch,
+        in_place=in_place,
+        reusable=reusable,
+    )
+
+
+def _provision_validation_checkout(ctx: _StartContext) -> _StartContext:
+    run_id = cast(str, ctx.run_id)
+    wt_path = cast(Path, ctx.wt_path)
+    wt_branch = cast(str, ctx.wt_branch)
     try:
-        if in_place:
+        if ctx.in_place:
             pass
-        elif reusable:
-            worktree.acquire_reusable(repo, path=wt_path, branch=wt_branch, head_sha=head_sha)
+        elif ctx.reusable:
+            worktree.acquire_reusable(
+                ctx.repo,
+                path=wt_path,
+                branch=wt_branch,
+                head_sha=ctx.head_sha,
+            )
         else:  # strict
-            retained_runner = session.store.worktrees_dir / "runner"
+            retained_runner = ctx.session.store.worktrees_dir / "runner"
             if retained_runner.exists():
                 if gitx.current_branch(retained_runner) != "HEAD":
                     raise worktree.WorktreeError(
                         f"cannot enter strict mode: reusable runner {retained_runner} "
                         "is still leased; recover or release its run first"
                     )
-                worktree.remove(repo, retained_runner)
-            worktree.create(repo, path=wt_path, branch=wt_branch, head_sha=head_sha)
+                worktree.remove(ctx.repo, retained_runner)
+            worktree.create(
+                ctx.repo,
+                path=wt_path,
+                branch=wt_branch,
+                head_sha=ctx.head_sha,
+            )
     except worktree.WorktreeError as exc:
-        with session.store.transaction(run_id) as doc:
+        with ctx.session.store.transaction(run_id) as doc:
             _apply(doc, Action.ABORT)
             doc.worktree_released = True
-        session.store.clear_run(run_id)
+        ctx.session.store.clear_run(run_id)
         raise NeedsHuman(
             str(exc),
             run_id=run_id,
@@ -284,16 +359,16 @@ def start(
         ) from exc
 
     validation_owner = worktree_identity(wt_path)
-    with session.store.transaction(run_id) as doc:
+    with ctx.session.store.transaction(run_id) as doc:
         doc.worktree_path = str(wt_path)
         doc.worktree_branch = wt_branch
     try:
-        _claim_alias(session, validation_owner, run_id)
+        _claim_alias(ctx.session, validation_owner, run_id)
     except CurrentRunExists as exc:
-        with session.store.transaction(run_id) as doc:
+        with ctx.session.store.transaction(run_id) as doc:
             _apply(doc, Action.ABORT)
             doc.worktree_released = False
-        session.store.clear_run(run_id)
+        ctx.session.store.clear_run(run_id)
         raise NeedsHuman(
             f"validation worktree is still owned by run {exc.run_id}",
             run_id=run_id,
@@ -302,21 +377,27 @@ def start(
             next_command="agentic-preflight status --all",
         ) from exc
 
-    with session.store.transaction(run_id) as doc:
+    with ctx.session.store.transaction(run_id) as doc:
         if validation_owner not in doc.owner_ids:
             doc.owner_ids.append(validation_owner)
         _apply(doc, Action.CREATE_WORKTREE)
         _apply(doc, Action.BEGIN_SYNC)
+    return ctx
 
+
+def _synchronize(ctx: _StartContext) -> _StartContext:
+    run_id = cast(str, ctx.run_id)
+    wt_path = cast(Path, ctx.wt_path)
+    wt_branch = cast(str, ctx.wt_branch)
     try:
-        with session.store.resource("sync"), session.store.resource("notes"):
-            sync_result = syncmod.synchronize(repo, wt_path, base_ref=base_ref)
+        with ctx.session.store.resource("sync"), ctx.session.store.resource("notes"):
+            sync_result = syncmod.synchronize(ctx.repo, wt_path, base_ref=ctx.base_ref)
     except syncmod.OperationInProgress as exc:
-        with session.store.transaction(run_id) as doc:
+        with ctx.session.store.transaction(run_id) as doc:
             _apply(doc, Action.SYNC_FAILED)
             run = doc
         report: dict[str, object] = {"operation": exc.operation, "path": exc.path}
-        session.store.append_event(run_id, {"event": "sync_refused", **report})
+        ctx.session.store.append_event(run_id, {"event": "sync_refused", **report})
         raise OperationInProgressError(
             exc.operation,
             exc.path,
@@ -324,7 +405,7 @@ def start(
             run_id=run_id,
         ) from exc
     except syncmod.SyncConflict as exc:
-        with session.store.transaction(run_id) as doc:
+        with ctx.session.store.transaction(run_id) as doc:
             doc.sync_base_sha = exc.base_sha
             doc.sync_base_ref = exc.base_ref
             _apply(doc, Action.SYNC_FAILED)
@@ -336,7 +417,7 @@ def start(
             "conflicting_files": exc.conflicting_files,
             "worktree_path": str(wt_path),
         }
-        session.store.append_event(run_id, {"event": "sync_conflict", **report})
+        ctx.session.store.append_event(run_id, {"event": "sync_conflict", **report})
         raise SyncConflictError(
             str(exc),
             state=run.state.value,
@@ -352,53 +433,62 @@ def start(
 
     changed = gitx.changed_files(wt_path, sync_result.base_sha, "HEAD")
     if not changed:
-        if in_place:
+        if ctx.in_place:
             pass
-        elif reusable:
-            worktree.release_reusable(repo, wt_path, branch=wt_branch, copied_files=[])
+        elif ctx.reusable:
+            worktree.release_reusable(ctx.repo, wt_path, branch=wt_branch, copied_files=[])
         else:
-            worktree.remove(repo, wt_path, branch=wt_branch)
-        with session.store.transaction(run_id) as doc:
+            worktree.remove(ctx.repo, wt_path, branch=wt_branch)
+        with ctx.session.store.transaction(run_id) as doc:
             _apply(doc, Action.ABORT)
             doc.worktree_released = True
-        session.store.clear_run(run_id)
+        ctx.session.store.clear_run(run_id)
         raise EmptyDiff(
             "the branch has no changes after synchronizing with the fresh remote base",
             next_instruction="The requested change is already present upstream.",
         )
+    return replace(ctx, changed=changed, sync_result=sync_result)
 
+
+def _run_setup_command(ctx: _StartContext) -> _StartContext:
+    run_id = cast(str, ctx.run_id)
+    wt_path = cast(Path, ctx.wt_path)
+    sync_result = cast(syncmod.SyncResult, ctx.sync_result)
+    changed = cast(list[str], ctx.changed)
     copied = (
-        worktree.protect_in_place_files(repo, cfg.worktree.copy_files)
-        if in_place
-        else worktree.copy_files(repo, wt_path, cfg.worktree.copy_files)
+        worktree.protect_in_place_files(ctx.repo, ctx.cfg.worktree.copy_files)
+        if ctx.in_place
+        else worktree.copy_files(ctx.repo, wt_path, ctx.cfg.worktree.copy_files)
     )
     assessment = risk.assess(
         changed,
         [],
-        policy=cfg.policy,
-        review_blocking_severities=cfg.review.blocking_severities,
-        docs_blocking_severities=cfg.docs.blocking_severities,
+        policy=ctx.cfg.policy,
+        review_blocking_severities=ctx.cfg.review.blocking_severities,
+        docs_blocking_severities=ctx.cfg.docs.blocking_severities,
     )
 
     # Persist copied paths before setup so an abort after a failed command still
     # removes secret-bearing copies from a reusable runner.
-    with session.store.transaction(run_id) as doc:
+    with ctx.session.store.transaction(run_id) as doc:
         doc.copied_files = copied
 
     setup_result = None
-    if cfg.worktree.setup_command:
+    if ctx.cfg.worktree.setup_command:
         completed = worktree.run_setup(
-            wt_path, cfg.worktree.setup_command, timeout_seconds=cfg.stage.timeout_seconds
+            wt_path,
+            ctx.cfg.worktree.setup_command,
+            timeout_seconds=ctx.cfg.stage.timeout_seconds,
         )
         setup_result = {
             "kind": "custom",
-            "command": cfg.worktree.setup_command,
+            "command": ctx.cfg.worktree.setup_command,
             "exit_code": completed.returncode,
         }
         if completed.returncode != 0:
             failure = SetupFailure(
                 scope="initial",
-                command=cfg.worktree.setup_command,
+                command=ctx.cfg.worktree.setup_command,
                 exit_code=completed.returncode,
                 worktree_path=str(wt_path),
                 next_instruction=(
@@ -407,9 +497,9 @@ def start(
                 ),
                 next_command="agentic-preflight abort --force",
             )
-            with session.store.transaction(run_id) as doc:
+            with ctx.session.store.transaction(run_id) as doc:
                 doc.head_sha = sync_result.head_after
-                doc.source_head_sha = sync_result.head_after if in_place else head_sha
+                doc.source_head_sha = sync_result.head_after if ctx.in_place else ctx.head_sha
                 doc.merge_base_sha = sync_result.base_sha
                 doc.sync_base_sha = sync_result.base_sha
                 doc.sync_base_ref = sync_result.base_ref
@@ -418,7 +508,7 @@ def start(
                 doc.risk = assessment
                 doc.setup_failure = failure
                 _apply(doc, Action.SETUP_FAILED)
-            session.store.append_event(
+            ctx.session.store.append_event(
                 run_id,
                 {"event": "setup_failed", **failure.model_dump(mode="json")},
             )
@@ -431,12 +521,27 @@ def start(
                 next_instruction=failure.next_instruction,
                 next_command=failure.next_command,
             )
+    return replace(
+        ctx,
+        copied=copied,
+        assessment=assessment,
+        setup_result=setup_result,
+    )
 
-    with session.store.transaction(run_id) as doc:
+
+def _prime_review(ctx: _StartContext) -> Envelope:
+    run_id = cast(str, ctx.run_id)
+    wt_path = cast(Path, ctx.wt_path)
+    wt_branch = cast(str, ctx.wt_branch)
+    sync_result = cast(syncmod.SyncResult, ctx.sync_result)
+    changed = cast(list[str], ctx.changed)
+    copied = cast(list[str], ctx.copied)
+    assessment = cast(RiskAssessment, ctx.assessment)
+    with ctx.session.store.transaction(run_id) as doc:
         doc.worktree_path = str(wt_path)
         doc.worktree_branch = wt_branch
         doc.head_sha = sync_result.head_after
-        doc.source_head_sha = sync_result.head_after if in_place else head_sha
+        doc.source_head_sha = sync_result.head_after if ctx.in_place else ctx.head_sha
         doc.merge_base_sha = sync_result.base_sha
         doc.sync_base_sha = sync_result.base_sha
         doc.sync_base_ref = sync_result.base_ref
@@ -447,18 +552,18 @@ def start(
         _apply(doc, Action.BEGIN_REVIEW)
         run = doc
 
-    session.store.append_event(
+    ctx.session.store.append_event(
         run_id,
         {
             "event": "worktree_ready",
             "path": str(wt_path),
-            "mode": cfg.worktree.mode,
+            "mode": ctx.cfg.worktree.mode,
             "sync": sync_result.as_dict(),
             "risk": assessment.model_dump(mode="json"),
         },
     )
 
-    run = evidence.advance(session, evidence.discover(session, run))
+    run = evidence.advance(ctx.session, evidence.discover(ctx.session, run))
 
     return _envelope_for(
         run,
@@ -471,23 +576,42 @@ def start(
         data={
             "worktree_path": str(wt_path),
             "worktree_branch": wt_branch,
-            "worktree_mode": cfg.worktree.mode,
-            "branch": branch,
-            "base_ref": base_ref,
+            "worktree_mode": ctx.cfg.worktree.mode,
+            "branch": ctx.branch,
+            "base_ref": ctx.base_ref,
             "head_sha": sync_result.head_after,
-            "source_head_sha": head_sha,
+            "source_head_sha": ctx.head_sha,
             "merge_base_sha": sync_result.base_sha,
-            "intent": intent,
+            "intent": ctx.intent,
             "intent_source": "user",
             "sync": sync_result.as_dict(),
             "changed_files": changed,
             "risk": assessment.model_dump(mode="json"),
             # Names only. Contents are never read, logged, or echoed.
             "copied_files": copied,
-            "setup": setup_result,
+            "setup": ctx.setup_result,
             "applicability": {
                 stage.value: value.model_dump(mode="json")
                 for stage, value in run.applicability.items()
             },
         },
     )
+
+
+def start(
+    session: Session,
+    *,
+    base_ref: str | None = None,
+    intent: str | None = None,
+    replace: bool = False,
+) -> Envelope:
+    ctx = _check_preconditions(session, base_ref=base_ref, intent=intent)
+    existing = _resolve_existing_run(ctx, replace=replace)
+    if existing is not None:
+        return existing
+    ctx = _require_changes(ctx)
+    ctx = _create_run_record(ctx)
+    ctx = _provision_validation_checkout(ctx)
+    ctx = _synchronize(ctx)
+    ctx = _run_setup_command(ctx)
+    return _prime_review(ctx)

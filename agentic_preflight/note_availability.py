@@ -112,7 +112,7 @@ class RemoteNotes:
         return None
 
 
-def check(
+def check(  # noqa: C901  # tracked in #141
     repo: Path,
     *,
     remote: str,

@@ -33,7 +33,7 @@ from .review_coverage import reopen_if_stale
 RESPONSE_ACTIONS = ("fixed", "dismissed", "accepted")
 
 
-def respond(
+def respond(  # noqa: C901  # tracked in #141
     session: Session,
     *,
     finding_id: str,

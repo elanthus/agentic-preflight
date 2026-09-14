@@ -152,7 +152,9 @@ def verify_stage(
         raise ValueError("derived evidence inputs are invalid or unknown")
 
 
-def verify_evidence(repo: Path | str, value: Attestation) -> None:
+def verify_evidence(  # noqa: C901  # tracked in #141
+    repo: Path | str, value: Attestation
+) -> None:
     if value.evidence is None or value.config_snapshot is None:
         raise ValueError("refresh attestation lacks per-stage evidence or configuration")
     cfg = Config.model_validate(value.config_snapshot)

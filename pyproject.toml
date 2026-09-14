@@ -113,6 +113,7 @@ select = [
     "SIM",
     "RUF",
     "C4",
+    "C90",
     "PIE",
     "PERF",
     "PT",
@@ -129,6 +130,9 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]
 "agentic_preflight/stages/change_scope.py" = ["PT028"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
 
 [tool.mypy]
 python_version = "3.11"
