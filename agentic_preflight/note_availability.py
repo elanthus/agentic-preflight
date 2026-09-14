@@ -112,7 +112,82 @@ class RemoteNotes:
         return None
 
 
-def check(  # noqa: C901  # tracked in #141
+def _freshness(
+    source: RemoteNotes,
+    head_ref: str,
+    expected_head: str,
+    record: dict[str, Any],
+    key: str = "observed_head",
+) -> None:
+    observed = source.advertised(head_ref)
+    record[key] = observed
+    if observed != expected_head:
+        raise attestation.InvalidAttestation(
+            f"Event head {expected_head} differs from observed head {observed}",
+            reason="stale_candidate",
+        )
+
+
+def _availability_attempt(
+    repo: Path,
+    source: RemoteNotes,
+    *,
+    head_ref: str,
+    expected_head: str,
+    notes_ref: str,
+    prefix: str,
+    refs: list[str],
+    record: dict[str, Any],
+    evaluate: Callable[[Attestation], dict[str, Any]],
+) -> tuple[dict[str, Any] | None, str]:
+    """Fetch and evaluate one immutable availability candidate."""
+    _freshness(source, head_ref, expected_head, record)
+    head_target = f"{prefix}/head"
+    if head_target not in refs:
+        refs.append(head_target)
+    fetched_head = source.fetch(head_ref, head_target)
+    record["fetched_head"] = fetched_head
+    if fetched_head != expected_head:
+        raise attestation.InvalidAttestation(
+            "Fetched PR head differs from the original event", reason="stale_candidate"
+        )
+    advertised = source.advertised(notes_ref)
+    record["advertised_notes_commit"] = advertised
+    if advertised is None:
+        return None, "missing_notes_ref"
+    target = f"{prefix}/notes"
+    if target not in refs:
+        refs.append(target)
+    snapshot = source.fetch(notes_ref, target)
+    record["notes_commit"] = snapshot
+    note = source.note(snapshot, expected_head)
+    if note is None:
+        return None, "missing_note"
+    record["note_present"] = True
+    record["note_object"] = note[0]
+    with gitx.bounded_commands(GIT_TIMEOUT):
+        decoded = attestation.decode(note[1])
+        if decoded.sha != expected_head:
+            raise attestation.InvalidAttestation(
+                "Note names a different commit", reason="commit_mismatch"
+            )
+        record["fetched_evidence_commits"] = []
+        for sha in evidence_transport.missing(repo, decoded):
+            target = f"{prefix}/evidence/{sha}"
+            refs.append(target)
+            fetched = source.fetch(evidence_transport.ref_for(sha), target)
+            if fetched != sha:
+                raise attestation.InvalidAttestation(
+                    "Fetched evidence ref names a different commit", reason="commit_mismatch"
+                )
+            record["fetched_evidence_commits"].append(sha)
+        value = attestation.verify_value(repo, decoded, expected_head, purpose="local")
+        result = evaluate(value)
+    _freshness(source, head_ref, expected_head, record, "completion_head")
+    return result, "missing_note"
+
+
+def check(
     repo: Path,
     *,
     remote: str,
@@ -157,15 +232,6 @@ def check(  # noqa: C901  # tracked in #141
     refs: list[str] = []
     started = clock()
 
-    def freshness(record: dict[str, Any], key: str = "observed_head") -> None:
-        observed = source.advertised(head_ref)
-        record[key] = observed
-        if observed != expected_head:
-            raise attestation.InvalidAttestation(
-                f"Event head {expected_head} differs from observed head {observed}",
-                reason="stale_candidate",
-            )
-
     try:
         source.run("check-ref-format", head_ref)
         source.run("check-ref-format", notes_ref)
@@ -189,53 +255,19 @@ def check(  # noqa: C901  # tracked in #141
             }
             diagnostics["attempts"].append(record)
             try:
-                freshness(record)
-                head_target = f"{prefix}/head"
-                if head_target not in refs:
-                    refs.append(head_target)
-                fetched_head = source.fetch(head_ref, head_target)
-                record["fetched_head"] = fetched_head
-                if fetched_head != expected_head:
-                    raise attestation.InvalidAttestation(
-                        "Fetched PR head differs from the original event", reason="stale_candidate"
-                    )
-                advertised = source.advertised(notes_ref)
-                record["advertised_notes_commit"] = advertised
-                reason = "missing_notes_ref"
-                if advertised is not None:
-                    target = f"{prefix}/notes"
-                    if target not in refs:
-                        refs.append(target)
-                    snapshot = source.fetch(notes_ref, target)
-                    record["notes_commit"] = snapshot
-                    note = source.note(snapshot, expected_head)
-                    reason = "missing_note"
-                    if note is not None:
-                        record["note_present"] = True
-                        record["note_object"] = note[0]
-                        with gitx.bounded_commands(GIT_TIMEOUT):
-                            decoded = attestation.decode(note[1])
-                            if decoded.sha != expected_head:
-                                raise attestation.InvalidAttestation(
-                                    "Note names a different commit", reason="commit_mismatch"
-                                )
-                            record["fetched_evidence_commits"] = []
-                            for sha in evidence_transport.missing(repo, decoded):
-                                target = f"{prefix}/evidence/{sha}"
-                                refs.append(target)
-                                fetched = source.fetch(evidence_transport.ref_for(sha), target)
-                                if fetched != sha:
-                                    raise attestation.InvalidAttestation(
-                                        "Fetched evidence ref names a different commit",
-                                        reason="commit_mismatch",
-                                    )
-                                record["fetched_evidence_commits"].append(sha)
-                            value = attestation.verify_value(
-                                repo, decoded, expected_head, purpose="local"
-                            )
-                            result = evaluate(value)
-                        freshness(record, "completion_head")
-                        return {**result, "availability": diagnostics}
+                result, reason = _availability_attempt(
+                    repo,
+                    source,
+                    head_ref=head_ref,
+                    expected_head=expected_head,
+                    notes_ref=notes_ref,
+                    prefix=prefix,
+                    refs=refs,
+                    record=record,
+                    evaluate=evaluate,
+                )
+                if result is not None:
+                    return {**result, "availability": diagnostics}
                 record["reason"] = reason
             finally:
                 record["elapsed_seconds"] = round(clock() - started, 3)

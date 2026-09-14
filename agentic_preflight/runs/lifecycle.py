@@ -85,15 +85,10 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
     )
 
 
-def gc(session: Session, *, force: bool = False) -> Envelope:  # noqa: C901  # tracked in #141
-    """Reconcile three sources of truth: run dirs, git worktrees, and ap/* branches.
-
-    Anything still holding unmerged fix commits is *reported*, never removed
-    without ``--force``. Reclaiming disk is not worth destroying work.
-    """
+def _inventory(session: Session):
+    """Reconcile the three inventories before classifying run records."""
     store = session.store
     repo = session.repo_root
-
     known_runs = set(store.list_runs())
     active = store.list_active()
     for owner_id, active_run_id in list(active.items()):
@@ -114,11 +109,120 @@ def gc(session: Session, *, force: bool = False) -> Envelope:  # noqa: C901  # t
         for record in gitx.list_worktrees(repo)
         if "worktree" in record and record.get("branch", "").startswith("refs/heads/ap/")
     }
-    ac_branches = {
+    ap_branches = {
         line.strip().lstrip("* ").strip()
         for line in gitx.out(repo, "branch", "--list", "ap/*").splitlines()
         if line.strip()
     }
+    return known_runs, active, active_run_ids, live_worktrees, ap_branches
+
+
+def _classify_abandoned(
+    session: Session, run: RunDoc, active: dict[str, str], active_ids: set[str]
+):
+    """Return the first applicable abandonment reason."""
+    start_in_progress = run.state in {
+        State.CREATED,
+        State.WORKTREE_READY,
+        State.SYNC_RUNNING,
+        State.SETUP_FAILED,
+    }
+    if not Path(run.source_worktree_path).exists():
+        return "source worktree disappeared"
+    if active.get(run.source_worktree_id) != run.run_id:
+        return "source worktree lease disappeared"
+    if not start_in_progress and _head_moved(session, run) is not None:
+        return "source worktree moved"
+    if run.run_id not in active_ids:
+        return "run has no active worktree lease"
+    return None
+
+
+def _collect_run(
+    session: Session,
+    run_id: str,
+    active: dict[str, str],
+    active_run_ids: set[str],
+    *,
+    force: bool,
+) -> tuple[bool, dict | None, bool]:
+    """Classify and, when safe, reclaim one run record."""
+    store = session.store
+    try:
+        run = store.load_run(run_id)
+    except RunReadError as exc:
+        return False, exc.details(), True
+    except UnknownRun:
+        return (
+            False,
+            {
+                "run_id": run_id,
+                "path": str(store.run_path(run_id)),
+                "reason": "missing",
+                "diagnostic": "Run record disappeared during collection.",
+            },
+            False,
+        )
+    terminal = run.state in (State.ABORTED, State.DONE, State.ORPHANED)
+    if not terminal:
+        abandoned_reason = _classify_abandoned(session, run, active, active_run_ids)
+        if abandoned_reason:
+            with store.try_operation(run_id) as idle:
+                if not idle:
+                    return (
+                        False,
+                        {"run_id": run_id, "reason": "run command is still executing"},
+                        False,
+                    )
+                with store.transaction(run_id) as doc:
+                    _apply(doc, Action.ORPHAN)
+                    doc.orphaned_reason = abandoned_reason
+                    run = doc
+                store.clear_run(run_id)
+                store.append_event(run_id, {"event": "orphaned", "reason": abandoned_reason})
+                terminal = True
+    if not terminal:
+        retained = None
+        if run.fix_commits:
+            retained = {
+                "run_id": run_id,
+                "reason": "run still active with unmerged fix commits",
+                "fix_commits": run.fix_commits,
+            }
+        return False, retained, False
+    store.clear_run(run_id)
+    if run.fix_commits and not force and not _is_in_place(run):
+        unlanded = (
+            _unlanded_fix_commits(session.repo_root, run)
+            if run.state is State.DONE
+            else list(run.fix_commits)
+        )
+        if unlanded:
+            return (
+                False,
+                {
+                    "run_id": run_id,
+                    "reason": "unmerged fix commits",
+                    "fix_commits": unlanded,
+                },
+                False,
+            )
+    if not run.worktree_released and run.worktree_path and Path(run.worktree_path).exists():
+        _release_run_worktree(session, run)
+        with store.transaction(run_id) as doc:
+            doc.worktree_released = True
+    return True, None, False
+
+
+def gc(session: Session, *, force: bool = False) -> Envelope:
+    """Reconcile three sources of truth: run dirs, git worktrees, and ap/* branches.
+
+    Anything still holding unmerged fix commits is *reported*, never removed
+    without ``--force``. Reclaiming disk is not worth destroying work.
+    """
+    store = session.store
+
+    known_runs, active, active_run_ids, live_worktrees, ap_branches = _inventory(session)
 
     removed: list[str] = []
     retained: list[dict] = []
@@ -126,105 +230,19 @@ def gc(session: Session, *, force: bool = False) -> Envelope:  # noqa: C901  # t
     unreadable_retained = False
 
     for run_id in sorted(known_runs):
-        try:
-            run = store.load_run(run_id)
-        except RunReadError as exc:
-            retained.append(exc.details())
-            unreadable_retained = True
-            continue
-        except UnknownRun:
-            retained.append(
-                {
-                    "run_id": run_id,
-                    "path": str(store.run_path(run_id)),
-                    "reason": "missing",
-                    "diagnostic": "Run record disappeared during collection.",
-                }
-            )
-            continue
-        terminal = run.state in (State.ABORTED, State.DONE, State.ORPHANED)
-        if not terminal:
-            source_missing = not Path(run.source_worktree_path).exists()
-            source_alias_missing = active.get(run.source_worktree_id) != run.run_id
-            start_in_progress = run.state in {
-                State.CREATED,
-                State.WORKTREE_READY,
-                State.SYNC_RUNNING,
-                State.SETUP_FAILED,
-            }
-            stale = not start_in_progress and _head_moved(session, run) is not None
-            abandoned_reason = None
-            if source_missing:
-                abandoned_reason = "source worktree disappeared"
-            elif source_alias_missing:
-                abandoned_reason = "source worktree lease disappeared"
-            elif stale:
-                abandoned_reason = "source worktree moved"
-            elif run.run_id not in active_run_ids:
-                abandoned_reason = "run has no active worktree lease"
-
-            if abandoned_reason:
-                with store.try_operation(run_id) as idle:
-                    if idle:
-                        with store.transaction(run_id) as doc:
-                            _apply(doc, Action.ORPHAN)
-                            doc.orphaned_reason = abandoned_reason
-                            run = doc
-                        store.clear_run(run_id)
-                        store.append_event(
-                            run_id, {"event": "orphaned", "reason": abandoned_reason}
-                        )
-                        terminal = True
-                    else:
-                        retained.append(
-                            {
-                                "run_id": run_id,
-                                "reason": "run command is still executing",
-                            }
-                        )
-                        continue
-
-        if not terminal:
-            # An active run is never a reclamation candidate, but one holding
-            # fix commits is worth surfacing so it is not forgotten about.
-            if run.fix_commits:
-                retained.append(
-                    {
-                        "run_id": run_id,
-                        "reason": "run still active with unmerged fix commits",
-                        "fix_commits": run.fix_commits,
-                    }
-                )
-            continue
-        store.clear_run(run_id)
-        if run.fix_commits and not force and not _is_in_place(run):
-            # Only DONE proves mergeback and publication completed. Aborted or
-            # orphaned runs must retain every fix even if an unrelated commit
-            # in branch history happens to share its patch ID.
-            unlanded = (
-                _unlanded_fix_commits(repo, run)
-                if run.state is State.DONE
-                else list(run.fix_commits)
-            )
-            if unlanded:
-                retained.append(
-                    {
-                        "run_id": run_id,
-                        "reason": "unmerged fix commits",
-                        "fix_commits": unlanded,
-                    }
-                )
-                continue
-        if not run.worktree_released and run.worktree_path and Path(run.worktree_path).exists():
-            _release_run_worktree(session, run)
-            with store.transaction(run_id) as doc:
-                doc.worktree_released = True
-        removed.append(run_id)
+        reclaimed, retained_item, unreadable = _collect_run(
+            session, run_id, active, active_run_ids, force=force
+        )
+        if reclaimed:
+            removed.append(run_id)
+        if retained_item is not None:
+            retained.append(retained_item)
+        unreadable_retained = unreadable_retained or unreadable
 
     # A worktree or branch git knows about but the store does not: reconcile by
     # reporting, so a half-created run is visible rather than silently leaked.
     orphans.extend(name for name in live_worktrees if name not in known_runs)
-    for branch in ac_branches:
+    for branch in ap_branches:
         run_id = branch.removeprefix("ap/")
         if run_id not in known_runs and run_id not in orphans:
             orphans.append(run_id)
@@ -294,58 +312,134 @@ def _hook_status(repo: Path) -> dict[str, str | bool | None]:
         }
 
 
-def status(  # noqa: C901  # tracked in #141
-    session: Session, *, all_runs: bool = False
-) -> Envelope:
+def _status_all(session: Session) -> Envelope:
+    """Return the clone-wide run inventory, including unreadable records."""
+    active = session.store.list_active()
+    active_run_ids = set(active.values())
+    summaries = []
+    for known_run_id in sorted(set(session.store.list_runs()) | active_run_ids):
+        try:
+            known = session.store.load_run(known_run_id)
+        except RunReadError as exc:
+            summaries.append(
+                {**exc.details(), "readable": False, "active": known_run_id in active_run_ids}
+            )
+            continue
+        except UnknownRun:
+            summaries.append(
+                {
+                    "run_id": known_run_id,
+                    "path": str(session.store.run_path(known_run_id)),
+                    "reason": "missing",
+                    "diagnostic": "Run record is missing.",
+                    "readable": False,
+                    "active": known_run_id in active_run_ids,
+                }
+            )
+            continue
+        summaries.append(
+            {
+                "run_id": known.run_id,
+                "state": known.state.value,
+                "branch": known.branch,
+                "source_worktree_path": known.source_worktree_path,
+                "worktree_path": known.worktree_path,
+                "active": known.run_id in active_run_ids,
+                "orphaned_reason": known.orphaned_reason,
+                "updated_at": known.updated_at,
+            }
+        )
+    return Envelope(
+        data={"active": active, "runs": summaries, "count": len(summaries)},
+        next_instruction=RUN_READ_RECOVERY
+        if any(item.get("readable") is False and item["reason"] != "missing" for item in summaries)
+        else None,
+    )
+
+
+def _try_advance_evidence(session: Session, run: RunDoc, findings):
+    """Discover reusable evidence without compromising status as recovery."""
+    reuse_error = None
+    if (
+        run.state
+        not in {
+            State.REVIEW_AWAITING_FINDINGS,
+            State.REVIEW_GREEN,
+            State.DOCS_AWAITING_FINDINGS,
+            State.DOCS_GREEN,
+            State.LINT_GREEN,
+        }
+        or _head_moved(session, run) is not None
+    ):
+        return run, findings, reuse_error
+    from . import evidence
+
+    with session.store.try_operation(run.run_id) as idle:
+        if idle:
+            try:
+                if not run.evidence_discovered:
+                    run = evidence.discover(session, run)
+                run = evidence.advance(session, run)
+                findings = session.store.load_findings(run.run_id)
+            except (WrongState, OSError, gitx.GitError) as exc:
+                reuse_error = str(exc)
+                try:
+                    recovered = session.store.load_run(run.run_id)
+                    recovered_findings = session.store.load_findings(run.run_id)
+                except (OSError, ValueError, StoreError):
+                    pass
+                else:
+                    run, findings = recovered, recovered_findings
+    return run, findings, reuse_error
+
+
+def _set_status_next(session: Session, run: RunDoc, envelope: Envelope, *, stale: bool) -> None:
+    """Choose the recovery instruction for the current run state."""
+    if not session.source_worktree_available:
+        envelope.next_instruction = (
+            "The recorded source worktree no longer exists. Inspection remains available; "
+            "run `gc` from another worktree in this clone to reconcile the abandoned run."
+        )
+        envelope.next_command = "agentic-preflight gc"
+    elif stale:
+        envelope.next_instruction = (
+            "This run is stale: the source worktree moved after review began. From that "
+            "source worktree, start again with the same intent; the stale run will be "
+            "preserved as ORPHANED."
+        )
+        envelope.next_command = _start_command(
+            run.intent,
+            base_ref=run.base_ref,
+            default_base_ref=session.config.general.base_ref,
+        )
+    elif run.setup_failure is not None and run.setup_failure.scope == "baseline":
+        envelope.next_instruction = run.setup_failure.next_instruction
+        envelope.next_command = run.setup_failure.next_command
+    elif run.state is State.MERGEBACK_CONFLICT:
+        conflict = next(
+            (
+                event
+                for event in reversed(session.store.load_events(run.run_id))
+                if event.get("event") == "mergeback_conflict"
+            ),
+            None,
+        )
+        envelope.data["mergeback_conflict"] = conflict
+        envelope.next_instruction = (
+            "Use the durable conflict report below, resolve the affected paths, "
+            "then retry mergeback; completed verification stages are retained."
+        )
+        envelope.next_command = "agentic-preflight mergeback"
+
+
+def status(session: Session, *, all_runs: bool = False) -> Envelope:
     """Legal in every state, and the universal recovery entry point.
 
     Expected record-read failures remain inspectable. Unexpected programming or
     global inventory failures still surface rather than claiming records vanished.
     """
     if all_runs:
-        active = session.store.list_active()
-        active_run_ids = set(active.values())
-        summaries = []
-        for known_run_id in sorted(set(session.store.list_runs()) | active_run_ids):
-            try:
-                known = session.store.load_run(known_run_id)
-            except RunReadError as exc:
-                summaries.append(
-                    {**exc.details(), "readable": False, "active": known_run_id in active_run_ids}
-                )
-                continue
-            except UnknownRun:
-                summaries.append(
-                    {
-                        "run_id": known_run_id,
-                        "path": str(session.store.run_path(known_run_id)),
-                        "reason": "missing",
-                        "diagnostic": "Run record is missing.",
-                        "readable": False,
-                        "active": known_run_id in active_run_ids,
-                    }
-                )
-                continue
-            summaries.append(
-                {
-                    "run_id": known.run_id,
-                    "state": known.state.value,
-                    "branch": known.branch,
-                    "source_worktree_path": known.source_worktree_path,
-                    "worktree_path": known.worktree_path,
-                    "active": known.run_id in active_run_ids,
-                    "orphaned_reason": known.orphaned_reason,
-                    "updated_at": known.updated_at,
-                }
-            )
-        return Envelope(
-            data={"active": active, "runs": summaries, "count": len(summaries)},
-            next_instruction=RUN_READ_RECOVERY
-            if any(
-                item.get("readable") is False and item["reason"] != "missing" for item in summaries
-            )
-            else None,
-        )
+        return _status_all(session)
 
     hook_status = _hook_status(session.caller_root)
     run_id = session.active_run_id()
@@ -392,38 +486,7 @@ def status(  # noqa: C901  # tracked in #141
         )
 
     findings = session.store.load_findings(run_id)
-    reuse_error = None
-    if (
-        run.state
-        in {
-            State.REVIEW_AWAITING_FINDINGS,
-            State.REVIEW_GREEN,
-            State.DOCS_AWAITING_FINDINGS,
-            State.DOCS_GREEN,
-            State.LINT_GREEN,
-        }
-        and _head_moved(session, run) is None
-    ):
-        from . import evidence
-
-        with session.store.try_operation(run.run_id) as idle:
-            if idle:
-                try:
-                    if not run.evidence_discovered:
-                        run = evidence.discover(session, run)
-                    run = evidence.advance(session, run)
-                    findings = session.store.load_findings(run_id)
-                except (WrongState, OSError, gitx.GitError) as exc:
-                    # Reuse is optional; status remains the recovery path even
-                    # when a worktree disappears during evidence import.
-                    reuse_error = str(exc)
-                    try:
-                        recovered = session.store.load_run(run_id)
-                        recovered_findings = session.store.load_findings(run_id)
-                    except (OSError, ValueError, StoreError):
-                        pass
-                    else:
-                        run, findings = recovered, recovered_findings
+    run, findings, reuse_error = _try_advance_evidence(session, run, findings)
     summary = {status.value: 0 for status in FindingStatus}
     for finding in findings:
         summary[finding.status.value] += 1
@@ -500,39 +563,5 @@ def status(  # noqa: C901  # tracked in #141
     )
     if reuse_error is not None:
         envelope.data["reuse_error"] = reuse_error
-    if not session.source_worktree_available:
-        envelope.next_instruction = (
-            "The recorded source worktree no longer exists. Inspection remains available; "
-            "run `gc` from another worktree in this clone to reconcile the abandoned run."
-        )
-        envelope.next_command = "agentic-preflight gc"
-    elif stale:
-        envelope.next_instruction = (
-            "This run is stale: the source worktree moved after review began. From that "
-            "source worktree, start again with the same intent; the stale run will be "
-            "preserved as ORPHANED."
-        )
-        envelope.next_command = _start_command(
-            run.intent,
-            base_ref=run.base_ref,
-            default_base_ref=session.config.general.base_ref,
-        )
-    elif run.setup_failure is not None and run.setup_failure.scope == "baseline":
-        envelope.next_instruction = run.setup_failure.next_instruction
-        envelope.next_command = run.setup_failure.next_command
-    elif run.state is State.MERGEBACK_CONFLICT:
-        conflict = next(
-            (
-                event
-                for event in reversed(session.store.load_events(run_id))
-                if event.get("event") == "mergeback_conflict"
-            ),
-            None,
-        )
-        envelope.data["mergeback_conflict"] = conflict
-        envelope.next_instruction = (
-            "Use the durable conflict report below, resolve the affected paths, "
-            "then retry mergeback; completed verification stages are retained."
-        )
-        envelope.next_command = "agentic-preflight mergeback"
+    _set_status_next(session, run, envelope, stale=stale)
     return envelope

@@ -41,6 +41,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Split the remaining complex orchestration and evidence-validation functions into
+  bounded internal helpers without changing their command or persistence behavior.
 - Split run startup into bounded internal phases and enable Ruff's McCabe complexity gate.
 - Rename the portfolio review page to engineering notes and move dogfooding counts out
   of the README introduction.

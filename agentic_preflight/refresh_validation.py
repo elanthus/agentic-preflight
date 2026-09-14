@@ -152,9 +152,72 @@ def verify_stage(
         raise ValueError("derived evidence inputs are invalid or unknown")
 
 
-def verify_evidence(  # noqa: C901  # tracked in #141
-    repo: Path | str, value: Attestation
-) -> None:
+def _verify_current_stage(
+    repo: Path | str, value: Attestation, cfg: Config, stage: Stage, item: StageEvidence
+) -> list:
+    """Verify one current result against its original execution evidence."""
+    verify_stage(repo, item, head=value.sha, base=value.merge_base_sha, run_id=value.run_id)
+    current = value.stages[stage]
+    expected = item.origin.result.model_copy(deep=True)
+    if stage is Stage.REVIEW:
+        expected.coverage = rebound_coverage(
+            repo, item.origin, head=value.sha, base=value.merge_base_sha
+        )
+    if current != expected:
+        raise ValueError("current stage result differs from original execution evidence")
+    fp = item.fingerprint
+    if isinstance(fp, ReviewFingerprint):
+        if fp.intent_sha256 != value.intent_sha256 or fp.config_sha256 != json_digest(
+            review_relevant_config(value.config_snapshot)
+        ):
+            raise ValueError("current review intent/policy binding changed")
+    elif isinstance(fp, DocsFingerprint):
+        if fp.intent_sha256 != value.intent_sha256 or fp.config_sha256 != json_digest(
+            docs_relevant_config(value.config_snapshot)
+        ):
+            raise ValueError("current docs intent/policy binding changed")
+    else:
+        contract = getattr(cfg.reuse, stage.value)
+        expected_config = json_digest(
+            {
+                "execution": shell_execution_config(value.config_snapshot, stage),
+                "contract": contract.model_dump(mode="json") if contract else None,
+            }
+        )
+        if fp.config_sha256 != expected_config:
+            raise ValueError("current shell policy binding changed")
+        configured_command = getattr(cfg.commands, stage.value)
+        if (
+            value.outcome == "tests_pending"
+            and current.status == "green"
+            and configured_command
+            and current.command != configured_command
+        ):
+            raise ValueError("current shell command differs from configured command")
+    severities = (
+        cfg.docs.blocking_severities if stage is Stage.DOCS else cfg.review.blocking_severities
+    )
+    if findings.blocking(
+        item.origin.findings, blocking_severities=severities
+    ) or findings.actionable(item.origin.findings):
+        raise ValueError("reused evidence contains unresolved blocking or actionable findings")
+    return item.origin.findings
+
+
+def _verify_executor_policy(value: Attestation, cfg: Config, assessment) -> None:
+    """Require the review executor selected by the current policy."""
+    executor = (
+        "command"
+        if assessment.level.value in cfg.review.require_command_for
+        else cfg.review.executor
+    )
+    if value.stages[Stage.REVIEW].executor != executor:
+        raise ValueError("review execution does not meet current executor policy")
+    if executor == "command" and value.stages[Stage.REVIEW].command != cfg.review.command:
+        raise ValueError("review command does not meet current executor policy")
+
+
+def verify_evidence(repo: Path | str, value: Attestation) -> None:
     if value.evidence is None or value.config_snapshot is None:
         raise ValueError("refresh attestation lacks per-stage evidence or configuration")
     cfg = Config.model_validate(value.config_snapshot)
@@ -173,53 +236,8 @@ def verify_evidence(  # noqa: C901  # tracked in #141
     summary: dict[str, int] = {}
     all_findings = []
     for stage, item in value.evidence.items():
-        verify_stage(repo, item, head=value.sha, base=value.merge_base_sha, run_id=value.run_id)
-        current = value.stages[stage]
-        original = item.origin.result
-        expected = original.model_copy(deep=True)
-        if stage is Stage.REVIEW:
-            expected.coverage = rebound_coverage(
-                repo, item.origin, head=value.sha, base=value.merge_base_sha
-            )
-        if current != expected:
-            raise ValueError("current stage result differs from original execution evidence")
-        fp = item.fingerprint
-        if isinstance(fp, ReviewFingerprint):
-            if fp.intent_sha256 != value.intent_sha256 or fp.config_sha256 != json_digest(
-                review_relevant_config(value.config_snapshot)
-            ):
-                raise ValueError("current review intent/policy binding changed")
-        elif isinstance(fp, DocsFingerprint):
-            if fp.intent_sha256 != value.intent_sha256 or fp.config_sha256 != json_digest(
-                docs_relevant_config(value.config_snapshot)
-            ):
-                raise ValueError("current docs intent/policy binding changed")
-        else:
-            contract = getattr(cfg.reuse, stage.value)
-            expected_config = json_digest(
-                {
-                    "execution": shell_execution_config(value.config_snapshot, stage),
-                    "contract": contract.model_dump(mode="json") if contract else None,
-                }
-            )
-            if fp.config_sha256 != expected_config:
-                raise ValueError("current shell policy binding changed")
-            configured_command = getattr(cfg.commands, stage.value)
-            if (
-                value.outcome == "tests_pending"
-                and current.status == "green"
-                and configured_command
-                and current.command != configured_command
-            ):
-                raise ValueError("current shell command differs from configured command")
-        severities = (
-            cfg.docs.blocking_severities if stage is Stage.DOCS else cfg.review.blocking_severities
-        )
-        if findings.blocking(
-            item.origin.findings, blocking_severities=severities
-        ) or findings.actionable(item.origin.findings):
-            raise ValueError("reused evidence contains unresolved blocking or actionable findings")
-        for finding in item.origin.findings:
+        stage_findings = _verify_current_stage(repo, value, cfg, stage, item)
+        for finding in stage_findings:
             all_findings.append(finding)
             for key in (finding.status.value, finding.severity.value):
                 summary[key] = summary.get(key, 0) + 1
@@ -232,12 +250,4 @@ def verify_evidence(  # noqa: C901  # tracked in #141
         review_blocking_severities=cfg.review.blocking_severities,
         docs_blocking_severities=cfg.docs.blocking_severities,
     )
-    executor = (
-        "command"
-        if assessment.level.value in cfg.review.require_command_for
-        else cfg.review.executor
-    )
-    if value.stages[Stage.REVIEW].executor != executor:
-        raise ValueError("review execution does not meet current executor policy")
-    if executor == "command" and value.stages[Stage.REVIEW].command != cfg.review.command:
-        raise ValueError("review command does not meet current executor policy")
+    _verify_executor_policy(value, cfg, assessment)
