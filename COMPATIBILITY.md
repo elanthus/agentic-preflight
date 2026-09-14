@@ -69,10 +69,9 @@ outside the matrix does not make that version supported.
 ## Compatibility changes
 
 The command-line interface, configuration file, attestation schema, and documented
-Python API follow Semantic Versioning. During the current `0.x` series, incompatible
-changes may ship in a minor release and will be called out in `CHANGELOG.md`.
+Python API follow Semantic Versioning. Breaking changes are called out in
+`CHANGELOG.md`.
 
-Removing a Python or operating-system version should be announced in the changelog at
-least one minor release in advance when practical. An upstream end-of-life or hosted
-runner retirement may require a faster change; in that case the release notes must
-identify the constraint and the last compatible Agentic Preflight release.
+Agentic Preflight 0.6.0 does not read run records or attestation notes written by any
+0.x release. Unsupported saved data is reported as an error and left unchanged with
+the work and ownership information it refers to.

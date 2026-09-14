@@ -2,12 +2,8 @@
 
 After a history-only rebase or restack, `start` discovers applicable local evidence
 and returns the next required stage. `status` resumes after interruption. Review,
-docs, lint, and tests are classified independently. This implements
-[issue #85](https://github.com/elanthus/agentic-preflight/issues/85).
-
-Complete stage evidence is eligible for refresh without a protected-base capability
-probe. See the [schema boundary](schema-compatibility.md) for the supported wire
-shapes and unchanged snapshot digest rules.
+docs, lint, and tests are classified independently. Complete stage evidence is
+eligible for refresh when its current fingerprint matches.
 
 ## Applicability and audit identity
 
@@ -75,8 +71,7 @@ for commands that depend on them.
 
 Inputs are captured before and after execution; changes prevent reuse. Only
 combined digests and reason categories are recorded, never environment values or
-input-file contents. V5 evidence rechecks these inputs even for an unchanged SHA.
-Legacy v4 exact-commit reuse keeps its existing compatibility contract.
+input-file contents. Evidence rechecks these inputs even for an unchanged SHA.
 Local `stage run --command` overrides remain valid execution evidence. Their
 resolved commands are fingerprinted; a different command prevents automatic reuse.
 Delegated CI separately requires lint to match its protected command policy.
@@ -86,11 +81,11 @@ Delegated CI separately requires lint to match its protected command policy.
 Discovery uses finalized local execution records from the same source-worktree
 identity and branch. Other linked worktrees' records are not candidates. All
 three modes use the same classification/import path. A fresh clone with only
-historical notes needs a local run; this version does not reconstruct local
+portable notes needs a local run; the tool does not reconstruct local
 execution/ownership records from portable notes.
 
-A v5 note embeds one original execution per stage, its content digest, and the
-current fingerprint. Derivation adds refresh time and `equivalent_inputs`, keeping
+An attestation embeds one original execution per stage, its content digest, and
+the current fingerprint. Derivation adds refresh time and `equivalent_inputs`, keeping
 original timestamps, process hashes, findings, fixes, and coverage. Provenance is
 flattened to one origin: nested chains and unsupported fields/versions are rejected.
 The consumer recomputes available Git, manifest, configuration, executor, and
@@ -105,8 +100,7 @@ fetch missing originals from the contributor's evidence refs before verification
 fetching a notes blob alone cannot retrieve commits named inside its JSON. These
 refs survive normal run/worktree cleanup and must remain while any published note
 depends on them. Keep the local publisher, hook, and protected verifier on the same
-release before relying on this transport. Older notes can be republished from a clone that still
-has their original commits; missing originals cannot be reconstructed from hashes.
+release. Missing originals cannot be reconstructed from hashes.
 
 Clean-checkout, synchronization, mergeback, publication authorization, and atomic
 branch/notes push rules still apply. Refresh authorizes no force-push, merge, or

@@ -195,8 +195,9 @@ process evidence for green lint/test stages. Fetch the notes ref before calling 
 a fresh clone. Schema v7 requires an explicit `verified` or `tests_pending` outcome,
 complete outcome-appropriate stage evidence, and the full configuration snapshot. It
 verifies original execution digests, Git and configuration bindings, stage applicability,
-finding dispositions, and original/current review-unit accounting. A missing, earlier,
-or invalid note exits 2. This remains an offline check; it does not execute stages or
+finding dispositions, and original/current review-unit accounting. A missing note, a
+note with any other schema, or invalid evidence exits 2. This remains an offline check;
+it does not execute stages or
 fetch evidence.
 
 ### `agentic-preflight hosted-check SHA --base SHA --source-remote NAME --head-ref refs/heads/BRANCH`
@@ -396,7 +397,7 @@ record. Schema diagnostics list field locations and validation categories withou
 values; an unknown field does not establish which tool version wrote it.
 
 Even `--force` preserves unreadable records, their branches, worktrees, and ownership
-pointers. Use a compatible tool version or inspect the indicated record. Neither
+pointers. Inspect the indicated record. Neither
 `status` nor `status --all` treats an unreadable record as absent: inspection reports
 `readable: false`, and single-run status keeps `has_run: true` with `data.read_failure`.
 Recovery guidance supplies no executable replacement command. Only confirmed absence

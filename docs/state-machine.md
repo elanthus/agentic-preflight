@@ -113,22 +113,16 @@ reads can finish committed local updates; status can also discover/import reusab
 evidence and release terminal ownership pointers. It does not complete a pending
 merge-back itself: it directs the caller to `mergeback` for reconciliation.
 
-## Compatibility and limits
+## Saved-record boundary and limits
 
-Existing runs without `mergeback_attempt` remain readable. They retain conservative
-stale-head behavior because there is no recorded attempt against which to reconcile
-a moved source. The journal is local storage only; portable attestation schemas and
-their protected-base consumer contract are unchanged.
-
-Use the same compatible CLI version for commands sharing active run storage.
-Older tools do not understand the journal protocol and may reject the additional
-run field. Do not downgrade while an update or merge-back is pending; preserve the
-records and use a compatible version to recover them.
+Run storage requires schema version 2. Any other schema is rejected with a diagnostic;
+the record, its worktree, branch, and ownership pointers remain untouched. The journal
+is local storage only; portable attestations use schema version 7.
 
 Review coverage records a snapshot-bound assertion that every delivered unit was
 examined. It does not prove understanding or defect detection. Git notes remain
 mutable, unsigned audit records, and the local hook remains advisory. See
-[limits](limits.md) and [attestation compatibility](schema-compatibility.md).
+[limits](limits.md) and [attestation enforcement](attestations-and-ci.md).
 
 The executable recovery examples are in `tests/test_transaction_recovery.py`,
 `tests/test_mergeback.py`, `tests/test_evidence_refresh.py` and

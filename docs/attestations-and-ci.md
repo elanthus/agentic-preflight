@@ -7,7 +7,7 @@ and tests are delegated to the recorded protected CI policy. Notes include the r
 identity, commit and tree hashes, dedicated SHA-256 bindings for user intent and the
 complete effective configuration snapshot, finding totals, stage fingerprints, and
 original execution provenance. Green shell stages include their command, exit code, and
-redacted-output digest; skipped stages say why. Earlier schema versions are rejected.
+redacted-output digest; skipped stages say why. Any other schema version is rejected.
 
 `agentic-preflight push` first publishes the original-commit refs needed by attestation
 evidence, then atomically pushes the branch and `refs/notes/agentic-preflight`.
@@ -29,13 +29,12 @@ command, zero exit code, and output hash.
 
 ## Required GitHub check
 
-The verifier must support the schema emitted by the producer: schema version 7. Pin it to the same
-Agentic Preflight release, or to the same immutable source revision when validating
-attestations produced by an unreleased source build. Earlier releases reject the current
-format, and the current verifier rejects notes from earlier releases.
+The verifier requires schema version 7. Pin it to the same Agentic Preflight release as
+the producer, or to the same immutable source revision when validating attestations
+produced by an unreleased source build. Notes with any other schema are rejected.
 
-For locally completed 0.5.3 attestations, these are example steps for a GitHub Actions
-job with `contents: read` permissions. The checkout selects the attested head and its
+These are example steps for a GitHub Actions job with `contents: read` permissions.
+The checkout selects the attested head and its
 repository, including for forks; it does not install or execute that source. Install
 Python 3.11–3.13 and `pipx` on the runner first. The pinned package must be published
 before this example can run.
@@ -50,7 +49,7 @@ before this example can run.
 - run: git fetch origin refs/notes/agentic-preflight:refs/notes/agentic-preflight
 - run: git fetch origin 'refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*'
 - name: Install the matching released verifier
-  run: pipx install 'agentic-preflight==0.5.3'
+  run: pipx install 'agentic-preflight==0.6.0'
 - name: Verify the attested commit
   env:
     ATTESTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -114,7 +113,7 @@ permanent evidence/transport failure, not another missing-note retry.
 | Reason or policy result | Recovery |
 | --- | --- |
 | `missing_notes_ref`, `missing_note` | Confirm that the exact head and its note were published to the selected remote; rerun the bounded check after publication. |
-| `incompatible_schema` | Compare producer and protected verifier revisions. Update the protected verifier or emit a supported format. Repeating local preflight alone does not repair compatibility. |
+| `incompatible_schema` | Use the current producer and protected verifier so the note uses schema version 7. Repeating local preflight with a different producer does not repair the present note. |
 | `malformed_payload`, `invalid_evidence`, `commit_mismatch`, `tree_mismatch` | Inspect and restore valid evidence for the exact commit. The present note is not retried. |
 | `stale_candidate` | Run the new event's check. The old event never borrows the new head or its note. |
 | `git_failure`, `git_timeout`, `io_failure` | Investigate access, authentication, transport, or local I/O. Raw Git stderr is omitted because it can contain credentials; the operation and exit/timeout remain visible. |
@@ -129,12 +128,8 @@ URL credentials. CLI stdout contains one JSON envelope, including failure diagno
 The hosted shell caller must print that envelope and return the original command exit
 status before reading approval outputs.
 
-Both repository workflows now use `hosted-check` from their protected event-base
-installation. Helper support landed first in PR #96; workflow adoption followed in a
-separate PR so no caller depends on a command absent from its trusted base. Apply this
-order in other repositories too: merge compatible helper support before requiring it
-in hosted callers. Never execute proposed helper code with policy credentials to
-shortcut the rollout. The attestation wire format is unchanged.
+Both repository workflows use `hosted-check` from their protected event-base
+installation. Never execute proposed helper code with policy credentials.
 
 Same-head failure followed by a successful rerun does not establish replication delay
 as the cause. Compare the recorded snapshots and verifier identities between attempts;
@@ -188,8 +183,8 @@ after Dependabot has stopped rebasing it; every rebase changes the attested SHA.
 
 ## Evidence reuse across rebases
 
-After a rebase, run `start` with the original intent. With a compatible protected
-base, it classifies each stage, preserves applicable evidence, and returns the
+After a rebase, run `start` with the original intent. With the current verifier on the
+protected base, it classifies each stage, preserves applicable evidence, and returns the
 next command. `status` resumes after interruption. Shell stages rerun unless
 their committed content contracts are satisfied. See the
 [fingerprint contract](fingerprint-contract.md) for supported inputs and limits.
@@ -205,12 +200,10 @@ before atomically publishing the branch and note. Gate summaries, manual push co
 runs include these refs. Keep them while published notes reference them; ordinary
 run cleanup does not delete them. A fresh consumer fetches only the originals named
 by the selected note. Keep the publisher, hook, and protected verifier on the same
-release before relying on this transport. For an older note, republish from a
-clone that retains its original commits; a note's hashes cannot recover lost data.
+release. A note's hashes cannot recover lost data.
 
 Every completed local run requires complete stage provenance before publication.
-Earlier notes are rejected rather than upgraded into reusable evidence. The tool never
-executes the PR's verifier with policy credentials.
+The tool never executes the PR's verifier with policy credentials.
 
 ## Delegating tests to trusted CI
 
@@ -228,19 +221,19 @@ local publication requirements were satisfied. Three local stage origins preserv
 their actual execution provenance. The note includes the protected CI declaration
 and original policy revision, not a fabricated remote pass.
 
-Install consumers before producers:
+Configure trusted CI:
 
 1. Generate templates with `agentic-preflight ci templates --directory /tmp/preflight-ci`.
    Review and copy them into `.github/workflows/` on the protected default/base branch.
    Adapt the matrix and test commands in `preflight-tests.yml`, and the base branch
    in `preflight-ci.yml`. The templates assume this Python package's source is
    installed from that protected checkout. In another project, replace installation
-   with an immutable release/revision supporting schema version 7. Do this in both workflows.
+   with an immutable release or revision that emits and verifies schema version 7.
 2. Merge that consumer setup using complete local validation. Retrieve the numeric
    repository ID with `gh api repos/OWNER/REPO --jq .id` and the workflow ID with
    `gh api repos/OWNER/REPO/actions/workflows/preflight-tests.yml --jq .id`.
    Commit the [CI declaration](configuration.md#protected-ci-tests) on the protected
-   base in a separate rollout; keep its PR on the local validation path until merged.
+   base.
 3. Register and install a dedicated GitHub App with Actions/Checks write and
    Contents/Pull requests read permissions for this repository. Set
    `PREFLIGHT_CI_APP_ID` as a repository variable and `check_app_id` in protected
@@ -256,11 +249,10 @@ Install consumers before producers:
    its check writes and refuses a mismatched token.
    Require branches to be up to date before merging, dismiss stale approvals, and
    retain CODEOWNERS protection for configuration, workflows, and verifier code.
-   Replace a required legacy `verify HEAD` check when activating pending publication;
-   leaving it required would reject every delegated note. Preserve other required
-   checks and ownership/approval rules. Restrict check-writing credentials to the
-   trusted evaluator. For environment mode, configure actual required reviewers on
-   the named environment before enabling delegation.
+   Do not also require `verify HEAD`, which rejects the `tests_pending` outcome.
+   Preserve other required checks and ownership/approval rules. Restrict check-writing
+   credentials to the trusted evaluator. For environment mode, configure actual
+   required reviewers on the named environment before enabling delegation.
 5. After the protected policy is installed, synchronize feature branches and run the
    normal local sequence. `stage run test` records delegation without starting local
    tests. Publish through the usual authorized gate and open the PR. This produces
@@ -309,5 +301,5 @@ for a transient failure without repeating local model review. A base update gets
 fresh integration run; dispatch explicitly with
 `agentic-preflight ci dispatch --repo OWNER/REPO --pr 86` if needed. This command is
 idempotent for an existing candidate; `--force` requests a fresh complete run.
-Source repairs use the ordinary per-stage evidence invalidation flow from #85.
+Source repairs use the ordinary per-stage evidence invalidation flow.
 Manual-merge, environment, peer approval, and scoped cleanup requirements still apply.

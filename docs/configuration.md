@@ -327,7 +327,7 @@ exact current head.
 
 ## Protected CI tests
 
-`[ci] test_authority = "local"` keeps the existing local stage sequence. To delegate
+`[ci] test_authority = "local"` runs the local stage sequence. To delegate
 tests, first install the protected workflows using the
 [CI setup procedure](attestations-and-ci.md#delegating-tests-to-trusted-ci). Then
 commit the declaration below on the protected base. Replace the numeric IDs with
@@ -350,13 +350,13 @@ one test matrix leg in the protected workflow. Names must be unique and nonempty
 `prepare` and `approval` are reserved jobs added by the verifier. Only explicit
 success counts. Expiry is measured from each job's completion, defaults to one day,
 and permits 60–604800 seconds. A partial rerun cannot borrow missing legs from an
-older attempt; rerun all jobs.
+another attempt; rerun all jobs.
 
 The effective CI declaration must match the committed protected base and proposed
 head. A user-config override cannot enable delegation by itself. Review, docs,
 diff, context, risk, approval policy, and the lint command must also match the
-protected policy. This initial path requires exact agreement; change those policies
-through a separately reviewed protected-base rollout. Lint remains local. The
+protected policy. Policy changes require their own review on the protected base.
+Lint remains local. The
 `stage run test` command accepts no local command/record/baseline flags when delegated.
 
 The workflow's protected commands define remote test execution. Local

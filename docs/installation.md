@@ -72,19 +72,6 @@ uv tool upgrade agentic-preflight
 agentic-preflight integrations update
 ```
 
-### Upgrading to 0.6.0
-
-Refresh installed skills along with the CLI so the agent follows the current workflow.
-The pull-request cleanup setting is now spelled `[pr] automated_cleanup`; the former
-camelCase spelling is rejected as an unknown key. Automatic PR creation and hosted-check
-monitoring are unchanged.
-
-Upgrade the publisher, hook installation, and trusted verifier together because schema
-version 7 does not read earlier attestations. Then follow
-the [CI delegation setup](attestations-and-ci.md#delegating-tests-to-trusted-ci) when
-enabling protected CI authority. Existing default configurations continue to execute
-tests locally.
-
 ## Scopes and other clients
 
 User scope is the default. To check a skill into one repository instead:
