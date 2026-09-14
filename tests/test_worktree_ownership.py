@@ -452,25 +452,31 @@ def test_programming_errors_do_not_clear_ownership(feature_repo, monkeypatch, ar
 @pytest.mark.parametrize(
     "args", [("status",), ("status", "--all"), ("gc",), ("gc", "--force"), ("start",)]
 )
-def test_unreadable_legacy_pointer_is_not_migrated_or_replaced(feature_repo, args):
-    from tests.conftest import make_run, unreadable_run_bytes
+def test_stray_current_pointer_is_ignored_and_unchanged(feature_repo, args):
+    from tests.conftest import make_run
 
     session = runs.open_session(feature_repo)
     store = session.store
     run = make_run()
     store.create_run(run)
-    original = unreadable_run_bytes(run, "unknown_field")
-    store.run_path(run.run_id).write_bytes(original)
-    store.current_path.write_text(run.run_id + "\n")
-    pointer = store.current_path.read_bytes()
-    result = ScriptedAgent(feature_repo).run(*args, expect=3 if args == ("start",) else 0)
+    path = store.run_path(run.run_id)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["schema_version"] = 1
+    original = json.dumps(raw).encode()
+    path.write_bytes(original)
+    current_path = store.root / "current"
+    pointer = (run.run_id + "\n").encode()
+    current_path.write_bytes(pointer)
+
+    result = ScriptedAgent(feature_repo).run(*args)
+
     if args == ("status",):
-        assert result["data"]["has_run"] is True
-        assert result["data"]["readable"] is False
+        assert result["data"]["has_run"] is False
     elif args == ("status", "--all"):
-        assert result["data"]["runs"][0]["active"] is True
+        assert result["data"]["runs"][0]["active"] is False
     elif args[0] == "gc":
         assert result["data"]["retained"][0]["run_id"] == run.run_id
-    assert store.current_path.read_bytes() == pointer
-    assert store.list_active() == {}
-    assert store.run_path(run.run_id).read_bytes() == original
+    else:
+        assert result["run_id"] != run.run_id
+    assert current_path.read_bytes() == pointer
+    assert path.read_bytes() == original

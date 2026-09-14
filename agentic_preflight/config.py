@@ -23,12 +23,10 @@ from pydantic import (
     ConfigDict,
     Field,
     ValidationError,
-    model_serializer,
     model_validator,
 )
 
 from .ci_models import CISection
-from .config_compatibility import compatible_snapshot
 from .digests import json_digest
 from .shell_fingerprints import ShellInputContract
 
@@ -182,10 +180,6 @@ class Config(BaseModel):
     pr: PRSection = Field(default_factory=PRSection)
     approval: ApprovalSection = Field(default_factory=ApprovalSection)
     hook: HookSection = Field(default_factory=HookSection)
-
-    @model_serializer(mode="wrap")
-    def compatible_snapshot(self, handler):
-        return compatible_snapshot(handler(self), self.ci)
 
 
 def config_digest(snapshot: dict[str, Any]) -> str:

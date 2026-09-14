@@ -108,8 +108,6 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
                 known_runs.add(active_run_id)
     active = store.list_active()
     active_run_ids = set(active.values())
-    if session.legacy_run_id:
-        active_run_ids.add(session.legacy_run_id)
     known_runs.update(active_run_ids)
     live_worktrees = {
         record["branch"].removeprefix("refs/heads/ap/"): record["worktree"]
@@ -308,8 +306,6 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
     if all_runs:
         active = session.store.list_active()
         active_run_ids = set(active.values())
-        if session.legacy_run_id:
-            active_run_ids.add(session.legacy_run_id)
         summaries = []
         for known_run_id in sorted(set(session.store.list_runs()) | active_run_ids):
             try:

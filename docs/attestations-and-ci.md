@@ -228,7 +228,7 @@ execution timestamp. `green_at` is null; `publication_ready_at` records when the
 local publication requirements were satisfied. Three local stage origins preserve
 their actual execution provenance. The note includes the protected CI declaration
 and original policy revision, not a fabricated remote pass. Earlier consumers
-reject this schema. Default local snapshots retain the existing v4/v5 wire format.
+reject this schema.
 
 Install consumers before producers:
 
