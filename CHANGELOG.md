@@ -5,6 +5,12 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Removed
+
+- **Breaking:** Remove the legacy no-op `[review] require_fix_commits` and
+  `[worktree] ttl_hours` configuration fields; configurations that still set either
+  field now fail validation as unknown keys.
+
 ### Fixed
 
 - Allow changed lint inputs to invalidate completed lint through the state machine.

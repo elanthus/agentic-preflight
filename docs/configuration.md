@@ -102,11 +102,6 @@ enabled = true
 allow_force_push = false
 ```
 
-Two legacy fields remain accepted and snapshotted: `[review] require_fix_commits`
-(default `true`) and `[worktree] ttl_hours` (default `48`, minimum `1`). Neither changes
-current behavior: a `fixed` response always needs a commit, and runs never expire solely
-because of age. Leave them at their defaults.
-
 ## Configuration is snapshotted per run
 
 The resolved configuration is snapshotted when `start` creates a run. Editing

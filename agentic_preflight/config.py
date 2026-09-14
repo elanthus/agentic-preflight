@@ -93,7 +93,6 @@ class ReuseSection(_Section):
 class ReviewSection(_Section):
     blocking_severities: list[SeverityName] = Field(default_factory=_default_blocking_severities)
     max_findings: int = Field(default=50, ge=1)
-    require_fix_commits: bool = True
     executor: Literal["in_harness", "command"] = "in_harness"
     command: str | None = None
     require_command_for: list[RiskName] = Field(default_factory=list)
@@ -133,7 +132,6 @@ class DiffSection(_Section):
 
 
 class WorktreeSection(_Section):
-    ttl_hours: int = Field(default=48, ge=1)
     root: str | None = None
     mode: Literal["in_place", "reusable", "strict"] = "in_place"
     copy_files: list[str] = Field(default_factory=lambda: [".env"])

@@ -71,6 +71,22 @@ def test_an_unknown_key_is_an_error_naming_the_key(tmp_repo, tmp_path):
     assert "base_reff" in str(exc.value)
 
 
+@pytest.mark.parametrize(
+    ("section", "key", "value"),
+    [
+        ("review", "require_fix_commits", "true"),
+        ("worktree", "ttl_hours", "48"),
+    ],
+)
+def test_removed_config_keys_are_unknown(tmp_repo, tmp_path, section, key, value):
+    (tmp_repo / ".agentic-preflight.toml").write_text(
+        f"[{section}]\n{key} = {value}\n"
+    )
+    with pytest.raises(ConfigError) as exc:
+        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
+    assert key in str(exc.value)
+
+
 def test_an_unknown_section_is_an_error_naming_the_section(tmp_repo, tmp_path):
     (tmp_repo / ".agentic-preflight.toml").write_text("[nonsense]\nx = 1\n")
     with pytest.raises(ConfigError) as exc:

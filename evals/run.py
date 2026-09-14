@@ -194,7 +194,6 @@ max_attempts = 2
 [review]
 blocking_severities = ["critical", "high"]
 max_findings = 50
-require_fix_commits = true
 executor = "command"
 command = '"$AP_EVAL_PYTHON" -B "$AP_EVAL_EXECUTOR"'
 require_command_for = []

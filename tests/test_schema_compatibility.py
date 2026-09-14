@@ -59,7 +59,7 @@ def test_default_snapshot_digest_remains_stable():
     # Fixed against the current default snapshot, including default omission.
     assert (
         config_digest(snapshot)
-        == "96c9f37867cb576fae9bfdd2fe60c29410988ccfbe8b1eac6a7c55ab34bb186b"
+        == "1d6efcc523b00f113945be88416209f95a7c29e28c5ecc358f70fcb2256a4863"
     )
     cfg.ci.consumer_schema = 6
     explicit = cfg.model_dump(mode="json")
