@@ -29,6 +29,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from . import filelock
+from .config import Config
 from .models import Finding, RunDoc
 
 # Roughly a second of total backoff. Long enough to outlast a concurrent read
@@ -54,6 +55,25 @@ def _parse_run(payload: str) -> RunDoc:
     if not isinstance(raw, dict):
         raise InvalidRunRoot("run record must be a JSON object")
     return RunDoc.model_validate(raw)
+
+
+def _validation_fields(exc: ValidationError, *, prefix: tuple[str, ...] = ()) -> list[dict]:
+    return [
+        {
+            "location": [*prefix, *error["loc"]],
+            "category": error["type"],
+        }
+        for error in exc.errors(include_url=False, include_context=False, include_input=False)
+    ]
+
+
+def _config_snapshot_diagnostic(exc: ValidationError) -> str:
+    locations = [".".join(map(str, error["loc"])) for error in exc.errors()]
+    fields = ", ".join(location for location in locations if location) or "<root>"
+    return (
+        f"Run record configuration snapshot is unsupported or invalid at: {fields}. "
+        "It has been retained unchanged."
+    )
 
 
 class StoreError(Exception):
@@ -254,7 +274,7 @@ class Store:
                 f"Cannot read run record ({type(exc).__name__}, errno {exc.errno}).",
             ) from exc
         try:
-            return _parse_run(payload)
+            run = _parse_run(payload)
         except json.JSONDecodeError as exc:
             raise RunReadError(
                 run_id,
@@ -287,13 +307,19 @@ class Store:
                         "incompatible or invalid."
                     )
                 ),
-                fields=[
-                    {"location": list(error["loc"]), "category": error["type"]}
-                    for error in exc.errors(
-                        include_url=False, include_context=False, include_input=False
-                    )
-                ],
+                fields=_validation_fields(exc),
             ) from exc
+        try:
+            Config.model_validate(run.config_snapshot)
+        except ValidationError as exc:
+            raise RunReadError(
+                run_id,
+                path,
+                "invalid_or_unsupported_schema",
+                _config_snapshot_diagnostic(exc),
+                fields=_validation_fields(exc, prefix=("config_snapshot",)),
+            ) from exc
+        return run
 
     def list_runs(self) -> list[str]:
         runs = self.root / "runs"
