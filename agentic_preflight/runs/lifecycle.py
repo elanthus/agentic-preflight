@@ -85,7 +85,7 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
     )
 
 
-def gc(session: Session, *, force: bool = False) -> Envelope:
+def gc(session: Session, *, force: bool = False) -> Envelope:  # noqa: C901  # tracked in #141
     """Reconcile three sources of truth: run dirs, git worktrees, and ap/* branches.
 
     Anything still holding unmerged fix commits is *reported*, never removed
@@ -294,7 +294,9 @@ def _hook_status(repo: Path) -> dict[str, str | bool | None]:
         }
 
 
-def status(session: Session, *, all_runs: bool = False) -> Envelope:
+def status(  # noqa: C901  # tracked in #141
+    session: Session, *, all_runs: bool = False
+) -> Envelope:
     """Legal in every state, and the universal recovery entry point.
 
     Expected record-read failures remain inspectable. Unexpected programming or

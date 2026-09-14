@@ -41,6 +41,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Split run startup into bounded internal phases and enable Ruff's McCabe complexity gate.
 - Rename the portfolio review page to engineering notes and move dogfooding counts out
   of the README introduction.
 - Retire transition design documents and update the documentation and bundled skill to

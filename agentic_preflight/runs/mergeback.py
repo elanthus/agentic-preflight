@@ -136,7 +136,7 @@ def _reset_non_equivalent_merge_to_review(
     return run
 
 
-def mergeback(session: Session) -> Envelope:
+def mergeback(session: Session) -> Envelope:  # noqa: C901  # tracked in #141
     """Attest in-place validation or merge isolated fixes onto the source branch."""
     run = _load_current(session)
     in_place = _is_in_place(run)

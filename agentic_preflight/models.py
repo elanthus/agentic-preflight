@@ -416,7 +416,7 @@ class Attestation(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def complete_evidence(self) -> Attestation:
+    def complete_evidence(self) -> Attestation:  # noqa: C901  # tracked in #141
         required = set(Stage)
         if set(self.stages) != required:
             missing = sorted(stage.value for stage in required - set(self.stages))

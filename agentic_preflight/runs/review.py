@@ -177,7 +177,7 @@ def context(session: Session, *, section: str = "review") -> Envelope:
     return envelope
 
 
-def submit_findings(
+def submit_findings(  # noqa: C901  # tracked in #141
     session: Session,
     payload,
     *,

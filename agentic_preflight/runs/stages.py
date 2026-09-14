@@ -244,7 +244,7 @@ def _check_attempt_limit(
         )
 
 
-def run_stage(
+def run_stage(  # noqa: C901  # tracked in #141
     session: Session,
     stage_name: str,
     *,
