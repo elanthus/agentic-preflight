@@ -6,9 +6,7 @@ import tomllib
 from pathlib import Path
 
 from . import diff, findings, gitx, risk
-from .attestation_schema import has_pending_tests
 from .config import Config
-from .consumer_capabilities import base_supports_refresh as base_supports_refresh
 from .digests import json_digest
 from .fingerprints import (
     FINGERPRINT_VERSION,
@@ -22,9 +20,7 @@ from .fingerprints import (
 )
 from .models import Attestation, OriginalExecution, ReviewCoverage, Stage, StageEvidence
 from .shell_fingerprints import ShellFingerprint, ShellInputContract, classify_shell
-
-# Retained for older producers during the documented capability transition.
-REFRESH_WIRE_VERSION = 5
+from .wire_schema import has_pending_tests
 
 
 def shell_execution_config(snapshot: dict, stage: Stage) -> dict:

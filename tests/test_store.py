@@ -3,7 +3,7 @@ import json
 import pytest
 
 from agentic_preflight.machine import State
-from agentic_preflight.store import CurrentRunExists, StaleWrite, Store, UnknownRun
+from agentic_preflight.store import CurrentRunExists, RunReadError, StaleWrite, Store, UnknownRun
 from tests.conftest import make_run
 
 
@@ -17,23 +17,36 @@ def test_created_run_round_trips(store):
     assert store.load_run("r_abc123").branch == "feature/x"
 
 
-def test_removed_pr_lifecycle_documents_migrate_to_pushed(store):
+def test_removed_pr_lifecycle_document_is_rejected_as_earlier_release(store):
     store.create_run(make_run())
     raw = json.loads(store.run_path("r_abc123").read_text(encoding="utf-8"))
     raw.update(
         {
-            "state": "CI_FAILED",
+            "schema_version": 1,
+            "state": "PR_OPEN",
             "pr_url": "https://github.com/owner/repo/pull/1",
             "ci_status": "failed",
-            "cleanup_token": "legacy-token",
         }
     )
     store.run_path("r_abc123").write_text(json.dumps(raw))
 
-    run = store.load_run("r_abc123")
+    with pytest.raises(RunReadError, match="earlier release") as caught:
+        store.load_run("r_abc123")
 
-    assert run.state is State.PUSHED
-    assert "pr_url" not in run.model_fields_set
+    assert "finished, aborted, or removed using that release" in str(caught.value)
+
+
+def test_schema_version_one_document_is_rejected_as_earlier_release(store):
+    store.create_run(make_run())
+    path = store.run_path("r_abc123")
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["schema_version"] = 1
+    path.write_text(json.dumps(raw))
+
+    with pytest.raises(RunReadError, match="earlier release") as caught:
+        store.load_run("r_abc123")
+
+    assert "finished, aborted, or removed using that release" in str(caught.value)
 
 
 def test_loading_an_unknown_run_raises(store):

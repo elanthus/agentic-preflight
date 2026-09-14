@@ -15,12 +15,12 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
-from .attestation_schema import SchemaVersion, validate_version
 from .ci_models import TestDelegation
 from .digests import json_digest
 from .fingerprints import Classification, DocsFingerprint, ReviewFingerprint
 from .machine import State
 from .shell_fingerprints import ShellFingerprint
+from .wire_schema import SchemaVersion, validate_version
 
 SHA_PATTERN = r"^[0-9a-f]{7,40}$"
 
@@ -236,7 +236,7 @@ class RunDoc(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: int = 1
+    schema_version: Literal[2]
     run_id: str
     seq: int = 0
     state: State

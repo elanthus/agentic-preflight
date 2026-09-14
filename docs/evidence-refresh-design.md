@@ -67,19 +67,9 @@ the complete stage set. It must never accept a submitted `reusable` assertion as
 proof. Local environment assumptions stay explicit: an unsigned note is an audit
 record, not cryptographic authentication or a hosted measurement of local inputs.
 
-## Compatible rollout
-
-The protected base supplies the hosted verifier. Land consumer support before
-enabling new-format production. If consumer and producer code share a PR, keep
-production disabled against bases without that consumer and perform a complete
-legacy run to publish that PR. After its merge the consumer is available and
-new-format production can activate. Never switch the privileged verifier to PR
-code or make an old consumer accept unknown fields.
-
 Historical v4 notes without fingerprints remain valid historical evidence but
 cannot acquire reusable fingerprints retrospectively. Existing exact-commit
-reuse remains available under its existing contract. Test the producer and both
-old and new consumers together, including the bootstrap publication path.
+reuse remains available under its existing contract.
 
 CI-delegated tests are a separate lifecycle change in #86. This work requires
 locally completed stages and cannot represent pending CI as green or skipped.

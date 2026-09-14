@@ -315,7 +315,7 @@ def test_local_commands_share_schema_reason_and_stay_offline(
     assert result["error"]["code"] == "attestation_failed"
     assert result["data"]["reason"] == "incompatible_schema"
     assert "SECRET" not in json.dumps(result)
-    assert "compatible" in result["next"]["instruction"]
+    assert "same release" in result["next"]["instruction"]
     assert result["next"]["command"] is None
 
 
