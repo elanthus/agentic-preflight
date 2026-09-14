@@ -114,7 +114,7 @@ permanent evidence/transport failure, not another missing-note retry.
 | Reason or policy result | Recovery |
 | --- | --- |
 | `missing_notes_ref`, `missing_note` | Confirm that the exact head and its note were published to the selected remote; rerun the bounded check after publication. |
-| `incompatible_schema` | Compare producer and protected verifier revisions. Install a compatible consumer first, or emit a supported format. Repeating local preflight alone does not repair compatibility. |
+| `incompatible_schema` | Compare producer and protected verifier revisions. Update the protected verifier or emit a supported format. Repeating local preflight alone does not repair compatibility. |
 | `malformed_payload`, `invalid_evidence`, `commit_mismatch`, `tree_mismatch` | Inspect and restore valid evidence for the exact commit. The present note is not retried. |
 | `stale_candidate` | Run the new event's check. The old event never borrows the new head or its note. |
 | `git_failure`, `git_timeout`, `io_failure` | Investigate access, authentication, transport, or local I/O. Raw Git stderr is omitted because it can contain credentials; the operation and exit/timeout remain visible. |
@@ -204,18 +204,14 @@ The publisher retains original commits locally and publishes their evidence refs
 before atomically publishing the branch and note. Gate summaries, manual push commands, and dry
 runs include these refs. Keep them while published notes reference them; ordinary
 run cleanup does not delete them. A fresh consumer fetches only the originals named
-by the selected note. Upgrade the publisher and hook as well as the protected
-consumer before relying on this transport. For an older note, republish from a
+by the selected note. Keep the publisher, hook, and protected verifier on the same
+release before relying on this transport. For an older note, republish from a
 clone that retains its original commits; a note's hashes cannot recover lost data.
 
-Upgrade trusted hosted consumers **before** enabling v5 production. In other
-repositories, deploy the compatible verifier, then commit `[reuse]` with
-`attestation_schema = 5` on the protected base. Explicit declarations take
-precedence over the [legacy source-marker fallback](schema-compatibility.md#legacy-transition).
-Until that consumer lands, its producer
-runs all required local stages and emits v4; it never executes the PR's verifier
-with policy credentials. Historical v4 notes without sufficient local
-fingerprints are not silently upgraded into reusable evidence.
+Completed local runs emit v5 evidence when all stage provenance is available.
+Historical v4 notes without sufficient local fingerprints are not silently upgraded
+into reusable evidence. The tool never executes the PR's verifier with policy
+credentials.
 
 ## Delegating tests to trusted CI
 

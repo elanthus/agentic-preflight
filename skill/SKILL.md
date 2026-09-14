@@ -76,7 +76,7 @@ Python here never calls a model — every judgment in this workflow is yours.
 ## The loop
 
 After a restack or base update, run `start` with the original intent and follow
-`next.command`. With compatible evidence and a v5-capable protected base, the CLI
+`next.command`. With complete compatible evidence, the CLI
 may reuse review, docs, lint, or test independently. `data.applicability` explains
 candidate reuse, invalidation, or unknown inputs. Do not manually repeat imported
 stages, edit fingerprints, or rewrite original timestamps. `status` resumes the
@@ -249,9 +249,9 @@ or matching job display name as sufficient CI evidence.
 
 `merge_requirements_satisfied: true` includes the configured approval policy; it
 does not authorize an agent merge under `manual_merge`. Preserve environment,
-peer/CODEOWNERS, publication-authorization, and exact-PR cleanup boundaries. A new
-schema-6 producer requires consumers and policy already on the protected base;
-otherwise the rollout performs complete local validation.
+peer/CODEOWNERS, publication-authorization, and exact-PR cleanup boundaries. CI
+delegation requires the policy to be enabled on the protected base; otherwise the
+run performs complete local validation.
 
 ## Findings schema
 

@@ -8,21 +8,21 @@ from pathlib import Path
 from typing import Literal
 
 from . import gitx
-from .attestation_schema import (
+from .models import Attestation, AttestedStage, RunDoc, Stage
+from .wire_schema import (
     InvalidAttestation as InvalidAttestation,
 )
-from .attestation_schema import (
+from .wire_schema import (
     decode as decode,
 )
-from .attestation_schema import (
+from .wire_schema import (
     encode as encode,
 )
-from .attestation_schema import (
+from .wire_schema import (
     has_pending_tests,
     has_refresh_evidence,
     producer_schema,
 )
-from .models import Attestation, AttestedStage, RunDoc, Stage
 
 NOTES_REF = "refs/notes/agentic-preflight"
 
@@ -36,8 +36,8 @@ def recovery(reason: str) -> str:
     if reason == "incompatible_schema":
         return (
             "The verifier cannot understand this attestation format. Compare the trusted "
-            "verifier revision with the producer and roll out a compatible consumer or "
-            "emit a supported format. Unknown fields do not identify a producer version."
+            "verifier revision with the producer and update them to the same release or emit "
+            "a supported format. Unknown fields do not identify a producer version."
         )
     if reason == "verifier_mismatch":
         return "Install and run the helper from the original protected event-base checkout."
@@ -121,18 +121,11 @@ def build(
             exit_code=record.exit_code,
             output_sha256=record.output_sha256,
         )
-    from .ci_policy import consumer_installed
-    from .refresh_validation import base_supports_refresh, rebound_coverage, verify_evidence
+    from .refresh_validation import rebound_coverage, verify_evidence
 
     delegated = run.test_delegation is not None
     use_refresh = delegated or (
-        run.worktree_path is not None
-        and set(run.evidence) == set(Stage)
-        and base_supports_refresh(run.worktree_path, run.merge_base_sha)
-        and (
-            not (run.config_snapshot or {}).get("ci")
-            or consumer_installed(run.worktree_path, run.merge_base_sha)
-        )
+        run.worktree_path is not None and set(run.evidence) == set(Stage)
     )
     if use_refresh:
         stages[Stage.REVIEW].coverage = rebound_coverage(

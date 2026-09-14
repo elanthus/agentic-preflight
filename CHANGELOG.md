@@ -5,6 +5,11 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Removed
+
+- **Breaking:** Remove protected-base consumer negotiation, including source-marker
+  probing and the `[reuse]` schema-selection and `[ci]` consumer-version settings.
+
 ### Fixed
 
 - Allow changed lint inputs to invalidate completed lint through the state machine.

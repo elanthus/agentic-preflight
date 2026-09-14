@@ -28,8 +28,7 @@ def configure(repo, *, mode="in_place", enabled=True, approval="manual_merge"):
         '[reuse.lint]\nmode="content"\nfiles=[]\nenvironment=[]\ntoolchain=[]\n'
     )
     write(repo, ".agentic-preflight.toml", policy)
-    write(repo, "agentic_preflight/refresh_validation.py", "\nREFRESH_WIRE_VERSION = 5\n")
-    commit_all(repo, "install protected consumer and policy")
+    commit_all(repo, "install protected policy")
     git("switch", "feature/x", cwd=repo)
     git("rebase", "main", cwd=repo)
     return policy
@@ -203,7 +202,7 @@ def test_delegation_rejects_local_flags_after_clean_worktree_check(
     assert agent.run("stage", "run", "test")["state"] == "TEST_DELEGATED"
 
 
-def test_default_still_runs_tests_and_preserves_legacy_wire(feature_repo, tmp_path, monkeypatch):
+def test_default_still_runs_tests_and_emits_local_wire(feature_repo, tmp_path, monkeypatch):
     set_home(monkeypatch, tmp_path / "home")
     configure(feature_repo, enabled=False)
     calls = []
@@ -224,7 +223,7 @@ def test_default_still_runs_tests_and_preserves_legacy_wire(feature_repo, tmp_pa
     assert "ci" not in payload["config_snapshot"]
 
 
-def test_producer_rollout_before_base_consumer_runs_local_tests(
+def test_ci_policy_proposed_only_on_head_runs_local_tests(
     feature_repo, tmp_path, monkeypatch
 ):
     set_home(monkeypatch, tmp_path / "home")
@@ -236,7 +235,7 @@ def test_producer_rollout_before_base_consumer_runs_local_tests(
     agent.run("start")
     assert _finish(agent, tmp_path)["state"] == "VERIFIED"
     value = attestation.verify(feature_repo, "HEAD")
-    assert value.schema_version == 4  # Older protected consumer cannot parse [ci].
+    assert value.schema_version == 5
     assert value.stages[Stage.TEST].status == "green"
     assert value.test_delegation is None
 
