@@ -171,15 +171,7 @@ def install(repo_root: Path | str, *, force: bool = False) -> tuple[Path, bool]:
     important to their workflow, and silently replacing it would be exactly the kind
     of unreviewed change this tool exists to prevent.
     """
-    try:
-        path = gitx.hook_path(repo_root, "pre-push")
-    except gitx.GitError:
-        if (Path(repo_root) / ".git").exists():
-            raise
-        # Before repository-root resolution was introduced, callers could pass a plain
-        # directory to generate the portable script. Preserve that narrow compatibility;
-        # repository callers always use Git's effective hook path above.
-        path = Path(repo_root) / "hooks" / "pre-push"
+    path = gitx.hook_path(repo_root, "pre-push")
     hooks_dir = path.parent
     hooks_dir.mkdir(parents=True, exist_ok=True)
 
