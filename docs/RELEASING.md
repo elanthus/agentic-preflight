@@ -36,8 +36,9 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
 
 ## Cutting a release
 
-1. Choose an unused version and update `version` in `pyproject.toml`. Run `uv lock`
-   to keep the local project version in `uv.lock` in sync.
+1. Choose an unused three-part SemVer (`MAJOR.MINOR.PATCH`) and update
+   `version` in `pyproject.toml`. A hotfix is a patch bump, never a fourth version
+   component. Run `uv lock` to keep the local project version in `uv.lock` in sync.
 2. Update `CHANGELOG.md`, and re-pin the README's `blob/vX.Y.Z` documentation
    links to the new version. Check each target against the release tree; the
    new tag links will become available when the tag is pushed. Re-record the README

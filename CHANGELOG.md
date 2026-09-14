@@ -3,7 +3,21 @@
 All notable changes to Agentic Preflight are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.6.0] - 2026-09-13
+
+### Breaking changes
+
+- Run records and attestation notes written by any earlier release are rejected with a
+  clear error. No migration: finish or abort in-flight runs with the previous release,
+  then start fresh.
+- Removed config keys: `[reuse] attestation_schema`, `[ci] consumer_schema`,
+  `[review] require_fix_commits`, and `[worktree] ttl_hours`.
+- `[pr] automatedCleanup` was renamed to `automated_cleanup`.
+- Docs submissions must be `{"findings": [...]}`.
+- The minimum Git version is 2.38.
+- Removed Python API: `install_integrations`, `uninstall_integrations`, and the
+  `agentic_preflight.cli.command` re-export.
+- Eval report `method_version` is now `public-smoke-v4`; `model_calls` was removed.
 
 ### Removed
 
@@ -66,29 +80,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - A maintainer guide separating state-machine ordering guarantees from evidence
   checks, storage commits and Git recovery responsibilities.
 
-## [0.5.3.1] - 2026-09-08
-
-### Changed
-
-- Pin the worked Codex and Claude reviewer configurations to explicit model and effort
-  defaults, strengthen their untrusted-input and complete-coverage contracts, and document
-  a reproducible model-and-effort comparison procedure without making unevaluated quality
-  or cost claims.
-- Explain why managed integration bundles can become outdated and how to refresh reviewed,
-  unmodified copies without overwriting local customizations.
-
-### Fixed
-
-- Preserve applicable standing user authorization through the gate, status, and recovery
-  guidance. Matching PR-feedback fixes can proceed without a redundant confirmation, while
-  changes to the remote, branch, merge, history, or requested scope still require separate
-  approval.
-- Report command-review wrapper launches explicitly and update the public smoke evaluation
-  to method `public-smoke-v3`. Real-mode reports no longer present wrapper invocations as
-  provider requests: provider request, token, and cost telemetry remain unavailable unless
-  measured independently, while dry mode records their known zero values.
-
-## [0.5.3] - 2026-09-07
+## [0.5.3] - 2026-09-08
 
 ### Added
 
@@ -108,6 +100,12 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Pin the worked Codex and Claude reviewer configurations to explicit model and effort
+  defaults, strengthen their untrusted-input and complete-coverage contracts, and document
+  a reproducible model-and-effort comparison procedure without making unevaluated quality
+  or cost claims.
+- Explain why managed integration bundles can become outdated and how to refresh reviewed,
+  unmodified copies without overwriting local customizations.
 - Pull-request merge monitoring and automatic post-merge cleanup are now disabled by
   default. Set `[pr] automatedCleanup = true` to opt in; automatic pull-request creation
   and hosted-check monitoring remain unchanged.
@@ -119,6 +117,14 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- Preserve applicable standing user authorization through the gate, status, and recovery
+  guidance. Matching PR-feedback fixes can proceed without a redundant confirmation, while
+  changes to the remote, branch, merge, history, or requested scope still require separate
+  approval.
+- Report command-review wrapper launches explicitly and update the public smoke evaluation
+  to method `public-smoke-v3`. Real-mode reports no longer present wrapper invocations as
+  provider requests: provider request, token, and cost telemetry remain unavailable unless
+  measured independently, while dry mode records their known zero values.
 - Correct release and upgrade guidance, the pinned CI verifier example, shell-execution
   recovery, Windows copy permissions, and documentation/test-skip contracts.
 - Keep review comparison available in the CI-delegated and publication-ready states
@@ -150,7 +156,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
   Grounding limits per-source size, total bytes, and source count, and reports omitted
   sources in snapshot-bound context metadata.
 
-## [0.5.2.1] - 2026-09-02
+## [0.5.2] - 2026-09-02
 
 ### Changed
 
@@ -169,11 +175,6 @@ All notable changes to Agentic Preflight are documented here. This project follo
   stage turns green. `accepted` and `dismissed` notes remain in the run record without
   invalidating green evidence, while a registered fix commit reopens review so every
   later stage describes the repaired snapshot.
-
-## [0.5.2] - 2026-08-31
-
-### Fixed
-
 - Removed stale version pins from the Quickstart and installation guide so the
   published-package command installs the current release instead of `0.4.0`.
 
@@ -548,9 +549,8 @@ First tagged pre-release.
 Windows is not supported because the implementation requires `fcntl`, Bash, and POSIX
 process groups.
 
-[0.5.3.1]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.3.1
+[0.6.0]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.6.0
 [0.5.3]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.3
-[0.5.2.1]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.2.1
 [0.5.2]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.2
 [0.5.1]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.1
 [0.5.0]: https://github.com/elanthus/agentic-preflight/releases/tag/v0.5.0
