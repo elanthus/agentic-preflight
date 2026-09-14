@@ -85,11 +85,13 @@ def test_an_unknown_key_is_an_error_naming_the_key(tmp_repo, tmp_path):
 @pytest.mark.parametrize(
     ("section", "key", "value"),
     [
+        ("review", "require_fix_commits", "true"),
+        ("worktree", "ttl_hours", "48"),
         ("reuse", "attestation" + "_schema", "5"),
         ("ci", "consumer" + "_schema", "6"),
     ],
 )
-def test_removed_schema_keys_are_unknown(tmp_repo, tmp_path, section, key, value):
+def test_removed_config_keys_are_unknown(tmp_repo, tmp_path, section, key, value):
     (tmp_repo / ".agentic-preflight.toml").write_text(f"[{section}]\n{key} = {value}\n")
     with pytest.raises(ConfigError) as exc:
         load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")

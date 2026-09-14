@@ -18,7 +18,6 @@ max_attempts = 5
 [review]
 blocking_severities = ["critical", "high"]
 max_findings = 50
-require_fix_commits = true
 executor = "command"
 command = "python3 -B docs/examples/reviewers/codex_review.py"
 # Set AP_REVIEWER_MODEL and AP_REVIEWER_EFFORT to exact values supported by your Codex CLI.
