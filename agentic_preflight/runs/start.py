@@ -157,7 +157,7 @@ def start(
             if existing.state in TERMINAL_STATES:
                 session.store.clear_run(existing.run_id)
             else:
-                if existing.source_worktree_id and existing.source_worktree_id != session.owner_id:
+                if existing.source_worktree_id != session.owner_id:
                     raise WrongState(
                         f"run {existing.run_id} belongs to another source worktree",
                         state=existing.state.value,
@@ -166,8 +166,11 @@ def start(
                         next_instruction="Run `start` from the recorded source worktree.",
                         next_command="agentic-preflight status",
                     )
-                expected = existing.source_head_sha or existing.head_sha
-                stale = existing.stale or head_sha != expected or branch != existing.branch
+                stale = (
+                    existing.stale
+                    or head_sha != existing.source_head_sha
+                    or branch != existing.branch
+                )
                 matches = (
                     not stale
                     and existing.intent == intent

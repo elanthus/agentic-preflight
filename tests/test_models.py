@@ -34,6 +34,27 @@ def _submission(**over):
     return base
 
 
+def _run_doc(**over):
+    fields = {
+        "schema_version": 2,
+        "run_id": "r_abc123",
+        "state": State.CREATED,
+        "branch": "feature/x",
+        "base_ref": "main",
+        "merge_base_sha": "a" * 40,
+        "head_sha": "b" * 40,
+        "source_head_sha": "b" * 40,
+        "intent_source": "user",
+        "source_worktree_id": "source-worktree",
+        "source_worktree_path": "/repos/source",
+        "config_snapshot": {"worktree": {"mode": "in_place"}},
+        "config_digest": "c" * 64,
+        "created_at": "2026-01-01T00:00:00+00:00",
+    }
+    fields.update(over)
+    return RunDoc(**fields)
+
+
 def test_submission_accepts_the_fields_the_agent_owns():
     sub = FindingSubmission(**_submission())
     assert sub.severity is Severity.HIGH
@@ -71,15 +92,7 @@ def test_finding_carries_the_code_assigned_identity():
 
 
 def test_run_doc_round_trips_through_json():
-    run = RunDoc(
-        schema_version=2,
-        run_id="r_abc123",
-        state=State.CREATED,
-        branch="feature/x",
-        base_ref="main",
-        merge_base_sha="a" * 40,
-        head_sha="b" * 40,
-        source_head_sha="b" * 40,
+    run = _run_doc(
         intent="preserve the public behavior",
         changed_files=["src/auth.py"],
         risk=RiskAssessment(level=RiskLevel.HIGH),
@@ -106,18 +119,30 @@ def test_run_doc_round_trips_through_json():
 
 
 def test_run_doc_requires_schema_version():
-    raw = RunDoc(
-        schema_version=2,
-        run_id="r_abc123",
-        state=State.CREATED,
-        branch="feature/x",
-        base_ref="main",
-        merge_base_sha="a" * 40,
-        head_sha="b" * 40,
-    ).model_dump(mode="json")
+    raw = _run_doc().model_dump(mode="json")
     raw.pop("schema_version")
 
     with pytest.raises(ValidationError, match="schema_version"):
+        RunDoc.model_validate(raw)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "source_head_sha",
+        "source_worktree_id",
+        "source_worktree_path",
+        "config_snapshot",
+        "config_digest",
+        "created_at",
+        "intent_source",
+    ],
+)
+def test_run_doc_requires_creation_time_fields(field):
+    raw = _run_doc().model_dump(mode="json")
+    raw.pop(field)
+
+    with pytest.raises(ValidationError, match=field):
         RunDoc.model_validate(raw)
 
 
@@ -244,14 +269,12 @@ def test_attestation_build_refuses_to_invent_a_green_review_stage():
         total_units=1,
         clean_units=["U0001"],
     )
-    run = RunDoc(
-        schema_version=2,
+    run = _run_doc(
         run_id="r_test",
         state=State.TEST_GREEN,
-        branch="feature/x",
-        base_ref="main",
         merge_base_sha="c" * 40,
         head_sha="a" * 40,
+        source_head_sha="a" * 40,
         config_digest="f" * 64,
         review_coverage=coverage,
         stages={
