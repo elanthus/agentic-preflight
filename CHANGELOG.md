@@ -20,6 +20,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- **Breaking:** Require all creation-time run-record fields and reject records that omit
+  their source identity, configuration snapshot, creation timestamp, or intent source.
 - **Breaking:** Require docs findings submissions to use the strict
   `{"findings": [...]}` object shape; bare lists, missing fields, and unknown fields are
   rejected.

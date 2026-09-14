@@ -80,8 +80,6 @@ def build(
     docs_enabled: bool,
     findings_summary: dict[str, int],
 ) -> Attestation:
-    if run.config_digest is None:
-        raise InvalidAttestation("run has no effective configuration digest")
     if run.review_coverage is None:
         raise InvalidAttestation("review stage has no coverage evidence")
     review_record = run.stages.get(Stage.REVIEW)

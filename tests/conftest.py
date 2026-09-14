@@ -74,6 +74,13 @@ def make_run(run_id: str = "r_abc123", branch: str = "feature/x") -> RunDoc:
         base_ref="main",
         merge_base_sha="a" * 40,
         head_sha="b" * 40,
+        source_head_sha="b" * 40,
+        intent_source="user",
+        source_worktree_id="source-worktree",
+        source_worktree_path="/repos/source",
+        config_snapshot={"worktree": {"mode": "in_place"}},
+        config_digest="c" * 64,
+        created_at="2026-01-01T00:00:00+00:00",
     )
 
 
