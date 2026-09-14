@@ -366,7 +366,8 @@ def test_status_and_start_preserve_existing_unreadable_run(feature_repo, monkeyp
     assert path.read_bytes() == original
 
 
-def test_gc_retains_earlier_release_record_without_offering_force(feature_repo):
+@pytest.mark.parametrize("force", [False, True])
+def test_gc_retains_earlier_release_record_without_offering_force(feature_repo, force):
     agent = ScriptedAgent(feature_repo)
     started = agent.run("start")
     path = _state_root(feature_repo) / "runs" / started["run_id"] / "run.json"
@@ -374,7 +375,7 @@ def test_gc_retains_earlier_release_record_without_offering_force(feature_repo):
     raw["schema_version"] = 1
     path.write_text(json.dumps(raw), encoding="utf-8")
 
-    collected = agent.run("gc")
+    collected = agent.run("gc", *(["--force"] if force else []))
 
     assert collected["data"]["retained"] == [
         {
@@ -382,19 +383,46 @@ def test_gc_retains_earlier_release_record_without_offering_force(feature_repo):
             "path": str(path),
             "reason": "invalid_or_unsupported_schema",
             "diagnostic": (
-                "Run record was written by an earlier release and must be finished, "
-                "aborted, or removed using that release. It has been retained unchanged."
+                "Run record declares a schema version from an earlier release. The "
+                "record and its associated work have been retained unchanged; use a "
+                "compatible tool version or inspect the record."
             ),
             "fields": [
                 {
                     "location": ["schema_version"],
-                    "category": "literal_error",
+                    "category": "value_error",
                 }
             ],
         }
     ]
     assert collected["next"]["command"] is None
     assert path.exists()
+
+
+@pytest.mark.parametrize(
+    "schema_version",
+    [pytest.param("missing", id="missing"), None, True, 2.0, "2", 1, 3],
+)
+def test_forced_gc_preserves_invalid_version_record_and_ownership(feature_repo, schema_version):
+    agent = ScriptedAgent(feature_repo)
+    started = agent.run("start")
+    session = runs.open_session(feature_repo)
+    store = session.store
+    path = store.run_path(started["run_id"])
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if schema_version == "missing":
+        raw.pop("schema_version")
+    else:
+        raw["schema_version"] = schema_version
+    original = json.dumps(raw).encode()
+    path.write_bytes(original)
+    ownership = store.list_active()
+
+    collected = agent.run("gc", "--force")
+
+    assert collected["data"]["retained"][0]["reason"] == "invalid_or_unsupported_schema"
+    assert store.list_active() == ownership
+    assert path.read_bytes() == original
 
 
 @pytest.mark.parametrize("command", ["status", "gc"])

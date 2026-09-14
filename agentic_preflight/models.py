@@ -13,7 +13,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .ci_models import TestDelegation
 from .digests import json_digest
@@ -291,6 +291,13 @@ class RunDoc(BaseModel):
     created_at: str
     updated_at: str | None = None
 
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def require_current_schema_version(cls, value: object) -> object:
+        if type(value) is not int or value != 2:
+            raise ValueError("schema_version must be the JSON integer 2")
+        return value
+
 
 class AttestedStage(BaseModel):
     """Portable evidence for one stage.
@@ -401,6 +408,13 @@ class Attestation(BaseModel):
     findings_summary: dict[str, int] = Field(default_factory=dict)
     evidence: dict[Stage, StageEvidence]
     config_snapshot: dict[str, Any]
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def require_current_schema_version(cls, value: object) -> object:
+        if type(value) is not int or value != 7:
+            raise ValueError("schema_version must be the JSON integer 7")
+        return value
 
     @model_validator(mode="after")
     def complete_evidence(self) -> Attestation:

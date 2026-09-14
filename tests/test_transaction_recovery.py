@@ -137,6 +137,36 @@ def test_invalid_journal_is_preserved_without_overwriting_records(tmp_path, dama
     assert not store.findings_path(current.run_id).exists()
 
 
+@pytest.mark.parametrize("reader", ["load_run", "load_findings"])
+@pytest.mark.parametrize(
+    "schema_version", [pytest.param("missing", id="missing"), None, True, 2.0, "2", 1, 3]
+)
+def test_invalid_nested_run_version_preserves_committed_pair_and_journal(
+    tmp_path, reader, schema_version
+):
+    store = Store(tmp_path)
+    current = store.create_run(make_run())
+    store.save_findings(current.run_id, [_finding()])
+    pending = current.model_copy(update={"seq": 1, "state": State.REVIEW_BLOCKED})
+    pending_run = pending.model_dump(mode="json")
+    if schema_version == "missing":
+        pending_run.pop("schema_version")
+    else:
+        pending_run["schema_version"] = schema_version
+    journal = json.dumps({"run": pending_run, "findings": []}).encode()
+    store.update_path(current.run_id).write_bytes(journal)
+    run_bytes = store.run_path(current.run_id).read_bytes()
+    findings_bytes = store.findings_path(current.run_id).read_bytes()
+
+    with pytest.raises(RunReadError) as caught:
+        getattr(store, reader)(current.run_id)
+
+    assert caught.value.reason == "invalid_pending_update"
+    assert store.run_path(current.run_id).read_bytes() == run_bytes
+    assert store.findings_path(current.run_id).read_bytes() == findings_bytes
+    assert store.update_path(current.run_id).read_bytes() == journal
+
+
 def test_submission_retry_after_findings_write_keeps_one_finding(
     feature_repo, tmp_path, monkeypatch
 ):

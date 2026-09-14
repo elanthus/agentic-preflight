@@ -23,6 +23,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- **Breaking:** Require saved run records and portable attestations to declare the exact
+  current schema version as a JSON integer; missing, coerced, older, and future versions
+  are rejected without recovery writes or inferred defaults.
 - **Breaking:** Collapse attestations to required schema version 7 with an explicit
   `verified` or `tests_pending` outcome and complete refresh evidence; attestations from
   earlier releases are no longer readable.

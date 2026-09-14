@@ -1,33 +1,35 @@
-# Attestation compatibility boundary
+# Saved-data schema boundary
 
-Issue #101 keeps the public `Attestation` model and existing wire formats. This
-decision records the migration scope established before implementation. Maintainers changing
-note formats or consumer rollout should use this contract with
+Persisted run records and portable attestations require an explicit `schema_version`
+encoded as a JSON integer. Missing, null, boolean, floating-point, string, older, and
+future values are rejected; they are never inferred as the current format. Maintainers
+changing saved formats or consumer rollout should use this contract with
 [fingerprint bindings](fingerprint-contract.md) and
 [CI authority](ci-test-authority-design.md).
 
 ## Supported records and digests
 
-| Schema | Meaning | Additional fields | Encoding |
-| --- | --- | --- | --- |
-| 4 | Completed local validation; exact-commit reuse | No refresh evidence or configuration snapshot | Omits refresh and CI fields |
-| 5 | Completed local validation with per-stage provenance | Evidence for all four stages and its configuration snapshot | Omits CI fields |
-| 6 | Publication ready with tests pending in trusted CI | Local review/docs/lint evidence, configuration snapshot, delegation, publication time | Null `green_at`; no synthetic test execution |
+| Record | Schema | Meaning |
+| --- | --- | --- |
+| Local run | 2 | Current state, ownership, configuration, and stage evidence |
+| Attestation | 7 | Completed local validation or publication-ready evidence with tests pending in trusted CI |
 
-Decoding preserves the recorded version. Unknown versions, extra fields and
-cross-version evidence remain errors.
+Only these current versions are decoded. Invalid saved data is retained with its
+associated work and ownership pointers; recovery requires a compatible tool or manual
+inspection, not migration or inferred versioning. Extra fields and cross-version
+evidence remain errors.
 
 ## Decision
 
-Keep one normalized model for callers. Move version-specific validation, wire
-encoding/decoding, and producer schema selection into `wire_schema.py`.
-Shared stage validation stays on the model. This avoids three largely duplicated
-models and keeps existing construction and error handling compatible.
+Keep the version constraints on the persisted models so direct validation, nested
+journal recovery, and wire decoding enforce the same boundary. Attestation wire
+encoding and decoding remain in `wire_schema.py`; shared stage validation stays on the
+model.
 
 Evidence refresh is available whenever a run has complete stage provenance. CI
 delegation remains independently controlled by protected CI policy, proposed-policy
 agreement, and hosted authority checks. Producers read that policy from the specified
 protected-base revision, never from the proposed checkout or user overrides.
 
-This change does not upgrade stored notes, combine publication readiness with
+This boundary does not upgrade stored records, combine publication readiness with
 completed tests, or add signing. Those remain separate lifecycle and trust concerns.
