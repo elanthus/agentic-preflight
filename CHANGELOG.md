@@ -16,6 +16,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- **Breaking:** Collapse attestations to required schema version 7 with an explicit
+  `verified` or `tests_pending` outcome and complete refresh evidence; attestations from
+  earlier releases are no longer readable.
 - **Breaking:** Serialize every configuration section in snapshots, including the
   default `[ci]` policy, changing configuration digests for all new runs and attestations.
 - **Breaking:** Require Git 2.38 or newer and remove the index-based fallback for

@@ -124,7 +124,7 @@ def fixed_clock(monkeypatch):
 
 
 @pytest.mark.parametrize("mode", ["in_place", "reusable", "strict"])
-def test_zero_local_test_executions_and_explicit_pending_schema(
+def test_zero_local_test_executions_and_explicit_pending_outcome(
     feature_repo, tmp_path, monkeypatch, mode
 ):
     set_home(monkeypatch, tmp_path / "home")
@@ -144,7 +144,8 @@ def test_zero_local_test_executions_and_explicit_pending_schema(
     assert result["state"] == "PUBLICATION_READY"
     assert result["data"]["merge_requirements_satisfied"] is False
     value = attestation.verify(feature_repo, "HEAD", purpose="publish")
-    assert value.schema_version == 6
+    assert value.schema_version == 7
+    assert value.outcome == "tests_pending"
     assert value.green_at is None
     assert value.publication_ready_at is not None
     assert set(value.evidence) == {Stage.REVIEW, Stage.DOCS, Stage.LINT}
@@ -219,8 +220,8 @@ def test_default_still_runs_tests_and_emits_local_wire(feature_repo, tmp_path, m
     assert _finish(agent, tmp_path)["state"] == "VERIFIED"
     assert len(calls) == 2
     payload = json.loads(attestation.encode(attestation.verify(feature_repo, "HEAD")))
-    assert "test_delegation" not in payload
-    assert "publication_ready_at" not in payload
+    assert payload["test_delegation"] is None
+    assert payload["publication_ready_at"] is None
     assert payload["config_snapshot"]["ci"] == CISection().model_dump(mode="json")
 
 
@@ -234,13 +235,14 @@ def test_ci_policy_proposed_only_on_head_runs_local_tests(feature_repo, tmp_path
     agent.run("start")
     assert _finish(agent, tmp_path)["state"] == "VERIFIED"
     value = attestation.verify(feature_repo, "HEAD")
-    assert value.schema_version == 5
+    assert value.schema_version == 7
+    assert value.outcome == "verified"
     assert value.stages[Stage.TEST].status == "green"
     assert value.test_delegation is None
 
 
 @pytest.mark.parametrize(
-    "mutation", ["green", "fake_process", "missing_lint", "legacy", "policy", "review_coverage"]
+    "mutation", ["green", "fake_process", "missing_lint", "outcome", "policy", "review_coverage"]
 )
 def test_partial_notes_cannot_claim_complete_or_weaken_local_evidence(delegated, mutation):
     repo, _, _, value = delegated
@@ -251,8 +253,8 @@ def test_partial_notes_cannot_claim_complete_or_weaken_local_evidence(delegated,
         raw["stages"]["test"]["exit_code"] = 0
     elif mutation == "missing_lint":
         raw["evidence"].pop("lint")
-    elif mutation == "legacy":
-        raw["schema_version"] = 5
+    elif mutation == "outcome":
+        raw["outcome"] = "verified"
     elif mutation == "policy":
         raw["test_delegation"]["policy"]["required_jobs"] = ["linux"]
     else:
@@ -427,8 +429,8 @@ def test_peer_approval_uses_current_head_and_trusted_reviews(
     assert ci_merge.evaluate(feature_repo, api, 86)["status"] == "approval_pending"
 
 
-@pytest.mark.parametrize("schema", [5, 6])
-def test_ci_rejects_lint_override_even_with_matching_config(delegated, fixed_clock, schema):
+@pytest.mark.parametrize("outcome", ["verified", "tests_pending"])
+def test_ci_rejects_lint_override_even_with_matching_config(delegated, fixed_clock, outcome):
     from agentic_preflight.digests import json_digest
     from agentic_preflight.refresh_validation import json_digest_command
 
@@ -441,8 +443,8 @@ def test_ci_rejects_lint_override_even_with_matching_config(delegated, fixed_clo
     lint["origin"]["fingerprint"]["command_sha256"] = json_digest_command(override)
     lint["fingerprint"]["command_sha256"] = json_digest_command(override)
     lint["origin_sha256"] = json_digest(lint["origin"])
-    if schema == 5:
-        raw["schema_version"] = 5
+    if outcome == "verified":
+        raw["outcome"] = "verified"
         raw["green_at"] = NOW.isoformat()
         raw["publication_ready_at"] = None
         raw["test_delegation"] = None
@@ -469,7 +471,7 @@ def test_ci_rejects_lint_override_even_with_matching_config(delegated, fixed_clo
         raw["evidence"]["test"] = test
         raw["stages"]["test"] = test["origin"]["result"]
     overridden = attestation.decode(json.dumps(raw))
-    if schema == 5:
+    if outcome == "verified":
         assert (
             attestation.verify_value(repo, overridden, value.sha, purpose="publish") == overridden
         )
@@ -478,7 +480,7 @@ def test_ci_rejects_lint_override_even_with_matching_config(delegated, fixed_clo
     assert result["status"] == "stale"
     assert result["reason"] == (
         "local lint execution differs from protected-base command"
-        if schema == 5
+        if outcome == "verified"
         else "current shell command differs from configured command"
     )
     assert result["merge_requirements_satisfied"] is False

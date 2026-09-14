@@ -20,7 +20,6 @@ from .fingerprints import (
 )
 from .models import Attestation, OriginalExecution, ReviewCoverage, Stage, StageEvidence
 from .shell_fingerprints import ShellFingerprint, ShellInputContract, classify_shell
-from .wire_schema import has_pending_tests
 
 
 def shell_execution_config(snapshot: dict, stage: Stage) -> dict:
@@ -205,7 +204,7 @@ def verify_evidence(repo: Path | str, value: Attestation) -> None:
                 raise ValueError("current shell policy binding changed")
             configured_command = getattr(cfg.commands, stage.value)
             if (
-                has_pending_tests(value)
+                value.outcome == "tests_pending"
                 and current.status == "green"
                 and configured_command
                 and current.command != configured_command

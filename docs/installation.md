@@ -79,7 +79,8 @@ Merge polling and automatic post-merge cleanup now default to `false`; an existi
 explicit `[pr] automatedCleanup = true` remains enabled. Automatic PR creation and
 hosted-check monitoring are unchanged.
 
-Upgrade the publisher, hook installation, and trusted verifier together, then follow
+Upgrade the publisher, hook installation, and trusted verifier together because schema
+version 7 does not read earlier attestations. Then follow
 the [CI delegation setup](attestations-and-ci.md#delegating-tests-to-trusted-ci) when
 enabling protected CI authority. Existing default configurations continue to execute
 tests locally.

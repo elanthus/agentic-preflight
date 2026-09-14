@@ -296,8 +296,8 @@ stops with `data.mode = "needs_command"`; it never guesses a reviewer.
 
 Command review uses `[stage] timeout_seconds` and `max_attempts`. Attempts persist across
 process restarts, and every repair invalidates the prior executor and coverage evidence.
-Attestation schema v4 records `executor` for every review; command reviews also record
-the configured command, exit code, and redacted output digest.
+Attestation schema v7 records `executor` and per-stage provenance for every review;
+command reviews also record the configured command, exit code, and redacted output digest.
 
 See [Independent review and agreement](independent-review.md) for worked Codex and Claude
 configurations and the two-reviewer comparison report.

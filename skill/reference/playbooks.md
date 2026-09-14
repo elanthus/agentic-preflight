@@ -81,9 +81,9 @@ the source worktree. `start` marks the stale run `ORPHANED`, preserves its evide
 isolated fixes, and creates the fresh run. Use `status --all` and
 `agentic-preflight --run RUN_ID status` when the old run needs inspection.
 
-Read `data.applicability` and follow `next.command`. Equivalent evidence can survive
-a history-only rewrite; changed content and unknown shell inputs require fresh
-stages.
+Read `data.applicability` and follow `next.command`. The same fingerprint refresh path
+handles unchanged commits and history-only rewrites. Equivalent evidence can survive;
+changed content and unknown shell inputs require fresh stages.
 
 ## Abandoned run
 

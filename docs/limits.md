@@ -27,13 +27,13 @@ sandbox repository commands or stop a shell-capable agent that ignores its insta
 misreads repository content as instructions, or invokes Git directly. Agentic Preflight
 remains an advisory gate rather than a security boundary.
 
-## History rewrites require an exact-commit refresh
+## History rewrites require evidence refresh
 
-The normal attestation note is bound to an exact SHA. In the default in-place mode,
-legacy v4 `start` reuse preserves green only when synchronization leaves the exact attested commit
-unchanged, the freshly fetched base is already its ancestor, and Git computes the same
-clean merge tree against the recorded attestation base. Reuse also requires the same
-branch, base ref, effective user and repository configuration, and persisted user intent.
+The attestation note is bound to an exact SHA. Starting again, including on that same
+unchanged commit, reclassifies each stage through its recorded fingerprint. Review and
+docs require equivalent content, intent, grounding, and relevant policy; shell stages
+require complete committed input contracts. Unknown or changed inputs require a fresh
+stage instead of importing green.
 Changing stage applicability, commands, policy, another setting, or the objective starts
 a fresh review even when local run records have been garbage-collected.
 

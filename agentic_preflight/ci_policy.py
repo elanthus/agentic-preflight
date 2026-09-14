@@ -17,7 +17,7 @@ def parse_policy(contents: str) -> Config:
     except ValueError as exc:
         raise ValueError(f"invalid protected policy: {exc}") from exc
     if cfg.ci.test_authority != "github_actions":
-        raise ValueError("protected base has not enabled a schema-6 CI consumer")
+        raise ValueError("protected base has not enabled delegated-test CI authority")
     return cfg
 
 

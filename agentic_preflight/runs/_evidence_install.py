@@ -1,7 +1,6 @@
 """Shared mechanics for already-validated successful stage evidence.
 
-Callers own eligibility, provenance, coverage, findings and risk. In particular,
-legacy exact reuse must not acquire refresh metadata through these helpers.
+Callers own eligibility, provenance, coverage, findings and risk.
 """
 
 from ..machine import Action, State
@@ -10,7 +9,7 @@ from ._session import _apply
 
 
 def stage_record(result: AttestedStage, *, finished_at: str | None, head_sha: str) -> StageRecord:
-    """Reconstruct the result fields common to exact and fingerprint reuse."""
+    """Reconstruct result fields from fingerprint-reused evidence."""
     return StageRecord(
         status=result.status,
         command=result.command,

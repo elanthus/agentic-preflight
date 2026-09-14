@@ -3,7 +3,8 @@ import json
 from agentic_preflight import attestation
 from agentic_preflight.approval import current_human_approvers, evaluate
 from agentic_preflight.envelope import ExitCode
-from agentic_preflight.models import Attestation, AttestedStage, ReviewCoverage, Stage
+from agentic_preflight.models import AttestedStage, ReviewCoverage, Stage
+from tests.attestation_helpers import make_attestation
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
@@ -48,6 +49,13 @@ def _stages():
     }
 
 
+def _stub_attestation(monkeypatch, *, head, branch, findings_summary):
+    value = make_attestation(
+        stages=_stages(), sha=head, branch=branch, findings_summary=findings_summary
+    )
+    monkeypatch.setattr(attestation, "verify", lambda *_args, **_kwargs: value)
+
+
 def test_only_a_current_repository_associated_non_author_approval_counts():
     head = "a" * 40
     reviews = [
@@ -71,7 +79,9 @@ def test_a_later_changes_request_revokes_the_same_reviewers_approval():
     assert current_human_approvers(reviews, head_sha=head, pull_request_author="author") == []
 
 
-def test_high_risk_attested_change_requires_exact_head_human_approval(tmp_repo, tmp_path):
+def test_high_risk_attested_change_requires_exact_head_human_approval(
+    tmp_repo, tmp_path, monkeypatch
+):
     write(
         tmp_repo,
         ".agentic-preflight.toml",
@@ -81,22 +91,7 @@ def test_high_risk_attested_change_requires_exact_head_human_approval(tmp_repo, 
     git("switch", "-c", "feature/risky", cwd=tmp_repo)
     write(tmp_repo, "src/app.py", "def greet(name):\n    return f'hello {name}'\n")
     head = commit_all(tmp_repo, "change application")
-    attestation.write(
-        tmp_repo,
-        Attestation(
-            sha=head,
-            tree_sha=git("rev-parse", f"{head}^{{tree}}", cwd=tmp_repo),
-            branch="feature/risky",
-            base_ref="main",
-            merge_base_sha=base,
-            intent_sha256="c" * 64,
-            config_sha256="d" * 64,
-            run_id="r_test",
-            green_at="2026-01-01T00:00:00+00:00",
-            stages=_stages(),
-            findings_summary={"open": 0},
-        ),
-    )
+    _stub_attestation(monkeypatch, head=head, branch="feature/risky", findings_summary={"open": 0})
 
     missing = evaluate(
         tmp_repo,
@@ -135,7 +130,7 @@ def test_high_risk_attested_change_requires_exact_head_human_approval(tmp_repo, 
     assert env["data"]["head_sha"] == head
 
 
-def test_high_severity_attestation_summary_also_requires_approval(tmp_repo):
+def test_high_severity_attestation_summary_also_requires_approval(tmp_repo, monkeypatch):
     write(
         tmp_repo,
         ".agentic-preflight.toml",
@@ -145,21 +140,11 @@ def test_high_severity_attestation_summary_also_requires_approval(tmp_repo):
     git("switch", "-c", "feature/finding", cwd=tmp_repo)
     write(tmp_repo, "src/app.py", "def greet(name):\n    return f'hello {name}'\n")
     head = commit_all(tmp_repo, "change application")
-    attestation.write(
-        tmp_repo,
-        Attestation(
-            sha=head,
-            tree_sha=git("rev-parse", f"{head}^{{tree}}", cwd=tmp_repo),
-            branch="feature/finding",
-            base_ref="main",
-            merge_base_sha=base,
-            intent_sha256="c" * 64,
-            config_sha256="d" * 64,
-            run_id="r_test",
-            green_at="2026-01-01T00:00:00+00:00",
-            stages=_stages(),
-            findings_summary={"fixed": 1, "high": 1},
-        ),
+    _stub_attestation(
+        monkeypatch,
+        head=head,
+        branch="feature/finding",
+        findings_summary={"fixed": 1, "high": 1},
     )
     result = evaluate(
         tmp_repo,
@@ -173,27 +158,17 @@ def test_high_severity_attestation_summary_also_requires_approval(tmp_repo):
     assert result["approved"] is False
 
 
-def test_manual_merge_is_the_default_and_passes_without_a_peer(tmp_repo, tmp_path):
+def test_manual_merge_is_the_default_and_passes_without_a_peer(tmp_repo, tmp_path, monkeypatch):
     write(tmp_repo, ".agentic-preflight.toml", "[policy]\nhigh_risk_paths = ['src/**']\n")
     base = commit_all(tmp_repo, "configure risk")
     git("switch", "-c", "feature/manual-merge", cwd=tmp_repo)
     write(tmp_repo, "src/app.py", "def greet():\n    return 'hello'\n")
     head = commit_all(tmp_repo, "change application")
-    attestation.write(
-        tmp_repo,
-        Attestation(
-            sha=head,
-            tree_sha=git("rev-parse", f"{head}^{{tree}}", cwd=tmp_repo),
-            branch="feature/manual-merge",
-            base_ref="main",
-            merge_base_sha=base,
-            intent_sha256="c" * 64,
-            config_sha256="d" * 64,
-            run_id="r_test",
-            green_at="2026-01-01T00:00:00+00:00",
-            stages=_stages(),
-            findings_summary={"open": 0},
-        ),
+    _stub_attestation(
+        monkeypatch,
+        head=head,
+        branch="feature/manual-merge",
+        findings_summary={"open": 0},
     )
 
     result = evaluate(
@@ -223,7 +198,7 @@ def test_manual_merge_is_the_default_and_passes_without_a_peer(tmp_repo, tmp_pat
     assert envelope["data"]["manual_merge_required"] is True
 
 
-def test_environment_mode_requires_the_environment_release(tmp_repo, tmp_path):
+def test_environment_mode_requires_the_environment_release(tmp_repo, tmp_path, monkeypatch):
     write(
         tmp_repo,
         ".agentic-preflight.toml",
@@ -234,21 +209,11 @@ def test_environment_mode_requires_the_environment_release(tmp_repo, tmp_path):
     git("switch", "-c", "feature/environment", cwd=tmp_repo)
     write(tmp_repo, "src/app.py", "def greet():\n    return 'hello'\n")
     head = commit_all(tmp_repo, "change application")
-    attestation.write(
-        tmp_repo,
-        Attestation(
-            sha=head,
-            tree_sha=git("rev-parse", f"{head}^{{tree}}", cwd=tmp_repo),
-            branch="feature/environment",
-            base_ref="main",
-            merge_base_sha=base,
-            intent_sha256="c" * 64,
-            config_sha256="d" * 64,
-            run_id="r_test",
-            green_at="2026-01-01T00:00:00+00:00",
-            stages=_stages(),
-            findings_summary={"open": 0},
-        ),
+    _stub_attestation(
+        monkeypatch,
+        head=head,
+        branch="feature/environment",
+        findings_summary={"open": 0},
     )
 
     pending = evaluate(
