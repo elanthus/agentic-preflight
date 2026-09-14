@@ -38,26 +38,6 @@ _REPLACE_ATTEMPTS = 8
 _REPLACE_INITIAL_DELAY = 0.005
 _REPLACE_MAX_DELAY = 0.25
 
-_REMOVED_LIFECYCLE_FIELDS = {
-    "pr_url",
-    "ci_started_at",
-    "ci_last_checked_at",
-    "ci_status",
-    "ci_failures",
-    "ci_logs",
-    "cleanup_token",
-    "cleanup_preview",
-}
-_REMOVED_LIFECYCLE_STATES = {
-    "PR_OPEN",
-    "CI_MONITORING",
-    "CI_FAILED",
-    "CHECKS_PASSED",
-    "CI_TIMED_OUT",
-    "PR_MERGED",
-}
-
-
 class _RunUpdate(BaseModel):
     """Write-ahead record for one run/findings commit; never includes Git effects."""
 
@@ -68,14 +48,10 @@ class _RunUpdate(BaseModel):
 
 
 def _parse_run(payload: str) -> RunDoc:
-    """Read current documents and migrate the removed hosted-PR lifecycle."""
+    """Parse and validate a current run document."""
     raw = json.loads(payload)
     if not isinstance(raw, dict):
         raise InvalidRunRoot("run record must be a JSON object")
-    for field in _REMOVED_LIFECYCLE_FIELDS:
-        raw.pop(field, None)
-    if isinstance(raw.get("state"), str) and raw["state"] in _REMOVED_LIFECYCLE_STATES:
-        raw["state"] = "PUSHED"
     return RunDoc.model_validate(raw)
 
 
@@ -294,11 +270,19 @@ class Store:
         except InvalidRunRoot as exc:
             raise RunReadError(run_id, path, "invalid_record", str(exc)) from exc
         except ValidationError as exc:
+            raw = json.loads(payload)
+            earlier_release = "schema_version" in raw and raw["schema_version"] != 2
             raise RunReadError(
                 run_id,
                 path,
                 "invalid_or_unsupported_schema",
-                "Run record does not match the supported schema; it may be incompatible or invalid.",
+                (
+                    "Run record was written by an earlier release and must be finished, "
+                    "aborted, or removed using that release. It has been retained unchanged."
+                    if earlier_release
+                    else "Run record does not match the supported schema; it may be "
+                    "incompatible or invalid."
+                ),
                 fields=[
                     {"location": list(error["loc"]), "category": error["type"]}
                     for error in exc.errors(

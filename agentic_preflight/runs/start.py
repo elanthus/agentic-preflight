@@ -216,6 +216,7 @@ def start(
 
     run_id = _new_run_id()
     run = RunDoc(
+        schema_version=2,
         run_id=run_id,
         state=State.CREATED,
         branch=branch,
