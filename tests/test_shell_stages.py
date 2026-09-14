@@ -28,6 +28,12 @@ def findings_json(tmp_path, items):
     return str(path)
 
 
+def docs_findings_json(tmp_path, items):
+    path = tmp_path / "docs-findings.json"
+    path.write_text(json.dumps({"findings": items}))
+    return str(path)
+
+
 def config(repo, body):
     write(repo, ".agentic-preflight.toml", body)
     commit_all(repo, "configure agentic-preflight")
@@ -165,7 +171,7 @@ def test_documentation_only_changes_skip_software_tests_after_lint(tmp_repo, tmp
 
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     agent.run("context", "--section", "docs")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", docs_findings_json(tmp_path, []))
     env = agent.run("stage", "run", "lint", "--command", "true", "--record")
 
     assert env["state"] == "TEST_GREEN"
@@ -188,7 +194,7 @@ def test_ci_configuration_only_changes_skip_software_tests(tmp_repo, tmp_path):
 
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     agent.run("context", "--section", "docs")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", docs_findings_json(tmp_path, []))
     env = agent.run("stage", "run", "lint", "--command", "true", "--record")
 
     assert env["state"] == "TEST_GREEN"
@@ -218,7 +224,7 @@ def test_executable_in_documentation_or_ci_directory_cannot_skip_tests(tmp_repo,
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     agent.run("context", "--section", "docs")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("submit-findings", "--file", docs_findings_json(tmp_path, []))
     result = agent.run("stage", "run", "lint", "--command", "true", "--record")
     assert result["state"] == "LINT_GREEN"
     assert result["next"]["command"] == "agentic-preflight stage run test"

@@ -169,8 +169,8 @@ to `review-compare.json`, appends a `review_compared` event, and returns the sum
 ### `agentic-preflight submit-findings --file PATH`
 `PATH` may be `-` for stdin. Review requires
 `{"coverage":{"manifest":"<from context>","examined":"all"},"findings":[...]}`.
-The manifest must match the current diff. Docs accepts `{"findings": [...]}` or a bare
-list; an empty docs list is valid and common.
+The manifest must match the current diff. Docs requires `{"findings": [...]}`; an empty
+`findings` list is valid and common.
 
 Rejects (exit 3, `invalid_findings`): missing, stale, or unknown review coverage;
 agent-supplied `id` or `stage`; unknown or path-mismatched review units; paths outside

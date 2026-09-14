@@ -5,6 +5,12 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Changed
+
+- **Breaking:** Require docs findings submissions to use the strict
+  `{"findings": [...]}` object shape; bare lists, missing fields, and unknown fields are
+  rejected.
+
 ### Fixed
 
 - Allow changed lint inputs to invalidate completed lint through the state machine.

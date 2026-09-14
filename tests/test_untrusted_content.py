@@ -28,6 +28,12 @@ def _findings_file(tmp_path):
     return str(path)
 
 
+def _docs_findings_file(tmp_path):
+    path = tmp_path / "docs-findings.json"
+    path.write_text(json.dumps({"findings": []}), encoding="utf-8")
+    return str(path)
+
+
 def _hostile_feature(tmp_repo, *, configured: bool):
     git("switch", "-c", "feature/untrusted", cwd=tmp_repo)
     write(tmp_repo, "payload.txt", f"{HOSTILE_TEXT}\n")
@@ -62,7 +68,7 @@ def _drive_to_docs_green(agent, tmp_path):
     assert HOSTILE_TEXT not in context["next"]["instruction"]
     agent.run("submit-findings", "--file", _findings_file(tmp_path))
     agent.run("context", "--section", "docs")
-    env = agent.run("submit-findings", "--file", _findings_file(tmp_path))
+    env = agent.run("submit-findings", "--file", _docs_findings_file(tmp_path))
     assert env["state"] == "DOCS_GREEN"
 
 
