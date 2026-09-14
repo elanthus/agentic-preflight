@@ -5,6 +5,11 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Changed
+
+- **Breaking:** Require Git 2.38 or newer and remove the index-based fallback for
+  computing merge trees.
+
 ### Fixed
 
 - Allow changed lint inputs to invalidate completed lint through the state machine.

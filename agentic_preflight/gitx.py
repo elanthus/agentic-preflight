@@ -11,16 +11,15 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-import tempfile
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import cache
 from pathlib import Path
 
 from agentic_preflight.stages.command import resolve_on_path
 
-# `git merge-tree --write-tree` landed in Git 2.38.
-_WRITE_TREE_MINIMUM = (2, 38)
+MINIMUM_GIT_VERSION = (2, 38)
 
 # Git output is repository data and repositories contain latin-1, so decoding
 # must never be able to crash the command that read it. ``backslashreplace``
@@ -71,6 +70,10 @@ class GitError(Exception):
         self.args_list = args
         self.returncode = returncode
         self.stderr = stderr
+
+
+class GitVersionError(Exception):
+    """The installed Git does not meet the supported minimum."""
 
 
 class OperationInProgress(Exception):
@@ -234,43 +237,16 @@ def version(cwd: Path | str = ".") -> tuple[int, int] | None:
     return int(match.group(1)), int(match.group(2))
 
 
-def _merge_tree_via_index(cwd: Path | str, left: str, right: str) -> str | None:
-    """The pre-2.38 three-way merge, performed in a throwaway index.
-
-    Intentionally more conservative than ``--write-tree``: it can reject a
-    merge that would have been textually clean. What it cannot do is
-    manufacture a false equivalence, which is the direction that matters when
-    the answer decides whether a green attestation may be reused.
-    """
-    base = merge_base(cwd, left, right)
-    with tempfile.TemporaryDirectory(prefix="agentic-preflight-merge-") as temp_dir:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(temp_dir) / "index")}
-        merged = subprocess.run(
-            [_git_executable(), "read-tree", "-m", base, left, right],
-            cwd=str(cwd),
-            env=env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors=_DECODE_ERRORS,
-            timeout=_COMMAND_TIMEOUT.get(),
-        )
-        if merged.returncode != 0:
-            return None
-        written = subprocess.run(
-            [_git_executable(), "write-tree"],
-            cwd=str(cwd),
-            env=env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors=_DECODE_ERRORS,
-            timeout=_COMMAND_TIMEOUT.get(),
-        )
-        if written.returncode != 0:
-            return None
-        value = written.stdout.strip()
-        return value if len(value) == 40 else None
+@cache
+def require_minimum_version() -> None:
+    """Fail once at CLI startup unless Git 2.38 or newer is available."""
+    detected = version()
+    required = ".".join(str(part) for part in MINIMUM_GIT_VERSION)
+    if detected is None:
+        raise GitVersionError(f"Git {required} or newer is required; version could not be read")
+    if detected < MINIMUM_GIT_VERSION:
+        actual = ".".join(str(part) for part in detected)
+        raise GitVersionError(f"Git {required} or newer is required; found Git {actual}")
 
 
 def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
@@ -280,56 +256,14 @@ def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
     snapshots. That distinction is essential when deciding whether an existing
     attestation remains valid against a newly synchronized base. Git may add
     unreachable tree objects, but this does not update refs, the index, or files.
-
-    Which interface to use is decided by the git *version*, not by recognising
-    an error message. Git 2.30-2.37 predates ``--write-tree`` and reports the
-    flag as ``fatal: unknown rev --write-tree`` — on stderr, while exiting
-    zero, so there is no failure to detect. Message matching also breaks under
-    any locale where git speaks a translated string.
     """
-    if _supports_write_tree(cwd):
-        result = run(cwd, "merge-tree", "--write-tree", left, right, check=False)
-        if result.returncode == 1:
-            return None
-        if result.returncode == 0:
-            first_line = result.stdout.splitlines()[0] if result.stdout else ""
-            if len(first_line) == 40:
-                return first_line
-            # Exit zero without a tree means the flag was not understood after
-            # all, so the version probe was wrong. Fall through rather than
-            # report "no clean merge" for a merge that may well be clean.
-        elif not _rejected_the_flag(result):
-            raise GitError(
-                ["merge-tree", "--write-tree", left, right],
-                result.returncode,
-                result.stderr,
-            )
-
-    return _merge_tree_via_index(cwd, left, right)
-
-
-def _supports_write_tree(cwd: Path | str) -> bool:
-    detected = version(cwd)
-    # An unreadable version is treated as modern: the newer interface is tried
-    # first and falls back on its own, which is the order this used to take.
-    return detected is None or detected >= _WRITE_TREE_MINIMUM
-
-
-def _rejected_the_flag(result: subprocess.CompletedProcess) -> bool:
-    """Whether a failure is git refusing ``--write-tree`` rather than a real error.
-
-    A second line of defence behind the version check, for a build that reports
-    the flag some other way. Kept as a *secondary* signal because these strings
-    are translated under a non-English locale, which is exactly why matching on
-    them alone was not enough.
-    """
-    stderr = result.stderr.lower()
-    return (
-        result.returncode == 129
-        or "unknown option" in stderr
-        or "not a valid object name --write-tree" in stderr
-        or "unknown rev --write-tree" in stderr
-    )
+    args = ["merge-tree", "--write-tree", left, right]
+    result = run(cwd, *args, check=False)
+    if result.returncode == 0:
+        return result.stdout.splitlines()[0]
+    if result.returncode == 1:
+        return None
+    raise GitError(args, result.returncode, result.stderr)
 
 
 def commit_exists(cwd: Path | str, sha: str) -> bool:

@@ -1,7 +1,7 @@
 # Compatibility policy
 
 Agentic Preflight supports Python 3.11, 3.12, and 3.13 on macOS 15 or newer, on Linux,
-and on Windows 10 or newer. Git 2.30 or newer is required.
+and on Windows 10 or newer. Git 2.38 or newer is required.
 
 Windows support is native: it does not go through WSL, and it does not require a POSIX
 shell for ordinary use. Two Windows-specific notes are worth knowing before adopting it:
