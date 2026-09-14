@@ -57,8 +57,8 @@ until the gate is green. Push through the gate again, then resume check monitori
 
 Read `data.reason` before choosing recovery. `missing_note` and `missing_notes_ref`
 can use `hosted-check`'s four-attempt budget (2/4/8-second backoff). This is an explicit
-trusted CI command; local `verify SHA` never fetches or sleeps. A present incompatible
-schema requires a compatible protected-base verifier or supported producer format.
+trusted CI command; local `verify SHA` never fetches or sleeps. A present unsupported
+schema requires a schema version 7 note and the current protected-base verifier.
 Unknown fields do not reveal the producer version. Malformed evidence and wrong
 commit/tree bindings fail immediately and need valid evidence for the exact head.
 
@@ -107,8 +107,8 @@ in `data.retained`, and continues collecting understood runs. An unknown field a
 means the schema is invalid or unsupported; it does not prove a newer producer or
 corruption. `--force` does not authorize deleting these records or their resources.
 
-Use the reported path to inspect the record or run a compatible tool version. Keep
-its JSON, worktree, branch, and active aliases intact. Both forms of `status` report
+Use the reported path to inspect the record. Keep its JSON, worktree, branch, and
+active aliases intact. Both forms of `status` report
 unreadable records; single-run status preserves ownership and reports `has_run: true`
 and `readable: false`. Do not start a replacement run as if the record were missing.
 Mutating commands reject unreadable records with `run_record_unreadable` (exit 3).

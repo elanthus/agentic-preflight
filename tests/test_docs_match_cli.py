@@ -20,11 +20,12 @@ from agentic_preflight.machine import State
 from agentic_preflight.models import Attestation
 
 SKILL_DIR = Path(__file__).parent.parent / "skill"
+PROJECT_ROOT = Path(__file__).parent.parent
 SKILL = SKILL_DIR / "SKILL.md"
 REFERENCE = SKILL_DIR / "reference"
-README = Path(__file__).parent.parent / "README.md"
-CONFIGURATION = Path(__file__).parent.parent / "docs" / "configuration.md"
-ATTESTATIONS_AND_CI = Path(__file__).parent.parent / "docs" / "attestations-and-ci.md"
+README = PROJECT_ROOT / "README.md"
+CONFIGURATION = PROJECT_ROOT / "docs" / "configuration.md"
+ATTESTATIONS_AND_CI = PROJECT_ROOT / "docs" / "attestations-and-ci.md"
 
 
 def real_commands() -> set[str]:
@@ -224,10 +225,23 @@ def test_current_wire_version_is_consistent_across_reference_docs():
     assert f"Schema v{schema} requires" in commands
 
 
-def test_ci_verifier_example_explains_version_matching():
+def test_ci_verifier_example_requires_the_current_schema():
     text = ATTESTATIONS_AND_CI.read_text(encoding="utf-8")
-    assert "verifier must support the schema emitted by the producer" in text
+    assert "verifier requires schema version 7" in text
     assert "same immutable source revision" in text
+
+
+def test_current_docs_do_not_reference_retired_transition_contracts():
+    retired = ("schema-compatibility.md", "evidence-refresh-design.md")
+    for name in retired:
+        assert not (PROJECT_ROOT / "docs" / name).exists()
+
+    docs = [README, PROJECT_ROOT / "COMPATIBILITY.md"]
+    docs.extend((PROJECT_ROOT / "docs").glob("*.md"))
+    docs.extend(SKILL_DIR.rglob("*.md"))
+    for doc in docs:
+        text = doc.read_text(encoding="utf-8")
+        assert not any(name in text for name in retired), f"{doc} links a retired document"
 
 
 def test_worktree_and_doc_surface_descriptions_name_their_boundaries():

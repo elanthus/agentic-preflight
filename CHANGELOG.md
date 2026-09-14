@@ -26,6 +26,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Retire transition design documents and update the documentation and bundled skill to
+  describe only the current configuration, run-record, attestation, and submission formats.
 - **Breaking:** Require saved run records and portable attestations to declare the exact
   current schema version as a JSON integer; missing, coerced, older, and future versions
   are rejected without recovery writes or inferred defaults.

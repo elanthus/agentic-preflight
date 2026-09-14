@@ -127,8 +127,8 @@ The stages provide different checks:
   then lets the agent create or reuse a GitHub pull request and monitor its checks;
   manual PR mode returns a compare URL instead.
 
-Equivalent-content rebases can reuse stage evidence after a compatible verifier is
-installed on the protected base. Shell stages also need committed input contracts; see
+Equivalent-content rebases can reuse stage evidence when the protected base uses the
+current verifier. Shell stages also need committed input contracts; see
 the [fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/fingerprint-contract.md).
 
 Pull-request merge polling and post-merge cleanup are disabled by default. Set
@@ -196,8 +196,8 @@ for a portfolio-oriented overview, or follow the question you want to investigat
 | Where does responsibility pass between the coding agent, CLI, and shell commands? | [ADR 0001: orchestration boundaries](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/adr/0001-orchestration-boundaries.md) |
 | How can linked worktrees run independent gates safely? | [ADR 0002: worktree-scoped run ownership](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/adr/0002-scope-run-ownership-to-worktrees.md) |
 | What repository context reaches review, and how is untrusted content bounded? | [Grounded context](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/context-grounding.md) |
-| When can evidence survive a rebase or restack? | [Fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/fingerprint-contract.md) and [automatic evidence refresh](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/evidence-refresh-design.md) |
-| How are attestations consumed across producer versions and CI? | [Schema compatibility](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/schema-compatibility.md), [CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/attestations-and-ci.md), and [trusted CI test authority](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/ci-test-authority-design.md) |
+| When can evidence survive a rebase or restack? | [Fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/fingerprint-contract.md) |
+| How are attestations enforced in CI? | [CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/attestations-and-ci.md) and [trusted CI test authority](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/ci-test-authority-design.md) |
 | What does a second reviewer add, and how are reviewers compared? | [Independent review and agreement](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/independent-review.md) |
 | What public evidence supports the project, and what does it not prove? | [Dogfooding case study](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/dogfooding-case-study.md) and [public regression eval](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/regression-eval.md) |
 

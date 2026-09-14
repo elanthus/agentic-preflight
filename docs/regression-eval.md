@@ -13,8 +13,8 @@ evaluation.
 
 The corpus contains 12 plainly fictional toy projects: three each for correctness, security,
 evaluation integrity, and documentation contract failures. Every case has three complete
-trees. Method `public-smoke-v4` retains v2's separate repository for each reviewed snapshot: the
-base tree on `main`, followed by only the selected tree on `review/change`. Commit subjects
+trees. Each reviewed snapshot uses a separate repository: the base tree on `main`, followed
+by only the selected tree on `review/change`. Commit subjects
 are `Initial snapshot` and `Proposed change`; the repository directory uses a random opaque
 identifier. The runner never copies or commits the unselected tree; blobs shared with the
 base or selected tree can legitimately appear in the object database. Fixed snapshots are
@@ -51,8 +51,8 @@ map. The category measure is intentionally heuristic: it can confirm vocabulary,
 the reviewer's reasoning is sound. Severity and category agreement are reported separately
 and never gate execution.
 
-`summary.json` records `method_version: public-smoke-v4` and contains per-case snapshot
-evidence and aggregate catch, fixed false-positive, unresolved, severity-agreement, and
+`summary.json` records the current `method_version` and contains per-case snapshot evidence
+and aggregate catch, fixed false-positive, unresolved, severity-agreement, and
 category-agreement values for each grounding setting.
 `summary.md` presents the same case outcomes and aggregates in one table.
 
@@ -97,17 +97,9 @@ launches external reviewer wrappers and remains sensitive to model and tool vers
 mode measures the
 private evaluation, and its rates must not be compared with private decision-quality results.
 
-## Method versions and evidence
-
-`public-smoke-v1` (reports without `method_version`) created base, vulnerable, and fixed
-commits in one repository and exposed case labels in Git metadata. Those runs cannot be
-claimed as provider-blinded evidence: the reviewed workspace could reveal the selected
-condition and the other snapshot. Version 2 changes this input boundary without changing
-the location-based scoring rule. Version 3 changes only report accounting: it separates
-observable wrapper invocations from unavailable provider telemetry. Do not relabel old reports
-as version 2 or version 3.
+## Evaluation evidence
 
 The separate [public evaluation implementation](https://github.com/elanthus/preflight-eval-results/tree/5f98146bd67f445aecb9d340e067b3609a97620d)
 publishes the decision-quality library, synthetic paired replay, and versioned limitations
-of the historical aggregate results. Its offline replay uses scripted adjudication and makes
+of the aggregate results. Its offline replay uses scripted adjudication and makes
 no provider calls. It does not reproduce the private corpus or measure model quality.
