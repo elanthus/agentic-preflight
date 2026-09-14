@@ -23,6 +23,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - **Breaking:** Collapse attestations to required schema version 7 with an explicit
   `verified` or `tests_pending` outcome and complete refresh evidence; attestations from
   earlier releases are no longer readable.
+- **Breaking:** Rename the `[pr] automatedCleanup` configuration key to
+  `[pr] automated_cleanup`; the former spelling is now rejected as an unknown key.
 - **Breaking:** Require all creation-time run-record fields and reject records that omit
   their source identity, configuration snapshot, creation timestamp, or intent source.
 - **Breaking:** Require docs findings submissions to use the strict

@@ -72,12 +72,12 @@ uv tool upgrade agentic-preflight
 agentic-preflight integrations update
 ```
 
-### Upgrading to 0.5.3
+### Upgrading to 0.6.0
 
 Refresh installed skills along with the CLI so the agent follows the current workflow.
-Merge polling and automatic post-merge cleanup now default to `false`; an existing
-explicit `[pr] automatedCleanup = true` remains enabled. Automatic PR creation and
-hosted-check monitoring are unchanged.
+The pull-request cleanup setting is now spelled `[pr] automated_cleanup`; the former
+camelCase spelling is rejected as an unknown key. Automatic PR creation and hosted-check
+monitoring are unchanged.
 
 Upgrade the publisher, hook installation, and trusted verifier together because schema
 version 7 does not read earlier attestations. Then follow

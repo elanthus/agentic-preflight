@@ -59,7 +59,7 @@ mode = "token"
 
 [pr]
 mode = "auto"
-automatedCleanup = false
+automated_cleanup = false
 
 [approval]
 mode = "manual_merge"

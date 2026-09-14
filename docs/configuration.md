@@ -90,7 +90,7 @@ mode = "token"                    # or "manual"
 
 [pr]
 mode = "auto"                     # or "manual"
-automatedCleanup = false           # true enables merge polling and cleanup
+automated_cleanup = false          # true enables merge polling and cleanup
 
 [approval]
 mode = "manual_merge"             # or "environment" / "peer_review"
@@ -168,7 +168,7 @@ second approval prompt.
 push through the configured gate, but it never opens the pull request and provides a
 compare URL instead.
 
-`automatedCleanup = false` is the default. Automatic pull-request creation still works,
+`automated_cleanup = false` is the default. Automatic pull-request creation still works,
 but the agent stops after hosted checks: it does not poll the merge state or delete
 anything until the user explicitly requests cleanup. Set the field to `true` to have the
 agent disclose the exact cleanup scope, poll an automatically opened or reused pull

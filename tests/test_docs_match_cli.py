@@ -301,7 +301,7 @@ def test_the_skill_documents_all_high_risk_approval_modes():
 
 def test_automatic_prs_are_polled_and_cleaned_without_a_second_approval():
     text = SKILL.read_text(encoding="utf-8")
-    assert "[pr] automatedCleanup = true" in text
+    assert "[pr] automated_cleanup = true" in text
     assert "automated_cleanup: true" in text
     assert "automated_cleanup: false" in text
     assert "stop after hosted checks" in text
