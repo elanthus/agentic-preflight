@@ -64,7 +64,7 @@ mode = "token"
 mode = "auto"
 # By default, stop after an automatically opened PR is green. Set true to poll
 # for its merge and perform the disclosed run-scoped cleanup.
-automatedCleanup = false
+automated_cleanup = false
 
 [approval]
 # High-risk changes default to a successful hosted check that requires a person

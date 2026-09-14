@@ -132,7 +132,7 @@ installed on the protected base. Shell stages also need committed input contract
 the [fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/fingerprint-contract.md).
 
 Pull-request merge polling and post-merge cleanup are disabled by default. Set
-`[pr] automatedCleanup = true` to opt in.
+`[pr] automated_cleanup = true` to opt in.
 
 Run `agentic-preflight status` in the source worktree to inspect or resume its run. Use
 `agentic-preflight status --all` to inventory runs across linked worktrees.

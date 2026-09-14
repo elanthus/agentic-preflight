@@ -39,8 +39,8 @@ Python here never calls a model — every judgment in this workflow is yours.
    or "proceed" alone is not push authorization. `[pr] mode = "auto"` is standing
    authorization to open or reuse the pull request after the authorized push and
    preflight finish.
-   `[pr] automatedCleanup = false` is the default: stop after hosted checks and require
-   an explicit cleanup request. When `[pr] automatedCleanup = true`, it also authorizes
+   `[pr] automated_cleanup = false` is the default: stop after hosted checks and require
+   an explicit cleanup request. When `[pr] automated_cleanup = true`, it also authorizes
    monitoring that exact PR until it reaches a terminal state and cleaning up the
    disclosed run-scoped targets after GitHub verifies the PR was merged. With
    `mode = "manual"`, never open the PR for them.
