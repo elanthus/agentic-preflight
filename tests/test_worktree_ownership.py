@@ -19,17 +19,42 @@ from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
 
-def test_invalid_snapshot_config_preserves_session_inspection(feature_repo):
-    from agentic_preflight.runs._session import open_session
-
+def test_commands_classify_and_preserve_unsupported_config_snapshot(feature_repo):
     agent = ScriptedAgent(feature_repo)
     started = agent.run("start")
-    session = open_session(feature_repo)
-    with session.store.transaction(started["run_id"]) as doc:
-        doc.config_snapshot["worktree"]["mode"] = "invalid"
-    reopened = open_session(feature_repo)
-    assert reopened.config.worktree.mode == "in_place"
-    assert reopened.active_run_id() == started["run_id"]
+    path = _state_root(feature_repo) / "runs" / started["run_id"] / "run.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["config_snapshot"]["review"]["require_fix_commits"] = True
+    raw["config_snapshot"]["worktree"]["ttl_hours"] = 24
+    original = json.dumps(raw).encode()
+    path.write_bytes(original)
+
+    expected_fields = [
+        {
+            "location": ["config_snapshot", "review", "require_fix_commits"],
+            "category": "extra_forbidden",
+        },
+        {
+            "location": ["config_snapshot", "worktree", "ttl_hours"],
+            "category": "extra_forbidden",
+        },
+    ]
+    status = agent.run("status")
+    assert status["data"]["read_failure"]["reason"] == "invalid_or_unsupported_schema"
+    assert status["data"]["read_failure"]["fields"] == expected_fields
+    assert "review.require_fix_commits" in status["data"]["read_failure"]["diagnostic"]
+    assert "worktree.ttl_hours" in status["data"]["read_failure"]["diagnostic"]
+
+    inventory = agent.run("status", "--all")
+    assert inventory["data"]["runs"][0]["fields"] == expected_fields
+    collected = agent.run("gc")
+    assert collected["data"]["retained"][0]["fields"] == expected_fields
+
+    aborted = agent.run("abort", "--force", expect=ExitCode.PRECONDITION)
+    assert aborted["error"]["code"] == "run_record_unreadable"
+    assert aborted["data"]["reason"] == "invalid_or_unsupported_schema"
+    assert aborted["data"]["fields"] == expected_fields
+    assert path.read_bytes() == original
 
 
 def _second_feature_worktree(feature_repo: Path, tmp_path: Path) -> Path:

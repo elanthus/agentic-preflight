@@ -48,6 +48,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- Classify run records with configuration snapshots that no longer validate as
+  unsupported saved data, preserving the records and their work for inspection.
 - Allow changed lint inputs to invalidate completed lint through the state machine.
 - Recover findings and their run-state transition together after an interrupted write,
   preventing duplicate findings when a partially installed submission is retried.
