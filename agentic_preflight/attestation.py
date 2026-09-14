@@ -124,9 +124,7 @@ def build(
     from .refresh_validation import rebound_coverage, verify_evidence
 
     delegated = run.test_delegation is not None
-    use_refresh = delegated or (
-        run.worktree_path is not None and set(run.evidence) == set(Stage)
-    )
+    use_refresh = delegated or (run.worktree_path is not None and set(run.evidence) == set(Stage))
     if use_refresh:
         stages[Stage.REVIEW].coverage = rebound_coverage(
             run.worktree_path or "",

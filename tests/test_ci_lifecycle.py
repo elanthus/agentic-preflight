@@ -223,9 +223,7 @@ def test_default_still_runs_tests_and_emits_local_wire(feature_repo, tmp_path, m
     assert "ci" not in payload["config_snapshot"]
 
 
-def test_ci_policy_proposed_only_on_head_runs_local_tests(
-    feature_repo, tmp_path, monkeypatch
-):
+def test_ci_policy_proposed_only_on_head_runs_local_tests(feature_repo, tmp_path, monkeypatch):
     set_home(monkeypatch, tmp_path / "home")
     configure(feature_repo, enabled=False)
     with (feature_repo / ".agentic-preflight.toml").open("a") as handle:
