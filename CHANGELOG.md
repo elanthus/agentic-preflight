@@ -7,6 +7,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Removed
 
+- **Breaking:** Remove migration of the obsolete clone-wide active-run pointer; stray
+  `current` files are ignored and left unchanged.
 - **Breaking:** Reject run records from earlier releases instead of migrating removed
   hosted pull-request lifecycle fields and states during loading.
 
