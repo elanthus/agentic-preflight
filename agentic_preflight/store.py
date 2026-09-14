@@ -266,17 +266,26 @@ class Store:
             raise RunReadError(run_id, path, "invalid_record", str(exc)) from exc
         except ValidationError as exc:
             raw = json.loads(payload)
-            earlier_release = "schema_version" in raw and raw["schema_version"] != 2
+            version = raw.get("schema_version")
+            earlier_release = type(version) is int and version < 2
+            version_error = any(error["loc"] == ("schema_version",) for error in exc.errors())
             raise RunReadError(
                 run_id,
                 path,
                 "invalid_or_unsupported_schema",
                 (
-                    "Run record was written by an earlier release and must be finished, "
-                    "aborted, or removed using that release. It has been retained unchanged."
+                    "Run record declares a schema version from an earlier release. The "
+                    "record and its associated work have been retained unchanged; use a "
+                    "compatible tool version or inspect the record."
                     if earlier_release
-                    else "Run record does not match the supported schema; it may be "
-                    "incompatible or invalid."
+                    else (
+                        "Run record must explicitly declare current schema version 2 as a "
+                        "JSON integer. The record and its associated work have been retained "
+                        "unchanged; use a compatible tool version or inspect the record."
+                        if version_error
+                        else "Run record does not match the supported schema; it may be "
+                        "incompatible or invalid."
+                    )
                 ),
                 fields=[
                     {"location": list(error["loc"]), "category": error["type"]}

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from pydantic import ValidationError
 
@@ -128,6 +130,26 @@ def test_run_doc_requires_schema_version():
 
 
 @pytest.mark.parametrize(
+    "schema_version",
+    [pytest.param("missing", id="missing"), None, True, 2.0, "2", 1, 3],
+)
+def test_run_doc_json_requires_explicit_current_integer_schema_version(schema_version):
+    raw = _run_doc().model_dump(mode="json")
+    if schema_version == "missing":
+        raw.pop("schema_version")
+    else:
+        raw["schema_version"] = schema_version
+
+    with pytest.raises(ValidationError, match="schema_version"):
+        RunDoc.model_validate_json(json.dumps(raw))
+
+
+def test_run_doc_json_round_trips_explicit_current_integer_schema_version():
+    raw = _run_doc().model_dump(mode="json")
+    assert RunDoc.model_validate_json(json.dumps(raw)).schema_version == 2
+
+
+@pytest.mark.parametrize(
     "field",
     [
         "source_head_sha",
@@ -244,15 +266,27 @@ def test_attestation_requires_schema_version_and_explicit_outcome():
         Attestation.model_validate(payload)
 
 
-@pytest.mark.parametrize("schema_version", [5, 6])
-def test_decode_rejects_old_attestation_notes(schema_version):
+@pytest.mark.parametrize(
+    "schema_version",
+    [pytest.param("missing", id="missing"), None, True, 7.0, "7", 6, 8],
+)
+def test_decode_rejects_non_current_integer_attestation_versions(schema_version):
     payload = make_attestation(stages=_attestation_stages()).model_dump(mode="json")
-    payload["schema_version"] = schema_version
-    import json
+    if schema_version == "missing":
+        payload.pop("schema_version")
+    else:
+        payload["schema_version"] = schema_version
+    payload["branch"] = "DO_NOT_ECHO_ATTESTATION_SECRET"
 
     with pytest.raises(attestationmod.InvalidAttestation) as error:
         attestationmod.decode(json.dumps(payload))
     assert error.value.reason == "incompatible_schema"
+    assert "DO_NOT_ECHO_ATTESTATION_SECRET" not in str(error.value)
+
+
+def test_attestation_json_round_trips_explicit_current_integer_schema_version():
+    value = make_attestation(stages=_attestation_stages())
+    assert attestationmod.decode(attestationmod.encode(value)).schema_version == 7
 
 
 def test_attestation_build_refuses_to_invent_a_green_review_stage():

@@ -33,7 +33,8 @@ def test_removed_pr_lifecycle_document_is_rejected_as_earlier_release(store):
     with pytest.raises(RunReadError, match="earlier release") as caught:
         store.load_run("r_abc123")
 
-    assert "finished, aborted, or removed using that release" in str(caught.value)
+    assert "associated work have been retained unchanged" in str(caught.value)
+    assert "compatible tool version" in str(caught.value)
 
 
 def test_schema_version_one_document_is_rejected_as_earlier_release(store):
@@ -46,7 +47,33 @@ def test_schema_version_one_document_is_rejected_as_earlier_release(store):
     with pytest.raises(RunReadError, match="earlier release") as caught:
         store.load_run("r_abc123")
 
-    assert "finished, aborted, or removed using that release" in str(caught.value)
+    assert "associated work have been retained unchanged" in str(caught.value)
+    assert "compatible tool version" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "schema_version",
+    [pytest.param("missing", id="missing"), None, True, 2.0, "2", 1, 3],
+)
+def test_invalid_run_versions_are_classified_and_preserved(store, schema_version):
+    run = store.create_run(make_run())
+    path = store.run_path(run.run_id)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if schema_version == "missing":
+        raw.pop("schema_version")
+    else:
+        raw["schema_version"] = schema_version
+    raw["branch"] = "DO_NOT_ECHO_RECORD_VALUES"
+    original = json.dumps(raw).encode()
+    path.write_bytes(original)
+
+    with pytest.raises(RunReadError) as caught:
+        store.load_run(run.run_id)
+
+    assert caught.value.reason == "invalid_or_unsupported_schema"
+    assert caught.value.details()["fields"][0]["location"] == ["schema_version"]
+    assert "DO_NOT_ECHO_RECORD_VALUES" not in json.dumps(caught.value.details())
+    assert path.read_bytes() == original
 
 
 def test_loading_an_unknown_run_raises(store):
