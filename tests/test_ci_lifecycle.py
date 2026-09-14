@@ -7,6 +7,7 @@ from datetime import datetime
 import pytest
 
 from agentic_preflight import attestation, ci_authority, ci_merge
+from agentic_preflight.ci_models import CISection
 from agentic_preflight.cli_policy import _has_valid_attestation
 from agentic_preflight.models import Stage
 from agentic_preflight.stages import shellstage
@@ -220,7 +221,7 @@ def test_default_still_runs_tests_and_emits_local_wire(feature_repo, tmp_path, m
     payload = json.loads(attestation.encode(attestation.verify(feature_repo, "HEAD")))
     assert "test_delegation" not in payload
     assert "publication_ready_at" not in payload
-    assert "ci" not in payload["config_snapshot"]
+    assert payload["config_snapshot"]["ci"] == CISection().model_dump(mode="json")
 
 
 def test_ci_policy_proposed_only_on_head_runs_local_tests(feature_repo, tmp_path, monkeypatch):

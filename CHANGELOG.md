@@ -14,6 +14,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- **Breaking:** Serialize every configuration section in snapshots, including the
+  default `[ci]` policy, changing configuration digests for all new runs and attestations.
 - **Breaking:** Require Git 2.38 or newer and remove the index-based fallback for
   computing merge trees.
 
