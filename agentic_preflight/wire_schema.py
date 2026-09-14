@@ -1,4 +1,4 @@
-"""Wire-version rules; callers retain one normalized Attestation model."""
+"""Attestation wire-version rules; callers retain one normalized model."""
 
 from __future__ import annotations
 

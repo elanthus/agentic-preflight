@@ -568,7 +568,7 @@ def run_evaluation(
         for key in ("catch", "fixed_false_positive", "severity_agreement", "category_agreement")
     }
     summary = {
-        "method_version": "public-smoke-v3",
+        "method_version": "public-smoke-v4",
         "mode": mode,
         "executor": effective_executor,
         "cases": list(selected_ids),
@@ -584,10 +584,6 @@ def run_evaluation(
             for case in setting["cases"].values()
             for snapshot in (case["vulnerable"], case["fixed"])
         ),
-        # v2's integer model_calls field meant wrapper invocations. Preserve
-        # zero for model-free dry runs; make real-mode usage unavailable rather
-        # than presenting an invocation count as a provider request count.
-        "model_calls": 0 if mode == "dry" else None,
         "provider_requests": 0 if mode == "dry" else None,
         "provider_tokens": 0 if mode == "dry" else None,
         "provider_cost_usd": 0 if mode == "dry" else None,

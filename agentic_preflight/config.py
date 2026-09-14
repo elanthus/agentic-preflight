@@ -85,7 +85,6 @@ class StageSection(_Section):
 
 
 class ReuseSection(_Section):
-    attestation_schema: Literal[4, 5] = 4
     lint: ShellInputContract | None = None
     test: ShellInputContract | None = None
 

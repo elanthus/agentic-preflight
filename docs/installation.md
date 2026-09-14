@@ -79,11 +79,10 @@ The pull-request cleanup setting is now spelled `[pr] automated_cleanup`; the fo
 camelCase spelling is rejected as an unknown key. Automatic PR creation and hosted-check
 monitoring are unchanged.
 
-Evidence refresh and CI delegation require compatible protected-base consumers before
-activation. Upgrade the publisher, hook installation, and trusted verifier together;
-follow the [consumer-first rollout](attestations-and-ci.md#evidence-reuse-across-rebases)
-and [CI delegation setup](attestations-and-ci.md#delegating-tests-to-trusted-ci).
-Existing default configurations continue to execute tests locally and emit schema 4.
+Upgrade the publisher, hook installation, and trusted verifier together, then follow
+the [CI delegation setup](attestations-and-ci.md#delegating-tests-to-trusted-ci) when
+enabling protected CI authority. Existing default configurations continue to execute
+tests locally.
 
 ## Scopes and other clients
 

@@ -13,7 +13,7 @@ documentation fixes, and code contributions are welcome.
 ## Development setup
 
 Agentic Preflight supports the Python and operating-system combinations listed in
-[COMPATIBILITY.md](COMPATIBILITY.md), Git 2.30 or newer, and `uv`.
+[COMPATIBILITY.md](COMPATIBILITY.md), Git 2.38 or newer, and `uv`.
 
 ```bash
 git clone https://github.com/elanthus/agentic-preflight.git

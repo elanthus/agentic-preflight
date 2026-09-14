@@ -37,7 +37,7 @@ branch, base ref, effective user and repository configuration, and persisted use
 Changing stage applicability, commands, policy, another setting, or the objective starts
 a fresh review even when local run records have been garbage-collected.
 
-With a v5-capable protected base and sufficient local execution records, `start`
+With sufficient local execution records, `start`
 can reuse equivalent evidence after a rebase in all three worktree modes. It
 compares base/head trees and stage-specific context and policy. Changed upstream
 content invalidates review even if the patch is unchanged. Other source-worktree
@@ -48,8 +48,7 @@ Cherry-picked merge-back is handled via tree-equivalence attestation.
 Shell reuse requires a committed declaration of supported content inputs. Unknown
 dependencies, shell profiles, time, history, or external services prevent reuse.
 Fingerprints are equality checks under that explicit assumption, not dependency
-discovery. See the [fingerprint contract](fingerprint-contract.md). Without a
-compatible consumer, the CLI performs a legacy run and emits v4.
+discovery. See the [fingerprint contract](fingerprint-contract.md).
 
 Agentic Preflight refuses to start or merge back while the checkout has a rebase,
 cherry-pick, or merge in progress. Finish or abort that Git operation yourself first;

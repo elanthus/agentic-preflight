@@ -366,6 +366,37 @@ def test_status_and_start_preserve_existing_unreadable_run(feature_repo, monkeyp
     assert path.read_bytes() == original
 
 
+def test_gc_retains_earlier_release_record_without_offering_force(feature_repo):
+    agent = ScriptedAgent(feature_repo)
+    started = agent.run("start")
+    path = _state_root(feature_repo) / "runs" / started["run_id"] / "run.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["schema_version"] = 1
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    collected = agent.run("gc")
+
+    assert collected["data"]["retained"] == [
+        {
+            "run_id": started["run_id"],
+            "path": str(path),
+            "reason": "invalid_or_unsupported_schema",
+            "diagnostic": (
+                "Run record was written by an earlier release and must be finished, "
+                "aborted, or removed using that release. It has been retained unchanged."
+            ),
+            "fields": [
+                {
+                    "location": ["schema_version"],
+                    "category": "literal_error",
+                }
+            ],
+        }
+    ]
+    assert collected["next"]["command"] is None
+    assert path.exists()
+
+
 @pytest.mark.parametrize("command", ["status", "gc"])
 def test_missing_pointer_recovery_does_not_clear_concurrent_new_owner(
     feature_repo, monkeypatch, command

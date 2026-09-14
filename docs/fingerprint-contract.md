@@ -5,13 +5,9 @@ and returns the next required stage. `status` resumes after interruption. Review
 docs, lint, and tests are classified independently. This implements
 [issue #85](https://github.com/elanthus/agentic-preflight/issues/85).
 
-The protected base must support v5 attestations before refresh can activate; see
-[the rollout procedure](attestations-and-ci.md#evidence-reuse-across-rebases).
-Without that support, the CLI records `consumer_unavailable`, performs the normal
-local stages, and emits a compatible v4 note.
-Committed declarations take precedence over legacy source markers; see the
-[schema compatibility boundary](schema-compatibility.md) for the supported wire
-shapes, unchanged snapshot digest rules, and migration conditions.
+Complete stage evidence is eligible for refresh without a protected-base capability
+probe. See the [schema boundary](schema-compatibility.md) for the supported wire
+shapes and unchanged snapshot digest rules.
 
 ## Applicability and audit identity
 
@@ -21,14 +17,14 @@ coverage remain separate audit identity. A new commit always needs its own note.
 
 Matching patches alone are insufficient. Every stage binds both base and head
 trees. Upstream content changes invalidate review even with an unchanged patch.
-Retargeting checks the new base's consumer capability and content; current risk,
+Retargeting checks the new base's content; current risk,
 executor, and hosted approval policy still apply.
 
 | Disposition | Meaning |
 | --- | --- |
 | `reusable` | All inputs required by the supported contract match. |
 | `invalid` | Known inputs changed; `reasons` identifies the categories. |
-| `unknown` | Provenance, inputs, configuration dependencies, or consumer support cannot be established. Rerun. |
+| `unknown` | Provenance, inputs, or configuration dependencies cannot be established. Rerun. |
 
 `data.applicability` describes candidate evidence, not the outcome of a stage
 that ran freshly. Decisions and later-stage candidates persist on the run. A
@@ -108,8 +104,8 @@ publication can leave harmless retained evidence refs on the remote. Hosted cons
 fetch missing originals from the contributor's evidence refs before verification;
 fetching a notes blob alone cannot retrieve commits named inside its JSON. These
 refs survive normal run/worktree cleanup and must remain while any published note
-depends on them. Upgrade the local publisher/hook and protected consumers before
-relying on this transport. Older notes can be republished from a clone that still
+depends on them. Keep the local publisher, hook, and protected verifier on the same
+release before relying on this transport. Older notes can be republished from a clone that still
 has their original commits; missing originals cannot be reconstructed from hashes.
 
 Clean-checkout, synchronization, mergeback, publication authorization, and atomic
