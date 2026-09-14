@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from agentic_preflight import attestation, hook
+from agentic_preflight import attestation, gitx, hook
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.stages import command as command_plan
 from tests.conftest import commit_all, git, write
@@ -59,7 +59,7 @@ def test_init_writes_a_config_file_if_absent(feature_repo):
     config = (Path(feature_repo) / ".agentic-preflight.toml").read_text(encoding="utf-8")
     assert "[pr]" in config
     assert 'mode = "auto"' in config
-    assert "automatedCleanup = false" in config
+    assert "automated_cleanup = false" in config
 
 
 def test_init_does_not_clobber_an_existing_config(feature_repo):
@@ -167,6 +167,11 @@ def test_hook_installer_directly_refuses_and_then_replaces_a_foreign_hook(featur
     installed, written = hook.install(feature_repo)
     assert installed == path
     assert written is False
+
+
+def test_hook_installer_rejects_a_non_repository_directory(tmp_path):
+    with pytest.raises(gitx.GitError):
+        hook.install(tmp_path)
 
 
 def test_a_foreign_hook_that_is_not_utf8_is_still_refused(feature_repo):

@@ -72,18 +72,17 @@ uv tool upgrade agentic-preflight
 agentic-preflight integrations update
 ```
 
-### Upgrading to 0.5.3
+### Upgrading to 0.6.0
 
 Refresh installed skills along with the CLI so the agent follows the current workflow.
-Merge polling and automatic post-merge cleanup now default to `false`; an existing
-explicit `[pr] automatedCleanup = true` remains enabled. Automatic PR creation and
-hosted-check monitoring are unchanged.
+The pull-request cleanup setting is now spelled `[pr] automated_cleanup`; the former
+camelCase spelling is rejected as an unknown key. Automatic PR creation and hosted-check
+monitoring are unchanged.
 
-Evidence refresh and CI delegation require compatible protected-base consumers before
-activation. Upgrade the publisher, hook installation, and trusted verifier together;
-follow the [consumer-first rollout](attestations-and-ci.md#evidence-reuse-across-rebases)
-and [CI delegation setup](attestations-and-ci.md#delegating-tests-to-trusted-ci).
-Existing default configurations continue to execute tests locally and emit schema 4.
+Upgrade the publisher, hook installation, and trusted verifier together, then follow
+the [CI delegation setup](attestations-and-ci.md#delegating-tests-to-trusted-ci) when
+enabling protected CI authority. Existing default configurations continue to execute
+tests locally.
 
 ## Scopes and other clients
 

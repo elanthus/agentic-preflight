@@ -24,7 +24,7 @@ remaining unit examined clean. When `path` and `line` identify exactly one unit,
 may be omitted and is assigned mechanically. Name it for deleted-only, binary, or
 ambiguous multi-hunk findings.
 
-Docs submissions remain `{"findings": [...]}` or a bare JSON list. An empty docs list is
+Docs submissions require the object `{"findings": [...]}`. An empty `findings` list is
 valid and is the most common correct answer. A findings-only review submission is invalid.
 
 | Field | Required | Notes |

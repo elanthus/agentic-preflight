@@ -83,9 +83,7 @@ isolated fixes, and creates the fresh run. Use `status --all` and
 
 Read `data.applicability` and follow `next.command`. Equivalent evidence can survive
 a history-only rewrite; changed content and unknown shell inputs require fresh
-stages. `consumer_unavailable` means the protected-base verifier does not support
-refresh yet, so complete the legacy stages and publish v4. Do not fix that condition
-by switching the hosted policy verifier to PR code.
+stages.
 
 ## Abandoned run
 

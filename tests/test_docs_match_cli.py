@@ -213,7 +213,7 @@ def test_every_config_section_is_documented_in_the_configuration_reference():
     assert missing == set(), f"undocumented config sections: {missing}"
 
 
-def test_current_attestation_schema_is_consistent_across_reference_docs():
+def test_current_wire_version_is_consistent_across_reference_docs():
     schema = Attestation.model_fields["schema_version"].default
     assert f"version {schema} note" in ATTESTATIONS_AND_CI.read_text(encoding="utf-8")
     assert f"schema v{schema}" in CONFIGURATION.read_text(encoding="utf-8")
@@ -300,7 +300,7 @@ def test_the_skill_documents_all_high_risk_approval_modes():
 
 def test_automatic_prs_are_polled_and_cleaned_without_a_second_approval():
     text = SKILL.read_text(encoding="utf-8")
-    assert "[pr] automatedCleanup = true" in text
+    assert "[pr] automated_cleanup = true" in text
     assert "automated_cleanup: true" in text
     assert "automated_cleanup: false" in text
     assert "stop after hosted checks" in text

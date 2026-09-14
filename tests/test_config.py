@@ -76,6 +76,8 @@ def test_an_unknown_key_is_an_error_naming_the_key(tmp_repo, tmp_path):
     [
         ("review", "require_fix_commits", "true"),
         ("worktree", "ttl_hours", "48"),
+        ("reuse", "attestation" + "_schema", "5"),
+        ("ci", "consumer" + "_schema", "6"),
     ],
 )
 def test_removed_config_keys_are_unknown(tmp_repo, tmp_path, section, key, value):
@@ -152,12 +154,19 @@ def test_pr_modes_are_explicit_configuration_options(tmp_repo, tmp_path, mode):
     assert cfg.pr.mode == mode
 
 
-def test_automatic_cleanup_can_be_enabled_with_the_public_camel_case_key(tmp_repo, tmp_path):
+def test_automated_cleanup_can_be_enabled(tmp_repo, tmp_path):
     (tmp_repo / ".agentic-preflight.toml").write_text(
-        "[pr]\nmode = 'auto'\nautomatedCleanup = true\n"
+        "[pr]\nmode = 'auto'\nautomated_cleanup = true\n"
     )
     cfg = load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
     assert cfg.pr.automated_cleanup is True
+
+
+def test_automated_cleanup_rejects_the_camel_case_key(tmp_repo, tmp_path):
+    old_key = "automated" + "Cleanup"
+    (tmp_repo / ".agentic-preflight.toml").write_text(f"[pr]\nmode = 'auto'\n{old_key} = true\n")
+    with pytest.raises(ConfigError, match=rf"unknown key 'pr\.{old_key}'"):
+        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
 
 
 def test_approval_mode_rejects_an_unknown_mode(tmp_repo, tmp_path):
@@ -318,19 +327,19 @@ def test_section_replacement_discards_invalid_overridden_values(tmp_repo, tmp_pa
     assert cfg.review.max_findings == 10
 
 
-def test_valid_patterns_aliases_and_conditional_environment_round_trip():
+def test_valid_patterns_and_conditional_environment_round_trip():
     snapshot = {
         "policy": {"human_review_paths": ["src/**", "docs/*.md"]},
         "context": {"extra_paths": ["rules/**"]},
         "approval": {"mode": "manual_merge", "environment": ""},
-        "pr": {"automatedCleanup": False},
+        "pr": {"automated_cleanup": False},
     }
     cfg = Config.model_validate(snapshot)
     assert cfg.approval.environment == ""
     assert cfg.pr.automated_cleanup is False
     serialized = cfg.model_dump(mode="json")
     assert Config.model_validate(serialized).model_dump(mode="json") == serialized
-    assert cfg.model_dump(mode="json", by_alias=True)["pr"]["automatedCleanup"] is False
+    assert cfg.model_dump(mode="json", by_alias=True)["pr"]["automated_cleanup"] is False
 
 
 def test_multiple_invalid_sections_identify_their_own_source(tmp_repo, tmp_path):

@@ -27,7 +27,7 @@ def verified(feature_repo, bare_remote, tmp_path):
         ".agentic-preflight.toml",
         "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
         "\n[worktree]\nmode = 'reusable'\n"
-        "\n[pr]\nautomatedCleanup = true\n",
+        "\n[pr]\nautomated_cleanup = true\n",
     )
     commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)

@@ -26,12 +26,27 @@ def test_dry_run_scores_scripted_misses_and_false_positives(tmp_path):
         case_ids=("unguarded-division", "off-by-one-page"),
     )
 
-    assert summary["method_version"] == "public-smoke-v3"
+    assert summary["method_version"] == "public-smoke-v4"
     assert summary["reviewer_invocations"] == 8
     assert summary["provider_requests"] == 0
     assert summary["provider_tokens"] == 0
     assert summary["provider_cost_usd"] == 0
-    assert summary["model_calls"] == 0
+    assert set(summary) == {
+        "method_version",
+        "mode",
+        "executor",
+        "cases",
+        "grounding",
+        "catch_rate",
+        "fixed_false_positive_rate",
+        "unresolved",
+        "severity_agreement",
+        "category_agreement",
+        "reviewer_invocations",
+        "provider_requests",
+        "provider_tokens",
+        "provider_cost_usd",
+    }
     for setting in ("on", "off"):
         result = summary["grounding"][setting]
         assert result["unresolved"] == 0, json.dumps(result, indent=2)

@@ -29,7 +29,7 @@ adoption or a count of distinct bugs. Read the
 
 ## Quickstart
 
-You need Git 2.30+, Python 3.11 through 3.13, and
+You need Git 2.38+, Python 3.11 through 3.13, and
 [`uv`](https://docs.astral.sh/uv/getting-started/installation/). Install the CLI and the
 integrations for the coding agents you use:
 
@@ -132,7 +132,7 @@ installed on the protected base. Shell stages also need committed input contract
 the [fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/fingerprint-contract.md).
 
 Pull-request merge polling and post-merge cleanup are disabled by default. Set
-`[pr] automatedCleanup = true` to opt in.
+`[pr] automated_cleanup = true` to opt in.
 
 Run `agentic-preflight status` in the source worktree to inspect or resume its run. Use
 `agentic-preflight status --all` to inventory runs across linked worktrees.
@@ -228,7 +228,7 @@ before relying on attestations or evidence reuse for policy enforcement.
 
 - A supported macOS, Linux, or Windows and Python combination from the
   [compatibility policy](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/COMPATIBILITY.md)
-- Git 2.30+
+- Git 2.38+
 - A POSIX shell when a configured command needs shell interpretation or its program
   cannot be resolved directly; on Windows, Git for Windows provides it
 - `gh` when the agent will create pull requests, inspect hosted checks, or verify merges

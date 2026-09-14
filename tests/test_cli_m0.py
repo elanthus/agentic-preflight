@@ -423,6 +423,28 @@ def test_review_findings_reject_a_bare_list_without_coverage(agent, tmp_path):
     assert "ReviewSubmission" in env["error"]["message"]
 
 
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ([], "DocsSubmission"),
+        ({"findings": [], "unexpected": True}, "unexpected"),
+        ({}, "findings"),
+    ],
+)
+def test_docs_findings_require_the_strict_object_shape(agent, tmp_path, payload, message):
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("context", "--section", "docs")
+    path = tmp_path / "invalid-docs.json"
+    path.write_text(json.dumps(payload))
+
+    env = agent.run("submit-findings", "--file", str(path), expect=ExitCode.PRECONDITION)
+
+    assert env["error"]["code"] == "invalid_findings"
+    assert message in env["error"]["message"]
+
+
 def test_review_rejects_a_manifest_that_does_not_match_the_current_diff(agent, tmp_path):
     agent.run("start")
     agent.run("context")

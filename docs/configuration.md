@@ -38,7 +38,6 @@ timeout_seconds = 600
 max_attempts = 5
 
 [reuse]
-attestation_schema = 4           # set 5 on the protected base after upgrading its verifier
 
 [ci]
 test_authority = "local"        # default; see protected CI setup below before opting in
@@ -91,7 +90,7 @@ mode = "token"                    # or "manual"
 
 [pr]
 mode = "auto"                     # or "manual"
-automatedCleanup = false           # true enables merge polling and cleanup
+automated_cleanup = false          # true enables merge polling and cleanup
 
 [approval]
 mode = "manual_merge"             # or "environment" / "peer_review"
@@ -121,15 +120,8 @@ itself invalidate that stage's evidence. See
 
 ## Evidence reuse (`[reuse]`)
 
-`attestation_schema` defaults to `4`. After installing a v5-capable trusted hosted
-verifier, set it to `5` on the protected base. A PR cannot enable v5 production by
-editing its own configuration: the producer checks the synchronized base. This
-repository also supports a [legacy source-marker fallback](schema-compatibility.md#legacy-transition)
-when the capability key is absent. Explicit `4` disables refresh; malformed or
-unsupported declarations cannot be overridden by source markers.
-
-Review and docs can then reuse equivalent evidence automatically. Shell stages
-require separate committed input declarations. For example:
+Review and docs reuse equivalent evidence automatically. Shell stages require
+separate committed input declarations. For example:
 
 ```toml
 [reuse.test]
@@ -171,7 +163,7 @@ second approval prompt.
 push through the configured gate, but it never opens the pull request and provides a
 compare URL instead.
 
-`automatedCleanup = false` is the default. Automatic pull-request creation still works,
+`automated_cleanup = false` is the default. Automatic pull-request creation still works,
 but the agent stops after hosted checks: it does not poll the merge state or delete
 anything until the user explicitly requests cleanup. Set the field to `true` to have the
 agent disclose the exact cleanup scope, poll an automatically opened or reused pull
@@ -336,7 +328,7 @@ exact current head.
 ## Protected CI tests
 
 `[ci] test_authority = "local"` keeps the existing local stage sequence. To delegate
-tests, first install the schema-6 consumer and protected workflows using the
+tests, first install the protected workflows using the
 [CI setup procedure](attestations-and-ci.md#delegating-tests-to-trusted-ci). Then
 commit the declaration below on the protected base. Replace the numeric IDs with
 GitHub's IDs for your repository, installed test workflow, and dedicated check App.
@@ -344,7 +336,6 @@ GitHub's IDs for your repository, installed test workflow, and dedicated check A
 ```toml
 [ci]
 test_authority = "github_actions"
-consumer_schema = 6
 repository_id = 12345678
 base_branch = "main"
 workflow_id = 98765432

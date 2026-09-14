@@ -67,6 +67,7 @@ def write(repo: Path | str, relpath: str, content: str) -> Path:
 def make_run(run_id: str = "r_abc123", branch: str = "feature/x") -> RunDoc:
     """A minimal valid run document, shared by the store-level test modules."""
     return RunDoc(
+        schema_version=2,
         run_id=run_id,
         state=State.CREATED,
         branch=branch,

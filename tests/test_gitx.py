@@ -2,8 +2,10 @@ import os
 import subprocess
 
 import pytest
+from click.testing import CliRunner
 
 from agentic_preflight import gitx
+from agentic_preflight.cli import main
 from agentic_preflight.stages import command as command_plan
 from tests.conftest import (
     commit_all,
@@ -45,34 +47,6 @@ def test_merge_base_finds_the_fork_point(feature_repo):
     assert base == git("rev-parse", "main", cwd=feature_repo)
 
 
-def test_merge_tree_uses_the_legacy_fallback_for_invalid_write_tree_object(tmp_repo, monkeypatch):
-    tree = "a" * 40
-    calls: list[list[str]] = []
-
-    monkeypatch.setattr(
-        gitx,
-        "run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess(
-            args=[],
-            returncode=128,
-            stdout="",
-            stderr="fatal: Not a valid object name --write-tree\n",
-        ),
-    )
-    monkeypatch.setattr(gitx, "merge_base", lambda *_args: "base")
-
-    def legacy_run(args, **_kwargs):
-        calls.append(args)
-        if args[1] == "read-tree":
-            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
-        return subprocess.CompletedProcess(args=args, returncode=0, stdout=f"{tree}\n", stderr="")
-
-    monkeypatch.setattr(gitx.subprocess, "run", legacy_run)
-
-    assert gitx.merge_tree(tmp_repo, "left", "right") == tree
-    assert [call[1] for call in calls] == ["read-tree", "write-tree"]
-
-
 @pytest.mark.parametrize(
     ("reported", "expected"),
     [
@@ -108,67 +82,53 @@ def test_an_unreadable_git_version_is_reported_as_unknown(tmp_repo, monkeypatch)
     assert gitx.version(tmp_repo) is None
 
 
-def test_a_pre_2_38_git_never_invokes_the_write_tree_flag(tmp_repo, monkeypatch):
-    """The regression this guards: git 2.30-2.37 rejects ``--write-tree`` on stderr
-    while exiting *zero*, so there is no failure to detect. Asking the version
-    first is what keeps those releases on the interface they actually have."""
-    invoked: list[tuple[str, ...]] = []
+def test_a_pre_2_38_git_fails_at_cli_startup(monkeypatch):
+    monkeypatch.setattr(gitx, "version", lambda: (2, 37))
+    gitx.require_minimum_version.cache_clear()
 
-    def record(cwd, *args, **_kwargs):
-        invoked.append(args)
-        if args == ("--version",):
-            return subprocess.CompletedProcess(
-                args=[], returncode=0, stdout="git version 2.34.1\n", stderr=""
-            )
-        raise AssertionError(f"unexpected git invocation: {args}")
+    result = CliRunner().invoke(main, ["status"])
 
-    monkeypatch.setattr(gitx, "run", record)
-    monkeypatch.setattr(gitx, "_merge_tree_via_index", lambda *_args: "b" * 40)
-
-    assert gitx.merge_tree(tmp_repo, "left", "right") == "b" * 40
-    assert invoked == [("--version",)]
+    assert result.exit_code == 1
+    assert "Git 2.38 or newer is required; found Git 2.37" in result.output
+    gitx.require_minimum_version.cache_clear()
 
 
-def test_a_modern_git_that_still_rejects_the_flag_falls_back(tmp_repo, monkeypatch):
-    """Exit zero with no tree is the shape that previously returned "no clean
-    merge" for a merge that may have been perfectly clean."""
-
-    def respond(cwd, *args, **_kwargs):
-        if args == ("--version",):
-            return subprocess.CompletedProcess(
-                args=[], returncode=0, stdout="git version 2.46.0\n", stderr=""
-            )
-        return subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="", stderr="fatal: unknown rev --write-tree\n"
-        )
-
-    monkeypatch.setattr(gitx, "run", respond)
-    monkeypatch.setattr(gitx, "_merge_tree_via_index", lambda *_args: "c" * 40)
-
-    assert gitx.merge_tree(tmp_repo, "left", "right") == "c" * 40
-
-
-def test_the_index_fallback_agrees_with_this_git_on_a_clean_merge(feature_repo):
-    """Exercises the fallback against the real binary, whichever interface this
-    machine's git would otherwise have used."""
-    base = gitx.merge_base(feature_repo, "main", "HEAD")
-
-    assert gitx._merge_tree_via_index(feature_repo, base, "HEAD") == gitx.tree_sha(
-        feature_repo, "HEAD"
-    )
-
-
-def test_merge_tree_rejects_object_ids_outside_the_sha1_schema(tmp_repo, monkeypatch):
+def test_merge_tree_returns_the_first_stdout_line(tmp_repo, monkeypatch):
     tree = "a" * 64
     monkeypatch.setattr(
         gitx,
         "run",
         lambda *_args, **_kwargs: subprocess.CompletedProcess(
-            args=[], returncode=0, stdout=f"{tree}\n", stderr=""
+            args=[], returncode=0, stdout=f"{tree}\nadditional output\n", stderr=""
+        ),
+    )
+
+    assert gitx.merge_tree(tmp_repo, "left", "right") == tree
+
+
+def test_merge_tree_returns_none_for_a_conflict(tmp_repo, monkeypatch):
+    monkeypatch.setattr(
+        gitx,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="conflict details\n", stderr=""
         ),
     )
 
     assert gitx.merge_tree(tmp_repo, "left", "right") is None
+
+
+def test_merge_tree_raises_for_other_failures(tmp_repo, monkeypatch):
+    monkeypatch.setattr(
+        gitx,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[], returncode=128, stdout="", stderr="fatal: bad revision\n"
+        ),
+    )
+
+    with pytest.raises(gitx.GitError, match="fatal: bad revision"):
+        gitx.merge_tree(tmp_repo, "left", "right")
 
 
 def test_changed_files_lists_only_files_touched_by_the_branch(feature_repo):

@@ -83,8 +83,8 @@ If synchronization leaves the exact attested commit unchanged, the fresh base is
 its ancestor, Git computes the same clean merge tree against the attestation's recorded
 base, and the effective configuration, user intent, branch, and base ref still match,
 legacy v4 `start` imports that evidence and returns `VERIFIED`.
-With a v5-capable protected base, `start` instead classifies local evidence per stage
-and returns the next required command. Equal base/head trees and matching context
+`start` classifies complete local evidence per stage and returns the next required
+command. Equal base/head trees and matching context
 can preserve review and docs across rewritten commits. Shell stages require committed
 content contracts. Read `data.applicability`; `invalid` and `unknown` require a fresh
 stage, and later-stage candidates remain available while earlier stages are pending.
@@ -169,8 +169,8 @@ to `review-compare.json`, appends a `review_compared` event, and returns the sum
 ### `agentic-preflight submit-findings --file PATH`
 `PATH` may be `-` for stdin. Review requires
 `{"coverage":{"manifest":"<from context>","examined":"all"},"findings":[...]}`.
-The manifest must match the current diff. Docs accepts `{"findings": [...]}` or a bare
-list; an empty docs list is valid and common.
+The manifest must match the current diff. Docs requires `{"findings": [...]}`; an empty
+`findings` list is valid and common.
 
 Rejects (exit 3, `invalid_findings`): missing, stale, or unknown review coverage;
 agent-supplied `id` or `stage`; unknown or path-mismatched review units; paths outside
