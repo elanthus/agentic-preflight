@@ -30,7 +30,6 @@ from ..models import (
     StageRecord,
 )
 from ..refresh_validation import (
-    base_supports_refresh,
     contract_is_committed,
     rebound_coverage,
     shell_execution_config,
@@ -264,15 +263,6 @@ def advance(session: Session, run: RunDoc) -> RunDoc:
     Later candidates remain durable while an earlier stage is pending. Each
     invocation recomputes inputs, so a repair cannot consume an old green result.
     """
-    if not base_supports_refresh(session.repo_root, run.merge_base_sha):
-        with session.store.transaction(run.run_id) as doc:
-            doc.applicability = {
-                stage: Classification(
-                    disposition=Disposition.UNKNOWN, reasons=(ReasonCode.CONSUMER_UNAVAILABLE,)
-                )
-                for stage in Stage
-            }
-            return doc
     if not gitx.is_clean(_require_worktree(run)):
         return run
     run = reopen_changed_inputs(session, run)
