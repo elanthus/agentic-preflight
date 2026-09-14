@@ -41,6 +41,10 @@ jobs:
         env:
           GIT_TAG: ${{ github.ref_name }}
         run: |
+          if ! [[ "$GIT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Versions are three-part SemVer; tag ${GIT_TAG} must match vMAJOR.MINOR.PATCH."
+            exit 1
+          fi
           project_version="$(python3 -c '
           import tomllib, pathlib
           data = tomllib.loads(pathlib.Path("pyproject.toml").read_text())

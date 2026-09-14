@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml/badge.svg)](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml)
 [![Coverage](https://raw.githubusercontent.com/elanthus/agentic-preflight/badges/coverage.svg)](https://github.com/elanthus/agentic-preflight/tree/badges)
-[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/pyproject.toml)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/pyproject.toml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/LICENSE)
 
 **Stop your coding agent from pushing unverified work.**
 
@@ -23,9 +23,9 @@ Across two dogfooding windows covering 408 merged pull requests in four owner-op
 repositories, 323 descriptions recorded Agentic Preflight use and 64 contained a
 concrete finding record. These are observational dogfooding results, not external
 adoption or a count of distinct bugs. Read the
-[case study and its evidence limits](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/dogfooding-case-study.md).
+[case study and its evidence limits](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/dogfooding-case-study.md).
 
-![A push blocked by the pre-push hook, followed by review of an unguarded division, a verified fix, and a gate that shows the publication target](https://raw.githubusercontent.com/elanthus/agentic-preflight/v0.5.3.1/docs/demo.gif)
+![A push blocked by the pre-push hook, followed by review of an unguarded division, a verified fix, and a gate that shows the publication target](https://raw.githubusercontent.com/elanthus/agentic-preflight/v0.6.0/docs/demo.gif)
 
 ## Quickstart
 
@@ -66,7 +66,7 @@ push, including PR-feedback fixes on the existing head branch when those instruc
 permit it. The agent asks only when authorization is missing or the scope materially
 differs. Set `[gate] mode = "manual"` when only a person should run the final Git command.
 
-The [installation guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/installation.md)
+The [installation guide](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/installation.md)
 covers source installs, upgrades, project-scoped skills, other Agent Skills clients,
 and removal.
 
@@ -129,7 +129,7 @@ The stages provide different checks:
 
 Equivalent-content rebases can reuse stage evidence when the protected base uses the
 current verifier. Shell stages also need committed input contracts; see
-the [fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/fingerprint-contract.md).
+the [fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/fingerprint-contract.md).
 
 Pull-request merge polling and post-merge cleanup are disabled by default. Set
 `[pr] automated_cleanup = true` to opt in.
@@ -152,7 +152,7 @@ Use it to set:
 
 Unknown keys are errors. Commit configuration changes before starting the run they
 should affect; each run snapshots its resolved configuration. See the
-[configuration reference](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/configuration.md)
+[configuration reference](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/configuration.md)
 for every option and a complete example.
 
 > **Warning:** A repository can configure setup, lint, test, and independent-review
@@ -168,7 +168,7 @@ Set `[worktree] mode` to `reusable` or `strict` when validation should leave the
 checkout untouched. Isolated worktrees do not inherit `.venv`, `node_modules`, `.env`,
 or other ignored files. Configure `setup_command` for dependencies and `copy_files` for
 required ignored files. The
-[worktree-modes guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/worktree-modes.md)
+[worktree-modes guide](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/worktree-modes.md)
 explains the tradeoffs, concurrency model, secret handling, and recovery behavior.
 
 ## Enforce attestations in CI
@@ -181,30 +181,30 @@ The local hook checks the commit being pushed. A protected-base GitHub workflow 
 verify the note and enforce the configured high-risk approval mode before merge. This
 requires forge configuration; committing `.agentic-preflight.toml` alone does not change
 branch protection. See
-[Portable attestations and CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/attestations-and-ci.md)
+[Portable attestations and CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/attestations-and-ci.md)
 for setup and verification commands.
 
 ## Architecture, evaluation, and evidence
 
 The user workflow above is backed by design records, executable tests, and published
 evaluation material. Start with
-[Project evidence and engineering notes](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/portfolio-review.md)
+[Project evidence and engineering notes](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/portfolio-review.md)
 for a portfolio-oriented overview, or follow the question you want to investigate:
 
 | Question | Design or evidence |
 |---|---|
-| Where does responsibility pass between the coding agent, CLI, and shell commands? | [ADR 0001: orchestration boundaries](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/adr/0001-orchestration-boundaries.md) |
-| How can linked worktrees run independent gates safely? | [ADR 0002: worktree-scoped run ownership](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/adr/0002-scope-run-ownership-to-worktrees.md) |
-| What repository context reaches review, and how is untrusted content bounded? | [Grounded context](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/context-grounding.md) |
-| When can evidence survive a rebase or restack? | [Fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/fingerprint-contract.md) |
-| How are attestations enforced in CI? | [CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/attestations-and-ci.md) and [trusted CI test authority](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/ci-test-authority-design.md) |
-| What does a second reviewer add, and how are reviewers compared? | [Independent review and agreement](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/independent-review.md) |
-| What public evidence supports the project, and what does it not prove? | [Dogfooding case study](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/dogfooding-case-study.md) and [public regression eval](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/regression-eval.md) |
+| Where does responsibility pass between the coding agent, CLI, and shell commands? | [ADR 0001: orchestration boundaries](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/adr/0001-orchestration-boundaries.md) |
+| How can linked worktrees run independent gates safely? | [ADR 0002: worktree-scoped run ownership](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/adr/0002-scope-run-ownership-to-worktrees.md) |
+| What repository context reaches review, and how is untrusted content bounded? | [Grounded context](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/context-grounding.md) |
+| When can evidence survive a rebase or restack? | [Fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/fingerprint-contract.md) |
+| How are attestations enforced in CI? | [CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/attestations-and-ci.md) and [trusted CI test authority](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/ci-test-authority-design.md) |
+| What does a second reviewer add, and how are reviewers compared? | [Independent review and agreement](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/independent-review.md) |
+| What public evidence supports the project, and what does it not prove? | [Dogfooding case study](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/dogfooding-case-study.md) and [public regression eval](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/regression-eval.md) |
 
 The implementation uses real Git repositories in its integration tests rather than
 mocking Git behavior. CI rejects overall test coverage below 85% and installs the built
 wheel as a `uv` tool before invoking the CLI. The
-[contributor guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/CONTRIBUTING.md)
+[contributor guide](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/CONTRIBUTING.md)
 describes the local development workflow.
 
 ## Limits
@@ -221,13 +221,13 @@ describes the local development workflow.
   attestation.
 
 Set `[gate] mode = "manual"` if the CLI must refuse to perform the final push itself.
-Read the [limits guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/docs/limits.md)
+Read the [limits guide](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/limits.md)
 before relying on attestations or evidence reuse for policy enforcement.
 
 ## Requirements
 
 - A supported macOS, Linux, or Windows and Python combination from the
-  [compatibility policy](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/COMPATIBILITY.md)
+  [compatibility policy](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/COMPATIBILITY.md)
 - Git 2.38+
 - A POSIX shell when a configured command needs shell interpretation or its program
   cannot be resolved directly; on Windows, Git for Windows provides it
@@ -235,9 +235,9 @@ before relying on attestations or evidence reuse for policy enforcement.
 
 ## Help and development
 
-Use the [support guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/SUPPORT.md)
+Use the [support guide](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/SUPPORT.md)
 for help and security-reporting routes. Contributors should start with the
-[contributor guide](https://github.com/elanthus/agentic-preflight/blob/v0.5.3.1/CONTRIBUTING.md).
+[contributor guide](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/CONTRIBUTING.md).
 
 Agentic Preflight is Apache 2.0 licensed. It was created by
 [@elanthus](https://github.com/elanthus) with development contributions from OpenAI Codex
