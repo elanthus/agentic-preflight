@@ -5,6 +5,11 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## Unreleased
 
+### Removed
+
+- **Breaking:** Reject run records from earlier releases instead of migrating removed
+  hosted pull-request lifecycle fields and states during loading.
+
 ### Fixed
 
 - Allow changed lint inputs to invalidate completed lint through the state machine.
