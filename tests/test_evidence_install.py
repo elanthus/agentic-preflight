@@ -10,6 +10,7 @@ from agentic_preflight.runs._evidence_install import install_stage, stage_record
 
 def _run(state):
     return RunDoc(
+        schema_version=2,
         run_id="import-test",
         state=state,
         branch="feature",
