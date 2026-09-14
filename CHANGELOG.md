@@ -40,6 +40,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Rename the portfolio review page to engineering notes and move dogfooding counts out
+  of the README introduction.
 - Retire transition design documents and update the documentation and bundled skill to
   describe only the current configuration, run-record, attestation, and submission formats.
 - **Breaking:** Require saved run records and portable attestations to declare the exact

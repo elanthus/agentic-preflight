@@ -41,8 +41,9 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
    component. Run `uv lock` to keep the local project version in `uv.lock` in sync.
 2. Update `CHANGELOG.md`, and re-pin the README's `blob/vX.Y.Z` documentation
    links to the new version. Check each target against the release tree; the
-   new tag links will become available when the tag is pushed. Re-record the README
-   animation against the release checkout:
+   new tag links will become available when the tag is pushed. This re-pin also covers
+   any `blob/main` link introduced between releases. Re-record the README animation
+   against the release checkout:
 
    ```bash
    uv sync --group dev
