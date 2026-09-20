@@ -40,8 +40,11 @@ setup failure, no stage log exists; show `data.setup_failure` and obey the retur
 
 ## Validation restarted too many times (exit 4, `max_restarts`)
 
-Stop repairing. Each restart means a repair changed the verified tree and sent the run
-back to review; reaching `[stage] max_restarts` means the loop is not converging. The run
+Stop repairing. A restart is any return to review that discards progress: a committed
+lint or test repair, a repair that changes the reviewed snapshot, changed stage inputs, or
+a merge-back resolution that differs from the verified tree. Reaching `[stage]`
+`max_restarts` means the run is not converging, whichever causes were involved; the event
+log (`agentic-preflight events`) shows which ones. The run
 now refuses everything except `status`, `logs`, `events`, and `abort`. Show the user
 `agentic-preflight status` (`data.validation_restarts`, `data.fix_commits`, findings) and
 ask how to proceed. Do not abort and start a fresh run on your own: that resets the

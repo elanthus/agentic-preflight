@@ -24,6 +24,7 @@ from ._session import (
     _head_moved,
     _is_in_place,
     _load_current,
+    _max_restarts,
     _release_run_worktree,
     _restart_limit_reached,
     _start_command,
@@ -405,6 +406,11 @@ def _set_status_next(session: Session, run: RunDoc, envelope: Envelope, *, stale
             "run `gc` from another worktree in this clone to reconcile the abandoned run."
         )
         envelope.next_command = "agentic-preflight gc"
+    elif _restart_limit_reached(run):
+        # Ahead of the stale hint: starting again would reset the counter, and
+        # that is the person's decision, not the default next move.
+        envelope.next_instruction = RESTART_LIMIT_INSTRUCTION
+        envelope.next_command = None
     elif stale:
         envelope.next_instruction = (
             "This run is stale: the source worktree moved after review began. From that "
@@ -416,9 +422,6 @@ def _set_status_next(session: Session, run: RunDoc, envelope: Envelope, *, stale
             base_ref=run.base_ref,
             default_base_ref=session.config.general.base_ref,
         )
-    elif _restart_limit_reached(run):
-        envelope.next_instruction = RESTART_LIMIT_INSTRUCTION
-        envelope.next_command = None
     elif run.setup_failure is not None and run.setup_failure.scope == "baseline":
         envelope.next_instruction = run.setup_failure.next_instruction
         envelope.next_command = run.setup_failure.next_command
@@ -546,7 +549,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             "pushed_sha": run.pushed_sha,
             "fix_commits": run.fix_commits,
             "validation_restarts": run.validation_restarts,
-            "max_restarts": session.config.stage.max_restarts,
+            "max_restarts": _max_restarts(run),
             "needs_human": _restart_limit_reached(run),
             "mergeback_attempt": (
                 run.mergeback_attempt.model_dump(mode="json") if run.mergeback_attempt else None

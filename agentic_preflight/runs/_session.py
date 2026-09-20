@@ -138,7 +138,11 @@ def _check_restart_limit(run: RunDoc) -> None:
         f"(max_restarts={limit}); stopping rather than looping",
         state=run.state.value,
         run_id=run.run_id,
-        data={"validation_restarts": run.validation_restarts, "max_restarts": limit},
+        data={
+            "validation_restarts": run.validation_restarts,
+            "max_restarts": limit,
+            "needs_human": True,
+        },
         next_instruction=RESTART_LIMIT_INSTRUCTION,
         next_command="agentic-preflight status",
     )
@@ -228,7 +232,8 @@ def _start_command(
 
 def _envelope_for(run: RunDoc, **overrides) -> Envelope:
     instruction, command = _next_hint(run.state)
-    if run.state not in TERMINAL_STATES and _restart_limit_reached(run):
+    stopped = run.state not in TERMINAL_STATES and _restart_limit_reached(run)
+    if stopped:
         # A stopped run must never advertise the state's ordinary next move.
         instruction, command = RESTART_LIMIT_INSTRUCTION, None
     fields: dict[str, Any] = {
@@ -238,6 +243,9 @@ def _envelope_for(run: RunDoc, **overrides) -> Envelope:
         "next_command": command,
     }
     fields.update(overrides)
+    if stopped:
+        # Machine-readable on every envelope, not only in the wording.
+        fields["data"] = {**fields.get("data", {}), "needs_human": True}
     if run.test_delegation is not None:
         fields["data"] = {
             **fields.get("data", {}),

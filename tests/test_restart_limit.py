@@ -68,7 +68,11 @@ def test_run_stops_for_a_person_when_the_restart_limit_is_reached(agent, tmp_pat
         "stage", "run", "lint", "--command", "true", "--record", expect=ExitCode.NEEDS_HUMAN
     )
     assert stopped["error"]["code"] == "max_restarts"
-    assert stopped["data"] == {"validation_restarts": 2, "max_restarts": 2}
+    assert stopped["data"] == {
+        "validation_restarts": 2,
+        "max_restarts": 2,
+        "needs_human": True,
+    }
     assert "person" in stopped["next"]["instruction"]
 
 
@@ -90,6 +94,7 @@ def test_a_stopped_run_stays_stopped_but_remains_inspectable_and_abortable(agent
     # Inspection commands must not advertise the state's ordinary next move.
     events = agent.run("events")
     assert events["next"]["command"] is None
+    assert events["data"]["needs_human"] is True
     assert "person" in events["next"]["instruction"]
 
     for command in (
@@ -98,6 +103,7 @@ def test_a_stopped_run_stays_stopped_but_remains_inspectable_and_abortable(agent
     ):
         refused = agent.run(*command, expect=ExitCode.NEEDS_HUMAN)
         assert refused["error"]["code"] == "max_restarts"
+        assert refused["data"]["needs_human"] is True
 
     assert agent.run("abort", "--force")["state"] == "ABORTED"
 
@@ -121,3 +127,24 @@ def test_only_closing_actions_remain_legal_at_the_limit():
         _apply(run, Action.SUBMIT_CLEAN)
     _apply(run, Action.ABORT)
     assert run.state is State.ABORTED
+
+
+def test_the_stop_outranks_the_stale_run_hint(agent, tmp_path, feature_repo):
+    """Starting again resets the counter, so it must not be the advertised next move."""
+    _repair_red_lint(agent, "def greet(name):\n    return f'hello {name}'\n")
+    agent.run("stage", "run", "lint", "--command", "true", "--record")
+    _clear_review(agent, tmp_path)
+    _repair_red_lint(agent, "def greet(name):\n    return f'hi {name}'\n")
+    agent.run("stage", "run", "lint", "--command", "true", "--record", expect=ExitCode.NEEDS_HUMAN)
+
+    write(feature_repo, "src/other.py", "VALUE = 1\n")
+    commit_all(feature_repo, "move the source branch")
+
+    status = agent.run("status")
+    assert status["data"]["stale"] is True
+    assert status["data"]["needs_human"] is True
+    assert status["next"]["command"] is None
+    assert "person" in status["next"]["instruction"]
+
+    refused = agent.run("context", expect=ExitCode.NEEDS_HUMAN)
+    assert refused["error"]["code"] == "max_restarts"
