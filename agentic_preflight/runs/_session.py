@@ -25,6 +25,7 @@ from ..errors import (
 from ..machine import (
     CLOSING_ACTIONS,
     RESTART_ACTIONS,
+    TERMINAL_STATES,
     Action,
     IllegalTransition,
     State,
@@ -227,6 +228,9 @@ def _start_command(
 
 def _envelope_for(run: RunDoc, **overrides) -> Envelope:
     instruction, command = _next_hint(run.state)
+    if run.state not in TERMINAL_STATES and _restart_limit_reached(run):
+        # A stopped run must never advertise the state's ordinary next move.
+        instruction, command = RESTART_LIMIT_INSTRUCTION, None
     fields: dict[str, Any] = {
         "run_id": run.run_id,
         "state": run.state.value,

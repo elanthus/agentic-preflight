@@ -87,6 +87,11 @@ def test_a_stopped_run_stays_stopped_but_remains_inspectable_and_abortable(agent
     assert status["next"]["command"] is None
     assert "person" in status["next"]["instruction"]
 
+    # Inspection commands must not advertise the state's ordinary next move.
+    events = agent.run("events")
+    assert events["next"]["command"] is None
+    assert "person" in events["next"]["instruction"]
+
     for command in (
         ("context",),
         ("submit-findings", "--file", _findings(tmp_path)),
