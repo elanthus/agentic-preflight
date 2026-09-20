@@ -3,6 +3,17 @@
 All notable changes to Agentic Preflight are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Stop a run for human resolution once validation has restarted `[stage] max_restarts`
+  times (default 5). A restart is any return to review that discards progress: a
+  committed lint or test repair, a changed reviewed snapshot, changed stage inputs, or a
+  non-equivalent merge-back resolution. The stopped run exits 4 with `max_restarts`,
+  refuses every command except `status`, `logs`, `events`, and `abort`, and reports
+  `validation_restarts`, `max_restarts`, and `needs_human` in `status`.
+
 ## [0.6.0] - 2026-09-13
 
 ### Breaking changes

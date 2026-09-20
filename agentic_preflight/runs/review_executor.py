@@ -16,7 +16,14 @@ from ..machine import State
 from ..models import Stage
 from ..stages import protected_output, shellstage
 from . import review_protocol, review_retry
-from ._session import Session, _assert_fresh, _load_current, _require_state, _require_worktree
+from ._session import (
+    Session,
+    _assert_fresh,
+    _check_restart_limit,
+    _load_current,
+    _require_state,
+    _require_worktree,
+)
 from .review import submit_findings
 
 
@@ -24,6 +31,7 @@ def run_review_command(session: Session) -> Envelope:
     """Run the configured independent reviewer over the canonical review bundle."""
     run = _load_current(session)
     _assert_fresh(session, run)
+    _check_restart_limit(run)
     _require_state(
         run,
         State.REVIEW_AWAITING_FINDINGS,

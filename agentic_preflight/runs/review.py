@@ -25,6 +25,7 @@ from ._session import (
     Session,
     _apply,
     _assert_fresh,
+    _check_restart_limit,
     _envelope_for,
     _load_current,
     _now,
@@ -102,6 +103,7 @@ def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
 def context(session: Session, *, section: str = "review") -> Envelope:
     run = _load_current(session)
     _assert_fresh(session, run)
+    _check_restart_limit(run)
 
     if section == "docs" and run.state in {
         State.REVIEW_GREEN,
@@ -216,6 +218,7 @@ def submit_findings(
 ) -> Envelope:
     run = _load_current(session)
     _assert_fresh(session, run)
+    _check_restart_limit(run)
     _require_state(
         run,
         State.REVIEW_AWAITING_FINDINGS,

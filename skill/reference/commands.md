@@ -267,6 +267,11 @@ project does not use.
 `logs/<stage>.txt`; the envelope carries head 50 and tail 200 lines with a `truncated`
 flag. Stops with exit 4 after `[stage] max_attempts` failures.
 
+Separately, the whole run stops with exit 4 and error `max_restarts` once validation has
+returned to review `[stage] max_restarts` times (default 5). `status` reports
+`validation_restarts`, `max_restarts`, and `needs_human`; only a person may release the
+run by aborting it.
+
 If a lint or test process is killed or times out outside the harness, its persisted
 `*_RUNNING` state is recoverable. `stage run lint|test` is the legal retry from that state:
 it first records the interrupted process as a red attempt with exit code 125 and reason

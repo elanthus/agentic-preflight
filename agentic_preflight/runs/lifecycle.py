@@ -9,6 +9,7 @@ from .. import risk as riskmod
 from ..envelope import Envelope
 from ..errors import (
     START_COMMAND,
+    MaxRestarts,
     UnmergedWork,
     WrongState,
 )
@@ -16,6 +17,7 @@ from ..machine import Action, State
 from ..models import FindingStatus, RunDoc
 from ..store import RUN_READ_RECOVERY, RunReadError, StoreError, UnknownRun
 from ._session import (
+    RESTART_LIMIT_INSTRUCTION,
     Session,
     _apply,
     _envelope_for,
@@ -23,6 +25,7 @@ from ._session import (
     _is_in_place,
     _load_current,
     _release_run_worktree,
+    _restart_limit_reached,
     _start_command,
     _worktree_mode,
 )
@@ -370,6 +373,7 @@ def _try_advance_evidence(session: Session, run: RunDoc, findings):
             State.LINT_GREEN,
         }
         or _head_moved(session, run) is not None
+        or _restart_limit_reached(run)
     ):
         return run, findings, reuse_error
     from . import evidence
@@ -381,7 +385,7 @@ def _try_advance_evidence(session: Session, run: RunDoc, findings):
                     run = evidence.discover(session, run)
                 run = evidence.advance(session, run)
                 findings = session.store.load_findings(run.run_id)
-            except (WrongState, OSError, gitx.GitError) as exc:
+            except (WrongState, MaxRestarts, OSError, gitx.GitError) as exc:
                 reuse_error = str(exc)
                 try:
                     recovered = session.store.load_run(run.run_id)
@@ -412,6 +416,9 @@ def _set_status_next(session: Session, run: RunDoc, envelope: Envelope, *, stale
             base_ref=run.base_ref,
             default_base_ref=session.config.general.base_ref,
         )
+    elif _restart_limit_reached(run):
+        envelope.next_instruction = RESTART_LIMIT_INSTRUCTION
+        envelope.next_command = None
     elif run.setup_failure is not None and run.setup_failure.scope == "baseline":
         envelope.next_instruction = run.setup_failure.next_instruction
         envelope.next_command = run.setup_failure.next_command
@@ -538,6 +545,9 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             "gate_token": run.gate_token,
             "pushed_sha": run.pushed_sha,
             "fix_commits": run.fix_commits,
+            "validation_restarts": run.validation_restarts,
+            "max_restarts": session.config.stage.max_restarts,
+            "needs_human": _restart_limit_reached(run),
             "mergeback_attempt": (
                 run.mergeback_attempt.model_dump(mode="json") if run.mergeback_attempt else None
             ),

@@ -80,6 +80,7 @@ class CommandsSection(_Section):
 class StageSection(_Section):
     timeout_seconds: int = Field(default=600, ge=1)
     max_attempts: int = Field(default=5, ge=1)
+    max_restarts: int = Field(default=5, ge=1)
 
 
 class ReuseSection(_Section):

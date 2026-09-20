@@ -38,6 +38,15 @@ you the loop is not converging. For a stage failure, show the user
 setup failure, no stage log exists; show `data.setup_failure` and obey the returned
 `agentic-preflight abort --force` command.
 
+## Validation restarted too many times (exit 4, `max_restarts`)
+
+Stop repairing. Each restart means a repair changed the verified tree and sent the run
+back to review; reaching `[stage] max_restarts` means the loop is not converging. The run
+now refuses everything except `status`, `logs`, `events`, and `abort`. Show the user
+`agentic-preflight status` (`data.validation_restarts`, `data.fix_commits`, findings) and
+ask how to proceed. Do not abort and start a fresh run on your own: that resets the
+counter, which is the user's decision to make.
+
 ## Hosted CI failed
 
 Inspect the failed check with `gh pr checks` and `gh run view --log-failed`. For

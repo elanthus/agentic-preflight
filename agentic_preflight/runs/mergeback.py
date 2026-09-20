@@ -24,6 +24,7 @@ from ._session import (
     Session,
     _apply,
     _assert_fresh,
+    _check_restart_limit,
     _envelope_for,
     _is_in_place,
     _load_current,
@@ -133,6 +134,7 @@ def _reset_non_equivalent_merge_to_review(
             "resolved_tree_sha": result.local_tree_sha,
         },
     )
+    _check_restart_limit(run)
     return run
 
 

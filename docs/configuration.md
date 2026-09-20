@@ -36,6 +36,7 @@ test = "pytest"
 [stage]
 timeout_seconds = 600
 max_attempts = 5
+max_restarts = 5
 
 [reuse]
 
@@ -259,6 +260,17 @@ append to it rather than writing a fresh one.
 `timeout_seconds` bounds a single stage run and `max_attempts` bounds retries. When a
 stage is still red after `max_attempts`, the run stops and asks for human resolution
 rather than retrying indefinitely.
+
+`max_restarts` bounds the whole run rather than one stage. Validation restarts whenever
+it returns to review after making progress: a committed lint or test repair, a repair
+that changes the reviewed snapshot, changed stage inputs, or a merge-back resolution that
+differs from the verified tree. When the count reaches `max_restarts`, the restart is
+still recorded so stale green evidence cannot survive, and then the run stops with exit 4
+and error code `max_restarts`. From then on only `status`, `logs`, `events`, and `abort`
+work. The counter never resets within a run, and the limit comes from the run's
+configuration snapshot, so editing the file does not release a stopped run. A person
+decides what happens next, usually `agentic-preflight abort --force` followed by a fresh
+run once the cause of the loop is understood.
 
 Treat a first green from a newly configured command as unproven. Pass/fail is the exit
 code alone, so a command that no-ops and exits zero reads as a pass forever, and a false

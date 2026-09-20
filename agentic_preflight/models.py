@@ -273,6 +273,9 @@ class RunDoc(BaseModel):
     risk: RiskAssessment | None = None
 
     fix_commits: list[str] = Field(default_factory=list)
+    # Times validation returned to review after making progress. Never reset
+    # within a run: it is the convergence guard for the whole gate.
+    validation_restarts: int = Field(default=0, ge=0)
     mergeback_attempt: MergebackAttempt | None = None
     stages: dict[Stage, StageRecord] = Field(default_factory=dict)
     evidence: dict[Stage, StageEvidence] = Field(default_factory=dict)
