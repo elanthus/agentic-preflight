@@ -17,11 +17,21 @@ from .. import gitx, worktree
 from ..config import Config, load_config
 from ..envelope import Envelope
 from ..errors import (
+    MaxRestarts,
     NoRun,
     StaleRun,
     WrongState,
 )
-from ..machine import Action, IllegalTransition, State, next_state, recovery_hint
+from ..machine import (
+    CLOSING_ACTIONS,
+    RESTART_ACTIONS,
+    TERMINAL_STATES,
+    Action,
+    IllegalTransition,
+    State,
+    next_state,
+    recovery_hint,
+)
 from ..models import RunDoc, Stage
 from ..store import RunReadError, Store, UnknownRun
 
@@ -102,8 +112,51 @@ def _new_run_id() -> str:
     return "r_" + uuid.uuid4().hex[:10]
 
 
+def _max_restarts(run: RunDoc) -> int:
+    """Read the limit from the run's own snapshot, which an edited config cannot move."""
+    return Config.model_validate(run.config_snapshot).stage.max_restarts
+
+
+RESTART_LIMIT_INSTRUCTION = (
+    "This needs a person. Stop repairing. Show the user the run status and the "
+    "repairs that kept reopening review, and ask how to proceed. Only the user "
+    "may decide to abort this run and start a fresh one."
+)
+
+
+def _restart_limit_reached(run: RunDoc) -> bool:
+    return run.validation_restarts >= _max_restarts(run)
+
+
+def _check_restart_limit(run: RunDoc) -> None:
+    """Refuse to continue a run whose validation has restarted too many times."""
+    limit = _max_restarts(run)
+    if not _restart_limit_reached(run):
+        return
+    raise MaxRestarts(
+        f"validation has restarted {run.validation_restarts} times "
+        f"(max_restarts={limit}); stopping rather than looping",
+        state=run.state.value,
+        run_id=run.run_id,
+        data={
+            "validation_restarts": run.validation_restarts,
+            "max_restarts": limit,
+            "needs_human": True,
+        },
+        next_instruction=RESTART_LIMIT_INSTRUCTION,
+        next_command="agentic-preflight status",
+    )
+
+
 def _apply(run: RunDoc, action: Action) -> None:
-    """Advance the run, converting an illegal move into a typed error."""
+    """Advance the run, converting an illegal move into a typed error.
+
+    Restarts are counted here because every path back to review passes through
+    this function. Once the limit is reached, only closing the run stays legal.
+    """
+    if action not in CLOSING_ACTIONS:
+        _check_restart_limit(run)
+    previous = run.state
     try:
         run.state = next_state(run.state, action)
     except IllegalTransition as exc:
@@ -112,6 +165,9 @@ def _apply(run: RunDoc, action: Action) -> None:
             state=run.state.value,
             run_id=run.run_id,
         ) from exc
+    # A reopen while review is already awaiting findings discards no progress.
+    if action in RESTART_ACTIONS and run.state is not previous:
+        run.validation_restarts += 1
 
 
 def _require_state(run: RunDoc, *allowed: State, command: str) -> None:
@@ -176,6 +232,10 @@ def _start_command(
 
 def _envelope_for(run: RunDoc, **overrides) -> Envelope:
     instruction, command = _next_hint(run.state)
+    stopped = run.state not in TERMINAL_STATES and _restart_limit_reached(run)
+    if stopped:
+        # A stopped run must never advertise the state's ordinary next move.
+        instruction, command = RESTART_LIMIT_INSTRUCTION, None
     fields: dict[str, Any] = {
         "run_id": run.run_id,
         "state": run.state.value,
@@ -183,6 +243,9 @@ def _envelope_for(run: RunDoc, **overrides) -> Envelope:
         "next_command": command,
     }
     fields.update(overrides)
+    if stopped:
+        # Machine-readable on every envelope, not only in the wording.
+        fields["data"] = {**fields.get("data", {}), "needs_human": True}
     if run.test_delegation is not None:
         fields["data"] = {
             **fields.get("data", {}),

@@ -12,7 +12,7 @@ from .. import gitx
 from ..errors import InvalidFindings
 from ..machine import Action
 from ..models import FindingSubmission, ReviewCoverage, RunDoc, Stage, StageRecord
-from ._session import Session, _apply, _require_worktree
+from ._session import Session, _apply, _check_restart_limit, _require_worktree
 
 
 def validate(
@@ -123,4 +123,5 @@ def reopen_if_stale(session: Session, run: RunDoc) -> tuple[RunDoc, bool]:
             "current_head": current_head,
         },
     )
+    _check_restart_limit(run)
     return run, True

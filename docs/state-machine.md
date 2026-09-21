@@ -19,7 +19,9 @@ VERIFIED or PUBLICATION_READY -> gate -> push -> finish
 ```
 
 Review and documentation findings can block progress. Failed shell stages retry
-within their attempt limits; committed repairs require renewed review. Disabled
+within their attempt limits; committed repairs require renewed review. A run whose
+validation returns to review `[stage] max_restarts` times stops for a person, and only
+closing transitions remain legal. Disabled
 documentation and inapplicable local tests use explicit skip transitions and retain
 their reasons. Delegated tests remain pending: publication readiness does not
 establish merge readiness.

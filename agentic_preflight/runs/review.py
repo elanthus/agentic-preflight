@@ -25,6 +25,7 @@ from ._session import (
     Session,
     _apply,
     _assert_fresh,
+    _check_restart_limit,
     _envelope_for,
     _load_current,
     _now,
@@ -101,6 +102,7 @@ def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
 
 def context(session: Session, *, section: str = "review") -> Envelope:
     run = _load_current(session)
+    _check_restart_limit(run)
     _assert_fresh(session, run)
 
     if section == "docs" and run.state in {
@@ -215,6 +217,7 @@ def submit_findings(
     _executor: review_protocol.ReviewExecutor = "in_harness",
 ) -> Envelope:
     run = _load_current(session)
+    _check_restart_limit(run)
     _assert_fresh(session, run)
     _require_state(
         run,

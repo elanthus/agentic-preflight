@@ -107,6 +107,14 @@ class Action(StrEnum):
     ORPHAN = "ORPHAN"
 
 
+# Actions that discard validation progress and send the run back to review.
+RESTART_ACTIONS = frozenset(
+    {Action.LINT_FIX_RESTART, Action.TEST_FIX_RESTART, Action.INVALIDATE_REVIEW}
+)
+# A run stopped for a person may still be closed; nothing else may move it.
+CLOSING_ACTIONS = frozenset({Action.ABORT, Action.ORPHAN})
+
+
 class IllegalTransition(Exception):
     """Raised when a command is issued from a state that does not allow it."""
 

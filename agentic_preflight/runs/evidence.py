@@ -39,7 +39,7 @@ from ..shell_fingerprints import ShellFingerprint, classify_shell, compute_shell
 from ..store import RunReadError, UnknownRun
 from . import review_protocol
 from ._evidence_install import install_stage, stage_record
-from ._session import Session, _apply, _now, _require_worktree
+from ._session import Session, _apply, _check_restart_limit, _now, _require_worktree
 
 
 def fingerprint(
@@ -254,7 +254,9 @@ def reopen_changed_inputs(session: Session, run: RunDoc) -> RunDoc:
             stage: StageRecord(attempts=record.attempts) for stage, record in doc.stages.items()
         }
         _apply(doc, Action.INVALIDATE_REVIEW)
-        return doc
+        run = doc
+    _check_restart_limit(run)
+    return run
 
 
 def advance(session: Session, run: RunDoc) -> RunDoc:

@@ -213,6 +213,18 @@ class MaxAttempts(AgenticError):
     exit_code = ExitCode.NEEDS_HUMAN
 
 
+class MaxRestarts(AgenticError):
+    """Validation kept returning to review. Stop and wait for a person.
+
+    Each restart discards green evidence because a repair changed the verified
+    tree. A run that does this repeatedly is not converging, and another agent
+    repair is more likely to extend the loop than to end it.
+    """
+
+    code = "max_restarts"
+    exit_code = ExitCode.NEEDS_HUMAN
+
+
 class MergebackConflictError(AgenticError):
     """A cherry-pick conflicted and was cleanly aborted.
 

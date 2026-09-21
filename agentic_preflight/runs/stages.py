@@ -23,6 +23,7 @@ from ._session import (
     Session,
     _apply,
     _assert_fresh,
+    _check_restart_limit,
     _envelope_for,
     _is_in_place,
     _load_current,
@@ -164,6 +165,7 @@ def _register_stage_fix_commits(
             run.run_id,
             {"event": "stage_fix_commits_registered", "stage": stage.value, "commits": commits},
         )
+        _check_restart_limit(run)
         return run, True
     return run, False
 
