@@ -14,6 +14,18 @@ All notable changes to Agentic Preflight are documented here. This project follo
   refuses every command except `status`, `logs`, `events`, and `abort`, and reports
   `validation_restarts`, `max_restarts`, and `needs_human` in `status`.
 
+### Changed
+
+- Context grounding derives module terms for every Python package, not only
+  `agentic_preflight`. A changed `.py` file under any directory now contributes its path
+  relative to the top-level directory and its dotted module name.
+
+### Removed
+
+- The `[hook] enabled` key. It was never read, so setting it had no effect. A config that
+  still sets it now fails to load with an unknown-key error; delete the line from
+  `.agentic-preflight.toml` and the user config. `init` no longer writes it.
+
 ## [0.6.0] - 2026-09-13
 
 ### Breaking changes

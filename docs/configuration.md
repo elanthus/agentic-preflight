@@ -98,7 +98,6 @@ mode = "manual_merge"             # or "environment" / "peer_review"
 environment = "high-risk-review"  # used by environment mode
 
 [hook]
-enabled = true
 allow_force_push = false
 ```
 
