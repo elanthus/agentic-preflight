@@ -157,7 +157,6 @@ class ApprovalSection(_Section):
 
 
 class HookSection(_Section):
-    enabled: bool = True
     allow_force_push: bool = False
 
 
