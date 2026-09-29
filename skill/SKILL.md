@@ -49,7 +49,7 @@ Python here never calls a model — every judgment in this workflow is yours.
    evidence invalidation and revalidation path. Stop and ask only when those bounded
    recovery conditions are not established.
 7. **Keep the validation worktree clean for the whole run.** The default
-   `in_place` mode uses the current checkout, so only accepted repair commits may
+   `in_place` mode uses the current checkout, so only intentional repair commits may
    move its branch; uncommitted changes or an unaccounted commit stop the run.
    `.agentic-preflight.toml` must be committed **before `start`** and must not be edited
    mid-run. In `reusable` or `strict` mode, make repairs only in the absolute
