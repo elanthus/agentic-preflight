@@ -2,7 +2,7 @@
 
 Every command prints **exactly one JSON object** to stdout. Human prose goes to
 stderr. The agent must be able to ``json.loads(stdout)`` without first checking
-whether the run went well, so every key is always present — an envelope with
+whether the run went well, so every key is always present; an envelope with
 nothing to say still carries ``data: {}`` and ``blocking: []`` rather than
 omitting them and forcing defensive parsing on the other side.
 
@@ -45,7 +45,7 @@ class Envelope:
     error_message: str | None = None
     error_detail: dict[str, Any] | None = None
 
-    #: Prose for a person. Deliberately *not* part of the JSON payload — it is
+    #: Prose for a person. Deliberately *not* part of the JSON payload; it is
     #: written to stderr so the machine-readable stream stays machine-readable.
     human: str | None = None
 

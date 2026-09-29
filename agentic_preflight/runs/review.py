@@ -258,8 +258,8 @@ def submit_findings(
 
     inventory = None
     if stage is Stage.DOCS:
-        # Docs findings may target files the diff never touched — that is the
-        # point of the stage — so the changed-file constraint relaxes to the
+        # Docs findings may target files the diff never touched (that is the
+        # point of the stage) so the changed-file constraint relaxes to the
         # documentation allowlist rather than disappearing.
         inventory = docsstage.build_inventory(
             worktree_path, bundle.files, session.config.docs.paths

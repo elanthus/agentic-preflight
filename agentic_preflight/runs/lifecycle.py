@@ -564,7 +564,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             "setup_failure": (
                 run.setup_failure.model_dump(mode="json") if run.setup_failure is not None else None
             ),
-            # Names only — contents are never read, logged, or echoed anywhere.
+            # Names only: contents are never read, logged, or echoed anywhere.
             "copied_files": run.copied_files,
             "findings": [f.model_dump(mode="json") for f in findings],
             "findings_summary": summary,

@@ -8,7 +8,7 @@ one. Narrowing it to the owner is the guarantee that makes that acceptable.
 nothing: ``chmod`` there only toggles the read-only attribute, and permissions
 live in an ACL that the call never touches. A copied ``.env`` would inherit the
 containing directory's ACEs and be readable by every principal that already had
-access — silently, because the call still returns successfully.
+access, silently, because the call still returns successfully.
 
 The Windows equivalent is therefore built explicitly: reset the file's access
 list, drop what it inherits, and grant the calling user alone. ``icacls`` ships
@@ -71,8 +71,8 @@ def current_user_sid(path: Path) -> str:
         return _cached_sid
 
     # Full System32 paths for both utilities: a bare name would let
-    # ``CreateProcess`` search the current directory — the repository under
-    # validation — for the very tool that protects the copied secret.
+    # ``CreateProcess`` search the current directory (the repository under
+    # validation) for the very tool that protects the copied secret.
     result = _run(
         [command_plan.windows_system_tool("whoami.exe"), "/user", "/fo", "csv", "/nh"], path
     )

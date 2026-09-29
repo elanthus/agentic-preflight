@@ -24,13 +24,13 @@ MINIMUM_GIT_VERSION = (2, 38)
 # Git output is repository data and repositories contain latin-1, so decoding
 # must never be able to crash the command that read it. ``backslashreplace``
 # keeps the mojibake visible as ``\xe9`` instead of raising. Anything that
-# feeds git output back *into* git stays in bytes — see ``commit_patch_id`` —
+# feeds git output back *into* git stays in bytes (see ``commit_patch_id``)
 # because the escape text is not the bytes it stands for.
 _DECODE_ERRORS = "backslashreplace"
 
 # Resolved once per process. Handed a bare name, Windows' ``CreateProcess``
-# searches the parent's current directory before PATH — for this tool, the
-# repository under validation — so a repo-committed ``git.exe`` could become
+# searches the parent's current directory before PATH (for this tool, the
+# repository under validation) so a repo-committed ``git.exe`` could become
 # the git that validates the repository that ships it. POSIX ``execvp``
 # searches PATH only; the absolute path pins Windows to the same rule.
 _RESOLVED_GIT: str | None = None
@@ -55,7 +55,7 @@ def _git_executable() -> str:
         resolved = resolve_on_path("git")
         if resolved is None:
             # Falling back to the bare name would hand ``CreateProcess`` its
-            # current-directory search back — the exact hole this resolution
+            # current-directory search back, the exact hole this resolution
             # exists to close. A git missing from PATH fails loudly instead.
             raise FileNotFoundError("git was not found on PATH")
         _RESOLVED_GIT = resolved
@@ -316,7 +316,7 @@ def commit_patch_id(cwd: Path | str, sha: str) -> str | None:
     The patch travels between the two git processes as raw bytes. Decoding it
     first would fold the raw byte ``0xE9`` and the literal escape text
     ``\\xe9`` into one string, giving two byte-distinct changes the same
-    identity — and identity is the whole point of this function.
+    identity, and identity is the whole point of this function.
     """
     show_args = ["show", "--format=", "--no-ext-diff", "--no-textconv", "--binary", sha]
     patch = subprocess.run(

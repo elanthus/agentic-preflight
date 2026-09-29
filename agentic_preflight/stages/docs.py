@@ -8,7 +8,7 @@ Two things distinguish it from review:
 - **Findings may target files outside the diff.** That is the whole point: the
   diff changed code, and the doc that should have changed did not. So the
   changed-file constraint relaxes to a *documentation allowlist*. It does not
-  become unconstrained — a "docs" finding against ``src/auth.py`` is still
+  become unconstrained; a "docs" finding against ``src/auth.py`` is still
   rejected, because it belongs to the review stage.
 - **``require_changelog`` is owned by code.** Whether a changelog was touched is
   a mechanical fact, and mechanical facts should not depend on the agent

@@ -5,7 +5,7 @@ on each commit and no run state: no network and no mutation.
 That is what keeps it inside its latency budget and what makes it safe to run on
 every push.
 
-The hook cannot call back up to the agent — it is a subprocess of the agent's
+The hook cannot call back up to the agent; it is a subprocess of the agent's
 own ``git push``. So its only lever is to fail with a message written *for an
 agent to read*, naming the Claude and Codex invocations so the block doubles as
 a skill trigger that loops the agent back into the gate.
@@ -190,7 +190,7 @@ def install(repo_root: Path | str, *, force: bool = False) -> tuple[Path, bool]:
 
     if path.exists() and not force:
         # Read bytes, not text. The ownership marker is ASCII, while somebody
-        # else's hook is arbitrary bytes that need not decode as UTF-8 — and
+        # else's hook is arbitrary bytes that need not decode as UTF-8, and
         # failing to decode it must not turn "this hook is not ours, refuse to
         # touch it" into an unhandled error.
         existing = path.read_bytes()

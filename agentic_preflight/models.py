@@ -91,7 +91,7 @@ class RiskAssessment(BaseModel):
 
 
 class FindingSubmission(BaseModel):
-    """What the agent sends. No identity fields — see module docstring."""
+    """What the agent sends. No identity fields; see module docstring."""
 
     model_config = ConfigDict(extra="forbid")
 

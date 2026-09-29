@@ -158,7 +158,7 @@ def review_relevant_config(snapshot: dict[str, Any]) -> dict[str, Any]:
     risk-derived executor escalation, ``context`` governs grounding delivery,
     ``diff`` governs which files and hunks are in scope at all, and ``stage``
     governs the command executor's timeout and retry bound
-    (``review_executor.py``, ``review_retry.py``) — an execution dependency
+    (``review_executor.py``, ``review_retry.py``), an execution dependency
     even though an in-harness review never reads it.
     """
     return _scoped_config(snapshot, ("general", "review", "policy", "context", "diff", "stage"))
@@ -207,7 +207,7 @@ def compute_docs_fingerprint(
     """Fingerprint the inputs a green docs stage against ``head_sha`` depended on.
 
     The documentation surface is read from the worktree, so this must be
-    called while ``head_sha`` is actually checked out there — the same
+    called while ``head_sha`` is actually checked out there, the same
     convention ``review_protocol.context_data`` and ``grounding.assemble``
     already rely on.
     """

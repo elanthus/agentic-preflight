@@ -139,8 +139,8 @@ class _CopiedFileMutationGuard:
         return _copied_file_fingerprints(self.worktree_path, self.copied_files) != self.initial
 
 
-# Both platforms need the same two guarantees — isolate the child so a timeout
-# can reach every process it spawned, then kill all of them — but they provide
+# Both platforms need the same two guarantees (isolate the child so a timeout
+# can reach every process it spawned, then kill all of them) but they provide
 # them through APIs the other does not have at all.
 #
 # The definitions are split on ``sys.platform`` rather than branching inside a
@@ -199,7 +199,7 @@ else:
         """Kill the timed-out child's whole process group.
 
         ``start_new_session`` made the child a session leader, so its PID is
-        also its process group ID — which is why a failed lookup below is
+        also its process group ID, which is why a failed lookup below is
         survivable rather than a reason to abandon its workers.
         """
         try:
@@ -282,12 +282,12 @@ def run_stage(
     a plain program and its arguments are executed directly, and only genuine
     shell grammar pays for a shell. A command that needs a shell where none
     exists is a red stage rather than an exception, because the stage contract
-    is that the exit code decides — and a configuration the machine cannot run
+    is that the exit code decides, and a configuration the machine cannot run
     is a failure the agent should report, not a crash.
 
     ``start_new_session`` puts the child in its own process group so that a
     test runner which spawns workers does not leave them orphaned when the
-    timeout fires — killing only the direct child would strand them.
+    timeout fires; killing only the direct child would strand them.
     """
     try:
         argv = command_plan.build_argv(command_plan.plan(command, cwd=worktree_path))
@@ -306,7 +306,7 @@ def run_stage(
                 text=True,
                 # Captured output is a *report*, not structured data: a linter
                 # that emits one stray byte must not crash the gate, and the
-                # exit code — which is what decides the stage — is unaffected
+                # exit code (which is what decides the stage) is unaffected
                 # either way.
                 encoding="utf-8",
                 errors="replace",
@@ -316,7 +316,7 @@ def run_stage(
             # The program resolved when the command was planned, but the OS
             # refused to execute it: a script with no shebang, a file whose
             # format or extension is not executable, or a program deleted
-            # since planning. The same contract as a missing shell — a red
+            # since planning. The same contract as a missing shell, a red
             # stage the agent can report, not a crash.
             return StageResult(
                 command=command,

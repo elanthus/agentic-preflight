@@ -1,7 +1,7 @@
 """Atomic, lock-guarded persistence for runs, events, and findings.
 
 A run spans multiple agent turns, so Python cannot hold state in memory between
-invocations — it lives on disk and every mutation follows the same discipline:
+invocations, so it lives on disk and every mutation follows the same discipline:
 
     load -> guard -> mutate -> write tmp -> os.replace
 
@@ -135,14 +135,14 @@ def _replace(tmp: Path, path: Path) -> None:
 
     Retrying is safe precisely because the operation is atomic: it either
     replaced the file or it did not, so a failed attempt has no partial effect
-    to undo. The retry is Windows-only — a ``PermissionError`` on POSIX is a
+    to undo. The retry is Windows-only; a ``PermissionError`` on POSIX is a
     real permissions problem, and quietly grinding on it for a second would
     hide the cause rather than fix it.
 
     What this fixes is a *transient* hold, which is the one that actually
     occurs: every reader in this module opens the document, reads it, and
     closes it. A process that keeps the handle open indefinitely still blocks
-    the replace, and no amount of retrying would change that — Python's
+    the replace, and no amount of retrying would change that; Python's
     ``open`` gives no way to ask for the share-delete access that would.
     """
     if sys.platform == "win32":
@@ -333,7 +333,7 @@ class Store:
         """Read-modify-write a run document under an exclusive lock.
 
         The document yielded is a fresh load; mutate it in place. It is written
-        back — with ``seq`` bumped — only if the body completes without raising,
+        back, with ``seq`` bumped, only if the body completes without raising,
         so an exception in the body leaves the records untouched. When findings
         accompany the run, a durable journal commits both: readers finish an
         interrupted installation before returning either record. An I/O error

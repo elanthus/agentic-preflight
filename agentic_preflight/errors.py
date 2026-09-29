@@ -94,7 +94,7 @@ class StaleRun(AgenticError):
     """The branch tip moved after review began.
 
     Never continue against a moved head: that is precisely how a false green
-    enters the attestation — the agent reviewed one tree and the note records
+    enters the attestation: the agent reviewed one tree and the note records
     another.
     """
 

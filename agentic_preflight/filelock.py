@@ -54,8 +54,8 @@ def _acquire(handle) -> None:
                 # reports it as EDEADLOCK. Being second in line is normal here,
                 # so that one is worth waiting out.
                 #
-                # Only that one. Every other OSError — a bad descriptor, a
-                # permission failure — would still be true on the next attempt,
+                # Only that one. Every other OSError (a bad descriptor, a
+                # permission failure) would still be true on the next attempt,
                 # and retrying it means spinning forever at full CPU instead of
                 # telling the caller what went wrong.
                 if exc.errno != errno.EDEADLOCK:
