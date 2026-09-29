@@ -306,7 +306,8 @@ a diff that touches tested code, suspect the command before trusting it.
 In in-place mode, attests the already-verified current SHA without creating or
 cherry-picking a commit. The checkout must remain clean. In isolated modes, cherry-picks
 the fix commits onto the source branch; only paths those commits may overwrite are
-blocked, while unrelated tracked edits and untracked files are left alone.
+blocked, while unrelated tracked edits and untracked files are left alone. A dirty
+submodule on one of those paths blocks merge-back even when Git config ignores it.
 
 On conflict: aborts immediately, verifies the branch is byte-for-byte restored, exits 4
 with `data.resolution`, and stores that full report in the event log. The CLI never

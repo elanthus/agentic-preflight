@@ -54,6 +54,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - `approval-check --reviews-file` reports a reviews file that is not UTF-8 JSON as
   `invalid_findings` (exit 3), like other JSON file inputs, instead of an internal
   error.
+- The merge-back overlap check now passes `--ignore-submodules=none`, so
+  `submodule.<name>.ignore` or `diff.ignoreSubmodules` can no longer hide a dirty
+  submodule on a path the fix commits would overwrite.
 
 ### Added
 
