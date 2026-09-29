@@ -19,8 +19,8 @@ Its pre-push hook blocks the normal push path when that evidence is missing or s
 - **Bind green results to the code that earned them.** A changed commit, configuration,
   or intent cannot silently inherit unrelated evidence.
 
-Every pull request in four of the author's own repositories has gone through Agentic
-Preflight since July 2026. The [dogfooding case study](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/dogfooding-case-study.md)
+Of 408 merged pull requests across four of the author's own repositories from August 3
+to September 6, 2026, 323 record an Agentic Preflight run. The [dogfooding case study](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/dogfooding-case-study.md)
 reports what that record shows and what it does not.
 
 ![A push blocked by the pre-push hook, followed by review of an unguarded division, a verified fix, and a gate that shows the publication target](https://raw.githubusercontent.com/elanthus/agentic-preflight/v0.6.0/docs/demo.gif)
