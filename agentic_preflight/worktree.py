@@ -312,6 +312,7 @@ def run_setup(
     command: str,
     *,
     timeout_seconds: int = 600,
+    guarded_files: list[str] | tuple[str, ...] = (),
 ) -> shellstage.StageResult:
     """Run the configured setup command inside the worktree.
 
@@ -319,6 +320,12 @@ def run_setup(
     for the caller to report, not an exception to unwind on. The command runs
     through the stage runner, so an unrunnable command is a failed result and a
     timeout kills the whole process group and reports exit 124 with the output
-    captured so far.
+    captured so far. A write to any of ``guarded_files`` sets
+    ``copied_files_changed`` on the result.
     """
-    return shellstage.run_stage(worktree_path, command, timeout_seconds=timeout_seconds)
+    return shellstage.run_stage(
+        worktree_path,
+        command,
+        timeout_seconds=timeout_seconds,
+        guarded_files=guarded_files,
+    )

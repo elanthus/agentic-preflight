@@ -31,7 +31,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - The setup command no longer escapes as an internal error on timeout. It runs through
   the stage runner, kills its whole process group on timeout (exit 124), and writes
   redacted output to `setup.txt` in the run log directory. A failed setup reports
-  `timed_out`, `log_path`, and the output tail.
+  `timed_out`, `log_path`, and the output tail. A setup command that writes to a copied
+  file fails with its output withheld, as a stage does.
 
 ## [0.6.0] - 2026-09-13
 
