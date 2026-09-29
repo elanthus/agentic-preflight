@@ -107,9 +107,10 @@ def _terms(changed_files: list[str]) -> list[str]:
         values = [path, candidate.name]
         if candidate.suffix == ".py":
             values.append(candidate.stem)
-        if path.startswith("agentic_preflight/"):
-            relative = path.removeprefix("agentic_preflight/")
-            values.extend((relative, path.removesuffix(".py").replace("/", ".")))
+            parts = candidate.parts
+            if len(parts) > 1:
+                relative = "/".join(parts[1:])
+                values.extend((relative, path.removesuffix(".py").replace("/", ".")))
         for value in values:
             if len(value) < 4 or value == "__init__":
                 continue

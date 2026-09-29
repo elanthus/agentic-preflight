@@ -89,6 +89,7 @@ def test_an_unknown_key_is_an_error_naming_the_key(tmp_repo, tmp_path):
         ("worktree", "ttl_hours", "48"),
         ("reuse", "attestation" + "_schema", "5"),
         ("ci", "consumer" + "_schema", "6"),
+        ("hook", "enabled", "false"),
     ],
 )
 def test_removed_config_keys_are_unknown(tmp_repo, tmp_path, section, key, value):
