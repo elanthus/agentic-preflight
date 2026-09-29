@@ -199,14 +199,16 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         "Synchronize with the fresh remote base.", _STATUS, (_A.BEGIN_SYNC, _S.SYNC_RUNNING)
     ),
     _S.SYNC_RUNNING: _state(
-        "Remote synchronization is running.",
-        _STATUS,
+        "Remote synchronization is running or was interrupted. If no start command "
+        "is still running, abort this run and start again.",
+        "agentic-preflight abort --force",
         (_A.SYNC_PASSED, _S.SYNC_GREEN),
         (_A.SYNC_FAILED, _S.SYNC_CONFLICT),
         (_A.SETUP_FAILED, _S.SETUP_FAILED),
     ),
     _S.SYNC_CONFLICT: _state(
-        "The fresh-base rebase conflicted. Preserve the report and restart.",
+        "Synchronizing with the fresh base failed or conflicted. Preserve the report, "
+        "then abort this run and start again.",
         "agentic-preflight abort --force",
     ),
     _S.SETUP_FAILED: _state(

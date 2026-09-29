@@ -25,12 +25,10 @@ hole, because guard 2 never consults ``.gitignore``.
 from __future__ import annotations
 
 import shutil
-import subprocess
 from hashlib import sha256
 from pathlib import Path
 
 from . import fileperms, gitx
-from .stages import command as command_plan
 from .stages import shellstage
 
 
@@ -314,41 +312,13 @@ def run_setup(
     command: str,
     *,
     timeout_seconds: int = 600,
-) -> subprocess.CompletedProcess:
+) -> shellstage.StageResult:
     """Run the configured setup command inside the worktree.
 
     Returns the result rather than raising: a failed ``uv sync`` is information
-    for the caller to report, not an exception to unwind on. A setup command
-    this machine cannot run is reported the same way, as a failed result, so
-    the caller's single reporting path covers both.
+    for the caller to report, not an exception to unwind on. The command runs
+    through the stage runner, so an unrunnable command is a failed result and a
+    timeout kills the whole process group and reports exit 124 with the output
+    captured so far.
     """
-    try:
-        argv = command_plan.build_argv(command_plan.plan(command, cwd=worktree_path))
-    except command_plan.ShellUnavailable as exc:
-        return subprocess.CompletedProcess(
-            args=command,
-            returncode=shellstage.EXIT_UNRUNNABLE,
-            stdout="",
-            stderr=str(exc),
-        )
-
-    try:
-        return subprocess.run(
-            argv,
-            cwd=str(worktree_path),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout_seconds,
-        )
-    except OSError as exc:
-        # Resolved when planned, refused by the OS at execution — a script
-        # with no shebang, or a program deleted since planning. Reported as a
-        # failed result like every other unrunnable command.
-        return subprocess.CompletedProcess(
-            args=command,
-            returncode=shellstage.EXIT_UNRUNNABLE,
-            stdout="",
-            stderr=f"cannot run {command!r}: {exc}",
-        )
+    return shellstage.run_stage(worktree_path, command, timeout_seconds=timeout_seconds)

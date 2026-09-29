@@ -182,11 +182,18 @@ def test_setup_command_runs_inside_the_worktree(feature_repo, wt):
     path under Git Bash on Windows, which no comparison with ``wt`` can survive."""
     result = worktree.run_setup(wt, "git rev-parse --show-toplevel > setup_ran.txt")
 
-    assert result.returncode == 0
+    assert result.exit_code == 0
     reported = (wt / "setup_ran.txt").read_text(encoding="utf-8").strip()
     assert Path(reported) == Path(wt)
 
 
 def test_a_failing_setup_command_reports_rather_than_raising(feature_repo, wt):
     result = worktree.run_setup(wt, "exit 7")
-    assert result.returncode == 7
+    assert result.exit_code == 7
+
+
+def test_a_setup_timeout_is_reported_rather_than_raised(feature_repo, wt):
+    result = worktree.run_setup(wt, "echo setup-started && sleep 30", timeout_seconds=1)
+    assert result.timed_out is True
+    assert result.exit_code == 124
+    assert "setup-started" in result.output

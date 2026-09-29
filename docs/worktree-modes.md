@@ -130,6 +130,11 @@ The command runs before review in every worktree mode and before a `--baseline` 
 its scratch worktree. A nonzero exit stops the run; a failed baseline setup is reported
 as a setup failure rather than evidence that the base commit is red.
 
+Setup runs through the stage runner with the `[stage] timeout_seconds` limit. On timeout
+the whole process group is killed and the result is exit 124. Initial setup output is
+redacted like stage output and written to `setup.txt` in the run's log directory; a
+failed setup envelope reports `timed_out`, `log_path`, and the tail of the output.
+
 Setup failures remain recoverable after the original error scrolls away. `status`
 returns `abort --force` after initial checkout setup fails, releasing an isolated lease.
 For baseline setup failures it retains the command and exit code and returns the exact
