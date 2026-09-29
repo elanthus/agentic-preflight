@@ -9,7 +9,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 - Restore the five follow-up evidence ledger PR titles to their exact GitHub titles,
   state the README dogfooding claim as 323 of 408 merged pull requests, and note in the
-  case study that evidence ledgers are regenerated from source.
+  case study that evidence ledgers are never edited by hand after collection.
 
 ### Added
 

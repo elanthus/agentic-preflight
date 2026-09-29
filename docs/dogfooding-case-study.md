@@ -33,7 +33,8 @@ The repository links in the table are live, day-level browsing links. They can i
 PRs created later on August 17 than the exact cutoff and are not the aggregate snapshots.
 The fixed counts and the excerpts used to classify them are preserved in the
 [`dogfooding-case-study-evidence.json`](dogfooding-case-study-evidence.json) ledger.
-Evidence ledgers are regenerated from source, never hand-edited.
+Evidence ledgers are collection records and are never edited by hand after collection.
+A correction is a fresh collection with a new `collected_at` value.
 
 "Explicitly record" is deliberately narrower than "used." A merged PR is counted only
 when its description contains positive workflow-status evidence for Preflight or a
