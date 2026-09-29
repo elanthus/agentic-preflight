@@ -1,8 +1,13 @@
 """M3 shell stages: lint and test, resolved by config or detection."""
 
+import contextlib
 import json
+import os
 import signal
 import subprocess
+import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -902,3 +907,121 @@ def test_repeated_baseline_setup_failures_stop_without_a_nonexistent_log(docs_gr
     assert env["data"]["setup_failure"]["scope"] == "baseline"
     assert env["next"]["command"] == "agentic-preflight abort --force"
     assert "no stage log" in env["next"]["instruction"]
+
+
+# -- real process lifecycle -------------------------------------------------
+
+posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX process groups")
+
+
+def _group_alive(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_for_group_exit(pgid: int, seconds: float = 3.0) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if not _group_alive(pgid):
+            return True
+        time.sleep(0.05)
+    return False
+
+
+@posix_only
+def test_a_timed_out_stage_returns_promptly_and_kills_its_process_group(tmp_path, monkeypatch):
+    groups: list[int] = []
+    real_popen = subprocess.Popen
+
+    def recording_popen(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        groups.append(process.pid)
+        return process
+
+    monkeypatch.setattr(shellstage.subprocess, "Popen", recording_popen)
+    started = time.monotonic()
+    result = shellstage.run_stage(tmp_path, "sh -c 'sleep 60 & sleep 60'", timeout_seconds=1)
+
+    assert time.monotonic() - started < 3
+    assert result.exit_code == 124
+    assert result.timed_out
+    assert "[timed out after 1s]" in result.output
+    assert _wait_for_group_exit(groups[0])
+
+
+@posix_only
+def test_a_timed_out_stage_does_not_wait_on_a_descendant_holding_stdout(tmp_path):
+    escaped = tmp_path / "escaped.pid"
+    script = tmp_path / "escape.py"
+    script.write_text(
+        "import subprocess, sys, time\n"
+        "child = subprocess.Popen(['sleep', '60'], start_new_session=True)\n"
+        f"open({str(escaped)!r}, 'w').write(str(child.pid))\n"
+        "print('before timeout', flush=True)\n"
+        "time.sleep(60)\n",
+        encoding="utf-8",
+    )
+    started = time.monotonic()
+    try:
+        result = shellstage.run_stage(
+            tmp_path, f"{sys.executable} {script.name}", timeout_seconds=1
+        )
+        elapsed = time.monotonic() - started
+    finally:
+        if escaped.exists():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(int(escaped.read_text(encoding="utf-8")), signal.SIGKILL)
+
+    assert elapsed < shellstage._POST_KILL_DRAIN_SECONDS + 4
+    assert result.exit_code == 124
+    assert "before timeout" in result.output
+    assert result.output.endswith("[timed out after 1s]")
+
+
+@posix_only
+def test_terminating_the_cli_kills_the_running_stage_process_group(tmp_path):
+    pid_file = tmp_path / "stage.pid"
+    driver = tmp_path / "driver.py"
+    driver.write_text(
+        "from agentic_preflight.stages import shellstage\n"
+        f"shellstage.run_stage({str(tmp_path)!r}, "
+        f"\"sh -c 'echo $$ > {pid_file}; sleep 60 & sleep 60'\", timeout_seconds=60)\n",
+        encoding="utf-8",
+    )
+    cli = subprocess.Popen([sys.executable, str(driver)], cwd=Path(__file__).parent.parent)
+    try:
+        deadline = time.monotonic() + 10
+        while not pid_file.exists() or not pid_file.read_text().strip():
+            assert time.monotonic() < deadline, "stage never started"
+            time.sleep(0.05)
+        pgid = int(pid_file.read_text().strip())
+        cli.send_signal(signal.SIGTERM)
+        cli.wait(timeout=5)
+        assert _wait_for_group_exit(pgid)
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            cli.kill()
+        if pid_file.exists() and pid_file.read_text().strip():
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(int(pid_file.read_text().strip()), signal.SIGKILL)
+
+
+def test_termination_handling_off_the_main_thread_does_not_raise(tmp_path):
+    results: list[object] = []
+
+    def run() -> None:
+        try:
+            results.append(shellstage.run_stage(tmp_path, f"{sys.executable} -c pass"))
+        except ValueError as exc:
+            results.append(exc)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    thread.join(timeout=30)
+    assert isinstance(results[0], shellstage.StageResult)
+    assert results[0].exit_code == 0

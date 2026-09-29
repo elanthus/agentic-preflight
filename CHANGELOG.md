@@ -5,6 +5,18 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## [Unreleased]
 
+### Fixed
+
+- A timed-out stage now returns within a few seconds of its timeout even when a
+  descendant that escaped the process-group kill still holds its output pipe. Output
+  read up to that point is kept, and the stage still exits 124 with the
+  `[timed out after Ns]` marker.
+- Sending SIGTERM or SIGINT to the CLI while a stage runs now kills the stage's process
+  group instead of leaving it running (POSIX only).
+- The copied-file mutation check no longer polls every copied file every millisecond
+  for the whole stage; it compares file fingerprints, including change time, before and
+  after the stage.
+
 ### Added
 
 - Stop a run for human resolution once validation has restarted `[stage] max_restarts`
