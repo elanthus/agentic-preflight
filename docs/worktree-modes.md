@@ -18,7 +18,7 @@ to invoke them. If that source checkout was deleted, `status`, `events`, and `lo
 available for inspection, but gated mutations fail with `source_worktree_missing` and
 direct recovery to `gc` from a surviving worktree in the same clone.
 A `RUN_ID` must be `r_` followed by 10 lowercase hex digits; any other value fails with
-`invalid_run_id` and exit code 1 before the run store is opened.
+`invalid_run_id` and exit code 6 before the run store is opened.
 
 A run's event log tolerates a torn final line left by an interrupted append: `events`
 and `status` drop that line and read the rest. A malformed earlier line is reported as

@@ -56,7 +56,7 @@ def main(ctx: click.Context, run_id: str | None) -> None:
             as_error(
                 "invalid_run_id",
                 f"--run must look like r_ followed by 10 lowercase hex digits, got {run_id!r}",
-                ExitCode.USAGE,
+                ExitCode.USAGE_ERROR,
             )
         )
     ctx.ensure_object(dict)

@@ -705,7 +705,7 @@ def test_the_contract_holds_over_a_real_subprocess(feature_repo, tmp_path):
 
 
 def test_a_path_like_run_option_is_refused_before_touching_the_store(agent, feature_repo):
-    env = agent.run("--run", "../../escape-probe", "status", expect=ExitCode.USAGE)
+    env = agent.run("--run", "../../escape-probe", "status", expect=ExitCode.USAGE_ERROR)
     assert env["error"]["code"] == "invalid_run_id"
     dot_git = feature_repo / ".git"
     assert not (feature_repo.parent / "escape-probe").exists()

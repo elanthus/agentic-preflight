@@ -47,7 +47,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
   for an update whose new tip the remote tip already contains.
 - `approval-check` reads approval policy from the `.agentic-preflight.toml` committed at
   `--base`, so a pull-request head can no longer choose its own approval mode.
-- The root `--run` option is refused with `invalid_run_id` (exit 1) unless it matches
+- The root `--run` option is refused with `invalid_run_id` (exit 6) unless it matches
   `r_` followed by 10 lowercase hex digits, so a path-like value never reaches the store.
 - `events` and `status` tolerate a torn final line in a run's event log. A malformed
   earlier line reports `run_record_unreadable` with reason `invalid_events`.
