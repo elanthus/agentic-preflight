@@ -1,6 +1,6 @@
 ---
 name: agentic-preflight
-description: Use when shipping a branch — reviewing, documenting, linting, testing, and pushing work through Agentic Preflight. Also use when a push is blocked by the agentic-preflight pre-push hook or when the user says agentic-preflight:uninstall to remove this tool from the current project.
+description: Use when shipping a branch: reviewing, documenting, linting, testing, and pushing work through Agentic Preflight. Also use when a push is blocked by the agentic-preflight pre-push hook or when the user says agentic-preflight:uninstall to remove this tool from the current project.
 ---
 
 # agentic-preflight

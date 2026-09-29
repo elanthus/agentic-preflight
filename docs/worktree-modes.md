@@ -109,7 +109,7 @@ alone.
 Files in `[worktree] copy_files` are used in place or copied into an isolated validation worktree so
 tests can run, and are protected by two independent guards:
 
-1. **Preflight refusal** — a file git is not already ignoring in the validation worktree
+1. **Preflight refusal:** a file git is not already ignoring in the validation worktree
    is never used or copied. Add it to `.gitignore` and commit that first.
 2. **Commit-content invariant** — any commit touching a copied path is rejected by both
    `respond` and `mergeback`, checked against commit content rather than ignore rules, so

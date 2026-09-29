@@ -99,7 +99,7 @@ snapshot, so they return the run to review; note-only dispositions keep the stag
 without anyone's input. A missing null check, a wrong comparison operator, an unhandled
 exception. Most findings.
 
-**`ask_user`** — competing reasonable interpretations would change behaviour
+**`ask_user`**: competing reasonable interpretations would change behaviour
 or scope, and the request, acceptance criteria, and established repository contract do
 not settle the choice. For example: is this API meant to be public, is a behaviour
 change deliberate, or is a trade-off acceptable? Routine decisions those sources already
