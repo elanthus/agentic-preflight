@@ -432,3 +432,31 @@ def test_a_failing_git_command_raises_with_stderr_attached(tmp_repo):
     with pytest.raises(gitx.GitError) as exc:
         gitx.rev_parse(tmp_repo, "no-such-ref")
     assert "no-such-ref" in str(exc.value)
+
+
+def test_diff_functions_ignore_external_diff_and_textconv_config(feature_repo):
+    tool = feature_repo.parent / "fake-diff.sh"
+    tool.write_text("#!/bin/sh\necho CONFIG_MARKER\nexit 1\n")
+    tool.chmod(0o755)
+    git("config", "diff.external", str(tool), cwd=feature_repo)
+    git("config", "diff.marker.textconv", str(tool), cwd=feature_repo)
+    info = feature_repo / ".git" / "info"
+    info.mkdir(exist_ok=True)
+    (info / "attributes").write_text("*.py diff=marker\n")
+
+    path = "src/app.py"
+    assert gitx.changed_files(feature_repo, "main") == [path]
+    for text in (
+        gitx.diff_text(feature_repo, "main"),
+        gitx.diff_text_for_path(feature_repo, "main", "HEAD", path),
+        gitx.diff_text_by_path(feature_repo, "main", "HEAD", [path])[path],
+    ):
+        assert "CONFIG_MARKER" not in text
+        assert "+def greet(name, loud=False):" in text
+
+
+def test_is_clean_sees_untracked_files_hidden_by_status_config(tmp_repo):
+    git("config", "status.showUntrackedFiles", "no", cwd=tmp_repo)
+    write(tmp_repo, "stray.txt", "stray\n")
+
+    assert gitx.is_clean(tmp_repo) is False
