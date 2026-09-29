@@ -59,6 +59,10 @@ All notable changes to Agentic Preflight are documented here. This project follo
   submodule on a path the fix commits would overwrite.
 - Appending to a run event log takes a per-run events lock, so concurrent appends can no
   longer interleave bytes within a line.
+- A `--baseline` stage whose scratch worktree cannot be created now fails with
+  `setup_failed` (scope `baseline`, `setup.kind` `worktree`) and keeps the run red with
+  the baseline retry as its next command. Previously the unevaluated base was reported
+  as passing.
 
 ### Added
 
