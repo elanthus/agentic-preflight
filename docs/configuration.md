@@ -148,23 +148,39 @@ or undeclared inputs. Login-shell commands are unsupported and rerun. A user-lev
 declaration alone cannot enable shell reuse; it must match the committed contract.
 Input values and file contents never appear in fingerprint diagnostics.
 
+## Push and pull-request authorization
+
+This section is the canonical statement of when an agent may push or open a pull
+request. The skill and the other documents link here.
+
+An agent may push only with user authorization. Authorization comes from one of two
+sources:
+
+- An explicit request in the current task to push, publish, or create or open a pull
+  request. That request authorizes the matching push.
+- The user's applicable standing instructions. For example, standing instructions that
+  permit pushing fixes for existing PR feedback authorize pushing those fixes to that
+  PR's existing head branch when the user asks to address the feedback.
+
+A request only to implement or commit, or a generic "proceed", is not push
+authorization.
+
+After `gate`, the agent shows the remote, branch, commits, and risk. When that summary
+matches the authorization, the agent pushes without asking a second time. When
+authorization is missing, or the summary differs from its scope (another remote or
+branch, unexpected commits, or a different risk decision), the agent asks and waits for
+an answer. No authorization covers a force-push, a merge, a destructive action, or work
+beyond the requested scope; each needs its own approval, and the merge restrictions in
+[`[approval]`](#high-risk-merge-handling-approval) still apply.
+
 ## Pull-request publication (`[pr]`)
 
 `mode = "auto"` is the default and is standing authorization for pull-request creation.
-An explicit request to push, publish, or open a pull request, or applicable standing
-user instructions, authorizes the matching push. For example, standing instructions
-may authorize pushing corresponding fixes to an existing PR's head branch when the
-user asks to address its feedback. That permission does not cover a different remote
-or branch, force-push, merge, destructive action, or materially broader work; those
-require separate approval, subject to the skill's merge restrictions. The agent shows
-the remote, branch, commits, and risk, and asks for push approval only when authorization
-is missing or the scope materially differs. After the
-authorized push and preflight finish, it opens or reuses the pull request without a
-second approval prompt.
+After the authorized push and the run finish, the agent opens or reuses the pull request
+without a second approval prompt.
 
 `mode = "manual"` keeps pull-request creation in the user's hands. The agent may still
-push through the configured gate, but it never opens the pull request and provides a
-compare URL instead.
+push, but it never opens the pull request and provides a compare URL instead.
 
 `automated_cleanup = false` is the default. Automatic pull-request creation still works,
 but the agent stops after hosted checks: it does not poll the merge state or delete
@@ -173,8 +189,8 @@ agent disclose the exact cleanup scope, poll an automatically opened or reused p
 request every 5 minutes, and remove only the disclosed run-scoped targets after GitHub
 verifies the merge.
 
-This is independent of `[gate] mode`. The token gate lets the agent push with matching
-user authorization, including applicable standing instructions; the manual gate
+This is independent of `[gate] mode`. With `mode = "token"` the agent pushes once it
+has [authorization](#push-and-pull-request-authorization); with `mode = "manual"` the CLI
 refuses to push and hands the command to a person.
 
 ## High-risk merge handling (`[approval]`)

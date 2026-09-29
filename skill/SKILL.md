@@ -24,21 +24,16 @@ Python here never calls a model — every judgment in this workflow is yours.
    Sending `id`, `stage`, or `code_owned` is a hard validation error, not a nudge.
 4. **Never run `git push --no-verify`.** It exists for humans, not for you.
 5. **Never push without user authorization.** An explicit request to push, publish, or
-   create/open a pull request authorizes the matching push in that task. Authorization
-   may also come from the user's applicable standing instructions. For example, if
-   those instructions authorize committing and
-   pushing fixes when addressing existing PR feedback, a request to address that
-   feedback authorizes the corresponding fixes on that PR's existing head branch.
-   After `gate`, show what will be pushed and proceed without asking a second time
-   when the summary matches that authorization. If authorization is absent, or the
-   remote, branch, commits, or risk summary materially differs from its scope, show
-   the summary and wait for an actual answer. Authorization for PR feedback fixes
-   does not authorize a different remote or branch, force-push, merge, destructive
-   action, or materially broader work; ask separately before those operations, and
-   preserve this skill's merge restrictions. A generic request to implement, commit,
-   or "proceed" alone is not push authorization. `[pr] mode = "auto"` is standing
-   authorization to open or reuse the pull request after the authorized push and
-   preflight finish.
+   create/open a pull request authorizes the matching push in that task, and so do the
+   user's applicable standing instructions (for example, instructions that permit
+   pushing fixes for existing PR feedback to that PR's head branch). A request only to
+   implement or commit, or a generic "proceed", is not push authorization. After `gate`,
+   show the summary; if it matches the authorization, push without asking again,
+   otherwise ask and wait. Force-push, merge, destructive actions, and broader work
+   always need separate approval. `[pr] mode = "auto"` is standing authorization to
+   open or reuse the pull request after the authorized push and the run finish. The
+   canonical rule is in
+   [push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/main/docs/configuration.md#push-and-pull-request-authorization).
    `[pr] automated_cleanup = false` is the default: stop after hosted checks and require
    an explicit cleanup request. When `[pr] automated_cleanup = true`, it also authorizes
    monitoring that exact PR until it reaches a terminal state and cleaning up the
@@ -145,11 +140,9 @@ $ agentic-preflight gate
  "next":{"instruction":"Substitute data.token for <token> only after user authorization.",
          "command":"agentic-preflight push --confirm <token>"}}
 
-# Show the remote, branch, and commits. If the summary matches an explicit request
-# or the user's applicable standing authorization, proceed without asking again.
-# Example: addressing PR feedback under standing instructions that authorize pushing
-# the corresponding fixes to that PR's existing head branch.
-# Otherwise STOP and ask whether to push. Once authorized, substitute data.token:
+# Show the remote, branch, and commits. Apply non-negotiable 5: push without asking
+# again when the summary matches the authorization; otherwise STOP and ask.
+# Once authorized, substitute data.token:
 $ agentic-preflight push --confirm <token>
 $ agentic-preflight finish
 $ agentic-preflight gc
@@ -325,19 +318,10 @@ At the gate, show the user — in plain prose, not JSON:
 - anything you resolved as `ask_user`, and what you decided
 - any finding you dismissed, and why
 
-If this summary matches the user's explicit request or applicable standing
-instructions, display it as a progress update and continue with the token. For
-example, a request to address existing PR feedback is sufficient when the user's
-standing instructions authorize committing and pushing the corresponding fixes to
-that PR's existing head branch. Do not ask them to confirm the same publication twice.
-
-Otherwise ask, plainly: *"Ready to push this to `origin/feature-x`?"* Wait for a real
-answer. A request only to implement or commit, or a generic "proceed" from a previous
-step, alone is not consent for the push gate. Ask again if the summary reveals an
-unexpected remote, branch, commit, or risk decision. Authorization for PR feedback
-fixes does not cover a different remote or branch, force-push, merge, destructive
-action, or materially broader work; those require separate approval, subject to
-this skill's merge restrictions.
+If this summary matches the authorization described in non-negotiable 5, display it
+as a progress update and continue with the token.
+Do not ask them to confirm the same publication twice. Otherwise ask, plainly:
+*"Ready to push this to `origin/feature-x`?"* and wait for a real answer.
 
 In `[pr] mode = "auto"`, the committed configuration is standing authorization for PR
 creation. After the authorized push, `finish`, and `gc`, reuse an existing pull request
@@ -353,8 +337,7 @@ Afterward, never open a pull request; construct the forge compare URL from the
 repository URL, base branch, and head branch and give it to the user.
 
 If risk returns `needs_human`, explain the merge restriction before pushing, then follow
-the configured `[approval] mode`. An explicit request or applicable standing
-instructions still authorize publication when the gate summary matches their scope:
+the configured `[approval] mode`. High risk does not change push authorization:
 
 - `manual_merge`: the hosted check reports success only while auto-merge is disabled;
   never merge or enable auto-merge, and tell the user that they must review and merge the

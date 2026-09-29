@@ -59,10 +59,9 @@ If you try to push the changed commit before its run is green, the hook stops th
 and tells you how to start or resume verification. After the run passes, the agent shows
 the target remote, branch, commits, and risk before publication.
 
-An explicit request or applicable standing user instructions can authorize the matching
-push, including PR-feedback fixes on the existing head branch when those instructions
-permit it. The agent asks only when authorization is missing or the scope materially
-differs. Set `[gate] mode = "manual"` when only a person should run the final Git command.
+The agent pushes only when you asked it to or your standing instructions permit it; see
+[push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/main/docs/configuration.md#push-and-pull-request-authorization).
+Set `[gate] mode = "manual"` when only a person should run the final Git command.
 
 The [installation guide](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/installation.md)
 covers source installs, upgrades, project-scoped skills, other Agent Skills clients,
