@@ -352,7 +352,7 @@ def test_status_and_start_preserve_existing_unreadable_run(feature_repo, monkeyp
 
     session = runs.open_session(feature_repo)
     store = session.store
-    run = make_run()
+    run = make_run("r_0123456789")
     store.create_run(run)
     path = store.run_path(run.run_id)
     original = unreadable_run_bytes(run, kind)

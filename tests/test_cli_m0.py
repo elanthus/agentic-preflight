@@ -702,3 +702,39 @@ def test_the_contract_holds_over_a_real_subprocess(feature_repo, tmp_path):
     assert env["state"] == "REVIEW_AWAITING_FINDINGS"
     env = agent.run("status")
     assert env["ok"] is True
+
+
+def test_a_path_like_run_option_is_refused_before_touching_the_store(agent, feature_repo):
+    env = agent.run("--run", "../../escape-probe", "status", expect=ExitCode.USAGE_ERROR)
+    assert env["error"]["code"] == "invalid_run_id"
+    dot_git = feature_repo / ".git"
+    assert not (feature_repo.parent / "escape-probe").exists()
+    assert not any(path.name == "escape-probe" for path in dot_git.rglob("*"))
+
+
+def test_a_torn_final_event_line_does_not_break_status(agent, feature_repo):
+    run_id = agent.run("start")["run_id"]
+    events = feature_repo / ".git" / "agentic-preflight" / "runs" / run_id / "events.jsonl"
+    good = [line for line in events.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(good) >= 2
+    events.write_text(
+        good[0] + "\n" + good[1] + "\n" + '{"event": "trunc', encoding="utf-8", newline="\n"
+    )
+
+    history = agent.run("events")["data"]
+    assert history["count"] == 2
+    assert agent.run("status")["run_id"] == run_id
+
+
+def test_a_final_event_line_cut_inside_a_multibyte_character_does_not_break_status(
+    agent, feature_repo
+):
+    run_id = agent.run("start")["run_id"]
+    events = feature_repo / ".git" / "agentic-preflight" / "runs" / run_id / "events.jsonl"
+    good = [line for line in events.read_bytes().split(b"\n") if line.strip()]
+    assert len(good) >= 2
+    torn = b'{"event": "caf' + "\u20ac".encode("utf-8")[:2]
+    events.write_bytes(good[0] + b"\n" + good[1] + b"\n" + torn)
+
+    assert agent.run("events")["data"]["count"] == 2
+    assert agent.run("status")["run_id"] == run_id

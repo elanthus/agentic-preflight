@@ -7,9 +7,7 @@ to whichever primitive a platform happens to offer:
 
 * **Exclusive.** One holder at a time, across processes.
 * **Blocking.** Waiting is correct; failing a concurrent caller is not. The
-  competing writer is another invocation of this tool doing legitimate work,
-  and the second defence against a *logically* stale write is ``expect_seq``,
-  not lock contention.
+  competing writer is another invocation of this tool doing legitimate work.
 * **Released on any exit.** Including an exception, which is the path that
   leaves the on-disk state untouched.
 

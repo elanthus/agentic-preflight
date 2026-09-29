@@ -7,6 +7,12 @@ unless that exact SHA has a valid attestation for publication.
 The hook checks ref tips, not every commit newly reachable from them. Remote CI should
 verify the pull-request or branch-tip SHA when complete remote enforcement is required.
 
+Two kinds of update need no attestation. A push to `refs/tags/*` is allowed, so a
+release tag on a merge commit created by GitHub does not block. An update whose new
+tip is already reachable from the remote tip it replaces is allowed, because the
+remote already has that commit. Such an update is a rewind, so it still needs
+`[hook] allow_force_push = true` unless the tip is unchanged.
+
 Original execution commits travel as data under
 `refs/agentic-preflight/evidence/<SHA>`. The hook exempts only creation or unchanged
 publication of an evidence destination whose suffix equals the pushed object ID.

@@ -17,6 +17,12 @@ checkout when it still exists; they do not mutate whichever unrelated worktree h
 to invoke them. If that source checkout was deleted, `status`, `events`, and `logs` remain
 available for inspection, but gated mutations fail with `source_worktree_missing` and
 direct recovery to `gc` from a surviving worktree in the same clone.
+A `RUN_ID` must be `r_` followed by 10 lowercase hex digits; any other value fails with
+`invalid_run_id` and exit code 6 before the run store is opened.
+
+A run's event log tolerates a torn final line left by an interrupted append: `events`
+and `status` drop that line and read the rest. A malformed earlier line is reported as
+`run_record_unreadable` with reason `invalid_events`.
 
 If a stored record cannot be read or validated, `status` reports its identity and
 diagnostic without clearing its ownership pointer. `status --all` includes it as

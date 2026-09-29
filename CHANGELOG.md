@@ -43,6 +43,14 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - `respond` refuses `--commit` unless `--action fixed`. The CLI exits 6 with
   `usage_error`; the Python API raises `invalid_response`. Previously a dismissal or
   acceptance stored the unverified string as a fix commit.
+- The pre-push hook no longer blocks tag pushes, and no longer requires an attestation
+  for an update whose new tip the remote tip already contains.
+- `approval-check` reads approval policy from the `.agentic-preflight.toml` committed at
+  `--base`, so a pull-request head can no longer choose its own approval mode.
+- The root `--run` option is refused with `invalid_run_id` (exit 6) unless it matches
+  `r_` followed by 10 lowercase hex digits, so a path-like value never reaches the store.
+- `events` and `status` tolerate a torn final line in a run's event log. A malformed
+  earlier line reports `run_record_unreadable` with reason `invalid_events`.
 
 ### Added
 
@@ -68,6 +76,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - The `[hook] enabled` key. It was never read, so setting it had no effect. A config that
   still sets it now fails to load with an unknown-key error; delete the line from
   `.agentic-preflight.toml` and the user config. `init` no longer writes it.
+- The unused `expect_seq` parameter of `Store.transaction` and its `StaleWrite` error.
+  The per-run exclusive lock is unchanged.
 
 ## [0.6.0] - 2026-09-13
 
