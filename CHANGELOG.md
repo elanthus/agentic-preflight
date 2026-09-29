@@ -80,6 +80,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - Eval fixture trees include `CODEOWNERS` and `AGENTS.md`, and grounding-on runs fail when
   `context` returns no grounding entries.
 - CI diffs the dry eval `summary.json` against `evals/golden/dry-summary.json`.
+- The pytest configuration no longer passes `-q` in `addopts`, so the documented `uv run
+  pytest -q` prints its summary line.
 
 ### Removed
 
