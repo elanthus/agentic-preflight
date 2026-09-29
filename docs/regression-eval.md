@@ -118,7 +118,8 @@ corpus are inflated for three further reasons:
   without reasoning about the defect.
 - Two or three cases, such as the shell injection and the hardcoded token comparison, are
   caught by stock ruff rules that `evals/.ruff.toml` suppresses so the fixtures pass lint.
- Scripted dry mode proves the
+
+Scripted dry mode proves the
 product plumbing and scoring math, not reviewer judgment. Real mode adds reviewer behavior but
 launches external reviewer wrappers and remains sensitive to model and tool versions. Neither
 mode measures the
