@@ -11,6 +11,7 @@ workflow or diagnosing an interrupted run.
 ## Flow and ownership
 
 ```text
+sync -- fetch, rebase, or Git failure --> SYNC_CONFLICT -> abort
 sync -- setup failure --> SETUP_FAILED -> abort
   \-- setup passes --> review -> documentation -> lint -> local tests -> merge-back -> VERIFIED
                                                \-> delegated tests -> merge-back -> PUBLICATION_READY
@@ -100,6 +101,9 @@ run again.
 | A conflict retry was recorded before interruption | Preserve its retry context and compare against the attempt's source commit. An identical resolution retains validation; a different resolution reopens review. |
 | Merge-back changed the source, but attestation or state persistence failed | With no Git operation in progress, retry accepts the completed result only when the source branch and validation snapshot still match the attempt, the source tree equals the recorded validated tree, and the synchronized base remains an ancestor. Existing dirty-path checks still apply. It does not cherry-pick the fixes again. |
 | Pending merge-back encounters different source content, branch or validation snapshot | Preserve the work, mark the run stale and direct recovery through `status` to a fresh run. Do not adopt the changed content as verified. |
+| Synchronization fails at `start` (conflict, unreachable remote, missing base, Git or OS error) | Record `SYNC_FAILED` into `SYNC_CONFLICT`, append a `sync_conflict` or `sync_failed` event with the detail, and return `abort --force`. |
+| A Git sequence is in progress in the validation checkout at `start` | Record `SYNC_FAILED` into `SYNC_CONFLICT`, append a `sync_refused` event naming the operation, and return `git status`. |
+| `start` was killed while the run was in `SYNC_RUNNING` | `status` and a resuming `start` return `abort --force`; abort is legal from every nonterminal state. |
 | A Git sequence is still in progress | Report the operation. Never automatically finish or abort a user-owned sequence. |
 | Remote push succeeded but local `PUSHED` persistence failed | With unchanged source and valid evidence, retry the same atomic push and then record completion. Remote changes or a rejected push remain errors; retry never force-pushes. |
 

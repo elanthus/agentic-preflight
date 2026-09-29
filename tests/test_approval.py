@@ -275,3 +275,32 @@ def test_environment_mode_requires_the_environment_release(tmp_repo, tmp_path, m
         "--environment-approved",
     )
     assert accepted["data"]["approved"] is True
+
+
+def test_approval_policy_comes_from_the_base_commit_not_the_pr_head(tmp_repo, monkeypatch):
+    write(
+        tmp_repo,
+        ".agentic-preflight.toml",
+        "[policy]\nhigh_risk_paths = ['src/**']\n\n[approval]\nmode = 'peer_review'\n",
+    )
+    base = commit_all(tmp_repo, "require peer review")
+    git("switch", "-c", "feature/weaken", cwd=tmp_repo)
+    write(tmp_repo, ".agentic-preflight.toml", "[policy]\nhigh_risk_paths = ['src/**']\n")
+    write(tmp_repo, "src/app.py", "def greet():\n    return 'hello'\n")
+    head = commit_all(tmp_repo, "relax approval and change application")
+    write(
+        tmp_repo,
+        ".agentic-preflight.toml",
+        "[policy]\nhigh_risk_paths = []\n\n[approval]\nmode = 'manual_merge'\n",
+    )
+    _stub_attestation(monkeypatch, head=head, branch="feature/weaken", findings_summary={"open": 0})
+
+    result = evaluate(
+        tmp_repo,
+        base_sha=base,
+        head_sha=head,
+        reviews=[],
+        pull_request_author="author",
+    )
+    assert result["approval_mode"] == "peer_review"
+    assert result["approved"] is False

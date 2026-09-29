@@ -7,22 +7,33 @@ from pathlib import Path
 
 from . import gitx
 from .ci_models import TestDelegation
-from .config import Config
+from .config import REPO_CONFIG_NAME, Config
 from .models import Attestation
 
 
-def parse_policy(contents: str) -> Config:
+def _validate_policy(contents: str) -> Config:
     try:
-        cfg = Config.model_validate(tomllib.loads(contents))
+        return Config.model_validate(tomllib.loads(contents))
     except ValueError as exc:
         raise ValueError(f"invalid protected policy: {exc}") from exc
+
+
+def committed_config(repo: Path | str, revision: str) -> Config:
+    """Read the configuration committed at a revision, using defaults when it has none."""
+    if not gitx.out(repo, "ls-tree", "--name-only", revision, "--", REPO_CONFIG_NAME):
+        return Config()
+    return _validate_policy(gitx.out(repo, "show", f"{revision}:{REPO_CONFIG_NAME}"))
+
+
+def parse_policy(contents: str) -> Config:
+    cfg = _validate_policy(contents)
     if cfg.ci.test_authority != "github_actions":
         raise ValueError("protected base has not enabled delegated-test CI authority")
     return cfg
 
 
 def committed_policy(repo: Path | str, revision: str) -> Config:
-    return parse_policy(gitx.out(repo, "show", f"{revision}:.agentic-preflight.toml"))
+    return parse_policy(gitx.out(repo, "show", f"{revision}:{REPO_CONFIG_NAME}"))
 
 
 def base_enabled(repo: Path | str, revision: str) -> bool:

@@ -15,6 +15,8 @@ envelope and is not an agent-facing command.
 when `ok` is `true`.
 
 Place `--run RUN_ID` before any workflow command to select a stored run explicitly.
+A `RUN_ID` other than `r_` followed by 10 lowercase hex digits exits 6 with
+`invalid_run_id` before any run is opened.
 Without it, the command resolves the run owned by the invoking Git worktree. When the
 selected run's recorded source checkout no longer exists, inspection commands remain
 available, gated mutations exit 3 with `source_worktree_missing`, and `gc` remains the
@@ -180,7 +182,9 @@ All-or-nothing — one bad finding rejects the batch.
 - `fixed` requires `--commit`. The commit is verified four ways: it exists, it touches
   the finding's file, it contains no `copy_files` path, and in `reusable` or `strict`
   mode it is reachable from the validation worktree's current `HEAD`.
-- `dismissed` and `accepted` require `--note`.
+- `dismissed` and `accepted` require `--note` and refuse `--commit`: passing
+  `--commit` with any action other than `fixed` exits 6 with `usage_error`, and the
+  Python `respond` API raises `invalid_response`.
 - Unknown id exits 3 listing the valid ids. Each finding is resolved once.
 - Non-blocking findings may be resolved after their review or docs stage is green. A
   note-only disposition preserves the green state. A fix that changes the reviewed
@@ -453,8 +457,14 @@ data cannot turn an unknown result into success.
 
 ## Exit codes
 
-`0` ok · `1` usage/internal · `2` stage failed · `3` precondition violated ·
-`4` human resolution required · `5` confirmation required · `10` hook block
+`0` ok · `1` invalid input/internal · `2` stage failed · `3` precondition violated ·
+`4` human resolution required · `5` confirmation required · `6` usage error ·
+`10` hook block
+
+A command-line usage error (unknown option, missing argument, bad choice, unknown
+command) prints one envelope with error code `usage_error`, Click's message in
+`error.message`, and the command's `--help` invocation in `next.command`, then exits 6.
+`hook-check` is the exception and keeps Click's own usage output and exit code.
 
 For local workflow exit 3 → run `status` → obey `next`. For `ci status` and other
 remote CI recovery results, follow their reason and next action directly; restarting a

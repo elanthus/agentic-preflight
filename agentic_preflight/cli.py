@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 
 import click
@@ -11,8 +12,10 @@ from .cli_ci import ci
 from .cli_integrations import register as register_integrations
 from .cli_policy import register as register_policy
 from .cli_runs import register as register_runs
-from .cli_support import as_error, fail
+from .cli_support import EnvelopeGroup, as_error, fail
 from .envelope import ExitCode
+
+RUN_ID_PATTERN = re.compile(r"r_[0-9a-f]{10}")
 
 
 def _use_utf8_streams() -> None:
@@ -37,7 +40,7 @@ def _use_utf8_streams() -> None:
             continue
 
 
-@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+@click.group(cls=EnvelopeGroup, context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option(package_name="agentic-preflight")
 @click.option("--run", "run_id", default=None, help="Operate on a specific stored run.")
 @click.pass_context
@@ -48,6 +51,14 @@ def main(ctx: click.Context, run_id: str | None) -> None:
         gitx.require_minimum_version()
     except gitx.GitVersionError as exc:
         fail(as_error("unsupported_git_version", str(exc), ExitCode.USAGE))
+    if run_id is not None and RUN_ID_PATTERN.fullmatch(run_id) is None:
+        fail(
+            as_error(
+                "invalid_run_id",
+                f"--run must look like r_ followed by 10 lowercase hex digits, got {run_id!r}",
+                ExitCode.USAGE_ERROR,
+            )
+        )
     ctx.ensure_object(dict)
     ctx.obj["run_id"] = run_id
 

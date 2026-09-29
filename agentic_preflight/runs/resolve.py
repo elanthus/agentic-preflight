@@ -52,6 +52,12 @@ def _validate_response(
                 run_id=run.run_id,
             )
         return _verify_fix_commit(session, run, target, commit)
+    if commit is not None:
+        raise InvalidResponse(
+            f"--commit is only valid when resolving {finding_id} as fixed, not {action}",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
     if not note:
         raise InvalidResponse(
             f"resolving {finding_id} as {action} requires --note explaining why; "
@@ -59,7 +65,7 @@ def _validate_response(
             state=run.state.value,
             run_id=run.run_id,
         )
-    return commit
+    return None
 
 
 def respond(

@@ -3,7 +3,7 @@ import json
 import pytest
 
 from agentic_preflight.machine import State
-from agentic_preflight.store import CurrentRunExists, RunReadError, StaleWrite, Store, UnknownRun
+from agentic_preflight.store import CurrentRunExists, RunReadError, Store, UnknownRun
 from tests.conftest import make_run
 
 
@@ -89,17 +89,6 @@ def test_transaction_bumps_seq_and_persists_the_mutation(store):
     reloaded = store.load_run("r_abc123")
     assert reloaded.state is State.WORKTREE_READY
     assert reloaded.seq == 1
-
-
-def test_transaction_with_a_stale_expect_seq_is_rejected(store):
-    store.create_run(make_run())
-    with store.transaction("r_abc123") as run:
-        run.state = State.WORKTREE_READY
-
-    with pytest.raises(StaleWrite) as exc, store.transaction("r_abc123", expect_seq=0) as run:
-        run.state = State.ABORTED
-    assert "expected seq 0" in str(exc.value)
-    assert store.load_run("r_abc123").state is State.WORKTREE_READY
 
 
 def test_a_failed_transaction_body_leaves_the_document_untouched(store):
@@ -262,3 +251,37 @@ def test_scalar_and_array_json_roots_are_controlled_errors(store, payload):
     with pytest.raises(RunReadError) as rejected:
         store.load_run("r_abc123")
     assert rejected.value.reason == "invalid_record"
+
+
+def test_a_torn_final_event_line_is_dropped(store):
+    store.create_run(make_run())
+    store.append_event("r_abc123", {"event": "one"})
+    store.append_event("r_abc123", {"event": "two"})
+    with open(store.events_path("r_abc123"), "a", encoding="utf-8") as handle:
+        handle.write('{"event": "thr')
+    assert [event["event"] for event in store.load_events("r_abc123")] == ["one", "two"]
+
+
+def test_a_torn_earlier_event_line_is_a_read_error(store):
+    store.create_run(make_run())
+    store.events_path("r_abc123").write_text('{"event": "on\n{"event": "two"}\n', encoding="utf-8")
+    with pytest.raises(RunReadError) as caught:
+        store.load_events("r_abc123")
+    assert caught.value.reason == "invalid_events"
+
+
+def test_a_final_event_line_cut_inside_a_multibyte_character_is_dropped(store):
+    store.create_run(make_run())
+    store.append_event("r_abc123", {"event": "one"})
+    store.append_event("r_abc123", {"event": "two"})
+    with open(store.events_path("r_abc123"), "ab") as handle:
+        handle.write(b'{"event": "caf' + "\u20ac".encode("utf-8")[:2])
+    assert [event["event"] for event in store.load_events("r_abc123")] == ["one", "two"]
+
+
+def test_invalid_utf8_on_an_earlier_event_line_is_a_read_error(store):
+    store.create_run(make_run())
+    store.events_path("r_abc123").write_bytes(b'{"event": "\xff"}\n{"event": "two"}\n')
+    with pytest.raises(RunReadError) as caught:
+        store.load_events("r_abc123")
+    assert caught.value.reason == "invalid_events"

@@ -17,6 +17,12 @@ checkout when it still exists; they do not mutate whichever unrelated worktree h
 to invoke them. If that source checkout was deleted, `status`, `events`, and `logs` remain
 available for inspection, but gated mutations fail with `source_worktree_missing` and
 direct recovery to `gc` from a surviving worktree in the same clone.
+A `RUN_ID` must be `r_` followed by 10 lowercase hex digits; any other value fails with
+`invalid_run_id` and exit code 6 before the run store is opened.
+
+A run's event log tolerates a torn final line left by an interrupted append: `events`
+and `status` drop that line and read the rest. A malformed earlier line is reported as
+`run_record_unreadable` with reason `invalid_events`.
 
 If a stored record cannot be read or validated, `status` reports its identity and
 diagnostic without clearing its ownership pointer. `status --all` includes it as
@@ -129,6 +135,12 @@ Agentic Preflight does not install dependencies automatically. Configure
 The command runs before review in every worktree mode and before a `--baseline` stage in
 its scratch worktree. A nonzero exit stops the run; a failed baseline setup is reported
 as a setup failure rather than evidence that the base commit is red.
+
+Setup runs through the stage runner with the `[stage] timeout_seconds` limit. On timeout
+the whole process group is killed and the result is exit 124. Initial setup output is
+redacted like stage output and written to `setup.txt` in the run's log directory; a
+failed setup envelope reports `timed_out`, `log_path`, and the tail of the output. A setup
+command that writes to a copied file fails and its output is withheld.
 
 Setup failures remain recoverable after the original error scrolls away. `status`
 returns `abort --force` after initial checkout setup fails, releasing an isolated lease.

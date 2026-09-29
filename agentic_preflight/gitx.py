@@ -306,7 +306,7 @@ def commit_patch_id(cwd: Path | str, sha: str) -> str | None:
     ``\\xe9`` into one string, giving two byte-distinct changes the same
     identity — and identity is the whole point of this function.
     """
-    show_args = ["show", "--format=", "--no-ext-diff", "--binary", sha]
+    show_args = ["show", "--format=", "--no-ext-diff", "--no-textconv", "--binary", sha]
     patch = subprocess.run(
         [_git_executable(), *show_args],
         cwd=str(cwd),
@@ -402,18 +402,24 @@ def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> bool:
 
 
 def changed_files(cwd: Path | str, base: str, head: str = "HEAD") -> list[str]:
-    output = run(cwd, "diff", "--name-only", "-z", f"{base}...{head}").stdout
+    output = run(
+        cwd, "diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", f"{base}...{head}"
+    ).stdout
     return [path for path in output.split("\0") if path]
 
 
 def diff_text(cwd: Path | str, base: str, head: str = "HEAD") -> str:
-    return run(cwd, "diff", "--no-color", f"{base}...{head}").stdout
+    return run(
+        cwd, "diff", "--no-ext-diff", "--no-textconv", "--no-color", f"{base}...{head}"
+    ).stdout
 
 
 def diff_text_for_path(cwd: Path | str, base: str, head: str, path: str) -> str:
     return run(
         cwd,
         "diff",
+        "--no-ext-diff",
+        "--no-textconv",
         "--no-color",
         f"{base}...{head}",
         "--",
@@ -513,6 +519,8 @@ def diff_text_by_path(
         output = run(
             cwd,
             "diff",
+            "--no-ext-diff",
+            "--no-textconv",
             "--raw",
             "-z",
             "--patch",
@@ -539,7 +547,16 @@ def is_clean(cwd: Path | str) -> bool:
     -A``, so a stray file is not cosmetic, it is a candidate for being swept
     into a fix commit.
     """
-    return out(cwd, "status", "--porcelain") == ""
+    return (
+        out(
+            cwd,
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--ignore-submodules=none",
+        )
+        == ""
+    )
 
 
 def status_for_paths(cwd: Path | str, paths: list[str] | tuple[str, ...]) -> str:
