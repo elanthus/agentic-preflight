@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
@@ -17,6 +18,7 @@ from ..errors import (
     NeedsHuman,
     SetupFailed,
     SyncConflictError,
+    SyncFailed,
     WrongState,
 )
 from ..errors import (
@@ -24,6 +26,9 @@ from ..errors import (
 )
 from ..machine import TERMINAL_STATES, Action, State
 from ..models import RiskAssessment, RunDoc, SetupFailure
+from ..note_availability import redact_remote_credentials
+from ..stages import shellstage
+from ..stages.protected_output import OutputProtection
 from ..store import CurrentRunExists, UnknownRun
 from . import evidence
 from ._session import (
@@ -430,6 +435,28 @@ def _synchronize(ctx: _StartContext) -> _StartContext:
             ),
             next_command="agentic-preflight abort --force",
         ) from exc
+    except (gitx.GitError, subprocess.TimeoutExpired, OSError) as exc:
+        with ctx.session.store.transaction(run_id) as doc:
+            _apply(doc, Action.SYNC_FAILED)
+            run = doc
+        report = {
+            "base_ref": ctx.base_ref,
+            "error_type": type(exc).__name__,
+            "detail": redact_remote_credentials(str(exc)),
+            "worktree_path": str(wt_path),
+        }
+        ctx.session.store.append_event(run_id, {"event": "sync_failed", **report})
+        raise SyncFailed(
+            f"synchronizing with the fresh remote base failed: {report['detail']}",
+            state=run.state.value,
+            run_id=run_id,
+            data=report,
+            next_instruction=(
+                "Fix the remote, network, or base ref named in the error, then abort "
+                "this run and start again with the same intent."
+            ),
+            next_command="agentic-preflight abort --force",
+        ) from exc
 
     changed = gitx.changed_files(wt_path, sync_result.base_sha, "HEAD")
     if not changed:
@@ -448,6 +475,48 @@ def _synchronize(ctx: _StartContext) -> _StartContext:
             next_instruction="The requested change is already present upstream.",
         )
     return replace(ctx, changed=changed, sync_result=sync_result)
+
+
+_SETUP_OUTPUT_TAIL = 4000
+
+
+def _relative_to(path: Path, root: Path) -> str:
+    """Return ``path`` relative to ``root`` when it lies inside it."""
+    try:
+        return Path(path).relative_to(root).as_posix()
+    except ValueError:
+        return Path(path).name
+
+
+def _execute_setup(ctx: _StartContext, copied: list[str]) -> tuple[shellstage.StageResult, Path]:
+    """Run the setup command with copied-file redaction and write its log."""
+    run_id = cast(str, ctx.run_id)
+    wt_path = cast(Path, ctx.wt_path)
+    command = cast(str, ctx.cfg.worktree.setup_command)
+    log_path = ctx.session.store.logs_dir(run_id) / "setup.txt"
+    try:
+        protection = OutputProtection.capture(wt_path, copied)
+    except shellstage.SecretRedactionError as exc:
+        result = shellstage.StageResult(
+            command=command,
+            exit_code=shellstage.EXIT_UNRUNNABLE,
+            output=(
+                f"cannot protect setup output: copied file {_relative_to(exc.path, wt_path)!r} "
+                "could not be read"
+            ),
+        )
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(result.output, encoding="utf-8", newline="\n")
+        return result, log_path
+    completed = worktree.run_setup(
+        wt_path,
+        command,
+        timeout_seconds=ctx.cfg.stage.timeout_seconds,
+        guarded_files=copied,
+    )
+    protected = protection.finish(completed, log_path)
+    result = replace(protected.result, output=protected.clean_output)
+    return result, protected.log_path
 
 
 def _run_setup_command(ctx: _StartContext) -> _StartContext:
@@ -475,21 +544,20 @@ def _run_setup_command(ctx: _StartContext) -> _StartContext:
 
     setup_result = None
     if ctx.cfg.worktree.setup_command:
-        completed = worktree.run_setup(
-            wt_path,
-            ctx.cfg.worktree.setup_command,
-            timeout_seconds=ctx.cfg.stage.timeout_seconds,
-        )
+        completed, log_path = _execute_setup(ctx, copied)
         setup_result = {
             "kind": "custom",
             "command": ctx.cfg.worktree.setup_command,
-            "exit_code": completed.returncode,
+            "exit_code": completed.exit_code,
+            "timed_out": completed.timed_out,
+            "log_path": str(log_path),
         }
-        if completed.returncode != 0:
+        if completed.exit_code != 0:
+            setup_result["output_tail"] = completed.output[-_SETUP_OUTPUT_TAIL:]
             failure = SetupFailure(
                 scope="initial",
                 command=ctx.cfg.worktree.setup_command,
-                exit_code=completed.returncode,
+                exit_code=completed.exit_code,
                 worktree_path=str(wt_path),
                 next_instruction=(
                     "Fix the setup command or its environment, then abort this run and "
@@ -510,10 +578,20 @@ def _run_setup_command(ctx: _StartContext) -> _StartContext:
                 _apply(doc, Action.SETUP_FAILED)
             ctx.session.store.append_event(
                 run_id,
-                {"event": "setup_failed", **failure.model_dump(mode="json")},
+                {
+                    "event": "setup_failed",
+                    **failure.model_dump(mode="json"),
+                    "timed_out": completed.timed_out,
+                    "log_path": str(log_path),
+                },
+            )
+            reason = (
+                f"timed out after {ctx.cfg.stage.timeout_seconds}s"
+                if completed.timed_out
+                else f"exit {completed.exit_code}"
             )
             raise SetupFailed(
-                f"the setup command failed (exit {completed.returncode})",
+                f"the setup command failed ({reason}); output is in {log_path}",
                 state=State.SETUP_FAILED.value,
                 run_id=run_id,
                 stage="setup",

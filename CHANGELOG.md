@@ -10,6 +10,18 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - Restore the five follow-up evidence ledger PR titles to their exact GitHub titles,
   state the README dogfooding claim as 323 of 408 merged pull requests, and note in the
   case study that evidence ledgers are never edited by hand after collection.
+- A fetch, Git, or OS failure while synchronizing at `start` now records the run as
+  `SYNC_CONFLICT`, appends a `sync_failed` event, and returns a `sync_failed` error
+  (exit 4) with `abort --force` as the next command; its diagnostics redact URL
+  credentials. Previously the run stayed in `SYNC_RUNNING` and every later `start`
+  pointed back at `status`.
+- A run left in `SYNC_RUNNING` by an interrupted `start` now reports `abort --force` as
+  its next command from `status` and `start`.
+- The setup command no longer escapes as an internal error on timeout. It runs through
+  the stage runner, kills its whole process group on timeout (exit 124), and writes
+  redacted output to `setup.txt` in the run log directory. A failed setup reports
+  `timed_out`, `log_path`, and the output tail. A setup command that writes to a copied
+  file fails with its output withheld, as a stage does.
 
 ### Added
 
