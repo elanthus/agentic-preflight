@@ -496,7 +496,12 @@ def _execute_setup(ctx: _StartContext, copied: list[str]) -> tuple[shellstage.St
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path.write_text(result.output, encoding="utf-8", newline="\n")
         return result, log_path
-    completed = worktree.run_setup(wt_path, command, timeout_seconds=ctx.cfg.stage.timeout_seconds)
+    completed = worktree.run_setup(
+        wt_path,
+        command,
+        timeout_seconds=ctx.cfg.stage.timeout_seconds,
+        guarded_files=copied,
+    )
     protected = protection.finish(completed, log_path)
     result = replace(protected.result, output=protected.clean_output)
     return result, protected.log_path
