@@ -7,16 +7,27 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
-- A timed-out stage now returns within a few seconds of its timeout even when a
-  descendant that escaped the process-group kill still holds its output pipe. The stage
-  still exits 124 with the `[timed out after Ns]` marker; in that case its output is
-  discarded and replaced by an
-  `[output truncated: a process outside the stage's group kept its pipe open]` line.
-- Sending SIGTERM or SIGINT to the CLI while a stage runs now kills the stage's process
-  group instead of leaving it running (POSIX only).
-- The copied-file mutation check no longer polls every copied file every millisecond
-  for the whole stage; it compares file fingerprints, including change time, before and
-  after the stage.
+- Restore the five follow-up evidence ledger PR titles to their exact GitHub titles,
+  state the README dogfooding claim as 323 of 408 merged pull requests, and note in the
+  case study that evidence ledgers are never edited by hand after collection.
+- A fetch, Git, or OS failure while synchronizing at `start` now records the run as
+  `SYNC_CONFLICT`, appends a `sync_failed` event, and returns a `sync_failed` error
+  (exit 4) with `abort --force` as the next command; its diagnostics redact URL
+  credentials. Previously the run stayed in `SYNC_RUNNING` and every later `start`
+  pointed back at `status`.
+- A run left in `SYNC_RUNNING` by an interrupted `start` now reports `abort --force` as
+  its next command from `status` and `start`.
+- The setup command no longer escapes as an internal error on timeout. It runs through
+  the stage runner, kills its whole process group on timeout (exit 124), and writes
+  redacted output to `setup.txt` in the run log directory. A failed setup reports
+  `timed_out`, `log_path`, and the output tail. A setup command that writes to a copied
+  file fails with its output withheld, as a stage does.
+- Diffs read for review and fix planning, and the commit patch used for patch identity,
+  now pass `--no-ext-diff --no-textconv`, so a user's `diff.external` or textconv driver
+  can no longer replace or break the real patch or change a commit's patch identity.
+- The worktree cleanliness check now passes `--untracked-files=all
+  --ignore-submodules=none`, so `status.showUntrackedFiles=no` can no longer hide
+  untracked files that a later `git add -A` would sweep into a fix commit.
 
 ### Added
 
@@ -26,6 +37,18 @@ All notable changes to Agentic Preflight are documented here. This project follo
   non-equivalent merge-back resolution. The stopped run exits 4 with `max_restarts`,
   refuses every command except `status`, `logs`, `events`, and `abort`, and reports
   `validation_restarts`, `max_restarts`, and `needs_human` in `status`.
+
+### Changed
+
+- Context grounding derives module terms for every Python package, not only
+  `agentic_preflight`. A changed `.py` file under any directory now contributes its path
+  relative to the top-level directory and its dotted module name.
+
+### Removed
+
+- The `[hook] enabled` key. It was never read, so setting it had no effect. A config that
+  still sets it now fails to load with an unknown-key error; delete the line from
+  `.agentic-preflight.toml` and the user config. `init` no longer writes it.
 
 ## [0.6.0] - 2026-09-13
 
@@ -68,7 +91,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - Split the remaining complex orchestration and evidence-validation functions into
   bounded internal helpers without changing their command or persistence behavior.
 - Split run startup into bounded internal phases and enable Ruff's McCabe complexity gate.
-- Rename the portfolio review page to engineering notes and move dogfooding counts out
+- Rename the review page to engineering notes and move dogfooding counts out
   of the README introduction.
 - Retire transition design documents and update the documentation and bundled skill to
   describe only the current configuration, run-record, attestation, and submission formats.
