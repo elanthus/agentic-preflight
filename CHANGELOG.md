@@ -57,6 +57,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - The merge-back overlap check now passes `--ignore-submodules=none`, so
   `submodule.<name>.ignore` or `diff.ignoreSubmodules` can no longer hide a dirty
   submodule on a path the fix commits would overwrite.
+- Appending to a run event log takes a per-run events lock, so concurrent appends can no
+  longer interleave bytes within a line.
 
 ### Added
 

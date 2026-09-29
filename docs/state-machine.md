@@ -32,7 +32,7 @@ establish merge readiness.
 | Required gates occur in order | `machine.py` | Legal `(state, action)` pairs; graph reachability tests include explicit skips and delegation |
 | An action has sufficient evidence | `runs/review.py`, `runs/resolve.py`, `runs/stages.py` | Validated submissions, finding dispositions, command results and coordinator preconditions |
 | Evidence applies to current inputs | `runs/review_coverage.py`, `runs/evidence.py`, `refresh_validation.py` | Snapshot bindings, declared input fingerprints and conservative applicability decisions |
-| Concurrent commands do not overwrite a run | `cli_support.py`, `store.py` | Per-run operation locks, record locks and optional sequence checks |
+| Concurrent commands do not overwrite a run | `cli_support.py`, `store.py` | Per-run operation locks, record locks, an events lock for appends, and optional sequence checks |
 | Related run and finding changes recover together | `store.py` | A committed update journal and recovery before either record is read |
 | Source content matches completed validation | `runs/mergeback.py` | Recorded attempt inputs and Git tree equality; changed resolutions reopen review |
 | Publication has the required evidence | `runs/publish.py`, `attestation.py` | Freshness and attestation checks before an atomic branch/notes push |
