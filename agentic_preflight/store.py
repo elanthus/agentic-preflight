@@ -440,12 +440,12 @@ class Store:
         path = self.events_path(run_id)
         if not path.exists():
             return []
-        lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        lines = [line for line in path.read_bytes().split(b"\n") if line.strip()]
         events: list[dict] = []
         for index, line in enumerate(lines):
             try:
-                events.append(json.loads(line))
-            except json.JSONDecodeError as exc:
+                events.append(json.loads(line.decode("utf-8")))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 # An interrupted append can leave a partial last line; only that is survivable.
                 if index == len(lines) - 1:
                     break

@@ -268,3 +268,20 @@ def test_a_torn_earlier_event_line_is_a_read_error(store):
     with pytest.raises(RunReadError) as caught:
         store.load_events("r_abc123")
     assert caught.value.reason == "invalid_events"
+
+
+def test_a_final_event_line_cut_inside_a_multibyte_character_is_dropped(store):
+    store.create_run(make_run())
+    store.append_event("r_abc123", {"event": "one"})
+    store.append_event("r_abc123", {"event": "two"})
+    with open(store.events_path("r_abc123"), "ab") as handle:
+        handle.write(b'{"event": "caf' + "\u20ac".encode("utf-8")[:2])
+    assert [event["event"] for event in store.load_events("r_abc123")] == ["one", "two"]
+
+
+def test_invalid_utf8_on_an_earlier_event_line_is_a_read_error(store):
+    store.create_run(make_run())
+    store.events_path("r_abc123").write_bytes(b'{"event": "\xff"}\n{"event": "two"}\n')
+    with pytest.raises(RunReadError) as caught:
+        store.load_events("r_abc123")
+    assert caught.value.reason == "invalid_events"
