@@ -27,6 +27,7 @@ class ExitCode(IntEnum):
     PRECONDITION = 3
     NEEDS_HUMAN = 4
     NEEDS_CONFIRM = 5
+    USAGE_ERROR = 6
     HOOK_BLOCK = 10
 
 

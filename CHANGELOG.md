@@ -28,6 +28,21 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - The worktree cleanliness check now passes `--untracked-files=all
   --ignore-submodules=none`, so `status.showUntrackedFiles=no` can no longer hide
   untracked files that a later `git add -A` would sweep into a fix commit.
+- A timed-out stage now returns within a few seconds of its timeout even when a
+  descendant that escaped the process-group kill still holds its output pipe. The stage
+  still exits 124 with the `[timed out after Ns]` marker; in that case its output is
+  discarded and replaced by an
+  `[output truncated: a process outside the stage's group kept its pipe open]` line.
+- Sending SIGTERM or SIGINT to the CLI while a stage runs now kills the stage's process
+  group instead of leaving it running (POSIX only).
+- The copied-file mutation check no longer polls every copied file every millisecond
+  for the whole stage; it compares file fingerprints, including change time, before and
+  after the stage.
+- `submit-findings --file` and `review compare --file` report a missing, unreadable,
+  or non-UTF-8 file as `invalid_findings` (exit 3) instead of `internal_error`.
+- `respond` refuses `--commit` unless `--action fixed`. The CLI exits 6 with
+  `usage_error`; the Python API raises `invalid_response`. Previously a dismissal or
+  acceptance stored the unverified string as a fix commit.
 
 ### Added
 
@@ -37,6 +52,10 @@ All notable changes to Agentic Preflight are documented here. This project follo
   non-equivalent merge-back resolution. The stopped run exits 4 with `max_restarts`,
   refuses every command except `status`, `logs`, `events`, and `abort`, and reports
   `validation_restarts`, `max_restarts`, and `needs_human` in `status`.
+- Exit code 6 (`USAGE_ERROR`) for command-line usage errors. An unknown option,
+  missing argument, bad choice, or unknown command now prints one JSON envelope with
+  error code `usage_error` instead of Click's usage text, and exits 6 instead of 2,
+  which collided with stage failure. `hook-check` keeps Click's behaviour.
 
 ### Changed
 
