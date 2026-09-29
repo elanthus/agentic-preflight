@@ -5,6 +5,12 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## [Unreleased]
 
+### Fixed
+
+- Restore the five follow-up evidence ledger PR titles to their exact GitHub titles,
+  state the README dogfooding claim as 323 of 408 merged pull requests, and note in the
+  case study that evidence ledgers are never edited by hand after collection.
+
 ### Added
 
 - Stop a run for human resolution once validation has restarted `[stage] max_restarts`
@@ -55,7 +61,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - Split the remaining complex orchestration and evidence-validation functions into
   bounded internal helpers without changing their command or persistence behavior.
 - Split run startup into bounded internal phases and enable Ruff's McCabe complexity gate.
-- Rename the portfolio review page to engineering notes and move dogfooding counts out
+- Rename the review page to engineering notes and move dogfooding counts out
   of the README introduction.
 - Retire transition design documents and update the documentation and bundled skill to
   describe only the current configuration, run-record, attestation, and submission formats.
