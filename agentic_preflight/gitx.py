@@ -306,7 +306,7 @@ def commit_patch_id(cwd: Path | str, sha: str) -> str | None:
     ``\\xe9`` into one string, giving two byte-distinct changes the same
     identity — and identity is the whole point of this function.
     """
-    show_args = ["show", "--format=", "--no-ext-diff", "--binary", sha]
+    show_args = ["show", "--format=", "--no-ext-diff", "--no-textconv", "--binary", sha]
     patch = subprocess.run(
         [_git_executable(), *show_args],
         cwd=str(cwd),

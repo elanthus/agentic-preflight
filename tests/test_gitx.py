@@ -460,3 +460,25 @@ def test_is_clean_sees_untracked_files_hidden_by_status_config(tmp_repo):
     write(tmp_repo, "stray.txt", "stray\n")
 
     assert gitx.is_clean(tmp_repo) is False
+
+
+def test_diff_functions_and_patch_ids_ignore_a_textconv_driver(feature_repo):
+    expected_patch_id = gitx.commit_patch_id(feature_repo, "HEAD")
+    tool = feature_repo.parent / "fake-textconv.sh"
+    tool.write_text("#!/bin/sh\necho CONFIG_MARKER\n")
+    tool.chmod(0o755)
+    git("config", "diff.marker.textconv", str(tool), cwd=feature_repo)
+    info = feature_repo / ".git" / "info"
+    info.mkdir(exist_ok=True)
+    (info / "attributes").write_text("*.py diff=marker\n")
+
+    path = "src/app.py"
+    assert gitx.changed_files(feature_repo, "main") == [path]
+    for text in (
+        gitx.diff_text(feature_repo, "main"),
+        gitx.diff_text_for_path(feature_repo, "main", "HEAD", path),
+        gitx.diff_text_by_path(feature_repo, "main", "HEAD", [path])[path],
+    ):
+        assert "CONFIG_MARKER" not in text
+        assert "+def greet(name, loud=False):" in text
+    assert gitx.commit_patch_id(feature_repo, "HEAD") == expected_patch_id

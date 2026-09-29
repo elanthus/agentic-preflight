@@ -16,8 +16,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
-- Diffs read for review and fix planning now pass `--no-ext-diff --no-textconv`, so a
-  user's `diff.external` or textconv driver can no longer replace or break the real patch.
+- Diffs read for review and fix planning, and the commit patch used for patch identity,
+  now pass `--no-ext-diff --no-textconv`, so a user's `diff.external` or textconv driver
+  can no longer replace or break the real patch or change a commit's patch identity.
 - The worktree cleanliness check now passes `--untracked-files=all
   --ignore-submodules=none`, so `status.showUntrackedFiles=no` can no longer hide
   untracked files that a later `git add -A` would sweep into a fix commit.
