@@ -390,3 +390,19 @@ def test_nested_git_failure_retains_safe_classification(remote, monkeypatch, val
     assert caught.value.reason == "git_failure"
     assert "128" in str(caught.value)
     assert "SECRET" not in str(caught.value)
+
+
+def test_redact_remote_credentials_strips_https_and_scp_userinfo():
+    from agentic_preflight.note_availability import redact_remote_credentials
+
+    text = (
+        "fatal: unable to access 'https://user:secret-token@example.com/repo.git/': "
+        "and git@github.com:owner/repo.git failed"
+    )
+    redacted = redact_remote_credentials(text)
+
+    assert "secret-token" not in redacted
+    assert "user:" not in redacted
+    assert "git@" not in redacted
+    assert "https://example.com/repo.git/" in redacted
+    assert "github.com:owner/repo.git" in redacted

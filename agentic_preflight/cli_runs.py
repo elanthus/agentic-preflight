@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-import json
-import sys
-from pathlib import Path
-
 import click
 
 from . import runs
-from .cli_support import as_error, command, fail, finish, finish_locked, open_cli_session
-from .envelope import ExitCode
+from .cli_support import (
+    command,
+    fail_usage,
+    finish,
+    finish_locked,
+    open_cli_session,
+    read_json_file,
+)
 
 
 @click.command()
@@ -51,18 +53,7 @@ def context(section: str) -> None:
 @command
 def submit_findings(file_path: str) -> None:
     """Record the agent's findings for the active stage."""
-    raw = sys.stdin.read() if file_path == "-" else Path(file_path).read_text(encoding="utf-8")
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        fail(
-            as_error(
-                "invalid_findings",
-                f"findings file is not valid JSON: {exc}",
-                ExitCode.PRECONDITION,
-            )
-        )
-        return
+    payload = read_json_file(file_path, "findings file")
     finish_locked(lambda session: runs.submit_findings(session, payload))
 
 
@@ -90,17 +81,7 @@ def review_compare(file_path: str | None) -> None:
     """Compare in-harness and command review submissions."""
     payload = None
     if file_path is not None:
-        try:
-            payload = json.loads(Path(file_path).read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            fail(
-                as_error(
-                    "invalid_findings",
-                    f"comparison file is not valid JSON: {exc}",
-                    ExitCode.PRECONDITION,
-                )
-            )
-            return
+        payload = read_json_file(file_path, "comparison file")
     finish_locked(lambda session: runs.compare_reviews(session, payload))
 
 
@@ -112,11 +93,20 @@ def review_compare(file_path: str | None) -> None:
     type=click.Choice(runs.RESPONSE_ACTIONS),
     help="How the finding was resolved.",
 )
-@click.option("--commit", default=None, help="Commit that fixes it (required for `fixed`).")
+@click.option(
+    "--commit", default=None, help="Commit that fixes it (required for `fixed`, refused otherwise)."
+)
 @click.option("--note", default=None, help="Why it was dismissed or accepted.")
 @command
 def respond(finding_id: str, action: str, commit: str | None, note: str | None) -> None:
     """Resolve one finding. Claims about commits are verified, not trusted."""
+    if commit is not None and action != "fixed":
+        fail_usage(
+            click.UsageError(
+                f"--commit is only valid with --action fixed, not --action {action}",
+                ctx=click.get_current_context(),
+            )
+        )
     finish_locked(
         lambda session: runs.respond(
             session, finding_id=finding_id, action=action, commit=commit, note=note

@@ -275,11 +275,12 @@ numbering, they do not restart. Full field reference:
 | Code | Meaning | What to do |
 |---|---|---|
 | 0 | OK | Follow `next` |
-| 1 | Usage or internal error | Read `error.message`; fix your invocation |
+| 1 | Invalid input or internal error | Read `error.message`; fix your invocation |
 | 2 | Stage failed | Read the log, fix the cause, re-run the stage |
 | 3 | Precondition violated | **Run `status`, then obey `next`** |
 | 4 | Human resolution required | Show the recovery material. Resolve only the bounded, unambiguous merge-back cases described above; otherwise stop. |
 | 5 | Confirmation required | Apply the authorization rules above; ask only if needed, then re-run with the token |
+| 6 | Command-line usage error (`usage_error`): unknown option, missing argument, bad choice | Read `error.message`, run `next.command` for valid usage, and fix the invocation |
 | 10 | Hook blocked a push | Run the gate: `agentic-preflight start --intent "..."` |
 
 **Universal recovery rule: any exit 3 → run `status` → obey `next`.** `status` is legal

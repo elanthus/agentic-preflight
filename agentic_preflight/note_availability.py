@@ -39,6 +39,16 @@ def remote_identity(url: str) -> str:
     return url.split("@", 1)[-1].split("?", 1)[0].split("#", 1)[0]
 
 
+_SCHEME_URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s'\"]+")
+_SCP_REMOTE = re.compile(r"[^\s'\"@/]+@[A-Za-z0-9.-]+:[^\s'\"]*")
+
+
+def redact_remote_credentials(text: str) -> str:
+    """Replace every URL or scp-style remote in ``text`` with its credential-free form."""
+    text = _SCHEME_URL.sub(lambda match: remote_identity(match.group(0)), text)
+    return _SCP_REMOTE.sub(lambda match: remote_identity(match.group(0)), text)
+
+
 class RemoteNotes:
     """Bounded Git operations; errors deliberately omit raw arguments and stderr."""
 
