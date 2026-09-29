@@ -155,6 +155,11 @@ class SyncConflictError(AgenticError):
     exit_code = ExitCode.NEEDS_HUMAN
 
 
+class SyncFailed(AgenticError):
+    code = "sync_failed"
+    exit_code = ExitCode.NEEDS_HUMAN
+
+
 class InvalidFindings(AgenticError):
     code = "invalid_findings"
     exit_code = ExitCode.PRECONDITION

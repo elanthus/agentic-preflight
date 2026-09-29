@@ -110,10 +110,10 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str, *, worktree_pa
                 session.config.worktree.setup_command,
                 timeout_seconds=session.config.stage.timeout_seconds,
             )
-            if completed.returncode != 0:
+            if completed.exit_code != 0:
                 raise _BaselineSetupFailure(
                     command=session.config.worktree.setup_command,
-                    exit_code=completed.returncode,
+                    exit_code=completed.exit_code,
                     worktree_path=str(scratch),
                 )
         result = shellstage.run_stage(

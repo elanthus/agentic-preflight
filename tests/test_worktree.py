@@ -182,11 +182,37 @@ def test_setup_command_runs_inside_the_worktree(feature_repo, wt):
     path under Git Bash on Windows, which no comparison with ``wt`` can survive."""
     result = worktree.run_setup(wt, "git rev-parse --show-toplevel > setup_ran.txt")
 
-    assert result.returncode == 0
+    assert result.exit_code == 0
     reported = (wt / "setup_ran.txt").read_text(encoding="utf-8").strip()
     assert Path(reported) == Path(wt)
 
 
 def test_a_failing_setup_command_reports_rather_than_raising(feature_repo, wt):
     result = worktree.run_setup(wt, "exit 7")
-    assert result.returncode == 7
+    assert result.exit_code == 7
+
+
+def test_a_setup_write_to_a_copied_file_withholds_output(feature_repo, wt):
+    from agentic_preflight.stages import shellstage
+    from agentic_preflight.stages.protected_output import OutputProtection
+
+    write(feature_repo, ".env", "SECRET=hunter2\n")
+    copied = worktree.copy_files(feature_repo, wt, [".env"])
+    protection = OutputProtection.capture(wt, copied)
+
+    result = worktree.run_setup(
+        wt, "echo leaked-output && echo EXTRA=1 >> .env", guarded_files=copied
+    )
+    protected = protection.finish(result, wt.parent / "setup.txt")
+
+    assert result.copied_files_changed is True
+    assert protected.result.exit_code != 0
+    assert protected.clean_output == shellstage.REDACTION_FAILURE_OUTPUT
+    assert "leaked-output" not in (wt.parent / "setup.txt").read_text(encoding="utf-8")
+
+
+def test_a_setup_timeout_is_reported_rather_than_raised(feature_repo, wt):
+    result = worktree.run_setup(wt, "echo setup-started && sleep 30", timeout_seconds=1)
+    assert result.timed_out is True
+    assert result.exit_code == 124
+    assert "setup-started" in result.output

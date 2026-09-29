@@ -9,7 +9,7 @@ import pytest
 
 from agentic_preflight.config import ConfigError, load_config
 from agentic_preflight.errors import ExitCode
-from agentic_preflight.grounding import digest
+from agentic_preflight.grounding import _terms, digest
 from agentic_preflight.runs._session import open_session
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
@@ -442,3 +442,11 @@ def test_context_skips_a_tracked_source_staged_but_not_committed(feature_repo):
     entries = agent.run("context")["data"]["grounding"]["entries"]
 
     assert all(entry.get("source") != "docs/staged.md" for entry in entries)
+
+
+def test_terms_treat_any_package_module_like_the_tool_package():
+    own = _terms(["agentic_preflight/sub/mod.py"])
+    other = _terms(["mypkg/sub/mod.py"])
+    assert {"sub/mod.py", "agentic_preflight.sub.mod"} <= set(own)
+    assert {"sub/mod.py", "mypkg.sub.mod"} <= set(other)
+    assert {term.replace("agentic_preflight", "mypkg") for term in own} == set(other)

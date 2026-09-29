@@ -2,6 +2,9 @@
 
 - Status: Accepted
 - Date: 2026-08-13
+- Amended: 2026-09. Removed the claim that `command` is re-exported from `cli.py`, which
+  no longer holds, and removed an implementation-level list of start phase functions that
+  duplicated the source.
 
 ## Context
 
@@ -60,20 +63,8 @@ result persistence and response construction stay in `runs/stages.py`.
 
 ### Start boundary
 
-- `runs/start.py:start` is a thin coordinator that invokes the start phases in order.
-- `_check_preconditions` loads configuration and validates the source checkout.
-- `_resolve_existing_run` resumes, orphans, or rejects the active run as appropriate.
-- `_require_changes` resolves the merge base and rejects an empty source diff.
-- `_create_run_record` persists and claims the new run before validation work begins.
-- `_provision_validation_checkout` creates or acquires the configured checkout and claims
-  its ownership alias.
-- `_synchronize` updates the validation checkout against the authoritative base and handles
-  synchronization failures.
-- `_run_setup_command` copies configured files, assesses risk, and runs initial setup.
-- `_prime_review` persists the synchronized run, emits readiness, and advances evidence.
-
-The ordering and extent of every store transaction in these phases is part of the durable
-crash-recovery contract. Phase changes must not merge, split, or reorder those boundaries.
+`runs/start.py:start` is a thin coordinator over ordered start phases, and the store
+transaction boundaries within those phases are part of the durable crash-recovery contract.
 
 ### CLI boundary
 
@@ -81,7 +72,6 @@ crash-recovery contract. Phase changes must not merge, split, or reorder those b
 - `cli_support.py` is the single JSON emission and exception-mapping boundary.
 - `cli_runs.py`, `cli_policy.py`, and `cli_integrations.py` adapt their command families to
   application functions; they contain no run-state policy.
-- `command` remains re-exported from `cli.py` for compatibility.
 
 ## Consequences
 
