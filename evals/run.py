@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import os
 import re
@@ -30,6 +31,7 @@ CATEGORIES = {
 }
 SNAPSHOTS = ("base", "vulnerable", "fixed")
 SEVERITY_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+LINE_TOLERANCE = 2
 CATEGORY_WORDS = {
     "correctness": ("bug", "boundary", "crash", "division", "incorrect", "off-by-one"),
     "security": ("credential", "injection", "path", "secret", "security", "traversal"),
@@ -92,6 +94,32 @@ def _load_object(path: Path) -> dict[str, Any]:
     return value
 
 
+def changed_lines(base: Path, vulnerable: Path) -> set[int]:
+    """Return one-based vulnerable line numbers that differ from base, including deletion edges."""
+    old = base.read_text(encoding="utf-8").splitlines() if base.is_file() else []
+    new = vulnerable.read_text(encoding="utf-8").splitlines()
+    changed: set[int] = set()
+    matcher = difflib.SequenceMatcher(a=old, b=new, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        changed.update(range(j1 + 1, j2 + 1))
+        if tag == "delete":
+            changed.add(j1)
+        if tag in {"replace", "delete"} and i2 - i1 > j2 - j1:
+            changed.add(j2 + 1)
+    return {line for line in changed if 1 <= line <= len(new)}
+
+
+def _require_gold_in_change(directory: Path, path: str, lines: list[int]) -> None:
+    changed = changed_lines(directory / "base" / path, directory / "vulnerable" / path)
+    if not changed.intersection(range(lines[0], lines[1] + 1)):
+        raise EvaluationError(
+            f"gold lines {lines} in {directory.name} do not intersect the lines changed "
+            f"from base to vulnerable ({sorted(changed)})"
+        )
+
+
 def validate_script(script: dict[str, Any]) -> None:
     findings = script.get("findings")
     if not isinstance(findings, list):
@@ -148,6 +176,7 @@ def load_case(directory: Path) -> EvalCase:
         raise EvaluationError(f"gold path does not exist in vulnerable snapshot: {target}")
     if lines[1] > len(target.read_text(encoding="utf-8").splitlines()):
         raise EvaluationError(f"gold line range exceeds {target}")
+    _require_gold_in_change(directory, str(gold["path"]), lines)
     for name in ("vulnerable", "fixed"):
         validate_script(_load_object(directory / "scripted" / f"{name}.json"))
     return EvalCase(directory=directory, metadata=metadata, gold=gold)
@@ -287,6 +316,14 @@ def _assert_bundle_is_clean(case: EvalCase, context: dict[str, Any]) -> None:
         raise LeakageError("review bundle intent differs from case.json intent")
 
 
+def _require_grounding_entries(case: EvalCase, snapshot: str, context: dict[str, Any]) -> None:
+    """Fail when a grounding-on context carries no grounding entries."""
+    grounding = context.get("data", {}).get("grounding")
+    entries = grounding.get("entries") if isinstance(grounding, dict) else None
+    if not entries:
+        raise EvaluationError(f"grounding is on but {case.id}/{snapshot} returned no entries")
+
+
 def _recorded_submission(repo: Path, run_id: str) -> dict[str, Any]:
     git_dir_text = _git(
         repo, {**os.environ, **DETERMINISTIC_GIT_ENV}, "rev-parse", "--git-common-dir"
@@ -317,9 +354,13 @@ def _matching_findings(
         if finding.get("path") != gold["path"]:
             continue
         line = finding.get("line")
-        line_matches = isinstance(line, int) and gold["lines"][0] <= line <= gold["lines"][1]
+        if isinstance(line, int):
+            start, end = gold["lines"]
+            if start - LINE_TOLERANCE <= line <= end + LINE_TOLERANCE:
+                matches.append(finding)
+            continue
         unit = by_id.get(finding.get("unit"))
-        if line_matches or (isinstance(unit, dict) and _unit_overlap(unit, gold["lines"])):
+        if isinstance(unit, dict) and _unit_overlap(unit, gold["lines"]):
             matches.append(finding)
     return matches
 
@@ -329,7 +370,7 @@ def _severity_agrees(finding: dict[str, Any], gold: dict[str, Any]) -> bool:
     return SEVERITY_ORDER[gold["severity"][0]] <= value <= SEVERITY_ORDER[gold["severity"][1]]
 
 
-def _category_agrees(finding: dict[str, Any], category: str) -> bool:
+def _keyword_hit(finding: dict[str, Any], category: str) -> bool:
     text = f"{finding.get('title', '')} {finding.get('detail', '')}".lower()
     return any(word in text for word in CATEGORY_WORDS[category])
 
@@ -373,6 +414,8 @@ def run_case_snapshot(
     context, code = _cli(repo, env, "context")
     _require_cli_ok("context", context, code)
     _assert_bundle_is_clean(case, context)
+    if grounding == "on":
+        _require_grounding_entries(case, snapshot, context)
     reviewed, code = _cli(repo, env, "review", "run")
     if code != 0:
         print(
@@ -388,7 +431,7 @@ def run_case_snapshot(
             "finding_count": 0,
             "matched": None,
             "severity_agreement": None,
-            "category_agreement": None,
+            "keyword_hit": None,
             "reviewer_invocations": _reviewer_invocations(reviewed),
         }
     run_id = str(reviewed["run_id"])
@@ -405,9 +448,7 @@ def run_case_snapshot(
         "finding_count": len(findings),
         "matched": bool(matches),
         "severity_agreement": _severity_agrees(first, case.gold) if first else None,
-        "category_agreement": (
-            _category_agrees(first, str(case.metadata["category"])) if first else None
-        ),
+        "keyword_hit": (_keyword_hit(first, str(case.metadata["category"])) if first else None),
         "reviewer_invocations": _reviewer_invocations(reviewed),
     }
 
@@ -422,13 +463,13 @@ def _aggregate(cases: dict[str, dict[str, Any]]) -> dict[str, Any]:
     catches = [bool(item["matched"]) for item in vulnerable if item["status"] == "resolved"]
     false_positives = [bool(item["matched"]) for item in fixed if item["status"] == "resolved"]
     severity = [item["severity_agreement"] for item in vulnerable if item["matched"]]
-    category = [item["category_agreement"] for item in vulnerable if item["matched"]]
+    keywords = [item["keyword_hit"] for item in vulnerable if item["matched"]]
     return {
         "catch_rate": _rate(catches),
         "fixed_false_positive_rate": _rate(false_positives),
         "unresolved": sum(item["status"] == "unresolved" for item in vulnerable + fixed),
         "severity_agreement": _rate([bool(item) for item in severity]),
-        "category_agreement": _rate([bool(item) for item in category]),
+        "keyword_hit_rate": _rate([bool(item) for item in keywords]),
     }
 
 
@@ -437,7 +478,7 @@ def _case_summary(vulnerable: dict[str, Any], fixed: dict[str, Any]) -> dict[str
         "catch": vulnerable["matched"],
         "fixed_false_positive": fixed["matched"],
         "severity_agreement": vulnerable["severity_agreement"],
-        "category_agreement": vulnerable["category_agreement"],
+        "keyword_hit": vulnerable["keyword_hit"],
         "vulnerable": vulnerable,
         "fixed": fixed,
     }
@@ -453,7 +494,7 @@ def _markdown(summary: dict[str, Any]) -> str:
                 f"{setting}/{executor} catch",
                 f"{setting}/{executor} fixed-FP",
                 f"{setting}/{executor} severity",
-                f"{setting}/{executor} category",
+                f"{setting}/{executor} keyword hit",
             ]
         )
     lines = ["# Regression eval summary", "", "| " + " | ".join(headers) + " |"]
@@ -468,7 +509,7 @@ def _markdown(summary: dict[str, Any]) -> str:
                     "catch",
                     "fixed_false_positive",
                     "severity_agreement",
-                    "category_agreement",
+                    "keyword_hit",
                 )
             )
         lines.append("| " + " | ".join(row) + " |")
@@ -481,7 +522,7 @@ def _markdown(summary: dict[str, Any]) -> str:
                 "catch_rate",
                 "fixed_false_positive_rate",
                 "severity_agreement",
-                "category_agreement",
+                "keyword_hit_rate",
             )
         )
     lines.append("| " + " | ".join(row) + " |")
@@ -564,10 +605,10 @@ def run_evaluation(
                 if result[key] is not None
             ]
         )
-        for key in ("catch", "fixed_false_positive", "severity_agreement", "category_agreement")
+        for key in ("catch", "fixed_false_positive", "severity_agreement", "keyword_hit")
     }
     summary = {
-        "method_version": "public-smoke-v4",
+        "method_version": "public-smoke-v5",
         "mode": mode,
         "executor": effective_executor,
         "cases": list(selected_ids),
@@ -576,7 +617,7 @@ def run_evaluation(
         "fixed_false_positive_rate": aggregates["fixed_false_positive"],
         "unresolved": sum(item["unresolved"] for item in grounding_results.values()),
         "severity_agreement": aggregates["severity_agreement"],
-        "category_agreement": aggregates["category_agreement"],
+        "keyword_hit_rate": aggregates["keyword_hit"],
         "reviewer_invocations": sum(
             snapshot["reviewer_invocations"]
             for setting in grounding_results.values()

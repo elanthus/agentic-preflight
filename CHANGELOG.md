@@ -70,6 +70,16 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - Context grounding derives module terms for every Python package, not only
   `agentic_preflight`. A changed `.py` file under any directory now contributes its path
   relative to the top-level directory and its dotted module name.
+- Public regression eval method is now `public-smoke-v5`. A finding with a line is a catch
+  only within two lines of the gold range; hunk overlap applies only to findings without a
+  line. The substring category measure is renamed to keyword hit rate: `summary.json` keys
+  `category_agreement` become `keyword_hit` per case and `keyword_hit_rate` in aggregates.
+- Every eval fixed snapshot now changes the gold file, so its false-positive control can
+  fire. `plaintext-secret-log` gold lines are corrected to `[2, 2]`, and case loading fails
+  when a gold range misses the lines changed from base to vulnerable.
+- Eval fixture trees include `CODEOWNERS` and `AGENTS.md`, and grounding-on runs fail when
+  `context` returns no grounding entries.
+- CI diffs the dry eval `summary.json` against `evals/golden/dry-summary.json`.
 
 ### Removed
 
