@@ -979,8 +979,7 @@ def test_a_timed_out_stage_does_not_wait_on_a_descendant_holding_stdout(tmp_path
 
     assert elapsed < shellstage._POST_KILL_DRAIN_SECONDS + 4
     assert result.exit_code == 124
-    assert "before timeout" in result.output
-    assert result.output.endswith("[timed out after 1s]")
+    assert result.output.endswith(f"[timed out after 1s]\n{shellstage.OUTPUT_TRUNCATED_MARKER}")
 
 
 @posix_only

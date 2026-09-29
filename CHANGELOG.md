@@ -8,9 +8,10 @@ All notable changes to Agentic Preflight are documented here. This project follo
 ### Fixed
 
 - A timed-out stage now returns within a few seconds of its timeout even when a
-  descendant that escaped the process-group kill still holds its output pipe. Output
-  read up to that point is kept, and the stage still exits 124 with the
-  `[timed out after Ns]` marker.
+  descendant that escaped the process-group kill still holds its output pipe. The stage
+  still exits 124 with the `[timed out after Ns]` marker; in that case its output is
+  discarded and replaced by an
+  `[output truncated: a process outside the stage's group kept its pipe open]` line.
 - Sending SIGTERM or SIGINT to the CLI while a stage runs now kills the stage's process
   group instead of leaving it running (POSIX only).
 - The copied-file mutation check no longer polls every copied file every millisecond

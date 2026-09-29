@@ -38,6 +38,9 @@ _TASKKILL_TIMEOUT_SECONDS = 30
 # How long to keep draining output after the process tree has been killed. A
 # descendant that escaped the kill can hold the pipe open forever.
 _POST_KILL_DRAIN_SECONDS = 3
+OUTPUT_TRUNCATED_MARKER = (
+    "[output truncated: a process outside the stage's group kept its pipe open]"
+)
 REDACTION_FAILURE_OUTPUT = (
     "[agentic-preflight] command output withheld because copied-file secret "
     "redaction became unavailable"
@@ -250,30 +253,19 @@ def _kill_on_termination(process: subprocess.Popen) -> Iterator[None]:
         restore()
 
 
-def _drain_after_kill(process: subprocess.Popen) -> tuple[str | None, str | None]:
-    """Collect output from a killed process without waiting on escaped descendants."""
+def _drain_after_kill(process: subprocess.Popen) -> tuple[str | None, str | None, bool]:
+    """Collect a killed process's output, giving up if an escaped descendant holds the pipe."""
     try:
-        return process.communicate(timeout=_POST_KILL_DRAIN_SECONDS)
+        stdout, stderr = process.communicate(timeout=_POST_KILL_DRAIN_SECONDS)
     except subprocess.TimeoutExpired:
-        stdout = _partial_output(process, process.stdout)
-        stderr = _partial_output(process, process.stderr)
         for stream in (process.stdin, process.stdout, process.stderr):
             if stream is not None:
                 with suppress(OSError):
                     stream.close()
         with suppress(subprocess.TimeoutExpired):
             process.wait(timeout=_POST_KILL_DRAIN_SECONDS)
-        return stdout, stderr
-
-
-def _partial_output(process: subprocess.Popen, stream: object) -> str | None:
-    """Return what ``communicate`` had read from ``stream`` before it gave up."""
-    # CPython keeps partial reads here between communicate calls; nothing
-    # public exposes them, so a missing attribute degrades to no output.
-    buffers = getattr(process, "_fileobj2output", None)
-    if stream is None or not isinstance(buffers, dict) or stream not in buffers:
-        return None
-    return b"".join(buffers[stream]).decode("utf-8", errors="replace")
+        return None, None, True
+    return stdout, stderr, False
 
 
 def run_stage(
@@ -345,12 +337,14 @@ def run_stage(
             )
         except subprocess.TimeoutExpired:
             _kill_process_tree(process)
-            stdout, stderr = _drain_after_kill(process)
-            output = (stdout or "") + (stderr or "")
+            stdout, stderr, truncated = _drain_after_kill(process)
+            output = (stdout or "") + (stderr or "") + f"\n[timed out after {timeout_seconds}s]"
+            if truncated:
+                output += f"\n{OUTPUT_TRUNCATED_MARKER}"
             result = StageResult(
                 command=command,
                 exit_code=124,
-                output=output + f"\n[timed out after {timeout_seconds}s]",
+                output=output,
                 timed_out=True,
                 stdout=stdout if separate_stderr else None,
                 stderr=stderr if separate_stderr else None,

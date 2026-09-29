@@ -263,7 +263,8 @@ rather than retrying indefinitely.
 
 When `timeout_seconds` expires, the stage's whole process group is killed and the stage
 exits 124. Output is collected for at most a few more seconds, so a descendant that left
-the process group and still holds the output pipe cannot keep the stage open. On POSIX,
+the process group and still holds the output pipe cannot keep the stage open. When that happens the captured output is discarded and
+the stage output ends with an `[output truncated: ...]` line after the timeout marker. On POSIX,
 SIGTERM or SIGINT delivered to the CLI while a stage runs also kills that stage's process
 group.
 
