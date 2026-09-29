@@ -1,8 +1,8 @@
 # Limits
 
 The [README](../README.md#limits) introduces the main limits: the gate is advisory
-rather than a security boundary, `git push --no-verify` defeats it by design, and the
-confirmation token is ceremony rather than a secret. This page covers the rest.
+rather than a security boundary, `git push --no-verify` bypasses it by design, and the
+confirmation token prevents accidental pushes but is not a secret. This page covers the rest.
 
 ## Repository content is untrusted input
 
@@ -94,6 +94,6 @@ that the agent's review judgment was good.
 
 Cryptographic unforgeability requires a signing authority whose key and execution path
 the evaluated agent cannot reach. Putting an agent-accessible key around the current
-note would add ceremony, not a security boundary. The threat model, key lifecycle,
-replay protection, and transparency-ledger design are tracked in
-[issue #25](https://github.com/elanthus/agentic-preflight/issues/25).
+note would add steps without adding a security boundary. A signed ledger was proposed in
+[issue #25](https://github.com/elanthus/agentic-preflight/issues/25), which was closed as
+not planned on 2026-09-07. Attestations remain unsigned.

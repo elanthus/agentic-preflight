@@ -82,7 +82,7 @@ agentic-preflight integrations install codex claude cursor opencode amp --scope 
 
 Project scope uses each client's documented repository directory. Codex and Amp share
 `.agents/skills`; repeated operations on that shared location remain safe and
-idempotent. For another Agent Skills client, `--target PATH` installs beneath a custom
+idempotent. For another Agent Skills client, `--target PATH` also installs under a custom
 skills directory.
 
 ## Inspecting and removing

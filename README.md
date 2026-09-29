@@ -137,8 +137,8 @@ Run `agentic-preflight status` in the source worktree to inspect or resume its r
 
 ## Configure repository policy
 
-Commit `.agentic-preflight.toml` at the repository root. It layers over the user-wide
-`~/.config/agentic-preflight/config.toml`, with repository sections taking precedence.
+Commit `.agentic-preflight.toml` at the repository root. A section in it replaces the
+matching section of the user-wide `~/.config/agentic-preflight/config.toml` as a whole.
 Use it to set:
 
 - the protected base branch and lint/test commands;

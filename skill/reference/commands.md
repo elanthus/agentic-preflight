@@ -70,7 +70,9 @@ Creates a run and prepares its validation checkout. The default `[worktree] mode
 "in_place"` validates directly in the current clean PR checkout. `mode = "reusable"`
 uses one serial isolated runner and preserves ignored caches between leases. `mode =
 "strict"` creates and removes a fresh isolated worktree per run.
-The intent is required and persisted as the user's objective and acceptance criteria.
+The intent is persisted as the user's objective and acceptance criteria. The parser
+accepts `start` without `--intent`, but the command then fails with exit 3 and
+`intent_required`.
 Different linked source worktrees may run gates concurrently. Repeating `start` with the
 same head, intent, base, and effective configuration resumes that worktree's existing run.
 A moved source head orphans the stale run without deleting its evidence or fixes and then

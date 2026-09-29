@@ -277,7 +277,8 @@ required job and execution step in the latest attempt of the latest matching run
 A PR workflow with the same job name cannot satisfy those bindings. Artifacts and
 agent-provided result JSON are not test authority. The published Git note remains
 unsigned audit evidence for local review; this feature does not authenticate model
-judgment or implement the separate threat model in issue #25.
+judgment or make attestations unforgeable. A signed ledger (issue #25) was closed as
+not planned.
 
 The combined verdict is attached to the exact integration SHA. A head check stays
 pending: GitHub can fall back to head checks while a newly computed integration
