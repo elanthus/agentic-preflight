@@ -80,6 +80,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - Eval fixture trees include `CODEOWNERS` and `AGENTS.md`, and grounding-on runs fail when
   `context` returns no grounding entries.
 - CI diffs the dry eval `summary.json` against `evals/golden/dry-summary.json`.
+- Documentation now matches current behavior for the docs surface, config section
+  replacement, `start --intent`, concurrent worktree modes, and SemVer scope. The push
+  and pull-request authorization rule lives in one section of `docs/configuration.md`.
 
 ### Removed
 
