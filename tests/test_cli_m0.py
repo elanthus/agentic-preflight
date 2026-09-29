@@ -113,16 +113,21 @@ def test_start_records_a_failed_fetch_and_offers_a_way_out(agent, feature_repo, 
     assert agent.run("abort", "--force")["state"] == "ABORTED"
 
 
-def test_a_failed_fetch_never_reports_remote_credentials(agent, feature_repo):
-    from agentic_preflight import runs
+def test_a_failed_fetch_never_reports_remote_credentials(agent, feature_repo, monkeypatch):
+    from agentic_preflight import gitx, runs
 
-    git(
-        "remote",
-        "add",
-        "origin",
-        "https://user:secret-token@nonexistent.invalid/repo.git",
-        cwd=feature_repo,
-    )
+    remote = "https://user:secret-token@nonexistent.invalid/repo.git"
+    git("remote", "add", "origin", remote, cwd=feature_repo)
+    real_run = gitx.run
+
+    # Current Git masks the password in its own message; a transport helper or
+    # older Git may echo the configured URL verbatim, which this reproduces.
+    def echoing_fetch(cwd, *args, **kwargs):
+        if args and args[0] == "fetch":
+            raise gitx.GitError(list(args), 128, f"fatal: unable to access '{remote}/'")
+        return real_run(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(gitx, "run", echoing_fetch)
 
     env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
 
