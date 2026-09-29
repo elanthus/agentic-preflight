@@ -90,7 +90,13 @@ def fail_usage(exc: click.UsageError) -> None:
 class EnvelopeGroup(click.Group):
     """Root group that routes Click usage errors through the JSON envelope."""
 
-    def make_context(self, info_name, args, parent=None, **extra):
+    def make_context(
+        self,
+        info_name: str | None,
+        args: list[str],
+        parent: click.Context | None = None,
+        **extra: Any,
+    ) -> click.Context:
         try:
             return super().make_context(info_name, args, parent=parent, **extra)
         except click.exceptions.NoArgsIsHelpError:
@@ -99,7 +105,7 @@ class EnvelopeGroup(click.Group):
             fail_usage(exc)
             raise
 
-    def invoke(self, ctx):
+    def invoke(self, ctx: click.Context) -> Any:
         try:
             return super().invoke(ctx)
         except click.exceptions.NoArgsIsHelpError:
