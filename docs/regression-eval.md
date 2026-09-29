@@ -50,7 +50,9 @@ Every fixed snapshot changes the gold file, so a finding on that file resolves t
 unit and can count as a false positive.
 Case loading fails unless every gold range intersects the lines changed from base to
 vulnerable. Failures before an accepted submission are
-reported as unresolved; they are not silently converted to catches or misses.
+reported as unresolved; they are not silently converted to catches or misses. A failed
+`init`, `start`, `context`, or `review run` marks only that case and snapshot unresolved,
+and the run continues to write `summary.json` and `summary.md`.
 
 Severity agreement checks whether a matched vulnerable finding falls within the gold severity
 range. Keyword hit rate is the share of matched findings whose title or detail contains a

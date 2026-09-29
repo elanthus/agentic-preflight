@@ -68,6 +68,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
   `config_snapshot` before validating it, so a verifier built from a newer base no
   longer rejects attestations written by an older CLI. Loading a configuration file that
   sets one of these keys still fails with an unknown-key error.
+- A failed `init`, `start`, or `context` in the regression eval now records that case
+  and snapshot as unresolved and the run continues, as documented. Previously it aborted
+  the whole eval without a summary.
 
 ### Added
 
