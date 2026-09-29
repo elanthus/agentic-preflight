@@ -51,6 +51,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
   `r_` followed by 10 lowercase hex digits, so a path-like value never reaches the store.
 - `events` and `status` tolerate a torn final line in a run's event log. A malformed
   earlier line reports `run_record_unreadable` with reason `invalid_events`.
+- `approval-check --reviews-file` reports a reviews file that is not UTF-8 JSON as
+  `invalid_findings` (exit 3), like other JSON file inputs, instead of an internal
+  error.
 
 ### Added
 

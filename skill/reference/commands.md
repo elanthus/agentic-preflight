@@ -235,6 +235,8 @@ exits 4 until an eligible non-author has an `APPROVED` review for the exact curr
 Later dismissal or changes-requested reviews revoke that person's peer approval.
 `--report-only` reports conditional Environment or peer-review state without failing, so
 a trusted workflow can dispatch the appropriate hosted job.
+A reviews file that is not UTF-8 JSON fails with `invalid_findings` (exit 3), as other
+JSON file inputs do.
 
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
 Stages run in the fixed order docs → lint → test after review becomes green. Running lint

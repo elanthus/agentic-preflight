@@ -10,7 +10,7 @@ from typing import Literal
 import click
 
 from . import runs
-from .cli_support import command, finish, finish_locked
+from .cli_support import command, finish, finish_locked, read_json_file
 from .envelope import Envelope, ExitCode
 from .errors import AgenticError, AttestationFailed, NeedsHuman
 from .gitx import GitError
@@ -111,8 +111,8 @@ def approval_check(
     from . import attestation as attestationmod
     from . import gitx
 
+    reviews = read_json_file(str(reviews_file), "reviews file")
     try:
-        reviews = json.loads(reviews_file.read_text(encoding="utf-8"))
         result = approvalmod.evaluate(
             gitx.repo_root(Path.cwd()),
             base_sha=base_sha,
