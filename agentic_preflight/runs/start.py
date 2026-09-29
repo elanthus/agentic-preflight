@@ -26,6 +26,7 @@ from ..errors import (
 )
 from ..machine import TERMINAL_STATES, Action, State
 from ..models import RiskAssessment, RunDoc, SetupFailure
+from ..note_availability import redact_remote_credentials
 from ..stages import shellstage
 from ..stages.protected_output import OutputProtection
 from ..store import CurrentRunExists, UnknownRun
@@ -441,12 +442,12 @@ def _synchronize(ctx: _StartContext) -> _StartContext:
         report = {
             "base_ref": ctx.base_ref,
             "error_type": type(exc).__name__,
-            "detail": str(exc),
+            "detail": redact_remote_credentials(str(exc)),
             "worktree_path": str(wt_path),
         }
         ctx.session.store.append_event(run_id, {"event": "sync_failed", **report})
         raise SyncFailed(
-            f"synchronizing with the fresh remote base failed: {exc}",
+            f"synchronizing with the fresh remote base failed: {report['detail']}",
             state=run.state.value,
             run_id=run_id,
             data=report,
@@ -479,6 +480,14 @@ def _synchronize(ctx: _StartContext) -> _StartContext:
 _SETUP_OUTPUT_TAIL = 4000
 
 
+def _relative_to(path: Path, root: Path) -> str:
+    """Return ``path`` relative to ``root`` when it lies inside it."""
+    try:
+        return Path(path).relative_to(root).as_posix()
+    except ValueError:
+        return Path(path).name
+
+
 def _execute_setup(ctx: _StartContext, copied: list[str]) -> tuple[shellstage.StageResult, Path]:
     """Run the setup command with copied-file redaction and write its log."""
     run_id = cast(str, ctx.run_id)
@@ -491,7 +500,10 @@ def _execute_setup(ctx: _StartContext, copied: list[str]) -> tuple[shellstage.St
         result = shellstage.StageResult(
             command=command,
             exit_code=shellstage.EXIT_UNRUNNABLE,
-            output=f"cannot protect setup output: {exc}",
+            output=(
+                f"cannot protect setup output: copied file {_relative_to(exc.path, wt_path)!r} "
+                "could not be read"
+            ),
         )
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path.write_text(result.output, encoding="utf-8", newline="\n")
