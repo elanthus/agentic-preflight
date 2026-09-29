@@ -261,7 +261,7 @@ def _match_findings(
     """Deterministic maximum-cardinality bipartite match, nearest line first.
 
     Greedy pairing can strand a matchable finding when an earlier one claims
-    its only counterpart (see PR review discussion). Augmenting paths
+    its only counterpart. Augmenting paths
     (Kuhn's algorithm) guarantee maximum cardinality regardless of visit
     order; visiting each side's candidates nearest-line-first is only a
     tie-breaker among matchings of that same maximum size.

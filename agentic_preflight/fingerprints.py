@@ -1,6 +1,6 @@
 """Deterministic applicability fingerprints for reusable preflight evidence.
 
-See ``docs/fingerprint-contract.md`` for the contract implemented for issue #85.
+See ``docs/fingerprint-contract.md`` for the contract this module implements.
 
 This module answers one narrow question: *given the recorded inputs a stage's
 green result depended on, and the same inputs recomputed against a new commit,

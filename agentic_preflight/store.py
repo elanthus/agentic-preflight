@@ -219,8 +219,8 @@ class Store:
 
     @property
     def worktrees_dir(self) -> Path:
-        # ``None`` preserves the v1 location for callers constructing Store
-        # directly. Normal sessions pass the external cache location.
+        # ``None`` keeps worktrees under the store root, for callers constructing
+        # Store directly. Normal sessions pass the external cache location.
         return self._worktrees_root or self.root / "worktrees"
 
     def set_worktrees_root(self, path: Path) -> None:

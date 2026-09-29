@@ -1,17 +1,16 @@
 """Deciding *how* to execute a configured stage command.
 
-``[commands] lint = "ruff check ."`` is stored as an opaque string, and the
-historical implementation handed every one of them to ``bash -lc``. That made a
-POSIX shell a hard runtime dependency for a tool whose actual job is running a
-project's own lint and test commands — the overwhelming majority of which are a
-plain program and its arguments with no shell grammar in sight.
+``[commands] lint = "ruff check ."`` is stored as an opaque string. Handing
+every such string to ``bash -lc`` would make a POSIX shell a hard runtime
+dependency, although most lint and test commands are a plain program and its
+arguments with no shell grammar.
 
 So the string is planned before it is run:
 
 * No unquoted shell metacharacter and a resolvable program -> run the argv
   directly, with no shell on any platform.
 * Anything else (pipes, ``&&``, redirection, globs, expansions, a shell
-  builtin) -> fall back to a shell, exactly as before.
+  builtin) -> run it through a shell.
 
 Direct execution is not merely a portability trick. It removes the shell from
 the injection surface of the one code path that runs repository-controlled
@@ -246,8 +245,8 @@ def resolve_on_path(program: str) -> str | None:
     environment variable and on the Python version, which is no basis for
     deciding what gets executed.
 
-    Searching PATH alone also matches what a shell did here before, and what
-    ``execvp`` does on POSIX. Returning an absolute path then stops
+    Searching PATH alone also matches what a shell and ``execvp`` do on
+    POSIX. Returning an absolute path then stops
     ``CreateProcess`` performing its own current-directory search afterwards.
     """
     for directory in _search_path_entries():

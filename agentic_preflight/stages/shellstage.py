@@ -471,7 +471,7 @@ def read_secrets(worktree_path: Path | str, copied_files: list[str]) -> list[str
         except OSError as exc:
             raise SecretRedactionError(path, str(exc)) from exc
         secrets.extend(_dotenv_values(content))
-        # Retain the previous literal fallback for copied files that are not
+        # Also redact literal lines, for copied files that are not
         # dotenv-formatted. Short *values* above are intentionally included;
         # short arbitrary lines are not, to avoid redacting common log text.
         secrets.extend(line.strip() for line in content.splitlines() if len(line.strip()) > 3)
