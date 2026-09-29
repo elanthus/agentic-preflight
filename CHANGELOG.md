@@ -13,6 +13,18 @@ All notable changes to Agentic Preflight are documented here. This project follo
   non-equivalent merge-back resolution. The stopped run exits 4 with `max_restarts`,
   refuses every command except `status`, `logs`, `events`, and `abort`, and reports
   `validation_restarts`, `max_restarts`, and `needs_human` in `status`.
+- Exit code 6 (`USAGE_ERROR`) for command-line usage errors. An unknown option,
+  missing argument, bad choice, or unknown command now prints one JSON envelope with
+  error code `usage_error` instead of Click's usage text, and exits 6 instead of 2,
+  which collided with stage failure. `hook-check` keeps Click's behaviour.
+
+### Fixed
+
+- `submit-findings --file` and `review compare --file` report a missing, unreadable,
+  or non-UTF-8 file as `invalid_findings` (exit 3) instead of `internal_error`.
+- `respond` refuses `--commit` unless `--action fixed`. The CLI exits 6 with
+  `usage_error`; the Python API raises `invalid_response`. Previously a dismissal or
+  acceptance stored the unverified string as a fix commit.
 
 ## [0.6.0] - 2026-09-13
 

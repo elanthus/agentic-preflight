@@ -72,6 +72,12 @@ The command-line interface, configuration file, attestation schema, and document
 Python API follow Semantic Versioning. Breaking changes are called out in
 `CHANGELOG.md`.
 
+Exit code 6 is new in the release after 0.6.0 and means a command-line usage error.
+Earlier releases exited 2 for usage errors, the same code as a failed stage, and
+printed nothing on stdout. A wrapper that treated exit 2 from a malformed invocation
+as a stage failure should now expect 6 and a `usage_error` envelope. `hook-check`
+still exits 2 on a usage error.
+
 Agentic Preflight 0.6.0 does not read run records or attestation notes written by any
 0.x release. Unsupported saved data is reported as an error and left unchanged with
 the work and ownership information it refers to.

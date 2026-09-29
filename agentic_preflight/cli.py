@@ -11,7 +11,7 @@ from .cli_ci import ci
 from .cli_integrations import register as register_integrations
 from .cli_policy import register as register_policy
 from .cli_runs import register as register_runs
-from .cli_support import as_error, fail
+from .cli_support import EnvelopeGroup, as_error, fail
 from .envelope import ExitCode
 
 
@@ -37,7 +37,7 @@ def _use_utf8_streams() -> None:
             continue
 
 
-@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+@click.group(cls=EnvelopeGroup, context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option(package_name="agentic-preflight")
 @click.option("--run", "run_id", default=None, help="Operate on a specific stored run.")
 @click.pass_context

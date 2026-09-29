@@ -83,7 +83,7 @@ class ScriptedAgent:
             return
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return
         coverage = payload.get("coverage") if isinstance(payload, dict) else None
         if not isinstance(coverage, dict) or coverage.get("manifest") != "$context":

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import traceback
 from collections.abc import Callable
 from functools import wraps
+from pathlib import Path
 from typing import Any
 
 import click
@@ -63,6 +65,71 @@ def finish_locked(callback: Callable[[Any], Envelope]) -> None:
         )
     with session.store.operation(run_id):
         finish(callback(session))
+
+
+#: Commands whose consumer is not the agent and which keep Click's own usage output.
+RAW_COMMANDS = frozenset({"hook-check"})
+
+
+def fail_usage(exc: click.UsageError) -> None:
+    """Emit a Click usage error as one JSON envelope with its own exit code."""
+    message = exc.format_message()
+    ctx = exc.ctx
+    help_command = f"{ctx.command_path} --help" if ctx is not None else "agentic-preflight --help"
+    fail(
+        as_error(
+            "usage_error",
+            message,
+            ExitCode.USAGE_ERROR,
+            f"Fix the invocation: {message} Run `{help_command}` for valid usage.",
+            help_command,
+        )
+    )
+
+
+class EnvelopeGroup(click.Group):
+    """Root group that routes Click usage errors through the JSON envelope."""
+
+    def make_context(self, info_name, args, parent=None, **extra):
+        try:
+            return super().make_context(info_name, args, parent=parent, **extra)
+        except click.exceptions.NoArgsIsHelpError:
+            raise
+        except click.UsageError as exc:
+            fail_usage(exc)
+            raise
+
+    def invoke(self, ctx):
+        try:
+            return super().invoke(ctx)
+        except click.exceptions.NoArgsIsHelpError:
+            raise
+        except click.UsageError as exc:
+            if exc.ctx is not None and exc.ctx.command.name in RAW_COMMANDS:
+                raise
+            fail_usage(exc)
+            raise
+
+
+def _unreadable_input(message: str) -> AgenticError:
+    return as_error(
+        "invalid_findings",
+        message,
+        ExitCode.PRECONDITION,
+        "Write the file as UTF-8 JSON at a readable path, then retry.",
+    )
+
+
+def read_json_file(file_path: str, label: str) -> Any:
+    """Parse a JSON input file, or stdin for ``-``, mapping read failures to an envelope."""
+    try:
+        raw = sys.stdin.read() if file_path == "-" else Path(file_path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise _unreadable_input(f"{label} could not be read as UTF-8 text: {exc}") from exc
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise _unreadable_input(f"{label} is not valid JSON: {exc}") from exc
 
 
 def command(fn):
