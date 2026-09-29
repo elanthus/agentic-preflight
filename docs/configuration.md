@@ -260,6 +260,13 @@ append to it rather than writing a fresh one.
 stage is still red after `max_attempts`, the run stops and asks for human resolution
 rather than retrying indefinitely.
 
+When `timeout_seconds` expires, the stage's whole process group is killed and the stage
+exits 124. Output is collected for at most a few more seconds, so a descendant that left
+the process group and still holds the output pipe cannot keep the stage open. When that
+happens the captured output is discarded and the stage output ends with an
+`[output truncated: ...]` line after the timeout marker. On POSIX, SIGTERM or SIGINT
+delivered to the CLI while a stage runs also kills that stage's process group.
+
 `max_restarts` bounds the whole run rather than one stage. Validation restarts whenever
 it returns to review after making progress: a committed lint or test repair, a repair
 that changes the reviewed snapshot, changed stage inputs, or a merge-back resolution that
