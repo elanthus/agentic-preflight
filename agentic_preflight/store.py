@@ -8,10 +8,7 @@ invocations — it lives on disk and every mutation follows the same discipline:
 all of it inside a :mod:`~agentic_preflight.filelock` exclusive lock held for the
 entire read-modify-write window.
 Two parallel ``Bash`` calls in a single agent turn are a real hazard, not a
-theoretical one. ``expect_seq`` is the second, independent defense: it catches a
-*logically* stale write (the caller read the document, thought about it for a
-turn, and is now writing back over someone else's newer version) which locking
-alone cannot detect.
+theoretical one.
 """
 
 from __future__ import annotations
@@ -115,19 +112,6 @@ class UnknownRun(StoreError):
     def __init__(self, run_id: str) -> None:
         super().__init__(f"no such run: {run_id}")
         self.run_id = run_id
-
-
-class StaleWrite(StoreError):
-    """The document moved on since the caller last read it."""
-
-    def __init__(self, run_id: str, expected: int, actual: int) -> None:
-        super().__init__(
-            f"refusing stale write to {run_id}: expected seq {expected}, "
-            f"found seq {actual}; run `agentic-preflight status` and retry"
-        )
-        self.run_id = run_id
-        self.expected = expected
-        self.actual = actual
 
 
 class CurrentRunExists(StoreError):
@@ -345,7 +329,6 @@ class Store:
         self,
         run_id: str,
         *,
-        expect_seq: int | None = None,
         findings: list[Finding] | None = None,
     ) -> Iterator[RunDoc]:
         """Read-modify-write a run document under an exclusive lock.
@@ -364,8 +347,6 @@ class Store:
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
             self._recover_update(run_id)
             run = self._load_run(run_id)
-            if expect_seq is not None and run.seq != expect_seq:
-                raise StaleWrite(run_id, expect_seq, run.seq)
 
             yield run
 
@@ -459,8 +440,19 @@ class Store:
         path = self.events_path(run_id)
         if not path.exists():
             return []
-        lines = path.read_text(encoding="utf-8").splitlines()
-        return [json.loads(line) for line in lines if line.strip()]
+        lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        events: list[dict] = []
+        for index, line in enumerate(lines):
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                # An interrupted append can leave a partial last line; only that is survivable.
+                if index == len(lines) - 1:
+                    break
+                raise RunReadError(
+                    run_id, path, "invalid_events", f"event line {index + 1}: {exc}"
+                ) from exc
+        return events
 
     # -- active-run pointers -------------------------------------------------
 

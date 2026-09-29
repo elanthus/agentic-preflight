@@ -53,6 +53,10 @@ class RefUpdate:
         return self.local_ref == NOTES_REF
 
     @property
+    def is_tag(self) -> bool:
+        return self.remote_ref.startswith("refs/tags/")
+
+    @property
     def is_evidence_object(self) -> bool:
         # Only the destination namespace is exempt. An evidence ref used as the
         # source of a branch push must still satisfy the ordinary branch gate.
@@ -102,7 +106,12 @@ def evaluate(
                     fix="keep evidence refs while published notes depend on them",
                 ),
             )
-        if update.is_deletion or update.is_attestation_note or update.is_evidence_object:
+        if (
+            update.is_deletion
+            or update.is_attestation_note
+            or update.is_evidence_object
+            or update.is_tag
+        ):
             continue
 
         forced = update.remote_sha != ZERO_SHA and not is_ancestor(
@@ -122,6 +131,10 @@ def evaluate(
                     fix="rebase onto the remote tip, or set [hook] allow_force_push = true",
                 ),
             )
+
+        # The remote already has this commit, so the push publishes nothing new.
+        if update.remote_sha != ZERO_SHA and is_ancestor(update.local_sha, update.remote_sha):
+            continue
 
         if not has_attestation(update.local_sha):
             return Decision(

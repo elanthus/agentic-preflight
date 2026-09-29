@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import tomllib
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from . import attestation, gitx, risk
-from .config import Config, load_config
+from .config import REPO_CONFIG_NAME, Config
 from .models import Attestation, RiskLevel
 
 _DECISIVE_REVIEW_STATES = {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}
@@ -79,7 +80,7 @@ def evaluate(
     """Evaluate whether the exact PR head satisfies its merge-review policy."""
     repo = Path(repo)
     value = attestation.verify(repo, head_sha)
-    cfg = load_config(repo)
+    cfg = base_policy(repo, base_sha)
     return evaluate_value(
         repo,
         value=value,
@@ -90,6 +91,17 @@ def evaluate(
         pull_request_author=pull_request_author,
         environment_approved=environment_approved,
     )
+
+
+def base_policy(repo: Path | str, base_sha: str) -> Config:
+    """Read the approval policy committed at the protected base, never the PR head."""
+    if not gitx.out(repo, "ls-tree", "--name-only", base_sha, "--", REPO_CONFIG_NAME).strip():
+        return Config()
+    contents = gitx.out(repo, "show", f"{base_sha}:{REPO_CONFIG_NAME}")
+    try:
+        return Config.model_validate(tomllib.loads(contents))
+    except ValueError as exc:
+        raise ValueError(f"invalid protected policy: {exc}") from exc
 
 
 def evaluate_value(

@@ -529,3 +529,36 @@ def test_attestation_note_ref_updates_are_not_treated_as_commit_pushes():
         has_attestation=lambda _: False,
     )
     assert decision.allowed is True
+
+
+def test_a_tag_push_needs_no_attestation():
+    update = hook.RefUpdate("refs/tags/v1.0.0", "a" * 40, "refs/tags/v1.0.0", ZERO)
+    decision = hook.evaluate(
+        [update], is_ancestor=lambda *_: False, has_attestation=lambda _: False
+    )
+    assert decision.allowed is True
+
+
+def test_pushing_a_commit_the_remote_already_has_needs_no_attestation():
+    """A permitted rewind to a commit the remote tip already contains publishes nothing new."""
+    local = "a" * 40
+    remote = "b" * 40
+    update = hook.RefUpdate("refs/heads/main", local, "refs/heads/main", remote)
+    decision = hook.evaluate(
+        [update],
+        is_ancestor=lambda a, b: (a, b) == (local, remote),
+        has_attestation=lambda _: False,
+        allow_force_push=True,
+    )
+    assert decision.allowed is True
+
+
+def test_a_new_branch_commit_without_attestation_is_still_blocked():
+    update = hook.RefUpdate("refs/heads/feature/x", "a" * 40, "refs/heads/feature/x", "b" * 40)
+    decision = hook.evaluate(
+        [update],
+        is_ancestor=lambda a, b: (a, b) == ("b" * 40, "a" * 40),
+        has_attestation=lambda _: False,
+    )
+    assert decision.allowed is False
+    assert decision.reason == "not green"

@@ -82,6 +82,9 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
    git push origin "v$release_version"
    ```
 
+   The pre-push hook does not require an attestation for tag pushes, so this works
+   when the tagged commit is a merge commit created on GitHub.
+
 6. The tag run starts two jobs in parallel. `test` exercises the full matrix of
    Ubuntu, macOS, and Windows against Python 3.11, 3.12, and 3.13. `build` verifies the tag
    matches `pyproject.toml`, builds the sdist and wheel, and smoke-tests the wheel.

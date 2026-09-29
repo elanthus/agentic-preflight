@@ -64,7 +64,7 @@ def test_committed_pair_rolls_forward_after_every_install_boundary(
     assert reopened.load_run("r_abc123").seq == 1
     assert reopened.load_findings("r_abc123") == [_finding()]
     assert not reopened.update_path("r_abc123").exists()
-    with reopened.transaction("r_abc123", expect_seq=1) as run:
+    with reopened.transaction("r_abc123") as run:
         run.stale = True
     assert reopened.load_run("r_abc123").seq == 2
 

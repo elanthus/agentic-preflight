@@ -151,6 +151,9 @@ Make **high-risk human approval** a required status check on `main`; keep **Requ
 review from Code Owners** enabled as the stricter ownership rule for sensitive paths.
 Because the workflow and policy are loaded from the protected base, a pull request that
 changes approval mode is judged by the old mode until that change is merged.
+`approval-check SHA --base BASE` reads `[policy]` and `[approval]` from the
+`.agentic-preflight.toml` committed at `BASE`, not from the checked-out working tree or
+user configuration. A base commit with no such file uses the defaults.
 
 ## Dependabot and other bot-authored pull requests
 

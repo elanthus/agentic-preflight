@@ -153,9 +153,9 @@ def test_respond_tolerates_the_stage_advancing_before_the_transaction_lock(block
     advanced = False
 
     @contextmanager
-    def advance_before_yield(self, run_id, *, expect_seq=None, findings=None):
+    def advance_before_yield(self, run_id, *, findings=None):
         nonlocal advanced
-        with original_transaction(self, run_id, expect_seq=expect_seq, findings=findings) as doc:
+        with original_transaction(self, run_id, findings=findings) as doc:
             if not advanced:
                 doc.state = State.REVIEW_GREEN
                 advanced = True
