@@ -36,12 +36,12 @@ The fixed counts and the excerpts used to classify them are preserved in the
 Evidence ledgers are collection records and are never edited by hand after collection.
 A correction is a fresh collection with a new `collected_at` value.
 
-"Explicitly record" is deliberately narrower than "used." A merged PR is counted only
+"Explicitly record" is narrower than "used." A merged PR is counted only
 when its description contains positive workflow-status evidence for Preflight or a
 detailed `F`-identifier-and-severity finding record. Package paths such as
 `agentic_preflight` do not qualify by themselves. A statement such as "no findings"
 records use but not a concrete finding, and a hypothetical "preflight caught no issue"
-does not qualify as a finding. This avoids claiming that all 153 merged PRs were gated
+does not qualify as a finding. This avoids claiming that all 153 merged PRs had a run
 when the public record does not prove that.
 
 The aggregate was produced from the `number`, `createdAt`, `mergedAt`, `closedAt`,
@@ -168,7 +168,7 @@ same issue. Neither 40 nor the combined 64 measures distinct defects fixed, prev
 incidents, or reviewer recall. The newer record supports sustained use and documented
 repair loops while continuing to show why hosted checks and additional review matter.
 
-## What the original sample's gate caught
+## What the original sample's runs caught
 
 The representative findings were semantic rather than syntax errors. Their PR records
 describe regression coverage added with the repairs and final configured stages green,
@@ -236,7 +236,7 @@ The review record includes both missed protection and over-broad protection:
   It would fail when a canary correctly remained confined to its source. The repair
   excludes raw source material and tests that boundary.
 
-The third example mattered because a gate that reports expected containment as a
+The third example mattered because a check that reports expected containment as a
 failure trains users to ignore it. False-positive boundaries are part of safety design,
 not merely review polish.
 
@@ -262,7 +262,7 @@ rescore, or cache hit violated the stronger contract.
 
 ## How findings changed publication in the original sample
 
-The gate did more than write comments. Blocking findings stopped the state machine,
+The runs did more than write comments. Blocking findings stopped the state machine,
 repair commits changed the reviewed snapshot, and the next review used a new manifest.
 High-risk paths and high-severity findings also produced human-review verdicts rather
 than allowing an automatic merge path. PR descriptions such as
@@ -298,11 +298,11 @@ made.
 
 The original sample and follow-up support a bounded claim: Agentic Preflight repeatedly
 converted agent review judgments into snapshot-bound repair loops and publication decisions across
-four materially different repositories. Its highest-value catches were semantic
+four different repositories. Its highest-value catches were semantic
 boundary failures—stale evidence, approval eligibility, secret normalization, trust
 domain selection, resumability, and immutable inputs—that deterministic tests alone had
 not made visible in the proposed changes.
 
 The sample does not establish autonomous review quality. It does show why the project
 records coverage, findings, stage results, and human-review requirements separately: a
-useful gate must preserve both what it checked and what that check cannot prove.
+useful check must preserve both what it checked and what that check cannot prove.

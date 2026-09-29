@@ -401,5 +401,5 @@ Lint remains local. The
 The workflow's protected commands define remote test execution. Local
 `[commands] test` remains available for repositories using local authority, but is
 not executed or recorded as CI evidence under delegation. The state becomes
-`TEST_DELEGATED`, then `PUBLICATION_READY` after mergeback. Publication can proceed
+`TEST_DELEGATED`, then `PUBLICATION_READY` after merge-back. Publication can proceed
 with tests pending; `ci status` determines live merge readiness separately.

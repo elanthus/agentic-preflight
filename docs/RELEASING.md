@@ -29,7 +29,7 @@ publishing page before the first upload.
 In **Settings → Environments → New environment**, name it `pypi`, then add
 yourself under **Required reviewers**.
 
-This is the release gate: the `publish` job cannot start until a human approves
+This is the release approval step: the `publish` job cannot start until a human approves
 it, and until then nothing has been uploaded.
 
 Optionally restrict the environment's deployment branches to tags matching `v*`.
@@ -118,5 +118,5 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
   is included in the workflow artifact under `sbom/`.
 - **Testing the flow end to end** against TestPyPI requires a second pending
   publisher on <https://test.pypi.org> and a `repository-url` input on the
-  publish step. Because the environment gate already prevents an accidental
+  publish step. Because the environment approval already prevents an accidental
   upload, this is usually not worth maintaining.

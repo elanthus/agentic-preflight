@@ -57,7 +57,7 @@ range. Keyword hit rate is the share of matched findings whose title or detail c
 substring from a fixed per-category keyword map. It confirms vocabulary, not whether the
 reviewer's reasoning is sound, and the scripted details were written to hit the map, so the
 dry-mode value is 1.0 by construction. Severity agreement and keyword hit rate are reported
-separately and never gate execution.
+separately and never block execution.
 
 `summary.json` records the current `method_version` and contains per-case snapshot evidence
 and aggregate catch, fixed false-positive, unresolved, severity-agreement, and
@@ -106,7 +106,7 @@ provider-request or spend cap.
 
 ## Limits
 
-The corpus is synthetic and tiny. Its defects are deliberately legible and do not represent
+The corpus is synthetic and tiny. Its defects are intentionally legible and do not represent
 the breadth, ambiguity, or base rates of production changes. Real-mode catch rates from this
 corpus are inflated for three further reasons:
 

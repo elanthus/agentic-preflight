@@ -1,6 +1,6 @@
 ---
 name: agentic-preflight
-description: Use when shipping a branch — reviewing, documenting, linting, testing, and pushing work behind a quality gate. Also use when a push is blocked by the agentic-preflight pre-push hook or when the user says agentic-preflight:uninstall to remove this tool from the current project.
+description: Use when shipping a branch — reviewing, documenting, linting, testing, and pushing work through Agentic Preflight. Also use when a push is blocked by the agentic-preflight pre-push hook or when the user says agentic-preflight:uninstall to remove this tool from the current project.
 ---
 
 # agentic-preflight
@@ -48,8 +48,8 @@ Python here never calls a model — every judgment in this workflow is yours.
    retry `mergeback` and retain completed evidence. If it differs, obey the CLI's required
    evidence invalidation and revalidation path. Stop and ask only when those bounded
    recovery conditions are not established.
-7. **Keep the validation checkout clean for the whole run.** The default
-   `in_place` mode uses the current checkout, so only deliberate repair commits may
+7. **Keep the validation worktree clean for the whole run.** The default
+   `in_place` mode uses the current checkout, so only accepted repair commits may
    move its branch; uncommitted changes or an unaccounted commit stop the run.
    `.agentic-preflight.toml` must be committed **before `start`** and must not be edited
    mid-run. In `reusable` or `strict` mode, make repairs only in the absolute
@@ -126,7 +126,7 @@ $ agentic-preflight stage run lint
 {"ok":true,"state":"LINT_GREEN","next":{"command":"agentic-preflight stage run test"}}
 
 # For a documentation/CI-configuration-only diff, green lint instead records test
-# as skipped and returns TEST_GREEN with mergeback as next. Obey the envelope.
+# as skipped and returns TEST_GREEN with `mergeback` as next. Obey the envelope.
 
 $ agentic-preflight stage run test
 {"ok":true,"state":"TEST_GREEN","next":{"command":"agentic-preflight mergeback"}}
@@ -161,9 +161,9 @@ $ gh pr view "$PR_URL" --json url,state,mergedAt,headRefName,headRefOid,baseRefN
 # Manual PR mode: never create it. Give the user the repository compare URL instead.
 ```
 
-Work happens in the absolute **validation checkout** named by `worktree_path`. In the
+Work happens in the absolute **validation worktree** named by `worktree_path`. In the
 default `in_place` mode that is the current PR checkout; in `reusable` and `strict`
-modes it is an isolated worktree. Never assume `cd` persists between tool calls.
+modes it is an isolated validation worktree. Never assume `cd` persists between tool calls.
 The complete command and option reference is in `reference/commands.md`; use it when
 an envelope calls for a command or recovery path not expanded in this playbook.
 
@@ -181,12 +181,12 @@ quiet while code verifies that no delivered unit disappears.
 | `medium` | Real problem, not urgent | Duplicated logic that will drift; missing edge-case handling |
 | `low` | Style, naming, nits | Inconsistent naming; a stale comment |
 
-`critical` and `high` block by default. Pick the action deliberately:
+`critical` and `high` block by default. Choose the action:
 
 - **`auto_fix`** — mechanical and locally verifiable. You can fix it correctly
   without asking anyone. Most findings should be this.
 - **`ask_user`** — a behavioural, API, or product judgment where competing reasonable
-  interpretations would materially change behaviour or scope. **Blocks at any severity**.
+  interpretations would change behaviour or scope. **Blocks at any severity**.
   Routine decisions already fixed by the request, acceptance criteria, or an established
   repository contract should proceed without asking.
 - **`no_op`** — worth recording, not worth acting on.
@@ -227,7 +227,7 @@ Full rubric: `reference/docs-rubric.md`.
 When protected `[ci] test_authority = "github_actions"` is enabled, obey
 `TEST_DELEGATED` and `PUBLICATION_READY` as publication states. Tests are pending;
 do not run a local test command to make those states green, and do not describe
-them as skipped or passed. The gate and hook use the publication predicate so the
+them as skipped or passed. The `gate` command and the pre-push hook use the publication predicate so the
 first push can start CI. Publication authorization remains unchanged.
 
 After opening the PR, use `agentic-preflight ci status --repo OWNER/REPO --pr N` to
@@ -274,7 +274,7 @@ numbering, they do not restart. Full field reference:
 | 4 | Human resolution required | Show the recovery material. Resolve only the bounded, unambiguous merge-back cases described above; otherwise stop. |
 | 5 | Confirmation required | Apply the authorization rules above; ask only if needed, then re-run with the token |
 | 6 | Command-line usage error (`usage_error`): unknown option, missing argument, bad choice | Read `error.message`, run `next.command` for valid usage, and fix the invocation |
-| 10 | Hook blocked a push | Run the gate: `agentic-preflight start --intent "..."` |
+| 10 | Hook blocked a push | Start a run: `agentic-preflight start --intent "..."` |
 
 **Universal recovery rule: any exit 3 → run `status` → obey `next`.** `status` is legal
 in every state. If you are ever unsure where you are, that is always the right call.
@@ -305,7 +305,7 @@ stops — do not improvise a recovery from the symptom alone.
 | Stage far slower than normal | Check `[worktree] mode` before raising `max_attempts` |
 | Copy refused (exit 3) | `copy_files` entry is not gitignored; do not work around it |
 | Stage reports zero files to work on | Check whether `worktree_path` is under `.git/` |
-| Green in your shell, red under the gate | Compare the gate's non-interactive toolchain and `PATH` with your shell |
+| Green in your shell, red in a stage | Compare the stage's non-interactive toolchain and `PATH` with your shell |
 
 ## Escalation etiquette
 
@@ -380,7 +380,7 @@ cleanup.
 Publish the **findings** in the PR body passed to `gh`: id, severity, path, and the
 commit that resolved each. That is the part CI cannot reproduce — no test
 suite tells a reviewer which judgment calls were made — and it stops a human
-re-deriving what the gate already caught.
+re-deriving what the run already caught.
 
 The commit's Git-note attestation already carries review coverage plus the local stage
 commands, exit codes, and output hashes. Do not copy those into the PR body; if the repo
@@ -390,7 +390,7 @@ Publish the gaps in the same breath: a bypassed hook, a stage that could not run
 SHA with no green run. An attestation that can only report success is marketing, and a
 partial record that reads as complete is worse than none.
 
-State the limit plainly when you show it: this proves what the gate *reported*, including
+State the limit plainly when you show it: this proves what the stages *reported*, including
 that every delivered unit was cited or marked examined clean; it does not prove the agent
 understood those units or that the review was good. The same diff reviewed twice can
 yield different findings. It is an audit trail, not a quality proof, and it substitutes
@@ -416,7 +416,7 @@ hooks/pre-push` and inspect both it and the repository status. Then:
 
 Do not remove other hook behavior, `.git/agentic-preflight` run history, or
 `refs/notes/agentic-preflight`. Report every path removed, anything already absent,
-and anything deliberately preserved.
+and anything intentionally preserved.
 
 ## Cleanup after a merge
 
@@ -443,6 +443,6 @@ report the exact targets removed, every preserved mismatch, and whether either s
 branch was already absent.
 
 For a pushed run with no PR, follow `finish` with `gc`. `gc` compares original fixes
-with post-mergeback history using stable patch IDs. Only patch-equivalent fixes are
+with post-merge-back history using stable patch IDs. Only patch-equivalent fixes are
 reclaimed automatically; anything unmerged is retained unless the user explicitly
-chooses `--force`. Run directories remain because they hold durable stage logs.
+chooses `--force`. Run directories remain because they hold stage logs.

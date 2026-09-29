@@ -5,7 +5,7 @@ Where a run validates, and what it is allowed to touch while doing so.
 ## Concurrent source worktrees
 
 Active ownership is scoped to the source worktree's private Git directory. Linked
-worktrees in one clone therefore run independent gates: one agent can wait for review
+worktrees in one clone therefore have independent runs: one agent can wait for review
 input while another reviews, tests, or publishes another PR branch. Per-run state changes
 remain serialized, and the shared Git-notes ref is reconciled under a narrow publication
 lock so concurrent attestations are preserved.
@@ -15,7 +15,7 @@ lock so concurrent attestations are preserved.
 select a stored run explicitly. Commands selected that way operate on the recorded source
 checkout when it still exists; they do not mutate whichever unrelated worktree happened
 to invoke them. If that source checkout was deleted, `status`, `events`, and `logs` remain
-available for inspection, but gated mutations fail with `source_worktree_missing` and
+available for inspection, but mutating commands fail with `source_worktree_missing` and
 direct recovery to `gc` from a surviving worktree in the same clone.
 A `RUN_ID` must be `r_` followed by 10 lowercase hex digits; any other value fails with
 `invalid_run_id` and exit code 6 before the run store is opened.
@@ -32,11 +32,11 @@ never delete an alias merely to make an unreadable run look absent.
 
 A repeated `start` with the same head, intent, base, and effective configuration resumes
 the matching run. If the source head moved, `start` marks the old run `ORPHANED` and
-continues without deleting its evidence, validation checkout, or fix commits. A different
+continues without deleting its evidence, validation worktree, or fix commits. A different
 intent on the same unchanged head is ambiguous and requires `start --replace`; replacement
 has the same preserve-first behavior. No run expires merely because it is old.
 
-`reusable` mode still has one cached validation runner and is intentionally serial among
+`reusable` mode still has one cached validation worktree and is intentionally serial among
 its users. That resource lease does not block `in_place` or `strict` runs in other source
 worktrees. [ADR 0002](adr/0002-scope-run-ownership-to-worktrees.md) records the ownership
 and lock-boundary decision.
@@ -55,12 +55,12 @@ explicit `setup_command` still runs.
 
 ## `reusable`
 
-Leases one runner in a hidden sibling directory, serially across runs, preserving ignored
+Leases one validation worktree in a hidden sibling directory, serially across runs, preserving ignored
 dependency and build caches.
 
 Between leases it resets tracked files, removes non-ignored untracked files, explicitly
-removes every `[worktree] copy_files` entry, and then detaches the runner. Other ignored
-files survive deliberately.
+removes every `[worktree] copy_files` entry, and then detaches the validation worktree. Other ignored
+files are kept so dependency and build caches survive.
 
 **This is not a hermetic environment**: a test can mutate an ignored cache. It reduces
 local disk churn, nothing more.
@@ -72,12 +72,12 @@ validation must begin with no retained artifacts.
 
 Remote CI should remain the clean verification boundary in either isolated mode.
 
-## Why isolated runners live outside `.git`
+## Why isolated validation worktrees live outside `.git`
 
 Both isolated modes keep the source checkout untouched during verification, and both put
-the runner outside `.git` so that tools ignoring VCS directories can still see it. Jest is
+the validation worktree outside `.git` so that tools ignoring VCS directories can still see it. Jest is
 the common case: `jest-haste-map` ORs a hardcoded `/.git/` ignore into its crawl with no
-config override, so a runner inside `.git` finds zero test files no matter how healthy the
+config override, so a validation worktree inside `.git` finds zero test files no matter how healthy the
 code is.
 
 ## Switching modes
@@ -92,7 +92,7 @@ mode = "in_place" # default; validate and repair directly in this clean PR check
 
 ```toml
 [worktree]
-mode = "reusable" # one serial isolated runner; retained ignored caches
+mode = "reusable" # one serial validation worktree; retained ignored caches
 ```
 
 ```toml
@@ -100,23 +100,23 @@ mode = "reusable" # one serial isolated runner; retained ignored caches
 mode = "strict"   # fresh worktree with no retained artifacts
 ```
 
-The first strict run removes any idle reusable runner. Switching back to reusable mode
-therefore starts with no retained cache. In-place mode leaves an idle reusable runner
+The first strict run removes any idle reusable validation worktree. Switching back to reusable mode
+therefore starts with no retained cache. In-place mode leaves an idle reusable validation worktree
 alone.
 
 ## Secrets in worktrees
 
-Files in `[worktree] copy_files` are used in place or copied into an isolated worktree so
+Files in `[worktree] copy_files` are used in place or copied into an isolated validation worktree so
 tests can run, and are protected by two independent guards:
 
-1. **Preflight refusal** — a file git is not already ignoring in the validation checkout
+1. **Preflight refusal** — a file git is not already ignoring in the validation worktree
    is never used or copied. Add it to `.gitignore` and commit that first.
 2. **Commit-content invariant** — any commit touching a copied path is rejected by both
    `respond` and `mergeback`, checked against commit content rather than ignore rules, so
    a `.gitignore` edited mid-run cannot open the hole.
 
 Isolated copies are owner-only (`0600` on POSIX, a restricted ACL on Windows) and are
-removed explicitly when a reusable runner is released, or die with a strict worktree.
+removed explicitly when a reusable validation worktree is released, or die with a strict worktree.
 In-place files are never moved or removed. Their
 dotenv assignment values (including exported, quoted, multiline, and short non-empty
 values) are redacted when they appear verbatim in captured stage output, before that
@@ -126,10 +126,10 @@ or derived values are outside this guarantee.
 
 `copy_files` is for ignored files such as `.env`, not for directories.
 
-## Preparing the validation checkout
+## Preparing the validation worktree
 
 Agentic Preflight does not install dependencies automatically. Configure
-`[worktree] setup_command` when a validation checkout needs preparation, for example
+`[worktree] setup_command` when a validation worktree needs preparation, for example
 `uv sync`, `npm ci`, or `pnpm install --frozen-lockfile`.
 
 The command runs before review in every worktree mode and before a `--baseline` stage in

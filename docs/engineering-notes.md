@@ -8,7 +8,7 @@ Agentic Preflight. Product users should start with the [README](../README.md).
 Across two observation windows—August 3–17 and August 18–September 6, 2026—the public
 record of four owner-operated repositories contains 408 merged pull requests. Of those,
 323 descriptions explicitly record Agentic Preflight use and 64 contain a concrete
-finding record, including documentation issues and deliberately retained observations.
+finding record, including documentation issues and recorded `no_op` observations.
 The follow-up adds schema-adaptation, spending-cap, and retrieval-coverage findings,
 alongside cases where later review and CI still found gaps.
 
@@ -41,10 +41,10 @@ package is daemonless and does not call a model. It delegates judgment to the co
 already active in the workspace or, when repository policy requires one, an independent
 command reviewer.
 
-The implementation emphasizes Git semantics and durable, inspectable evidence:
+The implementation emphasizes Git semantics and inspectable evidence stored with the commit:
 
 - State transitions make review, documentation, lint, test, merge-back, and approval
-  load-bearing gates. Inapplicable stages advance through explicit skip transitions.
+  required stages. Inapplicable stages advance through explicit skip transitions.
 - Review submissions bind complete changed-hunk coverage to a snapshot manifest instead
   of accepting a findings-only payload.
 - Successful runs produce schema-validated Git notes bound to the exact commit and tree.
@@ -73,26 +73,26 @@ Agentic Preflight was inspired by [`no-mistakes`](https://github.com/kunchenguid
 and its staged review, test, documentation, lint, push, pull-request, and CI workflow. As
 of [`no-mistakes` v1.48.0](https://github.com/kunchenguid/no-mistakes/releases/tag/v1.48.0),
 both projects bind publication to reviewed work and both emit structured evidence. They
-make different tradeoffs about workflow ownership and what the durable record proves:
+make different tradeoffs about workflow ownership and what the stored record proves:
 
 | Area | `no-mistakes` | Agentic Preflight |
 |---|---|---|
 | Agent execution | Launches a required, configurable pipeline agent with ordered fallbacks | Uses the active coding agent by default; an external command reviewer can be required by risk |
 | Git integration | Routes an opted-in push through a local proxy remote | Uses an advisory pre-push hook; manual mode disables the CLI's own push path |
-| Stage control | Fixes the stage order but permits per-run and approval-time skips | Makes every gate load-bearing; only explicit code/config-driven skips traverse it and record a reason |
-| Review completeness | Reviews the diff and records the exact approved head | Inventories every included changed hunk and non-text change after `[diff] exclude`, then requires a snapshot-bound `examined: "all"` assertion and derives a cited/clean receipt |
-| Durable evidence | Writes a data-only step-status snapshot into the PR body; it can become stale until the body is rewritten | Atomically pushes a schema-validated Git note bound to the exact commit and tree, with config/intent bindings, review coverage, executor evidence, and shell-output hashes |
+| Stage control | Fixes the stage order but permits per-run and approval-time skips | Requires every stage; only explicit code- or config-driven skips bypass one, and each records a reason |
+| Review completeness | Reviews the diff and records the exact approved head | Inventories every included changed hunk and non-text change after `[diff] exclude`, then requires a snapshot-bound `examined: "all"` assertion and derives a cited or clean result for each unit |
+| Stored evidence | Writes a data-only step-status snapshot into the PR body; it can become stale until the body is rewritten | Atomically pushes a schema-validated Git note bound to the exact commit and tree, with config/intent bindings, review coverage, executor evidence, and shell-output hashes |
 | Risk and approval | The reviewer returns `risk_level` and rationale; findings pause for user action | Repository path policy and recorded findings deterministically derive risk; the model cannot lower the verdict |
 | Publication approval | Automatically forwards the validated branch after the local pipeline | Shows the exact remote, branch, commits, and risk before a token-gated push, or refuses its own push in manual mode |
 | Local architecture | Runs a daemon, proxy repository, SQLite store, TUI, and disposable worktrees | Runs as a daemonless JSON-over-stdout CLI with file-based state and an agent skill |
-| Validation checkout | Always isolates the pipeline in a disposable worktree | Offers in-place, reusable isolated, and fresh strict worktree modes |
+| Validation worktree | Always isolates the pipeline in a disposable worktree | Offers in-place, reusable isolated, and fresh strict worktree modes |
 | Hosted lifecycle | Creates PRs across several forges, monitors CI, and can auto-fix failures | Uses the active agent and `gh` for PR creation, check monitoring, and opt-in cleanup; opt-in test authority adds protected dispatch and live CI verification in the CLI |
 | Runtime and platforms | Ships as a Go application for macOS, Linux, and Windows | Ships as a Python package for supported macOS, Linux, and Windows combinations |
 
 ## Scope of the evidence
 
 The case study is observational, the public regression corpus is synthetic, and clean
-review receipts prove reported coverage rather than reviewer understanding. Together,
+review attestations prove reported coverage rather than reviewer understanding. Together,
 the artifacts show the project's design choices, reproducibility practices, and use on
 owner-operated repositories. They do not demonstrate external adoption or replace an
 independent product-quality assessment.

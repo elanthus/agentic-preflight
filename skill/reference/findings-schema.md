@@ -42,7 +42,7 @@ valid and is the most common correct answer. A findings-only review submission i
 
 **`id`, `stage`, and `code_owned` are not yours to set.** They are assigned by the
 CLI, and sending any of them is a hard validation error rather than a silently ignored
-field. This is deliberate: a hallucinated ID that got quietly honoured would corrupt
+field. A hallucinated ID that got quietly honoured would corrupt
 the `respond --id` protocol for the rest of the run, while spoofed ownership would
 bypass the repository's severity policy.
 
@@ -99,11 +99,11 @@ snapshot, so they return the run to review; note-only dispositions keep the stag
 without anyone's input. A missing null check, a wrong comparison operator, an unhandled
 exception. Most findings.
 
-**`ask_user`** — competing reasonable interpretations would materially change behaviour
+**`ask_user`** — competing reasonable interpretations would change behaviour
 or scope, and the request, acceptance criteria, and established repository contract do
 not settle the choice. For example: is this API meant to be public, is a behaviour
 change deliberate, or is a trade-off acceptable? Routine decisions those sources already
 settle should proceed rather than becoming `ask_user` findings.
 
 **`no_op`** — worth recording so it is visible, not worth acting on. Use sparingly:
-findings nobody acts on are what makes people switch a gate off.
+findings nobody acts on are what makes people switch a stage off.

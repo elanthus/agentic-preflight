@@ -1,6 +1,6 @@
 # Limits
 
-The [README](../README.md#limits) introduces the main limits: the gate is advisory
+The [README](../README.md#limits) introduces the main limits: Agentic Preflight is advisory
 rather than a security boundary, `git push --no-verify` bypasses it by design, and the
 confirmation token prevents accidental pushes but is not a secret. This page covers the rest.
 
@@ -25,7 +25,7 @@ These labels and placements make repository text distinguishable from protocol g
 and prevent the CLI from directly proposing a repository-supplied shell command. They do not
 sandbox repository commands or stop a shell-capable agent that ignores its installed skill,
 misreads repository content as instructions, or invokes Git directly. Agentic Preflight
-remains an advisory gate rather than a security boundary.
+remains advisory rather than a security boundary.
 
 ## History rewrites require evidence refresh
 
@@ -54,10 +54,10 @@ Agentic Preflight refuses to start or merge back while the checkout has a rebase
 cherry-pick, or merge in progress. Finish or abort that Git operation yourself first;
 the tool never aborts an operation it did not start.
 
-## Isolated worktrees can differ from your environment
+## Isolated validation worktrees can differ from your environment
 
-In-place mode deliberately uses the checkout's existing dependencies and ignored files. An
-isolated runner does not inherit the source checkout's `.venv`, `node_modules`, or `.env`.
+In-place mode uses the checkout's existing dependencies and ignored files. An
+isolated validation worktree does not inherit the source checkout's `.venv`, `node_modules`, or `.env`.
 
 - Configure `[worktree] setup_command` to install dependencies or prepare ignored build
   inputs. Agentic Preflight does not select a package manager or install automatically.
@@ -70,7 +70,7 @@ Use `--baseline` so a pre-existing failure is reported rather than blamed on you
 
 ## What a green run does and does not prove
 
-It proves what the gate reported: that the configured in-harness or command executor
+It proves what the stages reported: that the configured in-harness or command executor
 accounted for every included review unit in a snapshot-bound diff manifest, that the
 executed green commands exited zero against their recorded execution commits, and which
 judgment calls were recorded along the way. Command review additionally carries its command, zero exit code,
@@ -81,7 +81,7 @@ execution. A publication-ready record with delegated tests is not a green local 
 run; current remote results must be checked separately with `ci status`.
 
 It does not prove the review was good or that the agent understood every unit it marked
-clean. The same diff reviewed twice can yield different findings. Treat the Git note as
+clean. The same diff reviewed twice can yield different findings. Treat the attestation as
 an audit trail, and note that it substitutes for neither CI nor a human reviewer. It is
 not a signature: anyone allowed to update the notes ref can replace it.
 
