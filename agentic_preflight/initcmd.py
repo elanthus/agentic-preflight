@@ -74,7 +74,6 @@ mode = "manual_merge"
 environment = "high-risk-review"
 
 [hook]
-enabled = true
 allow_force_push = false
 """
 

@@ -20,8 +20,8 @@ import signal
 import stat
 import subprocess
 import sys
-import threading
-from contextlib import suppress
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,6 +35,12 @@ EXIT_UNRUNNABLE = 127
 # Generous for a process-tree kill, and short enough that a wedged taskkill
 # cannot hold a stage open indefinitely after its own timeout has fired.
 _TASKKILL_TIMEOUT_SECONDS = 30
+# How long to keep draining output after the process tree has been killed. A
+# descendant that escaped the kill can hold the pipe open forever.
+_POST_KILL_DRAIN_SECONDS = 3
+OUTPUT_TRUNCATED_MARKER = (
+    "[output truncated: a process outside the stage's group kept its pipe open]"
+)
 REDACTION_FAILURE_OUTPUT = (
     "[agentic-preflight] command output withheld because copied-file secret "
     "redaction became unavailable"
@@ -110,7 +116,11 @@ def _copied_file_fingerprints(
 
 
 class _CopiedFileMutationGuard:
-    """Notice copied-file writes even when their contents are later restored."""
+    """Notice copied-file writes even when their contents are later restored.
+
+    Any write updates ``st_ctime_ns``, which a process cannot set back, so
+    comparing fingerprints before and after the stage is sufficient.
+    """
 
     def __init__(
         self,
@@ -120,33 +130,14 @@ class _CopiedFileMutationGuard:
         self.worktree_path = worktree_path
         self.copied_files = copied_files
         self.initial = _copied_file_fingerprints(worktree_path, copied_files)
-        self.changed = threading.Event()
-        self.stop_requested = threading.Event()
-        self.thread: threading.Thread | None = None
-        if self.initial is None:
-            self.changed.set()
-
-    def _check(self) -> None:
-        if _copied_file_fingerprints(self.worktree_path, self.copied_files) != self.initial:
-            self.changed.set()
-
-    def _watch(self) -> None:
-        while not self.stop_requested.wait(0.001):
-            self._check()
-
-    def start(self) -> None:
-        if not self.copied_files:
-            return
-        self.thread = threading.Thread(target=self._watch, daemon=True)
-        self.thread.start()
 
     def stop(self) -> bool:
-        self._check()
-        self.stop_requested.set()
-        if self.thread is not None:
-            self.thread.join()
-        self._check()
-        return self.changed.is_set()
+        """Return whether any copied file changed since the guard was created."""
+        if self.initial is None:
+            return True
+        if not self.copied_files:
+            return False
+        return _copied_file_fingerprints(self.worktree_path, self.copied_files) != self.initial
 
 
 # Both platforms need the same two guarantees — isolate the child so a timeout
@@ -231,6 +222,52 @@ else:
                 process.kill()
 
 
+@contextmanager
+def _kill_on_termination(process: subprocess.Popen) -> Iterator[None]:
+    """Kill ``process``'s tree if SIGTERM or SIGINT arrives while it runs."""
+    if sys.platform == "win32":
+        yield
+        return
+
+    previous: dict[int, signal.Handlers | int | Callable[..., object] | None] = {}
+
+    def restore() -> None:
+        for number, old_handler in previous.items():
+            signal.signal(number, old_handler)
+        previous.clear()
+
+    def handler(signum: int, frame: object) -> None:
+        _kill_process_tree(process)
+        restore()
+        signal.raise_signal(signum)
+
+    try:
+        for number in (signal.SIGTERM, signal.SIGINT):
+            previous[int(number)] = signal.signal(number, handler)
+    except ValueError:
+        # Signal handlers can only be installed from the main thread.
+        restore()
+    try:
+        yield
+    finally:
+        restore()
+
+
+def _drain_after_kill(process: subprocess.Popen) -> tuple[str | None, str | None, bool]:
+    """Collect a killed process's output, giving up if an escaped descendant holds the pipe."""
+    try:
+        stdout, stderr = process.communicate(timeout=_POST_KILL_DRAIN_SECONDS)
+    except subprocess.TimeoutExpired:
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if stream is not None:
+                with suppress(OSError):
+                    stream.close()
+        with suppress(subprocess.TimeoutExpired):
+            process.wait(timeout=_POST_KILL_DRAIN_SECONDS)
+        return None, None, True
+    return stdout, stderr, False
+
+
 def run_stage(
     worktree_path: Path | str,
     command: str,
@@ -259,7 +296,6 @@ def run_stage(
         return StageResult(command=command, exit_code=EXIT_UNRUNNABLE, output=str(exc))
 
     guard = _CopiedFileMutationGuard(worktree_path, guarded_files)
-    guard.start()
     try:
         try:
             process = subprocess.Popen(
@@ -289,7 +325,8 @@ def run_stage(
                 output=f"cannot run {command!r}: {exc}",
             )
         try:
-            stdout, stderr = process.communicate(input=stdin_text, timeout=timeout_seconds)
+            with _kill_on_termination(process):
+                stdout, stderr = process.communicate(input=stdin_text, timeout=timeout_seconds)
             output = (stdout or "") + (stderr or "")
             result = StageResult(
                 command=command,
@@ -300,12 +337,14 @@ def run_stage(
             )
         except subprocess.TimeoutExpired:
             _kill_process_tree(process)
-            stdout, stderr = process.communicate()
-            output = (stdout or "") + (stderr or "")
+            stdout, stderr, truncated = _drain_after_kill(process)
+            output = (stdout or "") + (stderr or "") + f"\n[timed out after {timeout_seconds}s]"
+            if truncated:
+                output += f"\n{OUTPUT_TRUNCATED_MARKER}"
             result = StageResult(
                 command=command,
                 exit_code=124,
-                output=output + f"\n[timed out after {timeout_seconds}s]",
+                output=output,
                 timed_out=True,
                 stdout=stdout if separate_stderr else None,
                 stderr=stderr if separate_stderr else None,

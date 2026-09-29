@@ -1,6 +1,7 @@
 """M0 walking skeleton: start -> context -> submit-findings -> verify -> status."""
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -94,6 +95,116 @@ def test_start_stops_when_the_setup_command_fails(agent, feature_repo):
     assert status["data"]["setup_failure"]["scope"] == "initial"
     assert status["data"]["setup_failure"]["exit_code"] == 7
     assert status["next"]["command"] == "agentic-preflight abort --force"
+    assert agent.run("abort", "--force")["state"] == "ABORTED"
+
+
+def test_start_records_a_failed_fetch_and_offers_a_way_out(agent, feature_repo, tmp_path):
+    git("remote", "add", "origin", str(tmp_path / "missing-remote.git"), cwd=feature_repo)
+
+    env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+
+    assert env["error"]["code"] == "sync_failed"
+    assert env["state"] == "SYNC_CONFLICT"
+    assert env["data"]["error_type"] == "GitError"
+    assert env["next"]["command"] == "agentic-preflight abort --force"
+    status = agent.run("status")
+    assert status["state"] == "SYNC_CONFLICT"
+    assert status["next"]["command"] == "agentic-preflight abort --force"
+    assert agent.run("abort", "--force")["state"] == "ABORTED"
+
+
+def test_a_failed_fetch_never_reports_remote_credentials(agent, feature_repo, monkeypatch):
+    from agentic_preflight import gitx, runs
+
+    remote = "https://user:secret-token@nonexistent.invalid/repo.git"
+    git("remote", "add", "origin", remote, cwd=feature_repo)
+    real_run = gitx.run
+
+    # Current Git masks the password in its own message; a transport helper or
+    # older Git may echo the configured URL verbatim, which this reproduces.
+    def echoing_fetch(cwd, *args, **kwargs):
+        if args and args[0] == "fetch":
+            raise gitx.GitError(list(args), 128, f"fatal: unable to access '{remote}/'")
+        return real_run(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(gitx, "run", echoing_fetch)
+
+    env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+
+    assert env["error"]["code"] == "sync_failed"
+    assert "secret-token" not in json.dumps(env)
+    store = runs.open_session(feature_repo).store
+    events = store.events_path(env["run_id"])
+    assert "sync_failed" in events.read_text(encoding="utf-8")
+    assert "secret-token" not in events.read_text(encoding="utf-8")
+
+
+def test_setup_reports_an_unreadable_copied_file_without_os_detail(
+    agent, feature_repo, monkeypatch
+):
+    from agentic_preflight.stages import shellstage
+    from agentic_preflight.stages.protected_output import OutputProtection
+
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nsetup_command = 'exit 0'\n")
+    commit_all(feature_repo, "configure setup")
+
+    def refuse(worktree_path, copied_files):
+        raise shellstage.SecretRedactionError(
+            Path(worktree_path) / ".env", "[Errno 13] Permission denied: '/private/raw'"
+        )
+
+    monkeypatch.setattr(OutputProtection, "capture", classmethod(lambda cls, w, c: refuse(w, c)))
+
+    env = agent.run("start", expect=ExitCode.STAGE_FAILED)
+
+    tail = env["data"]["setup"]["output_tail"]
+    assert tail == "cannot protect setup output: copied file '.env' could not be read"
+    assert "Errno" not in json.dumps(env)
+
+
+def test_start_reports_a_setup_timeout_with_its_output(agent, feature_repo):
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[stage]\ntimeout_seconds = 1\n[worktree]\n"
+        "setup_command = 'echo setup-started && sleep 30'\n",
+    )
+    commit_all(feature_repo, "configure slow setup")
+
+    began = time.monotonic()
+    env = agent.run("start", expect=ExitCode.STAGE_FAILED)
+    elapsed = time.monotonic() - began
+
+    # The shell's sleep child holds the output pipe, so a prompt return shows
+    # the whole process group was killed.
+    assert elapsed < 20
+    assert env["error"]["code"] == "setup_failed"
+    assert env["data"]["setup"]["timed_out"] is True
+    assert env["data"]["setup"]["exit_code"] == 124
+    assert "setup-started" in env["data"]["setup"]["output_tail"]
+    log = Path(env["data"]["setup"]["log_path"]).read_text(encoding="utf-8")
+    assert "setup-started" in log
+    assert "timed out after 1s" in log
+    status = agent.run("status")
+    assert status["state"] == "SETUP_FAILED"
+    assert status["next"]["command"] == "agentic-preflight abort --force"
+
+
+def test_a_run_left_in_sync_running_offers_abort(agent, feature_repo):
+    from agentic_preflight import runs
+    from agentic_preflight.machine import State
+
+    started = agent.run("start")
+    store = runs.open_session(feature_repo).store
+    with store.transaction(started["run_id"]) as doc:
+        doc.state = State.SYNC_RUNNING
+
+    status = agent.run("status")
+    assert status["state"] == "SYNC_RUNNING"
+    assert status["next"]["command"] == "agentic-preflight abort --force"
+    resumed = agent.run("start")
+    assert resumed["state"] == "SYNC_RUNNING"
+    assert resumed["next"]["command"] == "agentic-preflight abort --force"
     assert agent.run("abort", "--force")["state"] == "ABORTED"
 
 
