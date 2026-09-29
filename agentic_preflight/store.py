@@ -6,9 +6,8 @@ invocations — it lives on disk and every mutation follows the same discipline:
     load -> guard -> mutate -> write tmp -> os.replace
 
 all of it inside a :mod:`~agentic_preflight.filelock` exclusive lock held for the
-entire read-modify-write window.
-Two parallel ``Bash`` calls in a single agent turn are a real hazard, not a
-theoretical one.
+entire read-modify-write window. See that module for why concurrent
+invocations need it.
 """
 
 from __future__ import annotations

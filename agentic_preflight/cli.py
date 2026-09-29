@@ -1,4 +1,4 @@
-"""Stable CLI root: command registration and the shared protocol export."""
+"""Stable CLI root: command registration."""
 
 from __future__ import annotations
 

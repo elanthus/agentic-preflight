@@ -32,7 +32,7 @@ from .shell_fingerprints import ShellInputContract
 REPO_CONFIG_NAME = ".agentic-preflight.toml"
 USER_CONFIG_NAME = "config.toml"
 
-from .diff import DEFAULT_EXCLUDE  # noqa: E402  (kept next to its one consumer)
+from .diff import DEFAULT_EXCLUDE  # noqa: E402
 
 
 class ConfigError(Exception):

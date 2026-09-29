@@ -263,8 +263,8 @@ class BudgetReport:
     """The verdict on whether a bundle fits the agent's review budget.
 
     Over budget is not a truncation — it is a refusal. `context` exits 2 with
-    ``mode="diff_too_large"`` and hands back ``by_file`` so the agent can narrow
-    with ``--exclude`` or the user can raise the limit. The property being
+    ``mode="diff_too_large"`` and hands back ``by_file`` so the user can add
+    paths to ``[diff] exclude`` or raise ``[diff] max_bytes``. The property being
     protected is that the agent never reviews part of a diff while believing it
     saw all of it; a loud stop protects that far more cheaply than chunking.
     """
