@@ -2,10 +2,9 @@
 
 Two rules matter more than the rest:
 
-**Pass/fail is the exit code, full stop.** Never parse stdout for "0 errors".
+**Pass/fail is the exit code alone.** Stdout is never parsed for "0 errors".
 Output formats differ per tool and change between versions, so a parser that
-quietly stops matching turns a red stage green — the single worst failure this
-tool can have. Exit codes are the one signal every tool agrees on.
+quietly stops matching turns a red stage green. Exit codes are the one signal every tool agrees on.
 
 **Dotenv values are redacted from logs.** ``copy_files`` paths commonly hold
 local environment data. Assignment values are parsed without executing the

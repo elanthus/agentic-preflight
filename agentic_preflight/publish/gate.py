@@ -1,12 +1,11 @@
 """The confirmation gate.
 
-Be honest about what this is: **the token is not a security boundary.** The
-agent can read it straight out of `status`. It is deliberate ceremony that makes
+**The token is not a security boundary.** The agent can read it from
+`status`. It is deliberate ceremony that makes
 an *accidental* push impossible and makes an unconfirmed push a visible protocol
 violation rather than an invisible one.
 
-``gate.mode = "manual"`` is the honest answer for anyone who needs a real
-boundary: it refuses to proceed at all, so a person must type the push command
+Use ``gate.mode = "manual"`` when a real boundary is needed: it refuses to proceed at all, so a person must type the push command
 themselves.
 """
 

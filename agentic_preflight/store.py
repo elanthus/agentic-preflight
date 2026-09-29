@@ -132,7 +132,7 @@ def _replace(tmp: Path, path: Path) -> None:
     POSIX ``rename`` cannot fail because someone else has the destination open;
     Windows can, and does. A reader holding ``run.json`` for the microseconds of
     a ``read_text`` is enough, and so is a virus scanner or the search indexer
-    opening the file behind everyone's back.
+    opening the file.
 
     Retrying is safe precisely because the operation is atomic: it either
     replaced the file or it did not, so a failed attempt has no partial effect

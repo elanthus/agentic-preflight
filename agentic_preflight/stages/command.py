@@ -19,8 +19,7 @@ between the timeout and the program whose exit code decides the stage.
 
 Detection is deliberately conservative: when in doubt, use the shell. A false
 "needs a shell" costs a subprocess. A false "safe to split" would silently run a
-*different command* than the repository asked for, which is the class of quiet
-wrongness this tool exists to prevent.
+different command than the repository asked for.
 
 Two consequences of executing directly are worth stating plainly, because
 neither announces itself:
@@ -54,7 +53,7 @@ _DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD"
 
 # Whether a backslash escapes the following character.
 #
-# This is not a stylistic choice. POSIX word-splitting eats backslashes, so
+# POSIX word-splitting eats backslashes, so
 # ``C:\Users\me\tool.exe`` splits into ``C:Usersmetool.exe`` — a *different
 # program*, chosen silently. On Windows a backslash is a path separator and is
 # kept literal; on POSIX it is an escape and is honoured.

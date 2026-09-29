@@ -3,8 +3,8 @@
 The division of labour encoded here is the heart of the findings pipeline:
 **code owns identity, the agent owns judgment.** ``FindingSubmission`` is what
 the agent sends and deliberately has no ``id``, ``stage``, or ``code_owned``
-field, with ``extra="forbid"`` so that inventing one is a loud validation error
-instead of a quietly honoured lie. ``Finding`` is what we store, and it adds the
+field, with ``extra="forbid"`` so that supplying one is a validation error
+rather than being accepted. ``Finding`` is the stored record, and it adds the
 fields only code may assign.
 """
 

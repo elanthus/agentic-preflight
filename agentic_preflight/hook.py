@@ -181,8 +181,8 @@ def install(repo_root: Path | str, *, force: bool = False) -> tuple[Path, bool]:
     """Write the pre-push hook. Returns (path, newly_written).
 
     Refuses to clobber a hook we did not write: someone else's pre-push hook is
-    important to their workflow, and silently replacing it would be exactly the kind
-    of unreviewed change this tool exists to prevent.
+    important to their workflow, and replacing it silently would be an
+    unreviewed change to it.
     """
     path = gitx.hook_path(repo_root, "pre-push")
     hooks_dir = path.parent

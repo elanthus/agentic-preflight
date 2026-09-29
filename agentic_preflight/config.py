@@ -6,9 +6,8 @@ deep: a section present in the repo file replaces the user's section wholesale
 rather than merging key-by-key, so a reader of the committed file can tell what
 is in force without knowing the reader's home directory.
 
-Unknown keys are errors that name the key. A silently ignored typo in a config
-that governs a *safety gate* is exactly the kind of quiet failure this tool
-exists to prevent.
+Unknown keys are errors that name the key, because a silently ignored typo in
+a config that governs a safety gate would weaken the gate without any signal.
 """
 
 from __future__ import annotations

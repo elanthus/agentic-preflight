@@ -13,8 +13,7 @@ access — silently, because the call still returns successfully.
 The Windows equivalent is therefore built explicitly: reset the file's access
 list, drop what it inherits, and grant the calling user alone. ``icacls`` ships
 with Windows and needs no elevation to rewrite the access list of a file the
-caller owns, which keeps this free of a new dependency in a package that has
-two. See :func:`_restrict_via_acl` for why all three steps are load-bearing.
+caller owns, so no extra dependency is needed. See :func:`_restrict_via_acl` for why all three steps are load-bearing.
 """
 
 from __future__ import annotations

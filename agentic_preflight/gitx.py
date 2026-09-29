@@ -1,7 +1,7 @@
 """A thin, total wrapper over the ``git`` binary.
 
 Deliberately not a git library: the tool's contract is defined in terms of what
-git itself does, and shelling out keeps the semantics honest. Query helpers do
+git itself does, and shelling out keeps the semantics identical to git's. Query helpers do
 not update refs, the index, or the worktree. Git's merge-tree plumbing can still
 write unreachable tree objects, which normal object pruning may collect.
 """

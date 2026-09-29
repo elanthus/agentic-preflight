@@ -1,10 +1,9 @@
 """Typed failures that carry their own exit code and recovery instruction.
 
 Every error the agent can hit knows three things: which exit code it maps to,
-what to tell the agent, and which command to run next. That last part is the
-anti-wandering device applied to the failure path — an error that says only
-"wrong state" invites guessing, while one that names the next legal command does
-not.
+what to tell the agent, and which command to run next. Naming the next legal
+command keeps the agent on the protocol after a failure; an error that says only
+"wrong state" invites guessing.
 """
 
 from __future__ import annotations
@@ -169,8 +168,8 @@ class DiffTooLarge(AgenticError):
     """Over budget is a refusal, never a truncation.
 
     Handing over a silently shortened diff would let the agent believe it
-    reviewed the whole change. Stopping loudly costs a turn; a false green costs
-    the entire guarantee.
+    reviewed the whole change. Refusing costs one turn, while a partial review
+    reported as complete would invalidate the result.
     """
 
     code = "diff_too_large"

@@ -6,8 +6,8 @@ whether the run went well, so every key is always present — an envelope with
 nothing to say still carries ``data: {}`` and ``blocking: []`` rather than
 omitting them and forcing defensive parsing on the other side.
 
-``next`` is the anti-wandering device: after any command the agent is told the
-single next legal command. It is ``null`` only when there is genuinely nothing
+``next`` keeps the agent on the protocol: after any command the agent is told
+the single next legal command. It is ``null`` only when there is genuinely nothing
 left to do.
 """
 

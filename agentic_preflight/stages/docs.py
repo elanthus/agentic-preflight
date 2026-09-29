@@ -1,7 +1,7 @@
 """The documentation stage: the review sub-machine, pointed at docs.
 
-Agent-driven and with no shell command of its own — it reuses the findings
-machinery entirely, which is exactly why it was cheap to add.
+Agent-driven and with no shell command of its own; it reuses the findings
+machinery entirely.
 
 Two things distinguish it from review:
 
@@ -9,7 +9,7 @@ Two things distinguish it from review:
   diff changed code, and the doc that should have changed did not. So the
   changed-file constraint relaxes to a *documentation allowlist*. It does not
   become unconstrained — a "docs" finding against ``src/auth.py`` is still
-  rejected, because that is a review finding wearing a docs hat.
+  rejected, because it belongs to the review stage.
 - **``require_changelog`` is owned by code.** Whether a changelog was touched is
   a mechanical fact, and mechanical facts should not depend on the agent
   remembering a rule.
@@ -124,8 +124,7 @@ def changelog_finding(
 
     Returns a blocking finding when a changelog exists in the repo but the diff
     left it alone. Owned by code rather than delegated to the agent because it
-    is a mechanical rule, and mechanical rules are exactly what an agent forgets
-    on the twentieth run.
+    is a mechanical rule that an agent can forget to apply.
     """
     changelogs = [
         entry.path
