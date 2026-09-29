@@ -1,1 +1,2 @@
 Hello, Toy!
+Goodbye, Toy.

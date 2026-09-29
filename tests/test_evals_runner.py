@@ -26,7 +26,7 @@ def test_dry_run_scores_scripted_misses_and_false_positives(tmp_path):
         case_ids=("unguarded-division", "off-by-one-page"),
     )
 
-    assert summary["method_version"] == "public-smoke-v4"
+    assert summary["method_version"] == "public-smoke-v5"
     assert summary["reviewer_invocations"] == 8
     assert summary["provider_requests"] == 0
     assert summary["provider_tokens"] == 0
@@ -41,7 +41,7 @@ def test_dry_run_scores_scripted_misses_and_false_positives(tmp_path):
         "fixed_false_positive_rate",
         "unresolved",
         "severity_agreement",
-        "category_agreement",
+        "keyword_hit_rate",
         "reviewer_invocations",
         "provider_requests",
         "provider_tokens",
@@ -101,6 +101,7 @@ def test_summary_json_is_byte_identical_across_runs(tmp_path):
 def test_build_repo_copies_changed_same_size_file_with_fresh_mtime(tmp_path):
     copied = tmp_path / "wrong-config-default"
     shutil.copytree(CASES / "wrong-config-default", copied)
+    case = eval_run.load_case(copied)
     # Build a same-size transition in the two-commit base -> selected layout.
     # The production case's base file has a different size from both review trees.
     relative = Path("docs/configuration.md")
@@ -113,7 +114,6 @@ def test_build_repo_copies_changed_same_size_file_with_fresh_mtime(tmp_path):
     for path in (base_file, fixed_file):
         os.utime(path, (old_timestamp, old_timestamp))
     assert base_file.stat().st_mtime_ns == fixed_file.stat().st_mtime_ns
-    case = eval_run.load_case(copied)
     repository = tmp_path / "repo"
 
     copy_started = time.time()
@@ -247,7 +247,9 @@ def test_eval_case_is_well_formed(case_dir):
         tree = case_dir / snapshot
         assert tree.is_dir()
         files = [path for path in tree.rglob("*") if path.is_file()]
-        assert 3 <= len(files) <= 6
+        assert 5 <= len(files) <= 8
+        assert (tree / "CODEOWNERS").is_file()
+        assert (tree / "AGENTS.md").is_file()
         assert not any(path.name == "gold.json" for path in files)
 
     gold = case.gold
@@ -342,3 +344,64 @@ def test_actual_provider_stdin_excludes_scorer_identity(tmp_path, monkeypatch, e
     for token in (case.id, "gold.json", '"snapshot"', '"case_id"'):
         assert token not in sent
     assert json.dumps(case.gold, sort_keys=True) not in sent
+
+
+def test_gold_range_outside_changed_lines_is_rejected(tmp_path):
+    copied = tmp_path / "plaintext-secret-log"
+    shutil.copytree(CASES / "plaintext-secret-log", copied)
+    gold_path = copied / "gold.json"
+    gold = json.loads(gold_path.read_text(encoding="utf-8"))
+    gold["lines"] = [3, 3]
+    gold_path.write_text(json.dumps(gold), encoding="utf-8")
+
+    with pytest.raises(eval_run.EvaluationError, match="do not intersect"):
+        eval_run.load_case(copied)
+
+
+def test_changed_lines_marks_deletion_edges(tmp_path):
+    base = tmp_path / "base.py"
+    vulnerable = tmp_path / "vulnerable.py"
+    base.write_text("a\nguard\nb\n", encoding="utf-8")
+    vulnerable.write_text("a\nb\n", encoding="utf-8")
+
+    assert eval_run.changed_lines(base, vulnerable) == {1, 2}
+
+
+def test_catch_requires_line_proximity_and_uses_hunk_only_without_line():
+    gold = {"path": "app/core.py", "lines": [10, 10]}
+    units = [{"id": "U1", "new_start": 1, "new_count": 40}]
+    far = {"path": "app/core.py", "line": 30, "unit": "U1"}
+    near = {"path": "app/core.py", "line": 12, "unit": "U1"}
+    lineless = {"path": "app/core.py", "unit": "U1"}
+    other_file = {"path": "app/other.py", "line": 10, "unit": "U1"}
+
+    assert eval_run._matching_findings([far], units, gold) == []
+    assert eval_run._matching_findings([near], units, gold) == [near]
+    assert eval_run._matching_findings([lineless], units, gold) == [lineless]
+    assert eval_run._matching_findings([other_file], units, gold) == []
+
+
+def test_grounding_on_without_entries_is_rejected():
+    case = eval_run.load_case(CASES / "unguarded-division")
+
+    with pytest.raises(eval_run.EvaluationError, match="no entries"):
+        eval_run._require_grounding_entries(
+            case, "vulnerable", {"data": {"grounding": {"enabled": True, "entries": []}}}
+        )
+
+
+@pytest.mark.parametrize("case_dir", tuple(eval_run.discover_cases()), ids=lambda path: path.name)
+def test_fixed_snapshot_changes_the_gold_file(case_dir):
+    case = eval_run.load_case(case_dir)
+    relative = case.gold["path"]
+
+    assert (case_dir / "fixed" / relative).read_bytes() != (
+        case_dir / "base" / relative
+    ).read_bytes()
+
+
+def test_dry_summary_matches_committed_golden(tmp_path):
+    eval_run.run_evaluation(mode="dry", executor=None, grounding=("on", "off"), out=tmp_path)
+
+    golden = ROOT / "evals" / "golden" / "dry-summary.json"
+    assert (tmp_path / "summary.json").read_bytes() == golden.read_bytes()

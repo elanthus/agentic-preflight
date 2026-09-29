@@ -35,25 +35,33 @@ subprocess environment; only dry mode receives the scripted answer path.
 
 Dry mode uses canned findings, but still creates real Git repositories and invokes the real
 CLI in subprocesses for `init --no-hook`, `start --intent`, `context`, and `review run`.
-Grounding-on and grounding-off runs use the same flow. Fixture commit identity and dates are
+Grounding-on and grounding-off runs use the same flow. Every fixture tree carries a
+`CODEOWNERS` file and an `AGENTS.md`, and a grounding-on run fails unless `context` returns
+at least one grounding entry for every reviewed snapshot. Fixture commit identity and dates are
 fixed, and reports omit timestamps, so identical inputs produce byte-identical JSON.
 
 ## Scoring
 
-A vulnerable snapshot is a catch when at least one finding has the gold path and either its
-line or its cited review-unit hunk overlaps the vulnerable gold range. A fixed snapshot is a
-false positive under the same location rule. Failures before an accepted submission are
+A vulnerable snapshot is a catch when at least one finding has the gold path and a line
+within two lines of the vulnerable gold range. A finding without a line matches when its cited
+review-unit hunk overlaps the gold range; a finding with a line far from the gold range is
+not rescued by the hunk. A fixed snapshot is a false positive under the same location rule.
+Every fixed snapshot changes the gold file, so a finding on that file resolves to a review
+unit and can count as a false positive.
+Case loading fails unless every gold range intersects the lines changed from base to
+vulnerable. Failures before an accepted submission are
 reported as unresolved; they are not silently converted to catches or misses.
 
 Severity agreement checks whether a matched vulnerable finding falls within the gold severity
-range. Category agreement searches the matched finding's title and detail with a fixed keyword
-map. The category measure is intentionally heuristic: it can confirm vocabulary, not whether
-the reviewer's reasoning is sound. Severity and category agreement are reported separately
-and never gate execution.
+range. Keyword hit rate is the share of matched findings whose title or detail contains a
+substring from a fixed per-category keyword map. It confirms vocabulary, not whether the
+reviewer's reasoning is sound, and the scripted details were written to hit the map, so the
+dry-mode value is 1.0 by construction. Severity agreement and keyword hit rate are reported
+separately and never gate execution.
 
 `summary.json` records the current `method_version` and contains per-case snapshot evidence
 and aggregate catch, fixed false-positive, unresolved, severity-agreement, and
-category-agreement values for each grounding setting.
+keyword-hit-rate values for each grounding setting.
 `summary.md` presents the same case outcomes and aggregates in one table.
 
 ## Running dry mode
@@ -65,6 +73,14 @@ uv run python evals/run.py --mode dry --out /tmp/agentic-preflight-evals
 ```
 
 Use `--grounding on` or `--grounding off` for one setting; the default is `both`.
+
+CI runs dry mode and fails when its `summary.json` differs from the committed golden file
+`evals/golden/dry-summary.json`. After an intentional corpus or scoring change, regenerate it:
+
+```console
+uv run python evals/run.py --mode dry --out /tmp/agentic-preflight-evals
+cp /tmp/agentic-preflight-evals/summary.json evals/golden/dry-summary.json
+```
 
 ## Running real mode
 
@@ -88,10 +104,21 @@ known zero.
 `AP_EVAL_AUTHORIZED=1` authorizes the disclosed wrapper launches only; it is not a
 provider-request or spend cap.
 
-## Honest limits
+## Limits
 
 The corpus is synthetic and tiny. Its defects are deliberately legible and do not represent
-the breadth, ambiguity, or base rates of production changes. Scripted dry mode proves the
+the breadth, ambiguity, or base rates of production changes. Real-mode catch rates from this
+corpus are inflated for three further reasons:
+
+- Case intents name the property the defect violates, for example "without exposing the
+  supplied credential in logs" or "keeping every read inside its configured storage root",
+  so the reviewer is told where to look.
+- About half the vulnerable diffs remove a protection that the base tree already has, such as
+  a containment check or a `max` default. A reviewer can spot the deletion in the diff
+  without reasoning about the defect.
+- Two or three cases, such as the shell injection and the hardcoded token comparison, are
+  caught by stock ruff rules that `evals/.ruff.toml` suppresses so the fixtures pass lint.
+ Scripted dry mode proves the
 product plumbing and scoring math, not reviewer judgment. Real mode adds reviewer behavior but
 launches external reviewer wrappers and remains sensitive to model and tool versions. Neither
 mode measures the
