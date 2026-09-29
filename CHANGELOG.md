@@ -88,6 +88,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - CI diffs the dry eval `summary.json` against `evals/golden/dry-summary.json`.
 - The pytest configuration no longer passes `-q` in `addopts`, so the documented `uv run
   pytest -q` prints its summary line.
+- Running `agentic-preflight` with no arguments prints the root help on stdout and exits
+  0 on every supported Click version. Click 8.2 and later previously made it exit 2.
 
 ### Removed
 

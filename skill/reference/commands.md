@@ -468,6 +468,8 @@ A command-line usage error (unknown option, missing argument, bad choice, unknow
 command) prints one envelope with error code `usage_error`, Click's message in
 `error.message`, and the command's `--help` invocation in `next.command`, then exits 6.
 `hook-check` is the exception and keeps Click's own usage output and exit code.
+Running `agentic-preflight` with no arguments prints the root help as plain text and
+exits 0.
 
 For local workflow exit 3 → run `status` → obey `next`. For `ci status` and other
 remote CI recovery results, follow their reason and next action directly; restarting a
