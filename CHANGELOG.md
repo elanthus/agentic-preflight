@@ -20,6 +20,19 @@ All notable changes to Agentic Preflight are documented here. This project follo
   refuses every command except `status`, `logs`, `events`, and `abort`, and reports
   `validation_restarts`, `max_restarts`, and `needs_human` in `status`.
 
+### Fixed
+
+- A fetch, Git, or OS failure while synchronizing at `start` now records the run as
+  `SYNC_CONFLICT`, appends a `sync_failed` event, and returns a `sync_failed` error
+  (exit 4) with `abort --force` as the next command. Previously the run stayed in
+  `SYNC_RUNNING` and every later `start` pointed back at `status`.
+- A run left in `SYNC_RUNNING` by an interrupted `start` now reports `abort --force` as
+  its next command from `status` and `start`.
+- The setup command no longer escapes as an internal error on timeout. It runs through
+  the stage runner, kills its whole process group on timeout (exit 124), and writes
+  redacted output to `setup.txt` in the run log directory. A failed setup reports
+  `timed_out`, `log_path`, and the output tail.
+
 ## [0.6.0] - 2026-09-13
 
 ### Breaking changes

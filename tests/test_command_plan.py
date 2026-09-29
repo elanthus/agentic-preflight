@@ -7,7 +7,6 @@ would run something other than what the repository configured.
 
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -371,6 +370,5 @@ def test_an_unrunnable_setup_command_is_reported_as_a_failed_result(tmp_path, mo
 
     result = worktree.run_setup(tmp_path, "uv sync && echo done")
 
-    assert isinstance(result, subprocess.CompletedProcess)
-    assert result.returncode == shellstage.EXIT_UNRUNNABLE
-    assert "requires a POSIX shell" in result.stderr
+    assert result.exit_code == shellstage.EXIT_UNRUNNABLE
+    assert "requires a POSIX shell" in result.output
