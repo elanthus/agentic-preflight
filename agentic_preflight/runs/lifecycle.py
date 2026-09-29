@@ -33,6 +33,7 @@ from ._session import (
 
 
 def events(session: Session, *, limit: int | None = None) -> Envelope:
+    """Return the current run's event history."""
     run = _load_current(session)
     history = session.store.load_events(run.run_id)
     if limit:

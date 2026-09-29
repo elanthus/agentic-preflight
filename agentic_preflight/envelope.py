@@ -94,6 +94,7 @@ def error_envelope(
     data: dict[str, Any] | None = None,
     blocking: list[Any] | None = None,
 ) -> Envelope:
+    """Build a failed envelope carrying an error code and recovery."""
     return Envelope(
         ok=False,
         run_id=run_id,

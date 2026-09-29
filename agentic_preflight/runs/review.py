@@ -101,6 +101,7 @@ def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
 
 
 def context(session: Session, *, section: str = "review") -> Envelope:
+    """Return the review or docs context for the current run."""
     run = _load_current(session)
     _check_restart_limit(run)
     _assert_fresh(session, run)
@@ -216,6 +217,7 @@ def submit_findings(
     *,
     _executor: review_protocol.ReviewExecutor = "in_harness",
 ) -> Envelope:
+    """Record the agent's findings for the review or docs stage."""
     run = _load_current(session)
     _check_restart_limit(run)
     _assert_fresh(session, run)
@@ -373,6 +375,7 @@ def submit_findings(
 
 
 def verify(session: Session) -> Envelope:
+    """Verify fixes for blocking review findings."""
     run = _load_current(session)
     _assert_fresh(session, run)
     _require_state(

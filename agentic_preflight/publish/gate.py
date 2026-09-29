@@ -44,10 +44,12 @@ class GateSummary:
 
 
 def mint_token() -> str:
+    """Return a new random confirmation token."""
     return secrets.token_hex(8)
 
 
 def token_matches(expected: str | None, supplied: str | None) -> bool:
+    """Return whether a supplied token matches the expected one."""
     if not expected or not supplied:
         return False
     return secrets.compare_digest(expected, supplied)

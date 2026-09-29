@@ -220,6 +220,7 @@ def load_config(
     *,
     user_config_dir: Path | str | None = None,
 ) -> Config:
+    """Load and merge the user and repository configuration."""
     repo_root = Path(repo_root)
     if user_config_dir is None:
         user_config_dir = Path.home() / ".config" / "agentic-preflight"

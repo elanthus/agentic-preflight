@@ -35,6 +35,7 @@ Sha = Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
 
 
 def intent_digest(intent: str) -> str:
+    """Return the SHA-256 hex digest of the run intent text."""
     return hashlib.sha256(intent.encode()).hexdigest()
 
 

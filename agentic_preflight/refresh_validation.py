@@ -23,12 +23,14 @@ from .shell_fingerprints import ShellFingerprint, ShellInputContract, classify_s
 
 
 def shell_execution_config(snapshot: dict, stage: Stage) -> dict:
+    """Return the execution settings of a shell stage snapshot."""
     return {"stage": snapshot.get("stage"), "worktree": snapshot.get("worktree")}
 
 
 def contract_is_committed(
     repo: Path | str, head: str, stage: Stage, contract: ShellInputContract | None
 ) -> bool:
+    """Return whether a shell input contract is committed at head."""
     if contract is None:
         return False
     result = gitx.run(repo, "show", f"{head}:.agentic-preflight.toml", check=False)
@@ -114,6 +116,7 @@ def _verify_fingerprint(repo: Path | str, origin: OriginalExecution) -> None:
 
 
 def json_digest_command(command: str) -> str:
+    """Return the SHA-256 hex digest of a command string."""
     import hashlib
 
     return hashlib.sha256(command.encode()).hexdigest()
@@ -122,6 +125,7 @@ def json_digest_command(command: str) -> str:
 def verify_stage(
     repo: Path | str, item: StageEvidence, *, head: str, base: str, run_id: str
 ) -> None:
+    """Verify one stage's refreshed evidence against the current base and head."""
     origin = item.origin
     _verify_fingerprint(repo, origin)
     fp = item.fingerprint
@@ -218,6 +222,7 @@ def _verify_executor_policy(value: Attestation, cfg: Config, assessment) -> None
 
 
 def verify_evidence(repo: Path | str, value: Attestation) -> None:
+    """Verify a refresh attestation's per-stage evidence."""
     if value.evidence is None or value.config_snapshot is None:
         raise ValueError("refresh attestation lacks per-stage evidence or configuration")
     cfg = Config.model_validate(value.config_snapshot)

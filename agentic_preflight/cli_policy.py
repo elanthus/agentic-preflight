@@ -286,5 +286,6 @@ COMMANDS = (verify, approval_check, hosted_check, hook_check)
 
 
 def register(group: click.Group) -> None:
+    """Add the policy commands to a CLI group."""
     for cli_command in COMMANDS:
         group.add_command(cli_command)

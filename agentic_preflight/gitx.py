@@ -88,6 +88,7 @@ class OperationInProgress(Exception):
 def run(
     cwd: Path | str, *args: str, check: bool = True, timeout: float | None = None
 ) -> subprocess.CompletedProcess:
+    """Run a git command in a directory and return the completed process."""
     result = subprocess.run(
         [_git_executable(), *args],
         cwd=str(cwd),
@@ -103,6 +104,7 @@ def run(
 
 
 def out(cwd: Path | str, *args: str) -> str:
+    """Run a git command and return its stripped stdout."""
     return run(cwd, *args).stdout.strip()
 
 
@@ -151,14 +153,17 @@ def _lines(text: str) -> list[str]:
 
 
 def current_branch(cwd: Path | str) -> str:
+    """Return the name of the checked-out branch."""
     return out(cwd, "rev-parse", "--abbrev-ref", "HEAD")
 
 
 def rev_parse(cwd: Path | str, ref: str) -> str:
+    """Resolve a ref to a commit SHA."""
     return out(cwd, "rev-parse", "--verify", f"{ref}^{{commit}}")
 
 
 def tree_sha(cwd: Path | str, ref: str = "HEAD") -> str:
+    """Return the tree SHA of a ref."""
     return out(cwd, "rev-parse", f"{ref}^{{tree}}")
 
 
@@ -204,6 +209,7 @@ def operation_in_progress(cwd: Path | str) -> str | None:
 
 
 def repo_root(cwd: Path | str) -> Path:
+    """Return the top-level directory of the working tree."""
     return Path(out(cwd, "rev-parse", "--show-toplevel"))
 
 
@@ -211,10 +217,12 @@ def repo_root(cwd: Path | str) -> Path:
 
 
 def merge_base(cwd: Path | str, a: str, b: str) -> str:
+    """Return the merge base of two refs."""
     return out(cwd, "merge-base", a, b)
 
 
 def is_ancestor(cwd: Path | str, maybe_ancestor: str, descendant: str) -> bool:
+    """Return whether one commit is an ancestor of another."""
     result = run(cwd, "merge-base", "--is-ancestor", maybe_ancestor, descendant, check=False)
     return result.returncode == 0
 
@@ -267,6 +275,7 @@ def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
 
 
 def commit_exists(cwd: Path | str, sha: str) -> bool:
+    """Return whether a commit object exists."""
     result = run(cwd, "cat-file", "-e", f"{sha}^{{commit}}", check=False)
     return result.returncode == 0
 
@@ -283,14 +292,17 @@ def commit_files(cwd: Path | str, sha: str) -> list[str]:
 
 
 def commit_touches(cwd: Path | str, sha: str, path: str) -> bool:
+    """Return whether a commit changes a path."""
     return path in commit_files(cwd, sha)
 
 
 def commits_between(cwd: Path | str, base: str, head: str) -> list[str]:
+    """Return commits in base..head, oldest first."""
     return _lines(out(cwd, "rev-list", "--reverse", f"{base}..{head}"))
 
 
 def commit_subject(cwd: Path | str, sha: str) -> str:
+    """Return a commit's subject line."""
     return out(cwd, "log", "-1", "--format=%s", sha)
 
 
@@ -340,6 +352,7 @@ def commit_patch_id(cwd: Path | str, sha: str) -> str | None:
 def read_note(cwd: Path | str, notes_ref: str, sha: str) -> str | None:
     # A successful list with no matching entry establishes absence; a failed
     # `notes show` alone cannot distinguish a missing note from a read failure.
+    """Return the note on a commit under a notes ref, or None."""
     resolved = rev_parse(cwd, sha)
     listing = out(cwd, "notes", f"--ref={notes_ref}", "list")
     for line in listing.splitlines():
@@ -352,6 +365,7 @@ def read_note(cwd: Path | str, notes_ref: str, sha: str) -> str | None:
 
 
 def write_note(cwd: Path | str, notes_ref: str, sha: str, payload: str) -> None:
+    """Write or replace the note on a commit under a notes ref."""
     run(cwd, "notes", f"--ref={notes_ref}", "add", "-f", "-m", payload, sha)
 
 
@@ -402,6 +416,7 @@ def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> bool:
 
 
 def changed_files(cwd: Path | str, base: str, head: str = "HEAD") -> list[str]:
+    """Return paths changed between the merge base and head."""
     output = run(
         cwd, "diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", f"{base}...{head}"
     ).stdout
@@ -409,12 +424,14 @@ def changed_files(cwd: Path | str, base: str, head: str = "HEAD") -> list[str]:
 
 
 def diff_text(cwd: Path | str, base: str, head: str = "HEAD") -> str:
+    """Return the diff between the merge base and head."""
     return run(
         cwd, "diff", "--no-ext-diff", "--no-textconv", "--no-color", f"{base}...{head}"
     ).stdout
 
 
 def diff_text_for_path(cwd: Path | str, base: str, head: str, path: str) -> str:
+    """Return the diff for one path between the merge base and head."""
     return run(
         cwd,
         "diff",
@@ -579,6 +596,7 @@ def changed_paths_in_commits(cwd: Path | str, commits: list[str]) -> list[str]:
 
 
 def is_ignored(cwd: Path | str, path: str) -> bool:
+    """Return whether git ignores a path."""
     result = run(cwd, "check-ignore", "-q", "--", path, check=False)
     return result.returncode == 0
 
@@ -587,6 +605,7 @@ def is_ignored(cwd: Path | str, path: str) -> bool:
 
 
 def remote_url(cwd: Path | str, remote: str = "origin") -> str | None:
+    """Return a remote's URL, or None when it is not configured."""
     result = run(cwd, "remote", "get-url", remote, check=False)
     if result.returncode != 0:
         return None
@@ -594,6 +613,7 @@ def remote_url(cwd: Path | str, remote: str = "origin") -> str | None:
 
 
 def local_branch_exists(cwd: Path | str, branch: str) -> bool:
+    """Return whether a local branch exists."""
     return (
         run(cwd, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}", check=False).returncode
         == 0

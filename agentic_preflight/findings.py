@@ -51,6 +51,7 @@ def stage_for_state(state: State) -> Stage | None:
 
 
 def next_id(existing: list[Finding]) -> str:
+    """Return the next finding id after the existing ones."""
     highest = 0
     for finding in existing:
         try:

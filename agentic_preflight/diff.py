@@ -59,6 +59,7 @@ def path_matches(path: str, pattern: str) -> bool:
 
 
 def is_excluded(path: str, patterns: list[str] | tuple[str, ...]) -> bool:
+    """Return whether a path matches any exclude pattern."""
     return any(path_matches(path, pattern) for pattern in patterns)
 
 
@@ -244,6 +245,7 @@ def build_bundle(
     *,
     exclude: list[str] | tuple[str, ...] | None = None,
 ) -> DiffBundle:
+    """Build the review diff bundle between two refs, applying excludes."""
     patterns = list(exclude) if exclude is not None else []
     all_files = gitx.changed_files(repo, base, head)
     kept = [p for p in all_files if not is_excluded(p, patterns)]

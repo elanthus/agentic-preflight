@@ -21,15 +21,18 @@ from .worktree import CopiedFileInCommit, CopyRefused, WorktreeError
 
 
 def finish(envelope: Envelope, code: int = ExitCode.OK) -> None:
+    """Emit an envelope and exit with the given code."""
     emit(envelope)
     sys.exit(int(code))
 
 
 def fail(exc: AgenticError) -> None:
+    """Emit an error's envelope and exit with its code."""
     finish(exc.to_envelope(), exc.exit_code)
 
 
 def selected_run_id() -> str | None:
+    """Return the run id selected on the root command, if any."""
     ctx = click.get_current_context(silent=True)
     if ctx is None:
         return None
@@ -38,6 +41,7 @@ def selected_run_id() -> str | None:
 
 
 def open_cli_session():
+    """Open a session for the run selected on the command line."""
     from . import runs
 
     return runs.open_session(run_id=selected_run_id())
@@ -205,6 +209,7 @@ def as_error(
     instruction=None,
     next_command=None,
 ) -> AgenticError:
+    """Build an AgenticError with an explicit code and exit code."""
     err = AgenticError(message, next_instruction=instruction, next_command=next_command)
     err.code = code
     err.exit_code = exit_code

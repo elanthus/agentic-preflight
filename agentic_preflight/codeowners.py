@@ -38,5 +38,6 @@ def _pattern_regex(pattern: str) -> re.Pattern[str] | None:
 
 
 def matches(path: str, pattern: str) -> bool:
+    """Return whether a path matches a CODEOWNERS pattern."""
     compiled = _pattern_regex(pattern)
     return compiled is not None and compiled.search(path) is not None

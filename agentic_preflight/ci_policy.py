@@ -26,6 +26,7 @@ def committed_config(repo: Path | str, revision: str) -> Config:
 
 
 def parse_policy(contents: str) -> Config:
+    """Parse config text and require delegated-test CI authority."""
     cfg = _validate_policy(contents)
     if cfg.ci.test_authority != "github_actions":
         raise ValueError("protected base has not enabled delegated-test CI authority")
@@ -33,6 +34,7 @@ def parse_policy(contents: str) -> Config:
 
 
 def committed_policy(repo: Path | str, revision: str) -> Config:
+    """Load the CI policy committed at a revision."""
     return parse_policy(gitx.out(repo, "show", f"{revision}:{REPO_CONFIG_NAME}"))
 
 
@@ -48,6 +50,7 @@ def base_enabled(repo: Path | str, revision: str) -> bool:
 def enforce_local_policy(effective: Config, protected: Config, *, include_ci: bool = True) -> None:
     # Exact agreement is deliberately conservative in this initial opt-in path.
     # A feature branch cannot silently weaken any mandatory local stage.
+    """Reject an effective config whose sections differ from the protected policy."""
     for section in ("ci", "review", "policy", "docs", "diff", "context", "approval"):
         if section == "ci" and not include_ci:
             continue
@@ -60,6 +63,7 @@ def enforce_local_policy(effective: Config, protected: Config, *, include_ci: bo
 def declaration(
     repo: Path | str, *, base: str, head: str, base_ref: str, effective: Config
 ) -> TestDelegation:
+    """Build the CI test delegation declaration from the protected base policy."""
     protected = committed_policy(repo, base)
     enforce_local_policy(effective, protected)
     if base_ref not in {protected.ci.base_branch, f"origin/{protected.ci.base_branch}"}:
@@ -72,6 +76,7 @@ def declaration(
 
 
 def verify_declaration(repo: Path | str, value: Attestation) -> None:
+    """Verify an attestation's CI declaration against the protected base policy."""
     requested = value.test_delegation
     if requested is None or value.config_snapshot is None:
         raise ValueError("missing CI declaration or effective local configuration")

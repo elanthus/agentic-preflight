@@ -527,6 +527,7 @@ def run_stage(
 
 
 def logs(session: Session, *, stage_name: str) -> Envelope:
+    """Return the captured log for a stage of the current run."""
     run = _load_current(session)
     log_path = session.store.logs_dir(run.run_id) / f"{stage_name}.txt"
     if not log_path.exists():

@@ -79,6 +79,7 @@ allow_force_push = false
 
 
 def init(repo_root: Path | str, *, force: bool = False, install_hook: bool = True) -> Envelope:
+    """Set up agentic-preflight in a repository."""
     repo_root = Path(repo_root)
     git_dir = gitx.git_common_dir(repo_root)
 
