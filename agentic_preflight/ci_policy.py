@@ -7,7 +7,7 @@ from pathlib import Path
 
 from . import gitx
 from .ci_models import TestDelegation
-from .config import REPO_CONFIG_NAME, Config
+from .config import REPO_CONFIG_NAME, Config, snapshot_config
 from .models import Attestation
 
 
@@ -97,7 +97,7 @@ def verify_declaration(repo: Path | str, value: Attestation) -> None:
         base=requested.policy_revision,
         head=value.sha,
         base_ref=value.base_ref,
-        effective=Config.model_validate(value.config_snapshot),
+        effective=snapshot_config(value.config_snapshot),
     )
     if requested != actual:
         raise ValueError("CI declaration does not match protected policy")

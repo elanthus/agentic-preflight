@@ -63,6 +63,11 @@ All notable changes to Agentic Preflight are documented here. This project follo
   `setup_failed` (scope `baseline`, `setup.kind` `worktree`) and keeps the run red with
   the baseline retry as its next command. Previously the unevaluated base was reported
   as passing.
+- Attestation verification drops configuration keys that a later release removed (listed
+  in `config.REMOVED_CONFIG_KEYS`, such as `[hook] enabled`) from an attested
+  `config_snapshot` before validating it, so a verifier built from a newer base no
+  longer rejects attestations written by an older CLI. Loading a configuration file that
+  sets one of these keys still fails with an unknown-key error.
 
 ### Added
 
