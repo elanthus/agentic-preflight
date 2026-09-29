@@ -62,7 +62,9 @@ separately and never gate execution.
 `summary.json` records the current `method_version` and contains per-case snapshot evidence
 and aggregate catch, fixed false-positive, unresolved, severity-agreement, and
 keyword-hit-rate values for each grounding setting.
-`summary.md` presents the same case outcomes and aggregates in one table.
+`summary.md` opens with the mode and executor, then presents the same case outcomes and
+aggregates in one table: booleans as `yes` or `no`, missing values as `n/a`, and rates
+with three decimals.
 
 ## Running dry mode
 

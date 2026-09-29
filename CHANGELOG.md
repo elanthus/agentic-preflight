@@ -101,6 +101,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
   pytest -q` prints its summary line.
 - Running `agentic-preflight` with no arguments prints the root help on stdout and exits
   0 on every supported Click version. Click 8.2 and later previously made it exit 2.
+- Eval `summary.md` starts with a mode and executor line and renders booleans as `yes`
+  or `no`, missing values as `n/a`, and rates with three decimals. `summary.json` is
+  unchanged.
 
 ### Removed
 

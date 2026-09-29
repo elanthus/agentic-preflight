@@ -405,3 +405,21 @@ def test_dry_summary_matches_committed_golden(tmp_path):
 
     golden = ROOT / "evals" / "golden" / "dry-summary.json"
     assert (tmp_path / "summary.json").read_bytes() == golden.read_bytes()
+
+
+def test_summary_markdown_renders_readable_values_with_a_mode_header(tmp_path):
+    eval_run.run_evaluation(
+        mode="dry",
+        executor=None,
+        grounding=("off",),
+        out=tmp_path,
+        case_ids=("unguarded-division", "off-by-one-page"),
+    )
+
+    text = (tmp_path / "summary.md").read_text(encoding="utf-8")
+    assert "Mode: dry. Executor: scripted." in text
+    assert "| unguarded-division | yes | yes | yes | yes |" in text
+    assert "| off-by-one-page | no | no | n/a | n/a |" in text
+    assert "| **Aggregate** | 0.500 | 0.500 | 1.000 | 1.000 |" in text
+    for raw in ("True", "False", "None"):
+        assert raw not in text

@@ -484,6 +484,19 @@ def _case_summary(vulnerable: dict[str, Any], fixed: dict[str, Any]) -> dict[str
     }
 
 
+def _cell(value: Any) -> str:
+    """Render one summary value as table text."""
+    if value is True:
+        return "yes"
+    if value is False:
+        return "no"
+    if value is None:
+        return "n/a"
+    if isinstance(value, float):
+        return f"{value:.3f}"
+    return str(value)
+
+
 def _markdown(summary: dict[str, Any]) -> str:
     settings = list(summary["grounding"])
     executor = summary["executor"]
@@ -497,14 +510,20 @@ def _markdown(summary: dict[str, Any]) -> str:
                 f"{setting}/{executor} keyword hit",
             ]
         )
-    lines = ["# Regression eval summary", "", "| " + " | ".join(headers) + " |"]
+    lines = [
+        "# Regression eval summary",
+        "",
+        f"Mode: {summary['mode']}. Executor: {executor}.",
+        "",
+        "| " + " | ".join(headers) + " |",
+    ]
     lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
     for case_id in summary["cases"]:
         row = [case_id]
         for setting in settings:
             result = summary["grounding"][setting]["cases"][case_id]
             row.extend(
-                str(result[key])
+                _cell(result[key])
                 for key in (
                     "catch",
                     "fixed_false_positive",
@@ -517,7 +536,7 @@ def _markdown(summary: dict[str, Any]) -> str:
     for setting in settings:
         result = summary["grounding"][setting]
         row.extend(
-            str(result[key])
+            _cell(result[key])
             for key in (
                 "catch_rate",
                 "fixed_false_positive_rate",
