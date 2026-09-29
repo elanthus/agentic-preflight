@@ -13,8 +13,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - A fetch, Git, or OS failure while synchronizing at `start` now records the run as
   `SYNC_CONFLICT`, appends a `sync_failed` event, and returns a `sync_failed` error
   (exit 4) with `abort --force` as the next command; its diagnostics redact URL
-  credentials. Previously the run stayed in
-  `SYNC_RUNNING` and every later `start` pointed back at `status`.
+  credentials. Previously the run stayed in `SYNC_RUNNING` and every later `start`
+  pointed back at `status`.
 - A run left in `SYNC_RUNNING` by an interrupted `start` now reports `abort --force` as
   its next command from `status` and `start`.
 - The setup command no longer escapes as an internal error on timeout. It runs through
