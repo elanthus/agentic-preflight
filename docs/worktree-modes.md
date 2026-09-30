@@ -15,8 +15,9 @@ lock so concurrent attestations are preserved.
 select a stored run explicitly. Commands selected that way operate on the recorded source
 checkout when it still exists; they do not mutate whichever unrelated worktree happened
 to invoke them. If that source checkout was deleted, `status`, `events`, and `logs` remain
-available for inspection, but mutating commands fail with `source_worktree_missing` and
-direct recovery to `gc` from a surviving worktree in the same clone.
+available for inspection, and other mutating commands fail with `source_worktree_missing`
+and direct recovery to `gc`. `gc` is the exception: run from a surviving worktree in the
+same clone, it removes the run and its validation worktree.
 A `RUN_ID` must be `r_` followed by 10 lowercase hex digits; any other value fails with
 `invalid_run_id` and exit code 6 before the run store is opened.
 

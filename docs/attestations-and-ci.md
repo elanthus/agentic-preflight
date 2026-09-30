@@ -258,7 +258,7 @@ Configure trusted CI:
    required reviewers on the named environment before enabling delegation.
 5. After the protected policy is installed, synchronize feature branches and run the
    normal local sequence. `stage run test` records delegation without starting local
-   tests. Publish through the usual authorized `gate` and `push` steps and open the PR. This produces
+   tests. Publish through the usual authorized `gate` and `push` steps. In `[pr] mode = "auto"` open or reuse the PR; in manual mode give the user the compare URL instead. This produces
    the input CI needs without waiting for CI before the first push.
 
 The dispatcher runs on protected PR events and base pushes. It dispatches the test
