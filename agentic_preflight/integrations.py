@@ -113,7 +113,7 @@ class IntegrationConflict(IntegrationError):
 
 
 def package_version() -> str:
-    """Return the installed package version."""
+    """Return the installed package version, or "0+unknown" when metadata is unavailable."""
     try:
         return version("agentic-preflight")
     except PackageNotFoundError:
