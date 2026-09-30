@@ -2,9 +2,8 @@
 
 Deliberately a *suggestion* mechanism, not an inference: detection never picks a
 command and runs it. It returns candidates, exits, and waits for the agent to
-choose and re-invoke with ``--command``. Running a guessed command against
-someone's repo is exactly the kind of confident wrongness this tool exists to
-prevent.
+choose and re-invoke with ``--command``, because a guessed command may do
+something the repository never intended.
 """
 
 from __future__ import annotations

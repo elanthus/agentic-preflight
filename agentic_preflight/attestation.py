@@ -23,6 +23,7 @@ NOTES_REF = "refs/notes/agentic-preflight"
 
 
 def recovery(reason: str) -> str:
+    """Return the recovery instruction for an attestation failure reason."""
     if reason in {"missing_note", "missing_notes_ref"}:
         return (
             "Confirm publication of the expected head and its note to the source remote; "
@@ -60,10 +61,12 @@ class DelegatedTestsPending(InvalidAttestation):
 
 
 def output_digest(output: str) -> str:
+    """Return the SHA-256 hex digest of captured stage output."""
     return hashlib.sha256(output.encode()).hexdigest()
 
 
 def intent_digest(intent: str) -> str:
+    """Return the SHA-256 hex digest of the run intent text."""
     return hashlib.sha256(intent.encode()).hexdigest()
 
 
@@ -75,6 +78,7 @@ def build(
     docs_enabled: bool,
     findings_summary: dict[str, int],
 ) -> Attestation:
+    """Build the attestation for a run that has passed every stage."""
     if run.review_coverage is None:
         raise InvalidAttestation("review stage has no coverage evidence")
     review_record = run.stages.get(Stage.REVIEW)
@@ -152,6 +156,7 @@ def build(
 
 
 def write(repo: Path | str, value: Attestation) -> None:
+    """Retain evidence refs and write the attestation as a git note on its commit."""
     from . import evidence_transport
 
     evidence_transport.retain(repo, value)
@@ -159,6 +164,7 @@ def write(repo: Path | str, value: Attestation) -> None:
 
 
 def read(repo: Path | str, sha: str) -> Attestation | None:
+    """Return the attestation noted on a commit, or None when there is none."""
     payload = gitx.read_note(repo, NOTES_REF, sha)
     if payload is None:
         return None
@@ -168,6 +174,7 @@ def read(repo: Path | str, sha: str) -> Attestation | None:
 def verify(
     repo: Path | str, sha: str, *, purpose: Literal["local", "publish"] = "local"
 ) -> Attestation:
+    """Verify the attestation noted on a commit for local or publish use."""
     if purpose not in {"local", "publish"}:
         raise InvalidAttestation("unknown verification purpose")
     resolved = gitx.rev_parse(repo, sha)

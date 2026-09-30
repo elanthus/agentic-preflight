@@ -61,6 +61,7 @@ def worktree_identity(cwd: Path | str) -> str:
 
 
 def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) -> Session:
+    """Open a session for the repository containing a directory."""
     cwd = Path(cwd) if cwd else Path.cwd()
     caller_root = gitx.repo_root(cwd)
     # GIT_COMMON_DIR, not GIT_DIR: these differ when the caller is already

@@ -91,6 +91,7 @@ def snapshot(api: GitHub, pr: int) -> tuple[Candidate, Config, dict]:
 
 
 def workflow_runs(api: GitHub, candidate: Candidate, cfg: Config) -> list[dict]:
+    """Return workflow runs whose title matches the current integration candidate."""
     workflow = api.request(f"actions/workflows/{cfg.ci.workflow_id}")
     if (
         workflow["id"] != cfg.ci.workflow_id
@@ -137,6 +138,7 @@ def _completed_at(value: object, now: datetime, max_age: int) -> bool:
 def inspect_run(
     api: GitHub, candidate: Candidate, cfg: Config, run_id: int, *, now: datetime
 ) -> dict[str, Any]:
+    """Summarise one workflow run's status and evidence."""
     run = api.request(f"actions/runs/{run_id}")
     result: dict[str, Any] = {
         "status": "pending",
@@ -225,6 +227,7 @@ def inspect_run(
 
 
 def validate_environment(api: GitHub, cfg: Config) -> None:
+    """Check that the approval environment requires reviewers."""
     environment = api.request(f"environments/{quote(cfg.approval.environment, safe='')}")
     if environment.get("name") != cfg.approval.environment or not any(
         rule.get("type") == "required_reviewers" and rule.get("reviewers")
@@ -236,6 +239,7 @@ def validate_environment(api: GitHub, cfg: Config) -> None:
 def evaluate_tests(
     api: GitHub, candidate: Candidate, cfg: Config, *, now: datetime | None = None
 ) -> dict:
+    """Evaluate delegated test evidence for the integration candidate."""
     runs = workflow_runs(api, candidate, cfg)
     if not runs:
         return {

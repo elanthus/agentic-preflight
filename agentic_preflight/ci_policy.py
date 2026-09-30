@@ -7,7 +7,7 @@ from pathlib import Path
 
 from . import gitx
 from .ci_models import TestDelegation
-from .config import REPO_CONFIG_NAME, Config
+from .config import REPO_CONFIG_NAME, Config, snapshot_config
 from .models import Attestation
 
 
@@ -18,22 +18,37 @@ def _validate_policy(contents: str) -> Config:
         raise ValueError(f"invalid protected policy: {exc}") from exc
 
 
+def _has_committed_config(repo: Path | str, revision: str) -> bool:
+    return bool(gitx.out(repo, "ls-tree", "--name-only", revision, "--", REPO_CONFIG_NAME))
+
+
 def committed_config(repo: Path | str, revision: str) -> Config:
     """Read the configuration committed at a revision, using defaults when it has none."""
-    if not gitx.out(repo, "ls-tree", "--name-only", revision, "--", REPO_CONFIG_NAME):
+    if not _has_committed_config(repo, revision):
         return Config()
     return _validate_policy(gitx.out(repo, "show", f"{revision}:{REPO_CONFIG_NAME}"))
 
 
-def parse_policy(contents: str) -> Config:
-    cfg = _validate_policy(contents)
+def _require_ci_authority(cfg: Config) -> Config:
     if cfg.ci.test_authority != "github_actions":
         raise ValueError("protected base has not enabled delegated-test CI authority")
     return cfg
 
 
+def parse_policy(contents: str) -> Config:
+    """Parse protected policy text that must enable delegated-test CI authority."""
+    return _require_ci_authority(_validate_policy(contents))
+
+
 def committed_policy(repo: Path | str, revision: str) -> Config:
-    return parse_policy(gitx.out(repo, "show", f"{revision}:{REPO_CONFIG_NAME}"))
+    """Read the committed protected policy, which must exist and enable CI authority."""
+    if not _has_committed_config(repo, revision):
+        raise gitx.GitError(
+            ["show", f"{revision}:{REPO_CONFIG_NAME}"],
+            128,
+            f"{REPO_CONFIG_NAME} is not committed at {revision}",
+        )
+    return _require_ci_authority(committed_config(repo, revision))
 
 
 def base_enabled(repo: Path | str, revision: str) -> bool:
@@ -46,6 +61,7 @@ def base_enabled(repo: Path | str, revision: str) -> bool:
 
 
 def enforce_local_policy(effective: Config, protected: Config, *, include_ci: bool = True) -> None:
+    """Reject differences from the protected policy in its selected sections or commands.lint."""
     # Exact agreement is deliberately conservative in this initial opt-in path.
     # A feature branch cannot silently weaken any mandatory local stage.
     for section in ("ci", "review", "policy", "docs", "diff", "context", "approval"):
@@ -60,6 +76,7 @@ def enforce_local_policy(effective: Config, protected: Config, *, include_ci: bo
 def declaration(
     repo: Path | str, *, base: str, head: str, base_ref: str, effective: Config
 ) -> TestDelegation:
+    """Build the CI test delegation declaration from the protected base policy."""
     protected = committed_policy(repo, base)
     enforce_local_policy(effective, protected)
     if base_ref not in {protected.ci.base_branch, f"origin/{protected.ci.base_branch}"}:
@@ -72,6 +89,7 @@ def declaration(
 
 
 def verify_declaration(repo: Path | str, value: Attestation) -> None:
+    """Verify an attestation's CI declaration against the protected base policy."""
     requested = value.test_delegation
     if requested is None or value.config_snapshot is None:
         raise ValueError("missing CI declaration or effective local configuration")
@@ -82,7 +100,7 @@ def verify_declaration(repo: Path | str, value: Attestation) -> None:
         base=requested.policy_revision,
         head=value.sha,
         base_ref=value.base_ref,
-        effective=Config.model_validate(value.config_snapshot),
+        effective=snapshot_config(value.config_snapshot),
     )
     if requested != actual:
         raise ValueError("CI declaration does not match protected policy")

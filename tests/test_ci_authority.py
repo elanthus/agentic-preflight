@@ -398,3 +398,26 @@ def test_unprotected_retarget_cannot_authorize_its_own_policy_or_dispatch():
     with pytest.raises(ValueError, match="protected base branch"):
         authority.dispatch(api, 86)
     assert not any(method == "POST" for method, _, _ in api.requests)
+
+
+def test_committed_policy_raises_when_the_revision_has_no_config(tmp_repo):
+    from agentic_preflight import gitx
+    from agentic_preflight.ci_policy import base_enabled, committed_config, committed_policy
+
+    assert committed_config(tmp_repo, "HEAD").ci.test_authority != "github_actions"
+    with pytest.raises(gitx.GitError):
+        committed_policy(tmp_repo, "HEAD")
+    assert base_enabled(tmp_repo, "HEAD") is False
+
+
+def test_committed_policy_requires_ci_authority_and_reads_a_committed_policy(tmp_repo):
+    from agentic_preflight.ci_policy import committed_policy
+    from tests.conftest import commit_all, write
+
+    write(tmp_repo, ".agentic-preflight.toml", "[review]\n")
+    commit_all(tmp_repo, "config without ci")
+    with pytest.raises(ValueError, match="delegated-test CI authority"):
+        committed_policy(tmp_repo, "HEAD")
+    write(tmp_repo, ".agentic-preflight.toml", POLICY)
+    commit_all(tmp_repo, "config with ci")
+    assert committed_policy(tmp_repo, "HEAD").ci.workflow_id == 20

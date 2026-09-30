@@ -20,11 +20,13 @@ class InvalidAttestation(ValueError):
 
 
 def encode(value: Attestation) -> str:
+    """Serialise an attestation to canonical JSON."""
     payload = value.model_dump(mode="json")
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
 def decode(payload: str) -> Attestation:
+    """Parse an attestation from its JSON payload."""
     from .models import Attestation
 
     try:

@@ -538,3 +538,46 @@ def test_fresh_verified_stages_preserve_explicit_command_overrides(feature_repo,
     for stage in (Stage.LINT, Stage.TEST):
         assert value.stages[stage].command == override
         assert value.evidence[stage].origin.result.command == override
+
+
+def _with_snapshot_key(raw: dict, section: str, key: str, value: object) -> dict:
+    from agentic_preflight.digests import json_digest
+
+    snapshots = [raw["config_snapshot"]]
+    snapshots += [item["origin"]["config_snapshot"] for item in raw["evidence"].values()]
+    for snapshot in snapshots:
+        snapshot.setdefault(section, {})[key] = value
+    raw["config_sha256"] = json_digest(raw["config_snapshot"])
+    for item in raw["evidence"].values():
+        origin = item["origin"]
+        origin["config_sha256"] = json_digest(origin["config_snapshot"])
+        item["origin_sha256"] = json_digest(origin)
+    return raw
+
+
+def test_a_snapshot_with_a_removed_config_key_still_verifies(feature_repo, tmp_path):
+    _prepare(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    _finish(agent, tmp_path)
+    value = attestation.verify(feature_repo, "HEAD")
+    raw = _with_snapshot_key(json.loads(attestation.encode(value)), "hook", "enabled", True)
+    verified = attestation.verify_value(
+        feature_repo, attestation.decode(json.dumps(raw)), value.sha, purpose="local"
+    )
+    assert verified.config_snapshot["hook"]["enabled"] is True
+
+
+def test_a_snapshot_with_a_never_existing_config_key_is_rejected(feature_repo, tmp_path):
+    _prepare(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    _finish(agent, tmp_path)
+    value = attestation.verify(feature_repo, "HEAD")
+    raw = _with_snapshot_key(json.loads(attestation.encode(value)), "hook", "sparkle", True)
+    with pytest.raises(attestation.InvalidAttestation) as error:
+        attestation.verify_value(
+            feature_repo, attestation.decode(json.dumps(raw)), value.sha, purpose="local"
+        )
+    assert error.value.reason == "invalid_evidence"
+    assert "sparkle" in str(error.value)

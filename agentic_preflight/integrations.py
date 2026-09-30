@@ -113,6 +113,7 @@ class IntegrationConflict(IntegrationError):
 
 
 def package_version() -> str:
+    """Return the installed package version, or "0+unknown" when metadata is unavailable."""
     try:
         return version("agentic-preflight")
     except PackageNotFoundError:
@@ -244,6 +245,7 @@ def inspect_target(
     source_dir: Path | None = None,
     source_version: str | None = None,
 ) -> dict:
+    """Report the installation state of one integration target."""
     source_dir = source_dir or bundled_skill_dir()
     source_version = source_version or package_version()
     current_hash = _skill_hash(source_dir)
@@ -292,6 +294,7 @@ def integration_status(
     source_dir: Path | None = None,
     source_version: str | None = None,
 ) -> list[dict]:
+    """Report the installation state of the selected integrations."""
     source_dir = source_dir or bundled_skill_dir()
     source_version = source_version or package_version()
     targets = resolve_targets(

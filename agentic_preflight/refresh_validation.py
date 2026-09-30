@@ -6,7 +6,7 @@ import tomllib
 from pathlib import Path
 
 from . import diff, findings, gitx, risk
-from .config import Config
+from .config import Config, snapshot_config
 from .digests import json_digest
 from .fingerprints import (
     FINGERPRINT_VERSION,
@@ -23,12 +23,14 @@ from .shell_fingerprints import ShellFingerprint, ShellInputContract, classify_s
 
 
 def shell_execution_config(snapshot: dict, stage: Stage) -> dict:
+    """Return the execution settings of a shell stage snapshot."""
     return {"stage": snapshot.get("stage"), "worktree": snapshot.get("worktree")}
 
 
 def contract_is_committed(
     repo: Path | str, head: str, stage: Stage, contract: ShellInputContract | None
 ) -> bool:
+    """Return whether a shell input contract is committed at head."""
     if contract is None:
         return False
     result = gitx.run(repo, "show", f"{head}:.agentic-preflight.toml", check=False)
@@ -42,7 +44,7 @@ def contract_is_committed(
 
 
 def _manifest(repo: Path | str, origin: OriginalExecution, *, head: str, base: str):
-    cfg = Config.model_validate(origin.config_snapshot)
+    cfg = snapshot_config(origin.config_snapshot)
     bundle = diff.build_bundle(repo, base, head, exclude=cfg.diff.exclude)
     fingerprint = origin.fingerprint
     if not isinstance(fingerprint, ReviewFingerprint):
@@ -88,7 +90,7 @@ def _verify_fingerprint(repo: Path | str, origin: OriginalExecution) -> None:
         raise ValueError("original base tree does not match its fingerprint")
     if fp.head_tree_sha != gitx.tree_sha(repo, origin.head_sha):
         raise ValueError("original head tree does not match its fingerprint")
-    cfg = Config.model_validate(origin.config_snapshot)
+    cfg = snapshot_config(origin.config_snapshot)
     if isinstance(fp, ReviewFingerprint):
         expected = json_digest(review_relevant_config(origin.config_snapshot))
         if fp.config_sha256 != expected or fp.executor != origin.result.executor:
@@ -114,6 +116,7 @@ def _verify_fingerprint(repo: Path | str, origin: OriginalExecution) -> None:
 
 
 def json_digest_command(command: str) -> str:
+    """Return the SHA-256 hex digest of a command string."""
     import hashlib
 
     return hashlib.sha256(command.encode()).hexdigest()
@@ -122,6 +125,7 @@ def json_digest_command(command: str) -> str:
 def verify_stage(
     repo: Path | str, item: StageEvidence, *, head: str, base: str, run_id: str
 ) -> None:
+    """Verify one stage's refreshed evidence against the current base and head."""
     origin = item.origin
     _verify_fingerprint(repo, origin)
     fp = item.fingerprint
@@ -141,7 +145,7 @@ def verify_stage(
         result = classify_docs(old, fp)
     elif isinstance(old, ShellFingerprint) and isinstance(fp, ShellFingerprint):
         result = classify_shell(old, fp)
-        contract = getattr(Config.model_validate(origin.config_snapshot).reuse, origin.stage.value)
+        contract = getattr(snapshot_config(origin.config_snapshot).reuse, origin.stage.value)
         if not contract_is_committed(
             repo, head, origin.stage, contract
         ) or not contract_is_committed(repo, origin.head_sha, origin.stage, contract):
@@ -218,9 +222,10 @@ def _verify_executor_policy(value: Attestation, cfg: Config, assessment) -> None
 
 
 def verify_evidence(repo: Path | str, value: Attestation) -> None:
+    """Verify a refresh attestation's per-stage evidence."""
     if value.evidence is None or value.config_snapshot is None:
         raise ValueError("refresh attestation lacks per-stage evidence or configuration")
-    cfg = Config.model_validate(value.config_snapshot)
+    cfg = snapshot_config(value.config_snapshot)
     if value.stages[Stage.LINT].status != "green":
         raise ValueError("lint evidence must be green")
     if (value.stages[Stage.DOCS].status == "skipped") == cfg.docs.enabled:
