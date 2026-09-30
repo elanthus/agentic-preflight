@@ -61,9 +61,9 @@ def base_enabled(repo: Path | str, revision: str) -> bool:
 
 
 def enforce_local_policy(effective: Config, protected: Config, *, include_ci: bool = True) -> None:
+    """Reject differences from the protected policy in its selected sections or commands.lint."""
     # Exact agreement is deliberately conservative in this initial opt-in path.
     # A feature branch cannot silently weaken any mandatory local stage.
-    """Reject an effective config whose sections differ from the protected policy."""
     for section in ("ci", "review", "policy", "docs", "diff", "context", "approval"):
         if section == "ci" and not include_ci:
             continue
