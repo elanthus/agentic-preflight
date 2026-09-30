@@ -91,7 +91,7 @@ def snapshot(api: GitHub, pr: int) -> tuple[Candidate, Config, dict]:
 
 
 def workflow_runs(api: GitHub, candidate: Candidate, cfg: Config) -> list[dict]:
-    """Return trusted workflow runs for the current integration candidate."""
+    """Return workflow runs whose title matches the current integration candidate."""
     workflow = api.request(f"actions/workflows/{cfg.ci.workflow_id}")
     if (
         workflow["id"] != cfg.ci.workflow_id
