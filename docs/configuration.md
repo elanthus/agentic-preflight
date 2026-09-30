@@ -3,9 +3,11 @@
 This is the canonical configuration reference. `agentic-preflight init` writes a
 commented starting file; the example below includes every supported section.
 
-`.agentic-preflight.toml` sits in the repo root and is committed. It is layered over
-`~/.config/agentic-preflight/config.toml`. Unknown keys are errors that name the key
-rather than being ignored.
+`.agentic-preflight.toml` sits in the repo root and is committed. It is combined with
+`~/.config/agentic-preflight/config.toml` one section at a time: a section present in the
+repository file replaces the whole matching user section, and keys are not merged across
+the two files. A section that only the user file sets still applies. Unknown keys are
+errors that name the key rather than being ignored.
 
 Configuration models enforce the same mode, severity, risk-level, approval-environment,
 and constrained path rules for file loading and stored snapshots. Python callers can
@@ -51,7 +53,8 @@ executor = "in_harness"       # default; or "command"
 require_command_for = []      # e.g. ["high"] to require independence by risk
 
 [policy]
-# These ownership-sensitive paths are high-risk and require human merge approval.
+# The default is []. `init` seeds these ownership-sensitive paths, which are
+# high-risk and require human merge approval.
 human_review_paths = [
   ".agentic-preflight.toml",
   ".github/workflows/**",
@@ -145,23 +148,39 @@ or undeclared inputs. Login-shell commands are unsupported and rerun. A user-lev
 declaration alone cannot enable shell reuse; it must match the committed contract.
 Input values and file contents never appear in fingerprint diagnostics.
 
+## Push and pull-request authorization
+
+This section is the canonical statement of when an agent may push or open a pull
+request. The skill and the other documents link here.
+
+An agent may push only with user authorization. Authorization comes from one of two
+sources:
+
+- An explicit request in the current task to push, publish, or create or open a pull
+  request. That request authorizes the matching push.
+- The user's applicable standing instructions. For example, standing instructions that
+  permit pushing fixes for existing PR feedback authorize pushing those fixes to that
+  PR's existing head branch when the user asks to address the feedback.
+
+A request only to implement or commit, or a generic "proceed", is not push
+authorization.
+
+After `gate`, the agent shows the remote, branch, commits, and risk. When that summary
+matches the authorization, the agent pushes without asking a second time. When
+authorization is missing, or the summary differs from its scope (another remote or
+branch, unexpected commits, or a different risk decision), the agent asks and waits for
+an answer. No authorization covers a force-push, a merge, a destructive action, or work
+beyond the requested scope; each needs its own approval, and the merge restrictions in
+[`[approval]`](#high-risk-merge-handling-approval) still apply.
+
 ## Pull-request publication (`[pr]`)
 
 `mode = "auto"` is the default and is standing authorization for pull-request creation.
-An explicit request to push, publish, or open a pull request, or applicable standing
-user instructions, authorizes the matching push. For example, standing instructions
-may authorize pushing corresponding fixes to an existing PR's head branch when the
-user asks to address its feedback. That permission does not cover a different remote
-or branch, force-push, merge, destructive action, or materially broader work; those
-require separate approval, subject to the skill's merge restrictions. The agent shows
-the remote, branch, commits, and risk, and asks for push approval only when authorization
-is missing or the scope materially differs. After the
-authorized push and preflight finish, it opens or reuses the pull request without a
-second approval prompt.
+After the authorized push and the run finish, the agent opens or reuses the pull request
+without a second approval prompt.
 
 `mode = "manual"` keeps pull-request creation in the user's hands. The agent may still
-push through the configured gate, but it never opens the pull request and provides a
-compare URL instead.
+push, but it never opens the pull request and provides a compare URL instead.
 
 `automated_cleanup = false` is the default. Automatic pull-request creation still works,
 but the agent stops after hosted checks: it does not poll the merge state or delete
@@ -170,8 +189,8 @@ agent disclose the exact cleanup scope, poll an automatically opened or reused p
 request every 5 minutes, and remove only the disclosed run-scoped targets after GitHub
 verifies the merge.
 
-This is independent of `[gate] mode`. The token gate lets the agent push with matching
-user authorization, including applicable standing instructions; the manual gate
+This is independent of `[gate] mode`. With `mode = "token"` the agent pushes once it
+has [authorization](#push-and-pull-request-authorization); with `mode = "manual"` the CLI
 refuses to push and hands the command to a person.
 
 ## High-risk merge handling (`[approval]`)
@@ -199,8 +218,9 @@ the new mode applies to subsequent pull requests after merge.
 
 ## The documentation surface (`[docs]`)
 
-The docs stage inspects `README*`, `docs/**`, agent instructions such as `.claude/rules/**`
-and `.github/instructions/**`, plus `PRODUCT.md` and `DESIGN.md`.
+The docs stage inspects `README*`, `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING*`,
+`CHANGELOG*`, `docs/**`, agent instructions under `.claude/rules/**` and
+`.github/instructions/**`, plus `PRODUCT.md` and `DESIGN.md`.
 
 Use `[docs] paths` for repository-specific documentation surfaces. The surface is an
 allowlist: a docs finding filed against a path outside it is rejected, which is a statement
@@ -267,7 +287,8 @@ happens the captured output is discarded and the stage output ends with an
 `[output truncated: ...]` line after the timeout marker. On POSIX, SIGTERM or SIGINT
 delivered to the CLI while a stage runs also kills that stage's process group.
 
-`max_restarts` bounds the whole run rather than one stage. Validation restarts whenever
+`max_restarts` bounds the whole run rather than one stage. It is new in the release
+after 0.6.0; 0.6.0 rejects it as an unknown key. Validation restarts whenever
 it returns to review after making progress: a committed lint or test repair, a repair
 that changes the reviewed snapshot, changed stage inputs, or a merge-back resolution that
 differs from the verified tree. When the count reaches `max_restarts`, the restart is
@@ -367,7 +388,7 @@ Tests always target the integration commit. Each `required_jobs` entry identifie
 one test matrix leg in the protected workflow. Names must be unique and nonempty;
 `prepare` and `approval` are reserved jobs added by the verifier. Only explicit
 success counts. Expiry is measured from each job's completion, defaults to one day,
-and permits 60–604800 seconds. A partial rerun cannot borrow missing legs from an
+and permits 60–604800 seconds. A partial rerun cannot borrow missing legs from
 another attempt; rerun all jobs.
 
 The effective CI declaration must match the committed protected base and proposed
@@ -380,5 +401,5 @@ Lint remains local. The
 The workflow's protected commands define remote test execution. Local
 `[commands] test` remains available for repositories using local authority, but is
 not executed or recorded as CI evidence under delegation. The state becomes
-`TEST_DELEGATED`, then `PUBLICATION_READY` after mergeback. Publication can proceed
+`TEST_DELEGATED`, then `PUBLICATION_READY` after merge-back. Publication can proceed
 with tests pending; `ci status` determines live merge readiness separately.
