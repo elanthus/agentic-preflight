@@ -116,6 +116,13 @@ class EnvelopeGroup(click.Group):
             fail_usage(exc)
             raise
 
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        """Print root help and exit 0 for a bare invocation on every Click version."""
+        if not args and self.no_args_is_help and not ctx.resilient_parsing:
+            click.echo(ctx.get_help(), color=ctx.color)
+            ctx.exit(0)
+        return super().parse_args(ctx, args)
+
     def invoke(self, ctx: click.Context) -> Any:
         try:
             return super().invoke(ctx)

@@ -81,3 +81,8 @@ still exits 2 on a usage error.
 Agentic Preflight 0.6.0 does not read run records or attestation notes written by any
 0.x release. Unsupported saved data is reported as an error and left unchanged with
 the work and ownership information it refers to.
+
+Attestation verification ignores configuration keys that a later release removed, such
+as `[hook] enabled`, when they appear in an attested `config_snapshot`, so a newer
+verifier accepts notes written by an older release; a configuration file that sets one
+is still rejected.

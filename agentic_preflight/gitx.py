@@ -585,6 +585,7 @@ def status_for_paths(cwd: Path | str, paths: list[str] | tuple[str, ...]) -> str
         "status",
         "--porcelain=v1",
         "--untracked-files=all",
+        "--ignore-submodules=none",
         "--",
         *sorted(set(paths)),
     ).stdout

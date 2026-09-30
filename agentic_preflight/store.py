@@ -428,11 +428,15 @@ class Store:
     def append_event(self, run_id: str, event: dict) -> None:
         """Events are append-only and deliberately *not* atomic-replaced: an
         append is already a single small write, and losing the tail of an audit
-        log is survivable in a way that losing ``run.json`` is not."""
+        log is survivable in a way that losing ``run.json`` is not. A per-run events lock
+        keeps concurrent appends from interleaving within a line."""
         path = self.events_path(run_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps({"at": _utcnow(), **event}, sort_keys=True)
-        with open(path, "a", encoding="utf-8", newline="\n") as handle:
+        with (
+            filelock.exclusive(self.run_dir(run_id) / ".events.lock"),
+            open(path, "a", encoding="utf-8", newline="\n") as handle,
+        ):
             handle.write(line + "\n")
 
     def load_events(self, run_id: str) -> list[dict]:

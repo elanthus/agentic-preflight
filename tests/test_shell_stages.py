@@ -17,6 +17,7 @@ from agentic_preflight.stages import command as command_plan
 from agentic_preflight.stages import shellstage
 from tests.conftest import (
     commit_all,
+    git,
     requires_posix_permissions,
     requires_posix_signals,
     requires_windows,
@@ -874,6 +875,36 @@ def test_a_failed_baseline_setup_is_not_reported_as_a_red_base(docs_green):
     assert status["data"]["setup_failure"]["worktree_path"] == env["data"]["worktree_path"]
     assert status["next"]["command"] == env["next"]["command"]
     assert "--baseline" in status["next"]["command"]
+
+
+def test_a_baseline_worktree_that_cannot_be_prepared_is_not_reported_as_a_passing_base(
+    docs_green, feature_repo
+):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    git("branch", f"ap/{run_id}-baseline", "main", cwd=feature_repo)
+
+    env = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "exit 1",
+        "--record",
+        "--baseline",
+        expect=ExitCode.STAGE_FAILED,
+    )
+
+    assert env["error"]["code"] == "setup_failed"
+    assert env["state"] == "LINT_RED"
+    assert "baseline_red" not in env["data"]
+    assert env["data"]["scope"] == "baseline"
+    assert env["data"]["setup"]["kind"] == "worktree"
+    assert "already exists" in env["error"]["message"]
+    assert "--baseline" in env["next"]["command"]
+    status = agent.run("status")
+    assert status["data"]["stages"]["lint"]["reason"] == "baseline worktree could not be prepared"
+    assert status["data"]["setup_failure"]["scope"] == "baseline"
 
 
 def test_repeated_baseline_setup_failures_stop_without_a_nonexistent_log(docs_green):
