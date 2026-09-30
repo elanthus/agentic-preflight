@@ -8,7 +8,7 @@ One question governs this entire stage:
 
 Not "could the docs be better." Not "is this documented as well as it could be."
 Documentation can always be improved, and a stage that reports every possible
-improvement generates noise on every run — and a noisy gate is a gate someone
+improvement generates noise on every run, and a noisy stage is one someone
 disables. This rubric is built around obligation, not aspiration.
 
 Fix documentation made stale by the requested change. Report unrelated documentation
@@ -46,8 +46,8 @@ surface incomplete in a way a reader would trip on.
   flag absent from an otherwise exhaustive list. Does not block by default.
 - **`low`** — a nit. Prefer no finding at all.
 
-Docs findings below `high` do not block, deliberately. The stage should improve
-documentation without becoming a reason to turn the gate off.
+Docs findings below `high` do not block. The stage should improve
+documentation without becoming a reason to turn the stage off.
 
 ## Where a finding may land
 

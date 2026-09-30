@@ -28,6 +28,6 @@ Include the affected version or commit, reproduction steps, the likely impact, a
 suggested mitigation. You should receive an acknowledgement within seven days. After
 validation, the maintainer will coordinate remediation and disclosure with you.
 
-This project is an advisory quality gate rather than a security boundary. Reports that
+Agentic Preflight is an advisory pre-push check rather than a security boundary. Reports that
 demonstrate a bypass beyond the documented `--no-verify`, missing-tool fail-open, and
 manual-mode limitations are especially useful.

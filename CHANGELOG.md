@@ -107,6 +107,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - Eval `summary.md` starts with a mode and executor line and renders booleans as `yes`
   or `no`, missing values as `n/a`, and rates with three decimals. `summary.json` is
   unchanged.
+- Documentation now matches current behavior for the docs surface, config section
+  replacement, `start --intent`, concurrent worktree modes, and SemVer scope. The push
+  and pull-request authorization rule lives in one section of `docs/configuration.md`.
 
 ### Removed
 
