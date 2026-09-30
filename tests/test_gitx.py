@@ -523,3 +523,17 @@ def test_diff_functions_and_patch_ids_ignore_a_textconv_driver(feature_repo):
         assert "CONFIG_MARKER" not in text
         assert "+def greet(name, loud=False):" in text
     assert gitx.commit_patch_id(feature_repo, "HEAD") == expected_patch_id
+
+
+def test_status_for_paths_reports_a_dirty_submodule_that_config_ignores(tmp_repo, tmp_path):
+    inner = tmp_path / "inner"
+    inner.mkdir()
+    git("init", "-b", "main", cwd=inner)
+    write(inner, "lib.py", "VALUE = 1\n")
+    commit_all(inner, "inner base")
+    git("-c", "protocol.file.allow=always", "submodule", "add", str(inner), "sub", cwd=tmp_repo)
+    commit_all(tmp_repo, "add submodule")
+    git("config", "submodule.sub.ignore", "all", cwd=tmp_repo)
+    write(tmp_repo / "sub", "lib.py", "VALUE = 2\n")
+
+    assert "sub" in gitx.status_for_paths(tmp_repo, ["sub"])

@@ -1,9 +1,9 @@
 """An exclusive advisory lock on a file, portable across platforms.
 
-The lock guards the read-modify-write window around a run document. Two
-parallel ``Bash`` calls in a single agent turn are a real hazard, not a
-theoretical one, so the semantics that matter are pinned here rather than left
-to whichever primitive a platform happens to offer:
+The lock guards the read-modify-write window around a run document. An agent
+can issue parallel ``Bash`` calls in a single turn, so two invocations of this
+tool can race on the same file. The semantics that matter are therefore pinned
+here rather than left to whichever primitive a platform offers:
 
 * **Exclusive.** One holder at a time, across processes.
 * **Blocking.** Waiting is correct; failing a concurrent caller is not. The
@@ -37,9 +37,8 @@ if sys.platform == "win32":  # pragma: no cover - platform-selected at import
 else:  # pragma: no cover - platform-selected at import
     import fcntl
 
-# The byte the Windows range lock is taken on. Every participant locks the same
-# one, so the choice only has to be consistent, and offset zero always exists
-# once the file has been created.
+# The number of bytes the Windows range lock covers, starting at offset zero.
+# Every participant locks the same range, so it only has to be consistent.
 _LOCK_BYTE = 1
 
 
@@ -55,8 +54,8 @@ def _acquire(handle) -> None:
                 # reports it as EDEADLOCK. Being second in line is normal here,
                 # so that one is worth waiting out.
                 #
-                # Only that one. Every other OSError — a bad descriptor, a
-                # permission failure — would still be true on the next attempt,
+                # Only that one. Every other OSError (a bad descriptor, a
+                # permission failure) would still be true on the next attempt,
                 # and retrying it means spinning forever at full CPU instead of
                 # telling the caller what went wrong.
                 if exc.errno != errno.EDEADLOCK:

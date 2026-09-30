@@ -8,13 +8,12 @@ one. Narrowing it to the owner is the guarantee that makes that acceptable.
 nothing: ``chmod`` there only toggles the read-only attribute, and permissions
 live in an ACL that the call never touches. A copied ``.env`` would inherit the
 containing directory's ACEs and be readable by every principal that already had
-access — silently, because the call still returns successfully.
+access, silently, because the call still returns successfully.
 
 The Windows equivalent is therefore built explicitly: reset the file's access
 list, drop what it inherits, and grant the calling user alone. ``icacls`` ships
 with Windows and needs no elevation to rewrite the access list of a file the
-caller owns, which keeps this free of a new dependency in a package that has
-two. See :func:`_restrict_via_acl` for why all three steps are load-bearing.
+caller owns, so no extra dependency is needed. See :func:`_restrict_via_acl` for why all three steps are load-bearing.
 """
 
 from __future__ import annotations
@@ -72,8 +71,8 @@ def current_user_sid(path: Path) -> str:
         return _cached_sid
 
     # Full System32 paths for both utilities: a bare name would let
-    # ``CreateProcess`` search the current directory — the repository under
-    # validation — for the very tool that protects the copied secret.
+    # ``CreateProcess`` search the current directory (the repository under
+    # validation) for the very tool that protects the copied secret.
     result = _run(
         [command_plan.windows_system_tool("whoami.exe"), "/user", "/fo", "csv", "/nh"], path
     )

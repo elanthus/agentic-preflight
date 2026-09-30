@@ -9,12 +9,13 @@ from pathlib import Path
 from . import approval, attestation, evidence_transport, gitx
 from .ci_authority import Candidate, CandidatePending, evaluate_tests, snapshot
 from .ci_policy import enforce_local_policy
-from .config import Config
+from .config import Config, snapshot_config
 from .github_api import APIUnavailable, GitHub
 from .models import Stage
 
 
 def published_attestation(repo: Path, api: GitHub, candidate: Candidate, cfg: Config):
+    """Fetch and decode the attestation published for the candidate head."""
     source = api.scoped(candidate.head_repository, public=not candidate.head_repository_private)
     value = attestation.decode(source.note(candidate.head_sha))
     objects = {candidate.base_sha, candidate.head_sha}
@@ -72,7 +73,7 @@ def published_attestation(repo: Path, api: GitHub, candidate: Candidate, cfg: Co
         raise ValueError("CI merge verification requires per-stage local evidence (schema 5 or 6)")
     # The original declaration was checked against its original protected base.
     # Current remote CI policy replaces it without rewriting local review evidence.
-    enforce_local_policy(Config.model_validate(value.config_snapshot), cfg, include_ci=False)
+    enforce_local_policy(snapshot_config(value.config_snapshot), cfg, include_ci=False)
     if cfg.commands.lint and value.stages[Stage.LINT].command != cfg.commands.lint:
         raise ValueError("local lint execution differs from protected-base command")
     if value.base_ref not in {candidate.base_branch, f"origin/{candidate.base_branch}"}:
@@ -86,6 +87,7 @@ def published_attestation(repo: Path, api: GitHub, candidate: Candidate, cfg: Co
 
 
 def evaluate(repo: Path, api: GitHub, pr: int) -> dict:
+    """Evaluate whether a pull request satisfies the CI merge requirements."""
     result: dict = {
         "purpose": "merge",
         "pr": pr,
@@ -175,6 +177,7 @@ def evaluate(repo: Path, api: GitHub, pr: int) -> dict:
 
 
 def next_action(result: dict) -> tuple[str, str]:
+    """Return the next instruction and command for a merge evaluation result."""
     command = f"agentic-preflight ci status --repo {result['repository']} --pr {result['pr']}"
     status = result["status"]
     if status == "success":

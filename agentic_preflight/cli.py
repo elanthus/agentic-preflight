@@ -1,4 +1,4 @@
-"""Stable CLI root: command registration and the shared protocol export."""
+"""Stable CLI root: command registration."""
 
 from __future__ import annotations
 
@@ -27,8 +27,8 @@ def _use_utf8_streams() -> None:
     on Windows, where a single non-ASCII path turns a working command into a
     ``UnicodeEncodeError``.
 
-    Streams that cannot be reconfigured — a captured buffer under test, a pipe
-    already wrapped by a caller — are left alone rather than replaced.
+    Streams that cannot be reconfigured (a captured buffer under test, a pipe
+    already wrapped by a caller) are left alone rather than replaced.
     """
     for stream in (sys.stdin, sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)

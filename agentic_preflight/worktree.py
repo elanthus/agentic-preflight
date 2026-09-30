@@ -12,9 +12,9 @@ cherry-picked onto the real branch at merge-back, and pushed. Git's
 there is no clean per-worktree exclude to lean on. Two independent guards
 instead:
 
-1. **Preflight refusal** (:func:`copy_files`) — refuse to copy anything git is
+1. **Preflight refusal** (:func:`copy_files`): refuse to copy anything git is
    not already ignoring.
-2. **Commit-content invariant** (:func:`assert_commit_is_clean_of`) — reject any
+2. **Commit-content invariant** (:func:`assert_commit_is_clean_of`): reject any
    commit whose changed-file set intersects ``copy_files``, checked against the
    commit itself rather than against ignore rules.
 
@@ -178,7 +178,7 @@ def copy_files(
 ) -> list[str]:
     """Copy environment files into the worktree, refusing anything git can see.
 
-    Missing entries are skipped silently — ``.env`` is a default, and not every
+    Missing entries are skipped silently; ``.env`` is a default, and not every
     repo has one. A *present but un-ignored* entry is a hard refusal.
 
     Ignore status is checked **in the worktree**, not in the source repo. The two
@@ -265,7 +265,7 @@ def assert_commit_is_clean_of(
     """Guard 2. Raise if ``sha`` touches any copied path.
 
     Checked against the commit's own changed-file set, deliberately without
-    consulting ``.gitignore`` — that independence is what makes this hold even
+    consulting ``.gitignore``; that independence is what makes this hold even
     if ignore rules change mid-run.
     """
     touched = set(gitx.commit_files(worktree_path, sha))

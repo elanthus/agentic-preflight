@@ -33,9 +33,8 @@ merge. A successful pre-push check alone does not establish merge readiness.
 
 The hook never touches the network and never mutates the repository. If
 `agentic-preflight` is not on `PATH`, or configuration cannot be loaded, it allows the
-push and prints a warning. That is deliberate: a teammate who clones a repository
-without installing the tool must not end up unable to push, and a broken local tool must
-not brick the repository.
+push and prints a warning. A teammate who clones a repository without installing the
+tool can still push, and a broken local tool does not block every push.
 
 The hook is also bypassable with `git push --no-verify`. That is the documented human
 escape hatch; agents using the skill are instructed never to invoke it. Use the
@@ -53,7 +52,7 @@ is already present, `init` refuses to change it and reports its real path.
 To compose with Husky or lefthook, add `agentic-preflight hook-check` to their
 pre-push script at the path reported by `init`, and let its nonzero exit stop the push.
 `status` reports `hook.path` and `hook.active`; `active` is true only when the effective
-hook contains that command, so a `core.hooksPath` change cannot silently hide the gate.
+hook contains that command, so a `core.hooksPath` change that bypasses the hook shows up in `status`.
 
 Treat `init --force` as replacement, not composition: it overwrites the existing hook
 and removes whatever behavior that hook previously provided.

@@ -181,6 +181,7 @@ def compute_shell_fingerprint(
 
 
 def classify_shell(old: ShellFingerprint | None, new: ShellFingerprint) -> Classification:
+    """Classify how a shell stage's fingerprint changed."""
     if old is None:
         return Classification(
             disposition=Disposition.UNKNOWN, reasons=(ReasonCode.FINGERPRINT_MISSING,)

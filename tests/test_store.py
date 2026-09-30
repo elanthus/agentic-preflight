@@ -285,3 +285,26 @@ def test_invalid_utf8_on_an_earlier_event_line_is_a_read_error(store):
     with pytest.raises(RunReadError) as caught:
         store.load_events("r_abc123")
     assert caught.value.reason == "invalid_events"
+
+
+def test_append_event_waits_for_the_events_lock(store):
+    import threading
+
+    from agentic_preflight import filelock
+
+    store.create_run(make_run())
+    store.append_event("r_abc123", {"event": "one"})
+    appended = threading.Event()
+
+    def append() -> None:
+        store.append_event("r_abc123", {"event": "two"})
+        appended.set()
+
+    with filelock.exclusive(store.run_dir("r_abc123") / ".events.lock"):
+        worker = threading.Thread(target=append)
+        worker.start()
+        assert not appended.wait(0.5)
+        assert [event["event"] for event in store.load_events("r_abc123")] == ["one"]
+    worker.join(timeout=10)
+    assert appended.is_set()
+    assert [event["event"] for event in store.load_events("r_abc123")] == ["one", "two"]

@@ -291,12 +291,6 @@ def _cli(repo: Path, env: dict[str, str], *argv: str) -> tuple[dict[str, Any], i
     return payload, result.returncode
 
 
-def _require_cli_ok(command: str, payload: dict[str, Any], code: int) -> None:
-    if code != 0:
-        message = payload.get("error", {}).get("message", "unknown failure")
-        raise EvaluationError(f"{command} exited {code}: {message}")
-
-
 def _assert_bundle_is_clean(case: EvalCase, context: dict[str, Any]) -> None:
     data = context.get("data", {})
     serialized = json.dumps(data, sort_keys=True, separators=(",", ":"))
@@ -407,33 +401,40 @@ def run_case_snapshot(
     if mode == "dry":
         env["AP_EVAL_SCRIPT"] = str(case.directory / "scripted" / f"{snapshot}.json")
 
-    init, code = _cli(repo, env, "init", "--no-hook")
-    _require_cli_ok("init --no-hook", init, code)
-    started, code = _cli(repo, env, "start", "--intent", str(case.metadata["intent"]))
-    _require_cli_ok("start", started, code)
-    context, code = _cli(repo, env, "context")
-    _require_cli_ok("context", context, code)
-    _assert_bundle_is_clean(case, context)
-    if grounding == "on":
-        _require_grounding_entries(case, snapshot, context)
-    reviewed, code = _cli(repo, env, "review", "run")
-    if code != 0:
+    def unresolved(command: str, envelope: dict[str, Any], exit_code: int) -> dict[str, Any]:
         print(
-            f"Review failed for {case.id}/{snapshot} ({grounding}): "
-            + json.dumps(reviewed, sort_keys=True),
+            f"{command} failed for {case.id}/{snapshot} ({grounding}): "
+            + json.dumps(envelope, sort_keys=True),
             file=sys.stderr,
         )
         return {
             "status": "unresolved",
-            "exit_code": code,
+            "exit_code": exit_code,
             "base_sha": shas["base"],
             "head_sha": shas[snapshot],
             "finding_count": 0,
             "matched": None,
             "severity_agreement": None,
             "keyword_hit": None,
-            "reviewer_invocations": _reviewer_invocations(reviewed),
+            "reviewer_invocations": _reviewer_invocations(envelope),
         }
+
+    for command, argv in (
+        ("init --no-hook", ("init", "--no-hook")),
+        ("start", ("start", "--intent", str(case.metadata["intent"]))),
+    ):
+        envelope, code = _cli(repo, env, *argv)
+        if code != 0:
+            return unresolved(command, envelope, code)
+    context, code = _cli(repo, env, "context")
+    if code != 0:
+        return unresolved("context", context, code)
+    _assert_bundle_is_clean(case, context)
+    if grounding == "on":
+        _require_grounding_entries(case, snapshot, context)
+    reviewed, code = _cli(repo, env, "review", "run")
+    if code != 0:
+        return unresolved("review run", reviewed, code)
     run_id = str(reviewed["run_id"])
     submission = _recorded_submission(repo, run_id)
     findings = submission["findings"]
@@ -484,6 +485,19 @@ def _case_summary(vulnerable: dict[str, Any], fixed: dict[str, Any]) -> dict[str
     }
 
 
+def _cell(value: Any) -> str:
+    """Render one summary value as table text."""
+    if value is True:
+        return "yes"
+    if value is False:
+        return "no"
+    if value is None:
+        return "n/a"
+    if isinstance(value, float):
+        return f"{value:.3f}"
+    return str(value)
+
+
 def _markdown(summary: dict[str, Any]) -> str:
     settings = list(summary["grounding"])
     executor = summary["executor"]
@@ -497,14 +511,20 @@ def _markdown(summary: dict[str, Any]) -> str:
                 f"{setting}/{executor} keyword hit",
             ]
         )
-    lines = ["# Regression eval summary", "", "| " + " | ".join(headers) + " |"]
+    lines = [
+        "# Regression eval summary",
+        "",
+        f"Mode: {summary['mode']}. Executor: {executor}.",
+        "",
+        "| " + " | ".join(headers) + " |",
+    ]
     lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
     for case_id in summary["cases"]:
         row = [case_id]
         for setting in settings:
             result = summary["grounding"][setting]["cases"][case_id]
             row.extend(
-                str(result[key])
+                _cell(result[key])
                 for key in (
                     "catch",
                     "fixed_false_positive",
@@ -517,7 +537,7 @@ def _markdown(summary: dict[str, Any]) -> str:
     for setting in settings:
         result = summary["grounding"][setting]
         row.extend(
-            str(result[key])
+            _cell(result[key])
             for key in (
                 "catch_rate",
                 "fixed_false_positive_rate",

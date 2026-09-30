@@ -19,7 +19,7 @@ A `RUN_ID` other than `r_` followed by 10 lowercase hex digits exits 6 with
 `invalid_run_id` before any run is opened.
 Without it, the command resolves the run owned by the invoking Git worktree. When the
 selected run's recorded source checkout no longer exists, inspection commands remain
-available, gated mutations exit 3 with `source_worktree_missing`, and `gc` remains the
+available, mutating commands exit 3 with `source_worktree_missing`, and `gc` remains the
 recovery path from another worktree in the clone.
 
 ## Setup
@@ -63,22 +63,24 @@ edits unless `--force` is explicit.
 Removes copies managed by agentic-preflight. Unmanaged or locally modified directories are
 preserved unless `--force` is explicit. At least one agent or custom target is required.
 
-## Running a gate
+## Running validation
 
 ### `agentic-preflight start --intent TEXT [--base-ref REF] [--replace]`
-Creates a run and prepares its validation checkout. The default `[worktree] mode =
+Creates a run and prepares its validation worktree. The default `[worktree] mode =
 "in_place"` validates directly in the current clean PR checkout. `mode = "reusable"`
-uses one serial isolated runner and preserves ignored caches between leases. `mode =
-"strict"` creates and removes a fresh isolated worktree per run.
-The intent is required and persisted as the user's objective and acceptance criteria.
-Different linked source worktrees may run gates concurrently. Repeating `start` with the
+uses one serial validation worktree and preserves ignored caches between leases. `mode =
+"strict"` creates and removes a fresh isolated validation worktree per run.
+The intent is persisted as the user's objective and acceptance criteria. The parser
+accepts `start` without `--intent`, but the command then fails with exit 3 and
+`intent_required`.
+Different linked source worktrees may have runs active concurrently. Repeating `start` with the
 same head, intent, base, and effective configuration resumes that worktree's existing run.
 A moved source head orphans the stale run without deleting its evidence or fixes and then
 starts fresh. On an unchanged head, a different intent or configuration requires
 `--replace`, which preserves the replaced run as `ORPHANED`. Age alone never expires a
 run.
 Before review, the command fetches the configured base from `origin` when available and
-rebases the validation checkout onto that exact fresh base. In-place mode therefore
+rebases the validation worktree onto that exact fresh base. In-place mode therefore
 rebases the PR branch itself. A sync conflict is aborted
 cleanly and reported; no conflicted rebase is left in progress.
 `start` classifies complete local evidence per stage, including when synchronization
@@ -102,18 +104,20 @@ worktree is a clean checkout, so every gitignored artifact directory the toolcha
 relies on is absent and gets rebuilt from nothing on the first run.
 
 Agentic Preflight performs no automatic dependency installation. Configure
-`setup_command` to prepare the validation checkout; it runs before review in every mode
+`setup_command` to prepare the validation worktree; it runs before review in every mode
 and before a `--baseline` stage in its scratch worktree. A nonzero exit stops setup
 instead of allowing review or reporting the base as red. Reusable mode preserves ignored
 caches between leases, while strict mode begins without retained artifacts. Use
 `copy_files` only for ignored files such as `.env`; directories are refused with a clear
 setup instruction.
 
-The failure details and recovery command are durable. After initial setup fails,
+The failure details and recovery command are persisted. After initial setup fails,
 the run is `SETUP_FAILED` and `status` returns `abort --force` so an isolated lease can
 always be released. After baseline setup fails, the run remains in its lint or test red
 state and `status` returns the exact stage retry including `--baseline` instead of
-pointing at a stage log that was never created.
+pointing at a stage log that was never created. A baseline scratch worktree that cannot
+be created takes the same path, with `setup.kind` set to `worktree`, rather than
+reporting the base as passing.
 
 Note the interaction with `respond`: a fix commit containing a `copy_files` path is
 rejected. Copied caches are inputs to the run, never part of the change.
@@ -235,6 +239,8 @@ exits 4 until an eligible non-author has an `APPROVED` review for the exact curr
 Later dismissal or changes-requested reviews revoke that person's peer approval.
 `--report-only` reports conditional Environment or peer-review state without failing, so
 a trusted workflow can dispatch the appropriate hosted job.
+A reviews file that is not UTF-8 JSON fails with `invalid_findings` (exit 3), as other
+JSON file inputs do.
 
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
 Stages run in the fixed order docs → lint → test after review becomes green. Running lint
@@ -283,7 +289,7 @@ it first records the interrupted process as a red attempt with exit code 125 and
 `max_attempts`.
 
 **A command that no-ops and exits 0 is indistinguishable from one that passed.**
-Exit-code-only is deliberate — parsing output is brittle — but it assumes the command
+Pass/fail uses only the exit code because parsing output is brittle, but it assumes the command
 is *capable* of failing. The first green from a newly configured `[commands]` entry
 proves nothing until you know the command can go red. Confirm it by checking the run
 actually did work: a test count, a results file, a non-trivial log. A misconfigured
@@ -304,7 +310,8 @@ a diff that touches tested code, suspect the command before trusting it.
 In in-place mode, attests the already-verified current SHA without creating or
 cherry-picking a commit. The checkout must remain clean. In isolated modes, cherry-picks
 the fix commits onto the source branch; only paths those commits may overwrite are
-blocked, while unrelated tracked edits and untracked files are left alone.
+blocked, while unrelated tracked edits and untracked files are left alone. A dirty
+submodule on one of those paths blocks merge-back even when Git config ignores it.
 
 On conflict: aborts immediately, verifies the branch is byte-for-byte restored, exits 4
 with `data.resolution`, and stores that full report in the event log. The CLI never
@@ -313,7 +320,7 @@ the intended result is unambiguous, recoverable, and directly supported by that 
 it must preserve unrelated edits and user-owned operations, and cannot make a
 content-sensitive choice or bypass protected merge policy. Otherwise a person must
 decide. After resolution, `mergeback` is legal again: an exact tree is attested without
-rerunning completed stages; a different tree becomes the validation checkout's new
+rerunning completed stages; a different tree becomes the validation worktree's new
 snapshot and returns the active run to review before any stage can be trusted again.
 
 On success: compares the branch tree against the worktree tree. `tree_equivalent: true`
@@ -323,18 +330,11 @@ the exact commit. False returns to review with all snapshot-bound stage evidence
 ### `agentic-preflight gate`
 Mints a confirmation token and summarises the remote, refspec, branch, and commits.
 The summary also includes the configured PR mode, `automated_cleanup` setting, and
-deterministic risk classification and verdict. Authorization may come from an explicit
-request to push, publish, or create/open a pull request, or from the user's applicable
-standing instructions. For example, a request to address existing PR feedback authorizes
-pushing the corresponding fixes to that PR's existing head branch when the user's
-standing instructions grant that permission. Show the matching summary and proceed
-without a second confirmation. Otherwise ask whether to push, and ask again if the
-summary differs materially from what the user authorized. Authorization for PR feedback
-fixes does not cover a different remote or branch, force-push, merge, destructive action,
-or materially broader work; those require separate approval, subject to the skill's
-merge restrictions. In `[pr] mode = "auto"`, the committed
-configuration is standing authorization to open or reuse the pull request automatically
-after the confirmed push and preflight finish. When `automated_cleanup` is true, the
+deterministic risk classification and verdict. Whether the agent may push without
+asking follows
+[push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/main/docs/configuration.md#push-and-pull-request-authorization).
+In `[pr] mode = "auto"`, the committed configuration is standing authorization to open
+or reuse the pull request automatically after the authorized push and the run finish. When `automated_cleanup` is true, the
 agent also enters the disclosed 5-minute merge poll and run-scoped cleanup lifecycle;
 when false, it stops after hosted checks until the user explicitly requests cleanup. In
 manual PR mode, provide a compare URL instead. High risk does not change publication:
@@ -351,9 +351,8 @@ by attestation evidence under `refs/agentic-preflight/evidence/<SHA>`, then atom
 the branch and `refs/notes/agentic-preflight`. A dependency publication failure stops
 before the branch push; retained evidence refs are safe to retry. Gate summaries, manual commands, and
 dry runs disclose the complete refspecs. These evidence refs survive ordinary
-run/worktree cleanup. **Require user authorization before running this, but do
-not require a second confirmation when the matching push is already covered by the
-user's explicit request or applicable standing instructions.** The token is a non-secret, run-state nonce
+run/worktree cleanup. **Require user authorization before running this**, as described
+in the authorization rule linked under `gate`. The token is a non-secret, run-state nonce
 that prevents an accidental push; it is readable through `status`, grants no GitHub
 access, and is not a security boundary. The gate envelope keeps it only in `data.token`,
 while gate and dry-run envelopes put the literal `<token>` placeholder in `next.command`;
@@ -364,7 +363,7 @@ Marks a pushed validation run `DONE`. It preserves the run directory and
 audit logs, clears only that run's worktree ownership pointers, and directs the next step
 to `gc`.
 
-Pull-request creation and hosted CI monitoring are deliberately outside this CLI. On
+Pull-request creation and hosted CI monitoring are outside this CLI. On
 GitHub, automatic PR mode uses `gh pr create`, `gh pr checks`, and `gh run view`. When
 `automated_cleanup` is true, it also starts a 5-minute `gh pr view` state poll after
 `finish`; when false, it stops after hosted checks until the user explicitly requests
@@ -384,7 +383,7 @@ findings, staleness, worktree path, the gate token, and `data.hook` with the eff
 hook's `path` and `active` state. Hook-resolution failures report `path: null`,
 `active: false`, and a short `error` instead of breaking recovery. Never raises for a
 wedged run.
-In `MERGEBACK_CONFLICT`, it replays the durable conflict report and points back to the
+In `MERGEBACK_CONFLICT`, it replays the stored conflict report and points back to the
 legal `mergeback` retry.
 `--all` inventories stored and active runs across every linked worktree in the clone.
 
@@ -415,7 +414,7 @@ permits stale-pointer recovery. Global inventory and cleanup failures still fail
 
 Reconciles run directories, git worktrees, and `ap/*` branches. For a terminal run,
 each fix commit is compared by stable patch ID with commits in that run's
-post-mergeback history. Patch-equivalent cherry-picks are safe to reclaim; anything
+post-merge-back history. Patch-equivalent cherry-picks are safe to reclaim; anything
 with no equivalent remains reported as unmerged and is never removed without
 `--force`. Run directories and their audit logs are retained.
 It marks a nonterminal run `ORPHANED` when its source worktree disappeared, its source
@@ -465,6 +464,8 @@ A command-line usage error (unknown option, missing argument, bad choice, unknow
 command) prints one envelope with error code `usage_error`, Click's message in
 `error.message`, and the command's `--help` invocation in `next.command`, then exits 6.
 `hook-check` is the exception and keeps Click's own usage output and exit code.
+Running `agentic-preflight` with no arguments prints the root help as plain text and
+exits 0.
 
 For local workflow exit 3 → run `status` → obey `next`. For `ci status` and other
 remote CI recovery results, follow their reason and next action directly; restarting a

@@ -82,7 +82,7 @@ packages = ["agentic_preflight"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q -n auto --maxprocesses=4 --dist=worksteal"
+addopts = "-n auto --maxprocesses=4 --dist=worksteal"
 
 [tool.coverage.run]
 source = ["agentic_preflight"]

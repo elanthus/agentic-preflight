@@ -405,3 +405,47 @@ def test_dry_summary_matches_committed_golden(tmp_path):
 
     golden = ROOT / "evals" / "golden" / "dry-summary.json"
     assert (tmp_path / "summary.json").read_bytes() == golden.read_bytes()
+
+
+def test_summary_markdown_renders_readable_values_with_a_mode_header(tmp_path):
+    eval_run.run_evaluation(
+        mode="dry",
+        executor=None,
+        grounding=("off",),
+        out=tmp_path,
+        case_ids=("unguarded-division", "off-by-one-page"),
+    )
+
+    text = (tmp_path / "summary.md").read_text(encoding="utf-8")
+    assert "Mode: dry. Executor: scripted." in text
+    assert "| unguarded-division | yes | yes | yes | yes |" in text
+    assert "| off-by-one-page | no | no | n/a | n/a |" in text
+    assert "| **Aggregate** | 0.500 | 0.500 | 1.000 | 1.000 |" in text
+    for raw in ("True", "False", "None"):
+        assert raw not in text
+
+
+def test_a_failed_start_is_unresolved_and_the_run_still_writes_a_summary(tmp_path, monkeypatch):
+    real_cli = eval_run._cli
+
+    def failing_start(repo, env, *argv):
+        if argv[0] == "start" and "fixed" not in str(env.get("AP_EVAL_SCRIPT", "")):
+            return {"ok": False, "error": {"code": "boom", "message": "start failed"}}, 3
+        return real_cli(repo, env, *argv)
+
+    monkeypatch.setattr(eval_run, "_cli", failing_start)
+    summary = eval_run.run_evaluation(
+        mode="dry",
+        executor=None,
+        grounding=("off",),
+        out=tmp_path,
+        case_ids=("unguarded-division",),
+    )
+
+    case = summary["grounding"]["off"]["cases"]["unguarded-division"]
+    assert case["vulnerable"]["status"] == "unresolved"
+    assert case["vulnerable"]["exit_code"] == 3
+    assert case["fixed"]["status"] == "resolved"
+    assert summary["unresolved"] == 1
+    assert (tmp_path / "summary.json").is_file()
+    assert (tmp_path / "summary.md").is_file()

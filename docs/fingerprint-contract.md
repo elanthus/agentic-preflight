@@ -24,7 +24,7 @@ executor, and hosted approval policy still apply.
 
 `data.applicability` describes candidate evidence, not the outcome of a stage
 that ran freshly. Decisions and later-stage candidates persist on the run. A
-repair or changed input triggers another check before import or mergeback.
+repair or changed input triggers another check before import or merge-back.
 Unresolved actionable or blocking findings cannot advance through reuse.
 
 ## Review and documentation inputs
@@ -102,6 +102,6 @@ refs survive normal run/worktree cleanup and must remain while any published not
 depends on them. Keep the local publisher, hook, and protected verifier on the same
 release. Missing originals cannot be reconstructed from hashes.
 
-Clean-checkout, synchronization, mergeback, publication authorization, and atomic
+Clean-checkout, synchronization, merge-back, publication authorization, and atomic
 branch/notes push rules still apply. Refresh authorizes no force-push, merge, or
 cleanup. For opt-in delegated tests, see [CI test authority](attestations-and-ci.md#delegating-tests-to-trusted-ci).
