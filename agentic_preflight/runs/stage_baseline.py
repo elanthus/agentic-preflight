@@ -20,6 +20,9 @@ class _BaselineSetupFailure(Exception):
     command: str
     exit_code: int
     worktree_path: str
+    kind: str = "custom"
+    reason: str = "baseline setup command failed"
+    detail: str = ""
 
 
 def check_baseline(
@@ -52,6 +55,7 @@ def check_baseline(
             next_instruction=(
                 "The stage was not evaluated against the base commit. Fix the setup "
                 "environment, then retry the same stage with its baseline check."
+                + (f" Worktree error: {exc.detail}" if exc.detail else "")
             ),
             next_command=retry_command,
         )
@@ -61,7 +65,7 @@ def check_baseline(
                 status="red",
                 attempts=previous.attempts + 1,
                 command=command,
-                reason="baseline setup command failed",
+                reason=exc.reason,
                 finished_at=_now(),
                 head_sha=gitx.rev_parse(wt, "HEAD"),
             )
@@ -73,8 +77,13 @@ def check_baseline(
             run.run_id,
             {"event": "setup_failed", **failure.model_dump(mode="json")},
         )
+        message = (
+            f"the baseline worktree could not be prepared: {exc.detail}"
+            if exc.kind == "worktree"
+            else f"the baseline setup command failed (exit {exc.exit_code})"
+        )
         raise SetupFailed(
-            f"the baseline setup command failed (exit {exc.exit_code})",
+            message,
             state=run.state.value,
             run_id=run.run_id,
             stage=stage_name,
@@ -82,7 +91,7 @@ def check_baseline(
                 "scope": "baseline",
                 "worktree_path": exc.worktree_path,
                 "setup": {
-                    "kind": "custom",
+                    "kind": exc.kind,
                     "command": exc.command,
                     "exit_code": exc.exit_code,
                 },
@@ -120,7 +129,14 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str, *, worktree_pa
             scratch, command, timeout_seconds=session.config.stage.timeout_seconds
         )
         return not result.passed
-    except worktree.WorktreeError:
-        return False
+    except worktree.WorktreeError as exc:
+        raise _BaselineSetupFailure(
+            command=shlex.join(["git", "worktree", "add", "-b", branch, str(scratch)]),
+            exit_code=1,
+            worktree_path=str(scratch),
+            kind="worktree",
+            reason="baseline worktree could not be prepared",
+            detail=str(exc),
+        ) from exc
     finally:
         worktree.remove(session.repo_root, scratch, branch=branch)

@@ -4,7 +4,14 @@ import pytest
 from pydantic import ValidationError
 
 from agentic_preflight.ci_models import CISection
-from agentic_preflight.config import Config, ConfigError, _describe, config_digest, load_config
+from agentic_preflight.config import (
+    REMOVED_CONFIG_KEYS,
+    Config,
+    ConfigError,
+    _describe,
+    config_digest,
+    load_config,
+)
 
 
 def test_default_snapshot_contains_complete_ci_config_with_stable_digest():
@@ -82,15 +89,22 @@ def test_an_unknown_key_is_an_error_naming_the_key(tmp_repo, tmp_path):
     assert "base_reff" in str(exc.value)
 
 
+REMOVED_KEY_VALUES = {
+    ("review", "require_fix_commits"): "true",
+    ("worktree", "ttl_hours"): "48",
+    ("reuse", "attestation" + "_schema"): "5",
+    ("ci", "consumer" + "_schema"): "6",
+    ("hook", "enabled"): "false",
+}
+
+
+def test_every_removed_config_key_has_a_rejection_case():
+    assert set(REMOVED_KEY_VALUES) == REMOVED_CONFIG_KEYS
+
+
 @pytest.mark.parametrize(
     ("section", "key", "value"),
-    [
-        ("review", "require_fix_commits", "true"),
-        ("worktree", "ttl_hours", "48"),
-        ("reuse", "attestation" + "_schema", "5"),
-        ("ci", "consumer" + "_schema", "6"),
-        ("hook", "enabled", "false"),
-    ],
+    [(section, key, value) for (section, key), value in REMOVED_KEY_VALUES.items()],
 )
 def test_removed_config_keys_are_unknown(tmp_repo, tmp_path, section, key, value):
     (tmp_repo / ".agentic-preflight.toml").write_text(f"[{section}]\n{key} = {value}\n")

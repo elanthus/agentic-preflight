@@ -113,7 +113,9 @@ The failure details and recovery command are durable. After initial setup fails,
 the run is `SETUP_FAILED` and `status` returns `abort --force` so an isolated lease can
 always be released. After baseline setup fails, the run remains in its lint or test red
 state and `status` returns the exact stage retry including `--baseline` instead of
-pointing at a stage log that was never created.
+pointing at a stage log that was never created. A baseline scratch worktree that cannot
+be created takes the same path, with `setup.kind` set to `worktree`, rather than
+reporting the base as passing.
 
 Note the interaction with `respond`: a fix commit containing a `copy_files` path is
 rejected. Copied caches are inputs to the run, never part of the change.
@@ -235,6 +237,8 @@ exits 4 until an eligible non-author has an `APPROVED` review for the exact curr
 Later dismissal or changes-requested reviews revoke that person's peer approval.
 `--report-only` reports conditional Environment or peer-review state without failing, so
 a trusted workflow can dispatch the appropriate hosted job.
+A reviews file that is not UTF-8 JSON fails with `invalid_findings` (exit 3), as other
+JSON file inputs do.
 
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
 Stages run in the fixed order docs → lint → test after review becomes green. Running lint
@@ -304,7 +308,8 @@ a diff that touches tested code, suspect the command before trusting it.
 In in-place mode, attests the already-verified current SHA without creating or
 cherry-picking a commit. The checkout must remain clean. In isolated modes, cherry-picks
 the fix commits onto the source branch; only paths those commits may overwrite are
-blocked, while unrelated tracked edits and untracked files are left alone.
+blocked, while unrelated tracked edits and untracked files are left alone. A dirty
+submodule on one of those paths blocks merge-back even when Git config ignores it.
 
 On conflict: aborts immediately, verifies the branch is byte-for-byte restored, exits 4
 with `data.resolution`, and stores that full report in the event log. The CLI never
@@ -465,6 +470,8 @@ A command-line usage error (unknown option, missing argument, bad choice, unknow
 command) prints one envelope with error code `usage_error`, Click's message in
 `error.message`, and the command's `--help` invocation in `next.command`, then exits 6.
 `hook-check` is the exception and keeps Click's own usage output and exit code.
+Running `agentic-preflight` with no arguments prints the root help as plain text and
+exits 0.
 
 For local workflow exit 3 → run `status` → obey `next`. For `ci status` and other
 remote CI recovery results, follow their reason and next action directly; restarting a

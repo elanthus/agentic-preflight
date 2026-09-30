@@ -51,6 +51,26 @@ All notable changes to Agentic Preflight are documented here. This project follo
   `r_` followed by 10 lowercase hex digits, so a path-like value never reaches the store.
 - `events` and `status` tolerate a torn final line in a run's event log. A malformed
   earlier line reports `run_record_unreadable` with reason `invalid_events`.
+- `approval-check --reviews-file` reports a reviews file that is not UTF-8 JSON as
+  `invalid_findings` (exit 3), like other JSON file inputs, instead of an internal
+  error.
+- The merge-back overlap check now passes `--ignore-submodules=none`, so
+  `submodule.<name>.ignore` or `diff.ignoreSubmodules` can no longer hide a dirty
+  submodule on a path the fix commits would overwrite.
+- Appending to a run event log takes a per-run events lock, so concurrent appends can no
+  longer interleave bytes within a line.
+- A `--baseline` stage whose scratch worktree cannot be created now fails with
+  `setup_failed` (scope `baseline`, `setup.kind` `worktree`) and keeps the run red with
+  the baseline retry as its next command. Previously the unevaluated base was reported
+  as passing.
+- Attestation verification drops configuration keys that a later release removed (listed
+  in `config.REMOVED_CONFIG_KEYS`, such as `[hook] enabled`) from an attested
+  `config_snapshot` before validating it, so a verifier built from a newer base no
+  longer rejects attestations written by an older CLI. Loading a configuration file that
+  sets one of these keys still fails with an unknown-key error.
+- A failed `init`, `start`, or `context` in the regression eval now records that case
+  and snapshot as unresolved and the run continues, as documented. Previously it aborted
+  the whole eval without a summary.
 
 ### Added
 
@@ -80,6 +100,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - Eval fixture trees include `CODEOWNERS` and `AGENTS.md`, and grounding-on runs fail when
   `context` returns no grounding entries.
 - CI diffs the dry eval `summary.json` against `evals/golden/dry-summary.json`.
+- The pytest configuration no longer passes `-q` in `addopts`, so the documented `uv run
+  pytest -q` prints its summary line.
+- Running `agentic-preflight` with no arguments prints the root help on stdout and exits
+  0 on every supported Click version. Click 8.2 and later previously made it exit 2.
+- Eval `summary.md` starts with a mode and executor line and renders booleans as `yes`
+  or `no`, missing values as `n/a`, and rates with three decimals. `summary.json` is
+  unchanged.
 
 ### Removed
 
