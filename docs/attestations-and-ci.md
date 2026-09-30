@@ -60,10 +60,10 @@ This minimal example assumes public fetch access and immediate note availability
 For protected policy enforcement, private repositories, and bounded availability
 recovery, use the protected-base `hosted-check` flow below. For delegated tests,
 use the separate [CI authority setup](#delegating-tests-to-trusted-ci); default
-`verify` deliberately rejects pending test evidence.
+`verify` rejects pending test evidence.
 
 Make that job a required status check in branch protection. The local hook remains
-fail-open and bypassable so it cannot brick a repository; the required remote check is
+fail-open and bypassable so a missing tool never blocks every push; the required remote check is
 what rejects a branch tip without an attestation.
 
 This repository dogfoods that check by installing the verifier from the protected pull
@@ -92,7 +92,7 @@ to the contributor's configured remote for a fork, as with the existing workflow
 For policy evaluation, add `--mode approval --reviews-file "$reviews_file" --author
 "$PR_AUTHOR"`. The existing `--report-only` and `--environment-approved` options retain
 their meanings. The caller must still enforce auto-merge restrictions and the actual
-GitHub Environment gate; availability never grants either approval.
+GitHub Environment approval; availability never grants either approval.
 
 The helper makes at most four attempts, waiting 2, 4, and 8 seconds between them.
 Each availability Git command has a 30-second timeout. Only a missing advertised
@@ -258,7 +258,7 @@ Configure trusted CI:
    required reviewers on the named environment before enabling delegation.
 5. After the protected policy is installed, synchronize feature branches and run the
    normal local sequence. `stage run test` records delegation without starting local
-   tests. Publish through the usual authorized gate and open the PR. This produces
+   tests. Publish through the usual authorized `gate` and `push` steps. In `[pr] mode = "auto"` open or reuse the PR; in manual mode give the user the compare URL instead. This produces
    the input CI needs without waiting for CI before the first push.
 
 The dispatcher runs on protected PR events and base pushes. It dispatches the test
@@ -277,7 +277,8 @@ required job and execution step in the latest attempt of the latest matching run
 A PR workflow with the same job name cannot satisfy those bindings. Artifacts and
 agent-provided result JSON are not test authority. The published Git note remains
 unsigned audit evidence for local review; this feature does not authenticate model
-judgment or implement the separate threat model in issue #25.
+judgment or make attestations unforgeable. A signed ledger (issue #25) was closed as
+not planned.
 
 The combined verdict is attached to the exact integration SHA. A head check stays
 pending: GitHub can fall back to head checks while a newly computed integration

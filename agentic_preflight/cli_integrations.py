@@ -182,5 +182,6 @@ COMMANDS = (integrations, init_command)
 
 
 def register(group: click.Group) -> None:
+    """Add the integration commands to a CLI group."""
     for cli_command in COMMANDS:
         group.add_command(cli_command)

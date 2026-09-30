@@ -23,8 +23,8 @@ Retrieval uses this fixed priority order:
    by repository files selected through `[context] extra_paths`.
 4. **Review history.** Findings from earlier runs on the same branch are included when
    their path is changed in the current run. The current run is excluded, and so are
-   runs on other branches — including genuinely concurrent runs the "reusable" and
-   "strict" worktree modes support in other linked worktrees.
+   runs on other branches, including concurrent runs in other linked worktrees. The
+   `in_place` and `strict` modes can run concurrently; `reusable` is serial.
 5. **Policy.** The path-policy reasons for the changed files are included. Reasons derived
    from the current run's findings are excluded because those findings are review output,
    not repository knowledge.

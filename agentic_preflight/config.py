@@ -6,9 +6,8 @@ deep: a section present in the repo file replaces the user's section wholesale
 rather than merging key-by-key, so a reader of the committed file can tell what
 is in force without knowing the reader's home directory.
 
-Unknown keys are errors that name the key. A silently ignored typo in a config
-that governs a *safety gate* is exactly the kind of quiet failure this tool
-exists to prevent.
+Unknown keys are errors that name the key, because a silently ignored typo in
+a config that governs a safety gate would weaken the gate without any signal.
 """
 
 from __future__ import annotations
@@ -33,7 +32,7 @@ from .shell_fingerprints import ShellInputContract
 REPO_CONFIG_NAME = ".agentic-preflight.toml"
 USER_CONFIG_NAME = "config.toml"
 
-from .diff import DEFAULT_EXCLUDE  # noqa: E402  (kept next to its one consumer)
+from .diff import DEFAULT_EXCLUDE  # noqa: E402
 
 
 class ConfigError(Exception):
@@ -180,6 +179,30 @@ class Config(BaseModel):
     hook: HookSection = Field(default_factory=HookSection)
 
 
+# Keys an earlier release accepted and a later one removed, as (section, key).
+# Loading a user config still rejects them as unknown; only attested snapshots
+# made by an older release drop them before validation.
+REMOVED_CONFIG_KEYS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("review", "require_fix_commits"),
+        ("worktree", "ttl_hours"),
+        ("reuse", "attestation_schema"),
+        ("ci", "consumer_schema"),
+        ("hook", "enabled"),
+    }
+)
+
+
+def snapshot_config(snapshot: dict[str, Any]) -> Config:
+    """Validate an attested config snapshot, ignoring keys a later release removed."""
+    cleaned: dict[str, Any] = {}
+    for section, body in snapshot.items():
+        if isinstance(body, dict):
+            body = {key: v for key, v in body.items() if (section, key) not in REMOVED_CONFIG_KEYS}
+        cleaned[section] = body
+    return Config.model_validate(cleaned)
+
+
 def config_digest(snapshot: dict[str, Any]) -> str:
     """Return the stable digest used to bind validation evidence to config."""
     return json_digest(snapshot)
@@ -221,6 +244,7 @@ def load_config(
     *,
     user_config_dir: Path | str | None = None,
 ) -> Config:
+    """Load and merge the user and repository configuration."""
     repo_root = Path(repo_root)
     if user_config_dir is None:
         user_config_dir = Path.home() / ".config" / "agentic-preflight"

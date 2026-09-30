@@ -304,3 +304,38 @@ def test_approval_policy_comes_from_the_base_commit_not_the_pr_head(tmp_repo, mo
     )
     assert result["approval_mode"] == "peer_review"
     assert result["approved"] is False
+
+
+def test_approval_check_reports_a_malformed_reviews_file_as_unreadable_input(tmp_repo, tmp_path):
+    reviews_file = tmp_path / "reviews.json"
+    reviews_file.write_text("{not json")
+    env = ScriptedAgent(tmp_repo).run(
+        "approval-check",
+        "a" * 40,
+        "--base",
+        "b" * 40,
+        "--reviews-file",
+        str(reviews_file),
+        "--author",
+        "author",
+        expect=ExitCode.PRECONDITION,
+    )
+    assert env["error"]["code"] == "invalid_findings"
+    assert "reviews file is not valid JSON" in env["error"]["message"]
+
+
+def test_approval_check_reports_a_non_utf8_reviews_file_as_unreadable_input(tmp_repo, tmp_path):
+    reviews_file = tmp_path / "reviews.json"
+    reviews_file.write_bytes(b"\xff\xfe[]")
+    env = ScriptedAgent(tmp_repo).run(
+        "approval-check",
+        "a" * 40,
+        "--base",
+        "b" * 40,
+        "--reviews-file",
+        str(reviews_file),
+        "--author",
+        "author",
+        expect=ExitCode.PRECONDITION,
+    )
+    assert env["error"]["code"] == "invalid_findings"

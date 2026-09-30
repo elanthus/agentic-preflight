@@ -29,10 +29,10 @@ establish merge readiness.
 
 | Obligation | Owner | What establishes it |
 | --- | --- | --- |
-| Required gates occur in order | `machine.py` | Legal `(state, action)` pairs; graph reachability tests include explicit skips and delegation |
+| Required stages occur in order | `machine.py` | Legal `(state, action)` pairs; graph reachability tests include explicit skips and delegation |
 | An action has sufficient evidence | `runs/review.py`, `runs/resolve.py`, `runs/stages.py` | Validated submissions, finding dispositions, command results and coordinator preconditions |
 | Evidence applies to current inputs | `runs/review_coverage.py`, `runs/evidence.py`, `refresh_validation.py` | Snapshot bindings, declared input fingerprints and conservative applicability decisions |
-| Concurrent commands do not overwrite a run | `cli_support.py`, `store.py` | Per-run operation locks, record locks and optional sequence checks |
+| Concurrent commands do not overwrite a run | `cli_support.py`, `store.py` | Per-run operation locks, record locks, an events lock for appends, and optional sequence checks |
 | Related run and finding changes recover together | `store.py` | A committed update journal and recovery before either record is read |
 | Source content matches completed validation | `runs/mergeback.py` | Recorded attempt inputs and Git tree equality; changed resolutions reopen review |
 | Publication has the required evidence | `runs/publish.py`, `attestation.py` | Freshness and attestation checks before an atomic branch/notes push |
@@ -50,7 +50,7 @@ every transaction write. Reads are not checked so recovery can inspect a record 
 the current version would refuse to write. Coordinators must still establish the
 evidence needed before choosing a transition. Adding an action to the table without
 those checks does not make that action safe. `stale` is the one lifecycle flag
-deliberately kept outside the enum because it can annotate many states and always means
+kept outside the enum because it can annotate many states and always means
 "start again."
 
 ## Local record commits
@@ -69,7 +69,7 @@ CLI returned an error. The next store read or transaction validates the retained
 journal and finishes installation under the same lock before returning a record.
 Recovery checks run identity and sequence to avoid applying a journal over an
 unrelated or newer record. Invalid or unreadable journals remain available for
-inspection and prevent reads from silently returning partial state.
+inspection and prevent reads from returning partial state.
 
 If a submission committed before interruption, repeating `submit-findings` is
 rejected because the stage already advanced. Run `status` and continue from its
@@ -102,7 +102,7 @@ run again.
 | Merge-back changed the source, but attestation or state persistence failed | With no Git operation in progress, retry accepts the completed result only when the source branch and validation snapshot still match the attempt, the source tree equals the recorded validated tree, and the synchronized base remains an ancestor. Existing dirty-path checks still apply. It does not cherry-pick the fixes again. |
 | Pending merge-back encounters different source content, branch or validation snapshot | Preserve the work, mark the run stale and direct recovery through `status` to a fresh run. Do not adopt the changed content as verified. |
 | Synchronization fails at `start` (conflict, unreachable remote, missing base, Git or OS error) | Record `SYNC_FAILED` into `SYNC_CONFLICT`, append a `sync_conflict` or `sync_failed` event with the detail, and return `abort --force`. |
-| A Git sequence is in progress in the validation checkout at `start` | Record `SYNC_FAILED` into `SYNC_CONFLICT`, append a `sync_refused` event naming the operation, and return `git status`. |
+| A Git sequence is in progress in the validation worktree at `start` | Record `SYNC_FAILED` into `SYNC_CONFLICT`, append a `sync_refused` event naming the operation, and return `git status`. |
 | `start` was killed while the run was in `SYNC_RUNNING` | `status` and a resuming `start` return `abort --force`; abort is legal from every nonterminal state. |
 | A Git sequence is still in progress | Report the operation. Never automatically finish or abort a user-owned sequence. |
 | Remote push succeeded but local `PUSHED` persistence failed | With unchanged source and valid evidence, retry the same atomic push and then record completion. Remote changes or a rejected push remain errors; retry never force-pushes. |

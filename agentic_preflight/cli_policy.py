@@ -10,7 +10,7 @@ from typing import Literal
 import click
 
 from . import runs
-from .cli_support import command, finish, finish_locked
+from .cli_support import command, finish, finish_locked, read_json_file
 from .envelope import Envelope, ExitCode
 from .errors import AgenticError, AttestationFailed, NeedsHuman
 from .gitx import GitError
@@ -111,8 +111,8 @@ def approval_check(
     from . import attestation as attestationmod
     from . import gitx
 
+    reviews = read_json_file(str(reviews_file), "reviews file")
     try:
-        reviews = json.loads(reviews_file.read_text(encoding="utf-8"))
         result = approvalmod.evaluate(
             gitx.repo_root(Path.cwd()),
             base_sha=base_sha,
@@ -255,7 +255,7 @@ def hook_check() -> None:
     try:
         repo_root = gitx.repo_root(Path.cwd())
         allow_force = load_config(repo_root).hook.allow_force_push
-    except Exception as exc:  # noqa: BLE001 - never brick a repo over our own failure
+    except Exception as exc:  # noqa: BLE001 - an internal failure must not block every push
         sys.stderr.write(f"agentic-preflight: hook check unavailable ({exc}); allowing push\n")
         sys.exit(int(ExitCode.OK))
 
@@ -286,5 +286,6 @@ COMMANDS = (verify, approval_check, hosted_check, hook_check)
 
 
 def register(group: click.Group) -> None:
+    """Add the policy commands to a CLI group."""
     for cli_command in COMMANDS:
         group.add_command(cli_command)

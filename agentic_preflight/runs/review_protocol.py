@@ -120,6 +120,7 @@ def validate_command_output(payload: Any) -> None:
 
 
 def describe_validation(exc: ValidationError) -> str:
+    """Describe a findings validation error for the agent."""
     parts = []
     for error in exc.errors():
         location = ".".join(str(item) for item in error["loc"])

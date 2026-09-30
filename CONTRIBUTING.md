@@ -21,19 +21,31 @@ cd agentic-preflight
 uv sync --group dev
 ```
 
-Run the same core checks used by CI:
+Run the same checks listed in [AGENTS.md](AGENTS.md):
 
 ```bash
-uv run ruff check agentic_preflight tests
-uv run ruff format --check agentic_preflight tests
-uv run mypy agentic_preflight
-uv run pytest --cov=agentic_preflight --cov-report=term-missing
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy
+uv run pytest -q
 ```
+
+CI also enforces an 85% coverage floor. Run
+`uv run pytest --cov=agentic_preflight --cov-report=term-missing` to check it locally.
 
 The test suite uses temporary real Git repositories. Tests that exercise pushes and
 worktrees can take longer than ordinary unit tests and require a working Git binary.
 
 ## Pull requests
+
+This repository uses Agentic Preflight on its own changes. Install it (see
+[docs/installation.md](docs/installation.md)), run `agentic-preflight init` in your
+clone to install the pre-push hook (it keeps the committed configuration), and complete
+a run before you push. The push publishes the attestation with your branch. The
+`trusted preflight attestation` CI job verifies it on the pull request head, as described
+in
+[Portable attestations and CI enforcement](docs/attestations-and-ci.md#required-github-check),
+so a branch pushed without a completed run fails that check.
 
 Keep changes focused and include tests for observable behavior. Update user-facing
 documentation whenever a reader following the current instructions would otherwise be

@@ -1,14 +1,13 @@
 """Atomic, lock-guarded persistence for runs, events, and findings.
 
 A run spans multiple agent turns, so Python cannot hold state in memory between
-invocations — it lives on disk and every mutation follows the same discipline:
+invocations, so it lives on disk and every mutation follows the same discipline:
 
     load -> guard -> mutate -> write tmp -> os.replace
 
 all of it inside a :mod:`~agentic_preflight.filelock` exclusive lock held for the
-entire read-modify-write window.
-Two parallel ``Bash`` calls in a single agent turn are a real hazard, not a
-theoretical one.
+entire read-modify-write window. See that module for why concurrent
+invocations need it.
 """
 
 from __future__ import annotations
@@ -132,18 +131,18 @@ def _replace(tmp: Path, path: Path) -> None:
     POSIX ``rename`` cannot fail because someone else has the destination open;
     Windows can, and does. A reader holding ``run.json`` for the microseconds of
     a ``read_text`` is enough, and so is a virus scanner or the search indexer
-    opening the file behind everyone's back.
+    opening the file.
 
     Retrying is safe precisely because the operation is atomic: it either
     replaced the file or it did not, so a failed attempt has no partial effect
-    to undo. The retry is Windows-only — a ``PermissionError`` on POSIX is a
+    to undo. The retry is Windows-only; a ``PermissionError`` on POSIX is a
     real permissions problem, and quietly grinding on it for a second would
     hide the cause rather than fix it.
 
     What this fixes is a *transient* hold, which is the one that actually
     occurs: every reader in this module opens the document, reads it, and
     closes it. A process that keeps the handle open indefinitely still blocks
-    the replace, and no amount of retrying would change that — Python's
+    the replace, and no amount of retrying would change that; Python's
     ``open`` gives no way to ask for the share-delete access that would.
     """
     if sys.platform == "win32":
@@ -219,8 +218,8 @@ class Store:
 
     @property
     def worktrees_dir(self) -> Path:
-        # ``None`` preserves the v1 location for callers constructing Store
-        # directly. Normal sessions pass the external cache location.
+        # ``None`` keeps worktrees under the store root, for callers constructing
+        # Store directly. Normal sessions pass the external cache location.
         return self._worktrees_root or self.root / "worktrees"
 
     def set_worktrees_root(self, path: Path) -> None:
@@ -334,7 +333,7 @@ class Store:
         """Read-modify-write a run document under an exclusive lock.
 
         The document yielded is a fresh load; mutate it in place. It is written
-        back — with ``seq`` bumped — only if the body completes without raising,
+        back, with ``seq`` bumped, only if the body completes without raising,
         so an exception in the body leaves the records untouched. When findings
         accompany the run, a durable journal commits both: readers finish an
         interrupted installation before returning either record. An I/O error
@@ -429,11 +428,15 @@ class Store:
     def append_event(self, run_id: str, event: dict) -> None:
         """Events are append-only and deliberately *not* atomic-replaced: an
         append is already a single small write, and losing the tail of an audit
-        log is survivable in a way that losing ``run.json`` is not."""
+        log is survivable in a way that losing ``run.json`` is not. A per-run events lock
+        keeps concurrent appends from interleaving within a line."""
         path = self.events_path(run_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps({"at": _utcnow(), **event}, sort_keys=True)
-        with open(path, "a", encoding="utf-8", newline="\n") as handle:
+        with (
+            filelock.exclusive(self.run_dir(run_id) / ".events.lock"),
+            open(path, "a", encoding="utf-8", newline="\n") as handle,
+        ):
             handle.write(line + "\n")
 
     def load_events(self, run_id: str) -> list[dict]:

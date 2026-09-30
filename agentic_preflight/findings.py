@@ -3,11 +3,11 @@
 The division of responsibility is the design's central idea, restated here
 because every function below is an instance of it:
 
-- **Code validates** — path containment, membership of the allowed set, line
+- **Code validates**: path containment, membership of the allowed set, line
   bounds, enums, length caps, volume.
-- **The agent is trusted for** — severity, action, title, detail, suggestion.
+- **The agent is trusted for**: severity, action, title, detail, suggestion.
   These are judgment, and judgment is the agent's job.
-- **Code derives** — id, stage, code ownership, status, ordering, and the
+- **Code derives**: id, stage, code ownership, status, ordering, and the
   blocking set.
 
 Finding IDs are append-only across the *whole run*, not per stage. A docs
@@ -51,6 +51,7 @@ def stage_for_state(state: State) -> Stage | None:
 
 
 def next_id(existing: list[Finding]) -> str:
+    """Return the next finding id after the existing ones."""
     highest = 0
     for finding in existing:
         try:
@@ -148,7 +149,7 @@ def blocking(
 ) -> list[Finding]:
     """The blocking set: unresolved findings required by code or policy.
 
-    ``ask_user`` blocks at any severity — the whole point of that action is that
+    ``ask_user`` blocks at any severity; the whole point of that action is that
     the agent has declined to decide, so proceeding would be deciding by default.
     ``code_owned`` also blocks at any severity because it records a mechanical
     requirement derived by the CLI rather than reviewer judgment.

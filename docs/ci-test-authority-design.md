@@ -10,12 +10,12 @@ commit: GitHub's merge of the current PR head with its current base.
 `verify --purpose publish` accepts a schema version 7 `verified` outcome or a
 `tests_pending` outcome
 with review, docs, and lint satisfied and tests explicitly delegated. It does not
-say tests passed. The gate and pre-push hook use this predicate so the first push
+say tests passed. The `gate` command and pre-push hook use this predicate so the first push
 can create CI work. `verify` retains its complete-local default; it rejects a
 delegation with instructions to use `ci status`. `ci status --pr N` is the merge
 predicate: it retrieves current GitHub evidence and combines it with local
 attestation validation and existing approval policy. Missing authority is pending
-or unavailable, never success. Publication authorization remains a separate gate.
+or unavailable, never success. Publication authorization remains a separate step.
 
 The `tests_pending` outcome stores the protected CI policy declaration and its original base revision,
 plus the original local evidence for review, docs, and lint. Its test stage is
@@ -55,7 +55,7 @@ same protected dispatch path without gaining privileged test credentials.
 ## State and persistence
 
 The local test command transitions from `lint_green` to `test_delegated` without
-spawning a test process. Mergeback writes the partial note and enters
+spawning a test process. Merge-back writes the partial note and enters
 `publication_ready`. Gate, push, and finish retain their publication lifecycle,
 but every envelope carries explicit test-authority and merge-readiness fields.
 Finishing publication does not record a CI success. `ci status` works after finish,

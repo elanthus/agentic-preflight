@@ -1,7 +1,7 @@
 """Assembling the diff that `context` hands to the agent.
 
 Two jobs live here. The first is mechanical: collect the branch diff against the
-merge-base, both whole and split per file. The second is a judgment call —
+merge-base, both whole and split per file. The second is a judgment call:
 deciding what to do when the diff is larger than the agent can usefully hold in
 one turn. See ``plan_delivery``.
 """
@@ -38,7 +38,7 @@ def path_matches(path: str, pattern: str) -> bool:
     ``fnmatch``'s ``*`` crosses directory separators, which is what we want:
     ``*.lock`` should catch a nested ``sub/dir/uv.lock`` the same way git does.
     The one gap is a leading ``**/``, which under plain fnmatch would demand at
-    least one separator — so ``**/*.min.js`` would miss a top-level
+    least one separator, so ``**/*.min.js`` would miss a top-level
     ``app.min.js``. Retrying without the prefix closes that.
 
     A bare (unanchored) directory pattern like ``src/`` has the opposite gap:
@@ -59,6 +59,7 @@ def path_matches(path: str, pattern: str) -> bool:
 
 
 def is_excluded(path: str, patterns: list[str] | tuple[str, ...]) -> bool:
+    """Return whether a path matches any exclude pattern."""
     return any(path_matches(path, pattern) for pattern in patterns)
 
 
@@ -244,6 +245,7 @@ def build_bundle(
     *,
     exclude: list[str] | tuple[str, ...] | None = None,
 ) -> DiffBundle:
+    """Build the review diff bundle between two refs, applying excludes."""
     patterns = list(exclude) if exclude is not None else []
     all_files = gitx.changed_files(repo, base, head)
     kept = [p for p in all_files if not is_excluded(p, patterns)]
@@ -262,9 +264,9 @@ def build_bundle(
 class BudgetReport:
     """The verdict on whether a bundle fits the agent's review budget.
 
-    Over budget is not a truncation — it is a refusal. `context` exits 2 with
-    ``mode="diff_too_large"`` and hands back ``by_file`` so the agent can narrow
-    with ``--exclude`` or the user can raise the limit. The property being
+    Over budget is not a truncation; it is a refusal. `context` exits 2 with
+    ``mode="diff_too_large"`` and hands back ``by_file`` so the user can add
+    paths to ``[diff] exclude`` or raise ``[diff] max_bytes``. The property being
     protected is that the agent never reviews part of a diff while believing it
     saw all of it; a loud stop protects that far more cheaply than chunking.
     """

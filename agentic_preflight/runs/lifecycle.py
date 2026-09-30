@@ -33,6 +33,7 @@ from ._session import (
 
 
 def events(session: Session, *, limit: int | None = None) -> Envelope:
+    """Return the current run's event history."""
     run = _load_current(session)
     history = session.store.load_events(run.run_id)
     if limit:
@@ -563,7 +564,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             "setup_failure": (
                 run.setup_failure.model_dump(mode="json") if run.setup_failure is not None else None
             ),
-            # Names only — contents are never read, logged, or echoed anywhere.
+            # Names only: contents are never read, logged, or echoed anywhere.
             "copied_files": run.copied_files,
             "findings": [f.model_dump(mode="json") for f in findings],
             "findings_summary": summary,

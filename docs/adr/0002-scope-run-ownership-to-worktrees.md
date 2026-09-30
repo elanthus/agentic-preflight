@@ -7,13 +7,13 @@
 
 Run documents and Git refs belong to a clone, so Agentic Preflight stores them under
 `GIT_COMMON_DIR`. The original store also kept one clone-wide `current` pointer. That
-pointer made command routing unambiguous, but it allowed only one active gate across all
+pointer made command routing unambiguous, but it allowed only one active run across all
 linked worktrees. An interrupted run could therefore block unrelated agents preparing
 other pull requests.
 
-Most gate state is not shared. Each run has its own document, findings, events, logs, and
-validation checkout. The resources that are shared are narrower: the fetched base ref,
-the Git-notes attestation ref, and the single cached runner in `reusable` mode.
+Most run state is not shared. Each run has its own document, findings, events, logs, and
+validation worktree. The resources that are shared are narrower: the fetched base ref,
+the Git-notes attestation ref, and the single cached validation worktree in `reusable` mode.
 
 Elapsed time cannot prove that a run was abandoned. A run may wait indefinitely for a
 user decision or publication authorization, and an isolated run may contain fix commits
@@ -24,7 +24,7 @@ that exist nowhere else.
 Keep durable run history in the clone-wide store, but scope active ownership to the
 source worktree's private Git directory. Hash that directory's absolute path to obtain a
 filesystem-safe owner ID. Store one atomic active-run pointer per owner and register an
-isolated validation checkout as an alias of the same run.
+isolated validation worktree as an alias of the same run.
 
 Commands resolve the invoking worktree's pointer by default. The root `--run RUN_ID`
 option selects a stored run explicitly; when its recorded source checkout still exists,
@@ -44,7 +44,7 @@ Use locks at the resource they protect:
   a run while one of its commands is executing;
 - a synchronization lock protects the shared fetched base ref;
 - a notes lock protects fetch, merge, write, and publication of attestations; and
-- `reusable` mode retains its single-runner lease, while `in_place` and `strict` runs in
+- `reusable` mode retains its single-worktree lease, while `in_place` and `strict` runs in
   other source worktrees continue independently.
 
 The obsolete clone-wide `current` pointer is not part of the supported store format and
@@ -54,7 +54,7 @@ earlier-release records rather than translating or deleting them.
 
 ## Consequences
 
-Agents in separate linked worktrees can run gates concurrently. Finishing, aborting, or
+Agents in separate linked worktrees can have runs active concurrently. Finishing, aborting, or
 superseding one run clears only that run's aliases. Base synchronization and notes
 publication may still wait while their specific clone-wide operations are active, and
 reusable-mode runs remain serial because they share one cached checkout.

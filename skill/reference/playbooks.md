@@ -63,7 +63,7 @@ unknown results, never permission to merge.
 When source needs repair, fix and
 commit the source branch, then start a fresh synchronized preflight run with the
 original intent. Follow the returned stage sequence, including any validated reuse,
-until the gate is green. Push through the gate again, then resume check monitoring with `gh`.
+until the run is green. Publish through `gate` and `push` again, then resume check monitoring with `gh`.
 
 ## Hosted attestation availability failure
 
@@ -105,7 +105,7 @@ moved, or its worktree ownership pointer vanished, and it refuses while a comman
 executing. A repeated matching `start` resumes the run; a different intent on the same
 head requires the explicit `start --replace` returned by the error envelope. Orphaning
 itself never deletes logs, findings, validation worktrees, or fix commits. A subsequent
-`gc` may reclaim a terminal validator with no unmerged fixes; fix-bearing work remains
+`gc` may reclaim a terminal validation worktree with no unmerged fixes; fix-bearing work remains
 retained unless `--force` is explicit. If the source checkout itself disappeared, use
 `status`, `events`, or `logs` for inspection; other run mutations return
 `source_worktree_missing` so fixes cannot be applied to the caller's unrelated checkout.
@@ -153,7 +153,7 @@ Unity `-runTests` invocation exits 0 having run zero tests.
 
 ## Setup failed (exit 2, `setup_failed`)
 
-Run `status` and obey its durable recovery command. An initial checkout setup failure
+Run `status` and obey its recovery command. An initial checkout setup failure
 is recorded as `SETUP_FAILED` and returns `abort --force`; use it so reusable or strict
 worktrees cannot retain the active lease. A baseline setup failure remains in its stage's
 red state and returns the exact lint or test retry, including the
@@ -163,7 +163,7 @@ ran, so do not replace that recovery with `logs --stage`.
 ## Stage far slower than normal
 
 Check `[worktree] mode`. The default `in_place` mode uses the checkout's existing
-environment. The reusable runner retains ignored dependency and build caches, while
+environment. The reusable validation worktree retains ignored dependency and build caches, while
 strict mode begins without them. Agentic Preflight does not install dependencies
 automatically; isolated modes need `[worktree] setup_command` when the validation
 checkout requires preparation. `copy_files` is for ignored files such as `.env`, not
@@ -187,7 +187,7 @@ stage command at a script that checks the commit under test out to a non-`.git` 
 and runs there. Never point an isolated run at the source checkout: that reports on
 the wrong content and is a false green.
 
-## Green in your shell, red under the gate
+## Green in your shell, red in a stage
 
 Simple commands run directly when their program resolves, without sourcing a login
 profile. Commands that need shell interpretation or whose program cannot be resolved
@@ -197,4 +197,4 @@ inherited or login-profile configuration can also keep them available. Prefer an
 Compare `PATH` and the toolchain version *inside the stage* against the project's declared range before
 you debug the code — a native module built for another ABI fails as missing bindings,
 not as a version error. A repo with no `.nvmrc` (or equivalent) has nothing pinning it,
-so this bites fresh clones and CI too, not just the gate.
+so this bites fresh clones and CI too, not just stages.
