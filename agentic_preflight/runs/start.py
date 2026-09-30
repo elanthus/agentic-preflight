@@ -683,6 +683,7 @@ def start(
     intent: str | None = None,
     replace: bool = False,
 ) -> Envelope:
+    """Start a run, or resume or replace an existing one."""
     ctx = _check_preconditions(session, base_ref=base_ref, intent=intent)
     existing = _resolve_existing_run(ctx, replace=replace)
     if existing is not None:

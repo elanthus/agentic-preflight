@@ -1,9 +1,9 @@
 """Cross-field invariants for persisted run records.
 
 These rules cover lifecycle relationships that the state-transition table and
-Pydantic field validation cannot express independently. All candidate rules
-were retained: the current coordinators construct each related record field in
-the same transaction as its state transition. ``stale`` is deliberately not an
+Pydantic field validation cannot express independently. Each rule holds because
+the coordinators set each related record field in the same transaction as its
+state transition. ``stale`` is deliberately not an
 invariant because it can annotate many nonterminal states while directing the
 caller to start again.
 """

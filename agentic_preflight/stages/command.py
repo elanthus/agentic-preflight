@@ -1,17 +1,16 @@
 """Deciding *how* to execute a configured stage command.
 
-``[commands] lint = "ruff check ."`` is stored as an opaque string, and the
-historical implementation handed every one of them to ``bash -lc``. That made a
-POSIX shell a hard runtime dependency for a tool whose actual job is running a
-project's own lint and test commands — the overwhelming majority of which are a
-plain program and its arguments with no shell grammar in sight.
+``[commands] lint = "ruff check ."`` is stored as an opaque string. Handing
+every such string to ``bash -lc`` would make a POSIX shell a hard runtime
+dependency, although most lint and test commands are a plain program and its
+arguments with no shell grammar.
 
 So the string is planned before it is run:
 
 * No unquoted shell metacharacter and a resolvable program -> run the argv
   directly, with no shell on any platform.
 * Anything else (pipes, ``&&``, redirection, globs, expansions, a shell
-  builtin) -> fall back to a shell, exactly as before.
+  builtin) -> run it through a shell.
 
 Direct execution is not merely a portability trick. It removes the shell from
 the injection surface of the one code path that runs repository-controlled
@@ -20,8 +19,7 @@ between the timeout and the program whose exit code decides the stage.
 
 Detection is deliberately conservative: when in doubt, use the shell. A false
 "needs a shell" costs a subprocess. A false "safe to split" would silently run a
-*different command* than the repository asked for, which is the class of quiet
-wrongness this tool exists to prevent.
+different command than the repository asked for.
 
 Two consequences of executing directly are worth stating plainly, because
 neither announces itself:
@@ -55,8 +53,8 @@ _DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD"
 
 # Whether a backslash escapes the following character.
 #
-# This is not a stylistic choice. POSIX word-splitting eats backslashes, so
-# ``C:\Users\me\tool.exe`` splits into ``C:Usersmetool.exe`` — a *different
+# POSIX word-splitting eats backslashes, so
+# ``C:\Users\me\tool.exe`` splits into ``C:Usersmetool.exe``, a *different
 # program*, chosen silently. On Windows a backslash is a path separator and is
 # kept literal; on POSIX it is an escape and is honoured.
 BACKSLASH_ESCAPES = os.name != "nt"
@@ -114,7 +112,7 @@ def first_metacharacter(command: str, *, escapes: bool | None = None) -> str | N
             # drops the backslash before ``$``, a backtick, a quote, or another
             # backslash and keeps it otherwise; ``shlex`` keeps it in every
             # case. So ``-k "cost\$"`` reaches the program as ``cost$`` through
-            # a shell and as ``cost\$`` through an argv — a different command,
+            # a shell and as ``cost\$`` through an argv, a different command,
             # chosen silently. Hand the whole string to the shell instead.
             return char
 
@@ -218,7 +216,7 @@ def _candidate_names(program: str) -> list[str]:
 
     Windows executability comes from the extension, and the installed entry
     point for ``npm``, ``uv``, or ``just`` is commonly a ``.cmd`` shim rather
-    than an ``.exe``, so ``PATHEXT`` has to be applied here — ``CreateProcess``
+    than an ``.exe``, so ``PATHEXT`` has to be applied here; ``CreateProcess``
     does not apply it on our behalf.
     """
     if os.name != "nt":
@@ -239,21 +237,21 @@ def resolve_on_path(program: str) -> str | None:
 
     Deliberately not ``shutil.which``. On Windows that function prepends the
     *calling process's* current directory to the search, which for this tool is
-    the repository under validation — so a repository containing its own
+    the repository under validation, so a repository containing its own
     ``pytest.exe`` or ``ruff.bat`` would have that run in place of the real
     tool. Passing ``path=`` does not suppress it; the directory is inserted
     after the supplied path is split. Whether it happens at all depends on an
     environment variable and on the Python version, which is no basis for
     deciding what gets executed.
 
-    Searching PATH alone also matches what a shell did here before, and what
-    ``execvp`` does on POSIX. Returning an absolute path then stops
+    Searching PATH alone also matches what a shell and ``execvp`` do on
+    POSIX. Returning an absolute path then stops
     ``CreateProcess`` performing its own current-directory search afterwards.
     """
     for directory in _search_path_entries():
         for name in _candidate_names(program):
             candidate = os.path.join(directory, name)
-            # POSIX decides executability by mode, Windows by extension — which
+            # POSIX decides executability by mode, Windows by extension, which
             # ``_candidate_names`` has already applied, and where ``X_OK`` is
             # true of every existing file and so proves nothing.
             if os.path.isfile(candidate) and (os.name == "nt" or os.access(candidate, os.X_OK)):
@@ -316,7 +314,7 @@ def _windows_bash_candidates() -> list[Path]:
 
     Resolved with :func:`resolve_on_path`, never ``shutil.which``, for the same
     reason stage programs are: ``which`` searches the calling process's current
-    directory — the repository under validation — which must not be able to
+    directory (the repository under validation) which must not be able to
     supply the shell that runs its own stages.
     """
     candidates: list[Path] = []
@@ -346,8 +344,8 @@ def windows_system_tool(name: str) -> str:
     """Absolute System32 path for a Windows utility such as ``taskkill.exe``.
 
     Named in full so ``CreateProcess`` performs no search at all: handed a bare
-    name it looks in the current directory — for this tool, the repository
-    under validation — before System32.
+    name it looks in the current directory (for this tool, the repository
+    under validation) before System32.
     """
     system_root = os.environ.get("SYSTEMROOT", r"C:\Windows")
     return os.path.join(system_root, "System32", name)
@@ -360,13 +358,13 @@ def find_shell() -> list[str] | None:
     a default Windows 11 install puts the *WSL launcher* at
     ``C:\\Windows\\System32\\bash.exe``. Running a stage through it would execute
     the command inside a Linux distribution against a different filesystem, so
-    the search is anchored on Git for Windows — already a hard dependency of
-    this tool — and any System32 candidate is rejected.
+    the search is anchored on Git for Windows (already a hard dependency of
+    this tool) and any System32 candidate is rejected.
     """
     if os.name != "nt":
         # Probed rather than assumed: a minimal container image may ship only
-        # ``sh``, and a missing shell must surface as ShellUnavailable — the
-        # red stage the caller reports — not as a FileNotFoundError from exec.
+        # ``sh``, and a missing shell must surface as ShellUnavailable (the
+        # red stage the caller reports) not as a FileNotFoundError from exec.
         for name in ("bash", "sh"):
             shell = resolve_on_path(name)
             if shell is not None:

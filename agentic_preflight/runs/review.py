@@ -47,7 +47,7 @@ def _skip_docs_if_disabled(session: Session, run: RunDoc) -> RunDoc:
     """Skip the docs stage as an explicit transition, never a silent pass.
 
     ``[docs] enabled = false`` exists for repos with no meaningful doc surface.
-    Modelling it as a real transition to DOCS_GREEN keeps the attestation honest:
+    Modelling it as a real transition to DOCS_GREEN keeps the attestation accurate:
     the stage was skipped by configuration, and that is a recorded fact rather
     than an absence.
     """
@@ -101,6 +101,7 @@ def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
 
 
 def context(session: Session, *, section: str = "review") -> Envelope:
+    """Return the review or docs context for the current run."""
     run = _load_current(session)
     _check_restart_limit(run)
     _assert_fresh(session, run)
@@ -216,6 +217,7 @@ def submit_findings(
     *,
     _executor: review_protocol.ReviewExecutor = "in_harness",
 ) -> Envelope:
+    """Record the agent's findings for the review or docs stage."""
     run = _load_current(session)
     _check_restart_limit(run)
     _assert_fresh(session, run)
@@ -256,8 +258,8 @@ def submit_findings(
 
     inventory = None
     if stage is Stage.DOCS:
-        # Docs findings may target files the diff never touched — that is the
-        # point of the stage — so the changed-file constraint relaxes to the
+        # Docs findings may target files the diff never touched (that is the
+        # point of the stage) so the changed-file constraint relaxes to the
         # documentation allowlist rather than disappearing.
         inventory = docsstage.build_inventory(
             worktree_path, bundle.files, session.config.docs.paths
@@ -373,6 +375,7 @@ def submit_findings(
 
 
 def verify(session: Session) -> Envelope:
+    """Verify fixes for blocking review findings."""
     run = _load_current(session)
     _assert_fresh(session, run)
     _require_state(

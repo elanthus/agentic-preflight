@@ -6,9 +6,8 @@ deep: a section present in the repo file replaces the user's section wholesale
 rather than merging key-by-key, so a reader of the committed file can tell what
 is in force without knowing the reader's home directory.
 
-Unknown keys are errors that name the key. A silently ignored typo in a config
-that governs a *safety gate* is exactly the kind of quiet failure this tool
-exists to prevent.
+Unknown keys are errors that name the key, because a silently ignored typo in
+a config that governs a safety gate would weaken the gate without any signal.
 """
 
 from __future__ import annotations
@@ -33,7 +32,7 @@ from .shell_fingerprints import ShellInputContract
 REPO_CONFIG_NAME = ".agentic-preflight.toml"
 USER_CONFIG_NAME = "config.toml"
 
-from .diff import DEFAULT_EXCLUDE  # noqa: E402  (kept next to its one consumer)
+from .diff import DEFAULT_EXCLUDE  # noqa: E402
 
 
 class ConfigError(Exception):
@@ -245,6 +244,7 @@ def load_config(
     *,
     user_config_dir: Path | str | None = None,
 ) -> Config:
+    """Load and merge the user and repository configuration."""
     repo_root = Path(repo_root)
     if user_config_dir is None:
         user_config_dir = Path.home() / ".config" / "agentic-preflight"
