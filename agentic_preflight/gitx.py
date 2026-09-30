@@ -401,16 +401,37 @@ def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> bool:
 # -- diff -------------------------------------------------------------------
 
 
+# Git enables rename detection by default (``diff.renames``). It is a similarity
+# heuristic over whichever changes a single diff can see, so restricting a diff
+# with a pathspec can pair a deletion with an unrelated addition and hide the
+# deleted path behind a rename record. Every diff here is consumed as data keyed
+# by path, so renames are disabled and each path reports as A, D, M or T.
+_NO_RENAMES = "--no-renames"
+
+
 def changed_files(cwd: Path | str, base: str, head: str = "HEAD") -> list[str]:
     output = run(
-        cwd, "diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", f"{base}...{head}"
+        cwd,
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--name-only",
+        "-z",
+        _NO_RENAMES,
+        f"{base}...{head}",
     ).stdout
     return [path for path in output.split("\0") if path]
 
 
 def diff_text(cwd: Path | str, base: str, head: str = "HEAD") -> str:
     return run(
-        cwd, "diff", "--no-ext-diff", "--no-textconv", "--no-color", f"{base}...{head}"
+        cwd,
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        _NO_RENAMES,
+        f"{base}...{head}",
     ).stdout
 
 
@@ -421,6 +442,7 @@ def diff_text_for_path(cwd: Path | str, base: str, head: str, path: str) -> str:
         "--no-ext-diff",
         "--no-textconv",
         "--no-color",
+        _NO_RENAMES,
         f"{base}...{head}",
         "--",
         f":(literal){path}",
@@ -465,7 +487,7 @@ def _split_patches(text: str) -> list[str]:
 
 
 def _parse_raw_patch_output(text: str) -> dict[str, str]:
-    """Map patches to destination paths using Git's NUL-delimited raw prelude.
+    """Map patches to paths using Git's NUL-delimited raw prelude.
 
     Git represents a file-type change as one raw record but emits the content
     change as a deletion patch followed by an addition patch. Keep both blocks
@@ -485,11 +507,12 @@ def _parse_raw_patch_output(text: str) -> dict[str, str]:
         if not metadata.startswith(":"):
             raise ValueError("git diff returned malformed raw metadata")
         status = metadata.rsplit(" ", 1)[-1]
-        path_count = 2 if status.startswith(("R", "C")) else 1
-        if position + path_count > len(fields):
+        if status.startswith(("R", "C")):
+            raise ValueError("git diff reported a rename or copy although renames are disabled")
+        if position >= len(fields):
             raise ValueError("git diff raw metadata omitted a path")
-        entries.append((fields[position + path_count - 1], status))
-        position += path_count
+        entries.append((fields[position], status))
+        position += 1
 
     patches = _split_patches(patch_text)
     per_file: dict[str, str] = {}
@@ -525,6 +548,7 @@ def diff_text_by_path(
             "-z",
             "--patch",
             "--no-color",
+            _NO_RENAMES,
             f"{base}...{head}",
             "--",
             *(f":(literal){path}" for path in batch),

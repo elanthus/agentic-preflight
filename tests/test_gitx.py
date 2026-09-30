@@ -185,7 +185,7 @@ def test_diff_text_by_path_matches_individual_patches(feature_repo):
     }
 
 
-def test_diff_text_by_path_handles_renames_binary_and_pathspec_characters(tmp_repo):
+def test_diff_text_by_path_reports_renames_as_delete_and_add(tmp_repo):
     shared = "".join(f"shared line {index}\n" for index in range(20))
     write(tmp_repo, "literal[1].txt", shared + "before\n")
     write(tmp_repo, "brackets[1].txt", "before\n")
@@ -202,13 +202,54 @@ def test_diff_text_by_path_handles_renames_binary_and_pathspec_characters(tmp_re
     paths = gitx.changed_files(tmp_repo, base)
     batched = gitx.diff_text_by_path(tmp_repo, base, "HEAD", paths)
 
+    # Renames are never interpreted: the source is listed as a deletion and the
+    # destination as an addition, so every changed path has its own patch.
+    assert "literal[1].txt" in paths
+    assert "renamed file.txt" in paths
     assert list(batched) == paths
     assert batched == {
         path: gitx.diff_text_for_path(tmp_repo, base, "HEAD", path) for path in paths
     }
+    assert "deleted file mode" in batched["literal[1].txt"]
+    assert "new file mode" in batched["renamed file.txt"]
     assert "brackets[1].txt" in batched["brackets[1].txt"]
-    assert "renamed file.txt" in batched["renamed file.txt"]
     assert "Binary files" in batched["image.bin"]
+
+
+def test_diff_text_by_path_ignores_phantom_renames_across_batches(tmp_repo, monkeypatch):
+    """A deletion must not vanish because its batch lacks a moved file's true source.
+
+    With rename detection on, git pairs an addition in one batch with the most
+    similar deletion visible in that batch. When the real source lands in another
+    batch, an unrelated near-identical deletion is reported as the rename source
+    and its path drops out of the per-path result.
+    """
+    meta = "fileFormatVersion: 2\nguid: {}\nfolderAsset: yes\nDefaultImporter:\n  userData: \n"
+    write(tmp_repo, "old/Moved.meta", meta.format("aaaa"))
+    write(tmp_repo, "old/Retired.meta", meta.format("bbbb"))
+    write(tmp_repo, "zzz/keep.txt", "keep\n")
+    commit_all(tmp_repo, "add metas")
+    base = gitx.rev_parse(tmp_repo, "HEAD")
+    git("switch", "-c", "feature/move", cwd=tmp_repo)
+    # Batch 0 sees the addition and the unrelated deletion; the true source is
+    # sorted into batch 1.
+    (tmp_repo / "new").mkdir()
+    git("mv", "old/Moved.meta", "new/Moved.meta", cwd=tmp_repo)
+    git("rm", "-q", "old/Retired.meta", cwd=tmp_repo)
+    write(tmp_repo, "zzz/keep.txt", "changed\n")
+    commit_all(tmp_repo, "move one meta and retire another")
+
+    monkeypatch.setattr(gitx, "_DIFF_PATH_BATCH_FILES", 2)
+    paths = ["new/Moved.meta", "old/Retired.meta", "old/Moved.meta", "zzz/keep.txt"]
+    assert sorted(paths) == sorted(gitx.changed_files(tmp_repo, base))
+    assert list(gitx._path_batches(paths)) == [paths[:2], paths[2:]]
+
+    batched = gitx.diff_text_by_path(tmp_repo, base, "HEAD", paths)
+
+    assert list(batched) == paths
+    assert "deleted file mode" in batched["old/Retired.meta"]
+    assert "deleted file mode" in batched["old/Moved.meta"]
+    assert "new file mode" in batched["new/Moved.meta"]
 
 
 @requires_git_symlinks

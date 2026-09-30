@@ -7,6 +7,12 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- `context` no longer fails with `git diff omitted requested changed paths` on branches
+  that move and delete similar files. Git's default rename detection ran separately on
+  each batch of the per-file diff, so a batch that held a moved file's destination but
+  not its source could pair the destination with an unrelated deletion and hide that
+  deleted path. Every diff now runs with `--no-renames`, so a rename is reported as a
+  deletion plus an addition and each changed path always has its own patch.
 - Restore the five follow-up evidence ledger PR titles to their exact GitHub titles,
   state the README dogfooding claim as 323 of 408 merged pull requests, and note in the
   case study that evidence ledgers are never edited by hand after collection.
