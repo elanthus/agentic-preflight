@@ -228,6 +228,7 @@ COMMANDS = (
 
 
 def register(group: click.Group) -> None:
+    """Add the run commands to a CLI group."""
     for cli_command in COMMANDS:
         name = "finish" if cli_command is finish_run else None
         group.add_command(cli_command, name=name)

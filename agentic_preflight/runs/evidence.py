@@ -45,6 +45,7 @@ from ._session import Session, _apply, _check_restart_limit, _now, _require_work
 def fingerprint(
     session: Session, run: RunDoc, stage: Stage, *, command: str | None = None
 ) -> StageFingerprint:
+    """Compute the current fingerprint for a stage of a run."""
     wt = _require_worktree(run)
     head = gitx.rev_parse(wt, "HEAD")
     snapshot = run.config_snapshot
@@ -89,6 +90,7 @@ def fingerprint(
 
 
 def classify(old: StageFingerprint, new: StageFingerprint) -> Classification:
+    """Classify how a stage's evidence changed between two fingerprints."""
     if isinstance(old, ReviewFingerprint) and isinstance(new, ReviewFingerprint):
         return classify_review(old, new)
     if isinstance(old, DocsFingerprint) and isinstance(new, DocsFingerprint):

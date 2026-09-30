@@ -1,6 +1,6 @@
 """Run orchestration: the logic behind each command.
 
-``cli.py`` is argument parsing and envelope emission only. The focused modules
+``cli.py`` is argument parsing only, and ``cli_support`` emits envelopes. The focused modules
 behind this facade each own one phase of the run state machine; entry points take
 a :class:`Session` and return an :class:`Envelope` without printing or exiting.
 """

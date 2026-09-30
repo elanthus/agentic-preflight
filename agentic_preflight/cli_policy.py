@@ -255,7 +255,7 @@ def hook_check() -> None:
     try:
         repo_root = gitx.repo_root(Path.cwd())
         allow_force = load_config(repo_root).hook.allow_force_push
-    except Exception as exc:  # noqa: BLE001 - never brick a repo over our own failure
+    except Exception as exc:  # noqa: BLE001 - an internal failure must not block every push
         sys.stderr.write(f"agentic-preflight: hook check unavailable ({exc}); allowing push\n")
         sys.exit(int(ExitCode.OK))
 
@@ -286,5 +286,6 @@ COMMANDS = (verify, approval_check, hosted_check, hook_check)
 
 
 def register(group: click.Group) -> None:
+    """Add the policy commands to a CLI group."""
     for cli_command in COMMANDS:
         group.add_command(cli_command)

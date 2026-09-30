@@ -2,12 +2,11 @@
 
 Strict by design. Two invariants dominate this module:
 
-**Never auto-resolve.** On any conflict, abort immediately, verify the branch is
-exactly where it started, and hand back an explicit resolution path. No
-``-X ours``, no ``-X theirs``, no rerere, no clever merge strategies, ever. A
-tool that silently picks a side during a conflict has quietly made a code
-decision nobody reviewed — which is the precise opposite of what this exists to
-do.
+**No automatic conflict resolution.** On any conflict, abort immediately,
+verify the branch is exactly where it started, and hand back an explicit
+resolution path. The module uses no ``-X ours``, ``-X theirs``, rerere, or other
+merge strategy, because picking a side during a conflict is a code decision
+nobody reviewed.
 
 In-place validation bypasses this module's cherry-pick operation because its
 verified commits already live on the source branch.

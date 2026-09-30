@@ -175,6 +175,7 @@ def gate(session: Session) -> Envelope:
 
 
 def push(session: Session, *, confirm: str | None = None, dry_run: bool = False) -> Envelope:
+    """Push the run's branch after the confirmation token is checked."""
     run = _load_current(session)
     _assert_fresh(session, run)
     _require_state(run, State.AWAITING_PUSH_CONFIRM, command="push")

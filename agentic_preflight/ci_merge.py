@@ -15,6 +15,7 @@ from .models import Stage
 
 
 def published_attestation(repo: Path, api: GitHub, candidate: Candidate, cfg: Config):
+    """Fetch and decode the attestation published for the candidate head."""
     source = api.scoped(candidate.head_repository, public=not candidate.head_repository_private)
     value = attestation.decode(source.note(candidate.head_sha))
     objects = {candidate.base_sha, candidate.head_sha}
@@ -86,6 +87,7 @@ def published_attestation(repo: Path, api: GitHub, candidate: Candidate, cfg: Co
 
 
 def evaluate(repo: Path, api: GitHub, pr: int) -> dict:
+    """Evaluate whether a pull request satisfies the CI merge requirements."""
     result: dict = {
         "purpose": "merge",
         "pr": pr,
@@ -175,6 +177,7 @@ def evaluate(repo: Path, api: GitHub, pr: int) -> dict:
 
 
 def next_action(result: dict) -> tuple[str, str]:
+    """Return the next instruction and command for a merge evaluation result."""
     command = f"agentic-preflight ci status --repo {result['repository']} --pr {result['pr']}"
     status = result["status"]
     if status == "success":

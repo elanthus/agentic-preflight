@@ -61,6 +61,7 @@ def base_enabled(repo: Path | str, revision: str) -> bool:
 
 
 def enforce_local_policy(effective: Config, protected: Config, *, include_ci: bool = True) -> None:
+    """Reject differences from the protected policy in its selected sections or commands.lint."""
     # Exact agreement is deliberately conservative in this initial opt-in path.
     # A feature branch cannot silently weaken any mandatory local stage.
     for section in ("ci", "review", "policy", "docs", "diff", "context", "approval"):
@@ -75,6 +76,7 @@ def enforce_local_policy(effective: Config, protected: Config, *, include_ci: bo
 def declaration(
     repo: Path | str, *, base: str, head: str, base_ref: str, effective: Config
 ) -> TestDelegation:
+    """Build the CI test delegation declaration from the protected base policy."""
     protected = committed_policy(repo, base)
     enforce_local_policy(effective, protected)
     if base_ref not in {protected.ci.base_branch, f"origin/{protected.ci.base_branch}"}:
@@ -87,6 +89,7 @@ def declaration(
 
 
 def verify_declaration(repo: Path | str, value: Attestation) -> None:
+    """Verify an attestation's CI declaration against the protected base policy."""
     requested = value.test_delegation
     if requested is None or value.config_snapshot is None:
         raise ValueError("missing CI declaration or effective local configuration")
