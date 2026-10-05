@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
 _CODEOWNERS_PATHS = (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS")
 _CONVENTION_PATHS = ("AGENTS.md", "CLAUDE.md")
 _WORD_CHARACTER = r"[A-Za-z0-9_]"
+_WORD_RUN = re.compile(rf"{_WORD_CHARACTER}+")
 
 
 def _compact_bytes(value: Any) -> int:
@@ -118,23 +120,48 @@ def _terms(changed_files: list[str]) -> list[str]:
     return sorted(terms)
 
 
-def _matching_terms(text: str, terms: list[str]) -> list[str]:
+@dataclass(frozen=True)
+class _Term:
+    """A search term with the word runs every whole-token occurrence must contain.
+
+    A match cannot touch a word character on either side, so each word run in the
+    term must appear as a complete token of the searched text. Checking that against
+    a token set first leaves the regex for the few compound terms that pass, instead
+    of scanning every document once per term.
+    """
+
+    text: str
+    runs: frozenset[str]
+    pattern: re.Pattern[str]
+    single_run: bool
+
+
+def _compile_terms(terms: list[str]) -> list[_Term]:
+    return [
+        _Term(
+            text=term,
+            runs=frozenset(_WORD_RUN.findall(term)),
+            pattern=re.compile(rf"(?<!{_WORD_CHARACTER}){re.escape(term)}(?!{_WORD_CHARACTER})"),
+            single_run=_WORD_RUN.fullmatch(term) is not None,
+        )
+        for term in terms
+    ]
+
+
+def _matching_terms(text: str, terms: list[_Term]) -> list[_Term]:
+    tokens = set(_WORD_RUN.findall(text))
     return [
         term
         for term in terms
-        if re.search(rf"(?<!{_WORD_CHARACTER}){re.escape(term)}(?!{_WORD_CHARACTER})", text)
+        if term.runs <= tokens and (term.single_run or term.pattern.search(text) is not None)
     ]
 
 
-def _excerpt(text: str, terms: list[str]) -> str:
-    patterns = [
-        re.compile(rf"(?<!{_WORD_CHARACTER}){re.escape(term)}(?!{_WORD_CHARACTER})")
-        for term in terms
-    ]
+def _excerpt(text: str, terms: list[_Term]) -> str:
     lines = text.splitlines(keepends=True)
     selected: set[int] = set()
     for index, line in enumerate(lines):
-        if not any(pattern.search(line) for pattern in patterns):
+        if not _matching_terms(line, terms):
             continue
         selected.update(range(max(0, index - 1), min(len(lines), index + 2)))
     return "".join(lines[index] for index in sorted(selected))
@@ -145,7 +172,7 @@ def _doc_entries(
     changed_files: list[str],
     entry_max_bytes: int,
 ) -> list[dict[str, Any]]:
-    terms = _terms(changed_files)
+    terms = _compile_terms(_terms(changed_files))
     entries = []
     for source in sorted(path for path in texts if path.startswith("docs/")):
         text = texts[source]
@@ -158,7 +185,7 @@ def _doc_entries(
                 {
                     "kind": "doc",
                     "source": source,
-                    "terms": matches,
+                    "terms": [term.text for term in matches],
                     "excerpt": excerpt,
                 },
                 truncated=truncated,

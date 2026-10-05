@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 import json
+import random
+import re
 import shlex
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 from agentic_preflight.config import ConfigError, load_config
 from agentic_preflight.errors import ExitCode
-from agentic_preflight.grounding import _terms, digest
+from agentic_preflight.grounding import (
+    _compile_terms,
+    _doc_entries,
+    _matching_terms,
+    _terms,
+    digest,
+)
 from agentic_preflight.runs._session import open_session
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
@@ -450,3 +459,64 @@ def test_terms_treat_any_package_module_like_the_tool_package():
     assert {"sub/mod.py", "agentic_preflight.sub.mod"} <= set(own)
     assert {"sub/mod.py", "mypkg.sub.mod"} <= set(other)
     assert {term.replace("agentic_preflight", "mypkg") for term in own} == set(other)
+
+
+def _reference_matches(text: str, terms: list[str]) -> list[str]:
+    return [
+        term
+        for term in terms
+        if re.search(rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])", text)
+    ]
+
+
+def _matched(text: str, terms: list[str]) -> list[str]:
+    return [term.text for term in _matching_terms(text, _compile_terms(terms))]
+
+
+@pytest.mark.parametrize(
+    ("text", "term", "expected"),
+    [
+        ("See src/app.py.", "src/app.py", True),
+        ("See mysrc/app.py.", "src/app.py", False),
+        ("See src/app.pyc.", "src/app.py", False),
+        ("Edit stages.py today.", "stages", True),
+        ("The substages module.", "stages", False),
+        ("Rules in .github/CODEOWNERS apply.", ".github/CODEOWNERS", True),
+        ("Rules in x.github/CODEOWNERS apply.", ".github/CODEOWNERS", False),
+        ("Use éapp.py here.", "app.py", True),
+        ("src/app.py\nwraps lines", "app.py\nwraps", True),
+        ("Call app src/py instead.", "src/app.py", False),
+    ],
+)
+def test_doc_terms_match_whole_tokens_only(text, term, expected):
+    assert _matched(text, [term]) == ([term] if expected else [])
+
+
+def test_doc_term_matching_agrees_with_a_plain_whole_token_regex():
+    alphabet = list("ab_1./- \n\té")
+    rng = random.Random(3)  # noqa: S311 - seeded test data, not a secret
+    for _ in range(2000):
+        terms = sorted(
+            {"".join(rng.choice(alphabet) for _ in range(rng.randint(4, 8))) for _ in range(6)}
+        )
+        text = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 60)))
+        planted = rng.choice(terms)
+        at = rng.randint(0, len(text))
+        text = text[:at] + planted + text[at:]
+        assert _matched(text, terms) == _reference_matches(text, terms)
+
+
+def test_doc_grounding_scales_with_many_terms_and_large_docs():
+    changed = [f"pkg{i % 12}/sub{i % 7}/module_{i}.py" for i in range(400)]
+    filler = " ".join(f"word{i}" for i in range(2500)) + "\n"
+    texts = {f"docs/doc_{index:03d}.md": filler * 2 for index in range(100)}
+    texts["docs/doc_050.md"] += "Read pkg2/sub2/module_2.py first.\n"
+
+    started = time.perf_counter()
+    entries = _doc_entries(texts, changed, 4000)
+    elapsed = time.perf_counter() - started
+
+    assert [entry["source"] for entry in entries] == ["docs/doc_050.md"]
+    assert "module_2" in entries[0]["terms"]
+    # The per-term regex scan this replaces took tens of seconds at this size.
+    assert elapsed < 5
