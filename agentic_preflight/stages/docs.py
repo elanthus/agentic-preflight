@@ -18,10 +18,12 @@ Two things distinguish it from review:
 from __future__ import annotations
 
 import fnmatch
+import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..diff import path_matches
+from ..diff import match_prefixes, path_matches
 from ..models import Finding, FindingAction, Severity, Stage
 
 #: The documentation surface every repo is assumed to have. Anything in
@@ -59,17 +61,57 @@ class DocEntry:
 
 
 def _iter_candidates(worktree_path: Path, patterns: tuple[str, ...] | list[str]):
-    """Every tracked-looking file matching any documentation pattern."""
-    seen: set[str] = set()
-    for path in sorted(worktree_path.rglob("*")):
-        if not path.is_file():
+    """Every tracked-looking file matching any documentation pattern.
+
+    The result feeds ``doc_surface_sha256``, so it must stay exactly what
+    filtering ``sorted(worktree_path.rglob("*"))`` would give: the same files,
+    in ``Path`` order. Only the walk is narrower.
+    """
+    # Bare-name patterns match at the root only, so only path-shaped patterns
+    # can justify entering a directory.
+    prefixes = tuple(
+        prefix for pattern in patterns if "/" in pattern for prefix in match_prefixes(pattern)
+    )
+    found = [
+        path
+        for path, rel in _walk(worktree_path, prefixes)
+        if any(_matches(rel, pattern) for pattern in patterns) and path.is_file()
+    ]
+    for path in sorted(found):
+        yield path.relative_to(worktree_path).as_posix()
+
+
+def _walk(root: Path, prefixes: tuple[str, ...]) -> Iterator[tuple[Path, str]]:
+    """Yield ``(path, rel)`` for the entries ``root.rglob("*")`` would yield.
+
+    It skips the root ``.git`` and any directory no prefix can reach. Otherwise
+    it follows rglob: hidden entries are listed, symlinked directories are
+    listed but not entered, and directories that cannot be read are skipped.
+    """
+    stack: list[tuple[Path, str]] = [(root, "")]
+    while stack:
+        directory, rel_dir = stack.pop()
+        try:
+            with os.scandir(directory) as scandir_it:
+                entries = list(scandir_it)
+        except OSError:
             continue
-        rel = path.relative_to(worktree_path).as_posix()
-        if rel.startswith(".git/"):
-            continue
-        if any(_matches(rel, pattern) for pattern in patterns) and rel not in seen:
-            seen.add(rel)
-            yield rel
+        for entry in entries:
+            path = directory / entry.name
+            rel = rel_dir + entry.name
+            yield path, rel
+            try:
+                is_dir = entry.is_dir(follow_symlinks=False)
+            except OSError:
+                is_dir = False
+            subtree = rel + "/"
+            if is_dir and rel != ".git" and _reachable(subtree, prefixes):
+                stack.append((path, subtree))
+
+
+def _reachable(subtree: str, prefixes: tuple[str, ...]) -> bool:
+    """Could a path under ``subtree`` (which ends in ``/``) start with a prefix?"""
+    return any(subtree.startswith(prefix) or prefix.startswith(subtree) for prefix in prefixes)
 
 
 def _matches(rel: str, pattern: str) -> bool:
