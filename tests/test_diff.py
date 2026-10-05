@@ -165,7 +165,7 @@ def test_match_prefixes_follow_each_fnmatch_attempt(pattern, prefixes):
 
 @settings(max_examples=2000)
 @given(
-    path=st.text(alphabet="ab/.-", min_size=1, max_size=12),
+    path=st.text(alphabet="ab/.-*?[]", min_size=1, max_size=12),
     pattern=st.text(alphabet="ab/*?[]!.-", max_size=10),
 )
 def test_every_match_starts_with_one_of_its_pattern_prefixes(path, pattern):

@@ -124,12 +124,12 @@ All notable changes to Agentic Preflight are documented here. This project follo
   replacement, `start --intent`, concurrent worktree modes, and SemVer scope. The push
   and pull-request authorization rule lives in one section of `docs/configuration.md`.
 - Building the documentation inventory no longer walks the whole worktree. The walk skips
-  `.git` and every directory that no documentation pattern can match, such as
+  the root `.git` and every directory that no documentation pattern can match, such as
   `node_modules` and `.venv` under the default patterns. Every docs fingerprint and docs
   `context` builds this inventory. On a test worktree with 120,000 ignored entries, one
-  build fell from about 3 s to 3 ms. The inventory and `doc_surface_sha256` are unchanged, so existing docs evidence
-  remains reusable. A pattern that can match at any depth, such as `**/*.md`, still needs
-  the full walk.
+  build fell from about 3 s to 3 ms. The inventory and `doc_surface_sha256` are
+  unchanged, so existing docs evidence remains reusable. A pattern that can match at any
+  depth, such as `**/*.md`, still needs the full walk.
 
 ### Removed
 
