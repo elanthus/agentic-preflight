@@ -7,6 +7,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- Recording a passed stage no longer stalls for minutes on large changes. Documentation
+  grounding searched every document once per changed-path term, and each search scanned
+  the whole document because the whole-token regex could not use a literal-prefix search.
+  It now tokenizes each document once and runs the regex only for terms whose word runs
+  all appear as complete tokens. Grounding output and its digest are unchanged. With
+  1,680 terms over 293 documents (5.6 MB), one assembly drops from about 80 seconds to
+  under half a second. A stage record assembles grounding up to four times.
 - `context` no longer fails with `git diff omitted requested changed paths` on branches
   that move and delete similar files. Git's default rename detection ran separately on
   each batch of the per-file diff, so a batch that held a moved file's destination but
