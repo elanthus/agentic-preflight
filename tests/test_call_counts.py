@@ -16,11 +16,13 @@ import pytest
 
 from agentic_preflight import diff as diffmod
 from agentic_preflight import grounding, refresh_validation
+from agentic_preflight.models import Stage
 from agentic_preflight.runs import evidence, review_protocol
 from agentic_preflight.runs._session import Session, _load_current, open_session
 from agentic_preflight.stages import docs as docsstage
 from agentic_preflight.stages import shellstage
-from tests.conftest import commit_all, write
+from agentic_preflight.store import Store
+from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 
 
@@ -220,3 +222,91 @@ def test_docs_fingerprint_without_surface_matches_memoized_surface(feature_repo)
         **arguments,
         surface=review_protocol.docs_surface(session, run, bundle.files),
     )
+
+
+def _restack(repo) -> None:
+    base = git("rev-parse", "main", cwd=repo)
+    tree = git("rev-parse", "main^{tree}", cwd=repo)
+    new = git("commit-tree", tree, "-p", base, "-m", "history only", cwd=repo)
+    git("update-ref", "refs/heads/main", new, base, cwd=repo)
+
+
+def _complete(agent: ScriptedAgent, payload, start: dict) -> None:
+    """Follow ``next.command`` from ``start`` through a verified merge-back."""
+    envelope = start
+    while envelope["state"] != "VERIFIED":
+        command = envelope["next"]["command"]
+        if command.startswith("agentic-preflight submit-findings"):
+            payload.write_text(
+                '{"coverage":{"manifest":"$context","examined":"all"},"findings":[]}'
+                if envelope["state"] == "REVIEW_AWAITING_FINDINGS"
+                else '{"findings":[]}'
+            )
+            envelope = agent.run("submit-findings", "--file", str(payload))
+        else:
+            envelope = agent.run(*command.split()[1:])
+
+
+def test_reuse_start_cost_does_not_grow_with_prior_runs(
+    feature_repo, tmp_path, call_counts, monkeypatch
+):
+    _prepare(feature_repo)
+    verify_stage = evidence.verify_stage
+    fingerprint = evidence.fingerprint
+    starts: dict[int, Counter[str]] = {}
+
+    def counted_verify(*args, **kwargs):
+        call_counts.counts["verify_stage"] += 1
+        return verify_stage(*args, **kwargs)
+
+    def counted_fingerprint(*args, **kwargs):
+        call_counts.counts["fingerprint"] += 1
+        return fingerprint(*args, **kwargs)
+
+    monkeypatch.setattr(evidence, "verify_stage", counted_verify)
+    monkeypatch.setattr(evidence, "fingerprint", counted_fingerprint)
+    payload = tmp_path / "findings.json"
+    agent = ScriptedAgent(feature_repo)
+    _complete(agent, payload, agent.run("start"))
+    agent.run("abort", "--force")
+
+    for prior in (1, 2, 3, 4):
+        _restack(feature_repo)
+        agent = ScriptedAgent(feature_repo)
+        call_counts.take()
+        envelope = agent.run("start")
+        starts[prior] = call_counts.take()
+        assert envelope["state"] == "TEST_GREEN"
+        _complete(agent, payload, envelope)
+        agent.run("abort", "--force")
+
+    for prior, counts in starts.items():
+        # `discover` computes each stage's current fingerprint at most once, and
+        # `advance` once more to import it; shell fingerprints are never reused.
+        assert counts["fingerprint"] <= 8, (prior, counts)
+        assert counts["grounding"] <= 2, (prior, counts)
+    assert starts[2] == starts[3] == starts[4]
+
+
+def test_older_reusable_evidence_still_replaces_newer_unusable_evidence(feature_repo, tmp_path):
+    _prepare(feature_repo)
+    payload = tmp_path / "findings.json"
+    first = ScriptedAgent(feature_repo)
+    _complete(first, payload, first.run("start", "--intent", "the original objective"))
+    original_run = first.steps[0].envelope["run_id"]
+    first.run("abort", "--force")
+
+    _restack(feature_repo)
+    second = ScriptedAgent(feature_repo)
+    started = second.run("start", "--intent", "a different objective")
+    assert started["data"]["applicability"]["review"]["disposition"] == "invalid"
+    _complete(second, payload, started)
+    second.run("abort", "--force")
+
+    _restack(feature_repo)
+    third = ScriptedAgent(feature_repo)
+    resumed = third.run("start", "--intent", "the original objective")
+    assert resumed["data"]["applicability"]["review"]["disposition"] == "reusable"
+    run = Store(feature_repo / ".git" / "agentic-preflight").load_run(resumed["run_id"])
+    assert run.reuse_candidates[Stage.REVIEW].origin.run_id == original_run
+    assert run.reuse_candidates[Stage.DOCS].origin.run_id == original_run
