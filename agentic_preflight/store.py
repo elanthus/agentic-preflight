@@ -26,7 +26,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from . import filelock
-from .config import Config
+from .config import Config, snapshot_config
 from .models import Finding, RunDoc
 
 # Roughly a second of total backoff. Long enough to outlast a concurrent read
@@ -234,10 +234,18 @@ class Store:
         _atomic_write(self.run_path(run.run_id), run.model_dump_json(indent=2))
         return run
 
-    def load_run(self, run_id: str) -> RunDoc:
+    def load_run(self, run_id: str, *, tolerate_removed_config: bool = False) -> RunDoc:
+        """Load and validate one run record.
+
+        ``tolerate_removed_config`` validates the stored config snapshot the way
+        attestation does, ignoring keys in :data:`REMOVED_CONFIG_KEYS`. It is for
+        callers that only need the record's lifecycle fields, such as ``gc``
+        deciding whether an abandoned run can be orphaned; every other caller
+        keeps the strict read so a snapshot still means exactly one config.
+        """
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
             self._recover_update(run_id)
-            return self._load_run(run_id)
+            return self._load_run(run_id, tolerate_removed_config=tolerate_removed_config)
 
     def peek(self, run_id: str, *fields: str) -> dict[str, Any] | None:
         """Return top-level fields of a run record without validating it.
@@ -257,7 +265,7 @@ class Store:
             return None
         return {field: raw.get(field) for field in fields}
 
-    def _load_run(self, run_id: str) -> RunDoc:
+    def _load_run(self, run_id: str, *, tolerate_removed_config: bool = False) -> RunDoc:
         """Read under the caller's run lock, retaining structured read errors."""
         path = self.run_path(run_id)
         try:
@@ -312,7 +320,10 @@ class Store:
                 fields=_validation_fields(exc),
             ) from exc
         try:
-            Config.model_validate(run.config_snapshot)
+            if tolerate_removed_config:
+                snapshot_config(run.config_snapshot)
+            else:
+                Config.model_validate(run.config_snapshot)
         except ValidationError as exc:
             raise RunReadError(
                 run_id,
@@ -348,6 +359,7 @@ class Store:
         run_id: str,
         *,
         findings: list[Finding] | None = None,
+        tolerate_removed_config: bool = False,
     ) -> Iterator[RunDoc]:
         """Read-modify-write a run document under an exclusive lock.
 
@@ -364,7 +376,7 @@ class Store:
 
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
             self._recover_update(run_id)
-            run = self._load_run(run_id)
+            run = self._load_run(run_id, tolerate_removed_config=tolerate_removed_config)
 
             yield run
 

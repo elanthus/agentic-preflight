@@ -7,6 +7,14 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- `gc` can now orphan an abandoned run whose stored config snapshot holds a key that
+  a later release removed, such as `hook.enabled`. Reading such a record failed strict
+  validation, so a run whose source worktree had disappeared kept its validation
+  worktree, `ap/*` branch, and ownership pointers forever, and no flag could release
+  them. Collection now retries the read the way attestation does, ignoring only keys
+  the tool knows it removed, and uses that read solely to orphan a run that is
+  provably abandoned. A run that is not abandoned, a terminal run, and a snapshot with
+  any other unknown key keep the strict unreadable verdict and are retained unchanged.
 - Verifying review evidence no longer rebuilds the same review manifests three times.
   Each verification rebuilt the original snapshot's manifest to check its coverage,
   rebuilt it again with the current snapshot's manifest to rebind the coverage, and
