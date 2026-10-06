@@ -408,8 +408,9 @@ values; an unknown field does not establish which tool version wrote it.
 Even `--force` preserves unreadable records, their branches, worktrees, and ownership
 pointers. One exception: a nonterminal run whose snapshot holds only keys a later
 release removed is read tolerantly, and if its source worktree, lease, or head is gone
-it is orphaned and its resources released like any other abandoned run. Inspect the indicated record. Neither
-`status` nor `status --all` treats an unreadable record as absent: inspection reports
+it is orphaned and its resources released like any other abandoned run. Inspect the
+indicated record. Neither `status` nor `status --all` treats an unreadable record as
+absent: inspection reports
 `readable: false`, and single-run status keeps `has_run: true` with `data.read_failure`.
 Recovery guidance supplies no executable replacement command. Only confirmed absence
 permits stale-pointer recovery. Global inventory and cleanup failures still fail visibly.

@@ -325,7 +325,6 @@ def _worktree_mode(run: RunDoc) -> str:
     worktree of a run recorded by an earlier release. A strictly loaded run
     has already passed the stricter check, so the answer is the same there.
     """
-    """Return the snapshotted worktree lifecycle."""
     return snapshot_config(run.config_snapshot).worktree.mode
 
 
