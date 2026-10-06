@@ -43,6 +43,11 @@ def contract_is_committed(
         return False
 
 
+#: Review manifests already built during one verification, keyed on ``(head, base)``.
+#: Commits are immutable, so a manifest for the same pair and origin never changes.
+ManifestCache = dict[tuple[str, str], diff.ReviewManifest]
+
+
 def _manifest(repo: Path | str, origin: OriginalExecution, *, head: str, base: str):
     cfg = snapshot_config(origin.config_snapshot)
     bundle = diff.build_bundle(repo, base, head, exclude=cfg.diff.exclude)
@@ -59,15 +64,38 @@ def _manifest(repo: Path | str, origin: OriginalExecution, *, head: str, base: s
     return manifest
 
 
+def _cached_manifest(
+    repo: Path | str,
+    origin: OriginalExecution,
+    manifests: ManifestCache,
+    *,
+    head: str,
+    base: str,
+) -> diff.ReviewManifest:
+    if (head, base) not in manifests:
+        manifests[head, base] = _manifest(repo, origin, head=head, base=base)
+    return manifests[head, base]
+
+
 def rebound_coverage(
-    repo: Path | str, origin: OriginalExecution, *, head: str, base: str
+    repo: Path | str,
+    origin: OriginalExecution,
+    *,
+    head: str,
+    base: str,
+    manifests: ManifestCache | None = None,
 ) -> ReviewCoverage:
-    """Rebind identity only after accounting for all old and current units."""
+    """Rebind identity only after accounting for all old and current units.
+
+    ``manifests`` lets one verification share the manifests it has already
+    built for this ``origin``; without it, each call builds its own.
+    """
     original = origin.result.coverage
     if original is None:
         raise ValueError("original review lacks coverage")
-    old = _manifest(repo, origin, head=origin.head_sha, base=origin.base_sha)
-    new = _manifest(repo, origin, head=head, base=base)
+    manifests = {} if manifests is None else manifests
+    old = _cached_manifest(repo, origin, manifests, head=origin.head_sha, base=origin.base_sha)
+    new = _cached_manifest(repo, origin, manifests, head=head, base=base)
     if (
         old.manifest != original.manifest
         or original.head_sha != old.head_sha
@@ -82,7 +110,9 @@ def rebound_coverage(
     return original.model_copy(update={"manifest": new.manifest, "head_sha": new.head_sha})
 
 
-def _verify_fingerprint(repo: Path | str, origin: OriginalExecution) -> None:
+def _verify_fingerprint(
+    repo: Path | str, origin: OriginalExecution, manifests: ManifestCache
+) -> None:
     fp = origin.fingerprint
     if fp.version != FINGERPRINT_VERSION:
         raise ValueError("unsupported fingerprint version")
@@ -95,7 +125,9 @@ def _verify_fingerprint(repo: Path | str, origin: OriginalExecution) -> None:
         expected = json_digest(review_relevant_config(origin.config_snapshot))
         if fp.config_sha256 != expected or fp.executor != origin.result.executor:
             raise ValueError("original review policy does not match its fingerprint")
-        rebound_coverage(repo, origin, head=origin.head_sha, base=origin.base_sha)
+        rebound_coverage(
+            repo, origin, head=origin.head_sha, base=origin.base_sha, manifests=manifests
+        )
     elif isinstance(fp, DocsFingerprint):
         if fp.config_sha256 != json_digest(docs_relevant_config(origin.config_snapshot)):
             raise ValueError("original docs policy does not match its fingerprint")
@@ -123,11 +155,25 @@ def json_digest_command(command: str) -> str:
 
 
 def verify_stage(
-    repo: Path | str, item: StageEvidence, *, head: str, base: str, run_id: str
-) -> None:
-    """Verify one stage's refreshed evidence against the current base and head."""
+    repo: Path | str,
+    item: StageEvidence,
+    *,
+    head: str,
+    base: str,
+    run_id: str,
+    manifests: ManifestCache | None = None,
+) -> ReviewCoverage | None:
+    """Verify one stage's refreshed evidence against the current base and head.
+
+    For refreshed review evidence, return the coverage rebound to ``head`` and
+    ``base`` that verification already computed; otherwise return ``None``. A
+    caller that needs the rebound coverage of unrefreshed review evidence
+    passes ``manifests`` and calls ``rebound_coverage`` with it, which reuses
+    the manifests built here instead of rebuilding them.
+    """
     origin = item.origin
-    _verify_fingerprint(repo, origin)
+    manifests = {} if manifests is None else manifests
+    _verify_fingerprint(repo, origin, manifests)
     fp = item.fingerprint
     if fp.head_tree_sha != gitx.tree_sha(repo, head) or fp.base_tree_sha != gitx.tree_sha(
         repo, base
@@ -136,11 +182,12 @@ def verify_stage(
     if item.refreshed_at is None:
         if origin.run_id != run_id or fp != origin.fingerprint:
             raise ValueError("transferred evidence requires explicit derivation provenance")
-        return
+        return None
     old = origin.fingerprint
+    coverage = None
     if isinstance(old, ReviewFingerprint) and isinstance(fp, ReviewFingerprint):
         result = classify_review(old, fp)
-        rebound_coverage(repo, origin, head=head, base=base)
+        coverage = rebound_coverage(repo, origin, head=head, base=base, manifests=manifests)
     elif isinstance(old, DocsFingerprint) and isinstance(fp, DocsFingerprint):
         result = classify_docs(old, fp)
     elif isinstance(old, ShellFingerprint) and isinstance(fp, ShellFingerprint):
@@ -154,19 +201,30 @@ def verify_stage(
         raise ValueError("inconsistent fingerprint types")
     if result.disposition != Disposition.REUSABLE:
         raise ValueError("derived evidence inputs are invalid or unknown")
+    return coverage
 
 
 def _verify_current_stage(
     repo: Path | str, value: Attestation, cfg: Config, stage: Stage, item: StageEvidence
 ) -> list:
     """Verify one current result against its original execution evidence."""
-    verify_stage(repo, item, head=value.sha, base=value.merge_base_sha, run_id=value.run_id)
+    manifests: ManifestCache = {}
+    coverage = verify_stage(
+        repo,
+        item,
+        head=value.sha,
+        base=value.merge_base_sha,
+        run_id=value.run_id,
+        manifests=manifests,
+    )
     current = value.stages[stage]
     expected = item.origin.result.model_copy(deep=True)
     if stage is Stage.REVIEW:
-        expected.coverage = rebound_coverage(
-            repo, item.origin, head=value.sha, base=value.merge_base_sha
-        )
+        if coverage is None:
+            coverage = rebound_coverage(
+                repo, item.origin, head=value.sha, base=value.merge_base_sha, manifests=manifests
+            )
+        expected.coverage = coverage
     if current != expected:
         raise ValueError("current stage result differs from original execution evidence")
     fp = item.fingerprint

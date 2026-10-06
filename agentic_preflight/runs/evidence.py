@@ -31,7 +31,6 @@ from ..models import (
 )
 from ..refresh_validation import (
     contract_is_committed,
-    rebound_coverage,
     shell_execution_config,
     verify_stage,
 )
@@ -366,7 +365,9 @@ def advance(session: Session, run: RunDoc) -> RunDoc:
         )
         head = gitx.rev_parse(_require_worktree(run), "HEAD")
         try:
-            verify_stage(
+            # ``imported`` is refreshed, so verification returns the review coverage
+            # it has already rebound to this head and base.
+            coverage = verify_stage(
                 session.repo_root, imported, head=head, base=run.merge_base_sha, run_id=run.run_id
             )
         except (ValueError, gitx.GitError):
@@ -376,11 +377,6 @@ def advance(session: Session, run: RunDoc) -> RunDoc:
                 )
                 run = doc
             break
-        coverage = (
-            rebound_coverage(session.repo_root, item.origin, head=head, base=run.merge_base_sha)
-            if stage is Stage.REVIEW
-            else None
-        )
         stored_findings = session.store.load_findings(run.run_id)
         existing_stage = [f for f in stored_findings if f.stage is stage]
         if existing_stage and [f.model_dump(exclude={"id"}) for f in existing_stage] != [
