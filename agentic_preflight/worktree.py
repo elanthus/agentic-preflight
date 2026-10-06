@@ -24,6 +24,7 @@ hole, because guard 2 never consults ``.gitignore``.
 
 from __future__ import annotations
 
+import os
 import shutil
 from hashlib import sha256
 from pathlib import Path
@@ -45,15 +46,18 @@ class CopiedFileInCommit(Exception):
 
 
 def default_root(repo: Path | str) -> Path:
-    """Return a stable per-clone sibling directory outside ``.git``.
+    """Return a stable per-clone directory under the user's cache.
 
-    Keeping worktrees under the git common directory makes Jest ignore the
-    entire checkout. A sibling directory also avoids making the repository
-    itself dirty and keeps identically named clones separate.
+    The parent is :func:`cache_parent`, so every disposable checkout lives under
+    one path that is easy to measure or wipe. Keeping worktrees under the git
+    common directory would make Jest ignore the entire checkout, and keeping
+    them inside the repository would make it dirty; a cache directory outside
+    both avoids each problem. The per-clone leaf keeps identically named clones
+    separate.
     """
     repo = Path(repo).resolve()
     identity = sha256(str(gitx.git_common_dir(repo).resolve()).encode()).hexdigest()[:12]
-    return repo.parent / ".agentic-preflight-worktrees" / f"{repo.name}-{identity}"
+    return cache_parent() / f"{repo.name}-{identity}"
 
 
 def resolve_root(repo: Path | str, configured: str | None = None) -> Path:
@@ -69,6 +73,35 @@ def resolve_root(repo: Path | str, configured: str | None = None) -> Path:
             "An external path keeps git status clean and lets Jest discover tests."
         )
     return resolved
+
+
+def cache_parent() -> Path:
+    """Return the shared parent of every default validation worktree.
+
+    ``$XDG_CACHE_HOME/agentic-preflight/worktrees`` when ``XDG_CACHE_HOME`` is
+    an absolute path (relative values are invalid per the XDG spec and are
+    ignored), otherwise ``~/.cache/agentic-preflight/worktrees``.
+    """
+    xdg = os.environ.get("XDG_CACHE_HOME", "")
+    base = Path(xdg) if xdg and Path(xdg).is_absolute() else Path.home() / ".cache"
+    return base / "agentic-preflight" / "worktrees"
+
+
+LEGACY_DIRNAME = ".agentic-preflight-worktrees"
+"""Sibling directory that held isolated worktrees before the cache default."""
+
+
+def legacy_worktrees(repo: Path | str) -> list[str]:
+    """Return registered worktrees still under the old sibling default location.
+
+    Reported, never removed: they may hold caches the user still wants, and the
+    path change means nothing else will ever lease or release them again.
+    """
+    return [
+        record["worktree"]
+        for record in gitx.list_worktrees(repo)
+        if "worktree" in record and LEGACY_DIRNAME in Path(record["worktree"]).parts
+    ]
 
 
 def create(repo: Path | str, *, path: Path | str, branch: str, head_sha: str) -> Path:

@@ -41,8 +41,9 @@ human_review_paths = [
 # Use "reusable" for one serial isolated runner with retained ignored caches, or
 # "strict" for a fresh isolated worktree on every run.
 mode = "in_place"
-# Isolated modes put worktrees in a hidden sibling directory, outside .git, so
-# Jest can discover tests without touching this checkout.
+# Isolated modes put worktrees under ~/.cache/agentic-preflight/worktrees (or
+# $XDG_CACHE_HOME), outside .git, so Jest can discover tests without touching
+# this checkout. A configured root must also be outside the repository.
 # root = "/absolute/path/to/agentic-preflight-worktrees"
 # In isolated modes these files are copied into the validation worktree. In
 # in-place mode they stay where they are. In every mode they must already be

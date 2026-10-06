@@ -56,8 +56,9 @@ explicit `setup_command` still runs.
 
 ## `reusable`
 
-Leases one validation worktree in a hidden sibling directory, serially across runs, preserving ignored
-dependency and build caches.
+Leases one validation worktree under the user cache directory (see
+[Where isolated worktrees live](#where-isolated-worktrees-live)), serially across runs,
+preserving ignored dependency and build caches.
 
 Between leases it resets tracked files, removes non-ignored untracked files, explicitly
 removes every `[worktree] copy_files` entry, and then detaches the validation worktree. Other ignored
@@ -72,6 +73,27 @@ Creates a fresh worktree for every run and removes it afterward. Use it when eac
 validation must begin with no retained artifacts.
 
 Remote CI should remain the clean verification boundary in either isolated mode.
+
+## Where isolated worktrees live
+
+Both isolated modes default to one directory per clone under
+`$XDG_CACHE_HOME/agentic-preflight/worktrees/`, or `~/.cache/agentic-preflight/worktrees/`
+when `XDG_CACHE_HOME` is unset or not an absolute path. Every disposable checkout on the
+machine is therefore under one path: `du -sh ~/.cache/agentic-preflight/worktrees`
+measures them, and the directory is safe to clear when no run is active (follow with
+`git worktree prune` in each repository). The location is outside the repository, so
+the source checkout stays clean, and outside `.git`, so Jest still discovers tests.
+
+Set `[worktree] root` to choose another location. A configured root is used as given and
+must be outside the repository.
+
+### Migrating from the sibling default
+
+Earlier releases put these worktrees in a hidden `.agentic-preflight-worktrees/`
+directory beside each checkout. A reusable runner left there is no longer leased, reset,
+or removed. `agentic-preflight gc` lists any worktree git still has registered under that
+directory in `data.legacy_worktrees`, and never deletes it. Inspect each one, then remove
+it with `git worktree remove <path>`.
 
 ## Why isolated validation worktrees live outside `.git`
 

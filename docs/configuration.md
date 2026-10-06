@@ -85,7 +85,7 @@ exclude = ["*.lock", "*-lock.json", "vendor/**", "**/*.min.js"]
 
 [worktree]
 mode = "in_place"                 # default; or "reusable" / "strict"
-root = "/optional/external/path"  # isolated modes only; defaults outside .git
+root = "/optional/external/path"  # isolated modes only; defaults to ~/.cache/agentic-preflight/worktrees
 copy_files = [".env"]             # must already be ignored
 # setup_command = "uv sync"       # prepare dependencies and ignored build inputs
 

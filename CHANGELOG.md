@@ -160,6 +160,17 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Isolated validation worktrees (`[worktree] mode = "reusable"` or `"strict"`) now default
+  to one per-user cache directory, `$XDG_CACHE_HOME/agentic-preflight/worktrees/`, or
+  `~/.cache/agentic-preflight/worktrees/` when `XDG_CACHE_HOME` is unset, instead of a
+  hidden `.agentic-preflight-worktrees/` directory beside each checkout. Measuring or
+  wiping every disposable checkout is now one directory operation, and a Claude Code
+  worktree under `.claude/worktrees/` no longer puts validation checkouts inside its
+  parent repository. An explicit `[worktree] root` still wins and must still be outside
+  the repository. **Migration:** a reusable runner at the old sibling location is no
+  longer leased or cleaned up. `gc` now lists any worktree still registered there in
+  `data.legacy_worktrees` and never deletes it; remove each one with
+  `git worktree remove <path>` once it holds nothing you need.
 - Context grounding derives module terms for every Python package, not only
   `agentic_preflight`. A changed `.py` file under any directory now contributes its path
   relative to the top-level directory and its dotted module name.

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from agentic_preflight import fileperms, gitx, worktree
-from tests.conftest import assert_owner_only, git, write
+from tests.conftest import assert_owner_only, git, set_home, write
 
 
 @pytest.fixture
@@ -45,6 +45,44 @@ def test_configured_root_must_remain_outside_the_repository(feature_repo):
     with pytest.raises(worktree.WorktreeError) as exc:
         worktree.resolve_root(feature_repo, str(feature_repo / ".worktrees"))
     assert "outside" in str(exc.value)
+
+
+def test_default_root_lives_under_xdg_cache_home_when_set(feature_repo, tmp_path, monkeypatch):
+    cache = tmp_path / "xdg"
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
+
+    root = worktree.resolve_root(feature_repo)
+
+    assert root.parent == cache / "agentic-preflight" / "worktrees"
+    assert root.name.startswith(f"{feature_repo.resolve().name}-")
+
+
+@pytest.mark.parametrize("xdg", [None, "", "relative/cache"])
+def test_default_root_falls_back_to_home_cache(feature_repo, tmp_path, monkeypatch, xdg):
+    set_home(monkeypatch, tmp_path / "home")
+    if xdg is None:
+        monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    else:
+        monkeypatch.setenv("XDG_CACHE_HOME", xdg)
+
+    root = worktree.default_root(feature_repo)
+
+    assert root.parent == tmp_path / "home" / ".cache" / "agentic-preflight" / "worktrees"
+
+
+def test_configured_root_wins_over_the_cache_default(feature_repo, tmp_path):
+    configured = tmp_path / "elsewhere"
+
+    assert worktree.resolve_root(feature_repo, str(configured)) == configured.resolve()
+
+
+def test_legacy_sibling_worktrees_are_reported(feature_repo, tmp_path):
+    legacy = feature_repo.parent / worktree.LEGACY_DIRNAME / "old-runner"
+    git("worktree", "add", "--detach", str(legacy), "HEAD", cwd=feature_repo)
+
+    reported = worktree.legacy_worktrees(feature_repo)
+
+    assert [Path(path).resolve() for path in reported] == [legacy.resolve()]
 
 
 # -- copied-file containment (secret-leak class) ----------------------------

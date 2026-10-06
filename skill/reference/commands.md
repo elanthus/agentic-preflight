@@ -36,8 +36,9 @@ With `--no-hook`, the effective path and override state are still reported, whil
 
 The default `in_place` mode uses the current checkout and reports
 `data.worktree_root: null`. In isolated `reusable` and `strict` modes, worktrees default
-to a hidden sibling directory outside `.git`, and `data.worktree_root` reports that
-resolved location.
+to a per-clone directory under `$XDG_CACHE_HOME/agentic-preflight/worktrees/` (or
+`~/.cache/agentic-preflight/worktrees/` when `XDG_CACHE_HOME` is unset), and
+`data.worktree_root` reports that resolved location.
 
 ### `agentic-preflight integrations install AGENT... [--scope user|project] [--target PATH] [--force]`
 Copies the bundled skill and all of its references into each selected agent's discovery
@@ -420,6 +421,9 @@ with no equivalent remains reported as unmerged and is never removed without
 It marks a nonterminal run `ORPHANED` when its source worktree disappeared, its source
 head moved, or its ownership pointer vanished, but only when no command is executing.
 Orphaning releases ownership; cleanup remains a separate preserve-first decision.
+`data.legacy_worktrees` lists git worktrees still registered under the old
+`.agentic-preflight-worktrees/` sibling default. `gc` never removes them, even with
+`--force`; remove each with `git worktree remove <path>` once it holds nothing you need.
 
 ### `agentic-preflight hook-check`
 The pre-push predicate. Reads git's stdin protocol, consults only the commit's

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import gitx, hook
+from .. import gitx, hook, worktree
 from .. import risk as riskmod
 from ..envelope import Envelope
 from ..errors import (
@@ -252,11 +252,16 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
         if run_id not in known_runs and run_id not in orphans:
             orphans.append(run_id)
 
+    # Worktrees left at the pre-cache sibling default are never leased again.
+    # Report them so the user can remove them; never delete them here.
+    legacy = worktree.legacy_worktrees(session.repo_root)
+
     return Envelope(
         data={
             "removed": removed,
             "retained": retained,
             "orphans": orphans,
+            "legacy_worktrees": legacy,
             "runs_known": sorted(known_runs),
             "active": store.list_active(),
         },
@@ -265,6 +270,9 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
             if unreadable_retained
             else "Orphans were found; inspect them before removing."
             if orphans
+            else "Validation worktrees remain at the old sibling default location; "
+            "inspect each and remove it with `git worktree remove <path>` if unneeded."
+            if legacy
             else None
         ),
         next_command=(
