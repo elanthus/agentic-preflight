@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
-from .. import gitx, risk, worktree
+from .. import gitx, housekeeping, risk, worktree
 from .. import sync as syncmod
 from ..config import Config, config_digest, load_config
 from ..envelope import Envelope
@@ -684,6 +684,19 @@ def start(
     replace: bool = False,
 ) -> Envelope:
     """Start a run, or resume or replace an existing one."""
+    envelope = _start(session, base_ref=base_ref, intent=intent, replace=replace)
+    if envelope.ok:
+        envelope.data["housekeeping"] = housekeeping.report(session.store, session.repo_root)
+    return envelope
+
+
+def _start(
+    session: Session,
+    *,
+    base_ref: str | None,
+    intent: str | None,
+    replace: bool,
+) -> Envelope:
     ctx = _check_preconditions(session, base_ref=base_ref, intent=intent)
     existing = _resolve_existing_run(ctx, replace=replace)
     if existing is not None:
