@@ -65,8 +65,8 @@ def fingerprint(
                 update={"unavailable": ReasonCode.CONTRACT_UNDECLARED, "inputs_sha256": None}
             )
         return result
-    bundle = review_protocol.bundle_for(session, run)
-    manifest = review_protocol.grounded_manifest(session, run, bundle)
+    bundle = review_protocol.bundle_for(session, run, head=head)
+    manifest = review_protocol.grounded_manifest(session, run, bundle, head=head)
     if stage is Stage.REVIEW:
         return compute_review_fingerprint(
             wt,
@@ -86,6 +86,7 @@ def fingerprint(
         config_snapshot=snapshot,
         intent=run.intent or "",
         grounding_sha256=manifest.grounding_sha256,
+        surface=review_protocol.docs_surface(session, run, bundle.files, head=head),
     )
 
 

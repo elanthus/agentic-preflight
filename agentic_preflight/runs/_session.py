@@ -5,10 +5,11 @@ from __future__ import annotations
 import hashlib
 import shlex
 import uuid
-from dataclasses import dataclass
+from collections.abc import Callable, Hashable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from pydantic import ValidationError
 
@@ -37,6 +38,8 @@ from ..store import RunReadError, Store, UnknownRun
 
 STATE_DIR_NAME = "agentic-preflight"
 
+_T = TypeVar("_T")
+
 
 @dataclass
 class Session:
@@ -49,9 +52,23 @@ class Session:
     config: Config
     selected_run_id: str | None = None
     source_worktree_available: bool = True
+    #: Review inputs already computed by this command, keyed on the snapshot they
+    #: describe. A session lives for one CLI process, which is the scope of the
+    #: "each invocation recomputes inputs" guarantee, so nothing here outlives it.
+    memo: dict[tuple[Hashable, ...], Any] = field(default_factory=dict, repr=False, compare=False)
 
     def active_run_id(self) -> str | None:
         return self.selected_run_id or self.store.get_active(self.owner_id)
+
+    def memoized(self, key: tuple[Hashable, ...], compute: Callable[[], _T]) -> _T:
+        """Return the value computed for ``key`` in this command, computing it once."""
+        if key not in self.memo:
+            self.memo[key] = compute()
+        return self.memo[key]
+
+    def clear_memo(self) -> None:
+        """Forget every memoized input, for code that has just changed the worktree."""
+        self.memo.clear()
 
 
 def worktree_identity(cwd: Path | str) -> str:

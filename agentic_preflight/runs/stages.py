@@ -448,6 +448,9 @@ def run_stage(
         timeout_seconds=session.config.stage.timeout_seconds,
         guarded_files=run.copied_files,
     )
+    # The command may have changed the worktree. Nothing computed before it may
+    # stand in for the post-command fingerprint below.
+    session.clear_memo()
     if not gitx.is_clean(wt):
         result = shellstage.StageResult(
             command=result.command,

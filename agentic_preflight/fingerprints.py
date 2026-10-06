@@ -21,15 +21,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import gitx
 from .diff import ReviewManifest
 from .digests import json_digest as config_digest
+
+if TYPE_CHECKING:
+    from .stages.docs import DocEntry
 
 Sha = Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
 
@@ -193,6 +197,17 @@ def compute_review_fingerprint(
     )
 
 
+def doc_surface(repo: Path | str, inventory: Iterable[DocEntry]) -> list[dict[str, Any]]:
+    """Describe each inventory entry together with the SHA-256 of its current bytes."""
+    return [
+        {
+            **entry.as_dict(),
+            "content_sha256": hashlib.sha256((Path(repo) / entry.path).read_bytes()).hexdigest(),
+        }
+        for entry in inventory
+    ]
+
+
 def compute_docs_fingerprint(
     repo: Path | str,
     *,
@@ -203,26 +218,22 @@ def compute_docs_fingerprint(
     config_snapshot: dict[str, Any],
     intent: str = "",
     grounding_sha256: str | None = None,
+    surface: list[dict[str, Any]] | None = None,
 ) -> DocsFingerprint:
     """Fingerprint the inputs a green docs stage against ``head_sha`` depended on.
 
     The documentation surface is read from the worktree, so this must be
     called while ``head_sha`` is actually checked out there, the same
     convention ``review_protocol.context_data`` and ``grounding.assemble``
-    already rely on.
+    already rely on. A caller that already holds ``doc_surface`` for these
+    ``changed_files`` and ``doc_paths`` may pass it as ``surface``.
     """
-    from .stages import docs as docsstage
+    if surface is None:
+        from .stages import docs as docsstage
 
-    inventory = docsstage.build_inventory(repo, changed_files, doc_paths)
-    payload = [
-        {
-            **entry.as_dict(),
-            "content_sha256": hashlib.sha256((Path(repo) / entry.path).read_bytes()).hexdigest(),
-        }
-        for entry in inventory
-    ]
+        surface = doc_surface(repo, docsstage.build_inventory(repo, changed_files, doc_paths))
     doc_surface_sha256 = hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        json.dumps(surface, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     return DocsFingerprint(
         configuration_supported=set(config_snapshot) <= _KNOWN_CONFIG,
