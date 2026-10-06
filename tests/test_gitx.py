@@ -537,3 +537,34 @@ def test_status_for_paths_reports_a_dirty_submodule_that_config_ignores(tmp_repo
     write(tmp_repo / "sub", "lib.py", "VALUE = 2\n")
 
     assert "sub" in gitx.status_for_paths(tmp_repo, ["sub"])
+
+
+def test_range_patch_ids_match_per_commit_patch_ids(tmp_repo):
+    """``patch_ids`` is one pipeline for a range, with ``commit_patch_id``'s answers."""
+    base = git("rev-parse", "HEAD", cwd=tmp_repo)
+    git("switch", "-c", "side", cwd=tmp_repo)
+    write(tmp_repo, "src/app.py", "def greet(name):\n    return f'hello {name}'\n")
+    original = commit_all(tmp_repo, "improve greeting")
+    git("switch", "main", cwd=tmp_repo)
+    (tmp_repo / "data.bin").write_bytes(bytes(range(256)) * 4)
+    commit_all(tmp_repo, "binary data")
+    (tmp_repo / "latin1.txt").write_bytes(b"caf\xe9\n")
+    commit_all(tmp_repo, "raw byte")
+    git("commit", "--allow-empty", "-m", "empty", cwd=tmp_repo)
+    empty = git("rev-parse", "HEAD", cwd=tmp_repo)
+    git("cherry-pick", original, cwd=tmp_repo)
+    picked = git("rev-parse", "HEAD", cwd=tmp_repo)
+    git("switch", "-c", "other", base, cwd=tmp_repo)
+    write(tmp_repo, "other.txt", "other\n")
+    commit_all(tmp_repo, "other line")
+    git("switch", "main", cwd=tmp_repo)
+    git("merge", "--no-ff", "-m", "merge other", "other", cwd=tmp_repo)
+    head = git("rev-parse", "HEAD", cwd=tmp_repo)
+
+    ids = gitx.patch_ids(tmp_repo, base, head)
+
+    assert set(ids) == set(gitx.commits_between(tmp_repo, base, head))
+    assert ids == {sha: gitx.commit_patch_id(tmp_repo, sha) for sha in ids}
+    assert ids[empty] is None
+    assert ids[picked] == gitx.commit_patch_id(tmp_repo, original)
+    assert gitx.patch_ids(tmp_repo, head, head) == {}

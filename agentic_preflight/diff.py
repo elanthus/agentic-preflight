@@ -13,6 +13,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 
 from . import gitx
@@ -101,7 +102,7 @@ class DiffBundle:
         if missing:
             raise ValueError("missing patches for changed files: " + ", ".join(missing))
 
-    @property
+    @cached_property
     def text(self) -> str:
         """The concatenation of the *included* per-file diffs.
 
@@ -109,10 +110,11 @@ class DiffBundle:
         ``total_bytes == sum(file_bytes)`` holds unconditionally. With
         exclusions in play a raw ``git diff`` would carry bytes the agent never
         sees, and the budget check would disagree with the per-file report.
+        Computed once: a bundle is not modified after it is built.
         """
         return "".join(self.per_file[path] for path in self.files)
 
-    @property
+    @cached_property
     def total_bytes(self) -> int:
         return len(self.text.encode())
 
