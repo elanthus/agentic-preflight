@@ -103,9 +103,10 @@ checkouts: `checkouts` (each with `path`, `bytes`, `registered`, `leased`, `deta
 `branch`, `owner_run_id`, `status` of `reclaimable` or `retained`, and `reason`),
 `total_bytes`, `reclaimable_bytes`, `ap_branches`, `noisy` (true at 1 GiB or more
 reclaimable), and `next_command`, which is `agentic-preflight gc` when anything is
-reclaimable and null otherwise. A checkout is reclaimable when it is not leased on a
-branch and no nonterminal run whose source worktree still exists names it; an
-unreadable run record counts as an owner. Nothing is deleted. If the inventory fails,
+reclaimable and null otherwise. A checkout is reclaimable only when it is not leased on a
+branch and no run record naming it as `worktree_path` has a source worktree that still
+exists. A released reusable runner whose source remains is `retained` with reason
+`reusable cache`, matching `gc`. A run record that cannot be read counts as an owner. Nothing is deleted. If the inventory fails,
 `data.housekeeping` is `{"error": "..."}` and `start` still succeeds.
 
 **Strict mode has no retained build cache.** If a lint or test stage is far slower there

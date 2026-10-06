@@ -27,11 +27,12 @@ def _layout(repo: Path, tmp_path: Path) -> tuple[Store, Path]:
     root = tmp_path / "checkouts"
     store = Store(tmp_path / "state", worktrees_root=root)
     git("worktree", "add", "-b", "ap/leased", str(root / "leased"), "main", cwd=repo)
-    for name in ("active", "finished"):
+    for name in ("active", "finished", "runner"):
         git("worktree", "add", "--detach", str(root / name), "main", cwd=repo)
     write(root, "loose/cache.bin", "x" * 1000)
     _record(store, "run-active", state="LINT_PENDING", worktree=root / "active", source=repo)
-    _record(store, "run-done", state="DONE", worktree=root / "finished", source=repo)
+    _record(store, "run-done", state="DONE", worktree=root / "finished", source=tmp_path / "gone")
+    _record(store, "run-reused", state="DONE", worktree=root / "runner", source=repo)
     return store, root
 
 
@@ -45,7 +46,7 @@ def test_inventory_classifies_registered_leased_and_owned_checkouts(feature_repo
     report = housekeeping.inventory(store, feature_repo)
     items = _by_name(report)
 
-    assert set(items) == {"leased", "active", "finished", "loose"}
+    assert set(items) == {"leased", "active", "finished", "runner", "loose"}
     assert items["leased"]["registered"]
     assert items["leased"]["leased"]
     assert items["leased"]["branch"] == "ap/leased"
@@ -56,6 +57,9 @@ def test_inventory_classifies_registered_leased_and_owned_checkouts(feature_repo
     assert items["active"]["status"] == "retained"
     assert items["finished"]["owner_run_id"] == "run-done"
     assert items["finished"]["status"] == "reclaimable"
+    assert items["runner"]["owner_run_id"] == "run-reused"
+    assert items["runner"]["status"] == "retained"
+    assert items["runner"]["reason"] == "reusable cache"
     assert not items["loose"]["registered"]
     assert items["loose"]["bytes"] == 1000
     assert items["loose"]["status"] == "reclaimable"

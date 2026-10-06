@@ -76,8 +76,9 @@ Remote CI should remain the clean verification boundary in either isolated mode.
 ## Seeing how much space checkouts hold
 
 Every `start` reports `data.housekeeping`: the size of each directory under the
-worktrees root and each `ap/*` worktree, whether it is `retained` (leased, or owned by
-a live run) or `reclaimable`, and the totals. When at least 1 GiB is reclaimable,
+worktrees root and each `ap/*` worktree, whether it is `retained` (leased, or named by a
+run whose source worktree still exists, which keeps a reusable runner) or
+`reclaimable`, and the totals. When at least 1 GiB is reclaimable,
 `noisy` is true and the agent tells you once; `agentic-preflight gc` reclaims it. The
 report never deletes anything, and its failure never fails `start`.
 

@@ -86,6 +86,10 @@ def _classify(item: dict[str, Any], owners: list[dict[str, Any]]) -> tuple[str, 
     for owner in owners:
         if not owner["terminal"] and owner["source_exists"]:
             return "retained", f"owned by active run {owner['run_id']}"
+    # gc keeps a released runner while any run naming it still has its source
+    # worktree, so reporting it reclaimable would nag reusable-mode users forever.
+    if any(owner["source_exists"] for owner in owners):
+        return "retained", "reusable cache"
     return "reclaimable", None
 
 
