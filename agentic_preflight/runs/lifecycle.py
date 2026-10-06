@@ -283,11 +283,10 @@ def _unlanded_fix_commits(repo: Path, run: RunDoc) -> list[str]:
     branch moves; compare stable patch IDs within that reviewed history.
     """
     try:
-        candidates = gitx.commits_between(repo, run.merge_base_sha, run.head_sha)
         landed_patch_ids = {
             patch_id
-            for sha in candidates
-            if (patch_id := gitx.commit_patch_id(repo, sha)) is not None
+            for patch_id in gitx.patch_ids(repo, run.merge_base_sha, run.head_sha).values()
+            if patch_id is not None
         }
         return [
             sha
