@@ -296,6 +296,36 @@ def test_gc_orphans_an_abandoned_run_whose_snapshot_holds_a_removed_config_key(
     assert f"ap/{run_id}" not in git("branch", "--list", "ap/*", cwd=feature_repo)
 
 
+def test_gc_orphans_an_abandoned_run_with_a_pending_update_and_a_removed_config_key(
+    feature_repo, tmp_path
+):
+    """An interrupted findings transaction must not block the tolerant orphan path."""
+    source_repo = _second_feature_worktree(feature_repo, tmp_path)
+    write(source_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(source_repo, "use strict validation")
+    started = ScriptedAgent(source_repo).run("start", "--intent", "validate feature y")
+    run_id = started["run_id"]
+    validator = Path(started["data"]["worktree_path"])
+    state_root = _state_root(feature_repo)
+    path = state_root / "runs" / run_id / "run.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["config_snapshot"]["hook"]["enabled"] = True
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    pending = dict(raw, seq=raw["seq"] + 1)
+    journal = state_root / "runs" / run_id / "pending-update.json"
+    journal.write_text(json.dumps({"run": pending, "findings": []}), encoding="utf-8")
+
+    git("worktree", "remove", "--force", str(source_repo), cwd=feature_repo)
+    collected = ScriptedAgent(feature_repo).run("gc")
+
+    assert run_id in collected["data"]["removed"]
+    orphaned = json.loads(path.read_text(encoding="utf-8"))
+    assert orphaned["state"] == "ORPHANED"
+    assert orphaned["seq"] > pending["seq"]
+    assert not journal.exists()
+    assert not validator.exists()
+
+
 def test_gc_keeps_the_strict_verdict_for_a_removed_key_when_the_run_is_not_abandoned(
     feature_repo,
 ):

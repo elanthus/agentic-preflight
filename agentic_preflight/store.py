@@ -64,6 +64,14 @@ def _validation_fields(exc: ValidationError, *, prefix: tuple[str, ...] = ()) ->
     ]
 
 
+def _validate_snapshot(snapshot: dict, tolerate_removed_config: bool) -> None:
+    """Validate a stored config snapshot, strictly or ignoring removed keys."""
+    if tolerate_removed_config:
+        snapshot_config(snapshot)
+    else:
+        Config.model_validate(snapshot)
+
+
 def _config_snapshot_diagnostic(exc: ValidationError) -> str:
     locations = [".".join(map(str, error["loc"])) for error in exc.errors()]
     fields = ", ".join(location for location in locations if location) or "<root>"
@@ -244,7 +252,7 @@ class Store:
         keeps the strict read so a snapshot still means exactly one config.
         """
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
-            self._recover_update(run_id)
+            self._recover_update(run_id, tolerate_removed_config=tolerate_removed_config)
             return self._load_run(run_id, tolerate_removed_config=tolerate_removed_config)
 
     def peek(self, run_id: str, *fields: str) -> dict[str, Any] | None:
@@ -320,10 +328,7 @@ class Store:
                 fields=_validation_fields(exc),
             ) from exc
         try:
-            if tolerate_removed_config:
-                snapshot_config(run.config_snapshot)
-            else:
-                Config.model_validate(run.config_snapshot)
+            _validate_snapshot(run.config_snapshot, tolerate_removed_config)
         except ValidationError as exc:
             raise RunReadError(
                 run_id,
@@ -375,7 +380,7 @@ class Store:
             raise UnknownRun(run_id)
 
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
-            self._recover_update(run_id)
+            self._recover_update(run_id, tolerate_removed_config=tolerate_removed_config)
             run = self._load_run(run_id, tolerate_removed_config=tolerate_removed_config)
 
             yield run
@@ -395,16 +400,19 @@ class Store:
             else:
                 update = _RunUpdate(run=run, findings=findings)
                 _atomic_write(self.update_path(run_id), update.model_dump_json(indent=2))
-                self._recover_update(run_id)
+                self._recover_update(run_id, tolerate_removed_config=tolerate_removed_config)
 
     def update_path(self, run_id: str) -> Path:
         return self.run_dir(run_id) / "pending-update.json"
 
-    def _recover_update(self, run_id: str) -> None:
+    def _recover_update(self, run_id: str, *, tolerate_removed_config: bool = False) -> None:
         """Roll forward a committed pair while holding the run lock.
 
         Validate before overwriting anything. The journal is retained on every
         failure, including an unsupported record or an unexpected sequence.
+        The journal's own config snapshot is checked under the caller's policy,
+        so a tolerant read can recover an older run's interrupted update and a
+        strict read never replays a snapshot it would then refuse to load.
         """
         path = self.update_path(run_id)
         try:
@@ -417,7 +425,8 @@ class Store:
             ) from exc
         try:
             update = _RunUpdate.model_validate_json(payload)
-            current = self._load_run(run_id)
+            _validate_snapshot(update.run.config_snapshot, tolerate_removed_config)
+            current = self._load_run(run_id, tolerate_removed_config=tolerate_removed_config)
             if update.run.run_id != run_id or not (
                 update.run.seq == current.seq + 1
                 or (update.run.seq == current.seq and update.run == current)
