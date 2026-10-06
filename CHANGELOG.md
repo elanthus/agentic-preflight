@@ -7,6 +7,15 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- Runs on other branches no longer slow down every command that reads review history.
+  Grounding history and evidence discovery fully loaded and validated every run record
+  in the clone's store, including runs on other branches and aborted runs kept until
+  `gc`, before checking the branch. They now read each record's branch (and, for
+  discovery, its source worktree) first and fully load only runs that match. A record
+  that cannot be read that way is still loaded and handled as before, so corrupt
+  records are skipped exactly as they were. Grounding output and its digest are
+  unchanged. With 3 runs on this branch and 6 on other branches, `context` drops from
+  11 run-record loads to 5 and `start` from 9 to 3; other-branch runs no longer add any.
 - `start` on a branch with earlier runs no longer slows down with every run it keeps.
   Choosing reusable evidence recomputed a stage's current fingerprint once per earlier
   run instead of once per stage, and verified every earlier run's evidence, rebuilding

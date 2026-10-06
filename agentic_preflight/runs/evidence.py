@@ -157,6 +157,17 @@ def _prior_runs(session: Session, run: RunDoc) -> list[RunDoc]:
     for run_id in session.store.list_runs():
         if run_id == run.run_id:
             continue
+        # Skip runs that a raw read already shows belong elsewhere. A record that
+        # cannot be read that way reaches load_run and is handled as before.
+        peeked = session.store.peek(run_id, "branch", "source_worktree_id")
+        if peeked is not None and any(
+            isinstance(peeked[field], str) and peeked[field] != expected
+            for field, expected in (
+                ("branch", run.branch),
+                ("source_worktree_id", run.source_worktree_id),
+            )
+        ):
+            continue
         try:
             old = session.store.load_run(run_id)
         except (OSError, ValueError, ValidationError, RunReadError, UnknownRun):

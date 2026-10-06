@@ -21,6 +21,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -237,6 +238,24 @@ class Store:
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
             self._recover_update(run_id)
             return self._load_run(run_id)
+
+    def peek(self, run_id: str, *fields: str) -> dict[str, Any] | None:
+        """Return top-level fields of a run record without validating it.
+
+        This is a prefilter for loops that skip most runs, such as other branches.
+        It reads under the same lock and pending-update recovery as ``load_run``
+        but returns ``None`` on any failure, so a caller that sees ``None`` must
+        fall back to ``load_run`` and handle that record exactly as before.
+        """
+        try:
+            with filelock.exclusive(self.run_dir(run_id) / ".lock"):
+                self._recover_update(run_id)
+                raw = json.loads(self.run_path(run_id).read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - any failure defers to load_run's diagnostics
+            return None
+        if not isinstance(raw, dict):
+            return None
+        return {field: raw.get(field) for field in fields}
 
     def _load_run(self, run_id: str) -> RunDoc:
         """Read under the caller's run lock, retaining structured read errors."""

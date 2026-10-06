@@ -310,3 +310,44 @@ def test_older_reusable_evidence_still_replaces_newer_unusable_evidence(feature_
     run = Store(feature_repo / ".git" / "agentic-preflight").load_run(resumed["run_id"])
     assert run.reuse_candidates[Stage.REVIEW].origin.run_id == original_run
     assert run.reuse_candidates[Stage.DOCS].origin.run_id == original_run
+
+
+def test_run_record_loads_ignore_runs_on_other_branches(feature_repo, monkeypatch):
+    _prepare(feature_repo)
+    loads: list[str] = []
+    load_run = Store.load_run
+
+    def counted_load(self, run_id):
+        loads.append(run_id)
+        return load_run(self, run_id)
+
+    for index in range(3):
+        git("switch", "-c", f"other/{index}", cwd=feature_repo)
+        agent = ScriptedAgent(feature_repo)
+        agent.run("start")
+        agent.run("abort", "--force")
+        git("switch", "feature/x", cwd=feature_repo)
+    other_branch_runs = set(Store(feature_repo / ".git" / "agentic-preflight").list_runs())
+    for _ in range(2):
+        agent = ScriptedAgent(feature_repo)
+        agent.run("start")
+        agent.run("abort", "--force")
+
+    monkeypatch.setattr(Store, "load_run", counted_load)
+    agent = ScriptedAgent(feature_repo)
+    run_id = agent.run("start")["run_id"]
+    agent.run("context")
+    same_branch_runs = (
+        set(Store(feature_repo / ".git" / "agentic-preflight").list_runs())
+        - other_branch_runs
+        - {run_id}
+    )
+    assert len(same_branch_runs) == 2
+    assert not other_branch_runs & set(loads)
+
+    loads.clear()
+    agent.run("context")
+    by_run = Counter(loads)
+    # History grounding loads each earlier run on this branch exactly once.
+    assert set(by_run) <= same_branch_runs | {run_id}
+    assert all(by_run[other] == 1 for other in same_branch_runs)

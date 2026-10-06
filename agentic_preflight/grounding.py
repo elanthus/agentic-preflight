@@ -222,6 +222,13 @@ def _convention_entries(
     return entries
 
 
+def _other_branch(peeked: dict[str, Any] | None, branch: str) -> bool:
+    """Whether a raw record read shows a run on a different branch."""
+    if peeked is None or not isinstance(peeked["branch"], str):
+        return False
+    return peeked["branch"] != branch
+
+
 def _history_entries(
     session: Session, run: RunDoc, changed_files: list[str]
 ) -> list[dict[str, Any]]:
@@ -231,12 +238,16 @@ def _history_entries(
     including concurrent runs in other linked worktrees on other branches. The
     branch filter keeps `grounding_sha256` stable between this run's `context`
     and `submit-findings` calls when a concurrent run records a finding on a
-    path this run also changed.
+    path this run also changed. A raw read of each record's branch skips other
+    branches before the full validated load; a record that cannot be read that
+    way still goes through ``load_run`` and its handling below.
     """
     changed = set(changed_files)
     entries = []
     for run_id in session.store.list_runs():
         if run_id == run.run_id:
+            continue
+        if _other_branch(session.store.peek(run_id, "branch"), run.branch):
             continue
         try:
             other_run = session.store.load_run(run_id)
