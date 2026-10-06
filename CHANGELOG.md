@@ -154,6 +154,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Added
 
+- `start` reports this clone's validation checkout footprint as `data.housekeeping`:
+  every directory under the worktrees root and every `ap/*` worktree, with its size,
+  registration, lease, owning run, and whether it is `reclaimable` or `retained`, plus
+  `total_bytes`, `reclaimable_bytes`, the `ap/*` branch count, and `next_command`
+  (`agentic-preflight gc` when anything is reclaimable). `noisy` is true at 1 GiB or
+  more reclaimable, and the skill then tells the user once. The report is read-only,
+  and a failure inside it sets `data.housekeeping.error` without failing `start`.
 - Stop a run for human resolution once validation has restarted `[stage] max_restarts`
   times (default 5). A restart is any return to review that discards progress: a
   committed lint or test repair, a changed reviewed snapshot, changed stage inputs, or a

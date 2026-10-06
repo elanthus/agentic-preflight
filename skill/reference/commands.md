@@ -98,6 +98,16 @@ For isolated modes the path is outside both the repository and its `.git` direct
 which avoids Jest's hard-coded VCS-directory exclusion. Override that location with
 `[worktree] root`.
 
+Returns `data.housekeeping`, a read-only inventory of this clone's validation
+checkouts: `checkouts` (each with `path`, `bytes`, `registered`, `leased`, `detached`,
+`branch`, `owner_run_id`, `status` of `reclaimable` or `retained`, and `reason`),
+`total_bytes`, `reclaimable_bytes`, `ap_branches`, `noisy` (true at 1 GiB or more
+reclaimable), and `next_command`, which is `agentic-preflight gc` when anything is
+reclaimable and null otherwise. A checkout is reclaimable when it is not leased on a
+branch and no nonterminal run whose source worktree still exists names it; an
+unreadable run record counts as an owner. Nothing is deleted. If the inventory fails,
+`data.housekeeping` is `{"error": "..."}` and `start` still succeeds.
+
 **Strict mode has no retained build cache.** If a lint or test stage is far slower there
 than in the user's tree, that is almost always the cause — not a hanging command. The
 worktree is a clean checkout, so every gitignored artifact directory the toolchain

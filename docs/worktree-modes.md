@@ -73,6 +73,14 @@ validation must begin with no retained artifacts.
 
 Remote CI should remain the clean verification boundary in either isolated mode.
 
+## Seeing how much space checkouts hold
+
+Every `start` reports `data.housekeeping`: the size of each directory under the
+worktrees root and each `ap/*` worktree, whether it is `retained` (leased, or owned by
+a live run) or `reclaimable`, and the totals. When at least 1 GiB is reclaimable,
+`noisy` is true and the agent tells you once; `agentic-preflight gc` reclaims it. The
+report never deletes anything, and its failure never fails `start`.
+
 ## Why isolated validation worktrees live outside `.git`
 
 Both isolated modes keep the source checkout untouched during verification, and both put
