@@ -7,6 +7,15 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- `start` on a branch with earlier runs no longer slows down with every run it keeps.
+  Choosing reusable evidence recomputed a stage's current fingerprint once per earlier
+  run instead of once per stage, and verified every earlier run's evidence, rebuilding
+  its review manifests from Git, even after a reusable candidate was already found. It
+  now computes each stage's current fingerprint at most once and stops looking at
+  older evidence for a stage once a newer candidate is reusable, because an older item
+  can then never replace it. The chosen evidence is unchanged. On a toy repository,
+  `start` with six earlier runs drops from 404 to 156 Git subprocesses and from 24
+  fingerprint computations to 8, and stays there as runs accumulate.
 - Commands no longer rebuild the same review inputs several times. Recording findings,
   fetching docs context, `status`, and `stage run` each computed the review and docs
   fingerprints more than once, and every computation rebuilt the diff bundle,

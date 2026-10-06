@@ -151,10 +151,9 @@ def archive(session: Session, run: RunDoc) -> RunDoc:
         return doc
 
 
-def discover(session: Session, run: RunDoc) -> RunDoc:
-    """Consider only completed evidence from this source worktree and branch."""
-    candidates = {}
-    prior_runs = []
+def _prior_runs(session: Session, run: RunDoc) -> list[RunDoc]:
+    """Return finished runs from this source worktree and branch, newest first."""
+    prior_runs: list[RunDoc] = []
     for run_id in session.store.list_runs():
         if run_id == run.run_id:
             continue
@@ -178,10 +177,44 @@ def discover(session: Session, run: RunDoc) -> RunDoc:
             continue
         prior_runs.append(old)
     prior_runs.sort(key=lambda old: (old.created_at, old.run_id), reverse=True)
+    return prior_runs
+
+
+def _select_candidates(
+    session: Session, run: RunDoc, prior_runs: list[RunDoc]
+) -> dict[Stage, StageEvidence]:
+    """Pick, per stage, the newest verified item unless an older one alone is reusable."""
+    candidates: dict[Stage, StageEvidence] = {}
+    # An older item replaces a stage's candidate only when the candidate is not
+    # reusable against the current fingerprint and the older item is. Once the
+    # candidate is reusable, or the current fingerprint cannot be computed, no
+    # later item can win, so verifying it would only repeat Git work.
+    current: dict[Stage, StageFingerprint | None] = {}
+    settled: set[Stage] = set()
+
+    def current_fingerprint(stage: Stage) -> StageFingerprint | None:
+        if stage not in current:
+            try:
+                current[stage] = fingerprint(session, run, stage)
+            except (OSError, ValueError, gitx.GitError):
+                current[stage] = None
+        return current[stage]
+
     for old in prior_runs:
         for stage, item in old.evidence.items():
             if item.origin.source_worktree_id != run.source_worktree_id:
                 continue
+            if stage in settled:
+                continue
+            if stage in candidates:
+                now = current_fingerprint(stage)
+                if (
+                    now is None
+                    or classify(candidates[stage].origin.fingerprint, now).disposition
+                    == Disposition.REUSABLE
+                ):
+                    settled.add(stage)
+                    continue
             try:
                 verify_stage(
                     session.repo_root,
@@ -194,18 +227,19 @@ def discover(session: Session, run: RunDoc) -> RunDoc:
                 continue
             if stage not in candidates:
                 candidates[stage] = item
-            else:
-                try:
-                    current = fingerprint(session, run, stage)
-                    if (
-                        classify(candidates[stage].origin.fingerprint, current).disposition
-                        != Disposition.REUSABLE
-                        and classify(item.origin.fingerprint, current).disposition
-                        == Disposition.REUSABLE
-                    ):
-                        candidates[stage] = item
-                except (OSError, ValueError, gitx.GitError):
-                    pass
+                continue
+            now = current_fingerprint(stage)
+            if now is not None and (
+                classify(item.origin.fingerprint, now).disposition == Disposition.REUSABLE
+            ):
+                candidates[stage] = item
+                settled.add(stage)
+    return candidates
+
+
+def discover(session: Session, run: RunDoc) -> RunDoc:
+    """Consider only completed evidence from this source worktree and branch."""
+    candidates = _select_candidates(session, run, _prior_runs(session, run))
     with session.store.transaction(run.run_id) as doc:
         doc.reuse_candidates = candidates
         doc.evidence_discovered = True
