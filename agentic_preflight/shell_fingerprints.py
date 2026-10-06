@@ -127,12 +127,18 @@ def compute_shell_fingerprint(
     execution_config: dict,
     copied_files: list[str],
     environment: Mapping[str, str] | None = None,
+    clean: bool | None = None,
+    resolved_head: str | None = None,
 ) -> ShellFingerprint:
     """Capture inputs without executing the command or exposing input values.
 
     Call before and after execution. Only matching, available captures can be
     recorded as reusable evidence. ``execution_config`` is the stage's resolved
     timeout, retry, setup and worktree policy, not unrelated stage commands.
+
+    A caller that has just checked the checkout may pass ``clean`` (the result
+    of ``gitx.is_clean``) and ``resolved_head`` (the SHA HEAD resolved to) so
+    they are not checked again. Never carry ``clean`` across a stage command.
     """
     root = Path(repo).resolve()
     record = ShellFingerprint(
@@ -151,9 +157,11 @@ def compute_shell_fingerprint(
     if not set(copied_files) <= set(contract.files):
         return record.model_copy(update={"unavailable": ReasonCode.INPUTS_UNAVAILABLE})
     try:
-        if gitx.rev_parse(root, "HEAD") != gitx.rev_parse(root, head_sha) or not gitx.is_clean(
-            root
-        ):
+        # HEAD already resolved to this exact subject; otherwise resolve both.
+        at_subject = resolved_head is not None and resolved_head == head_sha
+        if not at_subject:
+            at_subject = gitx.rev_parse(root, "HEAD") == gitx.rev_parse(root, head_sha)
+        if not at_subject or not (gitx.is_clean(root) if clean is None else clean):
             raise ValueError("checkout does not match the execution subject")
         files = {name: _file_input(root, name) for name in contract.files}
         plan = command_plan.plan(command, cwd=root)

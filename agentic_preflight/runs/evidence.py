@@ -42,9 +42,18 @@ from ._session import Session, _apply, _check_restart_limit, _now, _require_work
 
 
 def fingerprint(
-    session: Session, run: RunDoc, stage: Stage, *, command: str | None = None
+    session: Session,
+    run: RunDoc,
+    stage: Stage,
+    *,
+    command: str | None = None,
+    clean: bool | None = None,
 ) -> StageFingerprint:
-    """Compute the current fingerprint for a stage of a run."""
+    """Compute the current fingerprint for a stage of a run.
+
+    ``clean`` is a cleanliness check of the validation worktree the caller has
+    just made; lint and test fingerprints use it instead of checking again.
+    """
     wt = _require_worktree(run)
     head = gitx.rev_parse(wt, "HEAD")
     snapshot = run.config_snapshot
@@ -58,6 +67,8 @@ def fingerprint(
             contract=getattr(session.config.reuse, stage.value),
             execution_config=shell_execution_config(snapshot, stage),
             copied_files=run.copied_files,
+            clean=clean,
+            resolved_head=head,
         )
         if not contract_is_committed(wt, head, stage, getattr(session.config.reuse, stage.value)):
             result = result.model_copy(
@@ -266,7 +277,7 @@ def _ready_stage(run: RunDoc) -> Stage | None:
     }.get(run.state)
 
 
-def reopen_changed_inputs(session: Session, run: RunDoc) -> RunDoc:
+def reopen_changed_inputs(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunDoc:
     """Preserve completed evidence before reopening changed review inputs."""
     if run.state not in {
         State.REVIEW_GREEN,
@@ -285,6 +296,7 @@ def reopen_changed_inputs(session: Session, run: RunDoc) -> RunDoc:
             run,
             stage,
             command=record.command or "" if stage in {Stage.LINT, Stage.TEST} else None,
+            clean=clean,
         )
         if record.fingerprint != current:
             changed = True
@@ -306,15 +318,18 @@ def reopen_changed_inputs(session: Session, run: RunDoc) -> RunDoc:
     return run
 
 
-def advance(session: Session, run: RunDoc) -> RunDoc:
+def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunDoc:
     """Persist decisions, then import consecutive applicable stages atomically.
 
     Later candidates remain durable while an earlier stage is pending. Each
     invocation recomputes inputs, so a repair cannot consume an old green result.
+    A caller that has just checked the worktree may pass that result as ``clean``.
     """
-    if not gitx.is_clean(_require_worktree(run)):
+    if clean is None:
+        clean = gitx.is_clean(_require_worktree(run))
+    if not clean:
         return run
-    run = reopen_changed_inputs(session, run)
+    run = reopen_changed_inputs(session, run, clean=True)
     decisions: dict[Stage, Classification] = {}
     current: dict[Stage, StageFingerprint] = {}
     for stage in Stage:
@@ -330,7 +345,7 @@ def advance(session: Session, run: RunDoc) -> RunDoc:
             )
             continue
         try:
-            new = fingerprint(session, run, stage)
+            new = fingerprint(session, run, stage, clean=True)
             current[stage] = new
             decisions[stage] = classify(item.origin.fingerprint, new)
             policy = session.config.docs if stage is Stage.DOCS else session.config.review

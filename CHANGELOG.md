@@ -7,6 +7,16 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- `stage run` no longer scans the whole worktree with `git status` six or seven times.
+  The pre- and post-command shell fingerprints, the post-command check, and evidence
+  advancement each checked cleanliness themselves, and each shell fingerprint resolved
+  HEAD again. `stage run` now checks cleanliness once before the command and once
+  after it, and the post-command result is used for everything that follows. Nothing
+  checked before the command is carried past it, so a stage that changes the worktree
+  still fails with its inputs marked unavailable. Fingerprints and stage results are
+  unchanged. On a toy repository, `stage run lint` drops from 6 `git status` runs to 2
+  and from 44 Git subprocesses to 34, and `stage run test` from 7 to 2 and from 49 to
+  36.
 - Verifying review evidence no longer rebuilds the same review manifests three times.
   Each verification rebuilt the original snapshot's manifest to check its coverage,
   rebuilt it again with the current snapshot's manifest to rebind the coverage, and
