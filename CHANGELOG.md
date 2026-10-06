@@ -17,6 +17,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
   path is gone. This covers runners left at the older per-checkout locations. Runners on
   a branch are never removed. An unreadable run record keeps only the runner it names.
   The envelope reports them in `data.reclaimed_runners`.
+- `gc` and `abort` no longer start two Git processes for every commit in a run's history
+  when they check whether its fixes landed. Each commit's stable patch ID came from its
+  own `git show` piped into `git patch-id`. One `git log` of the run's range now
+  feeds a single `git patch-id`, with the same diff options and combined diffs for
+  merges, so every patch ID is unchanged. With 20 commits and 2 fixes, the check drops
+  from 45 Git processes to 6. Separately, the review diff text and its byte size are
+  now computed once per diff instead of on every access.
 - Redacting copied-file secrets from stage output no longer scans the whole output once
   per secret. Every dotenv value, every line longer than three characters, and the
   whole content of each copied file is a secret, and redaction ran one `str.replace`
