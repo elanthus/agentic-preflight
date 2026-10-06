@@ -254,7 +254,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
 
     # Worktrees left at the pre-cache sibling default are never leased again.
     # Report them so the user can remove them; never delete them here.
-    legacy = worktree.legacy_worktrees(session.repo_root)
+    legacy = worktree.legacy_worktrees(session.repo_root, session.config.worktree.root)
 
     return Envelope(
         data={

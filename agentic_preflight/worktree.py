@@ -91,16 +91,21 @@ LEGACY_DIRNAME = ".agentic-preflight-worktrees"
 """Sibling directory that held isolated worktrees before the cache default."""
 
 
-def legacy_worktrees(repo: Path | str) -> list[str]:
+def legacy_worktrees(repo: Path | str, configured: str | None = None) -> list[str]:
     """Return registered worktrees still under the old sibling default location.
 
     Reported, never removed: they may hold caches the user still wants, and the
-    path change means nothing else will ever lease or release them again.
+    path change means nothing else will ever lease or release them again. A
+    worktree under an explicitly configured ``[worktree] root`` is in use, even
+    when that root reuses the old directory name, so it is not reported.
     """
+    current = resolve_root(repo, configured) if configured else None
     return [
         record["worktree"]
         for record in gitx.list_worktrees(repo)
-        if "worktree" in record and LEGACY_DIRNAME in Path(record["worktree"]).parts
+        if "worktree" in record
+        and LEGACY_DIRNAME in Path(record["worktree"]).parts
+        and not (current and Path(record["worktree"]).resolve().is_relative_to(current))
     ]
 
 

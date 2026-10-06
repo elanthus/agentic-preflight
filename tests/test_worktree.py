@@ -85,6 +85,13 @@ def test_legacy_sibling_worktrees_are_reported(feature_repo, tmp_path):
     assert [Path(path).resolve() for path in reported] == [legacy.resolve()]
 
 
+def test_a_configured_root_reusing_the_legacy_name_is_not_reported(feature_repo):
+    legacy = feature_repo.parent / worktree.LEGACY_DIRNAME / "runner"
+    git("worktree", "add", "--detach", str(legacy), "HEAD", cwd=feature_repo)
+
+    assert worktree.legacy_worktrees(feature_repo, str(legacy.parent)) == []
+
+
 # -- copied-file containment (secret-leak class) ----------------------------
 
 
