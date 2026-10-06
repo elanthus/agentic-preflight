@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from agentic_preflight import runs
+from agentic_preflight import runs, worktree
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.store import CurrentRunExists
 from tests.conftest import commit_all, git, write
@@ -533,3 +533,68 @@ def test_stray_current_pointer_is_ignored_and_unchanged(feature_repo, args):
         assert result["run_id"] != run.run_id
     assert current_path.read_bytes() == pointer
     assert path.read_bytes() == original
+
+
+def _reusable_worktree(feature_repo: Path, path: Path, branch: str) -> Path:
+    git("branch", branch, "feature/x", cwd=feature_repo)
+    git("worktree", "add", str(path), branch, cwd=feature_repo)
+    write(path, ".agentic-preflight.toml", "[worktree]\nmode = 'reusable'\n")
+    commit_all(path, "use reusable validation runner")
+    return path
+
+
+def _registered(repo: Path) -> set[Path]:
+    porcelain = git("worktree", "list", "--porcelain", cwd=repo)
+    return {
+        Path(line.removeprefix("worktree ")).resolve()
+        for line in porcelain.splitlines()
+        if line.startswith("worktree ")
+    }
+
+
+def test_linked_worktrees_of_one_clone_share_the_reusable_runner(feature_repo, tmp_path):
+    first = _reusable_worktree(feature_repo, tmp_path / "nested" / "deep" / "wt-one", "one")
+    second = _reusable_worktree(feature_repo, feature_repo / ".claude" / "wt-two", "two")
+
+    root = worktree.default_root(feature_repo)
+    assert worktree.default_root(first) == root
+    assert worktree.default_root(second) == root
+
+    first_agent = ScriptedAgent(first)
+    runner = Path(first_agent.run("start")["data"]["worktree_path"])
+    assert runner == root / "runner"
+    first_agent.run("abort")
+
+    second_agent = ScriptedAgent(second)
+    assert Path(second_agent.run("start")["data"]["worktree_path"]) == runner
+    second_agent.run("abort")
+    assert list(root.iterdir()) == [runner]
+
+
+def test_gc_reclaims_a_released_runner_only_when_no_source_can_use_it(feature_repo, tmp_path):
+    source = _reusable_worktree(feature_repo, tmp_path / "source", "source")
+    agent = ScriptedAgent(source)
+    runner = Path(agent.run("start")["data"]["worktree_path"]).resolve()
+
+    # Leased by a nonterminal run whose source worktree still exists.
+    assert agent.run("gc")["data"]["reclaimed_runners"] == []
+    assert runner.exists()
+
+    # Released, but the source that used it still exists: keep its caches.
+    agent.run("abort")
+    assert agent.run("gc")["data"]["reclaimed_runners"] == []
+    assert runner.exists()
+
+    # A runner checked out on a branch is never reclaimed, even with no live source.
+    git("switch", "-c", "someone-elses-work", cwd=runner)
+    git("worktree", "remove", "--force", str(source), cwd=feature_repo)
+    recovery = ScriptedAgent(feature_repo)
+    assert recovery.run("gc")["data"]["reclaimed_runners"] == []
+    assert runner in _registered(feature_repo)
+
+    # Released and its only source is gone: reclaimed and unregistered.
+    git("switch", "--detach", cwd=runner)
+    collected = recovery.run("gc")["data"]
+    assert collected["reclaimed_runners"] == [str(runner)]
+    assert not runner.exists()
+    assert runner not in _registered(feature_repo)

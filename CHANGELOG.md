@@ -7,6 +7,15 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- `reusable` mode now keeps one runner per clone. The default worktree root was named
+  after the checkout directory, so every linked worktree of a clone leased its own
+  runner. The leaf name is now the clone's repository directory name plus the hash of
+  the git common directory, so the main checkout and all linked worktrees share one
+  runner. The main checkout's runner path is unchanged.
+- `gc` now removes a released `reusable` runner, and prunes its git registration, when
+  no run record naming it still has an existing source worktree, or when its registered
+  path is gone. This covers runners left at the older per-checkout locations. Runners on
+  a branch are never removed. The envelope reports them in `data.reclaimed_runners`.
 - Redacting copied-file secrets from stage output no longer scans the whole output once
   per secret. Every dotenv value, every line longer than three characters, and the
   whole content of each copied file is a secret, and redaction ran one `str.replace`

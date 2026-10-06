@@ -420,6 +420,11 @@ with no equivalent remains reported as unmerged and is never removed without
 It marks a nonterminal run `ORPHANED` when its source worktree disappeared, its source
 head moved, or its ownership pointer vanished, but only when no command is executing.
 Orphaning releases ownership; cleanup remains a separate preserve-first decision.
+It also removes a released `reusable` runner, and prunes its git registration, when no
+run record naming it still has an existing source worktree or its registered path is
+gone. A runner on a branch is never removed. `data.reclaimed_runners` lists the removed
+runner paths; `removed`, `retained`, and `orphans` are unchanged. An unreadable run
+record blocks runner reclamation.
 
 ### `agentic-preflight hook-check`
 The pre-push predicate. Reads git's stdin protocol, consults only the commit's

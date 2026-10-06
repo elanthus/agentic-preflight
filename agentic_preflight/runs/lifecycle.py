@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import gitx, hook
+from .. import gitx, hook, worktree
 from .. import risk as riskmod
 from ..envelope import Envelope
 from ..errors import (
@@ -252,11 +252,14 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
         if run_id not in known_runs and run_id not in orphans:
             orphans.append(run_id)
 
+    reclaimed_runners = _reclaim_released_runners(session, known_runs)
+
     return Envelope(
         data={
             "removed": removed,
             "retained": retained,
             "orphans": orphans,
+            "reclaimed_runners": reclaimed_runners,
             "runs_known": sorted(known_runs),
             "active": store.list_active(),
         },
@@ -273,6 +276,56 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
             else None
         ),
     )
+
+
+def _reclaim_released_runners(session: Session, known_runs: set[str]) -> list[str]:
+    """Remove released reusable runners that no existing source worktree can use.
+
+    Candidates are the current reusable runner location plus any ``runner``
+    checkout a run record names, which covers runners left at older
+    per-checkout locations. A runner is kept while it is leased on a branch or
+    while any run record naming it still has an existing source worktree. A
+    record whose fields cannot be read at all blocks reclamation, because it
+    might name any runner.
+    """
+    repo = session.repo_root
+    registered = {
+        Path(record["worktree"]).resolve(): record
+        for record in gitx.list_worktrees(repo)
+        if "worktree" in record
+    }
+
+    users: list[tuple[Path, str | None]] = []
+    for run_id in sorted(known_runs):
+        fields = session.store.peek(run_id, "worktree_path", "source_worktree_path")
+        if fields is None:
+            return []
+        if fields.get("worktree_path"):
+            source = fields.get("source_worktree_path")
+            users.append(
+                (Path(str(fields["worktree_path"])).resolve(), str(source) if source else None)
+            )
+
+    candidates = {(session.store.worktrees_dir / "runner").resolve()}
+    candidates.update(path for path, _ in users if path.name == "runner")
+
+    reclaimed: list[str] = []
+    for runner in sorted(candidates):
+        record = registered.get(runner)
+        if record is None:
+            continue
+        missing = "prunable" in record or not runner.exists()
+        if not missing and "detached" not in record:
+            continue  # leased on a branch: a run may still own commits there
+        in_use = any(
+            path == runner and source is not None and Path(source).exists()
+            for path, source in users
+        )
+        if in_use and not missing:
+            continue
+        worktree.remove(repo, runner)
+        reclaimed.append(str(runner))
+    return reclaimed
 
 
 def _unlanded_fix_commits(repo: Path, run: RunDoc) -> list[str]:
