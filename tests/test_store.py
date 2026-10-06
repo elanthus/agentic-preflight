@@ -76,6 +76,19 @@ def test_invalid_run_versions_are_classified_and_preserved(store, schema_version
     assert path.read_bytes() == original
 
 
+def test_peek_reads_raw_fields_and_never_raises(store):
+    run = store.create_run(make_run("r_peek", branch="feature/peek"))
+    assert store.peek(run.run_id, "branch", "missing") == {
+        "branch": "feature/peek",
+        "missing": None,
+    }
+    assert store.peek("r_absent", "branch") is None
+    store.run_path(run.run_id).write_bytes(b'{"branch": ')
+    assert store.peek(run.run_id, "branch") is None
+    store.run_path(run.run_id).write_bytes(b'["feature/peek"]')
+    assert store.peek(run.run_id, "branch") is None
+
+
 def test_loading_an_unknown_run_raises(store):
     with pytest.raises(UnknownRun):
         store.load_run("r_nope")

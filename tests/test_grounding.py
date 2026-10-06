@@ -520,3 +520,25 @@ def test_doc_grounding_scales_with_many_terms_and_large_docs():
     assert "module_2" in entries[0]["terms"]
     # The per-term regex scan this replaces took tens of seconds at this size.
     assert elapsed < 5
+
+
+@pytest.mark.parametrize(
+    "kind", ["malformed_json", "invalid_record", "invalid_encoding", "invalid_value"]
+)
+def test_unreadable_run_records_leave_history_grounding_unchanged(grounded_repo, kind):
+    from tests.conftest import make_run, unreadable_run_bytes
+
+    repo, prior_run_id = grounded_repo
+    agent = ScriptedAgent(repo)
+    agent.run("start")
+    before = agent.run("context")["data"]["grounding"]
+    assert any(entry.get("source") == prior_run_id for entry in before["entries"])
+
+    session = open_session(repo)
+    corrupt = make_run(f"r_corrupt_{kind}", branch="feature/x")
+    session.store.run_dir(corrupt.run_id).mkdir(parents=True)
+    session.store.run_path(corrupt.run_id).write_bytes(unreadable_run_bytes(corrupt, kind))
+
+    after = agent.run("context")["data"]["grounding"]
+    assert after == before
+    assert digest(after) == digest(before)
