@@ -40,5 +40,5 @@ mode = "auto"
 automated_cleanup = true
 
 [approval]
-mode = "manual_merge"
+mode = "environment"
 environment = "high-risk-review"
