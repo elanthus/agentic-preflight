@@ -7,6 +7,15 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- Redacting copied-file secrets from stage output no longer scans the whole output once
+  per secret. Every dotenv value, every line longer than three characters, and the
+  whole content of each copied file is a secret, and redaction ran one `str.replace`
+  over the complete captured output for each of them. Redaction now builds one
+  pattern from all secrets, as a prefix tree that prefers the longest secret at each
+  position, and replaces them in a single pass. Output is unchanged except where two
+  secrets overlap in the output, where the one that starts first is now replaced.
+  Either way no secret is left intact. With 2,000 secrets and 3.7 MB of output, one
+  redaction drops from 2,000 passes (1.8 seconds) to one (0.6 seconds).
 - `stage run` no longer scans the whole worktree with `git status` six or seven times.
   The pre- and post-command shell fingerprints, the post-command check, and evidence
   advancement each checked cleanliness themselves, and each shell fingerprint resolved
