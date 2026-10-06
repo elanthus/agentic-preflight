@@ -441,7 +441,9 @@ def run_stage(
         else None
     )
 
-    input_fingerprint = evidence.fingerprint(session, run, stage, command=resolved)
+    # The clean check above is the pre-command check; nothing since has touched
+    # the validation worktree (a baseline runs in its own scratch worktree).
+    input_fingerprint = evidence.fingerprint(session, run, stage, command=resolved, clean=True)
     result = shellstage.run_stage(
         wt,
         resolved,
@@ -451,7 +453,10 @@ def run_stage(
     # The command may have changed the worktree. Nothing computed before it may
     # stand in for the post-command fingerprint below.
     session.clear_memo()
-    if not gitx.is_clean(wt):
+    # This check must follow the command: it is how a stage that changed the
+    # worktree is caught. Everything after the command reuses its result.
+    clean_after = gitx.is_clean(wt)
+    if not clean_after:
         result = shellstage.StageResult(
             command=result.command,
             exit_code=result.exit_code or 1,
@@ -471,7 +476,9 @@ def run_stage(
     redaction_failure_reason = protected.failure_reason
 
     summary = shellstage.summarise(clean_output)
-    after_fingerprint = evidence.fingerprint(session, run, stage, command=resolved)
+    after_fingerprint = evidence.fingerprint(
+        session, run, stage, command=resolved, clean=clean_after
+    )
     if input_fingerprint != after_fingerprint:
         from ..fingerprints import ReasonCode
 
@@ -515,7 +522,7 @@ def run_stage(
     if result.passed:
         if stage is Stage.LINT:
             run = _skip_test_if_not_applicable(session, run)
-        run = evidence.advance(session, run)
+        run = evidence.advance(session, run, clean=clean_after)
         return _envelope_for(run, stage=stage_name, data=data)
 
     _stage_failure(

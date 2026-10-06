@@ -3,6 +3,7 @@
 import contextlib
 import json
 import os
+import random
 import signal
 import subprocess
 import sys
@@ -1055,3 +1056,64 @@ def test_termination_handling_off_the_main_thread_does_not_raise(tmp_path):
     thread.join(timeout=30)
     assert isinstance(results[0], shellstage.StageResult)
     assert results[0].exit_code == 0
+
+
+def _replace_one_at_a_time(text: str, secrets: list[str]) -> str:
+    for secret in sorted(secrets, key=len, reverse=True):
+        text = text.replace(secret, "[redacted]")
+    return text
+
+
+def test_redaction_replaces_overlapping_and_suffix_secrets_longest_first():
+    secrets = shellstage.combine_secrets(["abc", "abcdef", "def"])
+    text = "one abcdef two abc three def four"
+
+    redacted = shellstage.redact(text, secrets)
+
+    assert redacted == "one [redacted] two [redacted] three [redacted] four"
+    assert redacted == _replace_one_at_a_time(text, secrets)
+
+
+def test_redaction_of_secrets_overlapping_in_the_output_leaves_no_secret_intact():
+    secrets = shellstage.combine_secrets(["cdefgh", "abcd"])
+
+    redacted = shellstage.redact("xabcdefghx", secrets)
+
+    # One pass replaces the secret that starts first; one-at-a-time replacement
+    # would have replaced the longer one. Neither leaves a whole secret behind.
+    assert redacted == "x[redacted]efghx"
+    assert _replace_one_at_a_time("xabcdefghx", secrets) == "xab[redacted]x"
+    assert not any(secret in redacted for secret in secrets)
+
+
+def test_redaction_of_many_secrets_in_large_output_is_exact():
+    alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    rng = random.Random(195)  # noqa: S311 - deterministic test data, not a secret
+    secrets = sorted({"".join(rng.choices(alphabet, k=rng.randint(4, 40))) for _ in range(2000)})
+    filler = "- . : / -- ok\n" * 180
+    pieces, expected = [], []
+    while sum(map(len, pieces)) < 5_000_000:
+        secret = rng.choice(secrets)
+        pieces.extend((filler, secret))
+        expected.extend((filler, "[redacted]"))
+
+    redacted = shellstage.redact("".join(pieces), shellstage.combine_secrets(secrets))
+
+    assert redacted == "".join(expected)
+
+
+def test_redaction_falls_back_for_deeply_nested_secret_prefixes(monkeypatch):
+    secrets = shellstage.combine_secrets(["a" * length for length in range(1, 1500)])
+    text = "x" + "a" * 20 + "y"
+    fallbacks = []
+    sequential = shellstage._redact_sequentially
+
+    def recorded(*args):
+        fallbacks.append(args)
+        return sequential(*args)
+
+    monkeypatch.setattr(shellstage, "_redact_sequentially", recorded)
+
+    # Too deep for one pattern, so each secret is replaced in turn, as before.
+    assert shellstage.redact(text, secrets) == _replace_one_at_a_time(text, secrets)
+    assert len(fallbacks) == 1

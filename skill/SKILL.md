@@ -78,6 +78,10 @@ stages, edit fingerprints, or rewrite original timestamps. `status` resumes the
 persisted sequence. Unknown inputs require a fresh stage; content-mode shell reuse
 requires a committed repository input contract.
 
+When `start` returns `data.housekeeping.noisy` as true, tell the user in one sentence how
+much space preflight checkouts are holding (`reclaimable_bytes`) and that
+`agentic-preflight gc` reclaims it. Otherwise say nothing about housekeeping.
+
 ```
 $ agentic-preflight start --intent "<the user's objective and acceptance criteria>"
 {"ok":true,"run_id":"r_4f2a","state":"REVIEW_AWAITING_FINDINGS",

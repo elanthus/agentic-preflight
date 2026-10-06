@@ -237,3 +237,13 @@ def test_budget_report_names_the_biggest_files_first(feature_repo):
     assert [p for p, _ in report.by_file] == sorted(
         bundle.files, key=lambda p: -bundle.file_bytes(p)
     )
+
+
+def test_bundle_text_and_size_are_computed_once():
+    from agentic_preflight.diff import DiffBundle
+
+    bundle = DiffBundle(base="a", head="b", files=["x", "y"], per_file={"x": "+é\n", "y": "-z\n"})
+
+    assert bundle.text is bundle.text
+    assert bundle.text == "+é\n-z\n"
+    assert bundle.total_bytes == bundle.file_bytes("x") + bundle.file_bytes("y") == 7

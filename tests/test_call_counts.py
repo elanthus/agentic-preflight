@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import sys
 from collections import Counter
+from pathlib import Path
 
 import pytest
 
@@ -406,3 +407,99 @@ def test_review_verification_builds_each_manifest_once(feature_repo, tmp_path, m
     # Refreshed review evidence spans two snapshots, original and current; each
     # is built exactly once per verification.
     assert len(built) == len(set(built)) == 2
+
+
+def _to_docs_green(agent: ScriptedAgent, payload) -> None:
+    agent.run("start")
+    agent.run("context")
+    payload.write_text('{"coverage":{"manifest":"$context","examined":"all"},"findings":[]}')
+    agent.run("submit-findings", "--file", str(payload))
+    agent.run("context", "--section", "docs")
+    payload.write_text('{"findings":[]}')
+    agent.run("submit-findings", "--file", str(payload))
+
+
+def _git_status_calls(monkeypatch) -> list[str]:
+    from agentic_preflight import gitx
+
+    calls: list[str] = []
+    run = gitx.run
+
+    def recorded(cwd, *args, **kwargs):
+        if args and args[0] == "status":
+            calls.append(str(cwd))
+        return run(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(gitx, "run", recorded)
+    return calls
+
+
+def test_stage_run_checks_cleanliness_before_and_after_the_command_only(
+    feature_repo, tmp_path, monkeypatch
+):
+    _prepare(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    payload = tmp_path / "findings.json"
+    _to_docs_green(agent, payload)
+
+    calls = _git_status_calls(monkeypatch)
+    agent.run("stage", "run", "lint")
+    assert len(calls) <= 2
+    calls.clear()
+    agent.run("stage", "run", "test")
+    assert len(calls) <= 2
+    calls.clear()
+    agent.run("status")
+    assert len(calls) <= 1
+
+
+def test_a_stage_that_dirties_the_worktree_still_fails_with_unavailable_inputs(
+    feature_repo, tmp_path
+):
+    from agentic_preflight.fingerprints import ReasonCode
+
+    _prepare(feature_repo)
+    stray = json.dumps(f"\"{sys.executable}\" -c \"open('stray.txt', 'w').write('x')\"")
+    config = (feature_repo / ".agentic-preflight.toml").read_text()
+    config = config.replace("[commands]\nlint = ", f"[commands]\nlint = {stray}\n# lint = ", 1)
+    write(feature_repo, ".agentic-preflight.toml", config)
+    commit_all(feature_repo, "lint writes a stray file")
+    agent = ScriptedAgent(feature_repo)
+    payload = tmp_path / "findings.json"
+    _to_docs_green(agent, payload)
+
+    failed = agent.run("stage", "run", "lint", expect=2)
+    log = Path(failed["data"]["log_path"]).read_text(encoding="utf-8")
+    assert "stage changed the worktree; validation results are stale" in log
+    run = Store(feature_repo / ".git" / "agentic-preflight").load_run(failed["run_id"])
+    recorded = run.stages[Stage.LINT].fingerprint
+    assert recorded is not None
+    assert recorded.unavailable is ReasonCode.INPUTS_UNAVAILABLE
+
+
+def test_documentation_contents_are_hashed_at_most_once_per_command(
+    feature_repo, tmp_path, monkeypatch
+):
+    hashed: list[int] = []
+    doc_surface = review_protocol.doc_surface
+
+    def counted(*args, **kwargs):
+        hashed.append(1)
+        return doc_surface(*args, **kwargs)
+
+    monkeypatch.setattr(review_protocol, "doc_surface", counted)
+    _prepare(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    payload = tmp_path / "findings.json"
+    for step in LIFECYCLE:
+        hashed.clear()
+        if step[0] == "submit-findings":
+            payload.write_text(
+                '{"coverage":{"manifest":"$context","examined":"all"},"findings":[]}'
+                if step[1] == "review"
+                else '{"findings":[]}'
+            )
+            agent.run("submit-findings", "--file", str(payload))
+        else:
+            agent.run(*step)
+        assert len(hashed) <= 1, step

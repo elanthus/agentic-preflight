@@ -346,6 +346,62 @@ def commit_patch_id(cwd: Path | str, sha: str) -> str | None:
     return fields[0] if fields else None
 
 
+def patch_ids(cwd: Path | str, base: str, head: str) -> dict[str, str | None]:
+    """Return ``commit_patch_id`` for every commit in ``base..head`` in one pipeline.
+
+    One ``git log`` prints each commit's patch exactly as ``git show`` would
+    (``--cc`` gives merges the same combined diff), headed by ``commit <sha>``
+    so ``git patch-id`` labels each identity with its commit. Bytes stay raw
+    between the processes for the reason ``commit_patch_id`` gives. Commits
+    with no patch, such as empty commits, map to ``None``.
+    """
+    log_args = [
+        "log",
+        "--format=commit %H",
+        "--cc",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--binary",
+        f"{base}..{head}",
+    ]
+    patches = subprocess.run(
+        [_git_executable(), *log_args],
+        cwd=str(cwd),
+        capture_output=True,
+        timeout=_COMMAND_TIMEOUT.get(),
+    )
+    if patches.returncode != 0:
+        raise GitError(
+            log_args, patches.returncode, patches.stderr.decode("utf-8", errors=_DECODE_ERRORS)
+        )
+    # Patch lines carry a one-character prefix and base85 lines contain no
+    # spaces, so only the format header starts with "commit ".
+    ids: dict[str, str | None] = {
+        line[len(b"commit ") :].decode("ascii"): None
+        for line in patches.stdout.splitlines()
+        if line.startswith(b"commit ")
+    }
+    if not ids:
+        return ids
+    result = subprocess.run(
+        [_git_executable(), "patch-id", "--stable"],
+        cwd=str(cwd),
+        input=patches.stdout,
+        capture_output=True,
+        timeout=_COMMAND_TIMEOUT.get(),
+    )
+    if result.returncode != 0:
+        raise GitError(
+            ["patch-id", "--stable"],
+            result.returncode,
+            result.stderr.decode("utf-8", errors=_DECODE_ERRORS),
+        )
+    for line in result.stdout.decode("utf-8", errors=_DECODE_ERRORS).splitlines():
+        patch_id, commit = line.split()
+        ids[commit] = patch_id
+    return ids
+
+
 # -- attestations -----------------------------------------------------------
 
 

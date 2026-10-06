@@ -15,6 +15,32 @@ All notable changes to Agentic Preflight are documented here. This project follo
   the tool knows it removed, and uses that read solely to orphan a run that is
   provably abandoned. A run that is not abandoned, a terminal run, and a snapshot with
   any other unknown key keep the strict unreadable verdict and are retained unchanged.
+- `gc` and `abort` no longer start two Git processes for every commit in a run's history
+  when they check whether its fixes landed. Each commit's stable patch ID came from its
+  own `git show` piped into `git patch-id`. One `git log` of the run's range now
+  feeds a single `git patch-id`, with the same diff options and combined diffs for
+  merges, so every patch ID is unchanged. With 20 commits and 2 fixes, the check drops
+  from 45 Git processes to 6. Separately, the review diff text and its byte size are
+  now computed once per diff instead of on every access.
+- Redacting copied-file secrets from stage output no longer scans the whole output once
+  per secret. Every dotenv value, every line longer than three characters, and the
+  whole content of each copied file is a secret, and redaction ran one `str.replace`
+  over the complete captured output for each of them. Redaction now builds one
+  pattern from all secrets, as a prefix tree that prefers the longest secret at each
+  position, and replaces them in a single pass. Output is unchanged except where two
+  secrets overlap in the output, where the one that starts first is now replaced.
+  Either way no secret is left intact. With 2,000 secrets and 3.7 MB of output, one
+  redaction drops from 2,000 passes (1.8 seconds) to one (0.6 seconds).
+- `stage run` no longer scans the whole worktree with `git status` six or seven times.
+  The pre- and post-command shell fingerprints, the post-command check, and evidence
+  advancement each checked cleanliness themselves, and each shell fingerprint resolved
+  HEAD again. `stage run` now checks cleanliness once before the command and once
+  after it, and the post-command result is used for everything that follows. Nothing
+  checked before the command is carried past it, so a stage that changes the worktree
+  still fails with its inputs marked unavailable. Fingerprints and stage results are
+  unchanged. On a toy repository, `stage run lint` drops from 6 `git status` runs to 2
+  and from 44 Git subprocesses to 34, and `stage run test` from 7 to 2 and from 49 to
+  36.
 - Verifying review evidence no longer rebuilds the same review manifests three times.
   Each verification rebuilt the original snapshot's manifest to check its coverage,
   rebuilt it again with the current snapshot's manifest to rebind the coverage, and
@@ -136,6 +162,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Added
 
+- `start` reports this clone's validation checkout footprint as `data.housekeeping`:
+  every directory under the worktrees root and every `ap/*` worktree, with its size,
+  registration, lease, owning run, and whether it is `reclaimable` or `retained`, plus
+  `total_bytes`, `reclaimable_bytes`, the `ap/*` branch count, and `next_command`
+  (`agentic-preflight gc` when anything is reclaimable). `noisy` is true at 1 GiB or
+  more reclaimable, and the skill then tells the user once. The report is read-only,
+  and a failure inside it sets `data.housekeeping.error` without failing `start`.
 - Stop a run for human resolution once validation has restarted `[stage] max_restarts`
   times (default 5). A restart is any return to review that discards progress: a
   committed lint or test repair, a changed reviewed snapshot, changed stage inputs, or a

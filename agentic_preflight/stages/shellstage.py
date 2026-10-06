@@ -23,6 +23,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from . import command as command_plan
 
@@ -354,13 +355,72 @@ def run_stage(
     return result
 
 
-def redact(text: str, secrets: list[str]) -> str:
-    """Replace known copied-file values wherever they appear."""
+REDACTED = "[redacted]"
+
+
+def _redact_sequentially(text: str, secrets: list[str]) -> str:
+    """Replace each secret in turn, in the order given."""
     cleaned = text
     for secret in secrets:
         if secret:
-            cleaned = cleaned.replace(secret, "[redacted]")
+            cleaned = cleaned.replace(secret, REDACTED)
     return cleaned
+
+
+def _trie_alternation(node: dict[str, Any]) -> str:
+    """Regex for a prefix trie, preferring the longest secret at each position.
+
+    Continuations of a node all start with different characters, so at most
+    one can match. Trying it before ending at the node therefore yields the
+    longest secret that matches here, which is what an alternation sorted
+    longest-first would choose, without trying every secret at every position.
+    """
+    branches = []
+    for char in sorted(key for key in node if key):
+        literal = [char]
+        child = node[char]
+        # Collapse runs of single-continuation nodes into one literal.
+        while len(child) == 1 and "" not in child:
+            ((char, child),) = child.items()
+            literal.append(char)
+        branches.append(re.escape("".join(literal)) + _trie_alternation(child))
+    if not branches:
+        return ""
+    body = branches[0] if len(branches) == 1 else "(?:" + "|".join(branches) + ")"
+    return f"(?:{body})?" if "" in node else body
+
+
+def _secret_pattern(secrets: list[str]) -> re.Pattern[str] | None:
+    trie: dict[str, Any] = {}
+    for secret in secrets:
+        if not secret:
+            continue
+        node = trie
+        for char in secret:
+            node = node.setdefault(char, {})
+        node[""] = {}
+    if not trie:
+        return None
+    return re.compile(_trie_alternation(trie))
+
+
+def redact(text: str, secrets: list[str]) -> str:
+    """Replace known copied-file values wherever they appear, in one pass.
+
+    At each position the longest secret that starts there is replaced, and
+    replaced text is never searched again. This gives the same result as
+    replacing secrets one at a time longest first, with two exceptions. Where
+    two secrets overlap in the text, the one that starts first is replaced
+    rather than the longer one. And a shorter secret is never matched against
+    a ``[redacted]`` marker left by a longer one. No secret occurrence in
+    ``text`` survives intact either way.
+    """
+    try:
+        pattern = _secret_pattern(secrets)
+    except (RecursionError, re.error):
+        # Thousands of nested prefixes; keep the per-secret replacement.
+        return _redact_sequentially(text, secrets)
+    return text if pattern is None else pattern.sub(REDACTED, text)
 
 
 def combine_secrets(*snapshots: list[str]) -> list[str]:
