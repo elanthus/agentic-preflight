@@ -261,9 +261,7 @@ def submit_findings(
         # Docs findings may target files the diff never touched (that is the
         # point of the stage) so the changed-file constraint relaxes to the
         # documentation allowlist rather than disappearing.
-        inventory = docsstage.build_inventory(
-            worktree_path, bundle.files, session.config.docs.paths
-        )
+        inventory = review_protocol.docs_inventory(session, run, bundle.files)
         allowed = docsstage.allowlist(inventory)
     else:
         allowed = set(bundle.files)

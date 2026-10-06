@@ -45,7 +45,9 @@ omitted, `grounding.omitted_sources` reports counts under `binary`, `non_regular
 `oversized`, or `read_budget`. These counts are included in the grounding digest.
 
 Each call uses the committed tree, so staged additions are excluded and object IDs keep
-the batched reads on the inventoried snapshot. There is no mutable content cache.
+the batched reads on the inventoried snapshot. Nothing is cached between commands. Within
+one command, grounding for a given HEAD is assembled once and shared by everything in that
+command that needs it.
 
 CODEOWNERS matching is covered by regression cases derived from
 [GitHub’s documented examples](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners),

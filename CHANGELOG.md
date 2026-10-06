@@ -7,6 +7,19 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- Commands no longer rebuild the same review inputs several times. Recording findings,
+  fetching docs context, `status`, and `stage run` each computed the review and docs
+  fingerprints more than once, and every computation rebuilt the diff bundle,
+  reassembled grounding, and walked and hashed the documentation inventory. Each
+  command now keeps these inputs in a memo that lives only as long as the command and
+  is keyed on the worktree, its current HEAD, and the configuration that shapes them.
+  `stage run` clears the memo after the stage command. Shell-stage fingerprints are
+  still recomputed before and after the command. Grounding, its digest, stored
+  fingerprints, review manifests, and attestations are unchanged. On a toy repository
+  with 40 documents, recording review findings drops from 3 grounding assemblies and
+  3 diff bundles to 1 of each, recording docs findings from 3 assemblies, 4 bundles,
+  and 3 inventory walks to 1 of each, and `status` and `stage run` from 2 assemblies
+  to 1. Git subprocesses for recording docs findings drop from 35 to 23.
 - Recording a passed stage no longer stalls for minutes on large changes. Documentation
   grounding searched every document once per changed-path term, and each search scanned
   the whole document because the whole-token regex could not use a literal-prefix search.
