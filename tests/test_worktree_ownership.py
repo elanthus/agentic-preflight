@@ -598,3 +598,47 @@ def test_gc_reclaims_a_released_runner_only_when_no_source_can_use_it(feature_re
     assert collected["reclaimed_runners"] == [str(runner)]
     assert not runner.exists()
     assert runner not in _registered(feature_repo)
+
+
+def _make_unreadable(repo: Path, run_id: str, **overrides) -> Path:
+    path = _state_root(repo) / "runs" / run_id / "run.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw.update(overrides, schema_version=1)
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    return path
+
+
+def test_unreadable_records_block_only_the_runner_they_name(feature_repo, tmp_path):
+    # An unrelated unreadable record (as left by an earlier release) names a
+    # different path and must not stop reclamation.
+    unrelated = ScriptedAgent(feature_repo).run("start")["run_id"]
+    ScriptedAgent(feature_repo).run("abort")
+    _make_unreadable(feature_repo, unrelated, worktree_path=str(tmp_path / "elsewhere"))
+
+    source = _reusable_worktree(feature_repo, tmp_path / "source", "source")
+    agent = ScriptedAgent(source)
+    started = agent.run("start")
+    runner = Path(started["data"]["worktree_path"]).resolve()
+    agent.run("abort")
+    git("worktree", "remove", "--force", str(source), cwd=feature_repo)
+    recovery = ScriptedAgent(feature_repo)
+
+    # An unreadable record naming the runner keeps it, even with its source gone.
+    record = _state_root(feature_repo) / "runs" / started["run_id"] / "run.json"
+    original = record.read_bytes()
+    _make_unreadable(feature_repo, started["run_id"])
+    assert recovery.run("gc")["data"]["reclaimed_runners"] == []
+    assert runner.exists()
+
+    # Once only the unrelated record is unreadable, the orphaned runner is reclaimed.
+    record.write_bytes(original)
+    collected = recovery.run("gc")["data"]
+    assert collected["reclaimed_runners"] == [str(runner)]
+    assert not runner.exists()
+    assert any(item["run_id"] == unrelated for item in collected["retained"])
+
+    # A record that is not even a JSON object could name any runner: keep them all.
+    git("worktree", "add", "--detach", str(runner), "feature/x", cwd=feature_repo)
+    record.write_text("[]", encoding="utf-8")
+    assert recovery.run("gc")["data"]["reclaimed_runners"] == []
+    assert runner.exists()

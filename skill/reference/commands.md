@@ -424,7 +424,7 @@ It also removes a released `reusable` runner, and prunes its git registration, w
 run record naming it still has an existing source worktree or its registered path is
 gone. A runner on a branch is never removed. `data.reclaimed_runners` lists the removed
 runner paths; `removed`, `retained`, and `orphans` are unchanged. An unreadable run
-record blocks runner reclamation.
+record keeps the runner it names; one that is not even a JSON object keeps every runner.
 
 ### `agentic-preflight hook-check`
 The pre-push predicate. Reads git's stdin protocol, consults only the commit's

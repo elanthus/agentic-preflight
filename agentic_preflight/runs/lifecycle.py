@@ -284,9 +284,10 @@ def _reclaim_released_runners(session: Session, known_runs: set[str]) -> list[st
     Candidates are the current reusable runner location plus any ``runner``
     checkout a run record names, which covers runners left at older
     per-checkout locations. A runner is kept while it is leased on a branch or
-    while any run record naming it still has an existing source worktree. A
-    record whose fields cannot be read at all blocks reclamation, because it
-    might name any runner.
+    while any run record naming it still has an existing source worktree, or
+    while a record naming it fails validation. An unreadable record that names
+    another path blocks nothing; a record whose top-level fields cannot be read
+    at all blocks reclamation of every runner, because it might name any of them.
     """
     repo = session.repo_root
     registered = {
@@ -295,19 +296,32 @@ def _reclaim_released_runners(session: Session, known_runs: set[str]) -> list[st
         if "worktree" in record
     }
 
-    users: list[tuple[Path, str | None]] = []
+    # (runner path, source worktree path, record unreadable)
+    users: list[tuple[Path, str | None, bool]] = []
     for run_id in sorted(known_runs):
         fields = session.store.peek(run_id, "worktree_path", "source_worktree_path")
         if fields is None:
-            return []
-        if fields.get("worktree_path"):
-            source = fields.get("source_worktree_path")
-            users.append(
-                (Path(str(fields["worktree_path"])).resolve(), str(source) if source else None)
+            return []  # cannot tell which runner this record names
+        if not fields.get("worktree_path"):
+            continue
+        try:
+            session.store.load_run(run_id)
+            unreadable = False
+        except RunReadError:
+            unreadable = True
+        except UnknownRun:
+            continue
+        source = fields.get("source_worktree_path")
+        users.append(
+            (
+                Path(str(fields["worktree_path"])).resolve(),
+                str(source) if source else None,
+                unreadable,
             )
+        )
 
     candidates = {(session.store.worktrees_dir / "runner").resolve()}
-    candidates.update(path for path, _ in users if path.name == "runner")
+    candidates.update(path for path, _, _ in users if path.name == "runner")
 
     reclaimed: list[str] = []
     for runner in sorted(candidates):
@@ -318,8 +332,8 @@ def _reclaim_released_runners(session: Session, known_runs: set[str]) -> list[st
         if not missing and "detached" not in record:
             continue  # leased on a branch: a run may still own commits there
         in_use = any(
-            path == runner and source is not None and Path(source).exists()
-            for path, source in users
+            path == runner and (unreadable or (source is not None and Path(source).exists()))
+            for path, source, unreadable in users
         )
         if in_use and not missing:
             continue

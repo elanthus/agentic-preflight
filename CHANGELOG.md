@@ -15,7 +15,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - `gc` now removes a released `reusable` runner, and prunes its git registration, when
   no run record naming it still has an existing source worktree, or when its registered
   path is gone. This covers runners left at the older per-checkout locations. Runners on
-  a branch are never removed. The envelope reports them in `data.reclaimed_runners`.
+  a branch are never removed. An unreadable run record keeps only the runner it names.
+  The envelope reports them in `data.reclaimed_runners`.
 - Redacting copied-file secrets from stage output no longer scans the whole output once
   per secret. Every dotenv value, every line longer than three characters, and the
   whole content of each copied file is a secret, and redaction ran one `str.replace`
