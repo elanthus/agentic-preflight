@@ -351,3 +351,58 @@ def test_run_record_loads_ignore_runs_on_other_branches(feature_repo, monkeypatc
     # History grounding loads each earlier run on this branch exactly once.
     assert set(by_run) <= same_branch_runs | {run_id}
     assert all(by_run[other] == 1 for other in same_branch_runs)
+
+
+def _manifest_pairs(monkeypatch) -> list[tuple[str, str]]:
+    """Record the ``(head, base)`` pair of every review manifest built from Git."""
+    built: list[tuple[str, str]] = []
+    manifest = refresh_validation._manifest
+
+    def recorded(repo, origin, *, head, base):
+        built.append((head, base))
+        return manifest(repo, origin, head=head, base=base)
+
+    monkeypatch.setattr(refresh_validation, "_manifest", recorded)
+    return built
+
+
+def test_review_verification_builds_each_manifest_once(feature_repo, tmp_path, monkeypatch):
+    from agentic_preflight import attestation
+
+    _prepare(feature_repo)
+    payload = tmp_path / "findings.json"
+    agent = ScriptedAgent(feature_repo)
+    envelope = agent.run("start")
+    while envelope["next"]["command"] != "agentic-preflight mergeback":
+        command = envelope["next"]["command"]
+        if command.startswith("agentic-preflight submit-findings"):
+            payload.write_text(
+                '{"coverage":{"manifest":"$context","examined":"all"},"findings":[]}'
+                if envelope["state"] == "REVIEW_AWAITING_FINDINGS"
+                else '{"findings":[]}'
+            )
+            envelope = agent.run("submit-findings", "--file", str(payload))
+        else:
+            envelope = agent.run(*command.split()[1:])
+
+    built = _manifest_pairs(monkeypatch)
+    agent.run("mergeback")
+    # Writing the attestation rebinds the review coverage once, and verifying it
+    # checks that coverage once. The original and current snapshots coincide here.
+    assert len(built) <= 2
+    built.clear()
+    attestation.verify(feature_repo, "HEAD")
+    assert len(built) == len(set(built)) == 1
+    agent.run("abort", "--force")
+
+    _restack(feature_repo)
+    resumed = ScriptedAgent(feature_repo)
+    assert resumed.run("start")["state"] == "TEST_GREEN"
+    resumed.run("mergeback")
+    built.clear()
+    resumed_value = attestation.verify(feature_repo, "HEAD")
+    assert resumed_value.evidence is not None
+    assert resumed_value.evidence[Stage.REVIEW].refreshed_at is not None
+    # Refreshed review evidence spans two snapshots, original and current; each
+    # is built exactly once per verification.
+    assert len(built) == len(set(built)) == 2

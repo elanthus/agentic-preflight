@@ -7,6 +7,16 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- Verifying review evidence no longer rebuilds the same review manifests three times.
+  Each verification rebuilt the original snapshot's manifest to check its coverage,
+  rebuilt it again with the current snapshot's manifest to rebind the coverage, and
+  every caller then rebuilt both a third time to obtain that coverage. Each rebuild
+  runs a full `git diff`. One verification now builds each snapshot's manifest once
+  and returns the rebound coverage to its caller. This also applies to `mergeback`,
+  `gate`, `publish`, and the pre-push hook's check of each pushed tip. Every error
+  raised for invalid evidence is unchanged, and so are attestations. On a toy
+  repository, `mergeback` drops from 6 manifest builds and 7 diff bundles to 2 and 3,
+  and from 89 Git subprocesses to 73.
 - Runs on other branches no longer slow down every command that reads review history.
   Grounding history and evidence discovery fully loaded and validated every run record
   in the clone's store, including runs on other branches and aborted runs kept until
