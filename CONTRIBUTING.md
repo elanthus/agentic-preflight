@@ -57,3 +57,46 @@ See the [validation tiers](COMPATIBILITY.md#validation-tiers) for CI coverage an
 
 By submitting a contribution, you agree that it is licensed under the repository's
 Apache License 2.0.
+
+## Changelog fragments
+
+For each behavior or configuration change, add a unique file under
+`docs/CHANGELOG.d/`, named `<issue-or-slug>.<category>.md`, such as
+`198.removed.md` or `changelog-fragments.changed.md`. Categories are `added`,
+`changed`, `deprecated`, `removed`, `fixed`, and `security`. Write Markdown bullets
+without headings or standalone prose. Indent continuation lines by at least two
+spaces; blank lines between bullets are allowed. Use separate files for separate categories, and a descriptive
+suffix when multiple PRs address one issue.
+
+Routine PRs leave `CHANGELOG.md` alone. Review fragments with their change. Existing
+Unreleased entries remain until the next release. The release command combines them
+with fragments and removes consumed files. Commit the assembled changelog and
+deletions together; see [Releasing](docs/RELEASING.md#cutting-a-release).
+
+## Risk and human review
+
+This repository classifies ordinary package code, tests, and CLI reference material as
+medium risk. Those changes still run the normal review, documentation, lint, test, and
+attestation checks. Another rule can still classify them as requiring human review,
+such as a high or critical review finding (even after it is fixed); the current branch
+rules do not make human approval a merge requirement.
+
+The explicit `human_review_paths` in `.agentic-preflight.toml` cover policy and ownership,
+CI workflows and templates, direct approval and evidence-verification decisions,
+publication gates, and agent approval/recovery instructions. Dependency manifest and
+lockfile changes rely on the required automated dependency audit.
+Keep `.github/CODEOWNERS` aligned with that list: a blanket package owner would restore
+mandatory human review when Code Owner review is enforced. New code that decides whether
+evidence is valid, a stage may be skipped, or publication/merge may proceed needs an
+explicit entry in both files. Shared implementation helpers are medium risk; this is a
+review-prioritization policy, not an exhaustive security boundary over every dependency.
+
+Routine CLI flags, fields, and examples belong in `skill/reference/commands.md` and
+`skill/reference/workflow.md`. The protected `skill/SKILL.md` remains the authority for
+agent approval, review, recovery, and cleanup rules; its routing links must remain intact.
+Update it when those rules change, rather than for every CLI documentation update.
+
+The hosted approval check reads the policy from the protected base. A PR changing this
+policy is evaluated using the configured review policy; the narrower rules take effect
+for subsequent PRs after it merges. CODEOWNERS routes review requests. The current branch
+rules require automated CI and audits, without mandatory human approval.

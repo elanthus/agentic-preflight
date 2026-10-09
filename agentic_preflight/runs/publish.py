@@ -120,6 +120,11 @@ def gate(session: Session) -> Envelope:
             " Explain that merge requires approval through GitHub Environment "
             f"{session.config.approval.environment!r} for the exact workflow run."
         )
+    elif session.config.approval.mode == "owner_review":
+        risk_instruction = (
+            " Explain that merge requires the configured reviewer to approve the exact head, "
+            "or submit a review containing only approved on their own pull request."
+        )
     else:
         risk_instruction = (
             " Explain that merge still requires eligible peer approval of the exact head."

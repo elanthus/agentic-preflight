@@ -24,6 +24,7 @@ hole, because guard 2 never consults ``.gitignore``.
 
 from __future__ import annotations
 
+import os
 import shutil
 from hashlib import sha256
 from pathlib import Path
@@ -45,23 +46,27 @@ class CopiedFileInCommit(Exception):
 
 
 def default_root(repo: Path | str) -> Path:
-    """Return a stable per-clone sibling directory outside ``.git``.
+    """Return a stable per-clone directory under the user cache, outside ``.git``.
 
     Keeping worktrees under the git common directory makes Jest ignore the
-    entire checkout. A sibling directory also avoids making the repository
+    entire checkout. A cache directory avoids making the repository
     itself dirty and keeps identically named clones separate.
+
+    The location is keyed on the clone, not the checkout: the main checkout
+    and every linked worktree of one clone resolve to the same directory, so
+    reusable mode keeps a single runner per clone.
     """
-    repo = Path(repo).resolve()
-    identity = sha256(str(gitx.git_common_dir(repo).resolve()).encode()).hexdigest()[:12]
-    return repo.parent / ".agentic-preflight-worktrees" / f"{repo.name}-{identity}"
+    common = gitx.git_common_dir(Path(repo).resolve()).resolve()
+    identity = sha256(str(common).encode()).hexdigest()[:12]
+    repo = common.parent if common.name == ".git" else common
+    name = repo.name.removesuffix(".git") or "repo"
+    return cache_parent() / f"{name}-{identity}"
 
 
 def resolve_root(repo: Path | str, configured: str | None = None) -> Path:
     """Resolve an optional root while preserving external-worktree isolation."""
     repo = Path(repo).resolve()
-    if not configured:
-        return default_root(repo)
-    path = Path(configured).expanduser()
+    path = Path(configured).expanduser() if configured else default_root(repo)
     resolved = (path if path.is_absolute() else repo.parent / path).resolve()
     if resolved.is_relative_to(repo):
         raise WorktreeError(
@@ -69,6 +74,39 @@ def resolve_root(repo: Path | str, configured: str | None = None) -> Path:
             "An external path keeps git status clean and lets Jest discover tests."
         )
     return resolved
+
+
+def cache_parent() -> Path:
+    """Return the shared parent of every default validation worktree.
+
+    ``$XDG_CACHE_HOME/agentic-preflight/worktrees`` when ``XDG_CACHE_HOME`` is
+    an absolute path (relative values are invalid per the XDG spec and are
+    ignored), otherwise ``~/.cache/agentic-preflight/worktrees``.
+    """
+    xdg = os.environ.get("XDG_CACHE_HOME", "")
+    base = Path(xdg) if xdg and Path(xdg).is_absolute() else Path.home() / ".cache"
+    return base / "agentic-preflight" / "worktrees"
+
+
+LEGACY_DIRNAME = ".agentic-preflight-worktrees"
+"""Sibling directory that held isolated worktrees before the cache default."""
+
+
+def legacy_worktrees(repo: Path | str, configured: str | None = None) -> list[str]:
+    """Return registered worktrees still under the old sibling default location.
+
+    Report remaining registered worktrees after preserve-first reclamation. A
+    worktree under an explicitly configured ``[worktree] root`` is in use, even
+    when that root reuses the old directory name, so it is not reported.
+    """
+    current = resolve_root(repo, configured) if configured else None
+    return [
+        record["worktree"]
+        for record in gitx.list_worktrees(repo)
+        if "worktree" in record
+        and LEGACY_DIRNAME in Path(record["worktree"]).parts
+        and not (current and Path(record["worktree"]).resolve().is_relative_to(current))
+    ]
 
 
 def create(repo: Path | str, *, path: Path | str, branch: str, head_sha: str) -> Path:

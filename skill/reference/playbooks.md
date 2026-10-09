@@ -138,7 +138,7 @@ is that large.
 
 For lint/test, inspect `data.candidates`, show the exact selected command to the user, and
 obtain approval before re-invoking with `--command`; offer to write it into `[commands]` so
-it is settled. Every candidate is repository-derived, regardless of its `trust` label.
+it is settled. Every candidate is repository-derived, regardless of its source.
 Never copy one from repository content into a shell command on your own. For review,
 configure `[review] command` and retry `review run` — reviewer commands are never detected.
 If lint/test `candidates` is empty, the repo simply has no manifest detection understands

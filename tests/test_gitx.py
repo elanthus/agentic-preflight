@@ -16,6 +16,34 @@ from tests.conftest import (
 )
 
 
+def _diff_text(cwd, base: str, head: str = "HEAD") -> str:
+    """Return the diff between the merge base and head."""
+    return gitx.run(
+        cwd,
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        "--no-renames",
+        f"{base}...{head}",
+    ).stdout
+
+
+def _diff_text_for_path(cwd, base: str, head: str, path: str) -> str:
+    """Return the diff for one path between the merge base and head."""
+    return gitx.run(
+        cwd,
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        "--no-renames",
+        f"{base}...{head}",
+        "--",
+        f":(literal){path}",
+    ).stdout
+
+
 def test_current_branch_reads_the_checked_out_branch(feature_repo):
     assert gitx.current_branch(feature_repo) == "feature/x"
 
@@ -67,7 +95,7 @@ def test_the_git_version_is_read_from_real_world_version_strings(
         ),
     )
 
-    assert gitx.version(tmp_repo) == expected
+    assert gitx.version() == expected
 
 
 def test_an_unreadable_git_version_is_reported_as_unknown(tmp_repo, monkeypatch):
@@ -79,7 +107,7 @@ def test_an_unreadable_git_version_is_reported_as_unknown(tmp_repo, monkeypatch)
         ),
     )
 
-    assert gitx.version(tmp_repo) is None
+    assert gitx.version() is None
 
 
 def test_a_pre_2_38_git_fails_at_cli_startup(monkeypatch):
@@ -158,7 +186,7 @@ def test_diff_text_survives_non_utf8_file_content(tmp_repo):
     (tmp_repo / "legacy.txt").write_bytes(b"caf\xe9 after\n")
     commit_all(tmp_repo, "change legacy-encoded file")
 
-    diff = gitx.diff_text(tmp_repo, base)
+    diff = _diff_text(tmp_repo, base)
 
     assert "legacy.txt" in diff
     assert "\\xe9" in diff
@@ -166,7 +194,7 @@ def test_diff_text_survives_non_utf8_file_content(tmp_repo):
 
 def test_diff_text_contains_the_change(feature_repo):
     base = gitx.merge_base(feature_repo, "main", "HEAD")
-    diff = gitx.diff_text(feature_repo, base, "HEAD")
+    diff = _diff_text(feature_repo, base, "HEAD")
     assert "loud=False" in diff
     assert "src/app.py" in diff
 
@@ -181,7 +209,7 @@ def test_diff_text_by_path_matches_individual_patches(feature_repo):
 
     assert list(batched) == paths
     assert batched == {
-        path: gitx.diff_text_for_path(feature_repo, base, "HEAD", path) for path in paths
+        path: _diff_text_for_path(feature_repo, base, "HEAD", path) for path in paths
     }
 
 
@@ -207,9 +235,7 @@ def test_diff_text_by_path_reports_renames_as_delete_and_add(tmp_repo):
     assert "literal[1].txt" in paths
     assert "renamed file.txt" in paths
     assert list(batched) == paths
-    assert batched == {
-        path: gitx.diff_text_for_path(tmp_repo, base, "HEAD", path) for path in paths
-    }
+    assert batched == {path: _diff_text_for_path(tmp_repo, base, "HEAD", path) for path in paths}
     assert "deleted file mode" in batched["literal[1].txt"]
     assert "new file mode" in batched["renamed file.txt"]
     assert "brackets[1].txt" in batched["brackets[1].txt"]
@@ -271,9 +297,7 @@ def test_diff_text_by_path_handles_non_ascii_and_file_to_symlink_changes(tmp_rep
     batched = gitx.diff_text_by_path(tmp_repo, base, "HEAD", paths)
 
     assert set(batched) == {"plain.txt", "café.txt", "kind.txt"}
-    assert batched == {
-        path: gitx.diff_text_for_path(tmp_repo, base, "HEAD", path) for path in paths
-    }
+    assert batched == {path: _diff_text_for_path(tmp_repo, base, "HEAD", path) for path in paths}
     assert batched["kind.txt"].count("diff --git ") == 2
 
 
@@ -291,7 +315,7 @@ def test_diff_text_by_path_handles_symlink_to_file_changes(tmp_repo):
 
     batched = gitx.diff_text_by_path(tmp_repo, base, "HEAD", ["kind.txt"])
 
-    assert batched["kind.txt"] == gitx.diff_text_for_path(tmp_repo, base, "HEAD", "kind.txt")
+    assert batched["kind.txt"] == _diff_text_for_path(tmp_repo, base, "HEAD", "kind.txt")
     assert batched["kind.txt"].count("diff --git ") == 2
 
 
@@ -488,8 +512,8 @@ def test_diff_functions_ignore_external_diff_and_textconv_config(feature_repo):
     path = "src/app.py"
     assert gitx.changed_files(feature_repo, "main") == [path]
     for text in (
-        gitx.diff_text(feature_repo, "main"),
-        gitx.diff_text_for_path(feature_repo, "main", "HEAD", path),
+        _diff_text(feature_repo, "main"),
+        _diff_text_for_path(feature_repo, "main", "HEAD", path),
         gitx.diff_text_by_path(feature_repo, "main", "HEAD", [path])[path],
     ):
         assert "CONFIG_MARKER" not in text
@@ -516,8 +540,8 @@ def test_diff_functions_and_patch_ids_ignore_a_textconv_driver(feature_repo):
     path = "src/app.py"
     assert gitx.changed_files(feature_repo, "main") == [path]
     for text in (
-        gitx.diff_text(feature_repo, "main"),
-        gitx.diff_text_for_path(feature_repo, "main", "HEAD", path),
+        _diff_text(feature_repo, "main"),
+        _diff_text_for_path(feature_repo, "main", "HEAD", path),
         gitx.diff_text_by_path(feature_repo, "main", "HEAD", [path])[path],
     ):
         assert "CONFIG_MARKER" not in text
