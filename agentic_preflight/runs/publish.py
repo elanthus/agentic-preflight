@@ -157,7 +157,7 @@ def gate(session: Session) -> Envelope:
         },
         next_instruction=(
             "Apply https://github.com/elanthus/agentic-preflight/blob/main/skill/SKILL.md#escalation-etiquette and its authorization rule to this "
-            "gate summary, then substitute data.token for <token> only after authorization."
+            "gate summary; the agent substitutes data.token for <token> only after authorization."
             f"{risk_instruction}{manual_pr_instruction}{cleanup_instruction}"
         ),
         next_command="agentic-preflight push --confirm <token>",
