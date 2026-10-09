@@ -21,7 +21,11 @@ def test_ci_verifies_attestations_with_the_protected_base_version():
     assert "trusted preflight attestation" in workflow
     assert "ref: ${{ github.event.pull_request.base.sha }}" in workflow
     assert 'agentic-preflight hosted-check "$ATTESTED_SHA"' in workflow
-    assert 'test ! -e "$UV_TOOL_BIN_DIR/ap"' in workflow
+    for filename in ("ci.yml", "release.yml"):
+        wheel_workflow = (ROOT / ".github/workflows" / filename).read_text(encoding="utf-8")
+        assert "run: bash scripts/smoke-wheel.sh" in wheel_workflow
+    smoke = (ROOT / "scripts" / "smoke-wheel.sh").read_text(encoding="utf-8")
+    assert 'test ! -e "$UV_TOOL_BIN_DIR/ap"' in smoke
 
 
 def test_high_risk_approval_runs_trusted_code_and_rechecks_on_reviews():
