@@ -66,7 +66,8 @@ For each behavior or configuration change, add a unique file under
 `docs/CHANGELOG.d/`, named `<issue-or-slug>.<category>.md`, such as
 `198.removed.md` or `changelog-fragments.changed.md`. Categories are `added`,
 `changed`, `deprecated`, `removed`, `fixed`, and `security`. Write Markdown bullets
-without headings. Use separate files for separate categories, and a descriptive
+without headings or standalone prose. Indent continuation lines by at least two
+spaces; blank lines between bullets are allowed. Use separate files for separate categories, and a descriptive
 suffix when multiple PRs address one issue.
 
 Routine PRs leave `CHANGELOG.md` alone. Review fragments with their change. Existing

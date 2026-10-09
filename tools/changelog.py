@@ -10,10 +10,21 @@ from pathlib import Path
 CATEGORIES = ("added", "changed", "deprecated", "removed", "fixed", "security")
 
 
+def _bullets(content: str) -> bool:
+    return content.startswith("- ") and all(
+        not line.strip() or line.startswith(("- ", "  ")) for line in content.splitlines()
+    )
+
+
+def _date(date: str) -> None:
+    if datetime.date.fromisoformat(date).isoformat() != date:
+        raise ValueError("date must be YYYY-MM-DD")
+
+
 def assemble(root: Path, version: str, date: str) -> None:
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError("version must be MAJOR.MINOR.PATCH")
-    datetime.date.fromisoformat(date)
+    _date(date)
     changelog = root / "CHANGELOG.md"
     original = changelog.read_text(encoding="utf-8")
     if f"## [{version}]" in original:
@@ -39,7 +50,7 @@ def assemble(root: Path, version: str, date: str) -> None:
         if not match or match[1] not in grouped or fragment.is_symlink():
             raise ValueError(f"invalid fragment: {fragment.name}")
         content = fragment.read_text(encoding="utf-8").strip()
-        if not content.startswith("- ") or re.search(r"^#", content, re.MULTILINE):
+        if not _bullets(content):
             raise ValueError(f"fragment must contain Markdown bullets: {fragment.name}")
         grouped[match[1]].append(content)
     sections = []
