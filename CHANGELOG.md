@@ -11,13 +11,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
   publication, governance, and agent-instruction paths, with matching CODEOWNERS entries.
   Ordinary package code, tests, and CLI references are medium risk. The skill's CLI
   walkthrough now lives separately from its protected approval and recovery rules.
-  Environment approval for high-risk changes and escalation from severe findings remain
-  unchanged; installed projects' default policy is unchanged.
+  The configured review approval for high-risk changes and escalation from severe findings
+  remain unchanged; installed projects' default policy is unchanged.
 
 - Added opt-in `owner_review` approval with an explicit human reviewer: exact-head
   Approve reviews on other authors' PRs and Comment reviews containing `approved` on
-  their own PRs. Activation follows a separate configuration PR after the trusted
-  protected-base verifier supports the new mode.
+  their own PRs. This repository now uses `owner_review` with `elanthus` as the
+  reviewer instead of requiring a GitHub Environment approval.
   Dependency manifest and lockfile changes no longer trigger human review; automated
   dependency audits remain required. The policy migration itself uses the old base mode.
 

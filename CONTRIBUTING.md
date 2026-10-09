@@ -83,6 +83,6 @@ agent approval, review, recovery, and cleanup rules; its routing links must rema
 Update it when those rules change, rather than for every CLI documentation update.
 
 The hosted approval check reads the policy from the protected base. A PR changing this
-policy still needs approval through the `high-risk-review` Environment; the narrower
-rules take effect for subsequent PRs after it merges. Keep the required CI and Code
-Owner checks enabled.
+policy is evaluated using the configured review policy; the narrower rules take effect
+for subsequent PRs after it merges. CODEOWNERS routes review requests. The current branch
+rules require automated CI and audits, without mandatory human approval.
