@@ -67,7 +67,7 @@ preserved unless `--force` is explicit. At least one agent or custom target is r
 
 ### `agentic-preflight start --intent TEXT [--base-ref REF] [--replace]`
 Creates a run and prepares its validation worktree according to the configured
-[worktree mode](../../docs/worktree-modes.md).
+[worktree mode](https://github.com/elanthus/agentic-preflight/blob/main/docs/worktree-modes.md).
 The intent is persisted as the user's objective and acceptance criteria. The parser
 accepts `start` without `--intent`, but the command then fails with exit 3 and
 `intent_required`.
@@ -92,7 +92,7 @@ Refuses a dirty tree (exit 3, `dirty_tree`) and a branch with no changes over th
 isolated modes copy them. Every mode refuses an entry git is not already ignoring.
 
 Returns `data.worktree_path` — **absolute**. Use it; do not rely on `cd` persisting.
-See [isolated worktree locations](../../docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git)
+See [isolated worktree locations](https://github.com/elanthus/agentic-preflight/blob/main/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git)
 for the default location and `[worktree] root` override.
 
 Returns `data.housekeeping`, a read-only inventory of this clone's validation
@@ -107,7 +107,7 @@ exists. A released reusable runner whose source remains is `retained` with reaso
 `data.housekeeping` is `{"error": "..."}` and `start` still succeeds.
 
 For dependency installation, ignored build inputs, caches, and `setup_command`,
-see [Preparing the validation worktree](../../docs/worktree-modes.md#preparing-the-validation-worktree).
+see [Preparing the validation worktree](https://github.com/elanthus/agentic-preflight/blob/main/docs/worktree-modes.md#preparing-the-validation-worktree).
 Use `copy_files` only for ignored files such as `.env`; directories are refused with a
 setup instruction.
 

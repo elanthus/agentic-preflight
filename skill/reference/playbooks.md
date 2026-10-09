@@ -162,7 +162,7 @@ ran, so do not replace that recovery with `logs --stage`.
 
 ## Stage far slower than normal
 
-Check `[worktree] mode` and follow the [worktree setup and cache guidance](../../docs/worktree-modes.md#when-a-stage-is-much-slower-than-expected).
+Check `[worktree] mode` and follow the [worktree setup and cache guidance](https://github.com/elanthus/agentic-preflight/blob/main/docs/worktree-modes.md#when-a-stage-is-much-slower-than-expected).
 Do not raise `[stage] max_attempts` to paper over missing preparation.
 
 ## Copy refused (exit 3)
@@ -174,7 +174,7 @@ pushed.
 ## Stage reports zero files to work on
 
 Check whether `worktree_path` is under `.git/`; tools that skip VCS directories cannot
-see it. See [why isolated worktrees live outside `.git`](../../docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git).
+see it. See [why isolated worktrees live outside `.git`](https://github.com/elanthus/agentic-preflight/blob/main/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git).
 Symlinks do not help — real paths are resolved. Confirm by
 running the same command in a worktree outside `.git`; if that finds files, point the
 stage command at a script that checks the commit under test out to a non-`.git` path
