@@ -5,14 +5,27 @@ import os
 import shutil
 import subprocess
 import textwrap
+from pathlib import Path
 
 import pytest
 
-from tests.test_governance import ROOT, _policy_script
+ROOT = Path(__file__).parent.parent
 
 HEAD = "a" * 40
 BASE = "b" * 40
 BRANCH = "feature/$(touch${IFS}injected)"
+
+
+def _policy_script(filename):
+    workflow = (ROOT / ".github/workflows" / filename).read_text()
+    label = (
+        "Fetch and verify the pull request attestation"
+        if filename == "ci.yml"
+        else "Evaluate approval policy for the exact head"
+    )
+    end = "\n  test:" if filename == "ci.yml" else "\n  environment:"
+    block = workflow[workflow.index("      - name: " + label) : workflow.index(end)]
+    return textwrap.dedent(block.split("        run: |\n", 1)[1])
 
 
 @pytest.fixture

@@ -218,6 +218,10 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Removed
 
+- Prose-pinning tests for skill wording and redundant hosted-workflow substring
+  checks. Structural CLI/documentation contracts, executable workflow tests, and
+  built-wheel alias coverage remain; product behavior is unchanged.
+
 - The `[hook] enabled` key. It was never read, so setting it had no effect. A config that
   still sets it now fails to load with an unknown-key error; delete the line from
   `.agentic-preflight.toml` and the user config. `init` no longer writes it.
