@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from agentic_preflight import store as store_module
 from agentic_preflight.machine import State
 from agentic_preflight.store import CurrentRunExists, RunReadError, Store, UnknownRun
 from tests.conftest import make_run
@@ -321,3 +322,60 @@ def test_append_event_waits_for_the_events_lock(store):
     worker.join(timeout=10)
     assert appended.is_set()
     assert [event["event"] for event in store.load_events("r_abc123")] == ["one", "two"]
+
+
+@pytest.mark.parametrize("failures", [0, 1, 2, 3])
+def test_windows_replace_retries_permission_failures(tmp_path, monkeypatch, failures):
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.write_text("new")
+    target.write_text("old")
+    replace = store_module.os.replace
+    attempts = 0
+    pauses = []
+    error = PermissionError("destination held open")
+
+    def replace_with_contention(tmp, path):
+        nonlocal attempts
+        attempts += 1
+        if attempts <= failures:
+            raise error
+        replace(tmp, path)
+
+    monkeypatch.setattr(store_module.sys, "platform", "win32")
+    monkeypatch.setattr(store_module.os, "replace", replace_with_contention)
+    monkeypatch.setattr(store_module.time, "sleep", pauses.append)
+    if failures == 3:
+        with pytest.raises(PermissionError) as caught:
+            store_module._replace(source, target)
+        assert caught.value is error
+        assert source.read_text() == "new"
+        assert target.read_text() == "old"
+    else:
+        store_module._replace(source, target)
+        assert not source.exists()
+        assert target.read_text() == "new"
+    assert attempts == min(failures + 1, 3)
+    assert pauses == [0.005] * min(failures, 2)
+
+
+@pytest.mark.parametrize(
+    ("platform", "error"),
+    [("linux", PermissionError("denied")), ("win32", OSError("disk failure"))],
+)
+def test_replace_does_not_retry_other_errors(tmp_path, monkeypatch, platform, error):
+    attempts = []
+    pauses = []
+
+    def fail_replace(tmp, path):
+        attempts.append((tmp, path))
+        raise error
+
+    monkeypatch.setattr(store_module.sys, "platform", platform)
+    monkeypatch.setattr(store_module.os, "replace", fail_replace)
+    monkeypatch.setattr(store_module.time, "sleep", pauses.append)
+    with pytest.raises(type(error)) as caught:
+        store_module._replace(tmp_path / "source", tmp_path / "target")
+    assert caught.value is error
+    assert len(attempts) == 1
+    assert pauses == []
