@@ -143,6 +143,21 @@ def _classify_abandoned(
     return None
 
 
+def _abandoned_under_tolerant_read(
+    session: Session, run_id: str, active: dict[str, str], active_ids: set[str]
+) -> RunDoc | None:
+    """Return the run if a tolerant read shows it nonterminal and abandoned."""
+    try:
+        run = session.store.load_run(run_id, tolerate_removed_config=True)
+    except (RunReadError, UnknownRun):
+        return None
+    if run.state in (State.ABORTED, State.DONE, State.ORPHANED):
+        return None
+    if _classify_abandoned(session, run, active, active_ids) is None:
+        return None
+    return run
+
+
 def _collect_run(
     session: Session,
     run_id: str,
@@ -153,10 +168,20 @@ def _collect_run(
 ) -> tuple[bool, dict | None, bool]:
     """Classify and, when safe, reclaim one run record."""
     store = session.store
+    tolerate_removed_config = False
     try:
         run = store.load_run(run_id)
     except RunReadError as exc:
-        return False, exc.details(), True
+        # A snapshot holding a key that a later release removed must not pin
+        # an abandoned run forever: its worktree, branch, and ownership
+        # pointers would outlive every command able to release them. Retry
+        # with the attestation-style read, and use it only to orphan a run
+        # that is provably abandoned. Anything else keeps the strict verdict.
+        abandoned = _abandoned_under_tolerant_read(session, run_id, active, active_run_ids)
+        if abandoned is None:
+            return False, exc.details(), True
+        run = abandoned
+        tolerate_removed_config = True
     except UnknownRun:
         return (
             False,
@@ -179,7 +204,9 @@ def _collect_run(
                         {"run_id": run_id, "reason": "run command is still executing"},
                         False,
                     )
-                with store.transaction(run_id) as doc:
+                with store.transaction(
+                    run_id, tolerate_removed_config=tolerate_removed_config
+                ) as doc:
                     _apply(doc, Action.ORPHAN)
                     doc.orphaned_reason = abandoned_reason
                     run = doc
@@ -214,7 +241,7 @@ def _collect_run(
             )
     if not run.worktree_released and run.worktree_path and Path(run.worktree_path).exists():
         _release_run_worktree(session, run)
-        with store.transaction(run_id) as doc:
+        with store.transaction(run_id, tolerate_removed_config=tolerate_removed_config) as doc:
             doc.worktree_released = True
     return True, None, False
 
@@ -252,8 +279,10 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
         if run_id not in known_runs and run_id not in orphans:
             orphans.append(run_id)
 
-    # Worktrees left at the pre-cache sibling default are never leased again.
-    # Report them so the user can remove them; never delete them here.
+    reclaimed_runners = _reclaim_released_runners(
+        session, known_runs, {item["run_id"] for item in retained if "run_id" in item}
+    )
+
     legacy = worktree.legacy_worktrees(session.repo_root, session.config.worktree.root)
 
     return Envelope(
@@ -261,6 +290,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
             "removed": removed,
             "retained": retained,
             "orphans": orphans,
+            "reclaimed_runners": reclaimed_runners,
             "legacy_worktrees": legacy,
             "runs_known": sorted(known_runs),
             "active": store.list_active(),
@@ -283,6 +313,90 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
     )
 
 
+def _reclaim_released_runners(
+    session: Session, known_runs: set[str], retained_run_ids: set[str]
+) -> list[str]:
+    """Remove released reusable runners that no existing source worktree can use.
+
+    Candidates are the current reusable runner location plus any ``runner``
+    checkout a run record names and registered runners under the old sibling
+    default, covering runners left at older per-checkout locations. A runner is
+    kept while it is leased on a branch or
+    while any run record naming it still has an existing source worktree, or
+    while a record naming it fails validation or is retained by collection.
+    Locked or dirty runners are preserved, and Git removal failures never trigger
+    direct directory deletion. An unreadable record that names
+    another path blocks nothing; a record whose top-level fields cannot be read
+    at all blocks reclamation of every runner, because it might name any of them.
+    """
+    repo = session.repo_root
+    registered = {
+        Path(record["worktree"]).resolve(): record
+        for record in gitx.list_worktrees(repo)
+        if "worktree" in record
+    }
+
+    # (runner path, source worktree path, record preserved)
+    users: list[tuple[Path, str | None, bool]] = []
+    for run_id in sorted(known_runs):
+        fields = session.store.peek(run_id, "worktree_path", "source_worktree_path")
+        if fields is None:
+            return []  # cannot tell which runner this record names
+        if not fields.get("worktree_path"):
+            continue
+        try:
+            # Only lifecycle fields matter here, so read the way gc orphaning
+            # does: a snapshot holding a removed config key does not pin a runner.
+            session.store.load_run(run_id, tolerate_removed_config=True)
+            preserved = run_id in retained_run_ids
+        except RunReadError:
+            preserved = True
+        except UnknownRun:
+            continue
+        source = fields.get("source_worktree_path")
+        users.append(
+            (
+                Path(str(fields["worktree_path"])).resolve(),
+                str(source) if source else None,
+                preserved,
+            )
+        )
+
+    candidates = {(session.store.worktrees_dir / "runner").resolve()}
+    candidates.update(path for path, _, _ in users if path.name == "runner")
+    candidates.update(
+        path
+        for path in registered
+        if path.name == "runner" and worktree.LEGACY_DIRNAME in path.parts
+    )
+
+    reclaimed: list[str] = []
+    for runner in sorted(candidates):
+        record = registered.get(runner)
+        if record is None:
+            continue
+        missing = "prunable" in record or not runner.exists()
+        if "detached" not in record or "locked" in record:
+            continue  # leased on a branch: a run may still own commits there
+        in_use = any(
+            path == runner and (preserved or (source is not None and Path(source).exists()))
+            for path, source, preserved in users
+        )
+        if any(path == runner and preserved for path, _, preserved in users):
+            continue
+        if in_use and not missing:
+            continue
+        try:
+            if runner.exists() and not gitx.is_clean(runner):
+                continue
+            removed = gitx.run(repo, "worktree", "remove", "--force", str(runner), check=False)
+        except gitx.GitError:
+            continue
+        if removed.returncode == 0:
+            reclaimed.append(str(runner))
+    return reclaimed
+
+
 def _unlanded_fix_commits(repo: Path, run: RunDoc) -> list[str]:
     """Return fixes with no patch-equivalent commit in merged run history.
 
@@ -291,11 +405,10 @@ def _unlanded_fix_commits(repo: Path, run: RunDoc) -> list[str]:
     branch moves; compare stable patch IDs within that reviewed history.
     """
     try:
-        candidates = gitx.commits_between(repo, run.merge_base_sha, run.head_sha)
         landed_patch_ids = {
             patch_id
-            for sha in candidates
-            if (patch_id := gitx.commit_patch_id(repo, sha)) is not None
+            for patch_id in gitx.patch_ids(repo, run.merge_base_sha, run.head_sha).values()
+            if patch_id is not None
         }
         return [
             sha

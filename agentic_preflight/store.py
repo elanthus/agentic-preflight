@@ -26,7 +26,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from . import filelock
-from .config import Config
+from .config import Config, snapshot_config
 from .models import Finding, RunDoc
 
 # Roughly a second of total backoff. Long enough to outlast a concurrent read
@@ -62,6 +62,14 @@ def _validation_fields(exc: ValidationError, *, prefix: tuple[str, ...] = ()) ->
         }
         for error in exc.errors(include_url=False, include_context=False, include_input=False)
     ]
+
+
+def _validate_snapshot(snapshot: dict, tolerate_removed_config: bool) -> None:
+    """Validate a stored config snapshot, strictly or ignoring removed keys."""
+    if tolerate_removed_config:
+        snapshot_config(snapshot)
+    else:
+        Config.model_validate(snapshot)
 
 
 def _config_snapshot_diagnostic(exc: ValidationError) -> str:
@@ -234,10 +242,18 @@ class Store:
         _atomic_write(self.run_path(run.run_id), run.model_dump_json(indent=2))
         return run
 
-    def load_run(self, run_id: str) -> RunDoc:
+    def load_run(self, run_id: str, *, tolerate_removed_config: bool = False) -> RunDoc:
+        """Load and validate one run record.
+
+        ``tolerate_removed_config`` validates the stored config snapshot the way
+        attestation does, ignoring keys in :data:`REMOVED_CONFIG_KEYS`. It is for
+        callers that only need the record's lifecycle fields, such as ``gc``
+        deciding whether an abandoned run can be orphaned; every other caller
+        keeps the strict read so a snapshot still means exactly one config.
+        """
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
-            self._recover_update(run_id)
-            return self._load_run(run_id)
+            self._recover_update(run_id, tolerate_removed_config=tolerate_removed_config)
+            return self._load_run(run_id, tolerate_removed_config=tolerate_removed_config)
 
     def peek(self, run_id: str, *fields: str) -> dict[str, Any] | None:
         """Return top-level fields of a run record without validating it.
@@ -257,7 +273,7 @@ class Store:
             return None
         return {field: raw.get(field) for field in fields}
 
-    def _load_run(self, run_id: str) -> RunDoc:
+    def _load_run(self, run_id: str, *, tolerate_removed_config: bool = False) -> RunDoc:
         """Read under the caller's run lock, retaining structured read errors."""
         path = self.run_path(run_id)
         try:
@@ -312,7 +328,7 @@ class Store:
                 fields=_validation_fields(exc),
             ) from exc
         try:
-            Config.model_validate(run.config_snapshot)
+            _validate_snapshot(run.config_snapshot, tolerate_removed_config)
         except ValidationError as exc:
             raise RunReadError(
                 run_id,
@@ -348,6 +364,7 @@ class Store:
         run_id: str,
         *,
         findings: list[Finding] | None = None,
+        tolerate_removed_config: bool = False,
     ) -> Iterator[RunDoc]:
         """Read-modify-write a run document under an exclusive lock.
 
@@ -363,8 +380,8 @@ class Store:
             raise UnknownRun(run_id)
 
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
-            self._recover_update(run_id)
-            run = self._load_run(run_id)
+            self._recover_update(run_id, tolerate_removed_config=tolerate_removed_config)
+            run = self._load_run(run_id, tolerate_removed_config=tolerate_removed_config)
 
             yield run
 
@@ -383,16 +400,19 @@ class Store:
             else:
                 update = _RunUpdate(run=run, findings=findings)
                 _atomic_write(self.update_path(run_id), update.model_dump_json(indent=2))
-                self._recover_update(run_id)
+                self._recover_update(run_id, tolerate_removed_config=tolerate_removed_config)
 
     def update_path(self, run_id: str) -> Path:
         return self.run_dir(run_id) / "pending-update.json"
 
-    def _recover_update(self, run_id: str) -> None:
+    def _recover_update(self, run_id: str, *, tolerate_removed_config: bool = False) -> None:
         """Roll forward a committed pair while holding the run lock.
 
         Validate before overwriting anything. The journal is retained on every
         failure, including an unsupported record or an unexpected sequence.
+        The journal's own config snapshot is checked under the caller's policy,
+        so a tolerant read can recover an older run's interrupted update and a
+        strict read never replays a snapshot it would then refuse to load.
         """
         path = self.update_path(run_id)
         try:
@@ -405,7 +425,8 @@ class Store:
             ) from exc
         try:
             update = _RunUpdate.model_validate_json(payload)
-            current = self._load_run(run_id)
+            _validate_snapshot(update.run.config_snapshot, tolerate_removed_config)
+            current = self._load_run(run_id, tolerate_removed_config=tolerate_removed_config)
             if update.run.run_id != run_id or not (
                 update.run.seq == current.seq + 1
                 or (update.run.seq == current.seq and update.run == current)

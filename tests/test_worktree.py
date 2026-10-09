@@ -261,3 +261,9 @@ def test_a_setup_timeout_is_reported_rather_than_raised(feature_repo, wt):
     assert result.timed_out is True
     assert result.exit_code == 124
     assert "setup-started" in result.output
+
+
+def test_cache_default_inside_repository_is_rejected(feature_repo, monkeypatch):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(feature_repo / "cache"))
+    with pytest.raises(worktree.WorktreeError, match="outside the repository"):
+        worktree.resolve_root(feature_repo)

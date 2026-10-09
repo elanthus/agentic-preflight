@@ -5,8 +5,46 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## [Unreleased]
 
+### Changed
+
+- Narrowed this repository's human-review policy to explicit approval, verification,
+  publication, governance, and agent-instruction paths, with matching CODEOWNERS entries.
+  Ordinary package code, tests, and CLI references are medium risk. The skill's CLI
+  walkthrough now lives separately from its protected approval and recovery rules.
+  The configured review approval for high-risk changes and escalation from severe findings
+  remain unchanged; installed projects' default policy is unchanged.
+
+- Added opt-in `owner_review` approval with an explicit human reviewer: exact-head
+  Approve reviews on other authors' PRs and Comment reviews containing `approved` on
+  their own PRs. This repository now uses `owner_review` with `elanthus` as the
+  reviewer instead of requiring a GitHub Environment approval.
+  Dependency manifest and lockfile changes no longer trigger human review; automated
+  dependency audits remain required. The policy migration itself uses the old base mode.
+
+- Moved the two immutable dogfooding evidence ledgers to `elanthus/preflight-eval-results`
+  and pinned the case study links to the archive commit. Collection data and case study
+  counts are unchanged; the ledgers are no longer stored in this source tree.
+
 ### Fixed
 
+- `gc` can now orphan an abandoned run whose stored config snapshot holds a key that
+  a later release removed, such as `hook.enabled`. Reading such a record failed strict
+  validation, so a run whose source worktree had disappeared kept its validation
+  worktree, `ap/*` branch, and ownership pointers forever, and no flag could release
+  them. Collection now retries the read the way attestation does, ignoring only keys
+  the tool knows it removed, and uses that read solely to orphan a run that is
+  provably abandoned. The same tolerance applies when the read first replays an
+  interrupted findings update, so an older run's journal no longer blocks orphaning. A
+  run that is not abandoned, a terminal run, and a snapshot with any other unknown key
+  keep the strict unreadable verdict and are retained unchanged, and a strict read now
+  refuses to replay a journal whose snapshot it would then fail to load.
+- `gc` and `abort` no longer start two Git processes for every commit in a run's history
+  when they check whether its fixes landed. Each commit's stable patch ID came from its
+  own `git show` piped into `git patch-id`. One `git log` of the run's range now
+  feeds a single `git patch-id`, with the same diff options and combined diffs for
+  merges, so every patch ID is unchanged. With 20 commits and 2 fixes, the check drops
+  from 45 Git processes to 6. Separately, the review diff text and its byte size are
+  now computed once per diff instead of on every access.
 - Redacting copied-file secrets from stage output no longer scans the whole output once
   per secret. Every dotenv value, every line longer than three characters, and the
   whole content of each copied file is a secret, and redaction ran one `str.replace`
@@ -147,6 +185,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Added
 
+- `start` reports this clone's validation checkout footprint as `data.housekeeping`:
+  every directory under the worktrees root and every `ap/*` worktree, with its size,
+  registration, lease, owning run, and whether it is `reclaimable` or `retained`, plus
+  `total_bytes`, `reclaimable_bytes`, the `ap/*` branch count, and `next_command`
+  (`agentic-preflight gc` when anything is reclaimable). `noisy` is true at 1 GiB or
+  more reclaimable, and the skill then tells the user once. The report is read-only,
+  and a failure inside it sets `data.housekeeping.error` without failing `start`.
 - Stop a run for human resolution once validation has restarted `[stage] max_restarts`
   times (default 5). A restart is any return to review that discards progress: a
   committed lint or test repair, a changed reviewed snapshot, changed stage inputs, or a
@@ -160,17 +205,6 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
-- Isolated validation worktrees (`[worktree] mode = "reusable"` or `"strict"`) now default
-  to one per-user cache directory, `$XDG_CACHE_HOME/agentic-preflight/worktrees/`, or
-  `~/.cache/agentic-preflight/worktrees/` when `XDG_CACHE_HOME` is unset, instead of a
-  hidden `.agentic-preflight-worktrees/` directory beside each checkout. Measuring or
-  wiping every disposable checkout is now one directory operation, and a Claude Code
-  worktree under `.claude/worktrees/` no longer puts validation checkouts inside its
-  parent repository. An explicit `[worktree] root` still wins and must still be outside
-  the repository. **Migration:** a reusable runner at the old sibling location is no
-  longer leased or cleaned up. `gc` now lists any worktree still registered there in
-  `data.legacy_worktrees` and never deletes it; remove each one with
-  `git worktree remove <path>` once it holds nothing you need.
 - Context grounding derives module terms for every Python package, not only
   `agentic_preflight`. A changed `.py` file under any directory now contributes its path
   relative to the top-level directory and its dotted module name.

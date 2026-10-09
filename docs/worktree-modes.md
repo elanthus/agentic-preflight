@@ -28,7 +28,10 @@ and `status` drop that line and read the rest. A malformed earlier line is repor
 If a stored record cannot be read or validated, `status` reports its identity and
 diagnostic without clearing its ownership pointer. `status --all` includes it as
 unreadable rather than calling it corrupt. `gc` retains the record and its resources,
-even with `--force`, while collecting other eligible runs. Inspect the reported path;
+even with `--force`, while collecting other eligible runs, with one exception: a
+nonterminal run whose snapshot holds only configuration keys a later release removed
+is read tolerantly, and if its source worktree, lease, or head is gone it is orphaned
+and its resources released like any other abandoned run. Inspect the reported path;
 never delete an alias merely to make an unreadable run look absent.
 
 A repeated `start` with the same head, intent, base, and effective configuration resumes
@@ -60,6 +63,22 @@ Leases one validation worktree under the user cache directory (see
 [Where isolated worktrees live](#where-isolated-worktrees-live)), serially across runs,
 preserving ignored dependency and build caches.
 
+The runner belongs to the clone, not the checkout. Runs started from the main checkout
+and from any linked worktree of the same clone lease the same runner. Its default
+directory name is the clone's repository directory name plus a hash of the git common
+directory, so identically named clones stay separate.
+
+`agentic-preflight gc` removes a released runner, and prunes its git registration, once
+no run record that used it still has an existing source worktree, or when its
+registered path no longer exists. A runner checked out on a branch is never removed,
+and neither is one whose run still has a live source worktree.
+
+
+Runner reclamation preserves locked worktrees, tracked or non-ignored untracked changes,
+and runners associated with retained runs (including unmerged fixes). Ignored caches
+in an otherwise eligible runner are disposable. A refused Git removal preserves the
+runner rather than deleting its directory directly.
+
 Between leases it resets tracked files, removes non-ignored untracked files, explicitly
 removes every `[worktree] copy_files` entry, and then detaches the validation worktree. Other ignored
 files are kept so dependency and build caches survive.
@@ -78,22 +97,28 @@ Remote CI should remain the clean verification boundary in either isolated mode.
 
 Both isolated modes default to one directory per clone under
 `$XDG_CACHE_HOME/agentic-preflight/worktrees/`, or `~/.cache/agentic-preflight/worktrees/`
-when `XDG_CACHE_HOME` is unset or not an absolute path. Every disposable checkout on the
-machine is therefore under one path: `du -sh ~/.cache/agentic-preflight/worktrees`
-measures them, and the directory is safe to clear when no run is active (follow with
-`git worktree prune` in each repository). The location is outside the repository, so
-the source checkout stays clean, and outside `.git`, so Jest still discovers tests.
-
-Set `[worktree] root` to choose another location. A configured root is used as given and
-must be outside the repository.
+when `XDG_CACHE_HOME` is unset or not an absolute path. The location is outside `.git`,
+so tools such as Jest discover tests. Set `[worktree] root` to choose another location;
+it must be outside the repository.
 
 ### Migrating from the sibling default
 
-Earlier releases put these worktrees in a hidden `.agentic-preflight-worktrees/`
-directory beside each checkout. A reusable runner left there is no longer leased, reset,
-or removed. `agentic-preflight gc` lists any worktree git still has registered under that
-directory in `data.legacy_worktrees`, and never deletes it. Inspect each one, then remove
-it with `git worktree remove <path>`.
+Earlier releases put worktrees in a hidden `.agentic-preflight-worktrees/` directory
+beside each checkout. New runs use the cache location. `agentic-preflight gc` reclaims
+eligible unused reusable runners in both locations under the same preservation rules
+above. `data.legacy_worktrees` reports registrations remaining at the old sibling
+location after reclamation; inspect each before removing it with
+`git worktree remove <path>`. An explicitly configured root using the old directory
+name remains supported and is not reported as legacy.
+
+## Seeing how much space checkouts hold
+
+Every `start` reports `data.housekeeping`: the size of each directory under the
+worktrees root and each `ap/*` worktree, whether it is `retained` (leased, or named by a
+run whose source worktree still exists, which keeps a reusable runner) or
+`reclaimable`, and the totals. When at least 1 GiB is reclaimable,
+`noisy` is true and the agent tells you once; `agentic-preflight gc` reclaims it. The
+report never deletes anything, and its failure never fails `start`.
 
 ## Why isolated validation worktrees live outside `.git`
 

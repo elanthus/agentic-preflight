@@ -46,26 +46,27 @@ class CopiedFileInCommit(Exception):
 
 
 def default_root(repo: Path | str) -> Path:
-    """Return a stable per-clone directory under the user's cache.
+    """Return a stable per-clone directory under the user cache, outside ``.git``.
 
-    The parent is :func:`cache_parent`, so every disposable checkout lives under
-    one path that is easy to measure or wipe. Keeping worktrees under the git
-    common directory would make Jest ignore the entire checkout, and keeping
-    them inside the repository would make it dirty; a cache directory outside
-    both avoids each problem. The per-clone leaf keeps identically named clones
-    separate.
+    Keeping worktrees under the git common directory makes Jest ignore the
+    entire checkout. A cache directory avoids making the repository
+    itself dirty and keeps identically named clones separate.
+
+    The location is keyed on the clone, not the checkout: the main checkout
+    and every linked worktree of one clone resolve to the same directory, so
+    reusable mode keeps a single runner per clone.
     """
-    repo = Path(repo).resolve()
-    identity = sha256(str(gitx.git_common_dir(repo).resolve()).encode()).hexdigest()[:12]
-    return cache_parent() / f"{repo.name}-{identity}"
+    common = gitx.git_common_dir(Path(repo).resolve()).resolve()
+    identity = sha256(str(common).encode()).hexdigest()[:12]
+    repo = common.parent if common.name == ".git" else common
+    name = repo.name.removesuffix(".git") or "repo"
+    return cache_parent() / f"{name}-{identity}"
 
 
 def resolve_root(repo: Path | str, configured: str | None = None) -> Path:
     """Resolve an optional root while preserving external-worktree isolation."""
     repo = Path(repo).resolve()
-    if not configured:
-        return default_root(repo)
-    path = Path(configured).expanduser()
+    path = Path(configured).expanduser() if configured else default_root(repo)
     resolved = (path if path.is_absolute() else repo.parent / path).resolve()
     if resolved.is_relative_to(repo):
         raise WorktreeError(
@@ -94,8 +95,7 @@ LEGACY_DIRNAME = ".agentic-preflight-worktrees"
 def legacy_worktrees(repo: Path | str, configured: str | None = None) -> list[str]:
     """Return registered worktrees still under the old sibling default location.
 
-    Reported, never removed: they may hold caches the user still wants, and the
-    path change means nothing else will ever lease or release them again. A
+    Report remaining registered worktrees after preserve-first reclamation. A
     worktree under an explicitly configured ``[worktree] root`` is in use, even
     when that root reuses the old directory name, so it is not reported.
     """

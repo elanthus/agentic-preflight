@@ -2,6 +2,7 @@
 
 import json
 import shlex
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -12,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from agentic_preflight import runs
+from agentic_preflight import runs, worktree
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.store import CurrentRunExists
 from tests.conftest import commit_all, git, write
@@ -257,6 +258,97 @@ def test_missing_source_worktree_blocks_mutation_but_allows_gc(feature_repo, tmp
     collected = recovery_agent.run("--run", started["run_id"], "gc")
     assert started["run_id"] in collected["data"]["removed"]
     assert not validator.exists()
+
+
+def test_gc_orphans_an_abandoned_run_whose_snapshot_holds_a_removed_config_key(
+    feature_repo, tmp_path
+):
+    """A key a later release removed must not pin an abandoned run forever.
+
+    Reproduces run records written before ``hook.enabled`` was removed: the
+    strict read rejects the snapshot, but the run's source worktree is gone,
+    so gc must still orphan it and release its worktree, branch, and pointers.
+    """
+    source_repo = _second_feature_worktree(feature_repo, tmp_path)
+    write(source_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(source_repo, "use strict validation")
+    started = ScriptedAgent(source_repo).run("start", "--intent", "validate feature y")
+    run_id = started["run_id"]
+    validator = Path(started["data"]["worktree_path"])
+    state_root = _state_root(feature_repo)
+    path = state_root / "runs" / run_id / "run.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["config_snapshot"]["hook"]["enabled"] = True
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    session = runs.open_session(feature_repo)
+    assert run_id in session.store.list_active().values()
+
+    git("worktree", "remove", "--force", str(source_repo), cwd=feature_repo)
+    collected = ScriptedAgent(feature_repo).run("gc")
+
+    assert run_id in collected["data"]["removed"]
+    assert collected["data"]["retained"] == []
+    orphaned = json.loads(path.read_text(encoding="utf-8"))
+    assert orphaned["state"] == "ORPHANED"
+    assert orphaned["orphaned_reason"] == "source worktree disappeared"
+    assert orphaned["config_snapshot"]["hook"]["enabled"] is True
+    assert not validator.exists()
+    assert run_id not in session.store.list_active().values()
+    assert f"ap/{run_id}" not in git("branch", "--list", "ap/*", cwd=feature_repo)
+
+
+def test_gc_orphans_an_abandoned_run_with_a_pending_update_and_a_removed_config_key(
+    feature_repo, tmp_path
+):
+    """An interrupted findings transaction must not block the tolerant orphan path."""
+    source_repo = _second_feature_worktree(feature_repo, tmp_path)
+    write(source_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(source_repo, "use strict validation")
+    started = ScriptedAgent(source_repo).run("start", "--intent", "validate feature y")
+    run_id = started["run_id"]
+    validator = Path(started["data"]["worktree_path"])
+    state_root = _state_root(feature_repo)
+    path = state_root / "runs" / run_id / "run.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["config_snapshot"]["hook"]["enabled"] = True
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    pending = dict(raw, seq=raw["seq"] + 1)
+    journal = state_root / "runs" / run_id / "pending-update.json"
+    journal.write_text(json.dumps({"run": pending, "findings": []}), encoding="utf-8")
+
+    git("worktree", "remove", "--force", str(source_repo), cwd=feature_repo)
+    collected = ScriptedAgent(feature_repo).run("gc")
+
+    assert run_id in collected["data"]["removed"]
+    orphaned = json.loads(path.read_text(encoding="utf-8"))
+    assert orphaned["state"] == "ORPHANED"
+    assert orphaned["seq"] > pending["seq"]
+    assert not journal.exists()
+    assert not validator.exists()
+
+
+def test_gc_keeps_the_strict_verdict_for_a_removed_key_when_the_run_is_not_abandoned(
+    feature_repo,
+):
+    agent = ScriptedAgent(feature_repo)
+    started = agent.run("start")
+    path = _state_root(feature_repo) / "runs" / started["run_id"] / "run.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["config_snapshot"]["hook"]["enabled"] = True
+    original = json.dumps(raw).encode()
+    path.write_bytes(original)
+    ownership = runs.open_session(feature_repo).store.list_active()
+
+    collected = agent.run("gc", "--force")
+
+    assert collected["data"]["removed"] == []
+    assert collected["data"]["retained"][0]["run_id"] == started["run_id"]
+    assert collected["data"]["retained"][0]["reason"] == "invalid_or_unsupported_schema"
+    assert collected["data"]["retained"][0]["fields"] == [
+        {"location": ["config_snapshot", "hook", "enabled"], "category": "extra_forbidden"}
+    ]
+    assert runs.open_session(feature_repo).store.list_active() == ownership
+    assert path.read_bytes() == original
 
 
 def test_alias_claim_failure_records_validator_for_gc(feature_repo, monkeypatch):
@@ -533,3 +625,207 @@ def test_stray_current_pointer_is_ignored_and_unchanged(feature_repo, args):
         assert result["run_id"] != run.run_id
     assert current_path.read_bytes() == pointer
     assert path.read_bytes() == original
+
+
+def _reusable_worktree(feature_repo: Path, path: Path, branch: str) -> Path:
+    git("branch", branch, "feature/x", cwd=feature_repo)
+    git("worktree", "add", str(path), branch, cwd=feature_repo)
+    write(path, ".agentic-preflight.toml", "[worktree]\nmode = 'reusable'\n")
+    commit_all(path, "use reusable validation runner")
+    return path
+
+
+def _registered(repo: Path) -> set[Path]:
+    porcelain = git("worktree", "list", "--porcelain", cwd=repo)
+    return {
+        Path(line.removeprefix("worktree ")).resolve()
+        for line in porcelain.splitlines()
+        if line.startswith("worktree ")
+    }
+
+
+def test_linked_worktrees_of_one_clone_share_the_reusable_runner(feature_repo, tmp_path):
+    first = _reusable_worktree(feature_repo, tmp_path / "nested" / "deep" / "wt-one", "one")
+    second = _reusable_worktree(feature_repo, feature_repo / ".claude" / "wt-two", "two")
+
+    root = worktree.default_root(feature_repo)
+    assert worktree.default_root(first) == root
+    assert worktree.default_root(second) == root
+
+    first_agent = ScriptedAgent(first)
+    runner = Path(first_agent.run("start")["data"]["worktree_path"])
+    assert runner == root / "runner"
+    first_agent.run("abort")
+
+    second_agent = ScriptedAgent(second)
+    assert Path(second_agent.run("start")["data"]["worktree_path"]) == runner
+    second_agent.run("abort")
+    assert list(root.iterdir()) == [runner]
+
+
+def test_gc_reclaims_a_released_runner_only_when_no_source_can_use_it(feature_repo, tmp_path):
+    source = _reusable_worktree(feature_repo, tmp_path / "source", "source")
+    agent = ScriptedAgent(source)
+    runner = Path(agent.run("start")["data"]["worktree_path"]).resolve()
+
+    # Leased by a nonterminal run whose source worktree still exists.
+    assert agent.run("gc")["data"]["reclaimed_runners"] == []
+    assert runner.exists()
+
+    # Released, but the source that used it still exists: keep its caches.
+    agent.run("abort")
+    assert agent.run("gc")["data"]["reclaimed_runners"] == []
+    assert runner.exists()
+
+    # A runner checked out on a branch is never reclaimed, even with no live source.
+    git("switch", "-c", "someone-elses-work", cwd=runner)
+    git("worktree", "remove", "--force", str(source), cwd=feature_repo)
+    recovery = ScriptedAgent(feature_repo)
+    assert recovery.run("gc")["data"]["reclaimed_runners"] == []
+    assert runner in _registered(feature_repo)
+
+    # Released and its only source is gone: reclaimed and unregistered.
+    git("switch", "--detach", cwd=runner)
+    collected = recovery.run("gc")["data"]
+    assert collected["reclaimed_runners"] == [str(runner)]
+    assert not runner.exists()
+    assert runner not in _registered(feature_repo)
+
+
+def test_gc_never_reclaims_a_branch_runner_whose_directory_is_gone(feature_repo, tmp_path):
+    source = _reusable_worktree(feature_repo, tmp_path / "source", "source")
+    agent = ScriptedAgent(source)
+    runner = Path(agent.run("start")["data"]["worktree_path"]).resolve()
+    agent.run("abort")
+    git("switch", "-c", "someone-elses-work", cwd=runner)
+    git("worktree", "remove", "--force", str(source), cwd=feature_repo)
+    shutil.rmtree(runner)
+
+    collected = ScriptedAgent(feature_repo).run("gc")["data"]
+
+    assert collected["reclaimed_runners"] == []
+    assert runner in _registered(feature_repo)
+
+
+def _make_unreadable(repo: Path, run_id: str, **overrides) -> Path:
+    path = _state_root(repo) / "runs" / run_id / "run.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw.update(overrides, schema_version=1)
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    return path
+
+
+def test_unreadable_records_block_only_the_runner_they_name(feature_repo, tmp_path):
+    # An unrelated unreadable record (as left by an earlier release) names a
+    # different path and must not stop reclamation.
+    unrelated = ScriptedAgent(feature_repo).run("start")["run_id"]
+    ScriptedAgent(feature_repo).run("abort")
+    _make_unreadable(feature_repo, unrelated, worktree_path=str(tmp_path / "elsewhere"))
+
+    source = _reusable_worktree(feature_repo, tmp_path / "source", "source")
+    agent = ScriptedAgent(source)
+    started = agent.run("start")
+    runner = Path(started["data"]["worktree_path"]).resolve()
+    agent.run("abort")
+    git("worktree", "remove", "--force", str(source), cwd=feature_repo)
+    recovery = ScriptedAgent(feature_repo)
+
+    # An unreadable record naming the runner keeps it, even with its source gone.
+    record = _state_root(feature_repo) / "runs" / started["run_id"] / "run.json"
+    original = record.read_bytes()
+    _make_unreadable(feature_repo, started["run_id"])
+    assert recovery.run("gc")["data"]["reclaimed_runners"] == []
+    assert runner.exists()
+
+    # Once only the unrelated record is unreadable, the orphaned runner is reclaimed.
+    record.write_bytes(original)
+    collected = recovery.run("gc")["data"]
+    assert collected["reclaimed_runners"] == [str(runner)]
+    assert not runner.exists()
+    assert any(item["run_id"] == unrelated for item in collected["retained"])
+
+    # A record that is not even a JSON object could name any runner: keep them all.
+    git("worktree", "add", "--detach", str(runner), "feature/x", cwd=feature_repo)
+    record.write_text("[]", encoding="utf-8")
+    assert recovery.run("gc")["data"]["reclaimed_runners"] == []
+    assert runner.exists()
+
+
+def test_gc_orphans_and_reclaims_a_runner_whose_run_holds_a_removed_config_key(
+    feature_repo, tmp_path
+):
+    source = _reusable_worktree(feature_repo, tmp_path / "source", "source")
+    started = ScriptedAgent(source).run("start")
+    runner = Path(started["data"]["worktree_path"]).resolve()
+    path = _state_root(feature_repo) / "runs" / started["run_id"] / "run.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["config_snapshot"]["hook"]["enabled"] = True
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    git("worktree", "remove", "--force", str(source), cwd=feature_repo)
+
+    collected = ScriptedAgent(feature_repo).run("gc")["data"]
+
+    assert started["run_id"] in collected["removed"]
+    assert collected["reclaimed_runners"] == [str(runner)]
+    assert not runner.exists()
+
+
+@pytest.mark.parametrize("protection", ["tracked", "untracked", "locked", "fix", "missing_fix"])
+def test_gc_preserves_runner_work_and_locks(feature_repo, tmp_path, protection):
+    source = _reusable_worktree(feature_repo, tmp_path / "source", "source")
+    agent = ScriptedAgent(source)
+    started = agent.run("start")
+    runner = Path(started["data"]["worktree_path"]).resolve()
+    agent.run("abort")
+    git("worktree", "remove", "--force", str(source), cwd=feature_repo)
+    if protection == "tracked":
+        tracked = git("ls-files", cwd=runner).splitlines()[0]
+        (runner / tracked).write_text("user changes\n", encoding="utf-8")
+    elif protection == "untracked":
+        (runner / "user-work.txt").write_text("keep me\n", encoding="utf-8")
+    elif protection == "locked":
+        git("worktree", "lock", str(runner), cwd=feature_repo)
+    else:
+        record = _state_root(feature_repo) / "runs" / started["run_id"] / "run.json"
+        raw = json.loads(record.read_text(encoding="utf-8"))
+        raw["fix_commits"] = [git("rev-parse", "HEAD", cwd=runner)]
+        record.write_text(json.dumps(raw), encoding="utf-8")
+        if protection == "missing_fix":
+            shutil.rmtree(runner)
+
+    collected = ScriptedAgent(feature_repo).run("gc")["data"]
+
+    assert collected["reclaimed_runners"] == []
+    assert runner in _registered(feature_repo)
+    assert runner.exists() == (protection != "missing_fix")
+    if protection in {"fix", "missing_fix"}:
+        assert any(item["run_id"] == started["run_id"] for item in collected["retained"])
+
+
+def test_gc_reclaims_ignored_caches_but_honors_git_removal_failure(
+    feature_repo, tmp_path, monkeypatch
+):
+    source = _reusable_worktree(feature_repo, tmp_path / "source", "source")
+    agent = ScriptedAgent(source)
+    runner = Path(agent.run("start")["data"]["worktree_path"]).resolve()
+    agent.run("abort")
+    git("worktree", "remove", "--force", str(source), cwd=feature_repo)
+    git("config", "core.excludesFile", str(tmp_path / "ignore"), cwd=feature_repo)
+    (tmp_path / "ignore").write_text("cache/\n", encoding="utf-8")
+    write(runner, "cache/build.bin", "disposable cache")
+    from agentic_preflight import gitx
+
+    original = gitx.run
+
+    def refuse_removal(cwd, *args, **kwargs):
+        if args[:2] == ("worktree", "remove") and str(runner) in args:
+            return subprocess.CompletedProcess(args, 1, "", "removal refused")
+        return original(cwd, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(gitx, "run", refuse_removal)
+        assert ScriptedAgent(feature_repo).run("gc")["data"]["reclaimed_runners"] == []
+    assert (runner / "cache/build.bin").read_text() == "disposable cache"
+    assert runner in _registered(feature_repo)
+    assert ScriptedAgent(feature_repo).run("gc")["data"]["reclaimed_runners"] == [str(runner)]
+    assert not runner.exists()
