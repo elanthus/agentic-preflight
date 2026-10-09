@@ -54,7 +54,10 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
    This requires VHS, its recording dependencies, `zsh`, and `jq`. Watch the GIF
    through the final `AWAITING_PUSH_CONFIRM` frame and check the demo run's status;
    a successful renderer exit alone does not prove the recorded commands passed.
-   The generated `docs/demo.gif` is ignored and is not committed to `main`. Publish
+   The current README animation is pinned to an existing commit in `main` history,
+   so removing the tracked GIF does not depend on the badges branch retaining it.
+   The generated `docs/demo.gif` is ignored and is not committed to `main`. Once the
+   coverage publisher that preserves other assets is on `main`, publish
    it as `demo.gif` on the existing `badges` branch in a normal commit that preserves
    `coverage.svg` and other assets, then update the README to its commit-pinned raw
    URL. Never recreate or force-push the badges branch to update the animation.

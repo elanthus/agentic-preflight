@@ -24,7 +24,7 @@ Of 408 merged pull requests across four of the author's own repositories from Au
 to September 6, 2026, 323 record an Agentic Preflight run. The [dogfooding case study](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/dogfooding-case-study.md)
 reports what that record shows and what it does not.
 
-![A push blocked by the pre-push hook, followed by review of an unguarded division, a verified fix, and a gate summary that shows the publication target](https://raw.githubusercontent.com/elanthus/agentic-preflight/c0866ba07820d1044767ca43554f002326294e90/demo.gif)
+![A push blocked by the pre-push hook, followed by review of an unguarded division, a verified fix, and a gate summary that shows the publication target](https://raw.githubusercontent.com/elanthus/agentic-preflight/38108bda45422460f644b9a5cc6804e7600ca41d/docs/demo.gif)
 
 ## Quickstart
 

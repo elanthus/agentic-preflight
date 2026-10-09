@@ -12,8 +12,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
   script, and repository ignores cover the artifacts this project creates.
 - Replace randomized state-machine and glob-prefix checks with deterministic
   enumeration, retaining their distinct guarantees without Hypothesis.
-- Store the README animation on the badges branch with a commit-pinned URL;
-  recording a new animation is optional, and badge updates preserve other assets.
+- Keep the current README animation available from a pinned existing commit and
+  publish future recordings to the badges branch. Recording is optional, and
+  badge updates preserve other assets.
 
 ### Fixed
 
