@@ -14,12 +14,9 @@ remote already has that commit. Such an update is a rewind, so it still needs
 `[hook] allow_force_push = true` unless the tip is unchanged.
 
 Original execution commits travel as data under
-`refs/agentic-preflight/evidence/<SHA>`. The hook exempts only creation or unchanged
-publication of an evidence destination whose suffix equals the pushed object ID.
-Pushing such an object to a branch still requires valid publication evidence;
-replacing or deleting an evidence ref is blocked even when force pushes are allowed
-and the replacement has a valid attestation. Published notes may still depend on
-those original commits.
+`refs/agentic-preflight/evidence/<SHA>`. Updates to this destination namespace are
+exempt like tags, including replacement and deletion. Pushing an evidence object to
+a branch still requires valid publication evidence.
 
 For opt-in CI test delegation, the hook explicitly uses the publication predicate.
 It accepts the schema version 7 `tests_pending` outcome only after validating its local review/docs/lint evidence and

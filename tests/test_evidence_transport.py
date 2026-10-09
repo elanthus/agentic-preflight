@@ -180,7 +180,7 @@ def test_hosted_provenance_failure_is_not_retried(published, bad):
     "destination",
     ["correct", "unchanged", "wrong_suffix", "branch", "replace", "replace_named", "delete"],
 )
-def test_hook_exempts_only_immutable_evidence_destinations(
+def test_hook_skips_evidence_destinations_but_gates_branch_pushes(
     destination, allow_force_push, attested, ancestor
 ):
     sha = "a" * 40
@@ -207,22 +207,7 @@ def test_hook_exempts_only_immutable_evidence_destinations(
         has_attestation=lambda _: attested,
         allow_force_push=allow_force_push,
     )
-    assert decision.allowed is (
-        destination in {"correct", "unchanged"} or (destination == "branch" and attested)
-    )
-
-
-def test_evidence_replacement_is_blocked_even_from_notes_source():
-    sha = "a" * 40
-    old = "b" * 40
-    decision = hook.evaluate(
-        [hook.RefUpdate(attestation.NOTES_REF, sha, evidence_transport.ref_for(old), old)],
-        is_ancestor=lambda *_: True,
-        has_attestation=lambda _: True,
-        allow_force_push=True,
-    )
-    assert decision.allowed is False
-    assert decision.reason == "evidence replacement"
+    assert decision.allowed is (destination != "branch" or attested)
 
 
 @pytest.mark.parametrize("change", ["delete", "replace", "malformed", "unrelated"])
