@@ -7,6 +7,17 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- `gc` can now orphan an abandoned run whose stored config snapshot holds a key that
+  a later release removed, such as `hook.enabled`. Reading such a record failed strict
+  validation, so a run whose source worktree had disappeared kept its validation
+  worktree, `ap/*` branch, and ownership pointers forever, and no flag could release
+  them. Collection now retries the read the way attestation does, ignoring only keys
+  the tool knows it removed, and uses that read solely to orphan a run that is
+  provably abandoned. The same tolerance applies when the read first replays an
+  interrupted findings update, so an older run's journal no longer blocks orphaning. A
+  run that is not abandoned, a terminal run, and a snapshot with any other unknown key
+  keep the strict unreadable verdict and are retained unchanged, and a strict read now
+  refuses to replay a journal whose snapshot it would then fail to load.
 - `gc` and `abort` no longer start two Git processes for every commit in a run's history
   when they check whether its fixes landed. Each commit's stable patch ID came from its
   own `git show` piped into `git patch-id`. One `git log` of the run's range now

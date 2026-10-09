@@ -143,6 +143,21 @@ def _classify_abandoned(
     return None
 
 
+def _abandoned_under_tolerant_read(
+    session: Session, run_id: str, active: dict[str, str], active_ids: set[str]
+) -> RunDoc | None:
+    """Return the run if a tolerant read shows it nonterminal and abandoned."""
+    try:
+        run = session.store.load_run(run_id, tolerate_removed_config=True)
+    except (RunReadError, UnknownRun):
+        return None
+    if run.state in (State.ABORTED, State.DONE, State.ORPHANED):
+        return None
+    if _classify_abandoned(session, run, active, active_ids) is None:
+        return None
+    return run
+
+
 def _collect_run(
     session: Session,
     run_id: str,
@@ -153,10 +168,20 @@ def _collect_run(
 ) -> tuple[bool, dict | None, bool]:
     """Classify and, when safe, reclaim one run record."""
     store = session.store
+    tolerate_removed_config = False
     try:
         run = store.load_run(run_id)
     except RunReadError as exc:
-        return False, exc.details(), True
+        # A snapshot holding a key that a later release removed must not pin
+        # an abandoned run forever: its worktree, branch, and ownership
+        # pointers would outlive every command able to release them. Retry
+        # with the attestation-style read, and use it only to orphan a run
+        # that is provably abandoned. Anything else keeps the strict verdict.
+        abandoned = _abandoned_under_tolerant_read(session, run_id, active, active_run_ids)
+        if abandoned is None:
+            return False, exc.details(), True
+        run = abandoned
+        tolerate_removed_config = True
     except UnknownRun:
         return (
             False,
@@ -179,7 +204,9 @@ def _collect_run(
                         {"run_id": run_id, "reason": "run command is still executing"},
                         False,
                     )
-                with store.transaction(run_id) as doc:
+                with store.transaction(
+                    run_id, tolerate_removed_config=tolerate_removed_config
+                ) as doc:
                     _apply(doc, Action.ORPHAN)
                     doc.orphaned_reason = abandoned_reason
                     run = doc
@@ -214,7 +241,7 @@ def _collect_run(
             )
     if not run.worktree_released and run.worktree_path and Path(run.worktree_path).exists():
         _release_run_worktree(session, run)
-        with store.transaction(run_id) as doc:
+        with store.transaction(run_id, tolerate_removed_config=tolerate_removed_config) as doc:
             doc.worktree_released = True
     return True, None, False
 

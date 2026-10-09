@@ -28,7 +28,10 @@ and `status` drop that line and read the rest. A malformed earlier line is repor
 If a stored record cannot be read or validated, `status` reports its identity and
 diagnostic without clearing its ownership pointer. `status --all` includes it as
 unreadable rather than calling it corrupt. `gc` retains the record and its resources,
-even with `--force`, while collecting other eligible runs. Inspect the reported path;
+even with `--force`, while collecting other eligible runs, with one exception: a
+nonterminal run whose snapshot holds only configuration keys a later release removed
+is read tolerantly, and if its source worktree, lease, or head is gone it is orphaned
+and its resources released like any other abandoned run. Inspect the reported path;
 never delete an alias merely to make an unreadable run look absent.
 
 A repeated `start` with the same head, intent, base, and effective configuration resumes

@@ -167,6 +167,52 @@ def test_invalid_nested_run_version_preserves_committed_pair_and_journal(
     assert store.update_path(current.run_id).read_bytes() == journal
 
 
+@pytest.mark.parametrize("reader", ["load_run", "transaction"])
+def test_tolerant_read_recovers_a_journal_whose_snapshot_holds_a_removed_key(tmp_path, reader):
+    """Recovery must apply the caller's tolerance, or gc can never orphan the run."""
+    store = Store(tmp_path)
+    run = make_run()
+    run.config_snapshot = {"worktree": {"mode": "in_place"}, "hook": {"enabled": True}}
+    current = store.create_run(run)
+    pending = current.model_copy(update={"seq": 1, "state": State.REVIEW_BLOCKED})
+    journal = json.dumps({"run": pending.model_dump(mode="json"), "findings": []})
+    store.update_path(current.run_id).write_text(journal)
+
+    with pytest.raises(RunReadError) as strict:
+        store.load_run(current.run_id)
+    # The strict read refuses the journal's snapshot before replaying it.
+    assert strict.value.reason == "invalid_pending_update"
+    assert store.update_path(current.run_id).read_text() == journal
+
+    if reader == "load_run":
+        recovered = store.load_run(current.run_id, tolerate_removed_config=True)
+    else:
+        with store.transaction(current.run_id, tolerate_removed_config=True) as doc:
+            recovered = doc.model_copy()
+    assert recovered.seq == 1
+    assert recovered.state is State.REVIEW_BLOCKED
+    assert recovered.config_snapshot["hook"] == {"enabled": True}
+    assert not store.update_path(current.run_id).exists()
+
+
+def test_strict_read_preserves_a_journal_whose_snapshot_it_would_refuse(tmp_path):
+    store = Store(tmp_path)
+    current = store.create_run(make_run())
+    pending = current.model_copy(update={"seq": 1, "state": State.REVIEW_BLOCKED})
+    pending_run = pending.model_dump(mode="json")
+    pending_run["config_snapshot"] = {"worktree": {"mode": "in_place", "ttl_hours": 24}}
+    journal = json.dumps({"run": pending_run, "findings": []}).encode()
+    store.update_path(current.run_id).write_bytes(journal)
+    run_bytes = store.run_path(current.run_id).read_bytes()
+
+    with pytest.raises(RunReadError) as caught:
+        store.load_run(current.run_id)
+
+    assert caught.value.reason == "invalid_pending_update"
+    assert store.run_path(current.run_id).read_bytes() == run_bytes
+    assert store.update_path(current.run_id).read_bytes() == journal
+
+
 def test_submission_retry_after_findings_write_keeps_one_finding(
     feature_repo, tmp_path, monkeypatch
 ):
