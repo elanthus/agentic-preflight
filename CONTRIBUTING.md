@@ -72,4 +72,4 @@ suffix when multiple PRs address one issue.
 Routine PRs leave `CHANGELOG.md` alone. Review fragments with their change. Existing
 Unreleased entries remain until the next release. The release command combines them
 with fragments and removes consumed files. Commit the assembled changelog and
-deletions together; see [Releasing](docs/releasing.md#cutting-a-release).
+deletions together; see [Releasing](docs/RELEASING.md#cutting-a-release).
