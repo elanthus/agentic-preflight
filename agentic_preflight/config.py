@@ -12,7 +12,9 @@ a config that governs a safety gate would weaken the gate without any signal.
 
 from __future__ import annotations
 
+import json
 import tomllib
+from functools import lru_cache
 from pathlib import Path, PureWindowsPath
 from typing import Annotated, Any, Literal
 
@@ -204,6 +206,21 @@ def snapshot_config(snapshot: dict[str, Any]) -> Config:
             body = {key: v for key, v in body.items() if (section, key) not in REMOVED_CONFIG_KEYS}
         cleaned[section] = body
     return Config.model_validate(cleaned)
+
+
+@lru_cache(maxsize=32)
+def _snapshot_run_settings(snapshot_json: str, tolerate_removed_config: bool) -> tuple[int, str]:
+    snapshot = json.loads(snapshot_json)
+    cfg = snapshot_config(snapshot) if tolerate_removed_config else Config.model_validate(snapshot)
+    return cfg.stage.max_restarts, cfg.worktree.mode
+
+
+def snapshot_run_settings(
+    snapshot: dict[str, Any], *, tolerate_removed_config: bool = False
+) -> tuple[int, str]:
+    """Cache validated immutable run settings by full content and validation policy."""
+    key = json.dumps(snapshot, sort_keys=True, separators=(",", ":"))
+    return _snapshot_run_settings(key, tolerate_removed_config)
 
 
 def config_digest(snapshot: dict[str, Any]) -> str:

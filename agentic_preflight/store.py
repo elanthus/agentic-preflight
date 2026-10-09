@@ -26,7 +26,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from . import filelock
-from .config import Config, snapshot_config
+from .config import snapshot_run_settings
 from .models import Finding, RunDoc
 
 
@@ -59,10 +59,7 @@ def _validation_fields(exc: ValidationError, *, prefix: tuple[str, ...] = ()) ->
 
 def _validate_snapshot(snapshot: dict, tolerate_removed_config: bool) -> None:
     """Validate a stored config snapshot, strictly or ignoring removed keys."""
-    if tolerate_removed_config:
-        snapshot_config(snapshot)
-    else:
-        Config.model_validate(snapshot)
+    snapshot_run_settings(snapshot, tolerate_removed_config=tolerate_removed_config)
 
 
 def _config_snapshot_diagnostic(exc: ValidationError) -> str:
