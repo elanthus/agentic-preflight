@@ -2,6 +2,7 @@
 
 import json
 import shlex
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -689,6 +690,21 @@ def test_gc_reclaims_a_released_runner_only_when_no_source_can_use_it(feature_re
     assert collected["reclaimed_runners"] == [str(runner)]
     assert not runner.exists()
     assert runner not in _registered(feature_repo)
+
+
+def test_gc_never_reclaims_a_branch_runner_whose_directory_is_gone(feature_repo, tmp_path):
+    source = _reusable_worktree(feature_repo, tmp_path / "source", "source")
+    agent = ScriptedAgent(source)
+    runner = Path(agent.run("start")["data"]["worktree_path"]).resolve()
+    agent.run("abort")
+    git("switch", "-c", "someone-elses-work", cwd=runner)
+    git("worktree", "remove", "--force", str(source), cwd=feature_repo)
+    shutil.rmtree(runner)
+
+    collected = ScriptedAgent(feature_repo).run("gc")["data"]
+
+    assert collected["reclaimed_runners"] == []
+    assert runner in _registered(feature_repo)
 
 
 def _make_unreadable(repo: Path, run_id: str, **overrides) -> Path:

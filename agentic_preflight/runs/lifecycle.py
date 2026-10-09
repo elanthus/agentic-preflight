@@ -358,7 +358,7 @@ def _reclaim_released_runners(session: Session, known_runs: set[str]) -> list[st
         if record is None:
             continue
         missing = "prunable" in record or not runner.exists()
-        if not missing and "detached" not in record:
+        if "detached" not in record:
             continue  # leased on a branch: a run may still own commits there
         in_use = any(
             path == runner and (unreadable or (source is not None and Path(source).exists()))
