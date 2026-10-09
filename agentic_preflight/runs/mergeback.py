@@ -72,9 +72,6 @@ def _reconcile_attempt(
         return True, None
     current_tree = gitx.tree_sha(repo)
     on_base = gitx.is_ancestor(repo, run.sync_base_sha or run.merge_base_sha, current)
-    if on_base and current_tree != attempt.validation_tree and current_tree == attempt.rebased_tree:
-        # The source rebase completed, but the fix stack has not been applied.
-        return True, None
     if current_tree != attempt.validation_tree or not on_base:
         _reject_pending(
             session,
@@ -167,9 +164,7 @@ def _check_dirty_paths(session: Session, run: RunDoc, *, in_place: bool) -> None
         )
 
 
-def _record_attempt(
-    session: Session, run: RunDoc, *, in_place: bool, retrying_conflict: bool
-) -> RunDoc:
+def _record_attempt(session: Session, run: RunDoc, *, retrying_conflict: bool) -> RunDoc:
     """Record the exact source and validation snapshots before mutation."""
     if run.state not in {State.TEST_GREEN, State.TEST_DELEGATED, State.MERGEBACK_CONFLICT}:
         return run
@@ -177,18 +172,10 @@ def _record_attempt(
     if gitx.current_branch(repo) != run.branch:
         raise StaleRun("mergeback requires the recorded source branch")
     source_sha = gitx.rev_parse(repo, "HEAD")
-    rebased_tree = None
-    if (
-        not in_place
-        and source_sha == run.source_head_sha
-        and not gitx.is_ancestor(repo, run.sync_base_sha or run.merge_base_sha, source_sha)
-    ):
-        rebased_tree = gitx.tree_sha(_require_worktree(run), run.head_sha)
     attempt = MergebackAttempt(
         source_sha=source_sha,
         validation_sha=gitx.rev_parse(_require_worktree(run), "HEAD"),
         validation_tree=gitx.tree_sha(_require_worktree(run)),
-        rebased_tree=rebased_tree,
         retrying_conflict=retrying_conflict,
     )
     with session.store.transaction(run.run_id) as doc:
@@ -301,7 +288,7 @@ def mergeback(session: Session) -> Envelope:
     )
 
     _check_dirty_paths(session, run, in_place=in_place)
-    run = _record_attempt(session, run, in_place=in_place, retrying_conflict=retrying_conflict)
+    run = _record_attempt(session, run, retrying_conflict=retrying_conflict)
 
     try:
         result = _perform_merge(

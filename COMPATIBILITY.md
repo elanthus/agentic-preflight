@@ -110,3 +110,11 @@ otherwise `~/.cache`) instead of the sibling `.agentic-preflight-worktrees` dire
 Existing configured roots remain supported. New runs use the new default; `gc` may
 reclaim eligible unused reusable runners at either location, preserving dirty,
 locked, leased, or retained work and reporting remaining legacy registrations.
+
+## Saved merge-back attempts
+
+Saved schema-v2 runs may contain the former `mergeback_attempt.rebased_tree`
+field. It is accepted and ignored on load, and omitted on the next write. Other
+unknown attempt fields remain invalid. A pending source rebase that has not reached
+the recorded verified tree now becomes stale; restart preflight to validate the
+current source rather than resuming from that intermediate tree.
