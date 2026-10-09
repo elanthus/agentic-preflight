@@ -448,6 +448,52 @@ def test_abort_is_legal_with_no_run(feature_repo):
 # -- gc ---------------------------------------------------------------------
 
 
+def test_isolated_run_worktree_lands_under_the_user_cache(
+    agent, feature_repo, tmp_path, monkeypatch
+):
+    cache = tmp_path / "cache-home"
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(feature_repo, "use strict validation worktrees")
+
+    env = agent.run("start")
+
+    root = (cache / "agentic-preflight" / "worktrees").resolve()
+    assert Path(env["data"]["worktree_path"]).resolve().is_relative_to(root)
+    assert not (feature_repo.parent / ".agentic-preflight-worktrees").exists()
+
+
+def test_gc_reports_but_keeps_a_runner_at_the_old_sibling_location(agent, feature_repo):
+    legacy = feature_repo.parent / ".agentic-preflight-worktrees" / "old-runner"
+    git("worktree", "add", "--detach", str(legacy), "HEAD", cwd=feature_repo)
+
+    env = agent.run("gc", "--force")
+
+    assert [Path(p).resolve() for p in env["data"]["legacy_worktrees"]] == [legacy.resolve()]
+    assert "git worktree remove" in env["next"]["instruction"]
+    assert legacy.is_dir()
+
+
+@pytest.mark.parametrize("preserve", [None, "dirty", "locked", "leased"])
+def test_gc_reclaims_only_eligible_legacy_runners(agent, feature_repo, preserve):
+    legacy = feature_repo.parent / ".agentic-preflight-worktrees" / "old-clone" / "runner"
+    git("worktree", "add", "--detach", str(legacy), "HEAD", cwd=feature_repo)
+    if preserve == "dirty":
+        write(legacy, "untracked-work.txt", "keep this work")
+    elif preserve == "locked":
+        git("worktree", "lock", str(legacy), cwd=feature_repo)
+    elif preserve == "leased":
+        git("checkout", "-b", "ap/leased-old-runner", cwd=legacy)
+
+    env = agent.run("gc", "--force")
+
+    assert legacy.exists() is (preserve is not None)
+    assert env["data"]["reclaimed_runners"] == ([] if preserve else [str(legacy)])
+    assert [Path(p).resolve() for p in env["data"]["legacy_worktrees"]] == (
+        [legacy.resolve()] if preserve else []
+    )
+
+
 def test_gc_reports_a_clean_store_as_nothing_to_do(agent):
     agent.run("start")
     env = agent.run("gc")

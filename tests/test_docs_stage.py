@@ -39,7 +39,6 @@ def test_docs_context_exposes_the_stage_inventory_metadata_and_diff(review_green
     paths = {item["path"] for item in env["data"]["doc_surface"]}
     assert "README.md" in paths
     readme = next(i for i in env["data"]["doc_surface"] if i["path"] == "README.md")
-    assert readme["exists"] is True
     assert readme["size"] > 0
     assert readme["touched_by_diff"] is False
     assert "loud=False" in env["data"]["diff"]

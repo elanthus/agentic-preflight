@@ -35,9 +35,12 @@ DETERMINISTIC_ENV = {
 
 
 @pytest.fixture(autouse=True)
-def deterministic_git_env(monkeypatch):
+def deterministic_git_env(monkeypatch, tmp_path_factory):
     for key, value in DETERMINISTIC_ENV.items():
         monkeypatch.setenv(key, value)
+    # Isolated runs default to a worktree under the user cache. Point it at a
+    # per-test directory so the suite never writes into the developer's cache.
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path_factory.mktemp("xdg-cache")))
     # Real-push tests invoke the installed hook, which resolves
     # ``agentic-preflight`` through PATH. Pin that lookup to the same environment
     # running pytest so an unrelated user installation cannot test older code.

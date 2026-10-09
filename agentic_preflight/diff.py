@@ -301,10 +301,6 @@ class BudgetReport:
     max_bytes: int
     by_file: list[tuple[str, int]] = field(default_factory=list)
 
-    @property
-    def overage(self) -> int:
-        return max(0, self.total_bytes - self.max_bytes)
-
 
 def check_budget(bundle: DiffBundle, max_bytes: int) -> BudgetReport:
     """Compare a bundle against the byte budget, largest files reported first."""

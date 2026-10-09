@@ -65,7 +65,7 @@ def fingerprint(
             head_sha=head,
             command=command if command is not None else configured or "",
             contract=getattr(session.config.reuse, stage.value),
-            execution_config=shell_execution_config(snapshot, stage),
+            execution_config=shell_execution_config(snapshot),
             copied_files=run.copied_files,
             clean=clean,
             resolved_head=head,

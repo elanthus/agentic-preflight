@@ -672,15 +672,6 @@ def test_status_uses_the_snapshot_when_working_copy_config_breaks(agent, feature
 # -- the contract itself ----------------------------------------------------
 
 
-def test_every_command_emits_exactly_one_json_object(agent, tmp_path):
-    """Asserted by the driver on every step; this test makes it explicit."""
-    agent.run("start")
-    agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("status")
-    assert len(agent.steps) == 4
-
-
 def test_the_contract_holds_over_a_real_subprocess(feature_repo, tmp_path):
     """Some paths only exist as subprocesses; the envelope must survive that."""
     agent = ScriptedAgent(feature_repo, transport="subprocess")

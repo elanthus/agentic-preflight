@@ -513,6 +513,25 @@ def test_a_tag_push_needs_no_attestation():
     assert decision.allowed is True
 
 
+@pytest.mark.parametrize(
+    ("local_sha", "remote_sha"), [("a" * 40, ZERO), ("b" * 40, "a" * 40), (ZERO, "a" * 40)]
+)
+def test_evidence_destination_updates_need_no_git_or_attestation_checks(local_sha, remote_sha):
+    def unexpected_check(*_):
+        pytest.fail("Evidence destinations must be skipped before commit checks")
+
+    decision = hook.evaluate(
+        [
+            hook.RefUpdate(
+                "refs/heads/x", local_sha, "refs/agentic-preflight/evidence/" + "a" * 40, remote_sha
+            )
+        ],
+        is_ancestor=unexpected_check,
+        has_attestation=unexpected_check,
+    )
+    assert decision.allowed is True
+
+
 def test_pushing_a_commit_the_remote_already_has_needs_no_attestation():
     """A permitted rewind to a commit the remote tip already contains publishes nothing new."""
     local = "a" * 40

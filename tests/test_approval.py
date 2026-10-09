@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from agentic_preflight import attestation
 from agentic_preflight.approval import current_human_approvers, evaluate
 from agentic_preflight.envelope import ExitCode
@@ -17,8 +19,10 @@ def _review(
     author_association="MEMBER",
     state="APPROVED",
     commit_id="a" * 40,
+    body="",
 ):
     return {
+        "body": body,
         "id": review_id,
         "state": state,
         "commit_id": commit_id,
@@ -339,3 +343,101 @@ def test_approval_check_reports_a_non_utf8_reviews_file_as_unreadable_input(tmp_
         expect=ExitCode.PRECONDITION,
     )
     assert env["error"]["code"] == "invalid_findings"
+
+
+@pytest.mark.parametrize(
+    ("author", "state", "body", "accepted"),
+    [
+        ("owner", "COMMENTED", " approved ", True),
+        ("owner", "COMMENTED", "Approved", False),
+        ("owner", "COMMENTED", "approved with conditions", False),
+        ("other", "APPROVED", "", True),
+        ("other", "COMMENTED", "approved", False),
+    ],
+)
+def test_owner_review_accepts_only_explicit_current_head_review(author, state, body, accepted):
+    reviews = [_review(1, login="owner", state=state, body=body)]
+    assert (
+        bool(
+            current_human_approvers(
+                reviews, head_sha="a" * 40, pull_request_author=author, owner_reviewer="owner"
+            )
+        )
+        is accepted
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"login": "other"},
+        {"user_type": "Bot"},
+        {"author_association": "NONE"},
+        {"commit_id": "b" * 40},
+    ],
+)
+def test_owner_review_rejects_untrusted_or_stale_review(change):
+    values = {"login": "owner", "state": "COMMENTED", "body": "approved", **change}
+    assert (
+        current_human_approvers(
+            [_review(1, **values)],
+            head_sha="a" * 40,
+            pull_request_author="owner",
+            owner_reviewer="owner",
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    ("state", "body"),
+    [
+        ("DISMISSED", "approved"),
+        ("CHANGES_REQUESTED", ""),
+        ("COMMENTED", "other text"),
+    ],
+)
+def test_owner_review_revocation_and_edited_self_review_fail_closed(state, body):
+    reviews = [
+        _review(1, login="owner", state="COMMENTED", body="approved"),
+        _review(2, login="owner", state=state, body=body),
+    ]
+    assert (
+        current_human_approvers(
+            reviews, head_sha="a" * 40, pull_request_author="owner", owner_reviewer="owner"
+        )
+        == []
+    )
+    # Editing an existing review changes its API body rather than adding a review.
+    assert (
+        current_human_approvers(
+            [_review(1, login="owner", state=state, body=body)],
+            head_sha="a" * 40,
+            pull_request_author="owner",
+            owner_reviewer="owner",
+        )
+        == []
+    )
+
+
+def test_owner_review_policy_uses_configured_reviewer(tmp_repo, monkeypatch):
+    write(
+        tmp_repo,
+        ".agentic-preflight.toml",
+        "[policy]\nhigh_risk_paths = ['src/**']\n"
+        "[approval]\nmode = 'owner_review'\nreviewer = 'owner'\n",
+    )
+    base = commit_all(tmp_repo, "configure owner review")
+    git("switch", "-c", "feature/owner", cwd=tmp_repo)
+    write(tmp_repo, "src/app.py", "value = 1\n")
+    head = commit_all(tmp_repo, "change code")
+    _stub_attestation(monkeypatch, head=head, branch="feature/owner", findings_summary={})
+    result = evaluate(
+        tmp_repo,
+        base_sha=base,
+        head_sha=head,
+        reviews=[_review(1, login="owner", state="COMMENTED", body="approved", commit_id=head)],
+        pull_request_author="owner",
+    )
+    assert result["approved"] is True
+    assert result["human_approvers"] == ["owner"]

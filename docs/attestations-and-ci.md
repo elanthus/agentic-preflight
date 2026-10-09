@@ -140,15 +140,26 @@ those observations distinguish them.
 
 High-risk merge handling is enforced by a separate `pull_request_target` workflow that
 also installs its policy checker from the protected base and never executes proposed
-branch content. It reruns when the head changes or a review is submitted or dismissed.
+branch content. It reruns when the head changes or a review is submitted, edited, or dismissed.
 
 The default `manual_merge` mode reports success only while GitHub auto-merge is disabled
 and instructs the agent never to merge or enable auto-merge. `environment` pauses a
 dedicated job at the configured GitHub Environment, and `peer_review` retains the
 exact-head approval rule for an eligible person other than the pull-request author.
+`owner_review` requires the configured reviewer: an Approve review on another author's PR
+or a Comment review containing exactly `approved` on their own PR. See
+[approval configuration](configuration.md#high-risk-merge-handling-approval).
 
-Make **high-risk human approval** a required status check on `main`; keep **Require
-review from Code Owners** enabled as the stricter ownership rule for sensitive paths.
+This repository configures `owner_review` with `reviewer = "elanthus"`, so the approval
+check can report an exact-head review status: an Approve review on another author's PR,
+or a Comment review containing only `approved` on your own PR. Its current branch rules
+require automated CI and dependency audits, with review feedback resolved before merge;
+human approval and Code Owner review are not mandatory merge requirements. Changes only
+to `pyproject.toml` or `uv.lock` no longer trigger high-risk review or CODEOWNERS requests.
+Dependabot automation settings remain protected policy.
+
+Projects choosing to enforce human approval should make **high-risk human approval** a
+required status check and enable **Require review from Code Owners** for sensitive paths.
 Because the workflow and policy are loaded from the protected base, a pull request that
 changes approval mode is judged by the old mode until that change is merged.
 `approval-check SHA --base BASE` reads `[policy]` and `[approval]` from the

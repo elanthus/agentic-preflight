@@ -24,7 +24,7 @@ Of 408 merged pull requests across four of the author's own repositories from Au
 to September 6, 2026, 323 record an Agentic Preflight run. The [dogfooding case study](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/dogfooding-case-study.md)
 reports what that record shows and what it does not.
 
-![A push blocked by the pre-push hook, followed by review of an unguarded division, a verified fix, and a gate summary that shows the publication target](https://raw.githubusercontent.com/elanthus/agentic-preflight/v0.6.0/docs/demo.gif)
+![A push blocked by the pre-push hook, followed by review of an unguarded division, a verified fix, and a gate summary that shows the publication target](https://raw.githubusercontent.com/elanthus/agentic-preflight/38108bda45422460f644b9a5cc6804e7600ca41d/docs/demo.gif)
 
 ## Quickstart
 
@@ -181,12 +181,11 @@ for setup and verification commands.
 ## Architecture, evaluation, and evidence
 
 The user workflow above is backed by design records, executable tests, and published
-evaluation material. Start with
-[Engineering notes and evidence](https://github.com/elanthus/agentic-preflight/blob/main/docs/engineering-notes.md)
-for an overview, or follow the question you want to investigate:
+evaluation material. Follow the question you want to investigate:
 
 | Question | Design or evidence |
 |---|---|
+| How does this workflow compare with its inspiration? | [Prior art and differentiation](https://github.com/elanthus/agentic-preflight/blob/main/docs/prior-art.md) |
 | Where does responsibility pass between the coding agent, CLI, and shell commands? | [ADR 0001: orchestration boundaries](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/adr/0001-orchestration-boundaries.md) |
 | How can linked worktrees run independently and safely? | [ADR 0002: worktree-scoped run ownership](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/adr/0002-scope-run-ownership-to-worktrees.md) |
 | What repository context reaches review, and how is untrusted content bounded? | [Grounded context](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/context-grounding.md) |

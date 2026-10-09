@@ -128,17 +128,6 @@ def test_resolve_refuses_a_commit_for_a_dismissal_directly(blocked, feature_repo
     assert finding.status.value == "open"
 
 
-def test_usage_errors_emit_an_envelope_on_click_without_no_args_is_help(agent, monkeypatch):
-    import click.exceptions
-
-    from agentic_preflight import cli_support
-
-    monkeypatch.delattr(click.exceptions, "NoArgsIsHelpError", raising=False)
-    monkeypatch.setattr(cli_support, "_NO_ARGS_IS_HELP", None)
-    env = agent.run("respond", "--bogus", expect=ExitCode.USAGE_ERROR)
-    assert env["error"]["code"] == "usage_error"
-
-
 def _bare_invocation():
     from click.testing import CliRunner
 
@@ -148,18 +137,6 @@ def _bare_invocation():
 
 
 def test_bare_invocation_prints_root_help_and_exits_zero():
-    result = _bare_invocation()
-    assert result.exit_code == 0
-    assert "Usage:" in result.stdout
-
-
-def test_bare_invocation_exits_zero_on_click_without_no_args_is_help(monkeypatch):
-    import click.exceptions
-
-    from agentic_preflight import cli_support
-
-    monkeypatch.delattr(click.exceptions, "NoArgsIsHelpError", raising=False)
-    monkeypatch.setattr(cli_support, "_NO_ARGS_IS_HELP", None)
     result = _bare_invocation()
     assert result.exit_code == 0
     assert "Usage:" in result.stdout

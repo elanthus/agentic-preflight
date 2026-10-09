@@ -25,7 +25,8 @@ def _record(store: Store, run_id: str, *, state: str, worktree: Path, source: Pa
 
 def _layout(repo: Path, tmp_path: Path) -> tuple[Store, Path]:
     root = tmp_path / "checkouts"
-    store = Store(tmp_path / "state", worktrees_root=root)
+    store = Store(tmp_path / "state")
+    store.set_worktrees_root(root)
     git("worktree", "add", "-b", "ap/leased", str(root / "leased"), "main", cwd=repo)
     for name in ("active", "finished", "runner"):
         git("worktree", "add", "--detach", str(root / name), "main", cwd=repo)

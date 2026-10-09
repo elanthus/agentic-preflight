@@ -32,7 +32,7 @@ on August 17 at approximately 20:40 UTC. Pull requests are counted by creation t
 The repository links in the table are live, day-level browsing links. They can include
 PRs created later on August 17 than the exact cutoff and are not the aggregate snapshots.
 The fixed counts and the excerpts used to classify them are preserved in the
-[`dogfooding-case-study-evidence.json`](dogfooding-case-study-evidence.json) ledger.
+[`dogfooding-case-study-evidence.json`](https://github.com/elanthus/preflight-eval-results/blob/f784772cbbc17618ad05636c9ca37065affc194f/evidence/dogfooding/dogfooding-case-study-evidence.json) ledger.
 Evidence ledgers are collection records and are never edited by hand after collection.
 A correction is a fresh collection with a new `collected_at` value.
 
@@ -92,7 +92,7 @@ not a preserved September 6 description snapshot.
 | **Follow-up total** | **257** | **255** | **201** | **40** |
 | **Original + follow-up** | **424** | **408** | **323** | **64** |
 
-The [follow-up evidence ledger](dogfooding-follow-up-2026-09-06-evidence.json) preserves
+The [follow-up evidence ledger](https://github.com/elanthus/preflight-eval-results/blob/f784772cbbc17618ad05636c9ca37065affc194f/evidence/dogfooding/dogfooding-follow-up-2026-09-06-evidence.json) preserves
 all 257 PR identities and timestamps, the selected exact excerpts, exclusion reasons,
 and SHA-256 hashes of the retrieved descriptions. Each repository returned fewer than
 the requested 1,000 records. Collection used:

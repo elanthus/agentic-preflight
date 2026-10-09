@@ -76,22 +76,7 @@ jobs:
         env:
           UV_TOOL_DIR: ${{ runner.temp }}/uv-tools
           UV_TOOL_BIN_DIR: ${{ runner.temp }}/uv-tools-bin
-        run: |
-          uv tool install --python 3.11 dist/*.whl
-          "$UV_TOOL_BIN_DIR/agentic-preflight" --version
-          test ! -e "$UV_TOOL_BIN_DIR/ap"
-          # -P keeps the current directory off sys.path. Without it the step runs
-          # from the repository root, where the agentic_preflight source directory
-          # shadows the installed package and the assertions below inspect the
-          # checkout instead of the wheel.
-          "$UV_TOOL_DIR/agentic-preflight/bin/python" -P - <<'PY'
-          import importlib.resources as resources
-
-          package = resources.files("agentic_preflight")
-          assert package.joinpath("py.typed").is_file(), "py.typed missing from wheel"
-          assert package.joinpath("_bundled_skill").is_dir(), "bundled skill missing from wheel"
-          print("wheel contents verified")
-          PY
+        run: bash scripts/smoke-wheel.sh
 
       - name: Attest build provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4

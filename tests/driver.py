@@ -16,19 +16,11 @@ import json
 import os
 import subprocess
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
 
 from click.testing import CliRunner
 
 from agentic_preflight.cli import main
-
-
-@dataclass
-class Step:
-    argv: list[str]
-    expected_exit: int = 0
-    envelope: dict = field(default_factory=dict)
 
 
 def _parse_single_object(stdout: str, argv: list[str]) -> dict:
@@ -47,7 +39,6 @@ class ScriptedAgent:
     def __init__(self, repo: Path, transport: str = "cli_runner") -> None:
         self.repo = Path(repo)
         self.transport = transport
-        self.steps: list[Step] = []
         self.review_manifest: str | None = None
 
     def run(self, *argv: str, expect: int = 0) -> dict:
@@ -65,7 +56,6 @@ class ScriptedAgent:
             f"`agentic-preflight {' '.join(argv)}` exited {code}, expected {expect}; "
             f"envelope: {json.dumps(payload, indent=2)}"
         )
-        self.steps.append(Step(list(argv), code, payload))
         coverage = payload.get("data", {}).get("review_coverage", {})
         if isinstance(coverage, dict) and isinstance(coverage.get("manifest"), str):
             self.review_manifest = coverage["manifest"]
@@ -92,9 +82,6 @@ class ScriptedAgent:
             return
         coverage["manifest"] = self.review_manifest
         path.write_text(json.dumps(payload))
-
-    def script(self, steps: list[tuple[list[str], int]]) -> list[dict]:
-        return [self.run(*argv, expect=code) for argv, code in steps]
 
     # -- transports ---------------------------------------------------------
 
