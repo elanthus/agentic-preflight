@@ -227,14 +227,14 @@ def is_ancestor(cwd: Path | str, maybe_ancestor: str, descendant: str) -> bool:
     return result.returncode == 0
 
 
-def version(cwd: Path | str = ".") -> tuple[int, int] | None:
+def version() -> tuple[int, int] | None:
     """``(major, minor)`` of the git binary, or ``None`` if it cannot be read.
 
     Deliberately not cached. It is read at most twice per run, so a
     process-wide cache would trade an unmeasurable saving for global state
     that leaks between tests.
     """
-    result = run(cwd, "--version", check=False)
+    result = run(".", "--version", check=False)
     if result.returncode != 0:
         return None
     # "git version 2.46.2.windows.1" and "git version 2.39.3 (Apple Git-146)"
@@ -494,34 +494,6 @@ def changed_files(cwd: Path | str, base: str, head: str = "HEAD") -> list[str]:
     return [path for path in output.split("\0") if path]
 
 
-def diff_text(cwd: Path | str, base: str, head: str = "HEAD") -> str:
-    """Return the diff between the merge base and head."""
-    return run(
-        cwd,
-        "diff",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--no-color",
-        _NO_RENAMES,
-        f"{base}...{head}",
-    ).stdout
-
-
-def diff_text_for_path(cwd: Path | str, base: str, head: str, path: str) -> str:
-    """Return the diff for one path between the merge base and head."""
-    return run(
-        cwd,
-        "diff",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--no-color",
-        _NO_RENAMES,
-        f"{base}...{head}",
-        "--",
-        f":(literal){path}",
-    ).stdout
-
-
 _DIFF_PATH_BATCH_FILES = 256
 _DIFF_PATH_BATCH_BYTES = 24_000
 
@@ -691,25 +663,6 @@ def remote_url(cwd: Path | str, remote: str = "origin") -> str | None:
     if result.returncode != 0:
         return None
     return result.stdout.strip() or None
-
-
-def local_branch_exists(cwd: Path | str, branch: str) -> bool:
-    """Return whether a local branch exists."""
-    return (
-        run(cwd, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}", check=False).returncode
-        == 0
-    )
-
-
-def delete_remote_branch(cwd: Path | str, branch: str, remote: str = "origin") -> bool:
-    """Delete a remote branch, treating an already-absent ref as idempotent."""
-    result = run(cwd, "push", remote, "--delete", branch, check=False)
-    if result.returncode == 0:
-        return True
-    missing_markers = ("remote ref does not exist", "unable to delete")
-    if any(marker in result.stderr.lower() for marker in missing_markers):
-        return False
-    raise GitError(["push", remote, "--delete", branch], result.returncode, result.stderr)
 
 
 def list_worktrees(cwd: Path | str) -> list[dict[str, str]]:

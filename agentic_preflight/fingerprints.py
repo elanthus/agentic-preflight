@@ -202,6 +202,8 @@ def doc_surface(repo: Path | str, inventory: Iterable[DocEntry]) -> list[dict[st
     return [
         {
             **entry.as_dict(),
+            # Preserve the historical fingerprint input after removing the CLI field.
+            "exists": True,
             "content_sha256": hashlib.sha256((Path(repo) / entry.path).read_bytes()).hexdigest(),
         }
         for entry in inventory
