@@ -5,6 +5,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## [Unreleased]
 
+### Changed
+
+- Remove unused internal helpers and test-driver history. Documentation inventory entries
+  omit the always-true `exists` field; detected commands omit `trust` and retain their
+  source, including the `untrusted:workflow:` prefix. Click 8.2 or newer is required.
+  Bare CLI invocation still prints help and exits 0. Fingerprint evidence is unchanged.
+
 ### Fixed
 
 - `gc` can now orphan an abandoned run whose stored config snapshot holds a key that

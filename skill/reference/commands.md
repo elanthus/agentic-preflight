@@ -142,7 +142,7 @@ review coverage is stale, it reopens review instead.
 - Review adds `review_coverage`: a snapshot-bound `manifest`, the exact `head`, and
   every hunk or non-textual file-level review unit.
 - `--section docs` adds `doc_surface`: every file in the configured documentation
-  allowlist, with `exists`, `size`, and `touched_by_diff`. From `REVIEW_GREEN` this
+  allowlist, with `path`, `size`, and `touched_by_diff`. Entries describe existing files. From `REVIEW_GREEN` this
   opens the docs stage.
 
 Both sections also include `data.grounding`, a deterministic, bounded retrieval of
@@ -273,8 +273,7 @@ remote jobs before merge, including for documentation-only changes.
 Command resolution: `--command` → `[commands].<name>` → detection. Detection never
 guesses: it exits 2 with `data.mode = "needs_command"` and candidates from
 `pyproject.toml`, `package.json`, `Makefile`, `justfile`, and CI workflows. Every candidate
-has `command`, `source`, and `trust` fields. Manifest candidates carry
-`trust: "repo_manifest"`; workflow `run:` lines carry `trust: "untrusted"` and a source
+has `command` and `source` fields. Workflow `run:` lines have a source
 prefixed with `untrusted:workflow:`. No detected candidate is copied into `next.command`;
 show its exact command to the user and obtain approval before first use.
 

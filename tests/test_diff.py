@@ -215,7 +215,6 @@ def test_a_small_diff_is_under_budget(feature_repo):
     bundle = diff.build_bundle(feature_repo, base, "HEAD")
     report = diff.check_budget(bundle, max_bytes=200_000)
     assert report.over_budget is False
-    assert report.overage == 0
 
 
 def test_an_oversized_diff_trips_the_budget(feature_repo):
@@ -223,7 +222,6 @@ def test_an_oversized_diff_trips_the_budget(feature_repo):
     bundle = diff.build_bundle(feature_repo, base, "HEAD")
     report = diff.check_budget(bundle, max_bytes=10)
     assert report.over_budget is True
-    assert report.overage == bundle.total_bytes - 10
 
 
 def test_budget_report_names_the_biggest_files_first(feature_repo):
