@@ -25,9 +25,7 @@ human_review_paths = [
   "agentic_preflight/risk.py",
   "agentic_preflight/runs/publish.py",
   "docs/RELEASING.md",
-  "pyproject.toml",
   "skill/**",
-  "uv.lock",
 ]
 high_risk_paths = ["agentic_preflight/**"]
 medium_risk_paths = ["tests/**"]
