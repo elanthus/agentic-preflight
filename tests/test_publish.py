@@ -108,7 +108,10 @@ def test_gate_mints_a_token_and_summarises_the_verified_push(verified):
     assert env["data"]["pr_mode"] == "auto"
     assert env["data"]["automated_cleanup"] is True
     assert env["data"]["approval_mode"] == "manual_merge"
-    assert "skill/SKILL.md#escalation-etiquette" in env["next"]["instruction"]
+    assert (
+        "https://github.com/elanthus/agentic-preflight/blob/main/skill/SKILL.md#escalation-etiquette"
+        in env["next"]["instruction"]
+    )
     assert "only after authorization" in env["next"]["instruction"]
     assert env["next"]["command"] == "agentic-preflight push --confirm <token>"
     assert token not in env["next"]["command"]
@@ -149,7 +152,10 @@ def test_standing_authorization_guidance_survives_gate_and_recovery(
 
     instruction = env["next"]["instruction"]
     if entry == "gate":
-        assert "skill/SKILL.md#escalation-etiquette" in instruction
+        assert (
+            "https://github.com/elanthus/agentic-preflight/blob/main/skill/SKILL.md#escalation-etiquette"
+            in instruction
+        )
         assert "only after authorization" in instruction
     else:
         assert "applicable standing instructions" in instruction
@@ -276,7 +282,10 @@ def test_manual_pr_mode_pushes_but_hands_pr_creation_to_the_user(
 
     env = agent.run("gate")
     assert env["data"]["pr_mode"] == "manual"
-    assert "skill/SKILL.md#escalation-etiquette" in env["next"]["instruction"]
+    assert (
+        "https://github.com/elanthus/agentic-preflight/blob/main/skill/SKILL.md#escalation-etiquette"
+        in env["next"]["instruction"]
+    )
     assert "compare URL" in env["next"]["instruction"]
     assert "push and open" not in env["next"]["instruction"]
 
