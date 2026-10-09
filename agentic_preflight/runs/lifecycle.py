@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import gitx, hook
+from .. import gitx, hook, worktree
 from .. import risk as riskmod
 from ..envelope import Envelope
 from ..errors import (
@@ -283,12 +283,15 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
         session, known_runs, {item["run_id"] for item in retained if "run_id" in item}
     )
 
+    legacy = worktree.legacy_worktrees(session.repo_root, session.config.worktree.root)
+
     return Envelope(
         data={
             "removed": removed,
             "retained": retained,
             "orphans": orphans,
             "reclaimed_runners": reclaimed_runners,
+            "legacy_worktrees": legacy,
             "runs_known": sorted(known_runs),
             "active": store.list_active(),
         },
@@ -297,6 +300,9 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
             if unreadable_retained
             else "Orphans were found; inspect them before removing."
             if orphans
+            else "Validation worktrees remain at the old sibling default location; "
+            "inspect each and remove it with `git worktree remove <path>` if unneeded."
+            if legacy
             else None
         ),
         next_command=(
@@ -313,8 +319,9 @@ def _reclaim_released_runners(
     """Remove released reusable runners that no existing source worktree can use.
 
     Candidates are the current reusable runner location plus any ``runner``
-    checkout a run record names, which covers runners left at older
-    per-checkout locations. A runner is kept while it is leased on a branch or
+    checkout a run record names and registered runners under the old sibling
+    default, covering runners left at older per-checkout locations. A runner is
+    kept while it is leased on a branch or
     while any run record naming it still has an existing source worktree, or
     while a record naming it fails validation or is retained by collection.
     Locked or dirty runners are preserved, and Git removal failures never trigger
@@ -357,6 +364,11 @@ def _reclaim_released_runners(
 
     candidates = {(session.store.worktrees_dir / "runner").resolve()}
     candidates.update(path for path, _, _ in users if path.name == "runner")
+    candidates.update(
+        path
+        for path in registered
+        if path.name == "runner" and worktree.LEGACY_DIRNAME in path.parts
+    )
 
     reclaimed: list[str] = []
     for runner in sorted(candidates):

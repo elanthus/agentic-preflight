@@ -356,7 +356,8 @@ branch was already absent.
 Released runner cleanup preserves locked or dirty worktrees and runners associated
 with retained runs, including unmerged fixes. Eligible unused runners at current and
 historical locations are reclaimed with their ignored caches; Git removal failures
-preserve the directory.
+preserve the directory. This includes the user cache and old sibling default;
+`data.legacy_worktrees` reports old registrations remaining after reclamation.
 
 For a pushed run with no PR, follow `finish` with `gc`. `gc` compares original fixes
 with post-merge-back history using stable patch IDs. Only patch-equivalent fixes are

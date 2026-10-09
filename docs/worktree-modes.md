@@ -59,8 +59,9 @@ explicit `setup_command` still runs.
 
 ## `reusable`
 
-Leases one validation worktree in a hidden sibling directory, serially across runs, preserving ignored
-dependency and build caches.
+Leases one validation worktree under the user cache directory (see
+[Where isolated worktrees live](#where-isolated-worktrees-live)), serially across runs,
+preserving ignored dependency and build caches.
 
 The runner belongs to the clone, not the checkout. Runs started from the main checkout
 and from any linked worktree of the same clone lease the same runner. Its default
@@ -91,6 +92,24 @@ Creates a fresh worktree for every run and removes it afterward. Use it when eac
 validation must begin with no retained artifacts.
 
 Remote CI should remain the clean verification boundary in either isolated mode.
+
+## Where isolated worktrees live
+
+Both isolated modes default to one directory per clone under
+`$XDG_CACHE_HOME/agentic-preflight/worktrees/`, or `~/.cache/agentic-preflight/worktrees/`
+when `XDG_CACHE_HOME` is unset or not an absolute path. The location is outside `.git`,
+so tools such as Jest discover tests. Set `[worktree] root` to choose another location;
+it must be outside the repository.
+
+### Migrating from the sibling default
+
+Earlier releases put worktrees in a hidden `.agentic-preflight-worktrees/` directory
+beside each checkout. New runs use the cache location. `agentic-preflight gc` reclaims
+eligible unused reusable runners in both locations under the same preservation rules
+above. `data.legacy_worktrees` reports registrations remaining at the old sibling
+location after reclamation; inspect each before removing it with
+`git worktree remove <path>`. An explicitly configured root using the old directory
+name remains supported and is not reported as legacy.
 
 ## Seeing how much space checkouts hold
 

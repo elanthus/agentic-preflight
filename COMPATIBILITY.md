@@ -99,3 +99,9 @@ under the old protected-base mode until merged.
 The new `reviewer` field defaults to an empty string in configuration snapshots; old
 snapshots remain readable by this version. Snapshots written by this version include
 that new field and may be rejected by older strict configuration readers.
+
+Isolated worktrees now default to the user cache (`$XDG_CACHE_HOME` when absolute,
+otherwise `~/.cache`) instead of the sibling `.agentic-preflight-worktrees` directory.
+Existing configured roots remain supported. New runs use the new default; `gc` may
+reclaim eligible unused reusable runners at either location, preserving dirty,
+locked, leased, or retained work and reporting remaining legacy registrations.

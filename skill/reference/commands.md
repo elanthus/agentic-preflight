@@ -40,8 +40,9 @@ With `--no-hook`, the effective path and override state are still reported, whil
 
 The default `in_place` mode uses the current checkout and reports
 `data.worktree_root: null`. In isolated `reusable` and `strict` modes, worktrees default
-to a hidden sibling directory outside `.git`, and `data.worktree_root` reports that
-resolved location.
+to a per-clone directory under `$XDG_CACHE_HOME/agentic-preflight/worktrees/` (or
+`~/.cache/agentic-preflight/worktrees/` when `XDG_CACHE_HOME` is unset or relative), and
+`data.worktree_root` reports that resolved location.
 
 ### `agentic-preflight integrations install AGENT... [--scope user|project] [--target PATH] [--force]`
 Copies the bundled skill and all of its references into each selected agent's discovery
@@ -449,6 +450,11 @@ and runners associated with retained runs (including unmerged fixes). Ignored ca
 in an otherwise eligible runner are disposable. A refused Git removal preserves the
 runner rather than deleting its directory directly.
 
+
+`gc` also reclaims eligible unused reusable runners at the old sibling location
+under the same preservation rules. `data.legacy_worktrees` lists registrations still
+remaining under that `.agentic-preflight-worktrees/` default after reclamation;
+inspect each before removing it with `git worktree remove <path>`.
 
 ### `agentic-preflight hook-check`
 The pre-push predicate. Reads git's stdin protocol, consults only the commit's
