@@ -5,6 +5,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## [Unreleased]
 
+### Changed
+
+- Integration installation now removes and copies a bundle directly after checking all
+  targets for conflicts. A filesystem failure can leave an absent or partial copy;
+  rerun installation with `--force` after correcting the failure. CLI options and
+  successful install, update, status, and uninstall results are unchanged.
+
 ### Fixed
 
 - `gc` can now orphan an abandoned run whose stored config snapshot holds a key that
