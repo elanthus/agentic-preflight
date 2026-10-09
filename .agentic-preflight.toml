@@ -44,13 +44,11 @@ human_review_paths = [
   "agentic_preflight/templates/ci/**",
   "agentic_preflight/wire_schema.py",
   "docs/RELEASING.md",
-  "pyproject.toml",
   # Agent approval and recovery instructions; routine CLI references are medium risk.
   "skill/SKILL.md",
   "skill/reference/docs-rubric.md",
   "skill/reference/findings-schema.md",
   "skill/reference/playbooks.md",
-  "uv.lock",
 ]
 # Ordinary implementation changes still receive the full validation pipeline.
 # Explicit human-review matches above win over these medium-risk defaults.

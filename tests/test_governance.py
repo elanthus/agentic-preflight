@@ -181,3 +181,29 @@ def _policy_script(filename):
     end = "\n  test:" if filename == "ci.yml" else "\n  environment:"
     block = workflow[workflow.index("      - name: " + label) : workflow.index(end)]
     return textwrap.dedent(block.split("        run: |\n", 1)[1])
+
+
+def test_dependency_updates_are_audited_without_human_risk_triggers():
+    from agentic_preflight.config import Config
+    from agentic_preflight.models import RiskLevel
+    from agentic_preflight.risk import assess
+
+    cfg = Config.model_validate(tomllib.loads((ROOT / ".agentic-preflight.toml").read_text()))
+
+    def level(paths):
+        return assess(
+            paths,
+            [],
+            policy=cfg.policy,
+            review_blocking_severities=cfg.review.blocking_severities,
+            docs_blocking_severities=cfg.docs.blocking_severities,
+        ).level
+
+    assert level(["pyproject.toml", "uv.lock"]) is not RiskLevel.HIGH
+    assert level(["uv.lock", "agentic_preflight/config.py"]) is RiskLevel.HIGH
+    assert level(["pyproject.toml", ".github/workflows/ci.yml"]) is RiskLevel.HIGH
+    owners = (ROOT / ".github/CODEOWNERS").read_text()
+    assert "/pyproject.toml" not in owners
+    assert "/uv.lock" not in owners
+    assert "/.github/dependabot.yml" in owners
+    assert "dependency vulnerability audit" in (ROOT / ".github/workflows/security.yml").read_text()

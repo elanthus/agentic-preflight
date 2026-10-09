@@ -69,7 +69,8 @@ such as a high or critical review finding (even after it is fixed).
 
 The explicit `human_review_paths` in `.agentic-preflight.toml` cover policy and ownership,
 CI workflows and templates, direct approval and evidence-verification decisions,
-publication gates, packaging and dependencies, and agent approval/recovery instructions.
+publication gates, and agent approval/recovery instructions. Dependency manifest and
+lockfile changes rely on the required automated dependency audit.
 Keep `.github/CODEOWNERS` aligned with that list: a blanket package owner would restore
 mandatory human review when Code Owner review is enforced. New code that decides whether
 evidence is valid, a stage may be skipped, or publication/merge may proceed needs an

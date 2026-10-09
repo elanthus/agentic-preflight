@@ -36,9 +36,7 @@
 /agentic_preflight/templates/ci/ @elanthus
 /agentic_preflight/wire_schema.py @elanthus
 /docs/RELEASING.md @elanthus
-/pyproject.toml @elanthus
 /skill/SKILL.md @elanthus
 /skill/reference/docs-rubric.md @elanthus
 /skill/reference/findings-schema.md @elanthus
 /skill/reference/playbooks.md @elanthus
-/uv.lock @elanthus
