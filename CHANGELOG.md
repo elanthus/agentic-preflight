@@ -5,6 +5,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## [Unreleased]
 
+### Changed
+
+- Windows atomic file replacement now makes at most three attempts, with a fixed
+  5 ms pause between permission failures, instead of eight attempts with exponential
+  backoff. Persistent failures still raise the final error; POSIX replacement and
+  owner-only protection for Windows `copy_files` are unchanged.
+
 ### Fixed
 
 - `gc` can now orphan an abandoned run whose stored config snapshot holds a key that
