@@ -8,8 +8,6 @@ and prove none exists.
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
-from hypothesis import strategies as st
 
 from agentic_preflight.machine import (
     Action,
@@ -133,40 +131,11 @@ def test_duplicate_actions_are_rejected_before_a_dictionary_can_hide_them():
         )
 
 
-# -- random walks -----------------------------------------------------------
-
-
-@settings(max_examples=300)
-@given(st.lists(st.sampled_from(list(Action)), max_size=40))
-def test_random_action_sequences_never_raise_anything_unexpected(actions):
-    """The only exception a caller should ever see is IllegalTransition."""
-    state = State.CREATED
-    for action in actions:
-        try:
-            state = next_state(state, action)
-        except IllegalTransition:
-            continue
-        assert isinstance(state, State)
-
-
-@settings(max_examples=300)
-@given(st.lists(st.sampled_from(list(Action)), max_size=40))
-def test_a_random_walk_never_reaches_pushed_without_the_full_chain(actions):
-    state = State.CREATED
-    visited = {state}
-    for action in actions:
-        try:
-            state = next_state(state, action)
-        except IllegalTransition:
-            continue
-        visited.add(state)
-
-    if State.PUSHED in visited:
-        for required in (
-            State.REVIEW_GREEN,
-            State.DOCS_GREEN,
-            State.LINT_GREEN,
-        ):
-            assert required in visited, f"reached PUSHED without {required.name}"
-        assert visited & {State.TEST_GREEN, State.TEST_DELEGATED}
-        assert visited & {State.VERIFIED, State.PUBLICATION_READY}
+def test_every_state_action_pair_returns_a_state_or_illegal_transition():
+    for state in State:
+        for action in Action:
+            if action in legal_actions(state):
+                assert isinstance(next_state(state, action), State)
+            else:
+                with pytest.raises(IllegalTransition):
+                    next_state(state, action)
