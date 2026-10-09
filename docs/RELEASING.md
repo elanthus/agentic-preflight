@@ -55,10 +55,8 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
    through the final `AWAITING_PUSH_CONFIRM` frame and check the demo run's status;
    a successful renderer exit alone does not prove the recorded commands passed.
 3. Commit and merge to `main`.
-4. Run the full test matrix before tagging. Pull requests and pushes to `main` run
-   only `ubuntu-latest` on Python 3.13. Scheduled
-   Monday/Thursday regression covers macOS 15 with Python 3.11, but a manual run of
-   the CI workflow is the pre-release check across all nine supported combinations:
+4. Run the full [compatibility matrix](../COMPATIBILITY.md#validation-tiers) before
+   tagging by dispatching the CI workflow:
 
    ```bash
    gh workflow run ci.yml --ref main
@@ -85,8 +83,8 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
    The pre-push hook does not require an attestation for tag pushes, so this works
    when the tagged commit is a merge commit created on GitHub.
 
-6. The tag run starts two jobs in parallel. `test` exercises the full matrix of
-   Ubuntu, macOS, and Windows against Python 3.11, 3.12, and 3.13. `build` verifies the tag
+6. The tag run starts two jobs in parallel. `test` exercises the full compatibility
+   matrix. `build` verifies the tag
    matches `pyproject.toml`, builds the sdist and wheel, and smoke-tests the wheel.
    `publish` requires both, so it stays pending until the matrix and the build are
    green. The build also produces a CycloneDX SBOM and GitHub build-provenance and SBOM

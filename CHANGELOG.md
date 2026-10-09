@@ -185,6 +185,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Consolidated prior art, PR lifecycle, exit-code, worktree setup, and CI matrix documentation into linked canonical sections; workflow behavior is unchanged.
 - Context grounding derives module terms for every Python package, not only
   `agentic_preflight`. A changed `.py` file under any directory now contributes its path
   relative to the top-level directory and its dotted module name.
