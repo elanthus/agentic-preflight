@@ -5,6 +5,12 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## [Unreleased]
 
+### Changed
+
+- Moved the two immutable dogfooding evidence ledgers to `elanthus/preflight-eval-results`
+  and pinned the case study links to the archive commit. Collection data and case study
+  counts are unchanged; the ledgers are no longer stored in this source tree.
+
 ### Fixed
 
 - `reusable` mode now keeps one runner per clone. The default worktree root was named
