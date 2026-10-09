@@ -7,10 +7,23 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
-- Replaced the regression eval summary golden and duplicate dry-eval CI job with
-  existing scoring and determinism checks. Git-history isolation now builds one
-  representative repository per selected snapshot; every corpus case still receives
-  fixture validation.
+- Narrowed this repository's human-review policy to explicit approval, verification,
+  publication, governance, and agent-instruction paths, with matching CODEOWNERS entries.
+  Ordinary package code, tests, and CLI references are medium risk. The skill's CLI
+  walkthrough now lives separately from its protected approval and recovery rules.
+  The configured review approval for high-risk changes and escalation from severe findings
+  remain unchanged; installed projects' default policy is unchanged.
+
+- Added opt-in `owner_review` approval with an explicit human reviewer: exact-head
+  Approve reviews on other authors' PRs and Comment reviews containing `approved` on
+  their own PRs. This repository now uses `owner_review` with `elanthus` as the
+  reviewer instead of requiring a GitHub Environment approval.
+  Dependency manifest and lockfile changes no longer trigger human review; automated
+  dependency audits remain required. The policy migration itself uses the old base mode.
+
+- Moved the two immutable dogfooding evidence ledgers to `elanthus/preflight-eval-results`
+  and pinned the case study links to the archive commit. Collection data and case study
+  counts are unchanged; the ledgers are no longer stored in this source tree.
 
 ### Fixed
 

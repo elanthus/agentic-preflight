@@ -39,11 +39,23 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
 1. Choose an unused three-part SemVer (`MAJOR.MINOR.PATCH`) and update
    `version` in `pyproject.toml`. A hotfix is a patch bump, never a fourth version
    component. Run `uv lock` to keep the local project version in `uv.lock` in sync.
-2. Update `CHANGELOG.md`, and re-pin the README's `blob/vX.Y.Z` documentation
+2. Assemble the changelog using the chosen version and release date:
+
+   ```bash
+   uv run python tools/changelog.py X.Y.Z --date YYYY-MM-DD
+   ```
+
+   The command combines existing Unreleased entries with `docs/CHANGELOG.d/*.md`,
+   ordered by category then filename, under the new release. It validates every
+   fragment before changing files, replaces the changelog atomically, and removes
+   consumed fragments. A repeated version is rejected. Inspect and commit both
+   `CHANGELOG.md` and fragment deletions together. If removal is interrupted, restore
+   the pre-assembly tree before retrying; do not reuse a partially consumed set.
+   Historical release text is preserved. Then re-pin the README's `blob/vX.Y.Z` documentation
    links to the new version. Check each target against the release tree; the
    new tag links will become available when the tag is pushed. This re-pin also covers
-   any `blob/main` link introduced between releases. Re-record the README animation
-   against the release checkout:
+   any `blob/main` link introduced between releases. Optionally re-record the README
+   animation when the demonstrated workflow changes:
 
    ```bash
    uv sync --group dev
@@ -54,6 +66,14 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
    This requires VHS, its recording dependencies, `zsh`, and `jq`. Watch the GIF
    through the final `AWAITING_PUSH_CONFIRM` frame and check the demo run's status;
    a successful renderer exit alone does not prove the recorded commands passed.
+   The current README animation is pinned to an existing commit in `main` history,
+   so removing the tracked GIF does not depend on the badges branch retaining it.
+   The generated `docs/demo.gif` is ignored and is not committed to `main`. Once the
+   coverage publisher that preserves other assets is on `main`, publish
+   it as `demo.gif` on the existing `badges` branch in a normal commit that preserves
+   `coverage.svg` and other assets, then update the README to its commit-pinned raw
+   URL. Never recreate or force-push the badges branch to update the animation.
+   The coverage publisher updates only `coverage.svg` and preserves the animation.
 3. Commit and merge to `main`.
 4. Run the full test matrix before tagging. Pull requests and pushes to `main` run
    only `ubuntu-latest` on Python 3.13. Scheduled

@@ -5,7 +5,7 @@ on:
     types:
       [opened, reopened, synchronize, ready_for_review, auto_merge_enabled, auto_merge_disabled]
   pull_request_review:
-    types: [submitted, dismissed]
+    types: [submitted, edited, dismissed]
 
 permissions:
   actions: read
@@ -138,9 +138,9 @@ jobs:
           elif [ "$APPROVAL_MODE" = "environment" ]; then
             test "$ENVIRONMENT_RESULT" = "success"
             echo "GitHub Environment approval recorded for the exact workflow run."
-          elif [ "$APPROVAL_MODE" = "peer_review" ]; then
+          elif [ "$APPROVAL_MODE" = "peer_review" ] || [ "$APPROVAL_MODE" = "owner_review" ]; then
             test "$APPROVED" = "true"
-            echo "Eligible peer approval recorded for the exact head."
+            echo "Eligible review approval recorded for the exact head."
           else
             echo "Unknown approval mode: $APPROVAL_MODE" >&2
             exit 1

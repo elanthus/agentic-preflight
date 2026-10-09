@@ -41,9 +41,7 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "pytest-xdist>=3.8",
-    "hypothesis>=6.165.2",
     "mypy>=1.17",
-    "pip-audit>=2.10",
     "ruff>=0.16.2",
 ]
 
@@ -66,6 +64,8 @@ include = [
     "/SECURITY.md",
     "/SUPPORT.md",
     "/docs/*.md",
+    "/docs/CHANGELOG.d/*.md",
+    "/tools/changelog.py",
     "/docs/adr/*.md",
     "/install.sh",
     "/uninstall.sh",
