@@ -38,5 +38,5 @@ mode = "auto"
 automated_cleanup = true
 
 [approval]
-mode = "environment"
-environment = "high-risk-review"
+mode = "owner_review"
+reviewer = "elanthus"

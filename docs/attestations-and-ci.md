@@ -150,10 +150,10 @@ exact-head approval rule for an eligible person other than the pull-request auth
 or a Comment review containing exactly `approved` on their own PR. See
 [approval configuration](configuration.md#high-risk-merge-handling-approval).
 
-This repository can switch to `owner_review` with `reviewer = "elanthus"` after this
-support is merged. The support PR retains Environment mode so the protected-base
-verifier can read its attestation. A subsequent configuration PR activates owner reviews
-and also needs approval under its old Environment base policy. Changes only to
+This repository uses `owner_review` with `reviewer = "elanthus"`. Submit an Approve
+review on another author's PR, or a Comment review containing only `approved` on your own
+PR, for the exact current head. The activation PR itself still needs approval under its
+old Environment base policy. Changes only to
 `pyproject.toml` or `uv.lock` no longer require high-risk review or CODEOWNERS approval;
 the automated dependency vulnerability audit still runs. Dependabot automation settings
 remain protected policy.
