@@ -5,6 +5,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## [Unreleased]
 
+### Changed
+
+- Replaced the regression eval summary golden and duplicate dry-eval CI job with
+  existing scoring and determinism checks. Git-history isolation now builds one
+  representative repository per selected snapshot; every corpus case still receives
+  fixture validation.
+
 ### Fixed
 
 - `gc` can now orphan an abandoned run whose stored config snapshot holds a key that
