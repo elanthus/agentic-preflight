@@ -4,30 +4,11 @@ import hashlib
 
 from agentic_preflight import attestation, config
 from tests.conftest import commit_all, git, set_home, write
-from tests.driver import ScriptedAgent
-
-
-def _green_run(repo, tmp_path):
-    write(
-        repo,
-        ".agentic-preflight.toml",
-        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n",
-    )
-    commit_all(repo, "configure agentic-preflight")
-    agent = ScriptedAgent(repo)
-    agent.run("start")
-    agent.run("context")
-    findings = tmp_path / "findings.json"
-    findings.write_text('{"coverage":{"manifest":"$context","examined":"all"},"findings":[]}\n')
-    agent.run("submit-findings", "--file", str(findings))
-    agent.run("stage", "run", "lint")
-    agent.run("stage", "run", "test")
-    agent.run("mergeback")
-    return agent
+from tests.driver import ScriptedAgent, green_run
 
 
 def test_attestation_uses_dedicated_intent_and_config_bindings(feature_repo, tmp_path):
-    _green_run(feature_repo, tmp_path)
+    green_run(feature_repo, tmp_path)
     value = attestation.verify(feature_repo, "HEAD")
     expected_config = config.config_digest(config.load_config(feature_repo).model_dump(mode="json"))
 
@@ -41,7 +22,7 @@ def test_attestation_uses_dedicated_intent_and_config_bindings(feature_repo, tmp
 def test_start_rechecks_refresh_evidence_when_attested_head_contains_fresh_base(
     feature_repo, tmp_path
 ):
-    agent = _green_run(feature_repo, tmp_path)
+    agent = green_run(feature_repo, tmp_path)
     head = git("rev-parse", "HEAD", cwd=feature_repo)
     agent.run("abort", "--force")
     agent.run("gc")
@@ -57,7 +38,7 @@ def test_start_rechecks_refresh_evidence_when_attested_head_contains_fresh_base(
 
 
 def test_a_different_user_intent_forces_a_fresh_review(feature_repo, tmp_path):
-    agent = _green_run(feature_repo, tmp_path)
+    agent = green_run(feature_repo, tmp_path)
     head = git("rev-parse", "HEAD", cwd=feature_repo)
     agent.run("abort", "--force")
     agent.run("gc")

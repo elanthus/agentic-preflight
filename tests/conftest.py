@@ -329,3 +329,10 @@ def unreadable_run_bytes(run: RunDoc, kind: str) -> bytes:
     elif kind == "invalid_encoding":
         return b"\xffDO_NOT_ECHO_RECORD_VALUES"
     return json.dumps(raw).encode()
+
+
+@pytest.fixture
+def agent(feature_repo):
+    from tests.driver import ScriptedAgent
+
+    return ScriptedAgent(feature_repo)

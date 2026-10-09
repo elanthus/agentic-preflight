@@ -5,7 +5,7 @@ import json
 from agentic_preflight.attestation import NOTES_REF
 from agentic_preflight.envelope import ExitCode
 from tests.conftest import commit_all, git, write
-from tests.driver import ScriptedAgent
+from tests.driver import ScriptedAgent, findings_json
 
 CONFIG = """[general]
 base_ref = "main"
@@ -17,14 +17,6 @@ test = "true"
 [docs]
 enabled = true
 """
-
-
-def findings_json(tmp_path, items):
-    path = tmp_path / "findings.json"
-    path.write_text(
-        json.dumps({"coverage": {"manifest": "$context", "examined": "all"}, "findings": items})
-    )
-    return str(path)
 
 
 def docs_findings_json(tmp_path, items):
@@ -117,6 +109,11 @@ def test_documentation_only_gate_records_test_as_skipped(tmp_repo, tmp_path):
     assert env["state"] == "DOCS_GREEN"
     env = agent.run("stage", "run", "lint", "--command", "true", "--record")
     assert env["state"] == "TEST_GREEN"
+    assert env["next"]["command"] == "agentic-preflight mergeback"
+    test_record = agent.run("status")["data"]["stages"]["test"]
+    assert test_record["status"] == "skipped"
+    assert "documentation and CI configuration" in test_record["reason"]
+    assert test_record["command"] is None
     agent.run("mergeback")
 
     head = git("rev-parse", "HEAD", cwd=tmp_repo)

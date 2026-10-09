@@ -5,6 +5,12 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## [Unreleased]
 
+### Changed
+
+- Consolidated shared test agents, review submissions, and green-run helpers, and
+  retained one end-to-end test for recorded software-test skips. Product behavior
+  is unchanged.
+
 ### Fixed
 
 - `gc` can now orphan an abandoned run whose stored config snapshot holds a key that

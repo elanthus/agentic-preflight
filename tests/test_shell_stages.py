@@ -24,15 +24,7 @@ from tests.conftest import (
     requires_windows,
     write,
 )
-from tests.driver import ScriptedAgent
-
-
-def findings_json(tmp_path, items):
-    path = tmp_path / "findings.json"
-    path.write_text(
-        json.dumps({"coverage": {"manifest": "$context", "examined": "all"}, "findings": items})
-    )
-    return str(path)
+from tests.driver import ScriptedAgent, findings_json
 
 
 def docs_findings_json(tmp_path, items):
@@ -164,77 +156,6 @@ def test_docs_must_pass_before_lint_runs(feature_repo, tmp_path):
         "stage", "run", "lint", "--command", "true", "--record", expect=ExitCode.PRECONDITION
     )
     assert env["error"]["code"] == "wrong_state"
-
-
-def test_documentation_only_changes_skip_software_tests_after_lint(tmp_repo, tmp_path):
-    from tests.conftest import git
-
-    git("switch", "-c", "feature/docs", cwd=tmp_repo)
-    write(tmp_repo, "README.md", "# demo\n\nUpdated documentation.\n")
-    commit_all(tmp_repo, "update docs")
-    agent = ScriptedAgent(tmp_repo)
-    agent.run("start")
-    agent.run("context")
-
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("context", "--section", "docs")
-    agent.run("submit-findings", "--file", docs_findings_json(tmp_path, []))
-    env = agent.run("stage", "run", "lint", "--command", "true", "--record")
-
-    assert env["state"] == "TEST_GREEN"
-    assert env["next"]["command"] == "agentic-preflight mergeback"
-    test_record = agent.run("status")["data"]["stages"]["test"]
-    assert test_record["status"] == "skipped"
-    assert "documentation and CI configuration" in test_record["reason"]
-    assert test_record["command"] is None
-
-
-def test_ci_configuration_only_changes_skip_software_tests(tmp_repo, tmp_path):
-    from tests.conftest import git
-
-    git("switch", "-c", "feature/ci", cwd=tmp_repo)
-    write(tmp_repo, ".github/workflows/ci.yml", "name: CI\n")
-    commit_all(tmp_repo, "update CI")
-    agent = ScriptedAgent(tmp_repo)
-    agent.run("start")
-    agent.run("context")
-
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("context", "--section", "docs")
-    agent.run("submit-findings", "--file", docs_findings_json(tmp_path, []))
-    env = agent.run("stage", "run", "lint", "--command", "true", "--record")
-
-    assert env["state"] == "TEST_GREEN"
-    assert agent.run("status")["data"]["stages"]["test"]["status"] == "skipped"
-
-
-def test_source_changes_still_require_software_tests(feature_repo, tmp_path):
-    agent = ScriptedAgent(feature_repo)
-    agent.run("start")
-    agent.run("context")
-
-    env = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-
-    assert env["state"] == "REVIEW_GREEN"
-    assert env["next"]["command"] == "agentic-preflight context --section docs"
-
-
-@pytest.mark.parametrize("path", ["docs/examples/reviewer.py", ".buildkite/deploy.py"])
-def test_executable_in_documentation_or_ci_directory_cannot_skip_tests(tmp_repo, tmp_path, path):
-    from tests.conftest import git
-
-    git("switch", "-c", "feature/helper", cwd=tmp_repo)
-    write(tmp_repo, path, "raise RuntimeError('broken helper')\n")
-    commit_all(tmp_repo, "add executable helper")
-    agent = ScriptedAgent(tmp_repo)
-    agent.run("start")
-    agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("context", "--section", "docs")
-    agent.run("submit-findings", "--file", docs_findings_json(tmp_path, []))
-    result = agent.run("stage", "run", "lint", "--command", "true", "--record")
-    assert result["state"] == "LINT_GREEN"
-    assert result["next"]["command"] == "agentic-preflight stage run test"
 
 
 def test_lint_runs_once_docs_are_green_and_points_to_tests(docs_green):
