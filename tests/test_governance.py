@@ -1,6 +1,13 @@
 import tomllib
 from pathlib import Path
 
+import pytest
+
+from agentic_preflight.codeowners import matches
+from agentic_preflight.config import Config
+from agentic_preflight.models import RiskLevel, Verdict
+from agentic_preflight.risk import assess
+
 ROOT = Path(__file__).parent.parent
 
 
@@ -38,18 +45,108 @@ def test_high_risk_approval_runs_trusted_code_and_rechecks_on_reviews():
     assert "Environment $approval_environment must exist with a required reviewer." in workflow
 
 
-def test_codeowners_protects_the_policy_and_verifier_surfaces():
-    codeowners = (ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
-    for path in (
-        "/.agentic-preflight.toml",
-        "/.github/CODEOWNERS",
-        "/.github/workflows/",
-        "/agentic_preflight/",
-        "/agentic_preflight/risk.py",
-        "/agentic_preflight/attestation.py",
-        "/skill/",
-    ):
-        assert path in codeowners
+def repository_config():
+    return Config.model_validate(tomllib.loads((ROOT / ".agentic-preflight.toml").read_text()))
+
+
+def path_assessment(paths):
+    cfg = repository_config()
+    return assess(
+        paths,
+        [],
+        policy=cfg.policy,
+        review_blocking_severities=cfg.review.blocking_severities,
+        docs_blocking_severities=cfg.docs.blocking_severities,
+    )
+
+
+def owners_for(path):
+    owners = []
+    for line in (ROOT / ".github/CODEOWNERS").read_text().splitlines():
+        fields = line.split()
+        if fields and not line.startswith("#") and matches(path, fields[0]):
+            owners = fields[1:]
+    return owners
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".agentic-preflight.toml",
+        ".github/CODEOWNERS",
+        ".github/workflows/new-workflow.yml",
+        "agentic_preflight/approval.py",
+        "agentic_preflight/attestation.py",
+        "agentic_preflight/ci_authority.py",
+        "agentic_preflight/ci_policy.py",
+        "agentic_preflight/cli_policy.py",
+        "agentic_preflight/refresh_validation.py",
+        "agentic_preflight/fingerprints.py",
+        "agentic_preflight/shell_fingerprints.py",
+        "agentic_preflight/risk.py",
+        "agentic_preflight/hook.py",
+        "agentic_preflight/publish/new_gate.py",
+        "agentic_preflight/runs/publish.py",
+        "agentic_preflight/runs/review_coverage.py",
+        "agentic_preflight/stages/change_scope.py",
+        "agentic_preflight/templates/ci/new-template.yml",
+        "agentic_preflight/wire_schema.py",
+        "skill/SKILL.md",
+        "skill/reference/playbooks.md",
+        "skill/reference/findings-schema.md",
+        "skill/reference/docs-rubric.md",
+        "pyproject.toml",
+        "uv.lock",
+    ],
+)
+def test_sensitive_changes_require_human_review_and_a_code_owner(path):
+    # Ordinary code/tests in the same PR cannot dilute a sensitive path match.
+    result = path_assessment([path, "agentic_preflight/housekeeping.py", "tests/test_risk.py"])
+    assert result.level is RiskLevel.HIGH
+    assert result.verdict is Verdict.NEEDS_HUMAN
+    assert result.requires_human_review
+    assert owners_for(path) == ["@elanthus"]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "agentic_preflight/housekeeping.py",
+        "agentic_preflight/cli_runs.py",
+        "agentic_preflight/grounding.py",
+        "agentic_preflight/stages/docs.py",
+        "agentic_preflight/stages/shellstage.py",
+        "agentic_preflight/new_helper.py",
+        "tests/test_risk.py",
+        "skill/reference/commands.md",
+        "skill/reference/workflow.md",
+    ],
+)
+def test_routine_changes_are_medium_risk_without_mandatory_ownership(path):
+    result = path_assessment([path])
+    assert result.level is RiskLevel.MEDIUM
+    assert result.verdict is Verdict.CLEAR
+    assert not result.requires_human_review
+    assert owners_for(path) == []
+
+
+@pytest.mark.parametrize("path", ["README.md", "docs/worktree-modes.md", "CHANGELOG.md"])
+def test_ordinary_prose_remains_low_risk(path):
+    assert path_assessment([path]).level is RiskLevel.LOW
+    assert owners_for(path) == []
+
+
+def test_human_review_and_codeowners_lists_stay_aligned():
+    # These independently enforced policies must not silently diverge.
+    expected = {
+        "/" + path.removesuffix("**") for path in repository_config().policy.human_review_paths
+    }
+    actual = {
+        line.split()[0]
+        for line in (ROOT / ".github/CODEOWNERS").read_text().splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+    assert actual == expected
 
 
 def test_workflows_share_the_protected_availability_helper():

@@ -7,6 +7,13 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
+- Narrowed this repository's human-review policy to explicit approval, verification,
+  publication, governance, and agent-instruction paths, with matching CODEOWNERS entries.
+  Ordinary package code, tests, and CLI references are medium risk. The skill's CLI
+  walkthrough now lives separately from its protected approval and recovery rules.
+  Environment approval for high-risk changes and escalation from severe findings remain
+  unchanged; installed projects' default policy is unchanged.
+
 - Moved the two immutable dogfooding evidence ledgers to `elanthus/preflight-eval-results`
   and pinned the case study links to the archive commit. Collection data and case study
   counts are unchanged; the ledgers are no longer stored in this source tree.

@@ -1,5 +1,9 @@
 # Command reference
 
+Read [SKILL.md](../SKILL.md) first for approval, review, recovery, and cleanup rules.
+This reference describes command behavior; it does not grant publication or merge
+authorization. See the [CLI walkthrough](workflow.md) for a worked sequence.
+
 Every agent-facing workflow command prints exactly one JSON object to stdout. Human
 prose goes to stderr. Parse that stdout blindly; every key is always present. The sole
 exception is `hook-check`: Git consumes its exit status and stderr, so it emits no JSON
