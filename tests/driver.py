@@ -103,3 +103,33 @@ class ScriptedAgent:
             text=True,
         )
         return _parse_single_object(result.stdout, argv), result.returncode
+
+
+def findings_json(tmp_path: Path, items: list) -> str:
+    """Write review findings with coverage supplied by the next context delivery."""
+    path = tmp_path / "findings.json"
+    path.write_text(
+        json.dumps({"coverage": {"manifest": "$context", "examined": "all"}, "findings": items}),
+        encoding="utf-8",
+    )
+    return str(path)
+
+
+def green_run(repo: Path, tmp_path: Path) -> ScriptedAgent:
+    """Drive a full run to a green attestation note."""
+    from tests.conftest import commit_all, write
+
+    write(
+        repo,
+        ".agentic-preflight.toml",
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n",
+    )
+    commit_all(repo, "configure agentic-preflight")
+    agent = ScriptedAgent(repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
+    agent.run("mergeback")
+    return agent

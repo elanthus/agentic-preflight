@@ -2,28 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.machine import State
 from agentic_preflight.runs import stages
 from tests.conftest import commit_all, git, write
-from tests.driver import ScriptedAgent
-
-
-def findings_json(tmp_path: Path) -> str:
-    path = tmp_path / "findings.json"
-    path.write_text(
-        json.dumps(
-            {
-                "coverage": {"manifest": "$context", "examined": "all"},
-                "findings": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-    return str(path)
+from tests.driver import ScriptedAgent, findings_json
 
 
 def test_strict_mode_ignores_a_stale_lint_head_after_review_restarts(
@@ -49,7 +34,7 @@ enabled = false
     started = agent.run("start")
     worktree_path = Path(started["data"]["worktree_path"])
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path))
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
 
     failed = agent.run("stage", "run", "lint", expect=ExitCode.STAGE_FAILED)
     assert failed["state"] == "LINT_RED"
@@ -64,7 +49,7 @@ enabled = false
     git("add", "-A", cwd=worktree_path)
     git("commit", "-m", "add second repair", cwd=worktree_path)
     agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path))
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
 
     linted = agent.run("stage", "run", "lint")
     assert linted["state"] == "LINT_GREEN"
