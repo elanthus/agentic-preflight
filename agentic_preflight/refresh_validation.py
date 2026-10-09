@@ -22,7 +22,7 @@ from .models import Attestation, OriginalExecution, ReviewCoverage, Stage, Stage
 from .shell_fingerprints import ShellFingerprint, ShellInputContract, classify_shell
 
 
-def shell_execution_config(snapshot: dict, stage: Stage) -> dict:
+def shell_execution_config(snapshot: dict) -> dict:
     """Return the execution settings of a shell stage snapshot."""
     return {"stage": snapshot.get("stage"), "worktree": snapshot.get("worktree")}
 
@@ -135,7 +135,7 @@ def _verify_fingerprint(
         contract = getattr(cfg.reuse, origin.stage.value)
         expected = json_digest(
             {
-                "execution": shell_execution_config(origin.config_snapshot, origin.stage),
+                "execution": shell_execution_config(origin.config_snapshot),
                 "contract": contract.model_dump(mode="json") if contract else None,
             }
         )
@@ -242,7 +242,7 @@ def _verify_current_stage(
         contract = getattr(cfg.reuse, stage.value)
         expected_config = json_digest(
             {
-                "execution": shell_execution_config(value.config_snapshot, stage),
+                "execution": shell_execution_config(value.config_snapshot),
                 "contract": contract.model_dump(mode="json") if contract else None,
             }
         )

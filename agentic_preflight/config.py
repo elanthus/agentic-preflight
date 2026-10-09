@@ -145,11 +145,14 @@ class PRSection(_Section):
 
 
 class ApprovalSection(_Section):
-    mode: Literal["manual_merge", "environment", "peer_review"] = "manual_merge"
+    mode: Literal["manual_merge", "environment", "peer_review", "owner_review"] = "manual_merge"
     environment: str = "high-risk-review"
+    reviewer: str = ""
 
     @model_validator(mode="after")
     def nonempty_environment(self) -> ApprovalSection:
+        if self.mode == "owner_review" and not self.reviewer.strip():
+            raise ValueError("reviewer must not be empty for owner_review")
         if self.mode == "environment" and not self.environment.strip():
             raise ValueError("environment must not be empty")
         return self

@@ -1,5 +1,9 @@
 # Command reference
 
+Read [SKILL.md](../SKILL.md) first for approval, review, recovery, and cleanup rules.
+This reference describes command behavior; it does not grant publication or merge
+authorization. See the [CLI walkthrough](workflow.md) for a worked sequence.
+
 Every agent-facing workflow command prints exactly one JSON object to stdout. Human
 prose goes to stderr. Parse that stdout blindly; every key is always present. The sole
 exception is `hook-check`: Git consumes its exit status and stderr, so it emits no JSON
@@ -36,8 +40,9 @@ With `--no-hook`, the effective path and override state are still reported, whil
 
 The default `in_place` mode uses the current checkout and reports
 `data.worktree_root: null`. In isolated `reusable` and `strict` modes, worktrees default
-to a hidden sibling directory outside `.git`, and `data.worktree_root` reports that
-resolved location.
+to a per-clone directory under `$XDG_CACHE_HOME/agentic-preflight/worktrees/` (or
+`~/.cache/agentic-preflight/worktrees/` when `XDG_CACHE_HOME` is unset or relative), and
+`data.worktree_root` reports that resolved location.
 
 ### `agentic-preflight integrations install AGENT... [--scope user|project] [--target PATH] [--force]`
 Copies the bundled skill and all of its references into each selected agent's discovery
@@ -66,10 +71,8 @@ preserved unless `--force` is explicit. At least one agent or custom target is r
 ## Running validation
 
 ### `agentic-preflight start --intent TEXT [--base-ref REF] [--replace]`
-Creates a run and prepares its validation worktree. The default `[worktree] mode =
-"in_place"` validates directly in the current clean PR checkout. `mode = "reusable"`
-uses one serial validation worktree and preserves ignored caches between leases. `mode =
-"strict"` creates and removes a fresh isolated validation worktree per run.
+Creates a run and prepares its validation worktree according to the configured
+[worktree mode](https://github.com/elanthus/agentic-preflight/blob/main/docs/worktree-modes.md).
 The intent is persisted as the user's objective and acceptance criteria. The parser
 accepts `start` without `--intent`, but the command then fails with exit 3 and
 `intent_required`.
@@ -94,9 +97,8 @@ Refuses a dirty tree (exit 3, `dirty_tree`) and a branch with no changes over th
 isolated modes copy them. Every mode refuses an entry git is not already ignoring.
 
 Returns `data.worktree_path` — **absolute**. Use it; do not rely on `cd` persisting.
-For isolated modes the path is outside both the repository and its `.git` directory,
-which avoids Jest's hard-coded VCS-directory exclusion. Override that location with
-`[worktree] root`.
+See [isolated worktree locations](https://github.com/elanthus/agentic-preflight/blob/main/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git)
+for the default location and `[worktree] root` override.
 
 Returns `data.housekeeping`, a read-only inventory of this clone's validation
 checkouts: `checkouts` (each with `path`, `bytes`, `registered`, `leased`, `detached`,
@@ -109,17 +111,9 @@ exists. A released reusable runner whose source remains is `retained` with reaso
 `reusable cache`, matching `gc`. A run record that cannot be read counts as an owner. Nothing is deleted. If the inventory fails,
 `data.housekeeping` is `{"error": "..."}` and `start` still succeeds.
 
-**Strict mode has no retained build cache.** If a lint or test stage is far slower there
-than in the user's tree, that is almost always the cause — not a hanging command. The
-worktree is a clean checkout, so every gitignored artifact directory the toolchain
-relies on is absent and gets rebuilt from nothing on the first run.
-
-Agentic Preflight performs no automatic dependency installation. Configure
-`setup_command` to prepare the validation worktree; it runs before review in every mode
-and before a `--baseline` stage in its scratch worktree. A nonzero exit stops setup
-instead of allowing review or reporting the base as red. Reusable mode preserves ignored
-caches between leases, while strict mode begins without retained artifacts. Use
-`copy_files` only for ignored files such as `.env`; directories are refused with a clear
+For dependency installation, ignored build inputs, caches, and `setup_command`,
+see [Preparing the validation worktree](https://github.com/elanthus/agentic-preflight/blob/main/docs/worktree-modes.md#preparing-the-validation-worktree).
+Use `copy_files` only for ignored files such as `.env`; directories are refused with a
 setup instruction.
 
 The failure details and recovery command are persisted. After initial setup fails,
@@ -142,7 +136,7 @@ review coverage is stale, it reopens review instead.
 - Review adds `review_coverage`: a snapshot-bound `manifest`, the exact `head`, and
   every hunk or non-textual file-level review unit.
 - `--section docs` adds `doc_surface`: every file in the configured documentation
-  allowlist, with `exists`, `size`, and `touched_by_diff`. From `REVIEW_GREEN` this
+  allowlist, with `path`, `size`, and `touched_by_diff`. Entries describe existing files. From `REVIEW_GREEN` this
   opens the docs stage.
 
 Both sections also include `data.grounding`, a deterministic, bounded retrieval of
@@ -273,8 +267,7 @@ remote jobs before merge, including for documentation-only changes.
 Command resolution: `--command` → `[commands].<name>` → detection. Detection never
 guesses: it exits 2 with `data.mode = "needs_command"` and candidates from
 `pyproject.toml`, `package.json`, `Makefile`, `justfile`, and CI workflows. Every candidate
-has `command`, `source`, and `trust` fields. Manifest candidates carry
-`trust: "repo_manifest"`; workflow `run:` lines carry `trust: "untrusted"` and a source
+has `command` and `source` fields. Workflow `run:` lines have a source
 prefixed with `untrusted:workflow:`. No detected candidate is copied into `next.command`;
 show its exact command to the user and obtain approval before first use.
 
@@ -344,15 +337,8 @@ The summary also includes the configured PR mode, `automated_cleanup` setting, a
 deterministic risk classification and verdict. Whether the agent may push without
 asking follows
 [push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/main/docs/configuration.md#push-and-pull-request-authorization).
-In `[pr] mode = "auto"`, the committed configuration is standing authorization to open
-or reuse the pull request automatically after the authorized push and the run finish. When `automated_cleanup` is true, the
-agent also enters the disclosed 5-minute merge poll and run-scoped cleanup lifecycle;
-when false, it stops after hosted checks until the user explicitly requests cleanup. In
-manual PR mode, provide a compare URL instead. High risk does not change publication:
-after user confirmation, token mode may
-push it. The summary's `approval_mode` says whether the user must merge manually, a
-GitHub Environment must approve, or an eligible peer must approve the exact head. In
-`manual_merge`, never merge or enable auto-merge even when the hosted check is green.
+Follow the skill's [PR lifecycle and cleanup](../SKILL.md#pull-request-lifecycle-and-cleanup)
+and [merge approval guidance](../SKILL.md#escalation-etiquette) for the returned policy.
 Only `[gate] mode = "manual"` exits 4 and puts the literal `git push` command in
 `data.manual_command` for a person to run; the agent must not run it.
 
@@ -374,17 +360,9 @@ Marks a pushed validation run `DONE`. It preserves the run directory and
 audit logs, clears only that run's worktree ownership pointers, and directs the next step
 to `gc`.
 
-Pull-request creation and hosted CI monitoring are outside this CLI. On
-GitHub, automatic PR mode uses `gh pr create`, `gh pr checks`, and `gh run view`. When
-`automated_cleanup` is true, it also starts a 5-minute `gh pr view` state poll after
-`finish`; when false, it stops after hosted checks until the user explicitly requests
-cleanup. Manual PR mode provides a compare URL and never creates the PR. Cleanup remains
-a run-scoped host or forge operation. For an automatically opened or reused PR with
-cleanup enabled, the skill discloses its exact targets before polling and performs that
-cleanup after GitHub verifies the merge. Monitoring always selects the recorded full PR
-URL, and source branches are deleted only when the PR, local branch, and remote branch
-still reference the disclosed gated head commit. A later explicit cleanup request
-authorizes the equivalent operation for other PRs.
+Pull-request creation, hosted CI monitoring, and cleanup are host or forge operations.
+Follow the skill's [PR lifecycle and cleanup](../SKILL.md#pull-request-lifecycle-and-cleanup)
+after `gc`.
 
 ## Inspection and recovery
 
@@ -434,6 +412,22 @@ with no equivalent remains reported as unmerged and is never removed without
 It marks a nonterminal run `ORPHANED` when its source worktree disappeared, its source
 head moved, or its ownership pointer vanished, but only when no command is executing.
 Orphaning releases ownership; cleanup remains a separate preserve-first decision.
+It also removes a released `reusable` runner, and prunes its git registration, when no
+run record naming it still has an existing source worktree or its registered path is
+gone. A runner on a branch is never removed. `data.reclaimed_runners` lists the removed
+runner paths; `removed`, `retained`, and `orphans` are unchanged. An unreadable run
+record keeps the runner it names; one that is not even a JSON object keeps every runner.
+
+Runner reclamation preserves locked worktrees, tracked or non-ignored untracked changes,
+and runners associated with retained runs (including unmerged fixes). Ignored caches
+in an otherwise eligible runner are disposable. A refused Git removal preserves the
+runner rather than deleting its directory directly.
+
+
+`gc` also reclaims eligible unused reusable runners at the old sibling location
+under the same preservation rules. `data.legacy_worktrees` lists registrations still
+remaining under that `.agentic-preflight-worktrees/` default after reclamation;
+inspect each before removing it with `git worktree remove <path>`.
 
 ### `agentic-preflight hook-check`
 The pre-push predicate. Reads git's stdin protocol, consults only the commit's
@@ -470,9 +464,16 @@ data cannot turn an unknown result into success.
 
 ## Exit codes
 
-`0` ok · `1` invalid input/internal · `2` stage failed · `3` precondition violated ·
-`4` human resolution required · `5` confirmation required · `6` usage error ·
-`10` hook block
+| Code | Meaning | What to do |
+|---|---|---|
+| 0 | OK | Follow `next` |
+| 1 | Invalid input or internal error | Read `error.message`; fix your invocation |
+| 2 | Stage failed | Read the log, fix the cause, re-run the stage |
+| 3 | Precondition violated | Run `status`, then obey `next`; see the remote CI exception below |
+| 4 | Human resolution required | Show recovery material; resolve only the bounded, unambiguous merge-back cases permitted by the skill, otherwise stop |
+| 5 | Confirmation required | Apply the skill's authorization rules, then re-run with the token |
+| 6 | Command-line usage error | Read `error.message`, run `next.command` for valid usage, and fix the invocation |
+| 10 | Hook blocked a push | Start a run with `agentic-preflight start --intent "..."` |
 
 A command-line usage error (unknown option, missing argument, bad choice, unknown
 command) prints one envelope with error code `usage_error`, Click's message in
@@ -484,3 +485,9 @@ exits 0.
 For local workflow exit 3 → run `status` → obey `next`. For `ci status` and other
 remote CI recovery results, follow their reason and next action directly; restarting a
 local run cannot repair pending or unavailable remote evidence.
+
+`[approval] mode = "owner_review"` requires the configured `reviewer` GitHub login to
+approve the exact current head. An Approve review counts on another author's PR; on their
+own PR, a Comment review with trimmed body exactly `approved` counts. Conversation
+comments, stale reviews, bots, and other users do not count. Dismissal, changes requested,
+or editing a self-review to other text revokes approval.

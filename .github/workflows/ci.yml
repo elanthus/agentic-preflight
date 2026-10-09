@@ -62,10 +62,7 @@ jobs:
           exit "$verify_exit"
 
   test:
-    # Keep routine pull-request and main-branch runs on Linux with Python 3.13
-    # to conserve Actions minutes. Run this workflow manually (workflow_dispatch)
-    # for the full OS/Python matrix before tagging; release.yml also requires
-    # that full compatibility matrix before publishing to PyPI.
+    # Validation tiers and release requirements: COMPATIBILITY.md#validation-tiers.
     uses: ./.github/workflows/test.yml
     with:
       os: ${{ github.event_name == 'workflow_dispatch' && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]' }}
@@ -88,47 +85,7 @@ jobs:
         env:
           UV_TOOL_DIR: ${{ runner.temp }}/uv-tools
           UV_TOOL_BIN_DIR: ${{ runner.temp }}/uv-tools-bin
-        run: |
-          uv tool install --python 3.11 dist/*.whl
-          "$UV_TOOL_BIN_DIR/agentic-preflight" --version
-          test ! -e "$UV_TOOL_BIN_DIR/ap"
-          # -P keeps the current directory off sys.path. Without it this runs from
-          # the repository root, where the agentic_preflight source directory
-          # shadows the installed package and the assertions inspect the checkout
-          # instead of the wheel, passing even when the wheel is incomplete.
-          "$UV_TOOL_DIR/agentic-preflight/bin/python" -P - <<'PY'
-          import importlib.resources as resources
-
-          package = resources.files("agentic_preflight")
-          assert package.joinpath("py.typed").is_file(), "py.typed missing from wheel"
-          assert package.joinpath("_bundled_skill").is_dir(), "bundled skill missing from wheel"
-          print("wheel contents verified")
-          PY
-
-  regression-eval-dry:
-    name: public regression eval dry run
-    runs-on: ubuntu-latest
-    continue-on-error: false
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-
-      - name: Install development environment
-        run: uv sync --group dev
-
-      - name: Run the scripted regression eval
-        run: uv run python evals/run.py --mode dry --out "$RUNNER_TEMP/evals"
-
-      - name: Compare the dry summary with the committed golden
-        run: diff -u evals/golden/dry-summary.json "$RUNNER_TEMP/evals/summary.json"
-
-      - name: Upload regression eval summary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: regression-eval-dry
-          path: ${{ runner.temp }}/evals/summary.md
+        run: bash scripts/smoke-wheel.sh
 
   publish-coverage-badge:
     name: publish coverage badge
@@ -148,12 +105,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           publish_dir="$(mktemp -d)"
-          mv coverage.svg "$publish_dir/coverage.svg"
+          git clone --branch badges --single-branch \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "$publish_dir"
+          cp coverage.svg "$publish_dir/coverage.svg"
           cd "$publish_dir"
-          git init --initial-branch=badges
           git config user.name "github-actions[bot]"
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add coverage.svg
-          git commit -m "Update coverage badge"
-          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git push --force origin badges
+          if ! git diff --cached --quiet; then
+            git commit -m "Update coverage badge"
+            git push origin badges
+          fi

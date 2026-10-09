@@ -5,14 +5,96 @@ import os
 import shutil
 import subprocess
 import textwrap
+from pathlib import Path
 
 import pytest
 
-from tests.test_governance import ROOT, _policy_script
+ROOT = Path(__file__).parent.parent
 
 HEAD = "a" * 40
 BASE = "b" * 40
 BRANCH = "feature/$(touch${IFS}injected)"
+
+
+def _policy_script(filename):
+    workflow = (ROOT / ".github/workflows" / filename).read_text()
+    label = (
+        "Fetch and verify the pull request attestation"
+        if filename == "ci.yml"
+        else "Evaluate approval policy for the exact head"
+    )
+    end = "\n  test:" if filename == "ci.yml" else "\n  environment:"
+    block = workflow[workflow.index("      - name: " + label) : workflow.index(end)]
+    return textwrap.dedent(block.split("        run: |\n", 1)[1])
+
+
+@pytest.mark.parametrize(
+    ("filename", "job", "head_variable"),
+    [("ci.yml", "attestation", "ATTESTED_SHA"), ("human-approval.yml", "policy", "HEAD_SHA")],
+)
+def test_protected_workflow_configuration(filename, job, head_variable):
+    workflow = (ROOT / ".github/workflows" / filename).read_text()
+    # Bound assertions to the trusted job; normalize whitespace, not YAML structure.
+    end = "test" if filename == "ci.yml" else "environment"
+    trusted = workflow.split(f"\n  {job}:\n", 1)[1].split(f"\n  {end}:\n", 1)[0]
+    trusted = " ".join(trusted.split())
+    assert "with: ref: ${{ github.event.pull_request.base.sha }} fetch-depth: 0" in trusted
+    assert (
+        trusted.index("- uses: actions/checkout@")
+        < trusted.index("run: uv tool install --python 3.11 .")
+        < trusted.index("env:")
+    )
+    for variable, field in {
+        head_variable: "head.sha",
+        "BASE_SHA": "base.sha",
+        "HEAD_REF": "head.ref",
+        "HEAD_REPOSITORY": "head.repo.full_name",
+        "HEAD_REPOSITORY_URL": "head.repo.clone_url",
+    }.items():
+        assert f"{variable}: ${{{{ github.event.pull_request.{field} }}}}" in trusted
+    permissions = workflow.split("\npermissions:\n", 1)[1].split("\njobs:\n", 1)[0]
+    assert permissions.split() == (
+        ["contents:", "read"]
+        if filename == "ci.yml"
+        else ["actions:", "read", "contents:", "read", "pull-requests:", "read"]
+    )
+    if filename == "ci.yml":
+        assert "pull_request:" in workflow.split("\nconcurrency:", 1)[0]
+        assert "if: github.event_name == 'pull_request'" in trusted
+
+
+def test_approval_events_outputs_and_dependencies():
+    workflow = (ROOT / ".github/workflows/human-approval.yml").read_text()
+    events = " ".join(workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0].split())
+    assert events == (
+        "pull_request_target: types: [opened, reopened, synchronize, ready_for_review, "
+        "auto_merge_enabled, auto_merge_disabled] pull_request_review: "
+        "types: [submitted, edited, dismissed]"
+    )
+    policy = workflow.split("\n  policy:\n", 1)[1].split("\n  environment:\n", 1)[0]
+    outputs = policy.split("    outputs:\n", 1)[1].split("    steps:\n", 1)[0]
+    assert [line.strip() for line in outputs.splitlines() if line.strip()] == [
+        f"{key}: ${{{{ steps.policy.outputs.{key} }}}}"
+        for key in ("approved", "approval_mode", "environment", "requires_approval")
+    ]
+    environment = " ".join(
+        workflow.split("\n  environment:\n", 1)[1].split("\n  approval:\n", 1)[0].split()
+    )
+    assert (
+        "needs: policy if: >- needs.policy.outputs.requires_approval == 'true' && needs.policy.outputs.approval_mode == 'environment'"
+        in environment
+    )
+    assert "environment: name: ${{ needs.policy.outputs.environment }}" in environment
+    approval = " ".join(workflow.split("\n  approval:\n", 1)[1].split())
+    assert "needs: [policy, environment] if: always()" in approval
+    for variable, source in {
+        "APPROVED": "policy.outputs.approved",
+        "APPROVAL_MODE": "policy.outputs.approval_mode",
+        "ENVIRONMENT_RESULT": "environment.result",
+        "POLICY_RESULT": "policy.result",
+        "REQUIRES_APPROVAL": "policy.outputs.requires_approval",
+    }.items():
+        assert f"{variable}: ${{{{ needs.{source} }}}}" in approval
 
 
 @pytest.fixture

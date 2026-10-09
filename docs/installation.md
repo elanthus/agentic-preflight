@@ -49,7 +49,8 @@ The integration installer copies the same bundled skill to each agent's document
 discovery directory: `.agents/skills` for Codex, `.claude/skills` for Claude Code,
 `.cursor/skills` for Cursor, `.config/opencode/skills` for opencode, and
 `.config/agents/skills` for Amp. It refuses to overwrite local edits unless you pass
-`--force`.
+`--force`. If copying fails, the destination can be absent or partial. Correct the
+filesystem failure, then rerun `integrations install` with `--force` to repair that copy.
 
 Copies intentionally do not follow the source checkout or the installed package. That
 separation is why a managed skill can be `outdated` after a CLI or source update: it is

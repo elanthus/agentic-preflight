@@ -47,14 +47,12 @@ CHANGELOG_PATTERNS: tuple[str, ...] = ("CHANGELOG*", "docs/CHANGELOG*")
 @dataclass
 class DocEntry:
     path: str
-    exists: bool
     size: int
     touched_by_diff: bool
 
     def as_dict(self) -> dict:
         return {
             "path": self.path,
-            "exists": self.exists,
             "size": self.size,
             "touched_by_diff": self.touched_by_diff,
         }
@@ -143,7 +141,6 @@ def build_inventory(
         entries.append(
             DocEntry(
                 path=rel,
-                exists=True,
                 size=full.stat().st_size,
                 touched_by_diff=rel in changed,
             )
@@ -151,7 +148,7 @@ def build_inventory(
     return entries
 
 
-def allowlist(inventory: list[DocEntry], extra_paths: list[str] | None = None) -> set[str]:
+def allowlist(inventory: list[DocEntry]) -> set[str]:
     """Paths a docs finding may legitimately target."""
     return {entry.path for entry in inventory}
 

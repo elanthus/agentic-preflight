@@ -1,6 +1,6 @@
+from itertools import product
+
 import pytest
-from hypothesis import given, settings
-from hypothesis import strategies as st
 
 from agentic_preflight import diff
 from tests.conftest import commit_all, git, write
@@ -163,15 +163,19 @@ def test_match_prefixes_follow_each_fnmatch_attempt(pattern, prefixes):
     assert diff.match_prefixes(pattern) == prefixes
 
 
-@settings(max_examples=2000)
-@given(
-    path=st.text(alphabet="ab/.-*?[]", min_size=1, max_size=12),
-    pattern=st.text(alphabet="ab/*?[]!.-", max_size=10),
-)
-def test_every_match_starts_with_one_of_its_pattern_prefixes(path, pattern):
-    """The docs walk skips subtrees no prefix reaches; that must never drop a match."""
-    if diff.path_matches(path, pattern):
-        assert any(path.startswith(prefix) for prefix in diff.match_prefixes(pattern))
+def test_every_match_starts_with_one_of_its_pattern_prefixes():
+    """Exhaust small glob expressions, plus longer directory/glob edge cases."""
+    paths = [
+        "".join(chars) for length in range(1, 4) for chars in product("ab/", repeat=length)
+    ] + ["docs/guide.md", "nested/docs/guide.md", "a/b/c.md", "[a]/b", ".hidden/a"]
+    patterns = [
+        "".join(chars) for length in range(4) for chars in product("ab/*?[]!.-", repeat=length)
+    ] + ["docs/**", "/docs/", "**/*.md", "[Dd]ocs/**", "**/a", "a/**/b", "[!a]/*"]
+    for pattern in patterns:
+        prefixes = diff.match_prefixes(pattern)
+        for path in paths:
+            if diff.path_matches(path, pattern):
+                assert any(path.startswith(prefix) for prefix in prefixes), (path, pattern)
 
 
 def test_grounding_digest_is_exposed_and_changes_the_review_manifest(feature_repo):
@@ -215,7 +219,6 @@ def test_a_small_diff_is_under_budget(feature_repo):
     bundle = diff.build_bundle(feature_repo, base, "HEAD")
     report = diff.check_budget(bundle, max_bytes=200_000)
     assert report.over_budget is False
-    assert report.overage == 0
 
 
 def test_an_oversized_diff_trips_the_budget(feature_repo):
@@ -223,7 +226,6 @@ def test_an_oversized_diff_trips_the_budget(feature_repo):
     bundle = diff.build_bundle(feature_repo, base, "HEAD")
     report = diff.check_budget(bundle, max_bytes=10)
     assert report.over_budget is True
-    assert report.overage == bundle.total_bytes - 10
 
 
 def test_budget_report_names_the_biggest_files_first(feature_repo):

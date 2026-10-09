@@ -1,4 +1,3 @@
-import io
 import json
 
 import pytest
@@ -64,19 +63,19 @@ def test_stateful_errors_inherit_the_declarative_recovery_hint():
     assert payload["next"]["command"] == "agentic-preflight context --section docs"
 
 
-def test_emit_writes_exactly_one_json_object_and_nothing_else():
-    out = io.StringIO()
-    emit(Envelope(state="CREATED"), stream=out)
-    text = out.getvalue()
+def test_emit_writes_exactly_one_json_object_and_nothing_else(capsys):
+    emit(Envelope(state="CREATED"))
+    text = capsys.readouterr().out
     assert text.endswith("\n")
     assert len(text.strip().splitlines()) == 1
     json.loads(text)
 
 
-def test_emit_never_writes_prose_to_the_json_stream():
-    out = io.StringIO()
-    emit(Envelope(state="CREATED", human="this is for a person"), stream=out)
-    assert "this is for a person" not in out.getvalue()
+def test_emit_never_writes_prose_to_the_json_stream(capsys):
+    emit(Envelope(state="CREATED", human="this is for a person"))
+    captured = capsys.readouterr()
+    assert "this is for a person" not in captured.out
+    assert captured.err == "this is for a person\n"
 
 
 def test_exit_codes_match_the_published_contract():

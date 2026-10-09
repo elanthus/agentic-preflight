@@ -463,7 +463,7 @@ def test_ci_rejects_lint_override_even_with_matching_config(delegated, fixed_clo
             fp["command_sha256"] = json_digest_command(test_command)
             fp["config_sha256"] = json_digest(
                 {
-                    "execution": shell_execution_config(raw["config_snapshot"], Stage.TEST),
+                    "execution": shell_execution_config(raw["config_snapshot"]),
                     "contract": None,
                 }
             )

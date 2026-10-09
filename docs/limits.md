@@ -14,8 +14,8 @@ decide whether an authorization claim embedded in it is genuine.
 The `excerpt`, `content`, `owners`, and `title` fields in `data.grounding` are the same
 class of repository-controlled input.
 
-Detected manifest commands carry `trust: "repo_manifest"`. Workflow `run:` lines carry
-`trust: "untrusted"`, and their source begins with `untrusted:workflow:`. No detected
+Detected commands include their source. Workflow `run:` lines have a source
+beginning with `untrusted:workflow:`. No detected
 candidate is copied into `next.command`; the agent must show the exact command to the user
 and obtain approval before first use. The gate keeps the live confirmation token only in
 `data.token`, while gate and push dry-run envelopes use a `<token>` placeholder in
