@@ -140,12 +140,23 @@ those observations distinguish them.
 
 High-risk merge handling is enforced by a separate `pull_request_target` workflow that
 also installs its policy checker from the protected base and never executes proposed
-branch content. It reruns when the head changes or a review is submitted or dismissed.
+branch content. It reruns when the head changes or a review is submitted, edited, or dismissed.
 
 The default `manual_merge` mode reports success only while GitHub auto-merge is disabled
 and instructs the agent never to merge or enable auto-merge. `environment` pauses a
 dedicated job at the configured GitHub Environment, and `peer_review` retains the
 exact-head approval rule for an eligible person other than the pull-request author.
+`owner_review` requires the configured reviewer: an Approve review on another author's PR
+or a Comment review containing exactly `approved` on their own PR. See
+[approval configuration](configuration.md#high-risk-merge-handling-approval).
+
+This repository can switch to `owner_review` with `reviewer = "elanthus"` after this
+support is merged. The support PR retains Environment mode so the protected-base
+verifier can read its attestation. A subsequent configuration PR activates owner reviews
+and also needs approval under its old Environment base policy. Changes only to
+`pyproject.toml` or `uv.lock` no longer require high-risk review or CODEOWNERS approval;
+the automated dependency vulnerability audit still runs. Dependabot automation settings
+remain protected policy.
 
 Make **high-risk human approval** a required status check on `main`; keep **Require
 review from Code Owners** enabled as the stricter ownership rule for sensitive paths.

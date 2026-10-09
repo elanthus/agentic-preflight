@@ -17,6 +17,4 @@
 /agentic_preflight/risk.py @elanthus
 /agentic_preflight/runs/publish.py @elanthus
 /docs/RELEASING.md @elanthus
-/pyproject.toml @elanthus
 /skill/ @elanthus
-/uv.lock @elanthus
