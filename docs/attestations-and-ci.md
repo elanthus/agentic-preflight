@@ -150,16 +150,16 @@ exact-head approval rule for an eligible person other than the pull-request auth
 or a Comment review containing exactly `approved` on their own PR. See
 [approval configuration](configuration.md#high-risk-merge-handling-approval).
 
-This repository uses `owner_review` with `reviewer = "elanthus"`. Submit an Approve
-review on another author's PR, or a Comment review containing only `approved` on your own
-PR, for the exact current head. The activation PR itself still needs approval under its
-old Environment base policy. Changes only to
-`pyproject.toml` or `uv.lock` no longer require high-risk review or CODEOWNERS approval;
-the automated dependency vulnerability audit still runs. Dependabot automation settings
-remain protected policy.
+This repository configures `owner_review` with `reviewer = "elanthus"`, so the approval
+check can report an exact-head review status: an Approve review on another author's PR,
+or a Comment review containing only `approved` on your own PR. Its current branch rules
+require automated CI and dependency audits, with review feedback resolved before merge;
+human approval and Code Owner review are not mandatory merge requirements. Changes only
+to `pyproject.toml` or `uv.lock` no longer trigger high-risk review or CODEOWNERS requests.
+Dependabot automation settings remain protected policy.
 
-Make **high-risk human approval** a required status check on `main`; keep **Require
-review from Code Owners** enabled as the stricter ownership rule for sensitive paths.
+Projects choosing to enforce human approval should make **high-risk human approval** a
+required status check and enable **Require review from Code Owners** for sensitive paths.
 Because the workflow and policy are loaded from the protected base, a pull request that
 changes approval mode is judged by the old mode until that change is merged.
 `approval-check SHA --base BASE` reads `[policy]` and `[approval]` from the
