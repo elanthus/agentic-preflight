@@ -16,6 +16,10 @@ Run the deterministic, model-free mode:
 uv run python evals/run.py --mode dry --out /tmp/agentic-preflight-evals
 ```
 
+The pytest suite checks scripted scoring outcomes and byte-identical reports from repeated
+runs. There is no committed summary golden or separate dry-eval CI job. All corpus cases
+are validated; Git-history isolation is checked with one case per selected snapshot.
+
 Real mode uses the worked Codex or Claude reviewer wrapper. It is deliberately authorization
 gated because the default `--grounding both` run launches 48 reviewer-wrapper invocations
 per executor; that count is not a provider-request, token, or cost measurement:
