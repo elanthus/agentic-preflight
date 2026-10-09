@@ -108,14 +108,11 @@ def test_gate_mints_a_token_and_summarises_the_verified_push(verified):
     assert env["data"]["pr_mode"] == "auto"
     assert env["data"]["automated_cleanup"] is True
     assert env["data"]["approval_mode"] == "manual_merge"
-    assert "whether to push" in env["next"]["instruction"]
-    assert "explicitly requested a push, publish" in env["next"]["instruction"]
-    assert "proceed without asking again" in env["next"]["instruction"]
-    assert "automatically open or reuse" in env["next"]["instruction"]
-    assert "standing authorization" in env["next"]["instruction"]
-    assert "poll that PR every 5 minutes" in env["next"]["instruction"]
-    assert "push and open" not in env["next"]["instruction"]
-    assert "substitutes data.token for <token>" in env["next"]["instruction"]
+    assert (
+        "https://github.com/elanthus/agentic-preflight/blob/main/skill/SKILL.md#escalation-etiquette"
+        in env["next"]["instruction"]
+    )
+    assert "only after authorization" in env["next"]["instruction"]
     assert env["next"]["command"] == "agentic-preflight push --confirm <token>"
     assert token not in env["next"]["command"]
     assert verified.run("status")["data"]["gate_token"] == token
@@ -154,13 +151,17 @@ def test_standing_authorization_guidance_survives_gate_and_recovery(
         assert env["next"]["command"] == "agentic-preflight gate"
 
     instruction = env["next"]["instruction"]
-    assert "applicable standing instructions" in instruction
-    assert "summary matches" in instruction
-    assert "proceed without asking again" in instruction
-    assert "authorization is missing or the scope materially differs" in instruction
     if entry == "gate":
-        assert "existing PR's head branch" in instruction
-        assert "different remote or branch, force-push, merge" in instruction
+        assert (
+            "https://github.com/elanthus/agentic-preflight/blob/main/skill/SKILL.md#escalation-etiquette"
+            in instruction
+        )
+        assert "only after authorization" in instruction
+    else:
+        assert "applicable standing instructions" in instruction
+        assert "summary matches" in instruction
+        assert "proceed without asking again" in instruction
+        assert "authorization is missing or the scope materially differs" in instruction
 
     # Guidance never publishes on its own or bypasses the confirmation token.
     assert git("show-ref", cwd=bare_remote) == remote_refs
@@ -281,7 +282,10 @@ def test_manual_pr_mode_pushes_but_hands_pr_creation_to_the_user(
 
     env = agent.run("gate")
     assert env["data"]["pr_mode"] == "manual"
-    assert "whether to push" in env["next"]["instruction"]
+    assert (
+        "https://github.com/elanthus/agentic-preflight/blob/main/skill/SKILL.md#escalation-etiquette"
+        in env["next"]["instruction"]
+    )
     assert "compare URL" in env["next"]["instruction"]
     assert "push and open" not in env["next"]["instruction"]
 

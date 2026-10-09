@@ -68,6 +68,11 @@ outside the matrix does not make that version supported.
 
 ## Compatibility changes
 
+The release after 0.6.0 requires Click 8.2 or newer. Documentation inventory entries
+no longer contain `exists`, and detected command candidates no longer contain `trust`;
+consumers should use `path`, `size`, `touched_by_diff`, and candidate `source`. Workflow
+sources retain their `untrusted:workflow:` prefix. Attestation fingerprints are unchanged.
+
 The command-line interface, configuration file, and attestation schema follow Semantic
 Versioning. The Python modules are internal and have no compatibility promise. While
 the version is 0.x, a minor release may include breaking changes, and each one is

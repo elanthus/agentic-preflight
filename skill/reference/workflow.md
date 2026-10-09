@@ -86,18 +86,7 @@ $ agentic-preflight push --confirm <token>
 $ agentic-preflight finish
 $ agentic-preflight gc
 
-# Auto PR mode: after preflight finishes, reuse an existing PR for the branch or
-# create one automatically without asking about PR creation. Continue into the
-# polling and cleanup flow below only when automated_cleanup is true.
-$ gh pr create --title "Use constant-time password comparison" --body-file pr-body.md
-$ gh pr checks --watch
-$ gh pr view "$PR_URL" --json url,state,mergedAt,headRefName,headRefOid,baseRefName
-
-# While state is OPEN, wait 5 minutes and query those same fields again.
-# If it is MERGED, perform the disclosed run-scoped cleanup. If it is CLOSED
-# without mergedAt, stop without deleting anything.
-
-# Manual PR mode: never create it. Give the user the repository compare URL instead.
+# Follow the configured PR lifecycle in SKILL.md#pull-request-lifecycle-and-cleanup.
 ```
 
 Work happens in the absolute **validation worktree** named by `worktree_path`. In the

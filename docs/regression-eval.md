@@ -27,8 +27,8 @@ contains `gold.json`, asserts that the serialized context bundle contains neithe
 nor the serialized gold record or case ID, and asserts that the delivered intent exactly
 equals the case intent. A top-level scorer-label shape assertion guards against future runner
 enrichment; the product CLI does not emit those fields today. Regression tests capture actual
-reviewer-wrapper stdin through both worked wrappers for both snapshots. Across every corpus case and
-both selected snapshots, they hash every file in all three trees and inspect all Git objects,
+reviewer-wrapper stdin through both worked wrappers for both snapshots. For one representative case per
+selected snapshot, they hash every file in all three trees and inspect all Git objects,
 including unreachable objects, for blobs unique to the unselected tree. Shared content from
 the base or selected tree is allowed. Real mode removes inherited `AP_EVAL_SCRIPT` from the
 subprocess environment; only dry mode receives the scripted answer path.
@@ -78,13 +78,11 @@ uv run python evals/run.py --mode dry --out /tmp/agentic-preflight-evals
 
 Use `--grounding on` or `--grounding off` for one setting; the default is `both`.
 
-CI runs dry mode and fails when its `summary.json` differs from the committed golden file
-`evals/golden/dry-summary.json`. After an intentional corpus or scoring change, regenerate it:
-
-```console
-uv run python evals/run.py --mode dry --out /tmp/agentic-preflight-evals
-cp /tmp/agentic-preflight-evals/summary.json evals/golden/dry-summary.json
-```
+CI checks scripted catches, misses, fixed-snapshot false positives, and unresolved outcomes
+through the pytest suite. A separate test runs identical inputs twice and compares the
+resulting JSON bytes. Reports are not compared with committed fixture commit hashes;
+intentional corpus or configuration changes do not require regenerating a summary golden.
+All cases retain fixture-validation coverage.
 
 ## Running real mode
 

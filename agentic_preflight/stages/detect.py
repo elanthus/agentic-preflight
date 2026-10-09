@@ -13,17 +13,15 @@ import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
 
 @dataclass
 class Candidate:
     command: str
     source: str
-    trust: Literal["repo_manifest", "untrusted"]
 
     def as_dict(self) -> dict:
-        return {"command": self.command, "source": self.source, "trust": self.trust}
+        return {"command": self.command, "source": self.source}
 
 
 def _from_package_json(root: Path, stage: str) -> list[Candidate]:
@@ -35,7 +33,7 @@ def _from_package_json(root: Path, stage: str) -> list[Candidate]:
     except (json.JSONDecodeError, OSError):
         return []
     return [
-        Candidate(f"npm run {name}", "package.json scripts", "repo_manifest")
+        Candidate(f"npm run {name}", "package.json scripts")
         for name in scripts
         if stage in name.lower()
     ]
@@ -46,9 +44,7 @@ def _from_makefile(root: Path, stage: str) -> list[Candidate]:
     if not path.exists():
         return []
     targets = re.findall(r"^([a-zA-Z0-9_.-]+):", path.read_text(encoding="utf-8"), re.MULTILINE)
-    return [
-        Candidate(f"make {t}", "Makefile", "repo_manifest") for t in targets if stage in t.lower()
-    ]
+    return [Candidate(f"make {t}", "Makefile") for t in targets if stage in t.lower()]
 
 
 def _from_justfile(root: Path, stage: str) -> list[Candidate]:
@@ -58,9 +54,7 @@ def _from_justfile(root: Path, stage: str) -> list[Candidate]:
     if not path.exists():
         return []
     targets = re.findall(r"^([a-zA-Z0-9_-]+):", path.read_text(encoding="utf-8"), re.MULTILINE)
-    return [
-        Candidate(f"just {t}", "justfile", "repo_manifest") for t in targets if stage in t.lower()
-    ]
+    return [Candidate(f"just {t}", "justfile") for t in targets if stage in t.lower()]
 
 
 def _from_pyproject(root: Path, stage: str) -> list[Candidate]:
@@ -75,16 +69,12 @@ def _from_pyproject(root: Path, stage: str) -> list[Candidate]:
     candidates: list[Candidate] = []
     tools = data.get("tool", {})
     if stage == "test" and ("pytest" in tools or (root / "tests").exists()):
-        candidates.append(Candidate("pytest", "pyproject.toml", "repo_manifest"))
+        candidates.append(Candidate("pytest", "pyproject.toml"))
     if stage == "lint":
         if "ruff" in tools:
-            candidates.append(
-                Candidate("ruff check .", "pyproject.toml [tool.ruff]", "repo_manifest")
-            )
+            candidates.append(Candidate("ruff check .", "pyproject.toml [tool.ruff]"))
         if "black" in tools:
-            candidates.append(
-                Candidate("black --check .", "pyproject.toml [tool.black]", "repo_manifest")
-            )
+            candidates.append(Candidate("black --check .", "pyproject.toml [tool.black]"))
     return candidates
 
 
@@ -103,7 +93,6 @@ def _from_workflows(root: Path, stage: str) -> list[Candidate]:
                         Candidate(
                             command,
                             f"untrusted:workflow:.github/workflows/{path.name}",
-                            "untrusted",
                         )
                     )
     return candidates

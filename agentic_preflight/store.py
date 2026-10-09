@@ -29,13 +29,6 @@ from . import filelock
 from .config import Config, snapshot_config
 from .models import Finding, RunDoc
 
-# Roughly a second of total backoff. Long enough to outlast a concurrent read
-# or a scanner's grab, short enough that a genuinely stuck file surfaces as an
-# error while the agent is still waiting on the command.
-_REPLACE_ATTEMPTS = 8
-_REPLACE_INITIAL_DELAY = 0.005
-_REPLACE_MAX_DELAY = 0.25
-
 
 class _RunUpdate(BaseModel):
     """Write-ahead record for one run/findings commit; never includes Git effects."""
@@ -145,7 +138,7 @@ def _replace(tmp: Path, path: Path) -> None:
     Retrying is safe precisely because the operation is atomic: it either
     replaced the file or it did not, so a failed attempt has no partial effect
     to undo. The retry is Windows-only; a ``PermissionError`` on POSIX is a
-    real permissions problem, and quietly grinding on it for a second would
+    real permissions problem, and retrying it would
     hide the cause rather than fix it.
 
     What this fixes is a *transient* hold, which is the one that actually
@@ -161,17 +154,14 @@ def _replace(tmp: Path, path: Path) -> None:
 
 
 def _replace_with_retry(tmp: Path, path: Path) -> None:
-    delay = _REPLACE_INITIAL_DELAY
-    for _ in range(_REPLACE_ATTEMPTS - 1):
+    for attempt in range(3):
         try:
             os.replace(tmp, path)
             return
         except PermissionError:
-            time.sleep(delay)
-            delay = min(delay * 2, _REPLACE_MAX_DELAY)
-    # The last attempt is deliberately unguarded: if the target is still held
-    # after backing off, the caller needs the real error, not a silent loss.
-    os.replace(tmp, path)
+            if attempt == 2:
+                raise
+            time.sleep(0.005)
 
 
 def _atomic_write(path: Path, payload: str) -> None:
@@ -197,9 +187,9 @@ def _atomic_write(path: Path, payload: str) -> None:
 class Store:
     """Everything under ``$GIT_COMMON_DIR/agentic-preflight/``."""
 
-    def __init__(self, root: Path, *, worktrees_root: Path | None = None) -> None:
+    def __init__(self, root: Path) -> None:
         self.root = Path(root)
-        self._worktrees_root = Path(worktrees_root) if worktrees_root else None
+        self._worktrees_root: Path | None = None
 
     # -- paths ---------------------------------------------------------------
 
