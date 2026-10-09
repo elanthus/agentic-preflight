@@ -143,6 +143,15 @@ def _finish_approval(result: dict, *, report_only: bool) -> None:
                 "Approve the waiting environment deployment for the exact current head, "
                 "then rerun this check with --environment-approved."
             )
+        elif mode == "owner_review":
+            message = (
+                "high-risk pull request requires the configured owner review for its exact head"
+            )
+            instruction = (
+                "Ask the configured reviewer to approve the current head, or submit a "
+                "pull-request review containing only approved on their own pull request. "
+                "Then rerun this check."
+            )
         else:
             message = (
                 "high-risk pull request requires an eligible human approval for its exact head"

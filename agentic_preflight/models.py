@@ -21,9 +21,6 @@ from .fingerprints import Classification, DocsFingerprint, ReviewFingerprint
 from .machine import State
 from .shell_fingerprints import ShellFingerprint
 
-SHA_PATTERN = r"^[0-9a-f]{7,40}$"
-
-Sha = Annotated[str, Field(pattern=SHA_PATTERN)]
 ReviewUnitId = Annotated[str, Field(pattern=r"^U\d{4,}$")]
 
 

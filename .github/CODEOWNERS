@@ -1,22 +1,42 @@
 # Changes that can weaken review, publication, or ownership policy require the
 # repository maintainer. Enforce this file with "Require review from Code Owners"
 # in the branch ruleset; CODEOWNERS alone only routes review requests.
+
+# Keep these paths aligned with [policy].human_review_paths. See CONTRIBUTING.md.
 /.agentic-preflight.toml @elanthus
-/.github/dependabot.yml @elanthus
 /.github/CODEOWNERS @elanthus
+/.github/dependabot.yml @elanthus
 /.github/workflows/ @elanthus
 /COMPATIBILITY.md @elanthus
 /SECURITY.md @elanthus
-/agentic_preflight/ @elanthus
+/agentic_preflight/approval.py @elanthus
 /agentic_preflight/attestation.py @elanthus
+/agentic_preflight/ci_authority.py @elanthus
+/agentic_preflight/ci_checks.py @elanthus
+/agentic_preflight/ci_merge.py @elanthus
+/agentic_preflight/ci_models.py @elanthus
+/agentic_preflight/ci_policy.py @elanthus
+/agentic_preflight/cli_ci.py @elanthus
+/agentic_preflight/cli_policy.py @elanthus
 /agentic_preflight/config.py @elanthus
+/agentic_preflight/findings.py @elanthus
+/agentic_preflight/fingerprints.py @elanthus
 /agentic_preflight/hook.py @elanthus
 /agentic_preflight/machine.py @elanthus
 /agentic_preflight/models.py @elanthus
+/agentic_preflight/note_availability.py @elanthus
 /agentic_preflight/publish/ @elanthus
+/agentic_preflight/refresh_validation.py @elanthus
 /agentic_preflight/risk.py @elanthus
+/agentic_preflight/run_invariants.py @elanthus
 /agentic_preflight/runs/publish.py @elanthus
+/agentic_preflight/runs/review_coverage.py @elanthus
+/agentic_preflight/shell_fingerprints.py @elanthus
+/agentic_preflight/stages/change_scope.py @elanthus
+/agentic_preflight/templates/ci/ @elanthus
+/agentic_preflight/wire_schema.py @elanthus
 /docs/RELEASING.md @elanthus
-/pyproject.toml @elanthus
-/skill/ @elanthus
-/uv.lock @elanthus
+/skill/SKILL.md @elanthus
+/skill/reference/docs-rubric.md @elanthus
+/skill/reference/findings-schema.md @elanthus
+/skill/reference/playbooks.md @elanthus

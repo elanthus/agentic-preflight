@@ -41,8 +41,9 @@ human_review_paths = [
 # Use "reusable" for one serial isolated runner with retained ignored caches, or
 # "strict" for a fresh isolated worktree on every run.
 mode = "in_place"
-# Isolated modes put worktrees in a hidden sibling directory, outside .git, so
-# Jest can discover tests without touching this checkout.
+# Isolated modes put worktrees under ~/.cache/agentic-preflight/worktrees (or
+# an absolute $XDG_CACHE_HOME), outside .git. A configured root must also be
+# outside the repository. The runner belongs to the clone, not the checkout.
 # root = "/absolute/path/to/agentic-preflight-worktrees"
 # In isolated modes these files are copied into the validation worktree. In
 # in-place mode they stay where they are. In every mode they must already be
@@ -70,6 +71,8 @@ automated_cleanup = false
 # High-risk changes default to a successful hosted check that requires a person
 # to perform the merge. "environment" waits for the named GitHub Environment;
 # "peer_review" requires an eligible reviewer other than the pull-request author.
+# "owner_review" requires reviewer (a GitHub login), accepting a Comment review
+# containing only approved on that reviewer's own PR, or Approve on another PR.
 mode = "manual_merge"
 environment = "high-risk-review"
 

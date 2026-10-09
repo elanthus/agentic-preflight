@@ -293,8 +293,9 @@ def test_older_reusable_evidence_still_replaces_newer_unusable_evidence(feature_
     _prepare(feature_repo)
     payload = tmp_path / "findings.json"
     first = ScriptedAgent(feature_repo)
-    _complete(first, payload, first.run("start", "--intent", "the original objective"))
-    original_run = first.steps[0].envelope["run_id"]
+    started = first.run("start", "--intent", "the original objective")
+    _complete(first, payload, started)
+    original_run = started["run_id"]
     first.run("abort", "--force")
 
     _restack(feature_repo)

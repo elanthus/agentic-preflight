@@ -1,5 +1,9 @@
 # Command reference
 
+Read [SKILL.md](../SKILL.md) first for approval, review, recovery, and cleanup rules.
+This reference describes command behavior; it does not grant publication or merge
+authorization. See the [CLI walkthrough](workflow.md) for a worked sequence.
+
 Every agent-facing workflow command prints exactly one JSON object to stdout. Human
 prose goes to stderr. Parse that stdout blindly; every key is always present. The sole
 exception is `hook-check`: Git consumes its exit status and stderr, so it emits no JSON
@@ -36,8 +40,9 @@ With `--no-hook`, the effective path and override state are still reported, whil
 
 The default `in_place` mode uses the current checkout and reports
 `data.worktree_root: null`. In isolated `reusable` and `strict` modes, worktrees default
-to a hidden sibling directory outside `.git`, and `data.worktree_root` reports that
-resolved location.
+to a per-clone directory under `$XDG_CACHE_HOME/agentic-preflight/worktrees/` (or
+`~/.cache/agentic-preflight/worktrees/` when `XDG_CACHE_HOME` is unset or relative), and
+`data.worktree_root` reports that resolved location.
 
 ### `agentic-preflight integrations install AGENT... [--scope user|project] [--target PATH] [--force]`
 Copies the bundled skill and all of its references into each selected agent's discovery
@@ -142,7 +147,7 @@ review coverage is stale, it reopens review instead.
 - Review adds `review_coverage`: a snapshot-bound `manifest`, the exact `head`, and
   every hunk or non-textual file-level review unit.
 - `--section docs` adds `doc_surface`: every file in the configured documentation
-  allowlist, with `exists`, `size`, and `touched_by_diff`. From `REVIEW_GREEN` this
+  allowlist, with `path`, `size`, and `touched_by_diff`. Entries describe existing files. From `REVIEW_GREEN` this
   opens the docs stage.
 
 Both sections also include `data.grounding`, a deterministic, bounded retrieval of
@@ -273,8 +278,7 @@ remote jobs before merge, including for documentation-only changes.
 Command resolution: `--command` → `[commands].<name>` → detection. Detection never
 guesses: it exits 2 with `data.mode = "needs_command"` and candidates from
 `pyproject.toml`, `package.json`, `Makefile`, `justfile`, and CI workflows. Every candidate
-has `command`, `source`, and `trust` fields. Manifest candidates carry
-`trust: "repo_manifest"`; workflow `run:` lines carry `trust: "untrusted"` and a source
+has `command` and `source` fields. Workflow `run:` lines have a source
 prefixed with `untrusted:workflow:`. No detected candidate is copied into `next.command`;
 show its exact command to the user and obtain approval before first use.
 
@@ -434,6 +438,22 @@ with no equivalent remains reported as unmerged and is never removed without
 It marks a nonterminal run `ORPHANED` when its source worktree disappeared, its source
 head moved, or its ownership pointer vanished, but only when no command is executing.
 Orphaning releases ownership; cleanup remains a separate preserve-first decision.
+It also removes a released `reusable` runner, and prunes its git registration, when no
+run record naming it still has an existing source worktree or its registered path is
+gone. A runner on a branch is never removed. `data.reclaimed_runners` lists the removed
+runner paths; `removed`, `retained`, and `orphans` are unchanged. An unreadable run
+record keeps the runner it names; one that is not even a JSON object keeps every runner.
+
+Runner reclamation preserves locked worktrees, tracked or non-ignored untracked changes,
+and runners associated with retained runs (including unmerged fixes). Ignored caches
+in an otherwise eligible runner are disposable. A refused Git removal preserves the
+runner rather than deleting its directory directly.
+
+
+`gc` also reclaims eligible unused reusable runners at the old sibling location
+under the same preservation rules. `data.legacy_worktrees` lists registrations still
+remaining under that `.agentic-preflight-worktrees/` default after reclamation;
+inspect each before removing it with `git worktree remove <path>`.
 
 ### `agentic-preflight hook-check`
 The pre-push predicate. Reads git's stdin protocol, consults only the commit's
@@ -484,3 +504,9 @@ exits 0.
 For local workflow exit 3 → run `status` → obey `next`. For `ci status` and other
 remote CI recovery results, follow their reason and next action directly; restarting a
 local run cannot repair pending or unavailable remote evidence.
+
+`[approval] mode = "owner_review"` requires the configured `reviewer` GitHub login to
+approve the exact current head. An Approve review counts on another author's PR; on their
+own PR, a Comment review with trimmed body exactly `approved` counts. Conversation
+comments, stale reviews, bots, and other users do not count. Dismissal, changes requested,
+or editing a self-review to other text revokes approval.

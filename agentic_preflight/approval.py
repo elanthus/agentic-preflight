@@ -36,11 +36,14 @@ def current_human_approvers(
     *,
     head_sha: str,
     pull_request_author: str,
+    owner_reviewer: str | None = None,
 ) -> list[str]:
     """Return repository-associated human approvals for the exact current head.
 
-    Only the latest decisive review from each person counts. Comments do not
-    erase an approval, while a later dismissal or changes-requested review does.
+    Only the latest decisive review from each person counts. Peer comments do not
+    erase an approval; dismissal or changes requested does. Explicit owner mode
+    also accepts an author's Comment review containing only ``approved``. Their
+    latest Comment review replaces that self-approval, including edited text.
     """
     latest: dict[str, tuple[int, str]] = {}
     for review in _flatten_reviews(reviews):
@@ -55,11 +58,20 @@ def current_human_approvers(
             not isinstance(login, str)
             or user_type != "User"
             or association not in _TRUSTED_AUTHOR_ASSOCIATIONS
-            or login.casefold() == pull_request_author.casefold()
+            or (owner_reviewer is None and login.casefold() == pull_request_author.casefold())
+            or (owner_reviewer is not None and login.casefold() != owner_reviewer.casefold())
             or review.get("commit_id") != head_sha
-            or state not in _DECISIVE_REVIEW_STATES
+            or state not in _DECISIVE_REVIEW_STATES | {"COMMENTED"}
         ):
             continue
+        if state == "COMMENTED":
+            if not (
+                owner_reviewer is not None and login.casefold() == pull_request_author.casefold()
+            ):
+                continue
+            state = "APPROVED" if str(review.get("body", "")).strip() == "approved" else "COMMENTED"
+        if owner_reviewer is not None:
+            login = owner_reviewer
         review_id = review.get("id")
         order = review_id if isinstance(review_id, int) else 0
         if login not in latest or order >= latest[login][0]:
@@ -120,6 +132,7 @@ def evaluate_value(
         reviews,
         head_sha=value.sha,
         pull_request_author=pull_request_author,
+        owner_reviewer=cfg.approval.reviewer if cfg.approval.mode == "owner_review" else None,
     )
     approval_mode = cfg.approval.mode
     manual_merge_required = requires_approval and approval_mode == "manual_merge"

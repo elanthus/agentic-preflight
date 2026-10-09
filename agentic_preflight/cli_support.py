@@ -71,17 +71,6 @@ def finish_locked(callback: Callable[[Any], Envelope]) -> None:
         finish(callback(session))
 
 
-#: Commands whose consumer is not the agent and which keep Click's own usage output.
-RAW_COMMANDS = frozenset({"hook-check"})
-
-#: Click 8.2 and later raise this for a bare group invocation; Click 8.1 has no such class.
-_NO_ARGS_IS_HELP = getattr(click.exceptions, "NoArgsIsHelpError", None)
-
-
-def _is_help_request(exc: click.UsageError) -> bool:
-    return _NO_ARGS_IS_HELP is not None and isinstance(exc, _NO_ARGS_IS_HELP)
-
-
 def fail_usage(exc: click.UsageError) -> None:
     """Emit a Click usage error as one JSON envelope with its own exit code."""
     message = exc.format_message()
@@ -111,7 +100,7 @@ class EnvelopeGroup(click.Group):
         try:
             return super().make_context(info_name, args, parent=parent, **extra)
         except click.UsageError as exc:
-            if _is_help_request(exc):
+            if isinstance(exc, click.exceptions.NoArgsIsHelpError):
                 raise
             fail_usage(exc)
             raise
@@ -127,9 +116,9 @@ class EnvelopeGroup(click.Group):
         try:
             return super().invoke(ctx)
         except click.UsageError as exc:
-            if _is_help_request(exc):
+            if isinstance(exc, click.exceptions.NoArgsIsHelpError):
                 raise
-            if exc.ctx is not None and exc.ctx.command.name in RAW_COMMANDS:
+            if exc.ctx is not None and exc.ctx.command.name == "hook-check":
                 raise
             fail_usage(exc)
             raise

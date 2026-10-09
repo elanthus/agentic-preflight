@@ -187,9 +187,9 @@ def _atomic_write(path: Path, payload: str) -> None:
 class Store:
     """Everything under ``$GIT_COMMON_DIR/agentic-preflight/``."""
 
-    def __init__(self, root: Path, *, worktrees_root: Path | None = None) -> None:
+    def __init__(self, root: Path) -> None:
         self.root = Path(root)
-        self._worktrees_root = Path(worktrees_root) if worktrees_root else None
+        self._worktrees_root: Path | None = None
 
     # -- paths ---------------------------------------------------------------
 
