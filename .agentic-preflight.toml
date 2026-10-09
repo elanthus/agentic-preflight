@@ -16,19 +16,44 @@ human_review_paths = [
   ".github/workflows/**",
   "COMPATIBILITY.md",
   "SECURITY.md",
+  # Direct approval, evidence-verification, and publication decisions.
+  "agentic_preflight/approval.py",
   "agentic_preflight/attestation.py",
+  "agentic_preflight/ci_authority.py",
+  "agentic_preflight/ci_checks.py",
+  "agentic_preflight/ci_merge.py",
+  "agentic_preflight/ci_models.py",
+  "agentic_preflight/ci_policy.py",
+  "agentic_preflight/cli_ci.py",
+  "agentic_preflight/cli_policy.py",
   "agentic_preflight/config.py",
+  "agentic_preflight/findings.py",
+  "agentic_preflight/fingerprints.py",
   "agentic_preflight/hook.py",
   "agentic_preflight/machine.py",
   "agentic_preflight/models.py",
+  "agentic_preflight/note_availability.py",
   "agentic_preflight/publish/**",
+  "agentic_preflight/refresh_validation.py",
   "agentic_preflight/risk.py",
+  "agentic_preflight/run_invariants.py",
   "agentic_preflight/runs/publish.py",
+  "agentic_preflight/runs/review_coverage.py",
+  "agentic_preflight/shell_fingerprints.py",
+  "agentic_preflight/stages/change_scope.py",
+  "agentic_preflight/templates/ci/**",
+  "agentic_preflight/wire_schema.py",
   "docs/RELEASING.md",
-  "skill/**",
+  # Agent approval and recovery instructions; routine CLI references are medium risk.
+  "skill/SKILL.md",
+  "skill/reference/docs-rubric.md",
+  "skill/reference/findings-schema.md",
+  "skill/reference/playbooks.md",
 ]
-high_risk_paths = ["agentic_preflight/**"]
-medium_risk_paths = ["tests/**"]
+# Ordinary implementation changes still receive the full validation pipeline.
+# Explicit human-review matches above win over these medium-risk defaults.
+high_risk_paths = []
+medium_risk_paths = ["agentic_preflight/**", "tests/**", "skill/reference/**"]
 
 [diff]
 max_bytes = 500000
