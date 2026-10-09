@@ -449,6 +449,11 @@ in an unrelated worktree. Cleanup never performs a blanket `ap/*` deletion. Afte
 report the exact targets removed, every preserved mismatch, and whether either source
 branch was already absent.
 
+Released runner cleanup preserves locked or dirty worktrees and runners associated
+with retained runs, including unmerged fixes. Eligible unused runners at current and
+historical locations are reclaimed with their ignored caches; Git removal failures
+preserve the directory.
+
 For a pushed run with no PR, follow `finish` with `gc`. `gc` compares original fixes
 with post-merge-back history using stable patch IDs. Only patch-equivalent fixes are
 reclaimed automatically; anything unmerged is retained unless the user explicitly

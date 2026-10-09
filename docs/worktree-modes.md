@@ -72,6 +72,12 @@ no run record that used it still has an existing source worktree, or when its
 registered path no longer exists. A runner checked out on a branch is never removed,
 and neither is one whose run still has a live source worktree.
 
+
+Runner reclamation preserves locked worktrees, tracked or non-ignored untracked changes,
+and runners associated with retained runs (including unmerged fixes). Ignored caches
+in an otherwise eligible runner are disposable. A refused Git removal preserves the
+runner rather than deleting its directory directly.
+
 Between leases it resets tracked files, removes non-ignored untracked files, explicitly
 removes every `[worktree] copy_files` entry, and then detaches the validation worktree. Other ignored
 files are kept so dependency and build caches survive.

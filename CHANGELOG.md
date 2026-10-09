@@ -20,6 +20,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- Runner garbage collection preserves locked or dirty worktrees and retained unmerged
+  fixes, and honors Git removal failures without deleting directories directly.
+
 - `reusable` mode now keeps one runner per clone. The default worktree root was named
   after the checkout directory, so every linked worktree of a clone leased its own
   runner. The leaf name is now the clone's repository directory name plus the hash of

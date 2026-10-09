@@ -768,3 +768,64 @@ def test_gc_orphans_and_reclaims_a_runner_whose_run_holds_a_removed_config_key(
     assert started["run_id"] in collected["removed"]
     assert collected["reclaimed_runners"] == [str(runner)]
     assert not runner.exists()
+
+
+@pytest.mark.parametrize("protection", ["tracked", "untracked", "locked", "fix", "missing_fix"])
+def test_gc_preserves_runner_work_and_locks(feature_repo, tmp_path, protection):
+    source = _reusable_worktree(feature_repo, tmp_path / "source", "source")
+    agent = ScriptedAgent(source)
+    started = agent.run("start")
+    runner = Path(started["data"]["worktree_path"]).resolve()
+    agent.run("abort")
+    git("worktree", "remove", "--force", str(source), cwd=feature_repo)
+    if protection == "tracked":
+        tracked = git("ls-files", cwd=runner).splitlines()[0]
+        (runner / tracked).write_text("user changes\n", encoding="utf-8")
+    elif protection == "untracked":
+        (runner / "user-work.txt").write_text("keep me\n", encoding="utf-8")
+    elif protection == "locked":
+        git("worktree", "lock", str(runner), cwd=feature_repo)
+    else:
+        record = _state_root(feature_repo) / "runs" / started["run_id"] / "run.json"
+        raw = json.loads(record.read_text(encoding="utf-8"))
+        raw["fix_commits"] = [git("rev-parse", "HEAD", cwd=runner)]
+        record.write_text(json.dumps(raw), encoding="utf-8")
+        if protection == "missing_fix":
+            shutil.rmtree(runner)
+
+    collected = ScriptedAgent(feature_repo).run("gc")["data"]
+
+    assert collected["reclaimed_runners"] == []
+    assert runner in _registered(feature_repo)
+    assert runner.exists() == (protection != "missing_fix")
+    if protection in {"fix", "missing_fix"}:
+        assert any(item["run_id"] == started["run_id"] for item in collected["retained"])
+
+
+def test_gc_reclaims_ignored_caches_but_honors_git_removal_failure(
+    feature_repo, tmp_path, monkeypatch
+):
+    source = _reusable_worktree(feature_repo, tmp_path / "source", "source")
+    agent = ScriptedAgent(source)
+    runner = Path(agent.run("start")["data"]["worktree_path"]).resolve()
+    agent.run("abort")
+    git("worktree", "remove", "--force", str(source), cwd=feature_repo)
+    git("config", "core.excludesFile", str(tmp_path / "ignore"), cwd=feature_repo)
+    (tmp_path / "ignore").write_text("cache/\n", encoding="utf-8")
+    write(runner, "cache/build.bin", "disposable cache")
+    from agentic_preflight import gitx
+
+    original = gitx.run
+
+    def refuse_removal(cwd, *args, **kwargs):
+        if args[:2] == ("worktree", "remove") and str(runner) in args:
+            return subprocess.CompletedProcess(args, 1, "", "removal refused")
+        return original(cwd, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(gitx, "run", refuse_removal)
+        assert ScriptedAgent(feature_repo).run("gc")["data"]["reclaimed_runners"] == []
+    assert (runner / "cache/build.bin").read_text() == "disposable cache"
+    assert runner in _registered(feature_repo)
+    assert ScriptedAgent(feature_repo).run("gc")["data"]["reclaimed_runners"] == [str(runner)]
+    assert not runner.exists()

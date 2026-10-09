@@ -440,6 +440,12 @@ gone. A runner on a branch is never removed. `data.reclaimed_runners` lists the 
 runner paths; `removed`, `retained`, and `orphans` are unchanged. An unreadable run
 record keeps the runner it names; one that is not even a JSON object keeps every runner.
 
+Runner reclamation preserves locked worktrees, tracked or non-ignored untracked changes,
+and runners associated with retained runs (including unmerged fixes). Ignored caches
+in an otherwise eligible runner are disposable. A refused Git removal preserves the
+runner rather than deleting its directory directly.
+
+
 ### `agentic-preflight hook-check`
 The pre-push predicate. Reads git's stdin protocol, consults only the commit's
 `refs/notes/agentic-preflight` note, and exits 0 or 10. Not for you to call — git calls

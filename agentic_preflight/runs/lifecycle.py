@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import gitx, hook, worktree
+from .. import gitx, hook
 from .. import risk as riskmod
 from ..envelope import Envelope
 from ..errors import (
@@ -279,7 +279,9 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
         if run_id not in known_runs and run_id not in orphans:
             orphans.append(run_id)
 
-    reclaimed_runners = _reclaim_released_runners(session, known_runs)
+    reclaimed_runners = _reclaim_released_runners(
+        session, known_runs, {item["run_id"] for item in retained if "run_id" in item}
+    )
 
     return Envelope(
         data={
@@ -305,14 +307,18 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
     )
 
 
-def _reclaim_released_runners(session: Session, known_runs: set[str]) -> list[str]:
+def _reclaim_released_runners(
+    session: Session, known_runs: set[str], retained_run_ids: set[str]
+) -> list[str]:
     """Remove released reusable runners that no existing source worktree can use.
 
     Candidates are the current reusable runner location plus any ``runner``
     checkout a run record names, which covers runners left at older
     per-checkout locations. A runner is kept while it is leased on a branch or
     while any run record naming it still has an existing source worktree, or
-    while a record naming it fails validation. An unreadable record that names
+    while a record naming it fails validation or is retained by collection.
+    Locked or dirty runners are preserved, and Git removal failures never trigger
+    direct directory deletion. An unreadable record that names
     another path blocks nothing; a record whose top-level fields cannot be read
     at all blocks reclamation of every runner, because it might name any of them.
     """
@@ -323,7 +329,7 @@ def _reclaim_released_runners(session: Session, known_runs: set[str]) -> list[st
         if "worktree" in record
     }
 
-    # (runner path, source worktree path, record unreadable)
+    # (runner path, source worktree path, record preserved)
     users: list[tuple[Path, str | None, bool]] = []
     for run_id in sorted(known_runs):
         fields = session.store.peek(run_id, "worktree_path", "source_worktree_path")
@@ -335,9 +341,9 @@ def _reclaim_released_runners(session: Session, known_runs: set[str]) -> list[st
             # Only lifecycle fields matter here, so read the way gc orphaning
             # does: a snapshot holding a removed config key does not pin a runner.
             session.store.load_run(run_id, tolerate_removed_config=True)
-            unreadable = False
+            preserved = run_id in retained_run_ids
         except RunReadError:
-            unreadable = True
+            preserved = True
         except UnknownRun:
             continue
         source = fields.get("source_worktree_path")
@@ -345,7 +351,7 @@ def _reclaim_released_runners(session: Session, known_runs: set[str]) -> list[st
             (
                 Path(str(fields["worktree_path"])).resolve(),
                 str(source) if source else None,
-                unreadable,
+                preserved,
             )
         )
 
@@ -358,16 +364,24 @@ def _reclaim_released_runners(session: Session, known_runs: set[str]) -> list[st
         if record is None:
             continue
         missing = "prunable" in record or not runner.exists()
-        if "detached" not in record:
+        if "detached" not in record or "locked" in record:
             continue  # leased on a branch: a run may still own commits there
         in_use = any(
-            path == runner and (unreadable or (source is not None and Path(source).exists()))
-            for path, source, unreadable in users
+            path == runner and (preserved or (source is not None and Path(source).exists()))
+            for path, source, preserved in users
         )
+        if any(path == runner and preserved for path, _, preserved in users):
+            continue
         if in_use and not missing:
             continue
-        worktree.remove(repo, runner)
-        reclaimed.append(str(runner))
+        try:
+            if runner.exists() and not gitx.is_clean(runner):
+                continue
+            removed = gitx.run(repo, "worktree", "remove", "--force", str(runner), check=False)
+        except gitx.GitError:
+            continue
+        if removed.returncode == 0:
+            reclaimed.append(str(runner))
     return reclaimed
 
 
