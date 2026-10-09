@@ -73,8 +73,8 @@ def test_approval_events_outputs_and_dependencies():
     )
     policy = workflow.split("\n  policy:\n", 1)[1].split("\n  environment:\n", 1)[0]
     outputs = policy.split("    outputs:\n", 1)[1].split("    steps:\n", 1)[0]
-    assert outputs.splitlines() == [
-        f"      {key}: ${{{{ steps.policy.outputs.{key} }}}}"
+    assert [line.strip() for line in outputs.splitlines() if line.strip()] == [
+        f"{key}: ${{{{ steps.policy.outputs.{key} }}}}"
         for key in ("approved", "approval_mode", "environment", "requires_approval")
     ]
     environment = " ".join(
