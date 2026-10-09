@@ -15,6 +15,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - Keep the current README animation available from a pinned existing commit and
   publish future recordings to the badges branch. Recording is optional, and
   badge updates preserve other assets.
+- Moved the two immutable dogfooding evidence ledgers to `elanthus/preflight-eval-results`
+  and pinned the case study links to the archive commit. Collection data and case study
+  counts are unchanged; the ledgers are no longer stored in this source tree.
 
 ### Fixed
 
