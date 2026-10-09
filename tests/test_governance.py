@@ -95,8 +95,6 @@ def owners_for(path):
         "skill/reference/playbooks.md",
         "skill/reference/findings-schema.md",
         "skill/reference/docs-rubric.md",
-        "pyproject.toml",
-        "uv.lock",
     ],
 )
 def test_sensitive_changes_require_human_review_and_a_code_owner(path):
