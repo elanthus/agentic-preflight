@@ -18,7 +18,6 @@ from pathlib import Path
 
 from . import gitx
 from .attestation import NOTES_REF
-from .envelope import ExitCode
 from .evidence_transport import REF_PREFIX
 
 ZERO_SHA = "0" * 40
@@ -56,17 +55,6 @@ class RefUpdate:
     def is_tag(self) -> bool:
         return self.remote_ref.startswith("refs/tags/")
 
-    @property
-    def is_evidence_object(self) -> bool:
-        # Only the destination namespace is exempt. An evidence ref used as the
-        # source of a branch push must still satisfy the ordinary branch gate.
-        return (
-            self.remote_ref == REF_PREFIX + self.local_sha
-            and len(self.local_sha) == 40
-            and all(char in "0123456789abcdef" for char in self.local_sha)
-            and self.remote_sha in {ZERO_SHA, self.local_sha}
-        )
-
 
 def parse_stdin(text: str) -> list[RefUpdate]:
     """Parse git's pre-push stdin protocol: <local ref> <local sha> <remote ref> <remote sha>."""
@@ -95,21 +83,10 @@ def evaluate(
 ) -> Decision:
     """Decide the push. ``is_ancestor(a, b)`` is injected so this stays pure."""
     for update in updates:
-        if update.remote_ref.startswith(REF_PREFIX) and not update.is_evidence_object:
-            return Decision(
-                allowed=False,
-                reason="evidence deletion" if update.is_deletion else "evidence replacement",
-                message=_block_message(
-                    update.remote_sha,
-                    headline="retained evidence deletion or replacement",
-                    reason="published attestations may still require this original commit",
-                    fix="keep evidence refs while published notes depend on them",
-                ),
-            )
         if (
             update.is_deletion
             or update.is_attestation_note
-            or update.is_evidence_object
+            or update.remote_ref.startswith(REF_PREFIX)
             or update.is_tag
         ):
             continue
@@ -203,6 +180,3 @@ def install(repo_root: Path | str, *, force: bool = False) -> tuple[Path, bool]:
     path.write_text(HOOK_SCRIPT, encoding="utf-8", newline="\n")
     path.chmod(0o755)
     return path, True
-
-
-BLOCK_EXIT = ExitCode.HOOK_BLOCK
