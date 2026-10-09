@@ -66,6 +66,8 @@ include = [
     "/SECURITY.md",
     "/SUPPORT.md",
     "/docs/*.md",
+    "/docs/CHANGELOG.d/*.md",
+    "/tools/changelog.py",
     "/docs/adr/*.md",
     "/install.sh",
     "/uninstall.sh",

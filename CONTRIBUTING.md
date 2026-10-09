@@ -60,6 +60,21 @@ manually and on release tags; see [COMPATIBILITY.md](COMPATIBILITY.md).
 By submitting a contribution, you agree that it is licensed under the repository's
 Apache License 2.0.
 
+## Changelog fragments
+
+For each behavior or configuration change, add a unique file under
+`docs/CHANGELOG.d/`, named `<issue-or-slug>.<category>.md`, such as
+`198.removed.md` or `changelog-fragments.changed.md`. Categories are `added`,
+`changed`, `deprecated`, `removed`, `fixed`, and `security`. Write Markdown bullets
+without headings or standalone prose. Indent continuation lines by at least two
+spaces; blank lines between bullets are allowed. Use separate files for separate categories, and a descriptive
+suffix when multiple PRs address one issue.
+
+Routine PRs leave `CHANGELOG.md` alone. Review fragments with their change. Existing
+Unreleased entries remain until the next release. The release command combines them
+with fragments and removes consumed files. Commit the assembled changelog and
+deletions together; see [Releasing](docs/RELEASING.md#cutting-a-release).
+
 ## Risk and human review
 
 This repository classifies ordinary package code, tests, and CLI reference material as

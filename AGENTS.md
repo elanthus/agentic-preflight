@@ -46,8 +46,12 @@ can take a few minutes.
 
 Update documentation in the same commit as the code it describes:
 
-- Every behaviour or configuration change gets an entry under `[Unreleased]` in
-  `CHANGELOG.md`.
+- Every behaviour or configuration change gets a unique Markdown fragment in
+  `docs/CHANGELOG.d/` in the same commit. Use `<issue-or-slug>.<category>.md`
+  (for example `198.removed.md`), with category `added`, `changed`, `deprecated`,
+  `removed`, `fixed`, or `security`, and Markdown bullets without headings.
+  Routine PRs do not edit `CHANGELOG.md`; release assembly consumes the fragments.
+  See [CONTRIBUTING.md](CONTRIBUTING.md#changelog-fragments).
 - Configuration keys are documented in `docs/configuration.md`.
 - CLI commands, flags, envelopes, and exit codes are documented in
   `skill/reference/commands.md`; update `skill/reference/workflow.md` when the walkthrough
