@@ -70,6 +70,8 @@ automated_cleanup = false
 # High-risk changes default to a successful hosted check that requires a person
 # to perform the merge. "environment" waits for the named GitHub Environment;
 # "peer_review" requires an eligible reviewer other than the pull-request author.
+# "owner_review" requires reviewer (a GitHub login), accepting a Comment review
+# containing only approved on that reviewer's own PR, or Approve on another PR.
 mode = "manual_merge"
 environment = "high-risk-review"
 

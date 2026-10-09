@@ -1,5 +1,9 @@
 # Command reference
 
+Read [SKILL.md](../SKILL.md) first for approval, review, recovery, and cleanup rules.
+This reference describes command behavior; it does not grant publication or merge
+authorization. See the [CLI walkthrough](workflow.md) for a worked sequence.
+
 Every agent-facing workflow command prints exactly one JSON object to stdout. Human
 prose goes to stderr. Parse that stdout blindly; every key is always present. The sole
 exception is `hook-check`: Git consumes its exit status and stderr, so it emits no JSON
@@ -484,3 +488,9 @@ exits 0.
 For local workflow exit 3 → run `status` → obey `next`. For `ci status` and other
 remote CI recovery results, follow their reason and next action directly; restarting a
 local run cannot repair pending or unavailable remote evidence.
+
+`[approval] mode = "owner_review"` requires the configured `reviewer` GitHub login to
+approve the exact current head. An Approve review counts on another author's PR; on their
+own PR, a Comment review with trimmed body exactly `approved` counts. Conversation
+comments, stale reviews, bots, and other users do not count. Dismissal, changes requested,
+or editing a self-review to other text revokes approval.

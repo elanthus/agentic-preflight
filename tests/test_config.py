@@ -395,3 +395,18 @@ def test_empty_validation_errors_still_have_a_message(tmp_path):
     error = ValidationError.from_exception_data("Config", [])
     source = tmp_path / "config.toml"
     assert _describe(error, {}, source) == f"invalid configuration in {source}: validation failed"
+
+
+def test_owner_review_requires_explicit_reviewer():
+    from pydantic import ValidationError
+
+    from agentic_preflight.config import Config
+
+    with pytest.raises(ValidationError, match="reviewer must not be empty"):
+        Config.model_validate({"approval": {"mode": "owner_review"}})
+    assert (
+        Config.model_validate(
+            {"approval": {"mode": "owner_review", "reviewer": "owner"}}
+        ).approval.reviewer
+        == "owner"
+    )
