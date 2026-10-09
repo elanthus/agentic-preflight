@@ -39,7 +39,19 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
 1. Choose an unused three-part SemVer (`MAJOR.MINOR.PATCH`) and update
    `version` in `pyproject.toml`. A hotfix is a patch bump, never a fourth version
    component. Run `uv lock` to keep the local project version in `uv.lock` in sync.
-2. Update `CHANGELOG.md`, and re-pin the README's `blob/vX.Y.Z` documentation
+2. Assemble the changelog using the chosen version and release date:
+
+   ```bash
+   uv run python tools/changelog.py X.Y.Z --date YYYY-MM-DD
+   ```
+
+   The command combines existing Unreleased entries with `docs/CHANGELOG.d/*.md`,
+   ordered by category then filename, under the new release. It validates every
+   fragment before changing files, replaces the changelog atomically, and removes
+   consumed fragments. A repeated version is rejected. Inspect and commit both
+   `CHANGELOG.md` and fragment deletions together. If removal is interrupted, restore
+   the pre-assembly tree before retrying; do not reuse a partially consumed set.
+   Historical release text is preserved. Then re-pin the README's `blob/vX.Y.Z` documentation
    links to the new version. Check each target against the release tree; the
    new tag links will become available when the tag is pushed. This re-pin also covers
    any `blob/main` link introduced between releases. Re-record the README animation
