@@ -205,10 +205,6 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Changed
 
-- The advisory pre-push hook now skips updates to evidence refs like tags, including
-  replacement and deletion. Evidence objects pushed to branches still pass through
-  the ordinary force-push and attestation checks.
-
 - Context grounding derives module terms for every Python package, not only
   `agentic_preflight`. A changed `.py` file under any directory now contributes its path
   relative to the top-level directory and its dotted module name.
