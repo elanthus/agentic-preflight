@@ -78,6 +78,7 @@ def test_skill_md_exists_with_front_matter():
     [
         SKILL,
         REFERENCE / "commands.md",
+        REFERENCE / "workflow.md",
         REFERENCE / "findings-schema.md",
         REFERENCE / "docs-rubric.md",
         REFERENCE / "playbooks.md",
@@ -93,7 +94,7 @@ def test_every_documented_command_exists(doc):
 
 def test_every_real_command_is_documented_somewhere():
     documented = set()
-    for doc in (SKILL, REFERENCE / "commands.md"):
+    for doc in (SKILL, REFERENCE / "commands.md", REFERENCE / "workflow.md"):
         documented |= documented_commands(doc.read_text(encoding="utf-8"))
     missing = real_commands() - documented
     assert missing == set(), f"undocumented commands: {missing}"

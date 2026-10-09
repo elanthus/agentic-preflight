@@ -1,5 +1,9 @@
 # Command reference
 
+Read [SKILL.md](../SKILL.md) first for approval, review, recovery, and cleanup rules.
+This reference describes command behavior; it does not grant publication or merge
+authorization. See the [CLI walkthrough](workflow.md) for a worked sequence.
+
 Every agent-facing workflow command prints exactly one JSON object to stdout. Human
 prose goes to stderr. Parse that stdout blindly; every key is always present. The sole
 exception is `hook-check`: Git consumes its exit status and stderr, so it emits no JSON
@@ -434,6 +438,17 @@ with no equivalent remains reported as unmerged and is never removed without
 It marks a nonterminal run `ORPHANED` when its source worktree disappeared, its source
 head moved, or its ownership pointer vanished, but only when no command is executing.
 Orphaning releases ownership; cleanup remains a separate preserve-first decision.
+It also removes a released `reusable` runner, and prunes its git registration, when no
+run record naming it still has an existing source worktree or its registered path is
+gone. A runner on a branch is never removed. `data.reclaimed_runners` lists the removed
+runner paths; `removed`, `retained`, and `orphans` are unchanged. An unreadable run
+record keeps the runner it names; one that is not even a JSON object keeps every runner.
+
+Runner reclamation preserves locked worktrees, tracked or non-ignored untracked changes,
+and runners associated with retained runs (including unmerged fixes). Ignored caches
+in an otherwise eligible runner are disposable. A refused Git removal preserves the
+runner rather than deleting its directory directly.
+
 
 ### `agentic-preflight hook-check`
 The pre-push predicate. Reads git's stdin protocol, consults only the commit's
@@ -484,3 +499,9 @@ exits 0.
 For local workflow exit 3 → run `status` → obey `next`. For `ci status` and other
 remote CI recovery results, follow their reason and next action directly; restarting a
 local run cannot repair pending or unavailable remote evidence.
+
+`[approval] mode = "owner_review"` requires the configured `reviewer` GitHub login to
+approve the exact current head. An Approve review counts on another author's PR; on their
+own PR, a Comment review with trimmed body exactly `approved` counts. Conversation
+comments, stale reviews, bots, and other users do not count. Dismissal, changes requested,
+or editing a self-review to other text revokes approval.

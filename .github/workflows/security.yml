@@ -25,9 +25,6 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
-      - name: Install the locked audit environment
-        run: uv sync --locked --group dev --python 3.13
-
       - name: Export locked runtime dependencies
         run: >-
           uv export --frozen --no-dev --no-emit-project
@@ -35,7 +32,7 @@ jobs:
 
       - name: Audit runtime dependencies
         run: >-
-          uv run pip-audit --requirement ${{ runner.temp }}/runtime-requirements.txt
+          uvx --python 3.13 pip-audit@2.10.1 --requirement ${{ runner.temp }}/runtime-requirements.txt
           --require-hashes --disable-pip
 
   codeql:

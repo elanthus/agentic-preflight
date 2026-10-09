@@ -77,6 +77,13 @@ submit a duplicate. Mechanical rules belong to code precisely because they are t
 a reviewer forgets on the twentieth run. The injected finding is code-owned and blocks
 until resolved even when `[docs] blocking_severities` excludes its severity.
 
+This repository uses `docs/CHANGELOG.d/<issue-or-slug>.<category>.md` fragments.
+They already match `docs/CHANGELOG*`, satisfying the mechanical check without editing
+the shared changelog. Review their bullets against the behavior change; assembly
+happens at release time. See
+[Contributing](https://github.com/elanthus/agentic-preflight/blob/main/CONTRIBUTING.md#changelog-fragments)
+for filenames and categories.
+
 ## Writing a good docs finding
 
 Bad:

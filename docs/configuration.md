@@ -85,7 +85,7 @@ exclude = ["*.lock", "*-lock.json", "vendor/**", "**/*.min.js"]
 
 [worktree]
 mode = "in_place"                 # default; or "reusable" / "strict"
-root = "/optional/external/path"  # isolated modes only; defaults outside .git
+root = "/optional/external/path"  # isolated modes only; defaults outside .git, one per clone
 copy_files = [".env"]             # must already be ignored
 # setup_command = "uv sync"       # prepare dependencies and ignored build inputs
 
@@ -97,8 +97,9 @@ mode = "auto"                     # or "manual"
 automated_cleanup = false          # true enables merge polling and cleanup
 
 [approval]
-mode = "manual_merge"             # or "environment" / "peer_review"
+mode = "manual_merge"             # or "environment" / "peer_review" / "owner_review"
 environment = "high-risk-review"  # used by environment mode
+reviewer = ""                     # required GitHub login for owner_review
 
 [hook]
 allow_force_push = false
@@ -211,6 +212,14 @@ may limit required reviewers for private repositories.
 `mode = "peer_review"` retains the original pull-request-review policy: an eligible
 repository owner, member, or collaborator other than the author must approve the exact
 current head.
+
+`mode = "owner_review"` requires the human GitHub login in `reviewer` to review the
+exact current head. They must be a repository owner, member, or collaborator. On another
+author's pull request, submit an **Approve** review. On their own pull request, submit a
+**Comment** review whose trimmed body is exactly `approved` (lowercase); an ordinary PR
+conversation comment does not count. A new head needs a new review. Dismissal or a later
+changes-requested review revokes approval; editing or replacing a self-review with other
+text also removes its approval. Bots and other reviewers cannot satisfy this mode.
 
 The policy checker reads trusted configuration from the protected base commit. A pull
 request that changes `[approval]` is therefore evaluated under the old base-branch mode;
