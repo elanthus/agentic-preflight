@@ -28,7 +28,10 @@ and `status` drop that line and read the rest. A malformed earlier line is repor
 If a stored record cannot be read or validated, `status` reports its identity and
 diagnostic without clearing its ownership pointer. `status --all` includes it as
 unreadable rather than calling it corrupt. `gc` retains the record and its resources,
-even with `--force`, while collecting other eligible runs. Inspect the reported path;
+even with `--force`, while collecting other eligible runs, with one exception: a
+nonterminal run whose snapshot holds only configuration keys a later release removed
+is read tolerantly, and if its source worktree, lease, or head is gone it is orphaned
+and its resources released like any other abandoned run. Inspect the reported path;
 never delete an alias merely to make an unreadable run look absent.
 
 A repeated `start` with the same head, intent, base, and effective configuration resumes
@@ -82,6 +85,15 @@ Creates a fresh worktree for every run and removes it afterward. Use it when eac
 validation must begin with no retained artifacts.
 
 Remote CI should remain the clean verification boundary in either isolated mode.
+
+## Seeing how much space checkouts hold
+
+Every `start` reports `data.housekeeping`: the size of each directory under the
+worktrees root and each `ap/*` worktree, whether it is `retained` (leased, or named by a
+run whose source worktree still exists, which keeps a reusable runner) or
+`reclaimable`, and the totals. When at least 1 GiB is reclaimable,
+`noisy` is true and the agent tells you once; `agentic-preflight gc` reclaims it. The
+report never deletes anything, and its failure never fails `start`.
 
 ## Why isolated validation worktrees live outside `.git`
 

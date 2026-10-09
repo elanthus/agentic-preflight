@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from .. import findings as findingsmod
 from .. import gitx, worktree
-from ..config import Config, load_config
+from ..config import Config, load_config, snapshot_config
 from ..envelope import Envelope
 from ..errors import (
     MaxRestarts,
@@ -319,8 +319,13 @@ def _assert_fresh(session: Session, run: RunDoc) -> None:
 
 
 def _worktree_mode(run: RunDoc) -> str:
-    """Return the snapshotted worktree lifecycle."""
-    return Config.model_validate(run.config_snapshot).worktree.mode
+    """The run's validation mode, read from its snapshot.
+
+    Tolerates keys a later release removed so that ``gc`` can release the
+    worktree of a run recorded by an earlier release. A strictly loaded run
+    has already passed the stricter check, so the answer is the same there.
+    """
+    return snapshot_config(run.config_snapshot).worktree.mode
 
 
 def _is_in_place(run: RunDoc) -> bool:
