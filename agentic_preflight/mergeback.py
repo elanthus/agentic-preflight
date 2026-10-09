@@ -94,39 +94,8 @@ def _abort_and_restore(
     repo: Path | str,
     pre_sha: str,
     pre_status: str,
-    fix_commits: list[str],
 ) -> bool:
-    """Abort the cherry-pick and confirm the branch is byte-for-byte restored.
-
-    A failed start can expose somebody else's ``CHERRY_PICK_HEAD``. Ownership
-    must be established before aborting so their sequencer is never adopted.
-    The confirmation matters as much as the abort: reporting "restored" without
-    checking would be a guess about the one thing the user most needs to trust.
-    """
-    cherry_pick_head = gitx.run(
-        repo,
-        "rev-parse",
-        "--verify",
-        "CHERRY_PICK_HEAD^{commit}",
-        check=False,
-    )
-    resolved_fixes = {
-        resolved.stdout.strip()
-        for commit in fix_commits
-        if (
-            resolved := gitx.run(
-                repo,
-                "rev-parse",
-                "--verify",
-                f"{commit}^{{commit}}",
-                check=False,
-            )
-        ).returncode
-        == 0
-    }
-    if cherry_pick_head.returncode != 0 or cherry_pick_head.stdout.strip() not in resolved_fixes:
-        return False
-
+    """Abort our cherry-pick and confirm HEAD and local changes are restored."""
     aborted = gitx.run(repo, "cherry-pick", "--abort", check=False)
     if aborted.returncode != 0:
         return False
@@ -162,7 +131,7 @@ def cherry_pick_fixes(
             conflicts = _conflicting_files(repo)
             head = gitx.run(repo, "rev-parse", "CHERRY_PICK_HEAD", check=False)
             conflicting = head.stdout.strip() if head.returncode == 0 else fix_commits[0]
-            restored = _abort_and_restore(repo, pre_sha, pre_status, fix_commits)
+            restored = _abort_and_restore(repo, pre_sha, pre_status)
             raise MergebackConflict(
                 f"cherry-picking {conflicting[:8]} conflicted with the branch",
                 ConflictReport(

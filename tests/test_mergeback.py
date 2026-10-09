@@ -111,7 +111,7 @@ def ready(feature_repo, tmp_path):
 
 
 @pytest.mark.parametrize("tampered", [False, True])
-def test_pending_mergeback_recovers_the_completed_source_rebase(
+def test_pending_mergeback_rejects_an_interrupted_source_rebase(
     ready, feature_repo, monkeypatch, tampered
 ):
     from agentic_preflight import sync
@@ -137,22 +137,11 @@ def test_pending_mergeback_recovers_the_completed_source_rebase(
     assert status["data"]["stale"] is False
     if tampered:
         write(feature_repo, "unexpected.txt", "unreviewed content\n")
-        tip = commit_all(feature_repo, "unrelated change after rebase")
-        rejected = agent.run("mergeback", expect=3)
-        assert rejected["error"]["code"] == "stale_run"
-        assert git("rev-parse", "HEAD", cwd=feature_repo) == tip
-    else:
-
-        def never_rebase(*args, **kwargs):
-            pytest.fail("the completed source rebase must not run again")
-
-        monkeypatch.setattr(sync, "rebase_onto", never_rebase)
-        recovered = agent.run("mergeback")
-        assert recovered["state"] == "VERIFIED"
-        assert git("rev-parse", "HEAD^", cwd=feature_repo) == rebased
-        assert git("rev-parse", "HEAD^{tree}", cwd=feature_repo) == git(
-            "rev-parse", "HEAD^{tree}", cwd=wt
-        )
+        commit_all(feature_repo, "unrelated change after rebase")
+    tip = git("rev-parse", "HEAD", cwd=feature_repo)
+    rejected = agent.run("mergeback", expect=3)
+    assert rejected["error"]["code"] == "stale_run"
+    assert git("rev-parse", "HEAD", cwd=feature_repo) == tip
 
 
 def _interrupt_persisted_retry(agent, monkeypatch):

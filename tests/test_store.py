@@ -379,3 +379,27 @@ def test_replace_does_not_retry_other_errors(tmp_path, monkeypatch, platform, er
     assert caught.value is error
     assert len(attempts) == 1
     assert pauses == []
+
+
+@pytest.mark.parametrize("legacy_tree", [None, "d" * 40])
+def test_saved_mergeback_attempt_discards_legacy_rebased_tree(store, legacy_tree):
+    from agentic_preflight.models import MergebackAttempt
+
+    run = make_run()
+    run.mergeback_attempt = MergebackAttempt(
+        source_sha="a" * 40, validation_sha="b" * 40, validation_tree="c" * 40
+    )
+    store.create_run(run)
+    path = store.run_path(run.run_id)
+    raw = json.loads(path.read_text())
+    raw["mergeback_attempt"]["rebased_tree"] = legacy_tree
+    original = json.dumps(raw)
+    path.write_text(original)
+
+    loaded = store.load_run(run.run_id)
+    assert loaded.mergeback_attempt is not None
+    assert "rebased_tree" not in loaded.mergeback_attempt.model_dump()
+    assert path.read_text() == original
+    with store.transaction(run.run_id):
+        pass
+    assert "rebased_tree" not in json.loads(path.read_text())["mergeback_attempt"]
