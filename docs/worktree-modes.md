@@ -62,6 +62,22 @@ explicit `setup_command` still runs.
 Leases one validation worktree in a hidden sibling directory, serially across runs, preserving ignored
 dependency and build caches.
 
+The runner belongs to the clone, not the checkout. Runs started from the main checkout
+and from any linked worktree of the same clone lease the same runner. Its default
+directory name is the clone's repository directory name plus a hash of the git common
+directory, so identically named clones stay separate.
+
+`agentic-preflight gc` removes a released runner, and prunes its git registration, once
+no run record that used it still has an existing source worktree, or when its
+registered path no longer exists. A runner checked out on a branch is never removed,
+and neither is one whose run still has a live source worktree.
+
+
+Runner reclamation preserves locked worktrees, tracked or non-ignored untracked changes,
+and runners associated with retained runs (including unmerged fixes). Ignored caches
+in an otherwise eligible runner are disposable. A refused Git removal preserves the
+runner rather than deleting its directory directly.
+
 Between leases it resets tracked files, removes non-ignored untracked files, explicitly
 removes every `[worktree] copy_files` entry, and then detaches the validation worktree. Other ignored
 files are kept so dependency and build caches survive.

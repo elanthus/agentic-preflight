@@ -438,6 +438,17 @@ with no equivalent remains reported as unmerged and is never removed without
 It marks a nonterminal run `ORPHANED` when its source worktree disappeared, its source
 head moved, or its ownership pointer vanished, but only when no command is executing.
 Orphaning releases ownership; cleanup remains a separate preserve-first decision.
+It also removes a released `reusable` runner, and prunes its git registration, when no
+run record naming it still has an existing source worktree or its registered path is
+gone. A runner on a branch is never removed. `data.reclaimed_runners` lists the removed
+runner paths; `removed`, `retained`, and `orphans` are unchanged. An unreadable run
+record keeps the runner it names; one that is not even a JSON object keeps every runner.
+
+Runner reclamation preserves locked worktrees, tracked or non-ignored untracked changes,
+and runners associated with retained runs (including unmerged fixes). Ignored caches
+in an otherwise eligible runner are disposable. A refused Git removal preserves the
+runner rather than deleting its directory directly.
+
 
 ### `agentic-preflight hook-check`
 The pre-push predicate. Reads git's stdin protocol, consults only the commit's
