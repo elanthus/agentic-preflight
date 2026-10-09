@@ -350,6 +350,9 @@ the configured `[approval] mode`. High risk does not change push authorization:
   hosted approval check can pass.
 - `peer_review`: require an eligible repository-associated person other than the author
   to approve the exact current head.
+- `owner_review`: require the configured human reviewer to approve the exact head. On
+  their own PR, they submit a Comment review whose trimmed body is exactly `approved`;
+  on another author's PR, they submit an Approve review. Never submit either for them.
 
 Only an explicit `[gate] mode = "manual"` hands the push itself to a person.
 
