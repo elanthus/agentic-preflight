@@ -64,8 +64,9 @@ Apache License 2.0.
 
 This repository classifies ordinary package code, tests, and CLI reference material as
 medium risk. Those changes still run the normal review, documentation, lint, test, and
-attestation checks. They require human approval only if another rule raises their risk,
-such as a high or critical review finding (even after it is fixed).
+attestation checks. Another rule can still classify them as requiring human review,
+such as a high or critical review finding (even after it is fixed); the current branch
+rules do not make human approval a merge requirement.
 
 The explicit `human_review_paths` in `.agentic-preflight.toml` cover policy and ownership,
 CI workflows and templates, direct approval and evidence-verification decisions,
