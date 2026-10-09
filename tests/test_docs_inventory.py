@@ -35,7 +35,6 @@ def _rglob_inventory(root: Path, changed: list[str], extra: list[str] | None) ->
             entries.append(
                 {
                     "path": rel,
-                    "exists": True,
                     "size": (root / rel).stat().st_size,
                     "touched_by_diff": rel in changed,
                 }

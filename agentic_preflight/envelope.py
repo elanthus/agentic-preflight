@@ -17,7 +17,7 @@ import json
 import sys
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any, TextIO
+from typing import Any
 
 
 class ExitCode(IntEnum):
@@ -110,18 +110,11 @@ def error_envelope(
     )
 
 
-def emit(
-    envelope: Envelope,
-    *,
-    stream: TextIO | None = None,
-    err_stream: TextIO | None = None,
-) -> None:
+def emit(envelope: Envelope) -> None:
     """Write the envelope as one line of JSON, and any prose to stderr."""
-    stream = stream if stream is not None else sys.stdout
-    stream.write(envelope.to_json() + "\n")
-    stream.flush()
+    sys.stdout.write(envelope.to_json() + "\n")
+    sys.stdout.flush()
 
     if envelope.human:
-        err = err_stream if err_stream is not None else sys.stderr
-        err.write(envelope.human.rstrip("\n") + "\n")
-        err.flush()
+        sys.stderr.write(envelope.human.rstrip("\n") + "\n")
+        sys.stderr.flush()

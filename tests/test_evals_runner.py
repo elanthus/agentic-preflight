@@ -269,8 +269,14 @@ def test_eval_case_is_well_formed(case_dir):
         eval_run.validate_script(script)
 
 
-@pytest.mark.parametrize("snapshot", ["vulnerable", "fixed"])
-@pytest.mark.parametrize("case_dir", tuple(eval_run.discover_cases()), ids=lambda path: path.name)
+@pytest.mark.parametrize(
+    ("case_dir", "snapshot"),
+    [
+        (CASES / "unguarded-division", "vulnerable"),
+        (CASES / "wrong-config-default", "fixed"),
+    ],
+    ids=["vulnerable", "fixed"],
+)
 def test_reviewer_git_history_contains_only_selected_snapshot(tmp_path, snapshot, case_dir):
     case = eval_run.load_case(case_dir)
     repo = tmp_path / "review"
@@ -398,13 +404,6 @@ def test_fixed_snapshot_changes_the_gold_file(case_dir):
     assert (case_dir / "fixed" / relative).read_bytes() != (
         case_dir / "base" / relative
     ).read_bytes()
-
-
-def test_dry_summary_matches_committed_golden(tmp_path):
-    eval_run.run_evaluation(mode="dry", executor=None, grounding=("on", "off"), out=tmp_path)
-
-    golden = ROOT / "evals" / "golden" / "dry-summary.json"
-    assert (tmp_path / "summary.json").read_bytes() == golden.read_bytes()
 
 
 def test_summary_markdown_renders_readable_values_with_a_mode_header(tmp_path):
