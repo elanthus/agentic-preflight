@@ -5,6 +5,16 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## [Unreleased]
 
+### Changed
+
+- Keep development dependencies focused on local checks; security CI runs the pinned
+  audit tool in an isolated environment. CI and release builds share one wheel smoke
+  script, and repository ignores cover the artifacts this project creates.
+- Replace randomized state-machine and glob-prefix checks with deterministic
+  enumeration, retaining their distinct guarantees without Hypothesis.
+- Store the README animation on the badges branch with a commit-pinned URL;
+  recording a new animation is optional, and badge updates preserve other assets.
+
 ### Fixed
 
 - `gc` can now orphan an abandoned run whose stored config snapshot holds a key that
