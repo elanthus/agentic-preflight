@@ -162,12 +162,8 @@ ran, so do not replace that recovery with `logs --stage`.
 
 ## Stage far slower than normal
 
-Check `[worktree] mode`. The default `in_place` mode uses the checkout's existing
-environment. The reusable validation worktree retains ignored dependency and build caches, while
-strict mode begins without them. Agentic Preflight does not install dependencies
-automatically; isolated modes need `[worktree] setup_command` when the validation
-checkout requires preparation. `copy_files` is for ignored files such as `.env`, not
-directories. Do not raise `[stage] max_attempts` to paper over it.
+Check `[worktree] mode` and follow the [worktree setup and cache guidance](https://github.com/elanthus/agentic-preflight/blob/main/docs/worktree-modes.md#when-a-stage-is-much-slower-than-expected).
+Do not raise `[stage] max_attempts` to paper over missing preparation.
 
 ## Copy refused (exit 3)
 
@@ -177,11 +173,9 @@ pushed.
 
 ## Stage reports zero files to work on
 
-Check where `worktree_path` actually points. If it is under `.git/`, tools that skip
-VCS directories cannot see it and will exit non-zero on an empty set, which reads as a
-red stage. Jest is the common case: `jest-haste-map` ORs a hardcoded `/.git/` ignore
-into its crawl with no config override, so it finds zero test files no matter how
-healthy the code is. Symlinks do not help — real paths are resolved. Confirm by
+Check whether `worktree_path` is under `.git/`; tools that skip VCS directories cannot
+see it. See [why isolated worktrees live outside `.git`](https://github.com/elanthus/agentic-preflight/blob/main/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git).
+Symlinks do not help — real paths are resolved. Confirm by
 running the same command in a worktree outside `.git`; if that finds files, point the
 stage command at a script that checks the commit under test out to a non-`.git` path
 and runs there. Never point an isolated run at the source checkout: that reports on

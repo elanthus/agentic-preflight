@@ -53,9 +53,7 @@ wrong. In the pull request, explain the problem, the chosen approach, and the ch
 you ran. All CI checks, including the 85% coverage floor and built-wheel smoke test,
 must pass before merge.
 
-Pull-request CI intentionally uses only Ubuntu and Python 3.13. The oldest supported
-macOS/Python boundary runs every Monday and Thursday, and the full nine-combination matrix runs
-manually and on release tags; see [COMPATIBILITY.md](COMPATIBILITY.md).
+See the [validation tiers](COMPATIBILITY.md#validation-tiers) for CI coverage and frequency.
 
 By submitting a contribution, you agree that it is licensed under the repository's
 Apache License 2.0.

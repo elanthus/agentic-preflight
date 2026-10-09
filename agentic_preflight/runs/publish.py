@@ -161,18 +161,8 @@ def gate(session: Session) -> Envelope:
             ],
         },
         next_instruction=(
-            "Show the user the remote, branch, and commit list in plain language. If the "
-            "user explicitly requested a push, publish, or asked to create or open a pull "
-            "request in this task, or the user's applicable standing instructions authorize "
-            "this push, proceed without asking again when the summary matches that "
-            "authorization. For example, standing instructions may authorize pushing "
-            "corresponding fixes to an existing PR's head branch when asked to address "
-            "its feedback. Ask whether to push and wait for an answer only if authorization "
-            "is missing or the scope materially differs. Authorization for PR feedback "
-            "fixes does not cover a different remote or branch, force-push, merge, "
-            "destructive action, or materially broader work; those require separate "
-            "approval, subject to the existing merge restrictions. After user authorization, the "
-            "agent substitutes data.token for <token> in next.command."
+            "Apply https://github.com/elanthus/agentic-preflight/blob/main/skill/SKILL.md#escalation-etiquette and its authorization rule to this "
+            "gate summary; the agent substitutes data.token for <token> only after authorization."
             f"{risk_instruction}{manual_pr_instruction}{cleanup_instruction}"
         ),
         next_command="agentic-preflight push --confirm <token>",

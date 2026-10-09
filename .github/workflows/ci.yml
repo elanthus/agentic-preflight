@@ -62,10 +62,7 @@ jobs:
           exit "$verify_exit"
 
   test:
-    # Keep routine pull-request and main-branch runs on Linux with Python 3.13
-    # to conserve Actions minutes. Run this workflow manually (workflow_dispatch)
-    # for the full OS/Python matrix before tagging; release.yml also requires
-    # that full compatibility matrix before publishing to PyPI.
+    # Validation tiers and release requirements: COMPATIBILITY.md#validation-tiers.
     uses: ./.github/workflows/test.yml
     with:
       os: ${{ github.event_name == 'workflow_dispatch' && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]' }}
