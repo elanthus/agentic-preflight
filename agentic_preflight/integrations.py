@@ -11,11 +11,8 @@ import hashlib
 import json
 import os
 import shutil
-import tempfile
-import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
-from enum import StrEnum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -48,59 +45,6 @@ SUPPORTED_INTEGRATIONS: dict[str, IntegrationSpec] = {
 class InstallTarget:
     integration: str
     path: Path
-
-
-class IntegrationOperation(StrEnum):
-    """The four public lifecycle operations over an integration target."""
-
-    INSTALL = "install"
-    STATUS = "status"
-    UPDATE = "update"
-    UNINSTALL = "uninstall"
-
-
-@dataclass(frozen=True)
-class OperationSpec:
-    actions: dict[str, str]
-    result_status: str | None
-    conflict_verb: str
-
-
-OPERATION_SPECS = {
-    IntegrationOperation.INSTALL: OperationSpec(
-        actions={
-            "missing": "installed",
-            "current": "unchanged",
-            "outdated": "updated",
-            "modified": "replaced",
-            "unmanaged": "replaced",
-        },
-        result_status="current",
-        conflict_verb="overwrite",
-    ),
-    IntegrationOperation.UPDATE: OperationSpec(
-        actions={
-            "missing": "skipped_missing",
-            "current": "unchanged",
-            "outdated": "updated",
-            "modified": "replaced",
-            "unmanaged": "replaced",
-        },
-        result_status="current",
-        conflict_verb="overwrite",
-    ),
-    IntegrationOperation.UNINSTALL: OperationSpec(
-        actions={
-            "missing": "missing",
-            "current": "removed",
-            "outdated": "removed",
-            "modified": "removed",
-            "unmanaged": "removed",
-        },
-        result_status="missing",
-        conflict_verb="remove",
-    ),
-}
 
 
 class IntegrationError(AgenticError):
@@ -284,32 +228,6 @@ def inspect_target(
     }
 
 
-def integration_status(
-    agents: Iterable[str],
-    *,
-    scope: str = "user",
-    custom_roots: Iterable[Path] = (),
-    home: Path | None = None,
-    project_root: Path | None = None,
-    source_dir: Path | None = None,
-    source_version: str | None = None,
-) -> list[dict]:
-    """Report the installation state of the selected integrations."""
-    source_dir = source_dir or bundled_skill_dir()
-    source_version = source_version or package_version()
-    targets = resolve_targets(
-        agents,
-        scope=scope,
-        custom_roots=custom_roots,
-        home=home,
-        project_root=project_root,
-    )
-    return [
-        inspect_target(target, source_dir=source_dir, source_version=source_version)
-        for target in targets
-    ]
-
-
 def _remove_path(path: Path) -> None:
     if path.is_symlink() or path.is_file():
         path.unlink()
@@ -338,42 +256,13 @@ def _replace_target(
     source_hash: str,
     source_version: str,
 ) -> None:
-    parent = destination.parent
-    temp_root: Path | None = None
-    staged: Path | None = None
-    backup = parent / f".{SKILL_NAME}.backup-{uuid.uuid4().hex}"
-    moved_existing = False
     try:
-        parent.mkdir(parents=True, exist_ok=True)
-        temp_root = Path(tempfile.mkdtemp(prefix=f".{SKILL_NAME}.install-", dir=parent))
-        staged = temp_root / SKILL_NAME
-        shutil.copytree(source_dir, staged)
-        _write_install_metadata(staged, source_hash, source_version)
-        if _path_exists(destination):
-            os.replace(destination, backup)
-            moved_existing = True
-        try:
-            os.replace(staged, destination)
-        except OSError:
-            if moved_existing and _path_exists(backup) and not _path_exists(destination):
-                os.replace(backup, destination)
-                moved_existing = False
-            raise
-        if moved_existing:
-            _remove_path(backup)
-            moved_existing = False
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        _remove_path(destination)
+        shutil.copytree(source_dir, destination)
+        _write_install_metadata(destination, source_hash, source_version)
     except OSError as exc:
         raise IntegrationError(f"could not install the skill at {destination}: {exc}") from exc
-    finally:
-        try:
-            if staged is not None and _path_exists(staged):
-                _remove_path(staged)
-            if temp_root is not None and temp_root.exists():
-                _remove_path(temp_root)
-        except OSError:
-            # The destination is already installed or rolled back. A leftover
-            # hidden staging directory must not turn that result into a traceback.
-            pass
 
 
 def _conflicts(reports: list[dict], *, force: bool) -> list[dict]:
@@ -382,80 +271,104 @@ def _conflicts(reports: list[dict], *, force: bool) -> list[dict]:
     return [report for report in reports if report["status"] in {"modified", "unmanaged"}]
 
 
-def manage_integrations(
-    operation: IntegrationOperation | str,
-    agents: Iterable[str],
+def _inspect_targets(
+    targets: Iterable[InstallTarget],
+    source_dir: Path,
+    source_version: str,
     *,
-    scope: str = "user",
-    custom_roots: Iterable[Path] = (),
-    force: bool = False,
-    home: Path | None = None,
-    project_root: Path | None = None,
-    source_dir: Path | None = None,
-    source_version: str | None = None,
+    force: bool,
+    verb: str,
 ) -> list[dict]:
-    """Inspect or apply one lifecycle operation to all resolved targets."""
-    operation = IntegrationOperation(operation)
-    source_dir = source_dir or bundled_skill_dir()
-    source_version = source_version or package_version()
-    targets = resolve_targets(
-        agents,
-        scope=scope,
-        custom_roots=custom_roots,
-        home=home,
-        project_root=project_root,
-    )
     reports = [
         inspect_target(target, source_dir=source_dir, source_version=source_version)
         for target in targets
     ]
-    if operation is IntegrationOperation.STATUS:
-        return reports
-
-    spec = OPERATION_SPECS[operation]
     conflicts = _conflicts(reports, force=force)
     if conflicts:
         paths = ", ".join(report["path"] for report in conflicts)
         raise IntegrationConflict(
-            f"refusing to {spec.conflict_verb} an unmanaged or modified skill: {paths}",
+            f"refusing to {verb} an unmanaged or modified skill: {paths}",
             data={"conflicts": conflicts},
-            next_instruction=(
-                "Inspect those skill directories, or rerun with --force to "
-                f"{spec.conflict_verb} them."
-            ),
+            next_instruction=f"Inspect those skill directories, or rerun with --force to {verb} them.",
         )
+    return reports
 
+
+def install(
+    targets: Iterable[InstallTarget],
+    *,
+    force: bool = False,
+    skip_missing: bool = False,
+    source_dir: Path | None = None,
+    source_version: str | None = None,
+) -> list[dict]:
+    """Install or refresh selected targets, optionally skipping absent copies."""
+    source_dir = source_dir or bundled_skill_dir()
+    source_version = source_version or package_version()
+    reports = _inspect_targets(targets, source_dir, source_version, force=force, verb="overwrite")
     source_hash = _skill_hash(source_dir)
-    results: list[dict] = []
-    for target, report in zip(targets, reports, strict=True):
+    results = []
+    for report in reports:
         previous = report["status"]
-        action = spec.actions[previous]
-        if action in {"installed", "updated", "replaced"}:
+        if previous == "missing" and skip_missing:
+            results.append({**report, "previous_status": previous, "action": "skipped_missing"})
+            continue
+        if previous == "current":
+            action = "unchanged"
+        else:
+            action = (
+                "installed"
+                if previous == "missing"
+                else "updated"
+                if previous == "outdated"
+                else "replaced"
+            )
             _replace_target(
-                target.path,
+                Path(report["path"]),
                 source_dir=source_dir,
                 source_hash=source_hash,
                 source_version=source_version,
             )
-        elif action == "removed":
-            try:
-                _remove_path(target.path)
-            except OSError as exc:
-                raise IntegrationError(
-                    f"could not remove the skill at {target.path}: {exc}"
-                ) from exc
-
-        resulting_status = previous if action == "skipped_missing" else spec.result_status
         results.append(
             {
                 **report,
                 "previous_status": previous,
-                "status": resulting_status,
-                "managed": resulting_status == "current",
-                "installed_version": (
-                    source_version if resulting_status == "current" else report["installed_version"]
-                ),
+                "status": "current",
+                "managed": True,
+                "installed_version": source_version,
                 "action": action,
+            }
+        )
+    return results
+
+
+def uninstall(
+    targets: Iterable[InstallTarget],
+    *,
+    force: bool = False,
+    source_dir: Path | None = None,
+    source_version: str | None = None,
+) -> list[dict]:
+    """Remove selected copies after checking every target for conflicts."""
+    source_dir = source_dir or bundled_skill_dir()
+    source_version = source_version or package_version()
+    reports = _inspect_targets(targets, source_dir, source_version, force=force, verb="remove")
+    results = []
+    for report in reports:
+        previous = report["status"]
+        try:
+            _remove_path(Path(report["path"]))
+        except OSError as exc:
+            raise IntegrationError(
+                f"could not remove the skill at {report['path']}: {exc}"
+            ) from exc
+        results.append(
+            {
+                **report,
+                "previous_status": previous,
+                "status": "missing",
+                "managed": False,
+                "action": "missing" if previous == "missing" else "removed",
             }
         )
     return results
