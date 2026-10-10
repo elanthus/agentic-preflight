@@ -10,21 +10,7 @@ from agentic_preflight.envelope import ExitCode
 from agentic_preflight.machine import State
 from agentic_preflight.store import Store
 from tests.conftest import commit_all, git, write
-from tests.driver import ScriptedAgent
-
-
-@pytest.fixture
-def agent(feature_repo):
-    return ScriptedAgent(feature_repo)
-
-
-def findings_json(tmp_path, items):
-    path = tmp_path / "findings.json"
-    path.write_text(
-        json.dumps({"coverage": {"manifest": "$context", "examined": "all"}, "findings": items})
-    )
-    return str(path)
-
+from tests.driver import ScriptedAgent, findings_json
 
 BLOCKING = [
     {
