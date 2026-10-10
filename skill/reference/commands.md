@@ -317,7 +317,8 @@ the fix commits onto the source branch; only paths those commits may overwrite a
 blocked, while unrelated tracked edits and untracked files are left alone. A dirty
 submodule on one of those paths blocks merge-back even when Git config ignores it.
 
-On conflict: aborts immediately, verifies the branch is byte-for-byte restored, exits 4
+On conflict: aborts only when the paused commit belongs to the fix stack, verifies
+the branch is byte-for-byte restored, exits 4
 with `data.resolution`, and stores that full report in the event log. The CLI never
 auto-resolves. First inspect and show the recovery block. An agent may resolve only when
 the intended result is unambiguous, recoverable, and directly supported by that block;
