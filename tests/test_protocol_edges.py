@@ -7,7 +7,6 @@ from agentic_preflight import runs
 from agentic_preflight.cli import main
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.errors import InvalidResponse
-from tests.driver import ScriptedAgent
 
 BLOCKING = [
     {
@@ -18,11 +17,6 @@ BLOCKING = [
         "title": "loud flag is never used",
     }
 ]
-
-
-@pytest.fixture
-def agent(feature_repo):
-    return ScriptedAgent(feature_repo)
 
 
 @pytest.fixture
