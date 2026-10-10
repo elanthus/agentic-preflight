@@ -9,8 +9,10 @@ from agentic_preflight.config import (
     Config,
     ConfigError,
     _describe,
+    _snapshot_run_settings,
     config_digest,
     load_config,
+    snapshot_run_settings,
 )
 
 
@@ -410,3 +412,37 @@ def test_owner_review_requires_explicit_reviewer():
         ).approval.reviewer
         == "owner"
     )
+
+
+def test_snapshot_cache_reuses_content_and_separates_validation_policy():
+    _snapshot_run_settings.cache_clear()
+    snapshot = Config().model_dump(mode="json")
+    snapshot_run_settings(snapshot)
+    snapshot_run_settings(dict(reversed(list(snapshot.items()))))
+    assert _snapshot_run_settings.cache_info().misses == 1
+    assert _snapshot_run_settings.cache_info().hits == 1
+
+    snapshot["hook"]["enabled"] = True
+    snapshot_run_settings(snapshot, tolerate_removed_config=True)
+    with pytest.raises(ValidationError):
+        snapshot_run_settings(snapshot)
+    assert snapshot["hook"]["enabled"] is True
+
+
+def test_snapshot_cache_tracks_edits_including_unrelated_invalid_fields():
+    snapshot = Config().model_dump(mode="json")
+    assert snapshot_run_settings(snapshot) == (5, "in_place")
+    snapshot["stage"]["max_restarts"] = 7
+    assert snapshot_run_settings(snapshot) == (7, "in_place")
+    snapshot["worktree"]["mode"] = "strict"
+    assert snapshot_run_settings(snapshot) == (7, "strict")
+    snapshot["unknown"] = True
+    with pytest.raises(ValidationError):
+        snapshot_run_settings(snapshot)
+
+
+def test_snapshot_cache_is_bounded():
+    _snapshot_run_settings.cache_clear()
+    for limit in range(1, 40):
+        snapshot_run_settings({"stage": {"max_restarts": limit}})
+    assert _snapshot_run_settings.cache_info().currsize == 32
