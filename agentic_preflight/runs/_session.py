@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from .. import findings as findingsmod
 from .. import gitx, worktree
-from ..config import Config, load_config, snapshot_config
+from ..config import Config, load_config, snapshot_run_settings
 from ..envelope import Envelope
 from ..errors import (
     MaxRestarts,
@@ -132,7 +132,7 @@ def _new_run_id() -> str:
 
 def _max_restarts(run: RunDoc) -> int:
     """Read the limit from the run's own snapshot, which an edited config cannot move."""
-    return Config.model_validate(run.config_snapshot).stage.max_restarts
+    return snapshot_run_settings(run.config_snapshot)[0]
 
 
 RESTART_LIMIT_INSTRUCTION = (
@@ -325,7 +325,7 @@ def _worktree_mode(run: RunDoc) -> str:
     worktree of a run recorded by an earlier release. A strictly loaded run
     has already passed the stricter check, so the answer is the same there.
     """
-    return snapshot_config(run.config_snapshot).worktree.mode
+    return snapshot_run_settings(run.config_snapshot, tolerate_removed_config=True)[1]
 
 
 def _is_in_place(run: RunDoc) -> bool:
