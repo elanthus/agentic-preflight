@@ -7,24 +7,12 @@ import pytest
 from agentic_preflight.envelope import ExitCode
 from tests.conftest import commit_all, write
 from tests.driver import ScriptedAgent
-
-
-@pytest.fixture
-def agent(feature_repo):
-    return ScriptedAgent(feature_repo)
+from tests.driver import findings_json as review_findings_json
 
 
 def findings_json(tmp_path, items):
     path = tmp_path / "findings.json"
     path.write_text(json.dumps({"findings": items}))
-    return str(path)
-
-
-def review_findings_json(tmp_path, items):
-    path = tmp_path / "findings.json"
-    path.write_text(
-        json.dumps({"coverage": {"manifest": "$context", "examined": "all"}, "findings": items})
-    )
     return str(path)
 
 

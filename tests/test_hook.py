@@ -12,16 +12,8 @@ import pytest
 from agentic_preflight import attestation, gitx, hook
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.stages import command as command_plan
-from tests.conftest import commit_all, git, write
-from tests.driver import ScriptedAgent
-
-
-def findings_json(tmp_path, items):
-    path = tmp_path / "findings.json"
-    path.write_text(
-        json.dumps({"coverage": {"manifest": "$context", "examined": "all"}, "findings": items})
-    )
-    return str(path)
+from tests.conftest import git, write
+from tests.driver import ScriptedAgent, green_run
 
 
 def hook_check(repo, stdin_text, extra_env=None):
@@ -260,7 +252,7 @@ def test_the_block_message_goes_to_stderr_and_names_the_skill(feature_repo):
 
 def test_the_block_message_explains_an_amend(feature_repo, tmp_path):
     """The most common cause deserves the most specific message."""
-    _green_run(feature_repo, tmp_path)
+    green_run(feature_repo, tmp_path)
 
     write(feature_repo, "src/app.py", "def greet(n):\n    return 'amended'\n")
     git("add", "-A", cwd=feature_repo)
@@ -275,33 +267,15 @@ def test_the_block_message_explains_an_amend(feature_repo, tmp_path):
     assert "no valid attestation note" in result.stderr
 
 
-def _green_run(repo, tmp_path):
-    """Drive a full run to a green attestation note."""
-    write(
-        repo,
-        ".agentic-preflight.toml",
-        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n",
-    )
-    commit_all(repo, "configure agentic-preflight")
-    agent = ScriptedAgent(repo)
-    agent.run("start")
-    agent.run("context")
-    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
-    agent.run("stage", "run", "lint")
-    agent.run("stage", "run", "test")
-    agent.run("mergeback")
-    return agent
-
-
 def test_a_green_commit_is_allowed(feature_repo, tmp_path):
-    _green_run(feature_repo, tmp_path)
+    green_run(feature_repo, tmp_path)
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
     result = hook_check(feature_repo, f"refs/heads/feature/x {sha} refs/heads/feature/x {ZERO}\n")
     assert result.returncode == 0, result.stderr
 
 
 def test_attestation_verification_rejects_a_note_for_another_tree(feature_repo, tmp_path):
-    _green_run(feature_repo, tmp_path)
+    green_run(feature_repo, tmp_path)
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
     value = attestation.verify(feature_repo, sha)
     payload = value.model_dump(mode="json")
@@ -322,7 +296,7 @@ def test_attestation_verification_rejects_a_note_for_another_tree(feature_repo, 
 
 
 def test_the_predicate_does_not_mutate_anything(feature_repo, tmp_path):
-    _green_run(feature_repo, tmp_path)
+    green_run(feature_repo, tmp_path)
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
     before = git("rev-parse", "HEAD", cwd=feature_repo)
     hook_check(feature_repo, f"refs/heads/feature/x {sha} refs/heads/feature/x {ZERO}\n")
@@ -331,7 +305,7 @@ def test_the_predicate_does_not_mutate_anything(feature_repo, tmp_path):
 
 
 def test_multiple_refs_block_if_any_is_unverified(feature_repo, tmp_path):
-    _green_run(feature_repo, tmp_path)
+    green_run(feature_repo, tmp_path)
     green = git("rev-parse", "HEAD", cwd=feature_repo)
     stdin = (
         f"refs/heads/a {green} refs/heads/a {ZERO}\nrefs/heads/b {'b' * 40} refs/heads/b {ZERO}\n"
@@ -402,7 +376,7 @@ def test_the_installed_hook_allows_and_warns_when_the_tool_is_missing(feature_re
 
 def test_a_force_push_is_blocked_even_when_green(feature_repo, tmp_path):
     """Non-fast-forward rewrites history the remote already has."""
-    _green_run(feature_repo, tmp_path)
+    green_run(feature_repo, tmp_path)
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
     # remote_sha that is not an ancestor of local_sha would be a force push;
     # here we use a sha the local tip does not descend from.
@@ -419,7 +393,7 @@ def test_a_force_push_block_does_not_claim_the_commit_is_unverified(feature_repo
     A green commit blocked for being a force push is not 'unverified', and an
     agent reading that would re-run the gate instead of addressing the rewrite.
     """
-    _green_run(feature_repo, tmp_path)
+    green_run(feature_repo, tmp_path)
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
     result = hook_check(
         feature_repo, f"refs/heads/feature/x {sha} refs/heads/feature/x {'c' * 40}\n"
@@ -436,7 +410,7 @@ def test_an_unverified_block_still_says_so(feature_repo):
 
 
 def test_allow_force_push_config_permits_it(feature_repo, tmp_path):
-    _green_run(feature_repo, tmp_path)
+    green_run(feature_repo, tmp_path)
     write(
         feature_repo,
         ".agentic-preflight.toml",
@@ -467,7 +441,7 @@ def test_a_real_push_is_blocked_for_an_unverified_commit(feature_repo, bare_remo
 
 
 def test_a_real_push_succeeds_after_a_green_run(feature_repo, bare_remote, tmp_path):
-    _green_run(feature_repo, tmp_path)
+    green_run(feature_repo, tmp_path)
     ScriptedAgent(feature_repo).run("init")
     result = subprocess.run(
         ["git", "push", "origin", "feature/x"],
@@ -480,7 +454,7 @@ def test_a_real_push_succeeds_after_a_green_run(feature_repo, bare_remote, tmp_p
 
 def test_amending_after_green_blocks_the_next_push(feature_repo, bare_remote, tmp_path):
     """The scenario the SHA-bound attestation exists to catch."""
-    _green_run(feature_repo, tmp_path)
+    green_run(feature_repo, tmp_path)
     ScriptedAgent(feature_repo).run("init")
 
     write(feature_repo, "src/app.py", "def greet(n):\n    return 'sneaky change'\n")
@@ -506,7 +480,7 @@ def test_hook_check_reads_only_the_attestation_note(feature_repo, tmp_path):
     This stable behavioral contract replaces a misleading wall-clock assertion:
     interpreter startup and host load made that check unrelated to the hook's work.
     """
-    _green_run(feature_repo, tmp_path)
+    green_run(feature_repo, tmp_path)
     state_root = (
         Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo))
         / "agentic-preflight"
