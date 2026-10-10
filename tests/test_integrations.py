@@ -12,8 +12,22 @@ from click.testing import CliRunner
 from agentic_preflight import integrations
 from agentic_preflight.cli import main
 from agentic_preflight.envelope import ExitCode
-from agentic_preflight.integrations import IntegrationOperation
 from tests.conftest import home_env
+
+
+def manage(operation, agents, *, home, source_dir, source_version, **kwargs):
+    targets = integrations.resolve_targets(agents, scope="user", home=home)
+    if operation == "status":
+        return [
+            integrations.inspect_target(
+                target, source_dir=source_dir, source_version=source_version
+            )
+            for target in targets
+        ]
+    function = integrations.uninstall if operation == "uninstall" else integrations.install
+    if operation == "update":
+        kwargs["skip_missing"] = True
+    return function(targets, source_dir=source_dir, source_version=source_version, **kwargs)
 
 
 @pytest.fixture
@@ -86,8 +100,8 @@ def test_custom_target_is_a_skills_root(tmp_path):
 
 
 def test_install_copies_the_whole_skill_and_records_ownership(tmp_path, source_skill):
-    results = integrations.manage_integrations(
-        IntegrationOperation.INSTALL,
+    results = manage(
+        "install",
         ["codex", "claude"],
         home=tmp_path,
         source_dir=source_skill,
@@ -111,15 +125,15 @@ def test_install_copies_the_whole_skill_and_records_ownership(tmp_path, source_s
 
 
 def test_reinstall_of_a_current_copy_is_idempotent(tmp_path, source_skill):
-    integrations.manage_integrations(
-        IntegrationOperation.INSTALL,
+    manage(
+        "install",
         ["codex"],
         home=tmp_path,
         source_dir=source_skill,
         source_version="1.0",
     )
-    results = integrations.manage_integrations(
-        IntegrationOperation.INSTALL,
+    results = manage(
+        "install",
         ["codex"],
         home=tmp_path,
         source_dir=source_skill,
@@ -129,8 +143,8 @@ def test_reinstall_of_a_current_copy_is_idempotent(tmp_path, source_skill):
 
 
 def test_update_replaces_an_unmodified_outdated_copy(tmp_path, source_skill):
-    integrations.manage_integrations(
-        IntegrationOperation.INSTALL,
+    manage(
+        "install",
         ["codex"],
         home=tmp_path,
         source_dir=source_skill,
@@ -140,13 +154,13 @@ def test_update_replaces_an_unmodified_outdated_copy(tmp_path, source_skill):
         "---\nname: agentic-preflight\ndescription: Updated.\n---\n\nNew workflow.\n"
     )
 
-    before = integrations.integration_status(
-        ["codex"], home=tmp_path, source_dir=source_skill, source_version="2.0"
+    before = manage(
+        "status", ["codex"], home=tmp_path, source_dir=source_skill, source_version="2.0"
     )
     assert before[0]["status"] == "outdated"
 
-    results = integrations.manage_integrations(
-        IntegrationOperation.UPDATE,
+    results = manage(
+        "update",
         ["codex"],
         home=tmp_path,
         source_dir=source_skill,
@@ -157,8 +171,8 @@ def test_update_replaces_an_unmodified_outdated_copy(tmp_path, source_skill):
 
 
 def test_update_skips_an_integration_that_is_not_installed(tmp_path, source_skill):
-    results = integrations.manage_integrations(
-        IntegrationOperation.UPDATE,
+    results = manage(
+        "update",
         ["codex"],
         home=tmp_path,
         source_dir=source_skill,
@@ -168,19 +182,9 @@ def test_update_skips_an_integration_that_is_not_installed(tmp_path, source_skil
     assert results[0]["status"] == "missing"
 
 
-def test_lifecycle_operation_table_covers_every_inspection_status():
-    statuses = {"missing", "unmanaged", "modified", "outdated", "current"}
-    assert set(integrations.OPERATION_SPECS) == {
-        integrations.IntegrationOperation.INSTALL,
-        integrations.IntegrationOperation.UPDATE,
-        integrations.IntegrationOperation.UNINSTALL,
-    }
-    assert all(set(spec.actions) == statuses for spec in integrations.OPERATION_SPECS.values())
-
-
 def test_modified_copy_is_preserved_unless_force_is_explicit(tmp_path, source_skill):
-    integrations.manage_integrations(
-        IntegrationOperation.INSTALL,
+    manage(
+        "install",
         ["codex"],
         home=tmp_path,
         source_dir=source_skill,
@@ -189,13 +193,13 @@ def test_modified_copy_is_preserved_unless_force_is_explicit(tmp_path, source_sk
     destination = tmp_path / ".agents" / "skills" / "agentic-preflight"
     (destination / "SKILL.md").write_text("my local workflow\n")
 
-    status = integrations.integration_status(
-        ["codex"], home=tmp_path, source_dir=source_skill, source_version="1.0"
+    status = manage(
+        "status", ["codex"], home=tmp_path, source_dir=source_skill, source_version="1.0"
     )
     assert status[0]["status"] == "modified"
     with pytest.raises(integrations.IntegrationConflict):
-        integrations.manage_integrations(
-            IntegrationOperation.INSTALL,
+        manage(
+            "install",
             ["codex"],
             home=tmp_path,
             source_dir=source_skill,
@@ -203,8 +207,8 @@ def test_modified_copy_is_preserved_unless_force_is_explicit(tmp_path, source_sk
         )
     assert (destination / "SKILL.md").read_text(encoding="utf-8") == "my local workflow\n"
 
-    results = integrations.manage_integrations(
-        IntegrationOperation.INSTALL,
+    results = manage(
+        "install",
         ["codex"],
         home=tmp_path,
         source_dir=source_skill,
@@ -223,8 +227,8 @@ def test_conflicts_are_preflighted_before_any_destination_changes(tmp_path, sour
     (codex / "SKILL.md").write_text("unmanaged\n")
 
     with pytest.raises(integrations.IntegrationConflict):
-        integrations.manage_integrations(
-            IntegrationOperation.INSTALL,
+        manage(
+            "install",
             ["codex", "claude"],
             home=tmp_path,
             source_dir=source_skill,
@@ -234,8 +238,8 @@ def test_conflicts_are_preflighted_before_any_destination_changes(tmp_path, sour
 
 
 def test_uninstall_removes_managed_copy_but_preserves_modified_copy(tmp_path, source_skill):
-    integrations.manage_integrations(
-        IntegrationOperation.INSTALL,
+    manage(
+        "install",
         ["codex"],
         home=tmp_path,
         source_dir=source_skill,
@@ -245,8 +249,8 @@ def test_uninstall_removes_managed_copy_but_preserves_modified_copy(tmp_path, so
     (destination / "SKILL.md").write_text("my local workflow\n")
 
     with pytest.raises(integrations.IntegrationConflict):
-        integrations.manage_integrations(
-            IntegrationOperation.UNINSTALL,
+        manage(
+            "uninstall",
             ["codex"],
             home=tmp_path,
             source_dir=source_skill,
@@ -254,8 +258,8 @@ def test_uninstall_removes_managed_copy_but_preserves_modified_copy(tmp_path, so
         )
     assert destination.exists()
 
-    results = integrations.manage_integrations(
-        IntegrationOperation.UNINSTALL,
+    results = manage(
+        "uninstall",
         ["codex"],
         home=tmp_path,
         source_dir=source_skill,
@@ -371,3 +375,43 @@ def test_mutating_integration_commands_keep_force_option(command):
     result = CliRunner().invoke(main, ["integrations", command, "--help"])
     assert result.exit_code == 0
     assert "--force" in result.output
+
+
+def test_uninstall_missing_copy_reports_missing(tmp_path, source_skill):
+    result = manage(
+        "uninstall", ["codex"], home=tmp_path, source_dir=source_skill, source_version="1.0"
+    )
+    assert result[0]["action"] == "missing"
+    assert result[0]["status"] == "missing"
+    assert result[0]["installed_version"] is None
+
+
+def test_copy_failure_is_structured_and_force_can_repair(tmp_path, source_skill, monkeypatch):
+    manage("install", ["codex"], home=tmp_path, source_dir=source_skill, source_version="1.0")
+    (source_skill / "SKILL.md").write_text("new workflow\n")
+    copytree = integrations.shutil.copytree
+    with monkeypatch.context() as fault:
+
+        def interrupted(source, destination):
+            destination.mkdir()
+            (destination / "SKILL.md").write_text("partial\n")
+            raise OSError("copy interrupted")
+
+        fault.setattr(integrations.shutil, "copytree", interrupted)
+        with pytest.raises(integrations.IntegrationError, match="copy interrupted"):
+            manage(
+                "update", ["codex"], home=tmp_path, source_dir=source_skill, source_version="2.0"
+            )
+    destination = tmp_path / ".agents" / "skills" / "agentic-preflight"
+    assert (destination / "SKILL.md").read_text() == "partial\n"
+    assert integrations.shutil.copytree is copytree
+    result = manage(
+        "install",
+        ["codex"],
+        home=tmp_path,
+        source_dir=source_skill,
+        source_version="2.0",
+        force=True,
+    )
+    assert result[0]["action"] == "replaced"
+    assert (destination / "SKILL.md").read_text() == "new workflow\n"
