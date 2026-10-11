@@ -68,8 +68,6 @@ def owners_for(path):
         "agentic_preflight/machine.py",
         "agentic_preflight/approval.py",
         "agentic_preflight/attestation.py",
-        "agentic_preflight/ci_authority.py",
-        "agentic_preflight/ci_policy.py",
         "agentic_preflight/cli_policy.py",
         "agentic_preflight/refresh_validation.py",
         "agentic_preflight/fingerprints.py",
@@ -80,7 +78,6 @@ def owners_for(path):
         "agentic_preflight/runs/publish.py",
         "agentic_preflight/runs/review_coverage.py",
         "agentic_preflight/stages/change_scope.py",
-        "agentic_preflight/templates/ci/new-template.yml",
         "agentic_preflight/wire_schema.py",
     ],
 )

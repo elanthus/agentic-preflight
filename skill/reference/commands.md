@@ -209,20 +209,21 @@ All-or-nothing — one bad finding rejects the batch.
   note-only disposition preserves the green state. A fix that changes the reviewed
   snapshot records the repair commit and returns the run to review before lint or test.
 
-### `agentic-preflight verify [SHA]`
+### `agentic-preflight verify [SHA] [--purpose local|publish]`
 Without an argument, confirms nothing blocks the active review/docs stage and advances
 it to green. Exits 2 listing the outstanding blocking set if anything remains.
 
 With a SHA, validates the portable attestation in `refs/notes/agentic-preflight` for
 CI. It checks the note schema, exact commit and tree binding, complete stage set, and
 process evidence for green lint/test stages. Fetch the notes ref before calling it in
-a fresh clone. Schema v7 requires an explicit `verified` or `tests_pending` outcome,
-complete outcome-appropriate stage evidence, and the full configuration snapshot. It
+a fresh clone. Schema v7 requires an explicit `verified` outcome,
+complete local stage evidence, and the full configuration snapshot. It
 verifies original execution digests, Git and configuration bindings, stage applicability,
 finding dispositions, and original/current review-unit accounting. A missing note, a
 note with any other schema, or invalid evidence exits 2. This remains an offline check;
 it does not execute stages or
-fetch evidence.
+fetch evidence. The retained `--purpose` option accepts `local` or `publish`; both
+require complete local validation. Pending-test notes are rejected.
 
 ### `agentic-preflight hosted-check SHA --base SHA --source-remote NAME --head-ref refs/heads/BRANCH`
 Explicit trusted CI entry point. Requires the original event's full head/base SHAs and
@@ -236,7 +237,6 @@ Default `--mode verify` checks complete local evidence. `--mode approval` also r
 `--reviews-file PATH --author LOGIN`, and accepts `--report-only` and
 `--environment-approved` with the same policy meaning as `approval-check`. The workflow
 still enforces real environment approval and disables auto-merge for manual-merge mode.
-Delegated tests remain pending; use the separate trusted CI authority for merge readiness.
 
 Failures retain `attestation_failed` / exit 2 with `data.reason` and `data.availability`.
 Unmet approval remains exit 4 unless report-only. Diagnostic identities omit note bodies
@@ -257,6 +257,12 @@ a trusted workflow can dispatch the appropriate hosted job.
 A reviews file that is not UTF-8 JSON fails with `invalid_findings` (exit 3), as other
 JSON file inputs do.
 
+`[approval] mode = "owner_review"` requires the configured `reviewer` GitHub login to
+approve the exact current head. An Approve review counts on another author's PR; on their
+own PR, a Comment review with trimmed body exactly `approved` counts. Conversation
+comments, stale reviews, bots, and other users do not count. Dismissal, changes requested,
+or editing a self-review to other text revokes approval.
+
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
 Stages run in the fixed order docs → lint → test after review becomes green. Running lint
 before the potentially expensive test command means a committed mechanical lint repair
@@ -269,10 +275,7 @@ containing any other path still requires the configured test command. Documentat
 includes `.md`, `.rst`, `.adoc`, root extensionless README/CONTRIBUTING/CHANGELOG, and
 `.txt` on the docs surface. Executable examples, MDX, unknown files, and Jenkinsfiles
 keep tests mandatory even under documentation or CI globs; CI configuration is limited
-to recognized hosted-CI YAML paths. With protected GitHub Actions
-test authority enabled, `stage run test` instead records explicit delegation without
-executing a local test command. The current integration commit must pass the configured
-remote jobs before merge, including for documentation-only changes.
+to recognized hosted-CI YAML paths.
 
 Command resolution: `--command` → `[commands].<name>` → detection. Detection never
 guesses: it exits 2 with `data.mode = "needs_command"` and candidates from
@@ -450,34 +453,6 @@ The pre-push predicate. Reads git's stdin protocol, consults only the commit's
 `refs/notes/agentic-preflight` note, and exits 0 or 10. Not for you to call — git calls
 it.
 
-## Trusted CI commands
-
-- `agentic-preflight verify SHA --purpose publish` verifies local publication
-  readiness and may accept explicit pending CI tests. Default `verify SHA` requires
-  complete local evidence; neither command evaluates human merge approval.
-- `agentic-preflight ci status --repo OWNER/REPO --pr N` retrieves current published
-  local evidence and trusted integration jobs. Exit 0 and
-  `data.merge_requirements_satisfied: true` mean the merge predicate is satisfied.
-  Exit 3 distinguishes pending, failed, stale, expired, unavailable, and human
-  approval pending. Follow this command's remote recovery action directly.
-- `agentic-preflight ci dispatch --repo OWNER/REPO --pr N` requests the protected
-  workflow for the current integration candidate. It reuses existing requests;
-  `--force` requests a fresh complete run. It never supplies a test pass.
-- `agentic-preflight ci templates --directory PATH` writes the two protected
-  workflow templates without overwriting files. Review and install them on the
-  protected base before opting in.
-- `agentic-preflight ci prepare --repo OWNER/REPO --candidate JSON --candidate-id HASH --workflow-sha SHA`
-  is for the trusted preparation job. It validates the dispatched candidate against
-  GitHub and the protected workflow revision; the JSON is a request, not evidence.
-- `agentic-preflight ci reconcile --repo OWNER/REPO --check-app-id ID` is for the protected evaluator.
-  It dispatches current candidates and writes the combined required check for open
-  PRs. `--pr N` limits it to one PR. It requires the dedicated App's check/action write permissions and
-  must never run proposed code or read executable results from artifacts.
-
-These commands are independent of a local active run and work after `finish`.
-Live results do not require another notes push. Authentication or incomplete API
-data cannot turn an unknown result into success.
-
 ## Exit codes
 
 | Code | Meaning | What to do |
@@ -485,7 +460,7 @@ data cannot turn an unknown result into success.
 | 0 | OK | Follow `next` |
 | 1 | Invalid input or internal error | Read `error.message`; fix your invocation |
 | 2 | Stage failed | Read the log, fix the cause, re-run the stage |
-| 3 | Precondition violated | Run `status`, then obey `next`; see the remote CI exception below |
+| 3 | Precondition violated | For run commands, run `status`, then obey `next`; for `approval-check` invalid input, correct the reviews file |
 | 4 | Human resolution required | Show recovery material; resolve only the bounded, unambiguous merge-back cases permitted by the skill, otherwise stop |
 | 5 | Confirmation required | Apply the skill's authorization rules, then re-run with the token |
 | 6 | Command-line usage error | Read `error.message`, run `next.command` for valid usage, and fix the invocation |
@@ -498,12 +473,5 @@ command) prints one envelope with error code `usage_error`, Click's message in
 Running `agentic-preflight` with no arguments prints the root help as plain text and
 exits 0.
 
-For local workflow exit 3 → run `status` → obey `next`. For `ci status` and other
-remote CI recovery results, follow their reason and next action directly; restarting a
-local run cannot repair pending or unavailable remote evidence.
-
-`[approval] mode = "owner_review"` requires the configured `reviewer` GitHub login to
-approve the exact current head. An Approve review counts on another author's PR; on their
-own PR, a Comment review with trimmed body exactly `approved` counts. Conversation
-comments, stale reviews, bots, and other users do not count. Dismissal, changes requested,
-or editing a self-review to other text revokes approval.
+For run-command exit 3 → run `status` → obey `next`. For `approval-check`
+`invalid_findings`, correct the reviews file and retry the command.

@@ -30,10 +30,6 @@ def violations(run: RunDoc) -> list[str]:
         failed.append("setup_failed_requires_initial_setup_failure")
     if run.state is State.MERGEBACK_PENDING and run.mergeback_attempt is None:
         failed.append("mergeback_pending_requires_attempt")
-    if run.state in {State.TEST_DELEGATED, State.PUBLICATION_READY} and run.test_delegation is None:
-        failed.append("delegated_state_requires_test_delegation")
-    if run.state is State.VERIFIED and run.test_delegation is not None:
-        failed.append("verified_forbids_test_delegation")
     if run.state is State.AWAITING_PUSH_CONFIRM and run.gate_token is None:
         failed.append("awaiting_push_requires_gate_token")
     if run.state in {State.PUSHED, State.DONE} and run.pushed_sha is None:

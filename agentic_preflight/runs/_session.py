@@ -264,14 +264,6 @@ def _envelope_for(run: RunDoc, **overrides) -> Envelope:
     if stopped:
         # Machine-readable on every envelope, not only in the wording.
         fields["data"] = {**fields.get("data", {}), "needs_human": True}
-    if run.test_delegation is not None:
-        fields["data"] = {
-            **fields.get("data", {}),
-            "test_authority": "github_actions",
-            "test_status": "delegated_pending",
-            "merge_requirements_satisfied": False,
-            "ci_status_command": "agentic-preflight ci status --repo OWNER/REPO --pr N",
-        }
     return Envelope(**fields)
 
 

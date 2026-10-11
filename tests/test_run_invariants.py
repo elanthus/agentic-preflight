@@ -4,8 +4,6 @@ from collections.abc import Callable
 
 import pytest
 
-from agentic_preflight.ci_models import CISection
-from agentic_preflight.ci_models import TestDelegation as DelegationRecord
 from agentic_preflight.machine import State
 from agentic_preflight.models import MergebackAttempt, RunDoc, SetupFailure
 from agentic_preflight.run_invariants import RunInvariantViolation, violations
@@ -32,19 +30,6 @@ def _mergeback_attempt() -> MergebackAttempt:
     )
 
 
-def _delegation() -> DelegationRecord:
-    return DelegationRecord(
-        policy_revision="a" * 40,
-        policy=CISection(
-            test_authority="github_actions",
-            repository_id=1,
-            workflow_id=2,
-            check_app_id=3,
-            required_jobs=["tests"],
-        ),
-    )
-
-
 def _run_for(state: State) -> RunDoc:
     run = make_run()
     run.state = state
@@ -52,8 +37,6 @@ def _run_for(state: State) -> RunDoc:
         run.setup_failure = _initial_failure()
     if state is State.MERGEBACK_PENDING:
         run.mergeback_attempt = _mergeback_attempt()
-    if state in {State.TEST_DELEGATED, State.PUBLICATION_READY}:
-        run.test_delegation = _delegation()
     if state is State.AWAITING_PUSH_CONFIRM:
         run.gate_token = "gate-token"  # noqa: S105 - inert model fixture
     if state in {State.PUSHED, State.DONE}:
@@ -65,10 +48,6 @@ def _run_for(state: State) -> RunDoc:
 
 def _set_initial_failure(run: RunDoc) -> None:
     run.setup_failure = _initial_failure()
-
-
-def _set_delegation(run: RunDoc) -> None:
-    run.test_delegation = _delegation()
 
 
 def _set_pushed_sha(run: RunDoc) -> None:
@@ -89,8 +68,6 @@ def _release_worktree(run: RunDoc) -> None:
         ("initial_setup_failure_requires_setup_failed_state", State.CREATED, _set_initial_failure),
         ("setup_failed_requires_initial_setup_failure", State.SETUP_FAILED, lambda run: None),
         ("mergeback_pending_requires_attempt", State.MERGEBACK_PENDING, lambda run: None),
-        ("delegated_state_requires_test_delegation", State.TEST_DELEGATED, lambda run: None),
-        ("verified_forbids_test_delegation", State.VERIFIED, _set_delegation),
         ("awaiting_push_requires_gate_token", State.AWAITING_PUSH_CONFIRM, lambda run: None),
         ("pushed_state_requires_pushed_sha", State.PUSHED, lambda run: None),
         ("pushed_sha_requires_pushed_or_terminal_state", State.CREATED, _set_pushed_sha),
