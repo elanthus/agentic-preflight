@@ -10,12 +10,6 @@
 /SECURITY.md @elanthus
 /agentic_preflight/approval.py @elanthus
 /agentic_preflight/attestation.py @elanthus
-/agentic_preflight/ci_authority.py @elanthus
-/agentic_preflight/ci_checks.py @elanthus
-/agentic_preflight/ci_merge.py @elanthus
-/agentic_preflight/ci_models.py @elanthus
-/agentic_preflight/ci_policy.py @elanthus
-/agentic_preflight/cli_ci.py @elanthus
 /agentic_preflight/cli_policy.py @elanthus
 /agentic_preflight/config.py @elanthus
 /agentic_preflight/findings.py @elanthus
@@ -32,6 +26,5 @@
 /agentic_preflight/runs/review_coverage.py @elanthus
 /agentic_preflight/shell_fingerprints.py @elanthus
 /agentic_preflight/stages/change_scope.py @elanthus
-/agentic_preflight/templates/ci/ @elanthus
 /agentic_preflight/wire_schema.py @elanthus
 /docs/RELEASING.md @elanthus

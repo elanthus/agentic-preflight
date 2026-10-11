@@ -42,9 +42,6 @@ max_restarts = 5
 
 [reuse]
 
-[ci]
-test_authority = "local"        # default; see protected CI setup below before opting in
-
 [review]
 blocking_severities = ["critical", "high"]
 max_findings = 50
@@ -389,42 +386,9 @@ Depending on `[approval] mode`, it records the manual-merge requirement, waits f
 configured Environment, or accepts only an eligible non-bot, non-author approval of the
 current head or of an earlier head with identical branch content.
 
-## Protected CI tests
+## Removed CI test authority
 
-`[ci] test_authority = "local"` runs the local stage sequence. To delegate
-tests, first install the protected workflows using the
-[CI setup procedure](attestations-and-ci.md#delegating-tests-to-trusted-ci). Then
-commit the declaration below on the protected base. Replace the numeric IDs with
-GitHub's IDs for your repository, installed test workflow, and dedicated check App.
-
-```toml
-[ci]
-test_authority = "github_actions"
-repository_id = 12345678
-base_branch = "main"
-workflow_id = 98765432
-check_app_id = 11223344
-workflow_path = ".github/workflows/preflight-tests.yml"
-required_jobs = ["test (ubuntu-latest, py3.13)", "test (windows-latest, py3.13)"]
-max_age_seconds = 86400
-```
-
-Tests always target the integration commit. Each `required_jobs` entry identifies
-one test matrix leg in the protected workflow. Names must be unique and nonempty;
-`prepare` and `approval` are reserved jobs added by the verifier. Only explicit
-success counts. Expiry is measured from each job's completion, defaults to one day,
-and permits 60–604800 seconds. A partial rerun cannot borrow missing legs from
-another attempt; rerun all jobs.
-
-The effective CI declaration must match the committed protected base and proposed
-head. A user-config override cannot enable delegation by itself. Review, docs,
-diff, context, risk, approval policy, and the lint command must also match the
-protected policy. Policy changes require their own review on the protected base.
-Lint remains local. The
-`stage run test` command accepts no local command/record/baseline flags when delegated.
-
-The workflow's protected commands define remote test execution. Local
-`[commands] test` remains available for repositories using local authority, but is
-not executed or recorded as CI evidence under delegation. The state becomes
-`TEST_DELEGATED`, then `PUBLICATION_READY` after merge-back. Publication can proceed
-with tests pending; `ci status` determines live merge readiness separately.
+Legacy `[ci]` tables in user or repository configuration are ignored with a warning.
+Tests run locally before publication, apart from the existing documentation/CI-only
+skip. Remove the retired table to silence the warning. Other unknown configuration
+keys continue to fail validation.

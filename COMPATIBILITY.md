@@ -126,6 +126,22 @@ unknown attempt fields remain invalid. A pending source rebase that has not reac
 the recorded verified tree now becomes stale; restart preflight to validate the
 current source rather than resuming from that intermediate tree.
 
+## Removal of trusted CI test authority
+
+The retired `[ci]` table is ignored when loading repository or user configuration,
+with a warning that tests now run locally. Historical attested configuration snapshots
+also ignore that table while retaining their original digest bindings.
+
+Attestation schema 7 is retained. Earlier `verified` notes may include null
+`publication_ready_at` and `test_delegation` fields; readers discard those null fields.
+Non-null declarations, `tests_pending` outcomes, and `delegated` attested stages are
+rejected for both local and publication verification. New notes contain only the
+`verified` outcome and complete local evidence.
+
+Historical run records discard the retired delegation field. Pending delegated runs
+become `ORPHANED` and require a new local validation run; pushed and terminal records
+remain readable for inspection and cleanup. Run history is preserved.
+
 ## Saved pending run updates
 
 The release after 0.6.0 removes the local run/findings write-ahead journal. An

@@ -77,8 +77,7 @@ judgment calls were recorded along the way. Command review additionally carries 
 and redacted output digest. Derived stages preserve those original executions and
 record why their evidence applies to the new exact commit. Excluded files remain
 explicitly outside that coverage. Skipped stages record a reason, not a successful
-execution. A publication-ready record with delegated tests is not a green local test
-run; current remote results must be checked separately with `ci status`.
+execution.
 
 It does not prove the review was good or that the agent understood every unit it marked
 clean. The same diff reviewed twice can yield different findings. Treat the attestation as

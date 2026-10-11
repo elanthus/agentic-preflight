@@ -18,12 +18,6 @@ human_review_paths = [
   # Direct approval, evidence-verification, and publication decisions.
   "agentic_preflight/approval.py",
   "agentic_preflight/attestation.py",
-  "agentic_preflight/ci_authority.py",
-  "agentic_preflight/ci_checks.py",
-  "agentic_preflight/ci_merge.py",
-  "agentic_preflight/ci_models.py",
-  "agentic_preflight/ci_policy.py",
-  "agentic_preflight/cli_ci.py",
   "agentic_preflight/cli_policy.py",
   "agentic_preflight/config.py",
   "agentic_preflight/findings.py",
@@ -40,7 +34,6 @@ human_review_paths = [
   "agentic_preflight/runs/review_coverage.py",
   "agentic_preflight/shell_fingerprints.py",
   "agentic_preflight/stages/change_scope.py",
-  "agentic_preflight/templates/ci/**",
   "agentic_preflight/wire_schema.py",
   "docs/RELEASING.md",
 ]

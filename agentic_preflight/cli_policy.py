@@ -32,21 +32,6 @@ def verify(sha: str | None, purpose: Literal["local", "publish"]) -> None:
         try:
             value = attestationmod.verify(repo_root, sha, purpose=purpose)
         except (attestationmod.InvalidAttestation, GitError) as exc:
-            if isinstance(exc, attestationmod.DelegatedTestsPending):
-                raise AttestationFailed(
-                    str(exc),
-                    data={
-                        "purpose": purpose,
-                        "test_status": "delegated_pending",
-                        "merge_requirements_satisfied": False,
-                    },
-                    next_instruction=(
-                        "Retrieve current trusted CI evidence with "
-                        "agentic-preflight ci status --repo OWNER/REPO --pr N, "
-                        "replacing OWNER/REPO and N with the repository and PR number. "
-                        "Do not repeat local review merely because tests are pending."
-                    ),
-                ) from exc
             raise _evidence_failure(
                 exc, {"sha": sha, "notes_ref": attestationmod.NOTES_REF}
             ) from exc

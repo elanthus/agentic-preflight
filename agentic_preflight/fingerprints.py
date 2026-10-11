@@ -128,7 +128,7 @@ class DocsFingerprint(BaseModel):
 
 
 _KNOWN_CONFIG = {
-    "ci",
+    "ci",  # Retired section remains known for historical fingerprint verification.
     "reuse",
     "general",
     "commands",
