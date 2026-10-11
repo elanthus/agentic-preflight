@@ -182,13 +182,19 @@ def _prior_runs(session: Session, run: RunDoc) -> list[RunDoc]:
             old = session.store.load_run(run_id)
         except (OSError, ValueError, ValidationError, RunReadError, UnknownRun):
             continue
+        # Keep the audit record, but never reuse validation discarded after an
+        # interrupted legacy update, even after its pending journal is removed.
+        if (
+            old.orphaned_reason == "interrupted legacy update"
+            or (session.store.run_dir(old.run_id) / "pending-update.json").exists()
+        ):
+            continue
         if old.source_worktree_id != run.source_worktree_id:
             continue
         if old.branch != run.branch:
             continue
         if old.state not in {
             State.VERIFIED,
-            State.PUBLICATION_READY,
             State.AWAITING_PUSH_CONFIRM,
             State.PUSHED,
             State.DONE,
@@ -284,7 +290,6 @@ def reopen_changed_inputs(session: Session, run: RunDoc, *, clean: bool | None =
         State.DOCS_GREEN,
         State.LINT_GREEN,
         State.TEST_GREEN,
-        State.TEST_DELEGATED,
     }:
         return run
     changed = False
@@ -307,7 +312,6 @@ def reopen_changed_inputs(session: Session, run: RunDoc, *, clean: bool | None =
     with session.store.transaction(run.run_id) as doc:
         doc.reuse_candidates.update(doc.evidence)
         doc.evidence = {}
-        doc.test_delegation = None
         doc.review_coverage = None
         doc.stages = {
             stage: StageRecord(attempts=record.attempts) for stage, record in doc.stages.items()
@@ -333,11 +337,6 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
     decisions: dict[Stage, Classification] = {}
     current: dict[Stage, StageFingerprint] = {}
     for stage in Stage:
-        if stage is Stage.TEST and session.config.ci.test_authority == "github_actions":
-            decisions[stage] = Classification(
-                disposition=Disposition.UNKNOWN, reasons=(ReasonCode.FINGERPRINT_MISSING,)
-            )
-            continue
         item = run.reuse_candidates.get(stage)
         if item is None:
             decisions[stage] = Classification(

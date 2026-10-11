@@ -74,7 +74,6 @@ combined digests and reason categories are recorded, never environment values or
 input-file contents. Evidence rechecks these inputs even for an unchanged SHA.
 Local `stage run --command` overrides remain valid execution evidence. Their
 resolved commands are fingerprinted; a different command prevents automatic reuse.
-Delegated CI separately requires lint to match its protected command policy.
 
 ## Provenance, ownership, and recovery
 
@@ -104,4 +103,4 @@ release. Missing originals cannot be reconstructed from hashes.
 
 Clean-checkout, synchronization, merge-back, publication authorization, and atomic
 branch/notes push rules still apply. Refresh authorizes no force-push, merge, or
-cleanup. For opt-in delegated tests, see [CI test authority](attestations-and-ci.md#delegating-tests-to-trusted-ci).
+cleanup.

@@ -35,7 +35,6 @@ from ._session import (
 from .review import _skip_test_if_not_applicable
 from .review_coverage import invalidate_stage_result, reopen_if_stale
 from .stage_baseline import check_baseline
-from .stage_delegation import delegate_tests
 
 
 class _StageSpec(TypedDict):
@@ -411,11 +410,6 @@ def run_stage(
             ),
             next_command="agentic-preflight context",
         )
-    delegated = delegate_tests(
-        session, run, stage, command=command, record=record, baseline=baseline
-    )
-    if delegated is not None:
-        return delegated
 
     _check_attempt_limit(session, run, stage, record_entry)
     resolved = _resolve_command(session, run, stage_name, command)
