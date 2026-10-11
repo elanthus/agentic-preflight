@@ -13,7 +13,12 @@ permissions:
   pull-requests: read
 
 jobs:
+  dependabot-policy:
+    uses: ./.github/workflows/dependabot-policy.yml
+
   policy:
+    needs: dependabot-policy
+    if: always() && needs.dependabot-policy.outputs.eligible != 'true'
     name: evaluate high-risk approval policy
     runs-on: ubuntu-latest
     outputs:
@@ -118,18 +123,23 @@ jobs:
 
   approval:
     name: high-risk human approval
-    needs: [policy, environment]
+    needs: [dependabot-policy, policy, environment]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Enforce the configured approval result
         env:
+          DEPENDABOT_ELIGIBLE: ${{ needs.dependabot-policy.outputs.eligible }}
           APPROVED: ${{ needs.policy.outputs.approved }}
           APPROVAL_MODE: ${{ needs.policy.outputs.approval_mode }}
           ENVIRONMENT_RESULT: ${{ needs.environment.result }}
           POLICY_RESULT: ${{ needs.policy.result }}
           REQUIRES_APPROVAL: ${{ needs.policy.outputs.requires_approval }}
         run: |
+          if [ "${DEPENDABOT_ELIGIBLE:-false}" = "true" ]; then
+            echo "Verified Dependabot patch/minor dependency update."
+            exit 0
+          fi
           test "$POLICY_RESULT" = "success"
           if [ "$REQUIRES_APPROVAL" != "true" ]; then
             echo "No high-risk approval is required."
