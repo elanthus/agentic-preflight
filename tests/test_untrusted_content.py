@@ -84,8 +84,7 @@ def test_all_detected_candidates_stay_out_of_next_command(tmp_repo, bare_remote,
         item for item in env["data"]["candidates"] if item["command"] == HOSTILE_MANIFEST_LINT
     )
     assert manifest["source"] == "package.json scripts"
-    workflow = next(item for item in env["data"]["candidates"] if item["command"] == HOSTILE_LINT)
-    assert workflow["source"].startswith("untrusted:workflow:")
+    assert all(item["command"] != HOSTILE_LINT for item in env["data"]["candidates"])
     assert HOSTILE_MANIFEST_LINT not in env["next"]["command"]
     assert HOSTILE_LINT not in env["next"]["command"]
     assert env["next"]["command"] == (

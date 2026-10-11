@@ -241,7 +241,7 @@ changelog or judge the entry’s content; the reviewer checks that content.
 ## Grounded context ([context])
 
 `context` retrieves deterministic repository knowledge related to the changed paths and
-returns it in `data.grounding`. The default sources are CODEOWNERS, matching files under
+returns it in `data.grounding`. The default sources are matching files under
 `docs/**`, root `AGENTS.md` and `CLAUDE.md`, relevant findings from earlier local runs,
 and the deterministic policy reasons for the change. See
 [Grounded context](context-grounding.md) for the matching and ordering rules.

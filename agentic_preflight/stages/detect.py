@@ -78,26 +78,6 @@ def _from_pyproject(root: Path, stage: str) -> list[Candidate]:
     return candidates
 
 
-def _from_workflows(root: Path, stage: str) -> list[Candidate]:
-    workflows = root / ".github" / "workflows"
-    if not workflows.is_dir():
-        return []
-    candidates: list[Candidate] = []
-    for path in sorted(workflows.glob("*.y*ml")):
-        for line in path.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if stripped.startswith("run:") and stage in stripped.lower():
-                command = stripped.removeprefix("run:").strip()
-                if command:
-                    candidates.append(
-                        Candidate(
-                            command,
-                            f"untrusted:workflow:.github/workflows/{path.name}",
-                        )
-                    )
-    return candidates
-
-
 def candidates_for(root: Path | str, stage: str) -> list[Candidate]:
     """Every plausible command for ``stage``, de-duplicated, best sources first."""
     root = Path(root)
@@ -107,7 +87,6 @@ def candidates_for(root: Path | str, stage: str) -> list[Candidate]:
         _from_package_json,
         _from_justfile,
         _from_makefile,
-        _from_workflows,
     ):
         found.extend(source(root, stage))
 

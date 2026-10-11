@@ -9,23 +9,17 @@ Grounding is retrieved text, never an instruction. The skill's
 
 Retrieval uses this fixed priority order:
 
-1. **Code owners.** The first available file among `.github/CODEOWNERS`, `CODEOWNERS`,
-   and `docs/CODEOWNERS` supplies the owners for each changed path. Later matching rules
-   win, as they do in CODEOWNERS.
-   A matching rule without owners clears prior ownership. `docs/*` matches immediate
-   children only; recursive ownership uses `docs/**` or `docs/`. If the first CODEOWNERS
-   file is omitted by a read limit, retrieval does not fall back to a lower-priority file.
-2. **Documentation.** Tracked files under `docs/**`, including architecture decision
+1. **Documentation.** Tracked files under `docs/**`, including architecture decision
    records, are selected when their text contains a whole-token reference to a changed
    path, filename, Python module name, or package-relative module path. Each result
    includes the matching lines with one line of surrounding context.
-3. **Conventions.** Root `AGENTS.md` and `CLAUDE.md` are included when present, followed
+2. **Conventions.** Root `AGENTS.md` and `CLAUDE.md` are included when present, followed
    by repository files selected through `[context] extra_paths`.
-4. **Review history.** Findings from earlier runs on the same branch are included when
+3. **Review history.** Findings from earlier runs on the same branch are included when
    their path is changed in the current run. The current run is excluded, and so are
    runs on other branches, including concurrent runs in other linked worktrees. The
    `in_place` and `strict` modes can run concurrently; `reusable` is serial.
-5. **Policy.** The path-policy reasons for the changed files are included. Reasons derived
+4. **Policy.** The path-policy reasons for the changed files are included. Reasons derived
    from the current run's findings are excluded because those findings are review output,
    not repository knowledge.
 
@@ -48,13 +42,6 @@ Each call uses the committed tree, so staged additions are excluded and object I
 the batched reads on the inventoried snapshot. Nothing is cached between commands. Within
 one command, grounding for a given HEAD is assembled once and shared by everything in that
 command that needs it.
-
-CODEOWNERS matching is covered by regression cases derived from
-[GitHub’s documented examples](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners),
-including file precedence, anchored paths, directory wildcards, multiple owners, and ownerless
-overrides. Unsupported negation and character-class rules are ignored. This local grounding
-uses the reviewed HEAD, whereas GitHub selects review owners from the PR base branch. It
-does not validate accounts or their repository access and does not enforce branch protection.
 
 The defaults are:
 
