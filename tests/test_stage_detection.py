@@ -22,16 +22,12 @@ def test_stage_detection_combines_sources_in_priority_order(tmp_path):
         "npm run test:unit",
         "just test-fast",
         "make test-all",
-        "pytest integration-tests",
     ]
     assert candidates[0].as_dict() == {
         "command": "pytest",
         "source": "pyproject.toml",
     }
-    assert candidates[-1].as_dict() == {
-        "command": "pytest integration-tests",
-        "source": "untrusted:workflow:.github/workflows/ci.yml",
-    }
+    assert all("workflow" not in item.source for item in candidates)
 
 
 def test_stage_detection_ignores_malformed_manifests(tmp_path):
@@ -41,12 +37,12 @@ def test_stage_detection_ignores_malformed_manifests(tmp_path):
 
 
 def test_stage_detection_deduplicates_matching_commands(tmp_path):
-    (tmp_path / "tests").mkdir()
-    (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
+    (tmp_path / "justfile").write_text("test:\n    pytest\ntest:\n    pytest\n")
+    assert [item.command for item in candidates_for(tmp_path, "test")] == ["just test"]
+
+
+def test_stage_detection_does_not_scrape_workflows(tmp_path):
     workflow = tmp_path / ".github" / "workflows"
     workflow.mkdir(parents=True)
-    (workflow / "ci.yaml").write_text("steps:\n  run: pytest\n")
-
-    candidates = candidates_for(tmp_path, "test")
-
-    assert [item.command for item in candidates] == ["pytest"]
+    (workflow / "ci.yaml").write_text("steps:\n  run: pytest integration-tests\n")
+    assert candidates_for(tmp_path, "test") == []

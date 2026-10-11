@@ -27,6 +27,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ### Fixed
 
+- Require a single verified Dependabot commit matching the event and current PR head
+  before applying the hosted exception; human-appended commits retain ordinary gates.
+
 - `gc` can now orphan an abandoned run whose stored config snapshot holds a key that
   a later release removed, such as `hook.enabled`. Reading such a record failed strict
   validation, so a run whose source worktree had disappeared kept its validation

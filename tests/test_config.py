@@ -3,7 +3,6 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from agentic_preflight.ci_models import CISection
 from agentic_preflight.config import (
     REMOVED_CONFIG_KEYS,
     Config,
@@ -16,13 +15,13 @@ from agentic_preflight.config import (
 )
 
 
-def test_default_snapshot_contains_complete_ci_config_with_stable_digest():
+def test_default_snapshot_has_stable_digest():
     cfg = Config()
 
     first = cfg.model_dump(mode="json")
     second = cfg.model_dump(mode="json")
 
-    assert first["ci"] == CISection().model_dump(mode="json")
+    assert "ci" not in first
     assert config_digest(first) == config_digest(second)
 
 
@@ -95,13 +94,12 @@ REMOVED_KEY_VALUES = {
     ("review", "require_fix_commits"): "true",
     ("worktree", "ttl_hours"): "48",
     ("reuse", "attestation" + "_schema"): "5",
-    ("ci", "consumer" + "_schema"): "6",
     ("hook", "enabled"): "false",
 }
 
 
 def test_every_removed_config_key_has_a_rejection_case():
-    assert set(REMOVED_KEY_VALUES) == REMOVED_CONFIG_KEYS
+    assert set(REMOVED_KEY_VALUES) | {("ci", "*")} == REMOVED_CONFIG_KEYS
 
 
 @pytest.mark.parametrize(
@@ -446,3 +444,44 @@ def test_snapshot_cache_is_bounded():
     for limit in range(1, 40):
         snapshot_run_settings({"stage": {"max_restarts": limit}})
     assert _snapshot_run_settings.cache_info().currsize == 32
+
+
+@pytest.mark.parametrize("scope", ["user", "repo"])
+def test_removed_ci_table_is_ignored_with_warning(tmp_repo, tmp_path, capsys, scope):
+    user_dir = tmp_path / "userconf"
+    user_dir.mkdir()
+    target = user_dir / "config.toml" if scope == "user" else tmp_repo / ".agentic-preflight.toml"
+    target.write_text(
+        "[ci]\ntest_authority = 'github_actions'\nconsumer_schema = 6\n[commands]\ntest = 'pytest'\n"
+    )
+    cfg = load_config(tmp_repo, user_config_dir=user_dir)
+    assert cfg.commands.test == "pytest"
+    assert "ci" not in cfg.model_dump()
+    warning = capsys.readouterr().err
+    assert "ignoring removed [ci]" in warning
+    assert str(target) in warning
+
+
+def test_historical_ci_snapshot_does_not_change_original_data():
+    from agentic_preflight.config import snapshot_config
+
+    snapshot = Config().model_dump(mode="json")
+    snapshot["ci"] = {"test_authority": "github_actions", "consumer_schema": 6}
+    assert "ci" not in snapshot_config(snapshot).model_dump()
+    assert snapshot["ci"]["consumer_schema"] == 6
+
+
+def test_committed_config_ignores_ci_but_rejects_other_removed_keys(tmp_repo):
+    from agentic_preflight.config import committed_config
+    from tests.conftest import commit_all
+
+    path = tmp_repo / ".agentic-preflight.toml"
+    path.write_text(
+        "[ci]\ntest_authority = 'github_actions'\n[approval]\nmode = 'owner_review'\nreviewer = 'maintainer'\n"
+    )
+    commit_all(tmp_repo, "historical protected policy")
+    assert committed_config(tmp_repo, "HEAD").approval.reviewer == "maintainer"
+    path.write_text("[hook]\nenabled = false\n")
+    commit_all(tmp_repo, "invalid protected policy")
+    with pytest.raises(ValueError, match="invalid protected policy"):
+        committed_config(tmp_repo, "HEAD")

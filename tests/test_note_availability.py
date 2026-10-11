@@ -370,21 +370,15 @@ def test_fetch_failure_never_uses_existing_note(remote, monkeypatch):
     assert remote.sleeps == []
 
 
-@pytest.mark.parametrize("validator", ["refresh", "declaration"])
-def test_nested_git_failure_retains_safe_classification(remote, monkeypatch, validator):
-    from agentic_preflight import ci_policy, refresh_validation
+def test_nested_git_failure_retains_safe_classification(remote, monkeypatch):
+    from agentic_preflight import refresh_validation
 
-    value = evidence().model_copy(
-        update={"outcome": "verified" if validator == "refresh" else "tests_pending"}
-    )
+    value = evidence()
 
     def fail(*args):
         raise availability.gitx.GitError(["show", "SECRET"], 128, "SECRET transport failure")
 
-    monkeypatch.setattr(
-        refresh_validation, "verify_evidence", fail if validator == "refresh" else lambda *_: None
-    )
-    monkeypatch.setattr(ci_policy, "verify_declaration", fail)
+    monkeypatch.setattr(refresh_validation, "verify_evidence", fail)
     with pytest.raises(attestation.InvalidAttestation) as caught:
         attestation.verify_value(".", value, HEAD, purpose="local")
     assert caught.value.reason == "git_failure"

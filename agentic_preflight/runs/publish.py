@@ -44,9 +44,7 @@ def gate(session: Session) -> Envelope:
     """Summarise what would be pushed and mint a confirmation token."""
     run = _load_current(session)
     _assert_fresh(session, run)
-    _require_state(
-        run, State.VERIFIED, State.PUBLICATION_READY, State.AWAITING_PUSH_CONFIRM, command="gate"
-    )
+    _require_state(run, State.VERIFIED, State.AWAITING_PUSH_CONFIRM, command="gate")
 
     _remote_for(session, run)
     commits = [
@@ -61,9 +59,7 @@ def gate(session: Session) -> Envelope:
     assessment = _assess(session, changed_files, session.store.load_findings(run.run_id))
     try:
         portable = attestationmod.verify(session.repo_root, run.head_sha, purpose="publish")
-    except (attestationmod.InvalidAttestation, gitx.GitError) as exc:
-        if run.test_delegation is not None:
-            raise AttestationFailed(str(exc), next_command="agentic-preflight status") from exc
+    except (attestationmod.InvalidAttestation, gitx.GitError):
         portable = None
     if portable is not None:
         assessment = riskmod.include_attested_findings(assessment, portable.findings_summary)
@@ -107,7 +103,7 @@ def gate(session: Session) -> Envelope:
     summary.token = gatemod.mint_token()
     with session.store.transaction(run.run_id) as doc:
         doc.gate_token = summary.token
-        if doc.state in {State.VERIFIED, State.PUBLICATION_READY}:
+        if doc.state is State.VERIFIED:
             _apply(doc, Action.GATE)
         run = doc
 
@@ -299,14 +295,6 @@ def finish(session: Session) -> Envelope:
             "pr_mode": session.config.pr.mode,
             "automated_cleanup": session.config.pr.automated_cleanup,
         },
-        next_instruction=(
-            _worktree_completion(_worktree_mode(run))
-            + (
-                " Publication is complete; tests remain pending. Use ci status after opening the PR."
-                if run.test_delegation
-                else ""
-            )
-            + pr_instruction
-        ),
+        next_instruction=(_worktree_completion(_worktree_mode(run)) + pr_instruction),
         next_command="agentic-preflight gc",
     )

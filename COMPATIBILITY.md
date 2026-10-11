@@ -70,8 +70,9 @@ outside the matrix does not make that version supported.
 
 The release after 0.6.0 requires Click 8.2 or newer. Documentation inventory entries
 no longer contain `exists`, and detected command candidates no longer contain `trust`;
-consumers should use `path`, `size`, `touched_by_diff`, and candidate `source`. Workflow
-sources retain their `untrusted:workflow:` prefix. Attestation fingerprints are unchanged.
+consumers should use `path`, `size`, `touched_by_diff`, and candidate `source`. Command
+candidates come from supported project manifests; workflow run lines are no longer
+detected. Attestation fingerprints are unchanged.
 
 The command-line interface, configuration file, and attestation schema follow Semantic
 Versioning. The Python modules are internal and have no compatibility promise. While
@@ -118,3 +119,51 @@ field. It is accepted and ignored on load, and omitted on the next write. Other
 unknown attempt fields remain invalid. A pending source rebase that has not reached
 the recorded verified tree now becomes stale; restart preflight to validate the
 current source rather than resuming from that intermediate tree.
+
+## Grounding and command candidates
+
+Context grounding no longer emits generated `codeowners` entries. Other grounding
+sources and GitHub ownership policy are unchanged. Command detection no longer scrapes
+CI workflow `run:` lines; configured commands and manifest candidates remain supported.
+
+## Removal of trusted CI test authority
+
+The retired `[ci]` table is ignored when loading repository or user configuration,
+with a warning that tests now run locally. Historical attested configuration snapshots
+also ignore that table while retaining their original digest bindings.
+
+Attestation schema 7 is retained. Earlier `verified` notes may include null
+`publication_ready_at` and `test_delegation` fields; readers discard those null fields.
+Non-null declarations, `tests_pending` outcomes, and `delegated` attested stages are
+rejected for both local and publication verification. New notes contain only the
+`verified` outcome and complete local evidence.
+
+Historical run records discard the retired delegation field. Pending delegated runs
+become `ORPHANED` and require a new local validation run; pushed and terminal records
+remain readable for inspection and cleanup. Run history is preserved.
+
+## Saved pending run updates
+
+The release after 0.6.0 removes the local run/findings write-ahead journal. An
+interrupted nonterminal run with `pending-update.json` cannot resume validation:
+`status` directs you to `start`, and other validation commands refuse it.
+
+On the next `start` in that run's source worktree, the tool orphans the interrupted
+run, clears its ownership pointers, deletes only its pending journal, and creates
+a fresh run, unless the validation restart limit has already been reached. At
+that limit, the existing human stop remains: only the user may decide to abort
+and restart. This happens when starting validation, not when installing the package.
+The old audit record, validation worktree and any fix commits remain available for
+normal safe cleanup with `gc`; no user work is deleted by the upgrade. Completed
+history and nonterminal runs without a pending journal are unchanged. Unreadable
+run records remain protected by the existing saved-record policy.
+
+Individual record replacements remain atomic, but findings and run state are no
+longer recovered together after interruption.
+
+## Dependabot hosted exception
+
+The repository workflows now share a narrowly scoped Dependabot eligibility check.
+Eligible Python patch/minor updates skip local-attestation verification and satisfy
+the hosted approval gate; existing required check names remain available. Other PRs
+retain their prior gates. See `docs/attestations-and-ci.md`.

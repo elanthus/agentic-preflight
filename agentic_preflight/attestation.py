@@ -43,21 +43,10 @@ def recovery(reason: str) -> str:
         return (
             "Inspect Git access, authentication, permissions, and transport; absence is unproven."
         )
-    if reason == "delegated_pending":
-        return (
-            "Use ci status for current trusted CI evidence; delegated tests are not locally green."
-        )
     return (
         "Inspect the invalid evidence and its commit/tree bindings. Restore valid evidence "
         "for this exact head; fetching repeatedly cannot repair a present invalid note."
     )
-
-
-class DelegatedTestsPending(InvalidAttestation):
-    """Publication evidence is valid, but delegated tests are not local completion."""
-
-    def __init__(self, message: str) -> None:
-        super().__init__(message, reason="delegated_pending")
 
 
 def output_digest(output: str) -> str:
@@ -102,9 +91,6 @@ def build(
         record = run.stages.get(stage)
         if record is None:
             raise InvalidAttestation(f"{stage.value} stage has no recorded result")
-        if stage is Stage.TEST and record.status == "delegated" and run.test_delegation:
-            stages[stage] = AttestedStage(status="delegated", reason="trusted CI tests pending")
-            continue
         if record.status == "skipped":
             if stage is Stage.LINT:
                 raise InvalidAttestation("lint stage is not green")
@@ -120,8 +106,7 @@ def build(
         )
     from .refresh_validation import rebound_coverage, verify_evidence
 
-    delegated = run.test_delegation is not None
-    required_evidence = set(Stage) - ({Stage.TEST} if delegated else set())
+    required_evidence = set(Stage)
     if run.worktree_path is None:
         raise InvalidAttestation("run has no validation worktree for evidence verification")
     if set(run.evidence) != required_evidence:
@@ -134,7 +119,7 @@ def build(
     )
     value = Attestation(
         schema_version=7,
-        outcome="tests_pending" if delegated else "verified",
+        outcome="verified",
         sha=sha,
         tree_sha=tree_sha,
         branch=run.branch,
@@ -143,9 +128,7 @@ def build(
         intent_sha256=intent_digest(run.intent or ""),
         config_sha256=run.config_digest,
         run_id=run.run_id,
-        green_at=None if delegated else datetime.now(UTC).isoformat(timespec="seconds"),
-        publication_ready_at=datetime.now(UTC) if delegated else None,
-        test_delegation=run.test_delegation,
+        green_at=datetime.now(UTC).isoformat(timespec="seconds"),
         stages=stages,
         findings_summary=findings_summary,
         evidence=run.evidence,
@@ -193,6 +176,8 @@ def verify_value(
     """Validate an already decoded note, including notes retrieved through GitHub."""
     if purpose not in {"local", "publish"}:
         raise InvalidAttestation("unknown verification purpose")
+    if value.outcome != "verified":
+        raise InvalidAttestation("only verified local validation is supported")
     if value.sha != resolved:
         raise InvalidAttestation(
             f"attestation names {value.sha}, but it is attached to {resolved}",
@@ -214,20 +199,4 @@ def verify_value(
         ) from exc
     except ValueError as exc:
         raise InvalidAttestation(str(exc)) from exc
-    if value.outcome == "tests_pending":
-        from .ci_policy import verify_declaration
-
-        try:
-            verify_declaration(repo, value)
-        except gitx.GitError as exc:
-            raise InvalidAttestation(
-                f"Git evidence validation failed with exit {exc.returncode}", reason="git_failure"
-            ) from exc
-        except ValueError as exc:
-            raise InvalidAttestation(str(exc)) from exc
-        if purpose != "publish":
-            raise DelegatedTestsPending(
-                "tests are delegated, not locally green; use ci status --repo OWNER/REPO --pr N "
-                "to verify merge readiness, or verify --purpose publish for publication only"
-            )
     return value

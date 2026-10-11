@@ -80,9 +80,6 @@ not submit those findings, consume review retries, or change the run state. A sh
 comparison launches one reviewer wrapper; it does not establish a provider request count or
 expose provider token or cost telemetry.
 
-Comparison remains available while tests are delegated to CI and after publication
-evidence is prepared. It does not mark pending CI tests as passed.
-
 To compare with a submission produced elsewhere, avoid the shadow call:
 
 ```console

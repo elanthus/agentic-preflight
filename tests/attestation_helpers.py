@@ -54,8 +54,6 @@ def make_attestation(
     }
     evidence = {}
     for stage, result in stages.items():
-        if result.status == "delegated":
-            continue
         origin = OriginalExecution(
             run_id="r_test",
             source_worktree_id="wt_test",

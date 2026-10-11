@@ -22,6 +22,7 @@ from ._session import (
     _assess,
     _envelope_for,
     _head_moved,
+    _interrupted_legacy_update,
     _is_in_place,
     _load_current,
     _max_restarts,
@@ -48,7 +49,7 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
     done real work in there, and silently deleting it is the one outcome nobody
     can undo.
     """
-    run = _load_current(session)
+    run = _load_current(session, allow_interrupted=True)
 
     isolated = not _is_in_place(run)
     if isolated and run.fix_commits and not force:
@@ -615,6 +616,30 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             },
             next_instruction="The previous run is terminal. Start a new one.",
             next_command=START_COMMAND,
+        )
+
+    if _interrupted_legacy_update(session, run):
+        stopped = _restart_limit_reached(run)
+        return _envelope_for(
+            run,
+            data={
+                "has_run": True,
+                "interrupted_legacy_update": True,
+                "hook": hook_status,
+                "source_worktree_path": run.source_worktree_path,
+            },
+            next_instruction=(
+                RESTART_LIMIT_INSTRUCTION
+                if stopped
+                else f"Start a fresh run from the source worktree {run.source_worktree_path} "
+                "to discard this interrupted legacy validation. "
+                "Its audit record and work remain available for safe cleanup."
+            ),
+            next_command=None
+            if stopped
+            else _start_command(
+                run.intent, base_ref=run.base_ref, default_base_ref=session.config.general.base_ref
+            ),
         )
 
     findings = session.store.load_findings(run_id)

@@ -1,23 +1,18 @@
 """Portable provenance must work without the producer's object database."""
 
 import subprocess
-from types import SimpleNamespace
 
 import pytest
 
-from agentic_preflight import attestation, ci_merge, evidence_transport, hook
+from agentic_preflight import attestation, evidence_transport, hook
 from tests.conftest import git
 from tests.driver import ScriptedAgent
-from tests.test_ci_lifecycle import configure, remote_for
 from tests.test_evidence_refresh import _finish, _prepare, _restack
 
 
 @pytest.fixture
-def published(request, feature_repo, bare_remote, tmp_path):
-    delegated = request.param
-    policy = configure(feature_repo) if delegated else None
-    if not delegated:
-        _prepare(feature_repo)
+def published(feature_repo, bare_remote, tmp_path):
+    _prepare(feature_repo)
     git("fetch", str(feature_repo), "main:refs/heads/main", cwd=bare_remote)
     agent = ScriptedAgent(feature_repo)
     agent.run("init")
@@ -29,8 +24,6 @@ def published(request, feature_repo, bare_remote, tmp_path):
     git("fetch", str(feature_repo), "main:refs/heads/main", cwd=bare_remote)
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
-    if delegated:
-        agent.run("stage", "run", "test")
     agent.run("mergeback")
     value = attestation.verify(feature_repo, "HEAD", purpose="publish")
     assert value.sha != original.sha
@@ -60,12 +53,11 @@ def published(request, feature_repo, bare_remote, tmp_path):
         ).returncode
         != 0
     )
-    return runner, bare_remote, original, value, policy, feature_repo
+    return runner, bare_remote, original, value, feature_repo
 
 
-@pytest.mark.parametrize("published", [False], indirect=True)
 def test_fresh_hosted_checkout_fetches_unreachable_originals(published):
-    runner, _, original, value, _, _ = published
+    runner, _, original, value, _ = published
     result = ScriptedAgent(runner).run(
         "hosted-check",
         value.sha,
@@ -80,56 +72,6 @@ def test_fresh_hosted_checkout_fetches_unreachable_originals(published):
     assert original.sha in result["data"]["availability"]["attempts"][0]["fetched_evidence_commits"]
     assert git("rev-parse", original.sha + "^{commit}", cwd=runner) == original.sha
     assert not git("for-each-ref", "refs/agentic-preflight/availability", cwd=runner)
-
-
-@pytest.mark.parametrize("bad_ref", [False, True])
-@pytest.mark.parametrize("published", [True], indirect=True)
-def test_ci_consumer_fetches_originals_from_contributor_refs(published, monkeypatch, bad_ref):
-    runner, remote, original, value, policy, producer = published
-    # Build the API candidate in the producer, where all objects already exist.
-    api = remote_for(producer, policy, value)
-    monkeypatch.setattr(
-        api,
-        "scoped",
-        lambda repository, **kwargs: SimpleNamespace(repository=repository, note=api.note),
-    )
-    candidate, cfg, _ = ci_merge.snapshot(api, 86)
-    if bad_ref:
-        # A wrong descendant ref still imports the expected ancestor object.
-        descendant = git(
-            "commit-tree",
-            original.tree_sha,
-            "-p",
-            original.sha,
-            "-m",
-            "wrong ref tip",
-            cwd=producer,
-        )
-        git("fetch", str(producer), descendant, cwd=remote)
-        git("update-ref", evidence_transport.ref_for(original.sha), descendant, cwd=remote)
-    invoke = ci_merge.gitx.run
-    fetched = []
-
-    def local_transport(repo, *args, **kwargs):
-        if "fetch" in args:
-            fetched.append(args)
-            args = tuple(
-                str(remote) if arg.startswith("https://github.com/") else arg for arg in args
-            )
-        return invoke(repo, *args, **kwargs)
-
-    monkeypatch.setattr(ci_merge.gitx, "run", local_transport)
-    if bad_ref:
-        with pytest.raises(ValueError, match="Fetched evidence ref names a different commit"):
-            ci_merge.published_attestation(runner, api, candidate, cfg)
-    else:
-        assert ci_merge.published_attestation(runner, api, candidate, cfg) == value
-    assert not git("for-each-ref", "refs/agentic-preflight/ci-evidence", cwd=runner)
-    assert any(
-        any(arg.startswith(evidence_transport.ref_for(original.sha) + ":") for arg in args)
-        and "https://github.com/contributor/fork.git" in args
-        for args in fetched
-    )
 
 
 def test_rejected_evidence_ref_prevents_partial_publication(feature_repo, bare_remote, tmp_path):
@@ -149,9 +91,8 @@ def test_rejected_evidence_ref_prevents_partial_publication(feature_repo, bare_r
 
 
 @pytest.mark.parametrize("bad", ["missing", "wrong_commit"])
-@pytest.mark.parametrize("published", [False], indirect=True)
 def test_hosted_provenance_failure_is_not_retried(published, bad):
-    runner, remote, original, value, _, _ = published
+    runner, remote, original, value, _ = published
     ref = evidence_transport.ref_for(original.sha)
     if bad == "missing":
         git("update-ref", "-d", ref, cwd=remote)
@@ -255,3 +196,56 @@ def test_notes_sync_preserves_selected_evidence(feature_repo, bare_remote, tmp_p
         assert not git(
             "for-each-ref", "refs/heads/feature/x", evidence_transport.REF_PREFIX, cwd=bare_remote
         )
+
+
+def test_historical_verified_ci_snapshot_remains_verifiable(feature_repo, tmp_path):
+    import json
+
+    from agentic_preflight.digests import json_digest
+
+    _prepare(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("init")
+    agent.run("start")
+    _finish(agent, tmp_path)
+    value = attestation.verify(feature_repo, "HEAD")
+    payload = value.model_dump(mode="json")
+    payload.update(publication_ready_at=None, test_delegation=None)
+    policy = {
+        "test_authority": "local",
+        "required_jobs": [],
+        "workflow_path": ".github/workflows/preflight-tests.yml",
+    }
+    payload["config_snapshot"]["ci"] = policy
+    payload["config_sha256"] = json_digest(payload["config_snapshot"])
+    for item in payload["evidence"].values():
+        origin = item["origin"]
+        origin["config_snapshot"]["ci"] = policy
+        origin["config_sha256"] = json_digest(origin["config_snapshot"])
+        item["origin_sha256"] = json_digest(origin)
+    historical = attestation.decode(json.dumps(payload))
+    assert (
+        attestation.verify_value(feature_repo, historical, value.sha, purpose="publish")
+        == historical
+    )
+
+
+def test_retired_ci_configuration_runs_local_tests(feature_repo, tmp_path):
+    from tests.conftest import commit_all
+
+    _prepare(feature_repo)
+    config = feature_repo / ".agentic-preflight.toml"
+    config.write_text(config.read_text() + "\n[ci]\ntest_authority = 'github_actions'\n")
+    commit_all(feature_repo, "retired ci configuration")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("init")
+    agent.run("start")
+    _finish(agent, tmp_path)
+    value = attestation.verify(feature_repo, "HEAD")
+    assert value.outcome == "verified"
+    assert (
+        value.stages[next(stage for stage in value.stages if stage.value == "test")].status
+        == "green"
+    )
+    result = agent.run("ci", "status", expect=6)
+    assert result["error"]["code"] == "usage_error"
