@@ -27,7 +27,13 @@ can take a few minutes.
 
 ## Approval readiness
 
-Treat human approval of an exact PR head as the final readiness step. For a batch,
+For changes requiring human approval, treat approval of an exact PR head as the final
+readiness step. Routine documentation that accurately reflects reviewed implementation
+does not require owner approval solely because it edits skill or reference material.
+Changes to authorization, approval enforcement, or bypass rules require the configured
+owner to approve the exact final head, including instruction-only changes and changes
+with a `clear` automated risk verdict. Identify that requirement in the PR and wait for
+approval before merging; see CONTRIBUTING.md. For a batch,
 choose the merge order, complete preceding merges, and refresh the next PR to the
 latest base before requesting approval. Do not request approval on every intermediate
 push or batch approval for heads known to need further base updates.

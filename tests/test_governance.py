@@ -5,7 +5,15 @@ import pytest
 
 from agentic_preflight.codeowners import matches
 from agentic_preflight.config import Config
-from agentic_preflight.models import RiskLevel, Verdict
+from agentic_preflight.models import (
+    Finding,
+    FindingAction,
+    FindingStatus,
+    RiskLevel,
+    Severity,
+    Stage,
+    Verdict,
+)
 from agentic_preflight.risk import assess
 
 ROOT = Path(__file__).parent.parent
@@ -54,6 +62,10 @@ def owners_for(path):
         ".agentic-preflight.toml",
         ".github/CODEOWNERS",
         ".github/workflows/new-workflow.yml",
+        "SECURITY.md",
+        "docs/RELEASING.md",
+        "agentic_preflight/config.py",
+        "agentic_preflight/machine.py",
         "agentic_preflight/approval.py",
         "agentic_preflight/attestation.py",
         "agentic_preflight/ci_authority.py",
@@ -70,10 +82,6 @@ def owners_for(path):
         "agentic_preflight/stages/change_scope.py",
         "agentic_preflight/templates/ci/new-template.yml",
         "agentic_preflight/wire_schema.py",
-        "skill/SKILL.md",
-        "skill/reference/playbooks.md",
-        "skill/reference/findings-schema.md",
-        "skill/reference/docs-rubric.md",
     ],
 )
 def test_sensitive_changes_require_human_review_and_a_code_owner(path):
@@ -95,6 +103,10 @@ def test_sensitive_changes_require_human_review_and_a_code_owner(path):
         "agentic_preflight/stages/shellstage.py",
         "agentic_preflight/new_helper.py",
         "tests/test_risk.py",
+        "skill/SKILL.md",
+        "skill/reference/docs-rubric.md",
+        "skill/reference/findings-schema.md",
+        "skill/reference/playbooks.md",
         "skill/reference/commands.md",
         "skill/reference/workflow.md",
     ],
@@ -107,7 +119,9 @@ def test_routine_changes_are_medium_risk_without_mandatory_ownership(path):
     assert owners_for(path) == []
 
 
-@pytest.mark.parametrize("path", ["README.md", "docs/worktree-modes.md", "CHANGELOG.md"])
+@pytest.mark.parametrize(
+    "path", ["README.md", "docs/worktree-modes.md", "CHANGELOG.md", "COMPATIBILITY.md"]
+)
 def test_ordinary_prose_remains_low_risk(path):
     assert path_assessment([path]).level is RiskLevel.LOW
     assert owners_for(path) == []
@@ -150,3 +164,30 @@ def test_dependency_updates_are_audited_without_human_risk_triggers():
     assert "/uv.lock" not in owners
     assert "/.github/dependabot.yml" in owners
     assert "dependency vulnerability audit" in (ROOT / ".github/workflows/security.yml").read_text()
+
+
+@pytest.mark.parametrize("path", ["skill/SKILL.md", "COMPATIBILITY.md"])
+@pytest.mark.parametrize("status", [FindingStatus.OPEN, FindingStatus.FIXED])
+def test_documentation_findings_still_require_human_review(path, status):
+    cfg = repository_config()
+    finding = Finding(
+        id="F001",
+        stage=Stage.REVIEW,
+        path=path,
+        severity=Severity.HIGH,
+        action=FindingAction.AUTO_FIX,
+        status=status,
+        title="Instruction permits bypassing approval",
+    )
+    result = assess(
+        [path],
+        [finding],
+        policy=cfg.policy,
+        review_blocking_severities=cfg.review.blocking_severities,
+        docs_blocking_severities=cfg.docs.blocking_severities,
+    )
+    assert result.level is RiskLevel.HIGH
+    assert result.requires_human_review
+    assert result.verdict is (
+        Verdict.CHANGES_REQUIRED if status is FindingStatus.OPEN else Verdict.NEEDS_HUMAN
+    )
