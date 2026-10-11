@@ -60,7 +60,7 @@ def test_protected_workflow_configuration(filename, job, head_variable):
     )
     if filename == "ci.yml":
         assert "pull_request:" in workflow.split("\nconcurrency:", 1)[0]
-        assert "if: github.event_name == 'pull_request'" in trusted
+        assert "needs.dependabot-policy.outputs.eligible != 'true'" in trusted
 
 
 def test_approval_events_outputs_and_dependencies():
@@ -86,7 +86,7 @@ def test_approval_events_outputs_and_dependencies():
     )
     assert "environment: name: ${{ needs.policy.outputs.environment }}" in environment
     approval = " ".join(workflow.split("\n  approval:\n", 1)[1].split())
-    assert "needs: [policy, environment] if: always()" in approval
+    assert "needs: [dependabot-policy, policy, environment] if: always()" in approval
     for variable, source in {
         "APPROVED": "policy.outputs.approved",
         "APPROVAL_MODE": "policy.outputs.approval_mode",

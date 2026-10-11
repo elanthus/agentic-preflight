@@ -168,32 +168,35 @@ user configuration. A base commit with no such file uses the defaults.
 
 ## Dependabot and other bot-authored pull requests
 
-Dependabot creates commits on GitHub rather than through your local preflight workflow.
-Those commits therefore have no `refs/notes/agentic-preflight` note, and a required
-attestation check reports “has no agentic-preflight attestation.” If approval policy is
-derived from the same attestation, its checks fail too; those are downstream failures,
-not evidence that Dependabot found a vulnerability or that the update itself is bad.
+This repository exempts a narrow class of Dependabot updates from local attestation
+and the hosted human-approval policy: same-repository PRs authored by the actual
+`dependabot[bot]` Bot account, with a verified Dependabot head commit, whose metadata
+identifies every dependency as a Python patch/minor update in the root directory and
+whose modified files are limited to `pyproject.toml` and `uv.lock`. Unknown metadata,
+renames, deletions, additional files, major updates, and GitHub Actions updates do not
+qualify. Grouped updates qualify only when every member qualifies.
 
-Do not broadly exempt Dependabot from the required check. Group its version updates to
-reduce review overhead, then attest each grouped pull request without rewriting its
-commit:
+The shared `dependabot-policy.yml` workflow checks the bot identity, signed commit
+metadata, every grouped dependency, the complete paginated file list, and the current
+head. CI still runs tests, the built-wheel smoke check, and dependency audits. This
+repository already makes owner approval optional for routine Python dependencies;
+the exception prevents missing local notes from failing the hosted approval report.
+The attestation job is skipped only for this verified class. Its existing required
+check may remain configured because GitHub treats an intentionally skipped job as
+successful. See [GitHub's conditional job documentation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-jobs-with-conditions).
 
-1. Add a wildcard `groups` rule to each ecosystem in `.github/dependabot.yml`. This
-   repository groups Python dependencies separately from GitHub Actions because Actions
-   updates change trusted CI and release code.
-2. Check out the Dependabot pull request locally with `gh pr checkout <number>`.
-3. Run the normal Agentic Preflight workflow against that exact branch tip. Do not amend,
-   squash, or rebase it after review without refreshing; any new SHA needs its own note.
-4. When the workflow reaches its publication gate, run `agentic-preflight push`; it
-   publishes required original-commit evidence refs first, then atomically pushes
-   the unchanged branch and `refs/notes/agentic-preflight` together.
-5. Re-run the failed GitHub Actions workflows from the pull request. A notes-only push
-   does not create a new `pull_request` event, so the original failed runs will not
-   automatically notice the new attestation.
+The `dependabot-auto-merge.yml` workflow requests squash auto-merge only after the
+shared eligibility check succeeds, matching the verified event head. Its write-token
+job never checks out or executes PR code. GitHub still enforces required checks before
+merging. Repository administrators must separately enable **Allow auto-merge** and
+squash merging, and retain required tests, packaging checks, and dependency audits;
+this workflow change does not alter repository settings or enable auto-merge on an
+existing PR.
 
-Keep GitHub Actions updates under normal code-owner and manual-merge policy even when
-they are grouped. For a frequently changing dependency pull request, finish review only
-after Dependabot has stopped rebasing it; every rebase changes the attested SHA.
+Major updates, GitHub Actions updates, and all other bot or human PRs keep the original
+attestation and approval workflow. Check out those Dependabot PRs, run preflight against
+the exact unchanged tip, publish its note, then rerun CI (a notes-only push does not
+trigger a new PR workflow). Review and merge major and Actions updates manually.
 
 ## Evidence reuse across rebases
 

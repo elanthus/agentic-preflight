@@ -118,3 +118,10 @@ field. It is accepted and ignored on load, and omitted on the next write. Other
 unknown attempt fields remain invalid. A pending source rebase that has not reached
 the recorded verified tree now becomes stale; restart preflight to validate the
 current source rather than resuming from that intermediate tree.
+
+## Dependabot hosted exception
+
+The repository workflows now share a narrowly scoped Dependabot eligibility check.
+Eligible Python patch/minor updates skip local-attestation verification and satisfy
+the hosted approval gate; existing required check names remain available. Other PRs
+retain their prior gates. See `docs/attestations-and-ci.md`.

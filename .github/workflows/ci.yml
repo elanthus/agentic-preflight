@@ -20,9 +20,19 @@ permissions:
   contents: read
 
 jobs:
+  dependabot-policy:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/dependabot-policy.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
   attestation:
     name: trusted preflight attestation
-    if: github.event_name == 'pull_request'
+    needs: dependabot-policy
+    if: >-
+      always() && github.event_name == 'pull_request' &&
+      needs.dependabot-policy.outputs.eligible != 'true'
     runs-on: ubuntu-latest
     steps:
       # Check out the protected base commit, not the pull request, so a change
