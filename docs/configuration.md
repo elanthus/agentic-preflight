@@ -376,7 +376,12 @@ Patterns are repo-relative and use the same gitignore-like glob matching as
 risk wins. The hosted approval check also classifies every path that differs between the
 base and Git's merge of the pull-request head into it, so criss-cross history (several merge
 bases) cannot hide a change that the branch diff from a single merge base omits, such as
-an `-s ours` merge that reverts a side branch already in the base. Recorded `critical`
+an `-s ours` merge that reverts a side branch already in the base. It also classifies every
+path touched by a non-merge commit in `base..head`, because a GitHub rebase merge replays
+those commits and drops merge commits: a merge whose resolution cancels an earlier
+high-risk commit hides that commit from both tree comparisons, yet a rebase merge lands it.
+As a result, a branch that changes a high-risk path and later reverts it still needs
+approval. Recorded `critical`
 and `high` findings also make the run high-risk, including
 after a fix; a `medium` finding makes it at least medium-risk. Open blocking findings
 produce `changes_required` until they are resolved; once resolved, high risk produces
