@@ -59,11 +59,18 @@ jobs:
           ' "$files" > /dev/null; then
             exit 0
           fi
-          # Metadata and file APIs must still refer to the event head.
+          # fetch-metadata verifies only the first PR commit. Require that
+          # sole commit to be the exact head receiving the exception.
+          commits="$RUNNER_TEMP/dependabot-commits.json"
+          gh api --paginate --slurp "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100" > "$commits"
+          jq -e --arg head "$HEAD_SHA" '
+            flatten | length == 1 and .[0].sha == $head
+          ' "$commits" > /dev/null
+          # Metadata, commit and file APIs must still refer to the event head.
           pr="$RUNNER_TEMP/dependabot-pr.json"
           gh api "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$pr"
           jq -e --arg head "$HEAD_SHA" --slurpfile files "$files" '
-            .head.sha == $head and
+            .head.sha == $head and .commits == 1 and
             .changed_files == ($files[0] | flatten | length)
           ' "$pr" > /dev/null
           echo "eligible=true" >> "$GITHUB_OUTPUT"

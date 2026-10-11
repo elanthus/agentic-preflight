@@ -22,7 +22,15 @@ def classify(tmp_path):
     script = textwrap.dedent(workflow.split("        run: |\n", 1)[1])
 
     def run(
-        *, dependencies=None, files=None, head=HEAD, count=None, result="success", api_fail=False
+        *,
+        dependencies=None,
+        files=None,
+        head=HEAD,
+        count=None,
+        commits=None,
+        commit_count=None,
+        result="success",
+        api_fail=False,
     ):
         if dependencies is None:
             dependencies = [
@@ -34,10 +42,17 @@ def classify(tmp_path):
             ]
         if files is None:
             files = [{"filename": "uv.lock", "status": "modified"}]
+        if commits is None:
+            commits = [{"sha": HEAD, "author": {"login": "dependabot[bot]"}}]
+        (tmp_path / "commits.json").write_text(json.dumps([commits]))
         (tmp_path / "files.json").write_text(json.dumps([files]))
         (tmp_path / "pr.json").write_text(
             json.dumps(
-                {"head": {"sha": head}, "changed_files": len(files) if count is None else count}
+                {
+                    "head": {"sha": head},
+                    "changed_files": len(files) if count is None else count,
+                    "commits": len(commits) if commit_count is None else commit_count,
+                }
             )
         )
         output = tmp_path / "output"
@@ -55,6 +70,7 @@ def classify(tmp_path):
               if [ "$API_FAIL" = "true" ]; then return 1; fi
               case "$*" in
                 *files*) cat files.json ;;
+                *commits*) cat commits.json ;;
                 *) cat pr.json ;;
               esac
             }
@@ -226,3 +242,28 @@ def test_auto_merge_uses_verified_policy_and_never_executes_pr_code():
     assert "gh pr checkout" not in workflow
     assert "pull-requests: write" in workflow
     assert "contents: write" in workflow
+
+
+def test_human_appended_commit_does_not_receive_bot_metadata_exception(classify):
+    result, output = classify(
+        commits=[
+            {"sha": "b" * 40, "author": {"login": "dependabot[bot]"}},
+            {"sha": HEAD, "author": {"login": "human"}},
+        ]
+    )
+    assert result.returncode != 0
+    assert output == "eligible=false"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"commits": []},
+        {"commits": [{"sha": "b" * 40}]},
+        {"commit_count": 2},
+    ],
+)
+def test_commit_list_must_bind_the_single_current_event_head(classify, changes):
+    result, output = classify(**changes)
+    assert result.returncode != 0
+    assert output == "eligible=false"

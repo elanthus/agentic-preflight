@@ -170,14 +170,15 @@ user configuration. A base commit with no such file uses the defaults.
 
 This repository exempts a narrow class of Dependabot updates from local attestation
 and the hosted human-approval policy: same-repository PRs authored by the actual
-`dependabot[bot]` Bot account, with a verified Dependabot head commit, whose metadata
+`dependabot[bot]` Bot account, with exactly one verified Dependabot commit matching
+the event and current head, whose metadata
 identifies every dependency as a Python patch/minor update in the root directory and
 whose modified files are limited to `pyproject.toml` and `uv.lock`. Unknown metadata,
-renames, deletions, additional files, major updates, and GitHub Actions updates do not
+renames, deletions, additional commits or files, major updates, and GitHub Actions updates do not
 qualify. Grouped updates qualify only when every member qualifies.
 
 The shared `dependabot-policy.yml` workflow checks the bot identity, signed commit
-metadata, every grouped dependency, the complete paginated file list, and the current
+metadata, every grouped dependency, the complete paginated commit and file lists, and the current
 head. CI still runs tests, the built-wheel smoke check, and dependency audits. This
 repository already makes owner approval optional for routine Python dependencies;
 the exception prevents missing local notes from failing the hosted approval report.
