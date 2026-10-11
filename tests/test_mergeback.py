@@ -102,7 +102,7 @@ def ready(feature_repo, tmp_path):
 
 
 @pytest.mark.parametrize("tampered", [False, True])
-def test_pending_mergeback_recovers_the_completed_source_rebase(
+def test_pending_mergeback_rejects_an_interrupted_source_rebase(
     ready, feature_repo, monkeypatch, tampered
 ):
     from agentic_preflight import sync
@@ -128,22 +128,11 @@ def test_pending_mergeback_recovers_the_completed_source_rebase(
     assert status["data"]["stale"] is False
     if tampered:
         write(feature_repo, "unexpected.txt", "unreviewed content\n")
-        tip = commit_all(feature_repo, "unrelated change after rebase")
-        rejected = agent.run("mergeback", expect=3)
-        assert rejected["error"]["code"] == "stale_run"
-        assert git("rev-parse", "HEAD", cwd=feature_repo) == tip
-    else:
-
-        def never_rebase(*args, **kwargs):
-            pytest.fail("the completed source rebase must not run again")
-
-        monkeypatch.setattr(sync, "rebase_onto", never_rebase)
-        recovered = agent.run("mergeback")
-        assert recovered["state"] == "VERIFIED"
-        assert git("rev-parse", "HEAD^", cwd=feature_repo) == rebased
-        assert git("rev-parse", "HEAD^{tree}", cwd=feature_repo) == git(
-            "rev-parse", "HEAD^{tree}", cwd=wt
-        )
+        commit_all(feature_repo, "unrelated change after rebase")
+    tip = git("rev-parse", "HEAD", cwd=feature_repo)
+    rejected = agent.run("mergeback", expect=3)
+    assert rejected["error"]["code"] == "stale_run"
+    assert git("rev-parse", "HEAD", cwd=feature_repo) == tip
 
 
 def _interrupt_persisted_retry(agent, monkeypatch):
@@ -610,7 +599,8 @@ def test_conflict_never_auto_resolves(tmp_repo, monkeypatch):
     assert "--abort" in flat, "a conflicting cherry-pick must be aborted"
 
 
-def test_conflict_leaves_no_cherry_pick_in_progress(tmp_repo):
+@pytest.mark.parametrize("use_ref", [False, True])
+def test_conflict_leaves_no_cherry_pick_in_progress(tmp_repo, use_ref):
     """CHERRY_PICK_HEAD must be gone: a half-finished pick wedges the repo."""
 
     from agentic_preflight import mergeback
@@ -627,7 +617,10 @@ def test_conflict_leaves_no_cherry_pick_in_progress(tmp_repo):
 
     with pytest.raises(mergeback.MergebackConflict) as exc:
         mergeback.cherry_pick_fixes(
-            tmp_repo, [side_sha], worktree_branch="ap/x", worktree_path=str(tmp_repo)
+            tmp_repo,
+            ["side" if use_ref else side_sha],
+            worktree_branch="ap/x",
+            worktree_path=str(tmp_repo),
         )
 
     assert exc.value.report.restored is True
@@ -727,3 +720,42 @@ def test_conflict_aborts_the_entire_fix_stack_and_preserves_unrelated_work(tmp_r
     assert git("rev-parse", "HEAD", cwd=tmp_repo) == pre_sha
     assert (tmp_repo / "README.md").read_text(encoding="utf-8").startswith("# demo")
     assert (tmp_repo / "unrelated.txt").read_text(encoding="utf-8") == "keep me\n"
+
+
+def test_cherry_pick_preserves_user_resolution_started_after_precondition(tmp_repo, monkeypatch):
+    from agentic_preflight import gitx, mergeback
+
+    git("switch", "-c", "user-pick", cwd=tmp_repo)
+    write(tmp_repo, "src/app.py", "USER\n")
+    user_sha = commit_all(tmp_repo, "user change")
+    git("switch", "main", cwd=tmp_repo)
+    git("switch", "-c", "preflight-fix", cwd=tmp_repo)
+    write(tmp_repo, "src/app.py", "FIX\n")
+    fix_sha = commit_all(tmp_repo, "preflight fix")
+    git("switch", "main", cwd=tmp_repo)
+    write(tmp_repo, "src/app.py", "MAIN\n")
+    before_head = commit_all(tmp_repo, "main change")
+    real_run = gitx.run
+    user_status = None
+
+    def start_user_pick(cwd, *args, **kwargs):
+        nonlocal user_status
+        if args == ("cherry-pick", fix_sha):
+            assert real_run(cwd, "cherry-pick", user_sha, check=False).returncode != 0
+            write(tmp_repo, "src/app.py", "USER RESOLUTION\n")
+            real_run(cwd, "add", "src/app.py")
+            user_status = git("status", "--porcelain", cwd=tmp_repo)
+        return real_run(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(gitx, "run", start_user_pick)
+    with pytest.raises(mergeback.MergebackConflict) as caught:
+        mergeback.cherry_pick_fixes(
+            tmp_repo, [fix_sha], worktree_branch="ap/x", worktree_path=str(tmp_repo)
+        )
+
+    assert (tmp_repo / ".git" / "CHERRY_PICK_HEAD").is_file()
+    assert git("rev-parse", "CHERRY_PICK_HEAD", cwd=tmp_repo) == user_sha
+    assert git("rev-parse", "HEAD", cwd=tmp_repo) == before_head
+    assert git("status", "--porcelain", cwd=tmp_repo) == user_status
+    assert (tmp_repo / "src/app.py").read_text() == "USER RESOLUTION\n"
+    assert caught.value.report.restored is False

@@ -231,8 +231,15 @@ class MergebackAttempt(BaseModel):
     source_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     validation_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     validation_tree: str = Field(pattern=r"^[0-9a-f]{40}$")
-    rebased_tree: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
     retrying_conflict: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def discard_legacy_rebased_tree(cls, value: Any) -> Any:
+        """Read older saved attempts without retaining their intermediate tree."""
+        if isinstance(value, dict) and "rebased_tree" in value:
+            return {key: item for key, item in value.items() if key != "rebased_tree"}
+        return value
 
 
 class RunDoc(BaseModel):

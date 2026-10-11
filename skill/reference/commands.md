@@ -317,8 +317,10 @@ the fix commits onto the source branch; only paths those commits may overwrite a
 blocked, while unrelated tracked edits and untracked files are left alone. A dirty
 submodule on one of those paths blocks merge-back even when Git config ignores it.
 
-On conflict: aborts immediately, verifies the branch is byte-for-byte restored, exits 4
-with `data.resolution`, and stores that full report in the event log. The CLI never
+On conflict: aborts only when the paused commit belongs to the fix stack, then
+checks whether the branch and local changes were restored. A user-owned cherry-pick
+and its staged resolution remain intact, with `data.branch_restored: false`. Exits 4
+with `data.resolution` and stores the full report in the event log. The CLI never
 auto-resolves. First inspect and show the recovery block. An agent may resolve only when
 the intended result is unambiguous, recoverable, and directly supported by that block;
 it must preserve unrelated edits and user-owned operations, and cannot make a
@@ -330,6 +332,10 @@ snapshot and returns the active run to review before any stage can be trusted ag
 On success: compares the branch tree against the worktree tree. `tree_equivalent: true`
 means the verified content is byte-identical and a Git-note attestation is written for
 the exact commit. False returns to review with all snapshot-bound stage evidence cleared.
+
+A merge-back interrupted after rebasing the source but before reaching the recorded
+verified tree is stale. Follow `status` and restart preflight for the current source;
+only the unchanged source or the completed verified tree can resume a pending attempt.
 
 ### `agentic-preflight gate`
 Mints a confirmation token and summarises the remote, refspec, branch, and commits.
