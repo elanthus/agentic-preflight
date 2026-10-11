@@ -759,3 +759,52 @@ def test_hosted_check_carries_across_a_rebase_only_through_the_evidence_ref(
     attempt = data["availability"]["attempts"][-1]
     assert attempt.get("fetched_approved_heads", []) == ([approved] if evidence_ref else [])
     assert not git("for-each-ref", "refs/agentic-preflight/availability", cwd=verifier)
+
+
+def test_criss_cross_history_cannot_hide_a_high_risk_revert_from_approval(tmp_repo, monkeypatch):
+    """An ``-s ours`` merge of a base side branch reverts it behind a hidden merge base.
+
+    The base merged a side branch that changed a high-risk file. The head forks from the
+    earlier main commit and merges that side branch with ``-s ours``, so Git has two merge
+    bases. When it picks the main commit, ``base...head`` shows only the low-risk file,
+    yet merging the head into the base reverts the side branch's high-risk change.
+    """
+    write(
+        tmp_repo,
+        ".agentic-preflight.toml",
+        "[policy]\nhigh_risk_paths = ['src/**']\n"
+        "[approval]\nmode = 'owner_review'\nreviewer = 'owner'\n",
+    )
+    write(tmp_repo, "src/security.py", "CHECK = 'on'\n")
+    commit_all(tmp_repo, "configure approval")
+    git("switch", "-c", "side", cwd=tmp_repo)
+    write(tmp_repo, "src/security.py", "CHECK = 'on'\nSTRICT = 'on'\n")
+    side = commit_all(tmp_repo, "tighten security")
+    git("switch", "main", cwd=tmp_repo)
+    write(tmp_repo, "docs/notes.md", "one\n")
+    # A later main commit makes Git choose it as the single merge base below.
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-01-02T00:00:00+00:00")
+    fork = commit_all(tmp_repo, "advance main")
+    git("merge", "--no-ff", "--no-edit", "side", cwd=tmp_repo)
+    base = git("rev-parse", "HEAD", cwd=tmp_repo)
+    git("switch", "-c", "feature/hidden", fork, cwd=tmp_repo)
+    write(tmp_repo, "docs/notes.md", "two\n")
+    commit_all(tmp_repo, "edit notes")
+    git("merge", "-s", "ours", "--no-edit", side, cwd=tmp_repo)
+    head = git("rev-parse", "HEAD", cwd=tmp_repo)
+    assert set(git("merge-base", "--all", base, head, cwd=tmp_repo).split()) == {fork, side}
+    assert git("merge-base", base, head, cwd=tmp_repo) == fork
+    assert gitx.changed_files(tmp_repo, base, head) == ["docs/notes.md"]
+    _stub_attestation(monkeypatch, head=head, branch="feature/hidden", findings_summary={})
+
+    result = evaluate(
+        tmp_repo,
+        base_sha=base,
+        head_sha=head,
+        reviews=[],
+        pull_request_author="author",
+    )
+    assert "src/security.py" in result["changed_files"]
+    assert result["risk_level"] == "high"
+    assert result["requires_human_approval"] is True
+    assert result["approved"] is False
