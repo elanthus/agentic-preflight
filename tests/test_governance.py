@@ -69,22 +69,14 @@ def owners_for(path):
         ".github/CODEOWNERS",
         ".github/workflows/new-workflow.yml",
         "SECURITY.md",
-        "docs/RELEASING.md",
-        "agentic_preflight/config.py",
-        "agentic_preflight/machine.py",
         "agentic_preflight/approval.py",
         "agentic_preflight/attestation.py",
         "agentic_preflight/cli_policy.py",
-        "agentic_preflight/refresh_validation.py",
-        "agentic_preflight/fingerprints.py",
-        "agentic_preflight/shell_fingerprints.py",
+        "agentic_preflight/note_availability.py",
         "agentic_preflight/risk.py",
         "agentic_preflight/hook.py",
         "agentic_preflight/publish/new_gate.py",
         "agentic_preflight/runs/publish.py",
-        "agentic_preflight/runs/review_coverage.py",
-        "agentic_preflight/stages/change_scope.py",
-        "agentic_preflight/wire_schema.py",
     ],
 )
 def test_sensitive_changes_require_human_review_and_a_code_owner(path):
@@ -105,6 +97,19 @@ def test_sensitive_changes_require_human_review_and_a_code_owner(path):
         "agentic_preflight/stages/docs.py",
         "agentic_preflight/stages/shellstage.py",
         "agentic_preflight/new_helper.py",
+        # Shared helpers and evidence-reuse decisions, not merge or publication gates.
+        "agentic_preflight/config.py",
+        "agentic_preflight/findings.py",
+        "agentic_preflight/fingerprints.py",
+        "agentic_preflight/gitx.py",
+        "agentic_preflight/machine.py",
+        "agentic_preflight/models.py",
+        "agentic_preflight/refresh_validation.py",
+        "agentic_preflight/run_invariants.py",
+        "agentic_preflight/runs/review_coverage.py",
+        "agentic_preflight/shell_fingerprints.py",
+        "agentic_preflight/stages/change_scope.py",
+        "agentic_preflight/wire_schema.py",
         "tests/test_risk.py",
         "skill/SKILL.md",
         "skill/reference/docs-rubric.md",
@@ -123,7 +128,14 @@ def test_routine_changes_are_medium_risk_without_mandatory_ownership(path):
 
 
 @pytest.mark.parametrize(
-    "path", ["README.md", "docs/worktree-modes.md", "CHANGELOG.md", "COMPATIBILITY.md"]
+    "path",
+    [
+        "README.md",
+        "docs/worktree-modes.md",
+        "docs/RELEASING.md",
+        "CHANGELOG.md",
+        "COMPATIBILITY.md",
+    ],
 )
 def test_ordinary_prose_remains_low_risk(path):
     assert path_assessment([path]).level is RiskLevel.LOW
@@ -160,7 +172,7 @@ def test_dependency_updates_are_audited_without_human_risk_triggers():
         ).level
 
     assert level(["pyproject.toml", "uv.lock"]) is not RiskLevel.HIGH
-    assert level(["uv.lock", "agentic_preflight/config.py"]) is RiskLevel.HIGH
+    assert level(["uv.lock", "agentic_preflight/approval.py"]) is RiskLevel.HIGH
     assert level(["pyproject.toml", ".github/workflows/ci.yml"]) is RiskLevel.HIGH
     owners = (ROOT / ".github/CODEOWNERS").read_text()
     assert "/pyproject.toml" not in owners
