@@ -67,8 +67,9 @@ replacements use flushed, synchronized temporary files. A failure between the tw
 replacements can leave new findings alongside the previous run state and sequence;
 the next read returns the saved records without automatic roll-forward recovery.
 Run `status` after an interruption and inspect the findings before continuing.
-Before upgrading from a version that wrote journals, recover any pending updates
-with that version; see [compatibility](../COMPATIBILITY.md#saved-pending-run-updates).
+The next `start` retires interrupted legacy runs identified by a pending journal
+and starts fresh while preserving user work; see
+[compatibility](../COMPATIBILITY.md#saved-pending-run-updates).
 Events and reviewer-comparison artifacts are separate diagnostic records and may
 also be absent after interruption. They do not automatically rebuild run state.
 

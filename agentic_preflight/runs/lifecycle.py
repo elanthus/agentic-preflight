@@ -22,6 +22,7 @@ from ._session import (
     _apply,
     _envelope_for,
     _head_moved,
+    _interrupted_legacy_update,
     _is_in_place,
     _load_current,
     _max_restarts,
@@ -615,6 +616,19 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             },
             next_instruction="The previous run is terminal. Start a new one.",
             next_command=START_COMMAND,
+        )
+
+    if _interrupted_legacy_update(session, run):
+        return _envelope_for(
+            run,
+            data={"has_run": True, "interrupted_legacy_update": True, "hook": hook_status},
+            next_instruction=(
+                "Start a fresh run to discard this interrupted legacy validation. "
+                "Its audit record and work remain available for safe cleanup."
+            ),
+            next_command=_start_command(
+                run.intent, base_ref=run.base_ref, default_base_ref=session.config.general.base_ref
+            ),
         )
 
     findings = session.store.load_findings(run_id)

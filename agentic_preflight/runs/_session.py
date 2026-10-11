@@ -275,14 +275,32 @@ def _envelope_for(run: RunDoc, **overrides) -> Envelope:
     return Envelope(**fields)
 
 
+def _interrupted_legacy_update(session: Session, run: RunDoc) -> bool:
+    return (
+        run.state not in TERMINAL_STATES
+        and (session.store.run_dir(run.run_id) / "pending-update.json").exists()
+    )
+
+
 def _load_current(session: Session) -> RunDoc:
     run_id = session.active_run_id()
     if not run_id:
         raise NoRun()
     try:
-        return session.store.load_run(run_id)
+        run = session.store.load_run(run_id)
     except UnknownRun as exc:
         raise NoRun(f"current run {run_id} is missing from the store") from exc
+    if _interrupted_legacy_update(session, run):
+        raise WrongState(
+            "This run has an interrupted update from an older version; start a fresh run.",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction="Run start to discard the interrupted validation and restart.",
+            next_command=_start_command(
+                run.intent, base_ref=run.base_ref, default_base_ref=session.config.general.base_ref
+            ),
+        )
+    return run
 
 
 def _head_moved(session: Session, run: RunDoc) -> str | None:

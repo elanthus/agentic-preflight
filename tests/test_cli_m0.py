@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from agentic_preflight import runs
+from agentic_preflight import store as store_module
 from agentic_preflight.envelope import ExitCode
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent, findings_json
@@ -201,6 +203,74 @@ def test_start_resumes_a_matching_run_in_the_same_worktree(agent):
 
     assert env["run_id"] == first["run_id"]
     assert env["data"]["resumed"] is True
+
+
+def test_start_retires_interrupted_legacy_validation_and_preserves_work(agent, feature_repo):
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(feature_repo, "use strict validation")
+    first = agent.run("start")
+    session = runs.open_session(feature_repo)
+    old_path = session.store.run_path(first["run_id"])
+    old_worktree = Path(first["data"]["worktree_path"])
+    write(old_worktree, "uncommitted.txt", "user work\n")
+    journal = old_path.parent / "pending-update.json"
+    journal.write_text("interrupted legacy payload")
+    before = old_path.read_bytes()
+
+    status = agent.run("status")
+    assert status["data"]["interrupted_legacy_update"] is True
+    assert " start " in status["next"]["command"]
+    assert old_path.read_bytes() == before
+    blocked = agent.run("context", expect=ExitCode.PRECONDITION)
+    assert " start " in blocked["next"]["command"]
+
+    second = agent.run("start")
+    assert second["run_id"] != first["run_id"]
+    retired = session.store.load_run(first["run_id"])
+    assert retired.state.value == "ORPHANED"
+    assert retired.orphaned_reason == "interrupted legacy update"
+    assert not journal.exists()
+    assert (old_worktree / "uncommitted.txt").read_text() == "user work\n"
+    assert session.store.get_active(session.owner_id) == second["run_id"]
+    assert first["run_id"] not in session.store.list_active().values()
+
+
+def test_start_preserves_completed_legacy_history_and_journal(agent, feature_repo):
+    first = agent.run("start")
+    store = runs.open_session(feature_repo).store
+    path = store.run_path(first["run_id"])
+    raw = json.loads(path.read_text())
+    raw["state"] = "DONE"
+    path.write_text(json.dumps(raw))
+    journal = path.parent / "pending-update.json"
+    journal.write_text("completed historical journal")
+    before = path.read_bytes()
+
+    second = agent.run("start")
+    assert second["run_id"] != first["run_id"]
+    assert path.read_bytes() == before
+    assert journal.read_text() == "completed historical journal"
+
+
+def test_failed_legacy_orphan_preserves_journal_and_ownership(agent, feature_repo, monkeypatch):
+    first = agent.run("start")
+    session = runs.open_session(feature_repo)
+    path = session.store.run_path(first["run_id"])
+    journal = path.parent / "pending-update.json"
+    journal.write_text("interrupted legacy payload")
+    before = path.read_bytes()
+    original = store_module._atomic_write
+
+    def fail_orphan(target, payload):
+        if target == path and json.loads(payload)["state"] == "ORPHANED":
+            raise OSError("cannot retire run")
+        original(target, payload)
+
+    monkeypatch.setattr(store_module, "_atomic_write", fail_orphan)
+    agent.run("start", expect=1)
+    assert path.read_bytes() == before
+    assert journal.read_text() == "interrupted legacy payload"
+    assert session.store.get_active(session.owner_id) == first["run_id"]
 
 
 def test_start_requires_replace_for_a_different_intent_in_the_same_worktree(agent):
