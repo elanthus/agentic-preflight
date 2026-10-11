@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import shlex
 import uuid
-from collections.abc import Callable, Hashable
+from collections.abc import Callable, Hashable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,7 +14,7 @@ from typing import Any, TypeVar
 from pydantic import ValidationError
 
 from .. import findings as findingsmod
-from .. import gitx, worktree
+from .. import gitx, risk, worktree
 from ..config import Config, load_config, snapshot_run_settings
 from ..envelope import Envelope
 from ..errors import (
@@ -33,7 +33,7 @@ from ..machine import (
     next_state,
     recovery_hint,
 )
-from ..models import RunDoc, Stage
+from ..models import Finding, RiskAssessment, RunDoc, Stage
 from ..store import RunReadError, Store, UnknownRun
 
 STATE_DIR_NAME = "agentic-preflight"
@@ -356,3 +356,41 @@ def _release_run_worktree(session: Session, run: RunDoc) -> None:
         )
     else:
         worktree.remove(session.repo_root, run.worktree_path, branch=run.worktree_branch)
+
+
+def _assess(session: Session, changed_files: list[str], findings: list[Finding]) -> RiskAssessment:
+    """Apply this run's path and finding policy consistently."""
+    return risk.assess(
+        changed_files,
+        findings,
+        policy=session.config.policy,
+        review_blocking_severities=session.config.review.blocking_severities,
+        docs_blocking_severities=session.config.docs.blocking_severities,
+    )
+
+
+def _blocking_severities(session: Session, stage: Stage) -> Sequence[str]:
+    return (
+        session.config.docs.blocking_severities
+        if stage is Stage.DOCS
+        else session.config.review.blocking_severities
+    )
+
+
+def _findings_next_hint(
+    envelope: Envelope,
+    blocking: list[Finding],
+    actionable: list[Finding],
+    *,
+    blocking_instruction: str = "Resolve each blocking finding with `respond`.",
+) -> None:
+    """Select a blocking or open auto-fix finding without changing green-stage hints."""
+    if blocking:
+        envelope.next_instruction = blocking_instruction
+        envelope.next_command = _respond_command(blocking[0].id)
+    elif actionable:
+        envelope.next_instruction = (
+            "This stage is green, but an auto-fix finding is still open. Fix it, "
+            "or record why it is not worth fixing with `--action accepted --note`."
+        )
+        envelope.next_command = _respond_command(actionable[0].id)

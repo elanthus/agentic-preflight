@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from .. import gitx, hook, worktree
-from .. import risk as riskmod
 from ..envelope import Envelope
 from ..errors import (
     START_COMMAND,
@@ -20,6 +19,7 @@ from ._session import (
     RESTART_LIMIT_INSTRUCTION,
     Session,
     _apply,
+    _assess,
     _envelope_for,
     _head_moved,
     _is_in_place,
@@ -622,13 +622,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
     summary = {status.value: 0 for status in FindingStatus}
     for finding in findings:
         summary[finding.status.value] += 1
-    assessment = riskmod.assess(
-        run.changed_files,
-        findings,
-        policy=session.config.policy,
-        review_blocking_severities=session.config.review.blocking_severities,
-        docs_blocking_severities=session.config.docs.blocking_severities,
-    )
+    assessment = _assess(session, run.changed_files, findings)
 
     tip = _head_moved(session, run)
     pending_mergeback = run.state is State.MERGEBACK_PENDING and run.mergeback_attempt is not None
