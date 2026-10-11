@@ -116,7 +116,14 @@ def evaluate_value(
     environment_approved: bool = False,
 ) -> dict[str, Any]:
     """Combine validated evidence with a caller-supplied protected approval policy."""
-    changed_files = gitx.changed_files(repo, base_sha, head_sha)
+    # Classify what the merge would land as well as what the branch changed since
+    # the merge base. Criss-cross history can hide a change from the latter alone.
+    changed_files = sorted(
+        {
+            *gitx.changed_files(repo, base_sha, head_sha),
+            *gitx.merge_result_files(repo, base_sha, head_sha),
+        }
+    )
     path_assessment = risk.assess(
         changed_files,
         [],
