@@ -558,6 +558,32 @@ def merge_result_files(cwd: Path | str, base: str, head: str) -> list[str]:
     return [path for path in output.split("\0") if path]
 
 
+def non_merge_commit_files(cwd: Path | str, base: str, head: str) -> list[str]:
+    """Return the sorted union of paths touched by each non-merge commit in base..head.
+
+    A rebase merge replays exactly these commits and drops merge commits, so a path
+    none of them touches keeps the base's content. A merge whose resolution cancels
+    an earlier commit hides that commit from both tree comparisons, but not from
+    this list. One ``log`` call covers the whole range; ``--root`` lists a root
+    commit's files whatever ``log.showRoot`` says.
+    """
+    output = run(
+        cwd,
+        "log",
+        "--no-merges",
+        "--root",
+        "--format=",
+        "--name-only",
+        "-z",
+        "--no-ext-diff",
+        "--no-textconv",
+        _NO_RENAMES,
+        f"{base}..{head}",
+        "--",
+    ).stdout
+    return sorted({path for path in output.split("\0") if path})
+
+
 _DIFF_PATH_BATCH_FILES = 256
 _DIFF_PATH_BATCH_BYTES = 24_000
 

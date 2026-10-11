@@ -252,7 +252,10 @@ Roll out this command on the protected base before adding workflow invocations.
 CI-facing merge policy for an attested pull-request head. It recomputes path risk from
 the protected base configuration and uses attested finding-severity totals. Path risk
 covers the paths changed since the merge base and the paths that differ between the base
-and Git's merge of the head into it, so criss-cross history cannot hide a change; both
+and Git's merge of the head into it, so criss-cross history cannot hide a change. It also
+covers every path touched by a non-merge commit in `base..head`, which a rebase merge
+replays, so a merge commit that cancels an earlier high-risk commit cannot hide it; a
+high-risk path changed and later reverted on the branch still counts. All three sets
 appear in `data.changed_files`. Low- and
 medium-risk changes pass without a review. High-risk handling follows `[approval] mode`:
 `manual_merge` reports success while requiring the user to merge manually (the trusted

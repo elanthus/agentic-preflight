@@ -169,6 +169,26 @@ def test_merge_result_files_reports_conflicted_paths_from_the_conflicted_tree(fe
     assert gitx.merge_result_files(feature_repo, base, "feature/x") == ["src/app.py"]
 
 
+def test_non_merge_commit_files_includes_reverted_paths_and_skips_merge_commits(tmp_repo):
+    base = gitx.rev_parse(tmp_repo, "HEAD")
+    git("switch", "-c", "side", cwd=tmp_repo)
+    write(tmp_repo, "docs/side.md", "side\n")
+    commit_all(tmp_repo, "side change")
+    git("switch", "-c", "feature/revert", base, cwd=tmp_repo)
+    write(tmp_repo, "src/app.py", "changed\n")
+    commit_all(tmp_repo, "change app")
+    git("revert", "--no-edit", "HEAD", cwd=tmp_repo)
+    git("merge", "--no-ff", "--no-commit", "side", cwd=tmp_repo)
+    write(tmp_repo, "docs/resolution.md", "only in the merge commit\n")
+    commit_all(tmp_repo, "merge side")
+
+    assert gitx.changed_files(tmp_repo, base, "HEAD") == [
+        "docs/resolution.md",
+        "docs/side.md",
+    ]
+    assert gitx.non_merge_commit_files(tmp_repo, base, "HEAD") == ["docs/side.md", "src/app.py"]
+
+
 def test_changed_files_lists_only_files_touched_by_the_branch(feature_repo):
     base = gitx.merge_base(feature_repo, "main", "HEAD")
     assert gitx.changed_files(feature_repo, base, "HEAD") == ["src/app.py"]
