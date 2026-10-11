@@ -230,7 +230,8 @@ revert or add commits a rebase merge would replay. A clean merge from the base
 or a clean rebase therefore keeps approval. A content commit, a merge that resolves
 conflicts or adds content, or a base change next to the contribution needs a new review.
 An approved head that is not an ancestor of the new head, such as one replaced by a
-rebase, is fetched only through its `refs/agentic-preflight/evidence/<sha>` ref. If that
+rebase, is used directly when the verifier already has it. Otherwise it is fetched only
+through its `refs/agentic-preflight/evidence/<sha>` ref. If the head is absent and that
 ref is unavailable, the approval does not carry. The result reports `approved_head` and
 `approval_carried`.
 

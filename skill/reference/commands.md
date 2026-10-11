@@ -238,9 +238,10 @@ Default `--mode verify` checks complete local evidence. `--mode approval` also r
 `--environment-approved` with the same policy meaning as `approval-check`. The workflow
 still enforces real environment approval and disables auto-merge for manual-merge mode.
 Approval mode reports the same `approved_head` and `approval_carried` fields. When an
-approved earlier head is not an ancestor of the event head, it is fetched only through
-its evidence ref and recorded in the attempt's `fetched_approved_heads`; an absent ref
-means no carryover.
+approved earlier head is not an ancestor of the event head and is absent locally, it is
+fetched only through its evidence ref and recorded in the attempt's
+`fetched_approved_heads`. If it is absent locally and that ref is unavailable, the
+approval does not carry.
 
 Failures retain `attestation_failed` / exit 2 with `data.reason` and `data.availability`.
 Unmet approval remains exit 4 unless report-only. Diagnostic identities omit note bodies
