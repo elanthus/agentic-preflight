@@ -118,3 +118,19 @@ field. It is accepted and ignored on load, and omitted on the next write. Other
 unknown attempt fields remain invalid. A pending source rebase that has not reached
 the recorded verified tree now becomes stale; restart preflight to validate the
 current source rather than resuming from that intermediate tree.
+
+## Saved pending run updates
+
+The release after 0.6.0 removes the local run/findings write-ahead journal. Before
+upgrading, recover any `pending-update.json` files under the shared Git directory's
+`agentic-preflight/runs/` using the previous version: run
+`agentic-preflight --run RUN_ID status` in the owning repository. Confirm recovery
+completed and the journal is gone before upgrading. If the old version reports an
+invalid or unreadable journal, preserve the files and resolve that error with the
+old version before proceeding.
+
+The new version neither reads nor deletes old journal files. An unrecovered journal
+may contain committed changes that are absent from `run.json` or `findings.json`;
+continuing an affected run with the new version can overwrite the saved records
+without applying those changes. Individual record replacements remain atomic, but
+findings and run state are no longer recovered together after interruption.
