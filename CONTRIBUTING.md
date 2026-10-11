@@ -82,9 +82,9 @@ such as a high or critical review finding (even after it is fixed); the current 
 rules do not make human approval a merge requirement.
 
 The explicit `human_review_paths` in `.agentic-preflight.toml` cover decision points:
-policy and ownership, CI workflows, merge approval, attestation
-verification, the pre-push hook, publication gates, and security guidance. Dependency
-manifest and lockfile changes rely on the required automated dependency audit.
+policy and ownership, CI workflows, merge approval, attestation verification, the
+pre-push hook, publication gates, and security guidance. Dependency manifest and
+lockfile changes rely on the required automated dependency audit.
 Keep `.github/CODEOWNERS` aligned with that list: a blanket package owner would restore
 mandatory human review when Code Owner review is enforced. New code that decides whether
 a change may merge or be published, or whether an attestation is accepted, needs an
