@@ -1,0 +1,76 @@
+name: Dependabot eligibility
+
+on:
+  workflow_call:
+    outputs:
+      eligible:
+        value: ${{ jobs.policy.outputs.eligible }}
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    outputs:
+      eligible: ${{ steps.scope.outputs.eligible }}
+    steps:
+      - name: Read verified Dependabot metadata
+        id: metadata
+        if: >-
+          github.event.pull_request.user.login == 'dependabot[bot]' &&
+          github.event.pull_request.user.type == 'Bot' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3
+
+      - name: Check dependency update scope
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          METADATA_RESULT: ${{ steps.metadata.outcome }}
+          DEPENDENCIES: ${{ steps.metadata.outputs.updated-dependencies-json }}
+        run: |
+          echo "eligible=false" >> "$GITHUB_OUTPUT"
+          if [ "$METADATA_RESULT" != "success" ]; then
+            exit 0
+          fi
+          # Inspect every grouped dependency; unknown and major members close
+          # the exception even if another member is a known patch/minor update.
+          if ! jq -e '
+            type == "array" and length > 0 and
+            all(.[];
+              (.packageEcosystem == "uv" or .packageEcosystem == "pip") and
+              .directory == "/" and
+              (.updateType == "version-update:semver-patch" or
+               .updateType == "version-update:semver-minor"))
+          ' <<< "$DEPENDENCIES" > /dev/null; then
+            exit 0
+          fi
+          files="$RUNNER_TEMP/dependabot-files.json"
+          gh api --paginate --slurp "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" > "$files"
+          if ! jq -e '
+            flatten | length > 0 and all(.[];
+              (.filename == "pyproject.toml" or .filename == "uv.lock") and
+              .status == "modified" and .previous_filename == null)
+          ' "$files" > /dev/null; then
+            exit 0
+          fi
+          # fetch-metadata verifies only the first PR commit. Require that
+          # sole commit to be the exact head receiving the exception.
+          commits="$RUNNER_TEMP/dependabot-commits.json"
+          gh api --paginate --slurp "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100" > "$commits"
+          jq -e --arg head "$HEAD_SHA" '
+            flatten | length == 1 and .[0].sha == $head
+          ' "$commits" > /dev/null
+          # Metadata, commit and file APIs must still refer to the event head.
+          pr="$RUNNER_TEMP/dependabot-pr.json"
+          gh api "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$pr"
+          jq -e --arg head "$HEAD_SHA" --slurpfile files "$files" '
+            .head.sha == $head and .commits == 1 and
+            .changed_files == ($files[0] | flatten | length)
+          ' "$pr" > /dev/null
+          echo "eligible=true" >> "$GITHUB_OUTPUT"

@@ -137,3 +137,10 @@ run records remain protected by the existing saved-record policy.
 
 Individual record replacements remain atomic, but findings and run state are no
 longer recovered together after interruption.
+
+## Dependabot hosted exception
+
+The repository workflows now share a narrowly scoped Dependabot eligibility check.
+Eligible Python patch/minor updates skip local-attestation verification and satisfy
+the hosted approval gate; existing required check names remain available. Other PRs
+retain their prior gates. See `docs/attestations-and-ci.md`.
