@@ -9,6 +9,7 @@ reverts it.
 
 import json
 import sys
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -32,13 +33,17 @@ def _criss_cross(repo, monkeypatch, *, edit_notes=True):
     )
     write(repo, "src/security.py", "CHECK = 'on'\n")
     commit_all(repo, "configure")
+    # ``git merge-base`` without ``--all`` prints the newest of the best merge bases.
+    # Dating ``fork`` one day after ``side`` makes Git choose ``fork`` whatever date
+    # the fixture starts from.
+    side_date = datetime.fromisoformat(git("log", "-1", "--format=%cI", cwd=repo))
+    monkeypatch.setenv("GIT_COMMITTER_DATE", side_date.isoformat())
     git("switch", "-c", "side", cwd=repo)
     write(repo, "src/security.py", "CHECK = 'on'\nSTRICT = 'on'\n")
     side = commit_all(repo, "tighten security")
     git("switch", "main", cwd=repo)
     write(repo, "docs/notes.md", "one\n")
-    # A later main commit makes Git choose it as the single merge base below.
-    monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-01-02T00:00:00+00:00")
+    monkeypatch.setenv("GIT_COMMITTER_DATE", (side_date + timedelta(days=1)).isoformat())
     fork = commit_all(repo, "advance main")
     git("merge", "--no-ff", "--no-edit", "side", cwd=repo)
     base = git("rev-parse", "HEAD", cwd=repo)
@@ -50,7 +55,7 @@ def _criss_cross(repo, monkeypatch, *, edit_notes=True):
     monkeypatch.delenv("GIT_COMMITTER_DATE")
     head = git("rev-parse", "HEAD", cwd=repo)
     assert set(git("merge-base", "--all", base, head, cwd=repo).split()) == {fork, side}
-    assert gitx.merge_base(repo, base, head) == fork
+    assert gitx.merge_base(repo, base, head) == fork, "Git chose a different base"
     assert "src/security.py" not in gitx.changed_files(repo, base, head)
     assert "src/security.py" in gitx.merge_result_files(repo, base, head)
     return base, head

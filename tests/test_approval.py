@@ -1,5 +1,6 @@
 import json
 import subprocess
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -777,13 +778,17 @@ def test_criss_cross_history_cannot_hide_a_high_risk_revert_from_approval(tmp_re
     )
     write(tmp_repo, "src/security.py", "CHECK = 'on'\n")
     commit_all(tmp_repo, "configure approval")
+    # ``git merge-base`` without ``--all`` prints the newest of the best merge bases
+    # (Git inserts them by committer date). Dating ``fork`` one day after ``side``
+    # makes Git choose ``fork`` whatever date the fixture starts from.
+    side_date = datetime.fromisoformat(git("log", "-1", "--format=%cI", cwd=tmp_repo))
+    monkeypatch.setenv("GIT_COMMITTER_DATE", side_date.isoformat())
     git("switch", "-c", "side", cwd=tmp_repo)
     write(tmp_repo, "src/security.py", "CHECK = 'on'\nSTRICT = 'on'\n")
     side = commit_all(tmp_repo, "tighten security")
     git("switch", "main", cwd=tmp_repo)
     write(tmp_repo, "docs/notes.md", "one\n")
-    # A later main commit makes Git choose it as the single merge base below.
-    monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-01-02T00:00:00+00:00")
+    monkeypatch.setenv("GIT_COMMITTER_DATE", (side_date + timedelta(days=1)).isoformat())
     fork = commit_all(tmp_repo, "advance main")
     git("merge", "--no-ff", "--no-edit", "side", cwd=tmp_repo)
     base = git("rev-parse", "HEAD", cwd=tmp_repo)
@@ -793,7 +798,8 @@ def test_criss_cross_history_cannot_hide_a_high_risk_revert_from_approval(tmp_re
     git("merge", "-s", "ours", "--no-edit", side, cwd=tmp_repo)
     head = git("rev-parse", "HEAD", cwd=tmp_repo)
     assert set(git("merge-base", "--all", base, head, cwd=tmp_repo).split()) == {fork, side}
-    assert git("merge-base", base, head, cwd=tmp_repo) == fork
+    # Precondition: the reproduction only hides the revert when Git picks ``fork``.
+    assert git("merge-base", base, head, cwd=tmp_repo) == fork, "Git chose a different base"
     assert gitx.changed_files(tmp_repo, base, head) == ["docs/notes.md"]
     _stub_attestation(monkeypatch, head=head, branch="feature/hidden", findings_summary={})
 
