@@ -75,7 +75,7 @@ deletions together; see [Releasing](docs/RELEASING.md#cutting-a-release).
 
 ## Risk and human review
 
-This repository classifies ordinary package code, tests, and CLI reference material as
+This repository classifies ordinary package code, tests, and skill documentation as
 medium risk. Those changes still run the normal review, documentation, lint, test, and
 attestation checks. Another rule can still classify them as requiring human review,
 such as a high or critical review finding (even after it is fixed); the current branch
@@ -83,7 +83,7 @@ rules do not make human approval a merge requirement.
 
 The explicit `human_review_paths` in `.agentic-preflight.toml` cover policy and ownership,
 CI workflows and templates, direct approval and evidence-verification decisions,
-publication gates, and agent approval/recovery instructions. Dependency manifest and
+publication gates, security guidance, and release procedures. Dependency manifest and
 lockfile changes rely on the required automated dependency audit.
 Keep `.github/CODEOWNERS` aligned with that list: a blanket package owner would restore
 mandatory human review when Code Owner review is enforced. New code that decides whether
@@ -91,10 +91,19 @@ evidence is valid, a stage may be skipped, or publication/merge may proceed need
 explicit entry in both files. Shared implementation helpers are medium risk; this is a
 review-prioritization policy, not an exhaustive security boundary over every dependency.
 
-Routine CLI flags, fields, and examples belong in `skill/reference/commands.md` and
-`skill/reference/workflow.md`. The protected `skill/SKILL.md` remains the authority for
-agent approval, review, recovery, and cleanup rules; its routing links must remain intact.
-Update it when those rules change, rather than for every CLI documentation update.
+Routine documentation edits, including skill instructions and compatibility notes,
+receive the normal review and validation without requiring owner approval solely because
+of their path. Corrections and examples that accurately describe already reviewed
+implementation are routine. `skill/SKILL.md` remains the authority for agent approval,
+review, recovery, and cleanup rules; keep its routing links intact.
+
+Changes that grant or expand authorization, alter approval enforcement, or introduce or
+change bypass rules require the configured owner's approval of the exact final PR head,
+including when the change only edits instructions. Identify this requirement in the PR
+and wait for that approval before merging. Path classification cannot understand prose:
+this contributor checkpoint applies even when the automated risk verdict is `clear`.
+Reviewers must also report unsafe instruction changes through the normal findings flow;
+high or critical findings retain human review even after they are fixed.
 
 The hosted approval check reads the policy from the protected base. A PR changing this
 policy is evaluated using the configured review policy; the narrower rules take effect
