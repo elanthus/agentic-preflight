@@ -15,7 +15,6 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .ci_models import TestDelegation
 from .digests import json_digest
 from .fingerprints import Classification, DocsFingerprint, ReviewFingerprint
 from .machine import State
@@ -292,10 +291,27 @@ class RunDoc(BaseModel):
     orphaned_reason: str | None = None
     gate_token: str | None = None
     pushed_sha: str | None = None
-    test_delegation: TestDelegation | None = None
 
     created_at: str
     updated_at: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def retire_ci_delegation(cls, value: object) -> object:
+        """Preserve historical runs while retiring incomplete delegated validation."""
+        if isinstance(value, dict):
+            value = dict(value)
+            delegation = value.pop("test_delegation", None)
+            retired_state = value.get("state") in ("TEST_DELEGATED", "PUBLICATION_READY")
+            if retired_state or (
+                delegation is not None
+                and value.get("state") not in ("PUSHED", "DONE", "ABORTED", "ORPHANED")
+            ):
+                value["state"] = "ORPHANED"
+                value["orphaned_reason"] = (
+                    "CI test delegation was removed; start a new local validation run"
+                )
+        return value
 
     @field_validator("schema_version", mode="before")
     @classmethod
@@ -316,7 +332,7 @@ class AttestedStage(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["green", "skipped", "delegated"]
+    status: Literal["green", "skipped"]
     executor: Literal["in_harness", "command"] | None = None
     command: str | None = None
     exit_code: int | None = None
@@ -398,7 +414,7 @@ class Attestation(BaseModel):
 
     kind: Literal["agentic-preflight-attestation"] = "agentic-preflight-attestation"
     schema_version: Literal[7]
-    outcome: Literal["verified", "tests_pending"]
+    outcome: Literal["verified"]
     sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     tree_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     branch: str
@@ -408,8 +424,6 @@ class Attestation(BaseModel):
     config_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     run_id: str
     green_at: str | None
-    publication_ready_at: AwareDatetime | None = None
-    test_delegation: TestDelegation | None = None
     stages: dict[Stage, AttestedStage]
     findings_summary: dict[str, int] = Field(default_factory=dict)
     evidence: dict[Stage, StageEvidence]
@@ -422,32 +436,16 @@ class Attestation(BaseModel):
             raise ValueError("schema_version must be the JSON integer 7")
         return value
 
-    def _required_evidence(self, required: set[Stage]) -> set[Stage]:
-        """Validate the outcome-specific fields and return its evidence set."""
-        if self.outcome == "verified":
-            if (
-                self.green_at is None
-                or self.publication_ready_at is not None
-                or self.test_delegation is not None
-                or any(item.status == "delegated" for item in self.stages.values())
-            ):
-                raise ValueError("verified outcome requires completed local validation")
-            return required
-        if (
-            self.green_at is not None
-            or self.publication_ready_at is None
-            or self.test_delegation is None
-            or self.stages[Stage.TEST].status != "delegated"
-            or any(
-                item.status == "delegated"
-                for stage, item in self.stages.items()
-                if stage is not Stage.TEST
-            )
-        ):
-            raise ValueError(
-                "tests_pending outcome requires explicit test delegation and publication time"
-            )
-        return required - {Stage.TEST}
+    @model_validator(mode="before")
+    @classmethod
+    def discard_retired_null_fields(cls, value: object) -> object:
+        """Read earlier verified notes without admitting pending test evidence."""
+        if isinstance(value, dict):
+            value = dict(value)
+            for key in ("publication_ready_at", "test_delegation"):
+                if key in value and value[key] is None:
+                    value.pop(key)
+        return value
 
     @staticmethod
     def _validate_stage_evidence(stage: Stage, evidence: AttestedStage) -> None:
@@ -486,7 +484,9 @@ class Attestation(BaseModel):
             raise ValueError("review stage must be green")
         if self.stages[Stage.REVIEW].coverage is None:
             raise ValueError("green review stage lacks coverage evidence")
-        required_evidence = self._required_evidence(required)
+        if self.green_at is None:
+            raise ValueError("verified outcome requires completed local validation")
+        required_evidence = required
         if json_digest(self.config_snapshot) != self.config_sha256:
             raise ValueError("configuration does not match its digest")
         if set(self.evidence) != required_evidence:

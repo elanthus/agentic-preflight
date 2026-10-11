@@ -6,8 +6,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from . import attestation, ci_policy, gitx, risk
-from .config import Config
+from . import attestation, gitx, risk
+from .config import Config, committed_config
 from .models import Attestation, RiskLevel
 
 _DECISIVE_REVIEW_STATES = {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}
@@ -91,7 +91,7 @@ def evaluate(
     """Evaluate whether the exact PR head satisfies its merge-review policy."""
     repo = Path(repo)
     value = attestation.verify(repo, head_sha)
-    cfg = ci_policy.committed_config(repo, base_sha)
+    cfg = committed_config(repo, base_sha)
     return evaluate_value(
         repo,
         value=value,

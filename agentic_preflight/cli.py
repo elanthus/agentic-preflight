@@ -8,7 +8,6 @@ import sys
 import click
 
 from . import gitx
-from .cli_ci import ci
 from .cli_integrations import register as register_integrations
 from .cli_policy import register as register_policy
 from .cli_runs import register as register_runs
@@ -66,7 +65,6 @@ def main(ctx: click.Context, run_id: str | None) -> None:
 register_runs(main)
 register_policy(main)
 register_integrations(main)
-main.add_command(ci)
 
 
 if __name__ == "__main__":

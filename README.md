@@ -190,7 +190,7 @@ evaluation material. Follow the question you want to investigate:
 | How can linked worktrees run independently and safely? | [ADR 0002: worktree-scoped run ownership](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/adr/0002-scope-run-ownership-to-worktrees.md) |
 | What repository context reaches review, and how is untrusted content bounded? | [Grounded context](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/context-grounding.md) |
 | When can evidence survive a rebase or restack? | [Fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/fingerprint-contract.md) |
-| How are attestations enforced in CI? | [CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/attestations-and-ci.md) and [trusted CI test authority](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/ci-test-authority-design.md) |
+| How are attestations enforced in CI? | [CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/attestations-and-ci.md) |
 | What does a second reviewer add, and how are reviewers compared? | [Independent review and agreement](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/independent-review.md) |
 | What public evidence supports the project, and what does it not prove? | [Dogfooding case study](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/dogfooding-case-study.md) and [public regression eval](https://github.com/elanthus/agentic-preflight/blob/v0.6.0/docs/regression-eval.md) |
 

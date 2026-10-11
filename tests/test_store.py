@@ -403,3 +403,27 @@ def test_saved_mergeback_attempt_discards_legacy_rebased_tree(store, legacy_tree
     with store.transaction(run.run_id):
         pass
     assert "rebased_tree" not in json.loads(path.read_text())["mergeback_attempt"]
+
+
+@pytest.mark.parametrize("state", ["CREATED", "PUBLICATION_READY", "DONE"])
+def test_historical_ci_run_remains_readable_without_rewriting_record(store, state):
+    from agentic_preflight.config import config_digest, snapshot_run_settings
+
+    run = store.create_run(make_run())
+    path = store.run_path(run.run_id)
+    raw = json.loads(path.read_text())
+    raw["config_snapshot"]["ci"] = {"test_authority": "local"}
+    raw["config_digest"] = config_digest(raw["config_snapshot"])
+    raw["test_delegation"] = (
+        {"policy": {"test_authority": "github_actions"}} if state != "CREATED" else None
+    )
+    raw["state"] = state
+    if state == "DONE":
+        raw["pushed_sha"] = raw["head_sha"]
+    original = json.dumps(raw)
+    path.write_text(original)
+    restored = store.load_run(run.run_id)
+    assert restored.state.value == ("ORPHANED" if state == "PUBLICATION_READY" else state)
+    assert snapshot_run_settings(restored.config_snapshot) == (5, "in_place")
+    assert restored.config_digest == raw["config_digest"]
+    assert path.read_text() == original
