@@ -170,6 +170,7 @@ stops — do not improvise a recovery from the symptom alone.
 | Hosted attestation availability failure | Read the structured reason; retry only remote absence with the trusted bounded helper |
 | Hosted CI failed | Inspect the failure; unchanged-source CI reruns preserve local evidence, while source repairs revalidate affected stages |
 | Stale head (exit 3, `stale_run`) | Run `start` again; it preserves the old run as `ORPHANED` |
+| Interrupted legacy update | Follow `status` from the recorded source worktree; below the restart limit, `start` retires interrupted validation and discards its journal while preserving audit history and user work. At the limit, stop for the user’s abort/restart decision |
 | Abandoned run | `status --all`; inspect explicitly with `--run RUN_ID` |
 | Unreadable shared run record | Preserve the record and ownership; inspect its path |
 | Diff too large (exit 2, `diff_too_large`) | Exclude generated globs; never review part of it |

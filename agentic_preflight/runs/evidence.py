@@ -182,6 +182,13 @@ def _prior_runs(session: Session, run: RunDoc) -> list[RunDoc]:
             old = session.store.load_run(run_id)
         except (OSError, ValueError, ValidationError, RunReadError, UnknownRun):
             continue
+        # Keep the audit record, but never reuse validation discarded after an
+        # interrupted legacy update, even after its pending journal is removed.
+        if (
+            old.orphaned_reason == "interrupted legacy update"
+            or (session.store.run_dir(old.run_id) / "pending-update.json").exists()
+        ):
+            continue
         if old.source_worktree_id != run.source_worktree_id:
             continue
         if old.branch != run.branch:

@@ -6,8 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from agentic_preflight import attestation
+from agentic_preflight import attestation, runs
+from agentic_preflight.machine import State
 from agentic_preflight.models import Stage
+from agentic_preflight.runs import evidence
 from agentic_preflight.stages import shellstage
 from agentic_preflight.store import Store
 from tests.conftest import commit_all, git, set_home, write
@@ -581,3 +583,56 @@ def test_a_snapshot_with_a_never_existing_config_key_is_rejected(feature_repo, t
         )
     assert error.value.reason == "invalid_evidence"
     assert "sparkle" in str(error.value)
+
+
+def test_interrupted_legacy_evidence_is_never_reused_after_retirement(feature_repo, tmp_path):
+    _prepare(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    first = agent.run("start")
+    _finish(agent, tmp_path)
+    store = runs.open_session(feature_repo).store
+    old = store.load_run(first["run_id"])
+    assert set(old.evidence) == set(Stage)
+    assert all(item.origin.result.status == "green" for item in old.evidence.values())
+    journal = store.run_dir(old.run_id) / "pending-update.json"
+    journal.write_text("interrupted legacy update")
+
+    # Discovery must also refuse the interrupted green record before start
+    # retires it, even if another run is being initialized independently.
+    session = runs.open_session(feature_repo)
+    probe = store.create_run(
+        old.model_copy(
+            update={
+                "run_id": "r_0000000000",
+                "state": State.REVIEW_AWAITING_FINDINGS,
+                "evidence": {},
+                "reuse_candidates": {},
+                "stages": {},
+            }
+        )
+    )
+    assert evidence.discover(session, probe).reuse_candidates == {}
+
+    second = agent.run("start")
+    retired = store.load_run(old.run_id)
+    assert retired.state.value == "ORPHANED"
+    assert retired.evidence == old.evidence
+    assert not journal.exists()
+    fresh = store.load_run(second["run_id"])
+    assert fresh.state.value == "REVIEW_AWAITING_FINDINGS"
+    assert fresh.evidence == {}
+    assert fresh.reuse_candidates == {}
+    assert fresh.stages == {}
+    assert agent.run("status")["state"] == "REVIEW_AWAITING_FINDINGS"
+
+    # With the journal gone, later discovery must still exclude the old green
+    # run instead of rediscovering it from preserved audit history.
+    agent.run("abort")
+    agent.run("gc")
+    assert store.load_run(old.run_id).orphaned_reason == "interrupted legacy update"
+    third = agent.run("start")
+    later = store.load_run(third["run_id"])
+    assert later.state.value == "REVIEW_AWAITING_FINDINGS"
+    assert later.evidence == {}
+    assert later.reuse_candidates == {}
+    assert later.stages == {}

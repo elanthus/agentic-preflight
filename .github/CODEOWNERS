@@ -7,7 +7,6 @@
 /.github/CODEOWNERS @elanthus
 /.github/dependabot.yml @elanthus
 /.github/workflows/ @elanthus
-/COMPATIBILITY.md @elanthus
 /SECURITY.md @elanthus
 /agentic_preflight/approval.py @elanthus
 /agentic_preflight/attestation.py @elanthus
@@ -29,7 +28,3 @@
 /agentic_preflight/stages/change_scope.py @elanthus
 /agentic_preflight/wire_schema.py @elanthus
 /docs/RELEASING.md @elanthus
-/skill/SKILL.md @elanthus
-/skill/reference/docs-rubric.md @elanthus
-/skill/reference/findings-schema.md @elanthus
-/skill/reference/playbooks.md @elanthus

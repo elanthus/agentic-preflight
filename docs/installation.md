@@ -73,6 +73,13 @@ uv tool upgrade agentic-preflight
 agentic-preflight integrations update
 ```
 
+When upgrading from a version that wrote run/findings journals, interrupted runs
+with a pending journal are retired at the next `start` in their source worktree,
+and validation starts fresh. `status` directs an affected run to restart. Audit
+history and user work remain available for normal safe cleanup; package installation
+does not scan or delete repository runs. See
+[compatibility](../COMPATIBILITY.md#saved-pending-run-updates).
+
 ## Scopes and other clients
 
 User scope is the default. To check a skill into one repository instead:

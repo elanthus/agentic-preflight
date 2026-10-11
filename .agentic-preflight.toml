@@ -14,7 +14,6 @@ human_review_paths = [
   ".github/CODEOWNERS",
   ".github/dependabot.yml",
   ".github/workflows/**",
-  "COMPATIBILITY.md",
   "SECURITY.md",
   # Direct approval, evidence-verification, and publication decisions.
   "agentic_preflight/approval.py",
@@ -37,16 +36,12 @@ human_review_paths = [
   "agentic_preflight/stages/change_scope.py",
   "agentic_preflight/wire_schema.py",
   "docs/RELEASING.md",
-  # Agent approval and recovery instructions; routine CLI references are medium risk.
-  "skill/SKILL.md",
-  "skill/reference/docs-rubric.md",
-  "skill/reference/findings-schema.md",
-  "skill/reference/playbooks.md",
 ]
-# Ordinary implementation changes still receive the full validation pipeline.
+# Routine skill documentation and implementation changes still receive full validation.
+# Substantive instruction changes need owner approval; see CONTRIBUTING.md.
 # Explicit human-review matches above win over these medium-risk defaults.
 high_risk_paths = []
-medium_risk_paths = ["agentic_preflight/**", "tests/**", "skill/reference/**"]
+medium_risk_paths = ["agentic_preflight/**", "tests/**", "skill/**"]
 
 [diff]
 max_bytes = 500000

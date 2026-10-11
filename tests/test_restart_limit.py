@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from agentic_preflight import runs
 from agentic_preflight.config import Config
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.errors import MaxRestarts
@@ -148,3 +149,34 @@ def test_the_stop_outranks_the_stale_run_hint(agent, tmp_path, feature_repo):
 
     refused = agent.run("context", expect=ExitCode.NEEDS_HUMAN)
     assert refused["error"]["code"] == "max_restarts"
+
+
+def test_interrupted_legacy_run_at_limit_requires_a_person_and_remains_abortable(
+    agent, feature_repo
+):
+    session = runs.open_session(feature_repo)
+    run_id = session.active_run_id()
+    with session.store.transaction(run_id) as run:
+        run.validation_restarts = 2
+    path = session.store.run_path(run_id)
+    journal = path.parent / "pending-update.json"
+    journal.write_text("legacy update")
+    before = path.read_bytes()
+
+    status = agent.run("status")
+    assert status["data"]["needs_human"] is True
+    assert status["next"]["command"] is None
+    assert "Only the user" in status["next"]["instruction"]
+    refused = agent.run("context", expect=ExitCode.PRECONDITION)
+    assert refused["data"]["needs_human"] is True
+    assert refused["next"]["command"] is None
+    assert "Only the user" in refused["next"]["instruction"]
+    direct = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+    assert direct["error"]["code"] == "max_restarts"
+    assert path.read_bytes() == before
+    assert journal.read_text() == "legacy update"
+    assert session.store.get_active(session.owner_id) == run_id
+
+    assert agent.run("abort", "--force")["state"] == "ABORTED"
+    assert journal.read_text() == "legacy update"
+    assert session.store.get_active(session.owner_id) is None
