@@ -118,3 +118,9 @@ field. It is accepted and ignored on load, and omitted on the next write. Other
 unknown attempt fields remain invalid. A pending source rebase that has not reached
 the recorded verified tree now becomes stale; restart preflight to validate the
 current source rather than resuming from that intermediate tree.
+
+## Grounding and command candidates
+
+Context grounding no longer emits generated `codeowners` entries. Other grounding
+sources and GitHub ownership policy are unchanged. Command detection no longer scrapes
+CI workflow `run:` lines; configured commands and manifest candidates remain supported.

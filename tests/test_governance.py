@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 
-from agentic_preflight.codeowners import matches
 from agentic_preflight.config import Config
 from agentic_preflight.models import RiskLevel, Verdict
 from agentic_preflight.risk import assess
@@ -43,7 +42,14 @@ def owners_for(path):
     owners = []
     for line in (ROOT / ".github/CODEOWNERS").read_text().splitlines():
         fields = line.split()
-        if fields and not line.startswith("#") and matches(path, fields[0]):
+        if not fields or line.startswith("#"):
+            continue
+        # This repository uses only anchored literal paths and directories.
+        pattern = fields[0]
+        assert pattern.startswith("/")
+        assert not any(char in pattern for char in "*?![]")
+        literal = pattern.removeprefix("/")
+        if path == literal or (literal.endswith("/") and path.startswith(literal)):
             owners = fields[1:]
     return owners
 
