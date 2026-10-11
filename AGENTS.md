@@ -25,6 +25,23 @@ uv run pytest -q
 The test suite creates temporary Git repositories, so it needs a working `git` binary and
 can take a few minutes.
 
+## Approval readiness
+
+Treat human approval of an exact PR head as the final readiness step. For a batch,
+choose the merge order, complete preceding merges, and refresh the next PR to the
+latest base before requesting approval. Do not request approval on every intermediate
+push or batch approval for heads known to need further base updates.
+
+Before requesting approval, complete requested, internal, and automated reviews,
+consolidate their fixes, run applicable checks, push the final head, and wait for CI
+and expected reviews to finish. A rate-limited review is still pending. Immediately
+before the request, check unresolved comments and confirm the current head and base.
+
+After approval, avoid optional changes. If a necessary fix or base change moves the
+head, revalidate and explain why fresh review is needed. Never bypass the policy or
+approve your own work. Chat authorization to merge permits the operation; it does
+not replace the approval required by GitHub policy.
+
 ## Layout
 
 - `agentic_preflight/`: the package. Top-level modules hold configuration (`config.py`),
