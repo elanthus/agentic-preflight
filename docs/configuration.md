@@ -373,7 +373,11 @@ a large change dangerous. `[policy]` classifies the paths changed by the branch:
 
 Patterns are repo-relative and use the same gitignore-like glob matching as
 `[diff] exclude`. Absolute paths and `..` are rejected. When several patterns match, the highest
-risk wins. Recorded `critical` and `high` findings also make the run high-risk, including
+risk wins. The hosted approval check also classifies every path that differs between the
+base and Git's merge of the pull-request head into it, so criss-cross history (several merge
+bases) cannot hide a change that the branch diff from a single merge base omits, such as
+an `-s ours` merge that reverts a side branch already in the base. Recorded `critical`
+and `high` findings also make the run high-risk, including
 after a fix; a `medium` finding makes it at least medium-risk. Open blocking findings
 produce `changes_required` until they are resolved; once resolved, high risk produces
 `needs_human` for the hosted merge-approval check.

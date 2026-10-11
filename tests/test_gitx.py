@@ -159,6 +159,16 @@ def test_merge_tree_raises_for_other_failures(tmp_repo, monkeypatch):
         gitx.merge_tree(tmp_repo, "left", "right")
 
 
+def test_merge_result_files_reports_conflicted_paths_from_the_conflicted_tree(feature_repo):
+    git("switch", "main", cwd=feature_repo)
+    write(feature_repo, "src/app.py", "def greet(name):\n    return f'hello {name}'\n")
+    write(feature_repo, "docs/notes.md", "main only\n")
+    base = commit_all(feature_repo, "change greeting on main")
+
+    assert gitx.merge_tree(feature_repo, base, "feature/x") is None
+    assert gitx.merge_result_files(feature_repo, base, "feature/x") == ["src/app.py"]
+
+
 def test_changed_files_lists_only_files_touched_by_the_branch(feature_repo):
     base = gitx.merge_base(feature_repo, "main", "HEAD")
     assert gitx.changed_files(feature_repo, base, "HEAD") == ["src/app.py"]

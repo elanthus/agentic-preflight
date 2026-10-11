@@ -265,12 +265,20 @@ def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
     attestation remains valid against a newly synchronized base. Git may add
     unreachable tree objects, but this does not update refs, the index, or files.
     """
+    tree, clean = _merge_tree_result(cwd, left, right)
+    return tree if clean else None
+
+
+def _merge_tree_result(cwd: Path | str, left: str, right: str) -> tuple[str, bool]:
+    """Return Git's merge-result tree and whether the merge was clean.
+
+    A conflicted merge still writes a tree, with conflict markers in the
+    conflicted files, so every path the merge touches remains visible in it.
+    """
     args = ["merge-tree", "--write-tree", left, right]
     result = run(cwd, *args, check=False)
-    if result.returncode == 0:
-        return result.stdout.splitlines()[0]
-    if result.returncode == 1:
-        return None
+    if result.returncode in (0, 1):
+        return result.stdout.splitlines()[0], result.returncode == 0
     raise GitError(args, result.returncode, result.stderr)
 
 
@@ -522,6 +530,30 @@ def changed_files(cwd: Path | str, base: str, head: str = "HEAD") -> list[str]:
         "-z",
         _NO_RENAMES,
         f"{base}...{head}",
+    ).stdout
+    return [path for path in output.split("\0") if path]
+
+
+def merge_result_files(cwd: Path | str, base: str, head: str) -> list[str]:
+    """Return paths that differ between ``base`` and Git's merge of ``head`` into it.
+
+    ``changed_files`` diffs ``head`` against one merge base. With criss-cross
+    history there are several, and Git picks one, so that diff can omit a path the
+    real merge changes: a head that merges a side branch already in ``base`` with
+    ``-s ours`` reverts it without showing the revert. The merge-tree result
+    accounts for every merge base. Conflicted paths are reported too.
+    """
+    tree, _clean = _merge_tree_result(cwd, base, head)
+    output = run(
+        cwd,
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--name-only",
+        "-z",
+        _NO_RENAMES,
+        base,
+        tree,
     ).stdout
     return [path for path in output.split("\0") if path]
 

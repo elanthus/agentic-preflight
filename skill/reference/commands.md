@@ -250,7 +250,10 @@ Roll out this command on the protected base before adding workflow invocations.
 
 ### `agentic-preflight approval-check SHA --base SHA --reviews-file PATH --author LOGIN`
 CI-facing merge policy for an attested pull-request head. It recomputes path risk from
-the protected base configuration and uses attested finding-severity totals. Low- and
+the protected base configuration and uses attested finding-severity totals. Path risk
+covers the paths changed since the merge base and the paths that differ between the base
+and Git's merge of the head into it, so criss-cross history cannot hide a change; both
+appear in `data.changed_files`. Low- and
 medium-risk changes pass without a review. High-risk handling follows `[approval] mode`:
 `manual_merge` reports success while requiring the user to merge manually (the trusted
 workflow separately rejects enabled GitHub auto-merge); `environment` exits 4 until
