@@ -326,16 +326,48 @@ def commit_patch_id(cwd: Path | str, sha: str) -> str | None:
     ``\\xe9`` into one string, giving two byte-distinct changes the same
     identity, and identity is the whole point of this function.
     """
-    show_args = ["show", "--format=", "--no-ext-diff", "--no-textconv", "--binary", sha]
+    return _stable_patch_id(
+        cwd, ["show", "--format=", "--no-ext-diff", "--no-textconv", "--binary", sha]
+    )
+
+
+def range_patch_id(cwd: Path | str, base: str, head: str) -> str | None:
+    """Return git's stable patch identity for a branch's whole change against ``base``.
+
+    The patch is ``merge-base(base, head)..head``, the same range ``changed_files``
+    reports, so a merge from the base or a clean rebase keeps the identity while
+    any change to the contribution alters it. Context lines are part of the
+    identity, so a base change next to the contribution also alters it. Git
+    ignores whitespace and line numbers when hashing; callers deciding content
+    equality must compare trees as well. An empty change returns ``None``.
+    """
+    return _stable_patch_id(
+        cwd,
+        [
+            "diff",
+            "--full-index",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "--binary",
+            _NO_RENAMES,
+            merge_base(cwd, base, head),
+            head,
+        ],
+    )
+
+
+def _stable_patch_id(cwd: Path | str, patch_args: list[str]) -> str | None:
+    """Pipe one Git patch, as raw bytes, into ``git patch-id --stable``."""
     patch = subprocess.run(
-        [_git_executable(), *show_args],
+        [_git_executable(), *patch_args],
         cwd=str(cwd),
         capture_output=True,
         timeout=_COMMAND_TIMEOUT.get(),
     )
     if patch.returncode != 0:
         raise GitError(
-            show_args, patch.returncode, patch.stderr.decode("utf-8", errors=_DECODE_ERRORS)
+            patch_args, patch.returncode, patch.stderr.decode("utf-8", errors=_DECODE_ERRORS)
         )
     result = subprocess.run(
         [_git_executable(), "patch-id", "--stable"],

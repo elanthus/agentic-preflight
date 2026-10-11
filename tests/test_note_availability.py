@@ -91,7 +91,7 @@ def check(remote, **kwargs):
         base_sha=BASE,
         sleeper=remote.sleeps.append,
         clock=lambda: 123.0,
-        evaluate=kwargs.pop("evaluate", lambda value: {"sha": value.sha}),
+        evaluate=kwargs.pop("evaluate", lambda value, _fetch: {"sha": value.sha}),
         **kwargs,
     )
 
@@ -100,7 +100,9 @@ def check(remote, **kwargs):
 def test_only_absence_retries_selected_snapshot(remote, available_at):
     remote.available_at = available_at
     consumed = []
-    result = check(remote, evaluate=lambda value: consumed.append(value) or {"verified": True})
+    result = check(
+        remote, evaluate=lambda value, _fetch: consumed.append(value) or {"verified": True}
+    )
     assert len(consumed) == 1
     assert remote.attempts == available_at
     assert remote.sleeps == list(availability.DEFAULT_DELAYS[: available_at - 1])
@@ -150,7 +152,7 @@ def test_present_invalid_note_never_retries_or_evaluates(remote, kind, reason):
         payload["tree_sha"] = "e" * 40
     remote.payload = "SECRET invalid JSON" if kind == "json" else json.dumps(payload)
     with pytest.raises(availability.HostedCheckFailed) as caught:
-        check(remote, evaluate=lambda _: pytest.fail("invalid evidence reached policy"))
+        check(remote, evaluate=lambda *_: pytest.fail("invalid evidence reached policy"))
     assert caught.value.reason == reason
     assert "SECRET" not in str(caught.value)
     assert remote.attempts == 1
@@ -173,7 +175,7 @@ def test_stale_candidate_never_adopts_new_head(remote, when):
 
         remote.sleeps = Sleeper()
 
-    def evaluate(value):
+    def evaluate(value, _fetch):
         if when == "completion":
             remote.observed = "e" * 40
         return {"verified": True}
@@ -370,21 +372,15 @@ def test_fetch_failure_never_uses_existing_note(remote, monkeypatch):
     assert remote.sleeps == []
 
 
-@pytest.mark.parametrize("validator", ["refresh", "declaration"])
-def test_nested_git_failure_retains_safe_classification(remote, monkeypatch, validator):
-    from agentic_preflight import ci_policy, refresh_validation
+def test_nested_git_failure_retains_safe_classification(remote, monkeypatch):
+    from agentic_preflight import refresh_validation
 
-    value = evidence().model_copy(
-        update={"outcome": "verified" if validator == "refresh" else "tests_pending"}
-    )
+    value = evidence()
 
     def fail(*args):
         raise availability.gitx.GitError(["show", "SECRET"], 128, "SECRET transport failure")
 
-    monkeypatch.setattr(
-        refresh_validation, "verify_evidence", fail if validator == "refresh" else lambda *_: None
-    )
-    monkeypatch.setattr(ci_policy, "verify_declaration", fail)
+    monkeypatch.setattr(refresh_validation, "verify_evidence", fail)
     with pytest.raises(attestation.InvalidAttestation) as caught:
         attestation.verify_value(".", value, HEAD, purpose="local")
     assert caught.value.reason == "git_failure"

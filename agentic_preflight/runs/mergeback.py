@@ -166,7 +166,7 @@ def _check_dirty_paths(session: Session, run: RunDoc, *, in_place: bool) -> None
 
 def _record_attempt(session: Session, run: RunDoc, *, retrying_conflict: bool) -> RunDoc:
     """Record the exact source and validation snapshots before mutation."""
-    if run.state not in {State.TEST_GREEN, State.TEST_DELEGATED, State.MERGEBACK_CONFLICT}:
+    if run.state not in {State.TEST_GREEN, State.MERGEBACK_CONFLICT}:
         return run
     repo = session.repo_root
     if gitx.current_branch(repo) != run.branch:
@@ -266,9 +266,9 @@ def mergeback(session: Session) -> Envelope:
     reconciled, recovered = _reconcile_attempt(session, run)
     if not retrying_conflict and not reconciled:
         _assert_fresh(session, run)
-    if run.state in {State.TEST_GREEN, State.TEST_DELEGATED}:
+    if run.state is State.TEST_GREEN:
         run = evidence.advance(session, run)
-        if run.state not in {State.TEST_GREEN, State.TEST_DELEGATED}:
+        if run.state is not State.TEST_GREEN:
             return _envelope_for(run, data={"inputs_invalidated": True})
         run, reopened = reopen_if_stale(session, run)
         if reopened:
@@ -281,7 +281,6 @@ def mergeback(session: Session) -> Envelope:
     _require_state(
         run,
         State.TEST_GREEN,
-        State.TEST_DELEGATED,
         State.MERGEBACK_PENDING,
         State.MERGEBACK_CONFLICT,
         command="mergeback",
@@ -375,9 +374,7 @@ def mergeback(session: Session) -> Envelope:
     with session.store.transaction(run.run_id) as doc:
         doc.head_sha = result.post_sha
         doc.source_head_sha = result.post_sha
-        _apply(
-            doc, Action.MERGEBACK_PUBLICATION_READY if doc.test_delegation else Action.MERGEBACK_OK
-        )
+        _apply(doc, Action.MERGEBACK_OK)
         run = doc
 
     session.store.append_event(

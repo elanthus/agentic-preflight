@@ -81,15 +81,17 @@ attestation checks. Another rule can still classify them as requiring human revi
 such as a high or critical review finding (even after it is fixed); the current branch
 rules do not make human approval a merge requirement.
 
-The explicit `human_review_paths` in `.agentic-preflight.toml` cover policy and ownership,
-CI workflows and templates, direct approval and evidence-verification decisions,
-publication gates, security guidance, and release procedures. Dependency manifest and
+The explicit `human_review_paths` in `.agentic-preflight.toml` cover decision points:
+policy and ownership, CI workflows, merge approval, attestation verification, the
+pre-push hook, publication gates, and security guidance. Dependency manifest and
 lockfile changes rely on the required automated dependency audit.
 Keep `.github/CODEOWNERS` aligned with that list: a blanket package owner would restore
 mandatory human review when Code Owner review is enforced. New code that decides whether
-evidence is valid, a stage may be skipped, or publication/merge may proceed needs an
-explicit entry in both files. Shared implementation helpers are medium risk; this is a
-review-prioritization policy, not an exhaustive security boundary over every dependency.
+a change may merge or be published, or whether an attestation is accepted, needs an
+explicit entry in both files. Code that decides only whether earlier evidence can be
+reused, such as fingerprints and refresh validation, is medium risk like other shared
+helpers, including configuration and data models. This is a review-prioritization policy,
+not an exhaustive security boundary over every dependency.
 
 Routine documentation edits, including skill instructions and compatibility notes,
 receive the normal review and validation without requiring owner approval solely because
@@ -98,8 +100,10 @@ implementation are routine. `skill/SKILL.md` remains the authority for agent app
 review, recovery, and cleanup rules; keep its routing links intact.
 
 Changes that grant or expand authorization, alter approval enforcement, or introduce or
-change bypass rules require the configured owner's approval of the exact final PR head,
-including when the change only edits instructions. Identify this requirement in the PR
+change bypass rules require the configured owner's approval of the final PR content,
+including when the change only edits instructions. That approval is a review of the final
+head, or of an earlier head that the hosted approval check reports as carried
+(`approval_carried`) because only a clean merge from the base or a clean rebase followed. Identify this requirement in the PR
 and wait for that approval before merging. Path classification cannot understand prose:
 this contributor checkpoint applies even when the automated risk verdict is `clear`.
 Reviewers must also report unsafe instruction changes through the normal findings flow;

@@ -27,7 +27,6 @@ from pydantic import (
     model_validator,
 )
 
-from .ci_models import CISection
 from .digests import json_digest
 from .shell_fingerprints import ShellInputContract
 
@@ -167,11 +166,19 @@ class HookSection(_Section):
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    @model_validator(mode="before")
+    @classmethod
+    def discard_retired_ci_section(cls, value: object) -> object:
+        """Keep historical run snapshots readable without reviving CI authority."""
+        if isinstance(value, dict) and "ci" in value:
+            value = dict(value)
+            value.pop("ci")
+        return value
+
     general: GeneralSection = Field(default_factory=GeneralSection)
     commands: CommandsSection = Field(default_factory=CommandsSection)
     stage: StageSection = Field(default_factory=StageSection)
     reuse: ReuseSection = Field(default_factory=ReuseSection)
-    ci: CISection = Field(default_factory=CISection)
     review: ReviewSection = Field(default_factory=ReviewSection)
     policy: PolicySection = Field(default_factory=PolicySection)
     docs: DocsSection = Field(default_factory=DocsSection)
@@ -185,14 +192,14 @@ class Config(BaseModel):
 
 
 # Keys an earlier release accepted and a later one removed, as (section, key).
-# Loading a user config still rejects them as unknown; only attested snapshots
-# made by an older release drop them before validation.
+# Individual keys remain invalid in user config and are ignored only in historical
+# snapshots. A wildcard retires an entire section, also ignored with a user warning.
 REMOVED_CONFIG_KEYS: frozenset[tuple[str, str]] = frozenset(
     {
         ("review", "require_fix_commits"),
         ("worktree", "ttl_hours"),
         ("reuse", "attestation_schema"),
-        ("ci", "consumer_schema"),
+        ("ci", "*"),
         ("hook", "enabled"),
     }
 )
@@ -202,6 +209,8 @@ def snapshot_config(snapshot: dict[str, Any]) -> Config:
     """Validate an attested config snapshot, ignoring keys a later release removed."""
     cleaned: dict[str, Any] = {}
     for section, body in snapshot.items():
+        if (section, "*") in REMOVED_CONFIG_KEYS:
+            continue
         if isinstance(body, dict):
             body = {key: v for key, v in body.items() if (section, key) not in REMOVED_CONFIG_KEYS}
         cleaned[section] = body
@@ -279,6 +288,14 @@ def load_config(
         if not path.exists():
             continue
         for section, values in _read_toml(path).items():
+            if (section, "*") in REMOVED_CONFIG_KEYS:
+                import sys
+
+                print(
+                    f"agentic-preflight: ignoring removed [{section}] configuration in {path}; tests run locally",
+                    file=sys.stderr,
+                )
+                continue
             merged[section] = values
             sources[section] = path
 
@@ -288,3 +305,16 @@ def load_config(
         raise ConfigError(_describe(exc, sources, repo_file)) from exc
 
     return cfg
+
+
+def committed_config(repo: Path | str, revision: str) -> Config:
+    """Read protected configuration at a revision, defaulting when absent."""
+    from . import gitx
+
+    if not gitx.out(repo, "ls-tree", "--name-only", revision, "--", REPO_CONFIG_NAME):
+        return Config()
+    try:
+        policy = tomllib.loads(gitx.out(repo, "show", f"{revision}:{REPO_CONFIG_NAME}"))
+        return Config.model_validate(policy)
+    except ValueError as exc:
+        raise ValueError(f"invalid protected policy: {exc}") from exc

@@ -2,10 +2,10 @@
 
 Entries are keyed by symptom, with the exit code and error code given where the CLI
 supplies one — several of these surface as a slow or wrong-looking stage rather than
-as a failed command. The universal recovery rule still comes first: **any exit 3 → run
+as a failed command. For run commands, the recovery rule comes first: **exit 3 → run
 `status` → obey `next`.** `status` is legal in every state, and when you are unsure
-where a run is, it is always the right call. Trusted CI commands are the exception:
-follow their remote recovery reason and next action directly, as described below.
+where a run is, it is always the right call. For `approval-check` input errors,
+correct the reviews file and retry that command.
 
 ## Git operation already in progress (exit 3, `operation_in_progress`)
 
@@ -52,13 +52,8 @@ counter, which is the user's decision to make.
 
 ## Hosted CI failed
 
-Inspect the failed check with `gh pr checks` and `gh run view --log-failed`. For
-delegated tests, use `agentic-preflight ci status --repo OWNER/REPO --pr N` and follow
-its remote recovery action. A transient failure or rerun on the unchanged candidate
-does not require a new model review or local test run. Rerun all jobs; do not combine
-successful legs from different attempts. After a base update, dispatch the fresh
-integration candidate if the protected dispatcher has not done so. API outages are
-unknown results, never permission to merge.
+Inspect the failed check with `gh pr checks` and `gh run view --log-failed`.
+A transient failure on an unchanged head can be retried through the forge.
 
 When source needs repair, fix and
 commit the source branch, then start a fresh synchronized preflight run with the

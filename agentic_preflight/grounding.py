@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import codeowners, grounding_sources
+from . import grounding_sources
 from . import risk as riskmod
 from .diff import path_matches
 from .models import RunDoc
@@ -23,7 +23,6 @@ from .models import RunDoc
 if TYPE_CHECKING:
     from .runs._session import Session
 
-_CODEOWNERS_PATHS = (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS")
 _CONVENTION_PATHS = ("AGENTS.md", "CLAUDE.md")
 _WORD_CHARACTER = r"[A-Za-z0-9_]"
 _WORD_RUN = re.compile(rf"{_WORD_CHARACTER}+")
@@ -51,55 +50,6 @@ def _truncate_lines(text: str, max_bytes: int) -> tuple[str, bool]:
         selected.append(line)
         used += line_bytes
     return "".join(selected), True
-
-
-def _codeowners_entries(
-    texts: dict[str, str], changed_files: list[str], tracked: set[str]
-) -> list[dict[str, Any]]:
-    source = next((path for path in _CODEOWNERS_PATHS if path in tracked), None)
-    if source is None or source not in texts:
-        return []
-    text = texts[source]
-
-    rules: list[tuple[str, list[str]]] = []
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        fields = line.split()
-        pattern = fields[0]
-        owners = []
-        for owner in fields[1:]:
-            if owner.startswith("#"):
-                break
-            owners.append(owner)
-        rules.append((pattern, owners))
-
-    entries = []
-    for path in sorted(set(changed_files)):
-        matched = next(
-            (
-                (pattern, owners)
-                for pattern, owners in reversed(rules)
-                if codeowners.matches(path, pattern)
-            ),
-            None,
-        )
-        if matched is None:
-            continue
-        pattern, owners = matched
-        entries.append(
-            _entry(
-                {
-                    "kind": "codeowners",
-                    "source": source,
-                    "path": path,
-                    "owners": owners,
-                    "pattern": pattern,
-                }
-            )
-        )
-    return entries
 
 
 def _terms(changed_files: list[str]) -> list[str]:
@@ -331,16 +281,15 @@ def assemble(session: Session, run: RunDoc, changed_files: list[str]) -> dict[st
         return {"enabled": False, "entries": [], "dropped": {}}
 
     repo = Path(run.worktree_path or session.repo_root)
-    texts, omitted, tracked = grounding_sources.load(
+    texts, omitted, _ = grounding_sources.load(
         repo,
         lambda path: (
             path.startswith("docs/")
-            or path in (*_CODEOWNERS_PATHS, *_CONVENTION_PATHS)
+            or path in _CONVENTION_PATHS
             or any(path_matches(path, pattern) for pattern in config.extra_paths)
         ),
     )
     groups = (
-        ("codeowners", _codeowners_entries(texts, changed_files, tracked)),
         ("doc", _doc_entries(texts, changed_files, config.entry_max_bytes)),
         (
             "convention",

@@ -322,3 +322,65 @@ def test_attestation_build_refuses_to_invent_a_green_review_stage():
             docs_enabled=False,
             findings_summary={},
         )
+
+
+def test_historical_verified_attestation_discards_only_null_ci_fields():
+    value = make_attestation(stages=_attestation_stages())
+    payload = value.model_dump(mode="json")
+    payload.update(publication_ready_at=None, test_delegation=None)
+    assert attestationmod.decode(json.dumps(payload)) == value
+    assert "test_delegation" not in json.loads(attestationmod.encode(value))
+    for field in ("publication_ready_at", "test_delegation"):
+        invalid = {**payload, field: "retired"}
+        with pytest.raises(attestationmod.InvalidAttestation):
+            attestationmod.decode(json.dumps(invalid))
+
+
+@pytest.mark.parametrize("purpose", ["local", "publish"])
+def test_pending_attestation_never_verifies(purpose):
+    value = make_attestation(stages=_attestation_stages())
+    payload = value.model_dump(mode="json")
+    payload["outcome"] = "tests_pending"
+    with pytest.raises(attestationmod.InvalidAttestation):
+        attestationmod.decode(json.dumps(payload))
+    with pytest.raises(attestationmod.InvalidAttestation, match="only verified"):
+        attestationmod.verify_value(
+            ".", value.model_copy(update={"outcome": "tests_pending"}), value.sha, purpose=purpose
+        )
+
+
+def test_historical_run_null_delegation_remains_readable():
+    value = _run_doc()
+    payload = value.model_dump(mode="json")
+    payload["test_delegation"] = None
+    assert RunDoc.model_validate(payload) == value
+
+
+@pytest.mark.parametrize(
+    "state", ["TEST_DELEGATED", "PUBLICATION_READY", "AWAITING_PUSH_CONFIRM", "CREATED"]
+)
+def test_active_delegated_run_is_orphaned_instead_of_published(state):
+    payload = _run_doc().model_dump(mode="json")
+    payload.update(state=state, test_delegation={"policy": {"test_authority": "github_actions"}})
+    value = RunDoc.model_validate(payload)
+    assert value.state is State.ORPHANED
+    assert "start a new local validation" in value.orphaned_reason
+
+
+@pytest.mark.parametrize("state", ["DONE", "PUSHED", "ABORTED"])
+def test_historical_delegated_run_preserves_completed_lifecycle(state):
+    payload = _run_doc().model_dump(mode="json")
+    payload.update(state=state, test_delegation={"policy": {"test_authority": "github_actions"}})
+    assert RunDoc.model_validate(payload).state.value == state
+
+
+@pytest.mark.parametrize("state", [None, "UNKNOWN_STATE"])
+def test_invalid_saved_state_is_not_concealed_by_retired_delegation(state):
+    payload = _run_doc().model_dump(mode="json")
+    payload["test_delegation"] = {"policy": {"test_authority": "github_actions"}}
+    if state is None:
+        payload.pop("state")
+    else:
+        payload["state"] = state
+    with pytest.raises(ValidationError):
+        RunDoc.model_validate(payload)

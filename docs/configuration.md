@@ -42,9 +42,6 @@ max_restarts = 5
 
 [reuse]
 
-[ci]
-test_authority = "local"        # default; see protected CI setup below before opting in
-
 [review]
 blocking_severities = ["critical", "high"]
 max_findings = 50
@@ -210,16 +207,33 @@ the required reviewer and leave **Prevent self-review** disabled. GitHub plan re
 may limit required reviewers for private repositories.
 
 `mode = "peer_review"` retains the original pull-request-review policy: an eligible
-repository owner, member, or collaborator other than the author must approve the exact
-current head.
+repository owner, member, or collaborator other than the author must approve the current
+head or an equivalent earlier head.
 
 `mode = "owner_review"` requires the human GitHub login in `reviewer` to review the
-exact current head. They must be a repository owner, member, or collaborator. On another
-author's pull request, submit an **Approve** review. On their own pull request, submit a
-**Comment** review whose trimmed body is exactly `approved` (lowercase); an ordinary PR
-conversation comment does not count. A new head needs a new review. Dismissal or a later
-changes-requested review revokes approval; editing or replacing a self-review with other
-text also removes its approval. Bots and other reviewers cannot satisfy this mode.
+current head or an equivalent earlier head. They must be a repository owner, member, or
+collaborator. On another author's pull request, submit an **Approve** review. On their
+own pull request, submit a **Comment** review whose trimmed body is exactly `approved`
+(lowercase); an ordinary PR conversation comment does not count. Dismissal or a later
+changes-requested review on any head revokes approval; editing or replacing a self-review
+with other text also removes its approval. Bots and other reviewers cannot satisfy this
+mode.
+
+In both review modes, an approval of an earlier head carries to a new head only when the
+branch content is unchanged. The trusted checker decides this from Git objects, not from
+attestation notes. Both heads must change the same paths against the base with the same
+`git patch-id --stable` identity. The new head's tree must also equal Git's clean merge of
+the approved head with the base commit the new head contains. Merging either head into the
+base must produce the same clean tree, and the non-merge commits since the base must have
+the same patch identities, so history tricks such as an `-s ours` merge cannot hide a
+revert or add commits a rebase merge would replay. A clean merge from the base
+or a clean rebase therefore keeps approval. A content commit, a merge that resolves
+conflicts or adds content, or a base change next to the contribution needs a new review.
+An approved head that is not an ancestor of the new head, such as one replaced by a
+rebase, is used directly when the verifier already has it. Otherwise it is fetched only
+through its `refs/agentic-preflight/evidence/<sha>` ref. If the head is absent and that
+ref is unavailable, the approval does not carry. The result reports `approved_head` and
+`approval_carried`.
 
 The policy checker reads trusted configuration from the protected base commit. A pull
 request that changes `[approval]` is therefore evaluated under the old base-branch mode;
@@ -244,7 +258,7 @@ changelog or judge the entry’s content; the reviewer checks that content.
 ## Grounded context ([context])
 
 `context` retrieves deterministic repository knowledge related to the changed paths and
-returns it in `data.grounding`. The default sources are CODEOWNERS, matching files under
+returns it in `data.grounding`. The default sources are matching files under
 `docs/**`, root `AGENTS.md` and `CLAUDE.md`, relevant findings from earlier local runs,
 and the deterministic policy reasons for the change. See
 [Grounded context](context-grounding.md) for the matching and ordering rules.
@@ -375,44 +389,11 @@ GitHub, make the repository's `high-risk human approval` job a required status c
 require Code Owner reviews for the protected paths. The job evaluates trusted base code.
 Depending on `[approval] mode`, it records the manual-merge requirement, waits for the
 configured Environment, or accepts only an eligible non-bot, non-author approval of the
-exact current head.
+current head or of an earlier head with identical branch content.
 
-## Protected CI tests
+## Removed CI test authority
 
-`[ci] test_authority = "local"` runs the local stage sequence. To delegate
-tests, first install the protected workflows using the
-[CI setup procedure](attestations-and-ci.md#delegating-tests-to-trusted-ci). Then
-commit the declaration below on the protected base. Replace the numeric IDs with
-GitHub's IDs for your repository, installed test workflow, and dedicated check App.
-
-```toml
-[ci]
-test_authority = "github_actions"
-repository_id = 12345678
-base_branch = "main"
-workflow_id = 98765432
-check_app_id = 11223344
-workflow_path = ".github/workflows/preflight-tests.yml"
-required_jobs = ["test (ubuntu-latest, py3.13)", "test (windows-latest, py3.13)"]
-max_age_seconds = 86400
-```
-
-Tests always target the integration commit. Each `required_jobs` entry identifies
-one test matrix leg in the protected workflow. Names must be unique and nonempty;
-`prepare` and `approval` are reserved jobs added by the verifier. Only explicit
-success counts. Expiry is measured from each job's completion, defaults to one day,
-and permits 60–604800 seconds. A partial rerun cannot borrow missing legs from
-another attempt; rerun all jobs.
-
-The effective CI declaration must match the committed protected base and proposed
-head. A user-config override cannot enable delegation by itself. Review, docs,
-diff, context, risk, approval policy, and the lint command must also match the
-protected policy. Policy changes require their own review on the protected base.
-Lint remains local. The
-`stage run test` command accepts no local command/record/baseline flags when delegated.
-
-The workflow's protected commands define remote test execution. Local
-`[commands] test` remains available for repositories using local authority, but is
-not executed or recorded as CI evidence under delegation. The state becomes
-`TEST_DELEGATED`, then `PUBLICATION_READY` after merge-back. Publication can proceed
-with tests pending; `ci status` determines live merge readiness separately.
+Legacy `[ci]` tables in user or repository configuration are ignored with a warning.
+Tests run locally before publication, apart from the existing documentation/CI-only
+skip. Remove the retired table to silence the warning. Other unknown configuration
+keys continue to fail validation.

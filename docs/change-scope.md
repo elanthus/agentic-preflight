@@ -1,6 +1,6 @@
 # Change scope and the test-skip exception
 
-With the default local test authority, when every changed file in a diff is documentation
+When every changed file in a diff is documentation
 or standard CI configuration, Agentic Preflight does not run the software test command after lint. It takes an explicit `SKIP_TEST`
 transition through `TEST_GREEN` and records the test stage as `skipped` with its reason,
 so the exception stays visible in `status` and the commit's attestation note rather
@@ -8,10 +8,6 @@ than looking like a pass.
 
 **Any source or otherwise unclassified file keeps tests mandatory.** The exception applies
 only when the whole diff qualifies; one unclassified file is enough to require them.
-
-With protected `[ci] test_authority = "github_actions"`, tests are delegated even for
-documentation-only changes. The current integration commit must pass the configured
-remote jobs before merge; see [trusted CI setup](attestations-and-ci.md#delegating-tests-to-trusted-ci).
 
 ## What counts as documentation
 

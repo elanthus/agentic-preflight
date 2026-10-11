@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import sys
 from collections import Counter
+from importlib import import_module
 from pathlib import Path
 
 import pytest
@@ -252,6 +253,10 @@ def test_reuse_start_cost_does_not_grow_with_prior_runs(
     feature_repo, tmp_path, call_counts, monkeypatch
 ):
     _prepare(feature_repo)
+    # Same-second timestamps let random run IDs reorder this chronological fixture.
+    created_at = iter(f"2026-01-01T00:00:{index:02d}+00:00" for index in range(5))
+    start_module = import_module("agentic_preflight.runs.start")
+    monkeypatch.setattr(start_module, "_now", lambda: next(created_at))
     verify_stage = evidence.verify_stage
     fingerprint = evidence.fingerprint
     starts: dict[int, Counter[str]] = {}

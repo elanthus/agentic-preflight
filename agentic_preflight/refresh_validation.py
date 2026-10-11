@@ -248,14 +248,6 @@ def _verify_current_stage(
         )
         if fp.config_sha256 != expected_config:
             raise ValueError("current shell policy binding changed")
-        configured_command = getattr(cfg.commands, stage.value)
-        if (
-            value.outcome == "tests_pending"
-            and current.status == "green"
-            and configured_command
-            and current.command != configured_command
-        ):
-            raise ValueError("current shell command differs from configured command")
     severities = (
         cfg.docs.blocking_severities if stage is Stage.DOCS else cfg.review.blocking_severities
     )
