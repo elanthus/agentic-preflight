@@ -626,6 +626,62 @@ def test_revocation_after_an_earlier_approval_prevents_carryover(
     assert result["approval_carried"] is False
 
 
+@pytest.mark.parametrize("attack", ["criss_cross_revert", "ours_merge_extra_commit"])
+def test_history_that_hides_content_from_the_tree_comparisons_is_not_carried(
+    tmp_repo, monkeypatch, attack
+):
+    """An ``-s ours`` merge leaves the head tree equal to the approved tree.
+
+    Merging a base side branch that way creates criss-cross history: Git's single
+    chosen merge base hides that the real merge into the base reverts the side
+    branch. Merging an unreviewed branch that way adds commits a rebase merge
+    would replay. Neither may carry the earlier approval.
+    """
+    write(
+        tmp_repo,
+        ".agentic-preflight.toml",
+        "[policy]\nhigh_risk_paths = ['src/**']\n[approval]\nmode = 'owner_review'\n"
+        "reviewer = 'owner'\n",
+    )
+    write(tmp_repo, "src/security.py", "CHECK = 'on'\n")
+    root = commit_all(tmp_repo, "configure approval")
+    git("switch", "-c", "side", cwd=tmp_repo)
+    if attack == "criss_cross_revert":
+        write(tmp_repo, "src/security.py", "CHECK = 'on'\nSTRICT = 'on'\n")
+    else:
+        write(tmp_repo, "src/evil.py", "steal()\n")
+    side = commit_all(tmp_repo, "side branch")
+    git("switch", "main", cwd=tmp_repo)
+    write(tmp_repo, "docs/notes.md", "one\n")
+    # A later fork commit makes Git choose it as the single merge base below.
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-01-02T00:00:00+00:00")
+    fork = commit_all(tmp_repo, "advance main")
+    if attack == "criss_cross_revert":
+        git("merge", "--no-ff", "--no-edit", "side", cwd=tmp_repo)
+    base = git("rev-parse", "HEAD", cwd=tmp_repo)
+    git("switch", "-c", "feature/carry", fork, cwd=tmp_repo)
+    write(tmp_repo, "src/app.py", GREET + "\n\n" + WAVE)
+    approved = commit_all(tmp_repo, "add wave")
+    git("merge", "-s", "ours", "--no-edit", side, cwd=tmp_repo)
+    head = git("rev-parse", "HEAD", cwd=tmp_repo)
+    assert gitx.tree_sha(tmp_repo, head) == gitx.tree_sha(tmp_repo, approved)
+    assert root != base
+    if attack == "criss_cross_revert":
+        # The single chosen merge base hides the revert from every diff-based check.
+        assert gitx.merge_base(tmp_repo, base, head) == fork
+        assert gitx.changed_files(tmp_repo, base, head) == ["src/app.py"]
+
+    result = _evaluate_head(
+        tmp_repo,
+        monkeypatch,
+        base=base,
+        head=head,
+        reviews=[_review(1, login="owner", commit_id=approved)],
+    )
+    assert result["approved"] is False
+    assert result["approval_carried"] is False
+
+
 @pytest.mark.parametrize("mode", ["manual_merge", "environment"])
 def test_environment_and_manual_merge_ignore_earlier_head_reviews(tmp_repo, monkeypatch, mode):
     approved, base = _approved_branch(tmp_repo, mode)

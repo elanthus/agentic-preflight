@@ -136,8 +136,13 @@ def equivalent_heads(
     and the current tree must equal Git's clean merge of the approved head with the
     base commit the current head now contains. The tree comparison closes what patch
     identity cannot see: Git hashes patches without whitespace or line numbers, so
-    an indentation change would otherwise compare equal. A merge or rebase that
-    resolves conflicts, adds content, or touches context lines is not equivalent.
+    an indentation change would otherwise compare equal. Merging either head into
+    the base must also give the same clean tree, which catches criss-cross history
+    that hides a revert from the single chosen merge base. Finally, the non-merge
+    commits since the base must have the same patch identities, so the new head
+    cannot carry extra commits that a rebase merge would replay. A merge or rebase
+    that resolves conflicts, adds content, or touches context lines is not
+    equivalent.
 
     An approved head absent from the repository is requested once from
     ``fetch_commit``. Without it, or when it cannot be fetched, carry fails closed.
@@ -163,10 +168,32 @@ def equivalent_heads(
         ):
             return False
         integrated = gitx.merge_tree(repo, approved_sha, gitx.merge_base(repo, base_sha, head_sha))
-        return integrated is not None and integrated == gitx.tree_sha(repo, head_sha)
+        if integrated is None or integrated != gitx.tree_sha(repo, head_sha):
+            return False
+        # The checks above use the single merge base Git picks. With criss-cross
+        # history, the real merge into the base uses a different virtual base, so
+        # compare what would actually land: both clean merges must be identical.
+        landed = gitx.merge_tree(repo, base_sha, approved_sha)
+        if landed is None or landed != gitx.merge_tree(repo, base_sha, head_sha):
+            return False
+        # A rebase merge replays non-merge commits, so the new head may not add any
+        # (for example through an ``-s ours`` merge whose content never reaches the tree).
+        return _contribution_patches(repo, base_sha, head_sha) == _contribution_patches(
+            repo, base_sha, approved_sha
+        )
     except gitx.GitError:
         # Unrelated histories or unreadable objects cannot prove equivalence.
         return False
+
+
+def _contribution_patches(repo: Path | str, base_sha: str, head_sha: str) -> list[str]:
+    """Return the sorted patch identities of the non-merge commits in ``base..head``."""
+    merges = set(gitx.out(repo, "rev-list", "--merges", f"{base_sha}..{head_sha}").split())
+    return sorted(
+        patch_id or ""
+        for sha, patch_id in gitx.patch_ids(repo, base_sha, head_sha).items()
+        if sha not in merges
+    )
 
 
 def _carried_approvals(

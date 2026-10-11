@@ -258,10 +258,11 @@ exits 4 until an eligible non-author has an `APPROVED` review for the current he
 equivalent earlier head. Later dismissal or changes-requested reviews revoke that
 person's peer approval. An earlier head is equivalent only when Git objects prove the
 branch content unchanged: the same changed paths and `git patch-id --stable` identity
-against the base, and a tree equal to Git's clean merge of the approved head with the
-base commit the current head contains. Peer and owner review results include
-`human_approvers`, `approved_head` (the commit the counted review was submitted on, or
-`null`), and `approval_carried` (`true` only when that commit is an earlier head).
+against the base, a tree equal to Git's clean merge of the approved head with the base
+commit the current head contains, identical clean merges of both heads into the base, and
+the same non-merge commit patch identities since the base. Peer and owner review results
+include `human_approvers`, `approved_head` (the commit the counted review was submitted
+on, or `null`), and `approval_carried` (`true` only when that commit is an earlier head).
 `--report-only` reports conditional Environment or peer-review state without failing, so
 a trusted workflow can dispatch the appropriate hosted job.
 A reviews file that is not UTF-8 JSON fails with `invalid_findings` (exit 3), as other

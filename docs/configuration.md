@@ -226,7 +226,10 @@ In both review modes, an approval of an earlier head carries to a new head only 
 branch content is unchanged. The trusted checker decides this from Git objects, not from
 attestation notes. Both heads must change the same paths against the base with the same
 `git patch-id --stable` identity. The new head's tree must also equal Git's clean merge of
-the approved head with the base commit the new head contains. A clean merge from the base
+the approved head with the base commit the new head contains. Merging either head into the
+base must produce the same clean tree, and the non-merge commits since the base must have
+the same patch identities, so history tricks such as an `-s ours` merge cannot hide a
+revert or add commits a rebase merge would replay. A clean merge from the base
 or a clean rebase therefore keeps approval. A content commit, a merge that resolves
 conflicts or adds content, or a base change next to the contribution needs a new review.
 An approved head that is not an ancestor of the new head, such as one replaced by a
