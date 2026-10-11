@@ -381,8 +381,7 @@ path touched by a non-merge commit in `base..head`, because a GitHub rebase merg
 those commits and drops merge commits: a merge whose resolution cancels an earlier
 high-risk commit hides that commit from both tree comparisons, yet a rebase merge lands it.
 As a result, a branch that changes a high-risk path and later reverts it still needs
-approval. Recorded `critical`
-and `high` findings also make the run high-risk, including
+approval. Recorded `critical` and `high` findings also make the run high-risk, including
 after a fix; a `medium` finding makes it at least medium-risk. Open blocking findings
 produce `changes_required` until they are resolved; once resolved, high risk produces
 `needs_human` for the hosted merge-approval check.
