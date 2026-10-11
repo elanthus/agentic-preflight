@@ -153,8 +153,9 @@ numbering, they do not restart. Full field reference:
 
 See the canonical [exit-code reference](reference/commands.md#exit-codes).
 
-**Universal recovery rule: any exit 3 → run `status` → obey `next`.** `status` is legal
+**Run-command recovery rule: exit 3 → run `status` → obey `next`.** `status` is legal
 in every state. If you are ever unsure where you are, that is always the right call.
+For `approval-check` input errors, correct the reviews file and retry that command.
 
 ## Failure playbooks
 

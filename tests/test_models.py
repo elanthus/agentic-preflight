@@ -356,7 +356,9 @@ def test_historical_run_null_delegation_remains_readable():
     assert RunDoc.model_validate(payload) == value
 
 
-@pytest.mark.parametrize("state", ["TEST_DELEGATED", "PUBLICATION_READY", "AWAITING_PUSH_CONFIRM"])
+@pytest.mark.parametrize(
+    "state", ["TEST_DELEGATED", "PUBLICATION_READY", "AWAITING_PUSH_CONFIRM", "CREATED"]
+)
 def test_active_delegated_run_is_orphaned_instead_of_published(state):
     payload = _run_doc().model_dump(mode="json")
     payload.update(state=state, test_delegation={"policy": {"test_authority": "github_actions"}})
@@ -370,3 +372,15 @@ def test_historical_delegated_run_preserves_completed_lifecycle(state):
     payload = _run_doc().model_dump(mode="json")
     payload.update(state=state, test_delegation={"policy": {"test_authority": "github_actions"}})
     assert RunDoc.model_validate(payload).state.value == state
+
+
+@pytest.mark.parametrize("state", [None, "UNKNOWN_STATE"])
+def test_invalid_saved_state_is_not_concealed_by_retired_delegation(state):
+    payload = _run_doc().model_dump(mode="json")
+    payload["test_delegation"] = {"policy": {"test_authority": "github_actions"}}
+    if state is None:
+        payload.pop("state")
+    else:
+        payload["state"] = state
+    with pytest.raises(ValidationError):
+        RunDoc.model_validate(payload)

@@ -2,9 +2,10 @@
 
 Entries are keyed by symptom, with the exit code and error code given where the CLI
 supplies one — several of these surface as a slow or wrong-looking stage rather than
-as a failed command. The universal recovery rule still comes first: **any exit 3 → run
+as a failed command. For run commands, the recovery rule comes first: **exit 3 → run
 `status` → obey `next`.** `status` is legal in every state, and when you are unsure
-where a run is, it is always the right call.
+where a run is, it is always the right call. For `approval-check` input errors,
+correct the reviews file and retry that command.
 
 ## Git operation already in progress (exit 3, `operation_in_progress`)
 

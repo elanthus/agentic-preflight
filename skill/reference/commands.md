@@ -460,7 +460,7 @@ it.
 | 0 | OK | Follow `next` |
 | 1 | Invalid input or internal error | Read `error.message`; fix your invocation |
 | 2 | Stage failed | Read the log, fix the cause, re-run the stage |
-| 3 | Precondition violated | Run `status`, then obey `next` |
+| 3 | Precondition violated | For run commands, run `status`, then obey `next`; for `approval-check` invalid input, correct the reviews file |
 | 4 | Human resolution required | Show recovery material; resolve only the bounded, unambiguous merge-back cases permitted by the skill, otherwise stop |
 | 5 | Confirmation required | Apply the skill's authorization rules, then re-run with the token |
 | 6 | Command-line usage error | Read `error.message`, run `next.command` for valid usage, and fix the invocation |
@@ -473,4 +473,5 @@ command) prints one envelope with error code `usage_error`, Click's message in
 Running `agentic-preflight` with no arguments prints the root help as plain text and
 exits 0.
 
-For workflow exit 3 → run `status` → obey `next`.
+For run-command exit 3 → run `status` → obey `next`. For `approval-check`
+`invalid_findings`, correct the reviews file and retry the command.

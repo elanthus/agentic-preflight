@@ -305,6 +305,7 @@ class RunDoc(BaseModel):
             retired_state = value.get("state") in ("TEST_DELEGATED", "PUBLICATION_READY")
             if retired_state or (
                 delegation is not None
+                and value.get("state") in State
                 and value.get("state") not in ("PUSHED", "DONE", "ABORTED", "ORPHANED")
             ):
                 value["state"] = "ORPHANED"
