@@ -23,20 +23,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import ValidationError
 
 from . import filelock
 from .config import snapshot_run_settings
 from .models import Finding, RunDoc
-
-
-class _RunUpdate(BaseModel):
-    """Write-ahead record for one run/findings commit; never includes Git effects."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    run: RunDoc
-    findings: list[Finding]
 
 
 def _parse_run(payload: str) -> RunDoc:
@@ -239,20 +230,18 @@ class Store:
         keeps the strict read so a snapshot still means exactly one config.
         """
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
-            self._recover_update(run_id, tolerate_removed_config=tolerate_removed_config)
             return self._load_run(run_id, tolerate_removed_config=tolerate_removed_config)
 
     def peek(self, run_id: str, *fields: str) -> dict[str, Any] | None:
         """Return top-level fields of a run record without validating it.
 
         This is a prefilter for loops that skip most runs, such as other branches.
-        It reads under the same lock and pending-update recovery as ``load_run``
+        It reads under the same lock as ``load_run``
         but returns ``None`` on any failure, so a caller that sees ``None`` must
         fall back to ``load_run`` and handle that record exactly as before.
         """
         try:
             with filelock.exclusive(self.run_dir(run_id) / ".lock"):
-                self._recover_update(run_id)
                 raw = json.loads(self.run_path(run_id).read_text(encoding="utf-8"))
         except Exception:  # noqa: BLE001 - any failure defers to load_run's diagnostics
             return None
@@ -358,16 +347,15 @@ class Store:
         The document yielded is a fresh load; mutate it in place. It is written
         back, with ``seq`` bumped, only if the body completes without raising,
         so an exception in the body leaves the records untouched. When findings
-        accompany the run, a durable journal commits both: readers finish an
-        interrupted installation before returning either record. An I/O error
-        after journal publication may therefore represent a committed update.
+        accompany the run, findings are atomically replaced before the run. A
+        failure between these writes can leave new findings with the previous
+        run; there is no automatic roll-forward recovery.
         """
         path = self.run_path(run_id)
         if not path.exists():
             raise UnknownRun(run_id)
 
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
-            self._recover_update(run_id, tolerate_removed_config=tolerate_removed_config)
             run = self._load_run(run_id, tolerate_removed_config=tolerate_removed_config)
 
             yield run
@@ -382,62 +370,17 @@ class Store:
 
             run.seq += 1
             run.updated_at = _utcnow()
-            if findings is None:
-                _atomic_write(path, run.model_dump_json(indent=2))
-            else:
-                update = _RunUpdate(run=run, findings=findings)
-                _atomic_write(self.update_path(run_id), update.model_dump_json(indent=2))
-                self._recover_update(run_id, tolerate_removed_config=tolerate_removed_config)
-
-    def update_path(self, run_id: str) -> Path:
-        return self.run_dir(run_id) / "pending-update.json"
-
-    def _recover_update(self, run_id: str, *, tolerate_removed_config: bool = False) -> None:
-        """Roll forward a committed pair while holding the run lock.
-
-        Validate before overwriting anything. The journal is retained on every
-        failure, including an unsupported record or an unexpected sequence.
-        The journal's own config snapshot is checked under the caller's policy,
-        so a tolerant read can recover an older run's interrupted update and a
-        strict read never replays a snapshot it would then refuse to load.
-        """
-        path = self.update_path(run_id)
-        try:
-            payload = path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return
-        except (UnicodeDecodeError, OSError) as exc:
-            raise RunReadError(
-                run_id, path, "unreadable_pending_update", "Pending run update cannot be read."
-            ) from exc
-        try:
-            update = _RunUpdate.model_validate_json(payload)
-            _validate_snapshot(update.run.config_snapshot, tolerate_removed_config)
-            current = self._load_run(run_id, tolerate_removed_config=tolerate_removed_config)
-            if update.run.run_id != run_id or not (
-                update.run.seq == current.seq + 1
-                or (update.run.seq == current.seq and update.run == current)
-            ):
-                raise ValueError("pending update does not follow the current run")
-        except ValueError as exc:
-            raise RunReadError(
-                run_id,
-                path,
-                "invalid_pending_update",
-                "Pending run update is invalid; preserve it.",
-            ) from exc
-        _atomic_write(
-            self.findings_path(run_id),
-            json.dumps([f.model_dump(mode="json") for f in update.findings], indent=2),
-        )
-        _atomic_write(self.run_path(run_id), update.run.model_dump_json(indent=2))
-        path.unlink()
+            if findings is not None:
+                _atomic_write(
+                    self.findings_path(run_id),
+                    json.dumps([f.model_dump(mode="json") for f in findings], indent=2),
+                )
+            _atomic_write(path, run.model_dump_json(indent=2))
 
     # -- findings ------------------------------------------------------------
 
     def load_findings(self, run_id: str) -> list[Finding]:
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
-            self._recover_update(run_id)
             path = self.findings_path(run_id)
             if not path.exists():
                 return []
@@ -447,7 +390,6 @@ class Store:
     def save_findings(self, run_id: str, findings: list[Finding]) -> None:
         payload = json.dumps([f.model_dump(mode="json") for f in findings], indent=2)
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
-            self._recover_update(run_id)
             _atomic_write(self.findings_path(run_id), payload)
 
     # -- events --------------------------------------------------------------

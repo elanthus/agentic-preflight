@@ -4,6 +4,7 @@ import pytest
 
 from agentic_preflight import store as store_module
 from agentic_preflight.machine import State
+from agentic_preflight.models import Finding, FindingAction, Severity, Stage
 from agentic_preflight.store import CurrentRunExists, RunReadError, Store, UnknownRun
 from tests.conftest import make_run
 
@@ -119,6 +120,63 @@ def test_a_failed_transaction_body_leaves_the_document_untouched(store):
     reloaded = store.load_run("r_abc123")
     assert reloaded.state is State.CREATED
     assert reloaded.seq == 0
+
+
+@pytest.mark.parametrize("boundary", ["findings.json", "run.json", None])
+def test_findings_transaction_preserves_each_record_across_write_failure(
+    store, monkeypatch, boundary
+):
+    store.create_run(make_run())
+    finding = Finding(
+        id="F001",
+        stage=Stage.REVIEW,
+        path="app.py",
+        severity=Severity.HIGH,
+        action=FindingAction.AUTO_FIX,
+        title="incorrect result",
+    )
+    original_write = store_module._atomic_write
+
+    def interrupted_write(path, payload):
+        if path.name == boundary:
+            raise OSError("interrupted replacement")
+        original_write(path, payload)
+
+    monkeypatch.setattr(store_module, "_atomic_write", interrupted_write)
+    if boundary:
+        with (
+            pytest.raises(OSError, match="interrupted replacement"),
+            store.transaction("r_abc123", findings=[finding]) as run,
+        ):
+            run.state = State.REVIEW_BLOCKED
+    else:
+        with store.transaction("r_abc123", findings=[finding]) as run:
+            run.state = State.REVIEW_BLOCKED
+
+    reopened = Store(store.root)
+    saved = reopened.load_run("r_abc123")
+    assert saved.seq == (0 if boundary else 1)
+    assert saved.state is (State.CREATED if boundary else State.REVIEW_BLOCKED)
+    assert reopened.load_findings("r_abc123") == ([] if boundary == "findings.json" else [finding])
+    assert not (store.run_dir("r_abc123") / "pending-update.json").exists()
+
+
+def test_legacy_journal_is_preserved_without_replay(store):
+    current = store.create_run(make_run())
+    pending = current.model_copy(update={"seq": 1, "state": State.REVIEW_BLOCKED})
+    journal = store.run_dir(current.run_id) / "pending-update.json"
+    payload = json.dumps({"run": pending.model_dump(mode="json"), "findings": []})
+    journal.write_text(payload)
+
+    assert store.load_run(current.run_id) == current
+    assert store.peek(current.run_id, "seq") == {"seq": 0}
+    assert store.load_findings(current.run_id) == []
+    store.save_findings(current.run_id, [])
+    with store.transaction(current.run_id) as run:
+        run.stale = True
+    assert store.load_run(current.run_id).seq == 1
+    assert store.load_run(current.run_id).state is State.CREATED
+    assert journal.read_text() == payload
 
 
 def test_a_crash_during_replace_leaves_a_valid_document(store, monkeypatch):
