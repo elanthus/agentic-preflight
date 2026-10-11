@@ -103,7 +103,10 @@ can preserve review and docs across rewritten commits. Shell stages require comm
 content contracts. Read `data.applicability`; `invalid` and `unknown` require a fresh
 stage, and later-stage candidates remain available while earlier stages are pending.
 Refuses a dirty tree (exit 3, `dirty_tree`) and a branch with no changes over the base
-(exit 3, `empty_diff`). In-place mode protects `[worktree] copy_files` where they are;
+(exit 3, `empty_diff`). When the branch diff is empty but criss-cross history hides a
+change that merging would make, `data.merge_result_files` lists those paths;
+synchronizing would rebase them away, so make the change in an ordinary commit, such as
+`git revert`. In-place mode protects `[worktree] copy_files` where they are;
 isolated modes copy them. Every mode refuses an entry git is not already ignoring.
 
 Returns `data.worktree_path` — **absolute**. Use it; do not rely on `cd` persisting.
