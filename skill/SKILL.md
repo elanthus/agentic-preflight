@@ -234,10 +234,16 @@ the configured `[approval] mode`. High risk does not change push authorization:
 - `environment`: wait for approval through the configured GitHub Environment before the
   hosted approval check can pass.
 - `peer_review`: require an eligible repository-associated person other than the author
-  to approve the exact current head.
-- `owner_review`: require the configured human reviewer to approve the exact head. On
+  to approve the current head.
+- `owner_review`: require the configured human reviewer to approve the current head. On
   their own PR, they submit a Comment review whose trimmed body is exactly `approved`;
   on another author's PR, they submit an Approve review. Never submit either for them.
+
+In both review modes, the hosted check carries an earlier approval to a new head only
+when it reports `approval_carried: true`, meaning a clean merge from the base or a clean
+rebase left the branch content unchanged. Any content change, including conflict
+resolution, needs a new approval. Request it on the final head, never on intermediate
+heads.
 
 Only an explicit `[gate] mode = "manual"` hands the push itself to a person.
 

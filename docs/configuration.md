@@ -210,16 +210,29 @@ the required reviewer and leave **Prevent self-review** disabled. GitHub plan re
 may limit required reviewers for private repositories.
 
 `mode = "peer_review"` retains the original pull-request-review policy: an eligible
-repository owner, member, or collaborator other than the author must approve the exact
-current head.
+repository owner, member, or collaborator other than the author must approve the current
+head or an equivalent earlier head.
 
 `mode = "owner_review"` requires the human GitHub login in `reviewer` to review the
-exact current head. They must be a repository owner, member, or collaborator. On another
-author's pull request, submit an **Approve** review. On their own pull request, submit a
-**Comment** review whose trimmed body is exactly `approved` (lowercase); an ordinary PR
-conversation comment does not count. A new head needs a new review. Dismissal or a later
-changes-requested review revokes approval; editing or replacing a self-review with other
-text also removes its approval. Bots and other reviewers cannot satisfy this mode.
+current head or an equivalent earlier head. They must be a repository owner, member, or
+collaborator. On another author's pull request, submit an **Approve** review. On their
+own pull request, submit a **Comment** review whose trimmed body is exactly `approved`
+(lowercase); an ordinary PR conversation comment does not count. Dismissal or a later
+changes-requested review on any head revokes approval; editing or replacing a self-review
+with other text also removes its approval. Bots and other reviewers cannot satisfy this
+mode.
+
+In both review modes, an approval of an earlier head carries to a new head only when the
+branch content is unchanged. The trusted checker decides this from Git objects, not from
+attestation notes. Both heads must change the same paths against the base with the same
+`git patch-id --stable` identity. The new head's tree must also equal Git's clean merge of
+the approved head with the base commit the new head contains. A clean merge from the base
+or a clean rebase therefore keeps approval. A content commit, a merge that resolves
+conflicts or adds content, or a base change next to the contribution needs a new review.
+An approved head that is not an ancestor of the new head, such as one replaced by a
+rebase, is fetched only through its `refs/agentic-preflight/evidence/<sha>` ref. If that
+ref is unavailable, the approval does not carry. The result reports `approved_head` and
+`approval_carried`.
 
 The policy checker reads trusted configuration from the protected base commit. A pull
 request that changes `[approval]` is therefore evaluated under the old base-branch mode;
@@ -371,7 +384,7 @@ GitHub, make the repository's `high-risk human approval` job a required status c
 require Code Owner reviews for the protected paths. The job evaluates trusted base code.
 Depending on `[approval] mode`, it records the manual-merge requirement, waits for the
 configured Environment, or accepts only an eligible non-bot, non-author approval of the
-exact current head.
+current head or of an earlier head with identical branch content.
 
 ## Protected CI tests
 

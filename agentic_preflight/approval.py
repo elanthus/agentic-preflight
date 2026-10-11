@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import re
+from collections.abc import Callable, Collection, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from . import attestation, ci_policy, gitx, risk
 from .config import Config
@@ -12,6 +13,20 @@ from .models import Attestation, RiskLevel
 
 _DECISIVE_REVIEW_STATES = {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}
 _TRUSTED_AUTHOR_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
+# Modes whose approval is a pull-request review that can be carried across heads.
+_CARRYOVER_MODES = {"peer_review", "owner_review"}
+_OID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+# Makes an approved head that is absent locally available, returning whether it did.
+CommitFetcher = Callable[[str], bool]
+
+
+class HeadApproval(NamedTuple):
+    """One reviewer's counted approval and the commit it was submitted on."""
+
+    login: str
+    commit_id: str
+    order: int
 
 
 def _flatten_reviews(value: object) -> list[Mapping[str, Any]]:
@@ -31,27 +46,30 @@ def _flatten_reviews(value: object) -> list[Mapping[str, Any]]:
     return flattened
 
 
-def current_human_approvers(
+def latest_approvals(
     reviews: object,
     *,
-    head_sha: str,
+    heads: Collection[str] | None,
     pull_request_author: str,
     owner_reviewer: str | None = None,
-) -> list[str]:
-    """Return repository-associated human approvals for the exact current head.
+) -> list[HeadApproval]:
+    """Return eligible reviewers whose latest decisive review is an approval.
 
-    Only the latest decisive review from each person counts. Peer comments do not
-    erase an approval; dismissal or changes requested does. Explicit owner mode
-    also accepts an author's Comment review containing only ``approved``. Their
-    latest Comment review replaces that self-approval, including edited text.
+    Only reviews submitted on one of ``heads`` are considered. ``None`` considers
+    reviews on every head, so a later revocation on any head of the pull request
+    replaces an earlier approval. Peer comments do not erase an approval; dismissal
+    or changes requested does. Explicit owner mode also accepts an author's Comment
+    review containing only ``approved``. Their latest Comment review replaces that
+    self-approval, including edited text.
     """
-    latest: dict[str, tuple[int, str]] = {}
+    latest: dict[str, tuple[int, str, str]] = {}
     for review in _flatten_reviews(reviews):
         user = review.get("user")
         if not isinstance(user, Mapping):
             continue
         login = user.get("login")
         user_type = user.get("type")
+        commit_id = review.get("commit_id")
         state = str(review.get("state", "")).upper()
         association = str(review.get("author_association", "")).upper()
         if (
@@ -60,7 +78,8 @@ def current_human_approvers(
             or association not in _TRUSTED_AUTHOR_ASSOCIATIONS
             or (owner_reviewer is None and login.casefold() == pull_request_author.casefold())
             or (owner_reviewer is not None and login.casefold() != owner_reviewer.casefold())
-            or review.get("commit_id") != head_sha
+            or not isinstance(commit_id, str)
+            or (heads is not None and commit_id not in heads)
             or state not in _DECISIVE_REVIEW_STATES | {"COMMENTED"}
         ):
             continue
@@ -75,8 +94,112 @@ def current_human_approvers(
         review_id = review.get("id")
         order = review_id if isinstance(review_id, int) else 0
         if login not in latest or order >= latest[login][0]:
-            latest[login] = (order, state)
-    return sorted(login for login, (_, state) in latest.items() if state == "APPROVED")
+            latest[login] = (order, state, commit_id)
+    return [
+        HeadApproval(login, commit_id, order)
+        for login, (order, state, commit_id) in sorted(latest.items())
+        if state == "APPROVED"
+    ]
+
+
+def current_human_approvers(
+    reviews: object,
+    *,
+    head_sha: str,
+    pull_request_author: str,
+    owner_reviewer: str | None = None,
+) -> list[str]:
+    """Return repository-associated human approvals for the exact current head."""
+    return [
+        approval.login
+        for approval in latest_approvals(
+            reviews,
+            heads={head_sha},
+            pull_request_author=pull_request_author,
+            owner_reviewer=owner_reviewer,
+        )
+    ]
+
+
+def equivalent_heads(
+    repo: Path | str,
+    *,
+    base_sha: str,
+    approved_sha: str,
+    head_sha: str,
+    fetch_commit: CommitFetcher | None = None,
+) -> bool:
+    """Return whether ``head_sha`` carries exactly the change approved at ``approved_sha``.
+
+    Computed only from Git objects, never from attestation notes. Both heads must
+    change the same paths against ``base_sha`` with the same stable patch identity,
+    and the current tree must equal Git's clean merge of the approved head with the
+    base commit the current head now contains. The tree comparison closes what patch
+    identity cannot see: Git hashes patches without whitespace or line numbers, so
+    an indentation change would otherwise compare equal. A merge or rebase that
+    resolves conflicts, adds content, or touches context lines is not equivalent.
+
+    An approved head absent from the repository is requested once from
+    ``fetch_commit``. Without it, or when it cannot be fetched, carry fails closed.
+    """
+    if approved_sha == head_sha:
+        return True
+    if not _OID.fullmatch(approved_sha):
+        return False
+    try:
+        if not gitx.commit_exists(repo, approved_sha) and (
+            fetch_commit is None
+            or not fetch_commit(approved_sha)
+            or not gitx.commit_exists(repo, approved_sha)
+        ):
+            return False
+        if sorted(gitx.changed_files(repo, base_sha, approved_sha)) != sorted(
+            gitx.changed_files(repo, base_sha, head_sha)
+        ):
+            return False
+        approved_patch = gitx.range_patch_id(repo, base_sha, approved_sha)
+        if approved_patch is None or approved_patch != gitx.range_patch_id(
+            repo, base_sha, head_sha
+        ):
+            return False
+        integrated = gitx.merge_tree(repo, approved_sha, gitx.merge_base(repo, base_sha, head_sha))
+        return integrated is not None and integrated == gitx.tree_sha(repo, head_sha)
+    except gitx.GitError:
+        # Unrelated histories or unreadable objects cannot prove equivalence.
+        return False
+
+
+def _carried_approvals(
+    repo: Path | str,
+    reviews: object,
+    *,
+    base_sha: str,
+    head_sha: str,
+    pull_request_author: str,
+    owner_reviewer: str | None,
+    fetch_commit: CommitFetcher | None,
+) -> list[HeadApproval]:
+    """Return approvals of earlier heads whose content equals the current head."""
+    verdicts: dict[str, bool] = {}
+    carried = []
+    for candidate in latest_approvals(
+        reviews,
+        heads=None,
+        pull_request_author=pull_request_author,
+        owner_reviewer=owner_reviewer,
+    ):
+        sha = candidate.commit_id
+        if sha not in verdicts:
+            verdicts[sha] = equivalent_heads(
+                repo,
+                base_sha=base_sha,
+                approved_sha=sha,
+                head_sha=head_sha,
+                fetch_commit=fetch_commit,
+            )
+        if verdicts[sha]:
+            carried.append(candidate)
+    return carried
 
 
 def evaluate(
@@ -114,8 +237,15 @@ def evaluate_value(
     reviews: object,
     pull_request_author: str,
     environment_approved: bool = False,
+    fetch_commit: CommitFetcher | None = None,
 ) -> dict[str, Any]:
-    """Combine validated evidence with a caller-supplied protected approval policy."""
+    """Combine validated evidence with a caller-supplied protected approval policy.
+
+    In ``peer_review`` and ``owner_review`` modes, an approval recorded on an
+    earlier head still counts when that head is equivalent to the current one (see
+    ``equivalent_heads``). ``fetch_commit`` may supply an approved head that is not
+    an ancestor of the current head. It is used only when carryover is needed.
+    """
     changed_files = gitx.changed_files(repo, base_sha, head_sha)
     path_assessment = risk.assess(
         changed_files,
@@ -128,13 +258,27 @@ def evaluate_value(
         value.findings_summary.get(severity, 0) for severity in ("critical", "high")
     )
     requires_approval = path_assessment.level is RiskLevel.HIGH or severe_findings > 0
-    approvers = current_human_approvers(
-        reviews,
-        head_sha=value.sha,
-        pull_request_author=pull_request_author,
-        owner_reviewer=cfg.approval.reviewer if cfg.approval.mode == "owner_review" else None,
-    )
     approval_mode = cfg.approval.mode
+    owner_reviewer = cfg.approval.reviewer if approval_mode == "owner_review" else None
+    approvals = latest_approvals(
+        reviews,
+        heads={value.sha},
+        pull_request_author=pull_request_author,
+        owner_reviewer=owner_reviewer,
+    )
+    carried = False
+    if requires_approval and not approvals and approval_mode in _CARRYOVER_MODES:
+        approvals = _carried_approvals(
+            repo,
+            reviews,
+            base_sha=base_sha,
+            head_sha=value.sha,
+            pull_request_author=pull_request_author,
+            owner_reviewer=owner_reviewer,
+            fetch_commit=fetch_commit,
+        )
+        carried = bool(approvals)
+    approvers = sorted({approval.login for approval in approvals})
     manual_merge_required = requires_approval and approval_mode == "manual_merge"
     if not requires_approval or approval_mode == "manual_merge":
         approved = True
@@ -156,4 +300,8 @@ def evaluate_value(
         "path_reasons": [reason.model_dump(mode="json") for reason in path_assessment.reasons],
         "severe_findings": severe_findings,
         "human_approvers": approvers,
+        "approved_head": (
+            max(approvals, key=lambda approval: approval.order).commit_id if approvals else None
+        ),
+        "approval_carried": carried,
     }

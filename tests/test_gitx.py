@@ -592,3 +592,26 @@ def test_range_patch_ids_match_per_commit_patch_ids(tmp_repo):
     assert ids[empty] is None
     assert ids[picked] == gitx.commit_patch_id(tmp_repo, original)
     assert gitx.patch_ids(tmp_repo, head, head) == {}
+
+
+def test_branch_patch_id_survives_a_base_merge_but_not_a_content_change(tmp_repo):
+    """``range_patch_id`` hashes the merge-base..head change, so syncing with the base
+    keeps it while any edit to the contribution, raw bytes included, changes it."""
+    git("switch", "-c", "feature", cwd=tmp_repo)
+    write(tmp_repo, "src/app.py", "def greet(name):\n    return f'hello {name}'\n")
+    (tmp_repo / "data.txt").write_bytes(b"caf\xe9\n")
+    approved = commit_all(tmp_repo, "improve greeting")
+    git("switch", "main", cwd=tmp_repo)
+    write(tmp_repo, "README.md", "# demo\n\nUnrelated history.\n")
+    base = commit_all(tmp_repo, "update readme")
+    git("switch", "feature", cwd=tmp_repo)
+    git("merge", "--no-ff", "--no-edit", "main", cwd=tmp_repo)
+    merged = git("rev-parse", "HEAD", cwd=tmp_repo)
+    (tmp_repo / "data.txt").write_bytes(b"caf\\xe9\n")
+    escaped = commit_all(tmp_repo, "escape text")
+
+    identity = gitx.range_patch_id(tmp_repo, base, approved)
+    assert identity is not None
+    assert gitx.range_patch_id(tmp_repo, base, merged) == identity
+    assert gitx.range_patch_id(tmp_repo, base, escaped) != identity
+    assert gitx.range_patch_id(tmp_repo, base, base) is None

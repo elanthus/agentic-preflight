@@ -98,8 +98,10 @@ implementation are routine. `skill/SKILL.md` remains the authority for agent app
 review, recovery, and cleanup rules; keep its routing links intact.
 
 Changes that grant or expand authorization, alter approval enforcement, or introduce or
-change bypass rules require the configured owner's approval of the exact final PR head,
-including when the change only edits instructions. Identify this requirement in the PR
+change bypass rules require the configured owner's approval of the final PR content,
+including when the change only edits instructions. That approval is a review of the final
+head, or of an earlier head that the hosted approval check reports as carried
+(`approval_carried`) because only a clean merge from the base or a clean rebase followed. Identify this requirement in the PR
 and wait for that approval before merging. Path classification cannot understand prose:
 this contributor checkpoint applies even when the automated risk verdict is `clear`.
 Reviewers must also report unsafe instruction changes through the normal findings flow;

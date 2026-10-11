@@ -144,18 +144,22 @@ branch content. It reruns when the head changes or a review is submitted, edited
 
 The default `manual_merge` mode reports success only while GitHub auto-merge is disabled
 and instructs the agent never to merge or enable auto-merge. `environment` pauses a
-dedicated job at the configured GitHub Environment, and `peer_review` retains the
-exact-head approval rule for an eligible person other than the pull-request author.
-`owner_review` requires the configured reviewer: an Approve review on another author's PR
-or a Comment review containing exactly `approved` on their own PR. See
+dedicated job at the configured GitHub Environment, and `peer_review` requires approval
+by an eligible person other than the pull-request author. `owner_review` requires the
+configured reviewer: an Approve review on another author's PR or a Comment review
+containing exactly `approved` on their own PR. In both review modes the approval must be
+on the current head, or on an earlier head whose branch content the trusted checker proves
+unchanged from Git objects. A clean merge from the base or a clean rebase keeps approval;
+any content change needs a new review. See
 [approval configuration](configuration.md#high-risk-merge-handling-approval).
 
 This repository configures `owner_review` with `reviewer = "elanthus"`, so the approval
-check can report an exact-head review status: an Approve review on another author's PR,
-or a Comment review containing only `approved` on your own PR. Its current branch rules
-require automated CI and dependency audits, with review feedback resolved before merge;
-human approval and Code Owner review are not mandatory merge requirements. Changes only
-to `pyproject.toml` or `uv.lock` no longer trigger high-risk review or CODEOWNERS requests.
+check can report a review status for the current content: an Approve review on another
+author's PR, or a Comment review containing only `approved` on your own PR. Its current
+branch rules require automated CI and dependency audits, with review feedback resolved
+before merge; human approval and Code Owner review are not mandatory merge requirements.
+Changes only to `pyproject.toml` or `uv.lock` no longer trigger high-risk review or
+CODEOWNERS requests.
 Dependabot automation settings remain protected policy.
 
 Projects choosing to enforce human approval should make **high-risk human approval** a

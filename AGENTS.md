@@ -44,7 +44,8 @@ and expected reviews to finish. A rate-limited review is still pending. Immediat
 before the request, check unresolved comments and confirm the current head and base.
 
 After approval, avoid optional changes. If a necessary fix or base change moves the
-head, revalidate and explain why fresh review is needed. Never bypass the policy or
+head, revalidate. A clean merge from the base or a clean rebase keeps the approval when
+the hosted check reports `approval_carried`; otherwise explain why fresh review is needed. Never bypass the policy or
 approve your own work. Chat authorization to merge permits the operation; it does
 not replace the approval required by GitHub policy.
 
