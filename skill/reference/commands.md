@@ -237,6 +237,10 @@ Default `--mode verify` checks complete local evidence. `--mode approval` also r
 `--reviews-file PATH --author LOGIN`, and accepts `--report-only` and
 `--environment-approved` with the same policy meaning as `approval-check`. The workflow
 still enforces real environment approval and disables auto-merge for manual-merge mode.
+Approval mode reports the same `approved_head` and `approval_carried` fields. When an
+approved earlier head is not an ancestor of the event head, it is fetched only through
+its evidence ref and recorded in the attempt's `fetched_approved_heads`; an absent ref
+means no carryover.
 
 Failures retain `attestation_failed` / exit 2 with `data.reason` and `data.availability`.
 Unmet approval remains exit 4 unless report-only. Diagnostic identities omit note bodies
@@ -250,18 +254,26 @@ medium-risk changes pass without a review. High-risk handling follows `[approval
 `manual_merge` reports success while requiring the user to merge manually (the trusted
 workflow separately rejects enabled GitHub auto-merge); `environment` exits 4 until
 `--environment-approved` is supplied by the trusted Environment job; and `peer_review`
-exits 4 until an eligible non-author has an `APPROVED` review for the exact current head.
-Later dismissal or changes-requested reviews revoke that person's peer approval.
+exits 4 until an eligible non-author has an `APPROVED` review for the current head or an
+equivalent earlier head. Later dismissal or changes-requested reviews revoke that
+person's peer approval. An earlier head is equivalent only when Git objects prove the
+branch content unchanged: the same changed paths and `git patch-id --stable` identity
+against the base, a tree equal to Git's clean merge of the approved head with the base
+commit the current head contains, identical clean merges of both heads into the base, and
+the same non-merge commit patch identities since the base. Peer and owner review results
+include `human_approvers`, `approved_head` (the commit the counted review was submitted
+on, or `null`), and `approval_carried` (`true` only when that commit is an earlier head).
 `--report-only` reports conditional Environment or peer-review state without failing, so
 a trusted workflow can dispatch the appropriate hosted job.
 A reviews file that is not UTF-8 JSON fails with `invalid_findings` (exit 3), as other
 JSON file inputs do.
 
 `[approval] mode = "owner_review"` requires the configured `reviewer` GitHub login to
-approve the exact current head. An Approve review counts on another author's PR; on their
-own PR, a Comment review with trimmed body exactly `approved` counts. Conversation
-comments, stale reviews, bots, and other users do not count. Dismissal, changes requested,
-or editing a self-review to other text revokes approval.
+approve the current head or an equivalent earlier head. An Approve review counts on
+another author's PR; on their own PR, a Comment review with trimmed body exactly
+`approved` counts. Conversation comments, reviews of heads with different content, bots,
+and other users do not count. Dismissal, changes requested on any head, or editing a
+self-review to other text revokes approval.
 
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
 Stages run in the fixed order docs → lint → test after review becomes green. Running lint

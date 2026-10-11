@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
@@ -130,7 +131,8 @@ def _finish_approval(result: dict, *, report_only: bool) -> None:
             )
         elif mode == "owner_review":
             message = (
-                "high-risk pull request requires the configured owner review for its exact head"
+                "high-risk pull request requires the configured owner review for its current "
+                "content"
             )
             instruction = (
                 "Ask the configured reviewer to approve the current head, or submit a "
@@ -139,7 +141,7 @@ def _finish_approval(result: dict, *, report_only: bool) -> None:
             )
         else:
             message = (
-                "high-risk pull request requires an eligible human approval for its exact head"
+                "high-risk pull request requires an eligible human approval for its current content"
             )
             instruction = (
                 "Ask an eligible human other than the pull-request author to review and "
@@ -188,7 +190,7 @@ def hosted_check(
                 "Cannot read reviews JSON", data={"reason": "invalid_reviews"}
             ) from exc
 
-    def evaluate(value: Attestation) -> dict:
+    def evaluate(value: Attestation, fetch_approved_head: Callable[[str], bool]) -> dict:
         if mode == "verify":
             return {
                 "verified": True,
@@ -205,6 +207,7 @@ def hosted_check(
             reviews=reviews,
             pull_request_author=author or "",
             environment_approved=environment_approved,
+            fetch_commit=fetch_approved_head,
         )
 
     try:
