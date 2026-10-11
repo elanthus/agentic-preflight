@@ -70,8 +70,16 @@ outside the matrix does not make that version supported.
 
 The release after 0.6.0 requires Click 8.2 or newer. Documentation inventory entries
 no longer contain `exists`, and detected command candidates no longer contain `trust`;
-consumers should use `path`, `size`, `touched_by_diff`, and candidate `source`. Workflow
-sources retain their `untrusted:workflow:` prefix. Attestation fingerprints are unchanged.
+consumers should use `path`, `size`, `touched_by_diff`, and candidate `source`. Command
+candidates come from supported project manifests; workflow run lines are no longer
+detected. Attestation fingerprints are unchanged.
+
+`approval-check` and `hosted-check --mode approval` results add `approved_head` (the
+commit the counted review was submitted on, or `null`) and `approval_carried` (a
+boolean). `human_approvers` is unchanged. In `peer_review` and `owner_review` modes an
+approval of an earlier head with unchanged branch content now satisfies the policy, so
+consumers that compared review commits with `head_sha` themselves should read
+`approved_head` instead. The attestation schema is unchanged.
 
 The command-line interface, configuration file, and attestation schema follow Semantic
 Versioning. The Python modules are internal and have no compatibility promise. While
@@ -118,6 +126,28 @@ field. It is accepted and ignored on load, and omitted on the next write. Other
 unknown attempt fields remain invalid. A pending source rebase that has not reached
 the recorded verified tree now becomes stale; restart preflight to validate the
 current source rather than resuming from that intermediate tree.
+
+## Grounding and command candidates
+
+Context grounding no longer emits generated `codeowners` entries. Other grounding
+sources and GitHub ownership policy are unchanged. Command detection no longer scrapes
+CI workflow `run:` lines; configured commands and manifest candidates remain supported.
+
+## Removal of trusted CI test authority
+
+The retired `[ci]` table is ignored when loading repository or user configuration,
+with a warning that tests now run locally. Historical attested configuration snapshots
+also ignore that table while retaining their original digest bindings.
+
+Attestation schema 7 is retained. Earlier `verified` notes may include null
+`publication_ready_at` and `test_delegation` fields; readers discard those null fields.
+Non-null declarations, `tests_pending` outcomes, and `delegated` attested stages are
+rejected for both local and publication verification. New notes contain only the
+`verified` outcome and complete local evidence.
+
+Historical run records discard the retired delegation field. Pending delegated runs
+become `ORPHANED` and require a new local validation run; pushed and terminal records
+remain readable for inspection and cleanup. Run history is preserved.
 
 ## Saved pending run updates
 

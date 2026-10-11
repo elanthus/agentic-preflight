@@ -118,13 +118,7 @@ def test_context_retrieves_all_repository_grounding_sources(grounded_repo):
     grounding = agent.run("context")["data"]["grounding"]
     entries = grounding["entries"]
 
-    codeowners = [entry for entry in entries if entry["kind"] == "codeowners"]
-    assert any(
-        entry["path"] == "src/app.py"
-        and entry["owners"] == ["@alice", "@bob"]
-        and entry["pattern"] == "/src/"
-        for entry in codeowners
-    )
+    assert all(entry["kind"] != "codeowners" for entry in entries)
     docs = [entry for entry in entries if entry["kind"] == "doc"]
     assert any(entry["source"] == "docs/adr/0001-app.md" for entry in docs)
     assert all(entry["source"] != "docs/unrelated.md" for entry in docs)
@@ -203,29 +197,6 @@ def test_grounding_ignores_a_finding_from_a_concurrent_run_on_another_branch(
     assert submitted["state"] == "REVIEW_GREEN"
 
 
-def test_codeowners_uses_the_first_file_and_last_matching_rule(feature_repo):
-    write(
-        feature_repo,
-        ".github/CODEOWNERS",
-        "/src/ @directory-owner\n/src/app.py @specific-owner\n",
-    )
-    write(feature_repo, "CODEOWNERS", "/src/ @ignored-owner\n")
-    commit_all(feature_repo, "add layered code ownership")
-
-    agent = ScriptedAgent(feature_repo)
-    agent.run("start")
-    entries = agent.run("context")["data"]["grounding"]["entries"]
-    owner = next(
-        entry
-        for entry in entries
-        if entry["kind"] == "codeowners" and entry["path"] == "src/app.py"
-    )
-
-    assert owner["source"] == ".github/CODEOWNERS"
-    assert owner["pattern"] == "/src/app.py"
-    assert owner["owners"] == ["@specific-owner"]
-
-
 def test_total_budget_keeps_whole_early_entries_and_reports_later_drops(feature_repo):
     _write_sources(feature_repo, context="max_bytes = 220\n")
     commit_all(feature_repo, "set a small context budget")
@@ -234,8 +205,7 @@ def test_total_budget_keeps_whole_early_entries_and_reports_later_drops(feature_
     agent.run("start")
     grounding = agent.run("context")["data"]["grounding"]
 
-    assert [entry["kind"] for entry in grounding["entries"]] == ["codeowners"]
-    assert grounding["dropped"]["doc"] >= 1
+    assert [entry["kind"] for entry in grounding["entries"]] == ["doc"]
     assert grounding["dropped"]["convention"] >= 1
     assert grounding["dropped"]["policy"] >= 1
     assert sum(entry["bytes"] for entry in grounding["entries"]) <= 220

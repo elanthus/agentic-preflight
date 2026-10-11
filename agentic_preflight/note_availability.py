@@ -24,6 +24,10 @@ DEFAULT_DELAYS = (2.0, 4.0, 8.0)
 GIT_TIMEOUT = 30.0
 _OID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 
+# Policy callback: the verified attestation plus a fetcher that supplies an earlier
+# approved head through its evidence ref, returning whether that commit is available.
+Evaluator = Callable[[Attestation, Callable[[str], bool]], dict[str, Any]]
+
 
 class HostedCheckFailed(attestation.InvalidAttestation):
     def __init__(self, message: str, *, reason: str, diagnostics: dict[str, Any]) -> None:
@@ -148,7 +152,7 @@ def _availability_attempt(
     prefix: str,
     refs: list[str],
     record: dict[str, Any],
-    evaluate: Callable[[Attestation], dict[str, Any]],
+    evaluate: Evaluator,
 ) -> tuple[dict[str, Any] | None, str]:
     """Fetch and evaluate one immutable availability candidate."""
     _freshness(source, head_ref, expected_head, record)
@@ -183,18 +187,35 @@ def _availability_attempt(
             )
         record["fetched_evidence_commits"] = []
         for sha in evidence_transport.missing(repo, decoded):
-            target = f"{prefix}/evidence/{sha}"
-            refs.append(target)
-            fetched = source.fetch(evidence_transport.ref_for(sha), target)
-            if fetched != sha:
-                raise attestation.InvalidAttestation(
-                    "Fetched evidence ref names a different commit", reason="commit_mismatch"
-                )
+            _fetch_evidence(source, sha, prefix=prefix, refs=refs)
             record["fetched_evidence_commits"].append(sha)
         value = attestation.verify_value(repo, decoded, expected_head, purpose="local")
-        result = evaluate(value)
+
+        def fetch_approved_head(sha: str) -> bool:
+            # An approved head that is not an ancestor of the PR head is reachable
+            # only through its evidence ref. Absence means no carryover, not failure.
+            if not re.fullmatch(r"[0-9a-f]{40}", sha):
+                return False
+            if source.advertised(evidence_transport.ref_for(sha)) is None:
+                return False
+            _fetch_evidence(source, sha, prefix=prefix, refs=refs)
+            record.setdefault("fetched_approved_heads", []).append(sha)
+            return True
+
+        result = evaluate(value, fetch_approved_head)
     _freshness(source, head_ref, expected_head, record, "completion_head")
     return result, "missing_note"
+
+
+def _fetch_evidence(source: RemoteNotes, sha: str, *, prefix: str, refs: list[str]) -> None:
+    """Fetch one commit through its evidence ref into a temporary, cleaned-up ref."""
+    target = f"{prefix}/evidence/{sha}"
+    if target not in refs:
+        refs.append(target)
+    if source.fetch(evidence_transport.ref_for(sha), target) != sha:
+        raise attestation.InvalidAttestation(
+            "Fetched evidence ref names a different commit", reason="commit_mismatch"
+        )
 
 
 def check(
@@ -204,7 +225,7 @@ def check(
     head_ref: str,
     expected_head: str,
     base_sha: str,
-    evaluate: Callable[[Attestation], dict[str, Any]],
+    evaluate: Evaluator,
     notes_ref: str = attestation.NOTES_REF,
     delays: tuple[float, ...] = DEFAULT_DELAYS,
     sleeper: Callable[[float], None] = time.sleep,

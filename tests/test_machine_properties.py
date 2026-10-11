@@ -57,16 +57,12 @@ def test_pushed_is_unreachable_without_lint_green():
     assert not _reachable_paths(State.CREATED, State.PUSHED, avoid={State.LINT_GREEN})
 
 
-def test_pushed_is_unreachable_without_tests_or_explicit_delegation():
-    assert not _reachable_paths(
-        State.CREATED, State.PUSHED, avoid={State.TEST_GREEN, State.TEST_DELEGATED}
-    )
+def test_pushed_is_unreachable_without_tests():
+    assert not _reachable_paths(State.CREATED, State.PUSHED, avoid={State.TEST_GREEN})
 
 
-def test_pushed_is_unreachable_without_verified_or_publication_ready():
-    assert not _reachable_paths(
-        State.CREATED, State.PUSHED, avoid={State.VERIFIED, State.PUBLICATION_READY}
-    )
+def test_pushed_is_unreachable_without_verified():
+    assert not _reachable_paths(State.CREATED, State.PUSHED, avoid={State.VERIFIED})
 
 
 def test_pushed_is_unreachable_without_the_gate():

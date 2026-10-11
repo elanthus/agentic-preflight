@@ -18,14 +18,6 @@ Original execution commits travel as data under
 exempt like tags, including replacement and deletion. Pushing an evidence object to
 a branch still requires valid publication evidence.
 
-For opt-in CI test delegation, the hook explicitly uses the publication predicate.
-It accepts the schema version 7 `tests_pending` outcome only after validating its local review/docs/lint evidence and
-protected-base delegation policy. Tests remain `delegated`, not green or skipped;
-the hook never waits for a CI run that cannot exist until the first push.
-The required `preflight merge readiness` check and `agentic-preflight ci status`
-combine current remote test evidence with local evidence and human approval before
-merge. A successful pre-push check alone does not establish merge readiness.
-
 ## Failure behavior
 
 The hook never touches the network and never mutates the repository. If

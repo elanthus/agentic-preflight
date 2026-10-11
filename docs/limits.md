@@ -11,12 +11,10 @@ subjects and messages, stage output and logs, review-command findings, and detec
 command candidates. Preserving that text verbatim is necessary for review and diagnosis,
 so the tool can label its source but cannot sanitize it into trustworthy instructions or
 decide whether an authorization claim embedded in it is genuine.
-The `excerpt`, `content`, `owners`, and `title` fields in `data.grounding` are the same
+The `excerpt`, `content`, and `title` fields in `data.grounding` are the same
 class of repository-controlled input.
 
-Detected commands include their source. Workflow `run:` lines have a source
-beginning with `untrusted:workflow:`. No detected
-candidate is copied into `next.command`; the agent must show the exact command to the user
+Detected commands include their source. No detected candidate is copied into `next.command`; the agent must show the exact command to the user
 and obtain approval before first use. The gate keeps the live confirmation token only in
 `data.token`, while gate and push dry-run envelopes use a `<token>` placeholder in
 `next.command`; the agent replaces it from the gate data only after authorization.
@@ -77,8 +75,7 @@ judgment calls were recorded along the way. Command review additionally carries 
 and redacted output digest. Derived stages preserve those original executions and
 record why their evidence applies to the new exact commit. Excluded files remain
 explicitly outside that coverage. Skipped stages record a reason, not a successful
-execution. A publication-ready record with delegated tests is not a green local test
-run; current remote results must be checked separately with `ci status`.
+execution.
 
 It does not prove the review was good or that the agent understood every unit it marked
 clean. The same diff reviewed twice can yield different findings. Treat the attestation as

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
@@ -31,21 +32,6 @@ def verify(sha: str | None, purpose: Literal["local", "publish"]) -> None:
         try:
             value = attestationmod.verify(repo_root, sha, purpose=purpose)
         except (attestationmod.InvalidAttestation, GitError) as exc:
-            if isinstance(exc, attestationmod.DelegatedTestsPending):
-                raise AttestationFailed(
-                    str(exc),
-                    data={
-                        "purpose": purpose,
-                        "test_status": "delegated_pending",
-                        "merge_requirements_satisfied": False,
-                    },
-                    next_instruction=(
-                        "Retrieve current trusted CI evidence with "
-                        "agentic-preflight ci status --repo OWNER/REPO --pr N, "
-                        "replacing OWNER/REPO and N with the repository and PR number. "
-                        "Do not repeat local review merely because tests are pending."
-                    ),
-                ) from exc
             raise _evidence_failure(
                 exc, {"sha": sha, "notes_ref": attestationmod.NOTES_REF}
             ) from exc
@@ -145,7 +131,8 @@ def _finish_approval(result: dict, *, report_only: bool) -> None:
             )
         elif mode == "owner_review":
             message = (
-                "high-risk pull request requires the configured owner review for its exact head"
+                "high-risk pull request requires the configured owner review for its current "
+                "content"
             )
             instruction = (
                 "Ask the configured reviewer to approve the current head, or submit a "
@@ -154,7 +141,7 @@ def _finish_approval(result: dict, *, report_only: bool) -> None:
             )
         else:
             message = (
-                "high-risk pull request requires an eligible human approval for its exact head"
+                "high-risk pull request requires an eligible human approval for its current content"
             )
             instruction = (
                 "Ask an eligible human other than the pull-request author to review and "
@@ -203,7 +190,7 @@ def hosted_check(
                 "Cannot read reviews JSON", data={"reason": "invalid_reviews"}
             ) from exc
 
-    def evaluate(value: Attestation) -> dict:
+    def evaluate(value: Attestation, fetch_approved_head: Callable[[str], bool]) -> dict:
         if mode == "verify":
             return {
                 "verified": True,
@@ -220,6 +207,7 @@ def hosted_check(
             reviews=reviews,
             pull_request_author=author or "",
             environment_approved=environment_approved,
+            fetch_commit=fetch_approved_head,
         )
 
     try:

@@ -31,11 +31,12 @@ For changes requiring human approval, treat approval of an exact PR head as the 
 readiness step. Routine documentation that accurately reflects reviewed implementation
 does not require owner approval solely because it edits skill or reference material.
 Changes to authorization, approval enforcement, or bypass rules require the configured
-owner to approve the exact final head, including instruction-only changes and changes
-with a `clear` automated risk verdict. Identify that requirement in the PR and wait for
-approval before merging; see CONTRIBUTING.md. For a batch,
-choose the merge order, complete preceding merges, and refresh the next PR to the
-latest base before requesting approval. Do not request approval on every intermediate
+owner to approve the final PR content, including instruction-only changes and changes
+with a `clear` automated risk verdict. An earlier approval is sufficient only when the
+hosted approval check reports `approval_carried` after a clean merge from the base or a
+clean rebase. Identify that requirement in the PR and wait for approval before merging;
+see CONTRIBUTING.md. For a batch, choose the merge order, complete preceding merges,
+and refresh the next PR to the latest base before requesting approval. Do not request approval on every intermediate
 push or batch approval for heads known to need further base updates.
 
 Before requesting approval, complete requested, internal, and automated reviews,
@@ -44,9 +45,10 @@ and expected reviews to finish. A rate-limited review is still pending. Immediat
 before the request, check unresolved comments and confirm the current head and base.
 
 After approval, avoid optional changes. If a necessary fix or base change moves the
-head, revalidate and explain why fresh review is needed. Never bypass the policy or
-approve your own work. Chat authorization to merge permits the operation; it does
-not replace the approval required by GitHub policy.
+head, revalidate. A clean merge from the base or a clean rebase keeps the approval when
+the hosted check reports `approval_carried`; otherwise explain why fresh review is
+needed. Never bypass the policy or approve your own work. Chat authorization to merge
+permits the operation; it does not replace the approval required by GitHub policy.
 
 ## Layout
 

@@ -14,9 +14,8 @@ workflow or diagnosing an interrupted run.
 sync -- fetch, rebase, or Git failure --> SYNC_CONFLICT -> abort
 sync -- setup failure --> SETUP_FAILED -> abort
   \-- setup passes --> review -> documentation -> lint -> local tests -> merge-back -> VERIFIED
-                                               \-> delegated tests -> merge-back -> PUBLICATION_READY
 
-VERIFIED or PUBLICATION_READY -> gate -> push -> finish
+VERIFIED -> gate -> push -> finish
 ```
 
 Review and documentation findings can block progress. Failed shell stages retry
@@ -24,19 +23,17 @@ within their attempt limits; committed repairs require renewed review. A run who
 validation returns to review `[stage] max_restarts` times stops for a person, and only
 closing transitions remain legal. Disabled
 documentation and inapplicable local tests use explicit skip transitions and retain
-their reasons. Delegated tests remain pending: publication readiness does not
-establish merge readiness.
+their reasons.
 
 | Obligation | Owner | What establishes it |
 | --- | --- | --- |
-| Required stages occur in order | `machine.py` | Legal `(state, action)` pairs; graph reachability tests include explicit skips and delegation |
+| Required stages occur in order | `machine.py` | Legal `(state, action)` pairs; graph reachability tests include explicit skips |
 | An action has sufficient evidence | `runs/review.py`, `runs/resolve.py`, `runs/stages.py` | Validated submissions, finding dispositions, command results and coordinator preconditions |
 | Evidence applies to current inputs | `runs/review_coverage.py`, `runs/evidence.py`, `refresh_validation.py` | Snapshot bindings, declared input fingerprints and conservative applicability decisions |
 | Concurrent commands do not overwrite a run | `cli_support.py`, `store.py` | Per-run operation locks, record locks, an events lock for appends, and optional sequence checks |
 | Each local record replacement is atomic | `store.py` | Findings are replaced before the run under the record lock; the pair is best-effort across interruption |
 | Source content matches completed validation | `runs/mergeback.py` | Recorded attempt inputs and Git tree equality; changed resolutions reopen review |
 | Publication has the required evidence | `runs/publish.py`, `attestation.py` | Freshness and attestation checks before an atomic branch/notes push |
-| Delegated tests and approval permit merge | `ci_authority.py`, `ci_merge.py` | Current integration candidate, trusted CI attempt and protected approval policy |
 
 Duplicate actions within a state declaration are rejected before construction of
 the transition dictionary. Exhaustive reachability tests prove the ordering
