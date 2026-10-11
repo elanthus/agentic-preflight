@@ -33,7 +33,7 @@ establish merge readiness.
 | An action has sufficient evidence | `runs/review.py`, `runs/resolve.py`, `runs/stages.py` | Validated submissions, finding dispositions, command results and coordinator preconditions |
 | Evidence applies to current inputs | `runs/review_coverage.py`, `runs/evidence.py`, `refresh_validation.py` | Snapshot bindings, declared input fingerprints and conservative applicability decisions |
 | Concurrent commands do not overwrite a run | `cli_support.py`, `store.py` | Per-run operation locks, record locks, an events lock for appends, and optional sequence checks |
-| Related run and finding changes recover together | `store.py` | A committed update journal and recovery before either record is read |
+| Each local record replacement is atomic | `store.py` | Findings are replaced before the run under the record lock; the pair is best-effort across interruption |
 | Source content matches completed validation | `runs/mergeback.py` | Recorded attempt inputs and Git tree equality; changed resolutions reopen review |
 | Publication has the required evidence | `runs/publish.py`, `attestation.py` | Freshness and attestation checks before an atomic branch/notes push |
 | Delegated tests and approval permit merge | `ci_authority.py`, `ci_merge.py` | Current integration candidate, trusted CI attempt and protected approval policy |
@@ -58,33 +58,23 @@ kept outside the enum because it can annotate many states and always means
 Finding submission, finding disposition and evidence import update findings and
 run state together through `Store.transaction(..., findings=...)`:
 
-1. Hold the run-record lock and finish any pending update.
-2. Prepare the complete new run and findings records without changing either file.
-3. Atomically publish `pending-update.json`. This is the logical commit point.
-4. Install `findings.json` and `run.json`, then remove the journal.
+1. Hold the run-record lock.
+2. Prepare and validate the new run without changing either file.
+3. Atomically replace `findings.json`, then `run.json`.
 
-Before the journal is published, failure leaves the prior records intact. After
-publication, an installation error may mean the update committed even though the
-CLI returned an error. The next store read or transaction validates the retained
-journal and finishes installation under the same lock before returning a record.
-Recovery checks run identity and sequence to avoid applying a journal over an
-unrelated or newer record. Invalid or unreadable journals remain available for
-inspection and prevent reads from returning partial state.
-
-If a submission committed before interruption, repeating `submit-findings` is
-rejected because the stage already advanced. Run `status` and continue from its
-next command; the retry does not append the same findings again. This provides
-recovery of the committed effect, not a replay of the original response envelope.
-
-Individual file replacements and the journal use flushed, synchronized temporary
-files. These guarantees cover process interruption and recoverable I/O failures;
-they are not a claim of recovery from arbitrary filesystem corruption or power
-loss. Events and reviewer-comparison artifacts are separate diagnostic records and
-can be absent after interruption. They are not a transaction log used to rebuild
-authoritative run state.
+An exception in the transaction body leaves both records unchanged. Individual
+replacements use flushed, synchronized temporary files. A failure between the two
+replacements can leave new findings alongside the previous run state and sequence;
+the next read returns the saved records without automatic roll-forward recovery.
+Run `status` after an interruption and inspect the findings before continuing.
+The next `start` retires interrupted legacy runs identified by a pending journal
+and starts fresh while preserving user work; see
+[compatibility](../COMPATIBILITY.md#saved-pending-run-updates).
+Events and reviewer-comparison artifacts are separate diagnostic records and may
+also be absent after interruption. They do not automatically rebuild run state.
 
 Use store APIs when inspecting active records. Reading the JSON files directly
-can observe an interrupted installation. Each API read is protected, but separate
+can observe an in-progress installation. Each API read is protected, but separate
 read calls are not a shared snapshot across concurrent commands.
 
 ## Git side effects and retry
@@ -118,15 +108,15 @@ does not authenticate who produced the current Git history. An in-progress Git
 sequence or an unknown intermediate tree is not treated as a completed merge-back.
 
 `status` is an inspection and recovery command, not a read-only endpoint. Store
-reads can finish committed local updates; status can also discover/import reusable
+reads return saved local records; status can discover/import reusable
 evidence and release terminal ownership pointers. It does not complete a pending
 merge-back itself: it directs the caller to `mergeback` for reconciliation.
 
 ## Saved-record boundary and limits
 
 Run storage requires schema version 2. Any other schema is rejected with a diagnostic;
-the record, its worktree, branch, and ownership pointers remain untouched. The journal
-is local storage only; portable attestations use schema version 7.
+the record, its worktree, branch, and ownership pointers remain untouched. Portable
+attestations use schema version 7.
 
 Review coverage records a snapshot-bound assertion that every delivered unit was
 examined. It does not prove understanding or defect detection. Git notes remain
