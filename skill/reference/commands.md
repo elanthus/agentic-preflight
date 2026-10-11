@@ -83,7 +83,11 @@ A nonterminal run with a legacy `pending-update.json` is instead orphaned at the
 audit record and user work remain for normal safe cleanup. `status` reports
 `data.interrupted_legacy_update: true` and directs these runs to `start` without
 importing evidence; validation commands exit 3 (`wrong_state`) rather than continuing
-them. Completed history and runs without a journal are unaffected.
+them. Restart guidance identifies the recorded source worktree. At the validation
+restart limit, the existing human stop takes precedence: no restart command is
+advertised, and direct `start` refuses the interrupted run until the user decides
+to abort it. Explicit `abort` remains available. Completed history and runs without
+a journal are unaffected.
 A moved source head orphans the stale run without deleting its evidence or fixes and then
 starts fresh. On an unchanged head, a different intent or configuration requires
 `--replace`, which preserves the replaced run as `ORPHANED`. Age alone never expires a

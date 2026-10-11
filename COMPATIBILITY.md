@@ -127,7 +127,9 @@ interrupted nonterminal run with `pending-update.json` cannot resume validation:
 
 On the next `start` in that run's source worktree, the tool orphans the interrupted
 run, clears its ownership pointers, deletes only its pending journal, and creates
-a fresh run. This happens when starting validation, not when installing the package.
+a fresh run, unless the validation restart limit has already been reached. At
+that limit, the existing human stop remains: only the user may decide to abort
+and restart. This happens when starting validation, not when installing the package.
 The old audit record, validation worktree and any fix commits remain available for
 normal safe cleanup with `gc`; no user work is deleted by the upgrade. Completed
 history and nonterminal runs without a pending journal are unchanged. Unreadable

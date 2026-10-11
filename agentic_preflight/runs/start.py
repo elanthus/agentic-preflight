@@ -34,6 +34,7 @@ from . import evidence
 from ._session import (
     Session,
     _apply,
+    _check_restart_limit,
     _envelope_for,
     _interrupted_legacy_update,
     _new_run_id,
@@ -197,6 +198,7 @@ def _resolve_existing_run(ctx: _StartContext, *, replace: bool) -> Envelope | No
                         next_command="agentic-preflight status",
                     )
                 if _interrupted_legacy_update(session, existing):
+                    _check_restart_limit(existing)
                     _orphan(
                         session, existing, reason="interrupted legacy update", discard_pending=True
                     )

@@ -235,6 +235,26 @@ def test_start_retires_interrupted_legacy_validation_and_preserves_work(agent, f
     assert first["run_id"] not in session.store.list_active().values()
 
 
+def test_interrupted_legacy_restart_guidance_identifies_source_worktree(agent, feature_repo):
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(feature_repo, "use strict validation")
+    first = agent.run("start")
+    session = runs.open_session(feature_repo)
+    journal = session.store.run_dir(first["run_id"]) / "pending-update.json"
+    journal.write_text("legacy update")
+    validation = ScriptedAgent(Path(first["data"]["worktree_path"]))
+
+    for result in (
+        validation.run("status"),
+        validation.run("context", expect=ExitCode.PRECONDITION),
+    ):
+        assert result["data"]["source_worktree_path"] == str(feature_repo)
+        assert str(feature_repo) in result["next"]["instruction"]
+        assert "source worktree" in result["next"]["instruction"]
+        assert " start " in result["next"]["command"]
+    assert journal.read_text() == "legacy update"
+
+
 def test_start_preserves_completed_legacy_history_and_journal(agent, feature_repo):
     first = agent.run("start")
     store = runs.open_session(feature_repo).store

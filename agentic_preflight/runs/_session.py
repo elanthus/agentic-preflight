@@ -282,7 +282,7 @@ def _interrupted_legacy_update(session: Session, run: RunDoc) -> bool:
     )
 
 
-def _load_current(session: Session) -> RunDoc:
+def _load_current(session: Session, *, allow_interrupted: bool = False) -> RunDoc:
     run_id = session.active_run_id()
     if not run_id:
         raise NoRun()
@@ -290,13 +290,22 @@ def _load_current(session: Session) -> RunDoc:
         run = session.store.load_run(run_id)
     except UnknownRun as exc:
         raise NoRun(f"current run {run_id} is missing from the store") from exc
-    if _interrupted_legacy_update(session, run):
+    if not allow_interrupted and _interrupted_legacy_update(session, run):
+        stopped = _restart_limit_reached(run)
         raise WrongState(
-            "This run has an interrupted update from an older version; start a fresh run.",
+            "This run has an interrupted update from an older version; validation cannot continue.",
             state=run.state.value,
             run_id=run.run_id,
-            next_instruction="Run start to discard the interrupted validation and restart.",
-            next_command=_start_command(
+            data={"source_worktree_path": run.source_worktree_path, "needs_human": stopped},
+            next_instruction=(
+                RESTART_LIMIT_INSTRUCTION
+                if stopped
+                else f"Run start from the source worktree {run.source_worktree_path} "
+                "to discard the interrupted validation and restart."
+            ),
+            next_command=None
+            if stopped
+            else _start_command(
                 run.intent, base_ref=run.base_ref, default_base_ref=session.config.general.base_ref
             ),
         )
