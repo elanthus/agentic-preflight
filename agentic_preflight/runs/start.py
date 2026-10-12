@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
-from .. import gitx, housekeeping, risk, worktree
+from .. import gitx, housekeeping, worktree
 from .. import sync as syncmod
 from ..config import Config, config_digest, load_config
 from ..envelope import Envelope
@@ -34,6 +34,7 @@ from . import evidence
 from ._session import (
     Session,
     _apply,
+    _assess,
     _check_restart_limit,
     _envelope_for,
     _interrupted_legacy_update,
@@ -539,13 +540,7 @@ def _run_setup_command(ctx: _StartContext) -> _StartContext:
         if ctx.in_place
         else worktree.copy_files(ctx.repo, wt_path, ctx.cfg.worktree.copy_files)
     )
-    assessment = risk.assess(
-        changed,
-        [],
-        policy=ctx.cfg.policy,
-        review_blocking_severities=ctx.cfg.review.blocking_severities,
-        docs_blocking_severities=ctx.cfg.docs.blocking_severities,
-    )
+    assessment = _assess(ctx.session, changed, [])
 
     # Persist copied paths before setup so an abort after a failed command still
     # removes secret-bearing copies from a reusable runner.

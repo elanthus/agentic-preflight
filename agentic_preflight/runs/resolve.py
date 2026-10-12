@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from .. import findings as findingsmod
 from .. import gitx, worktree
-from .. import risk as riskmod
 from ..envelope import Envelope
 from ..errors import (
     DirtyTree,
@@ -18,13 +17,15 @@ from ._session import (
     Session,
     _apply,
     _assert_fresh,
+    _assess,
+    _blocking_severities,
     _envelope_for,
+    _findings_next_hint,
     _is_in_place,
     _load_current,
     _require_finding_stage,
     _require_state,
     _require_worktree,
-    _respond_command,
     _start_command,
 )
 from .review import _skip_docs_if_disabled
@@ -130,13 +131,7 @@ def respond(
         run.merge_base_sha,
         "HEAD",
     )
-    assessment = riskmod.assess(
-        changed_files,
-        stored,
-        policy=session.config.policy,
-        review_blocking_severities=session.config.review.blocking_severities,
-        docs_blocking_severities=session.config.docs.blocking_severities,
-    )
+    assessment = _assess(session, changed_files, stored)
 
     responded_from_green = False
     with session.store.transaction(run.run_id, findings=stored) as doc:
@@ -182,11 +177,7 @@ def respond(
             )
 
     stage = active_stage
-    severities = (
-        session.config.review.blocking_severities
-        if stage is Stage.REVIEW
-        else session.config.docs.blocking_severities
-    )
+    severities = _blocking_severities(session, stage)
     stage_findings = [finding for finding in stored if finding.stage is stage]
     remaining = findingsmod.blocking(stage_findings, blocking_severities=severities)
     actionable = findingsmod.actionable(stage_findings)
@@ -203,20 +194,15 @@ def respond(
         },
         blocking=[f.model_dump(mode="json") for f in remaining],
     )
-    if remaining:
-        next_finding = remaining[0]
-        envelope.next_instruction = "Keep responding until nothing blocks, then verify."
-        envelope.next_command = _respond_command(next_finding.id)
-    else:
-        if actionable:
-            envelope.next_instruction = (
-                "This stage is green, but an auto-fix finding is still open. Fix it, "
-                "or record why it is not worth fixing with `--action accepted --note`."
-            )
-            envelope.next_command = _respond_command(actionable[0].id)
-        elif run.state in (State.REVIEW_BLOCKED, State.DOCS_BLOCKED):
-            envelope.next_instruction = "Nothing blocks this stage any more. Verify it."
-            envelope.next_command = "agentic-preflight verify"
+    _findings_next_hint(
+        envelope,
+        remaining,
+        actionable,
+        blocking_instruction="Keep responding until nothing blocks, then verify.",
+    )
+    if not remaining and not actionable and run.state in (State.REVIEW_BLOCKED, State.DOCS_BLOCKED):
+        envelope.next_instruction = "Nothing blocks this stage any more. Verify it."
+        envelope.next_command = "agentic-preflight verify"
     return envelope
 
 

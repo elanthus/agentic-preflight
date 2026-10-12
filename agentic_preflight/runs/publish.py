@@ -16,6 +16,7 @@ from ._session import (
     Session,
     _apply,
     _assert_fresh,
+    _assess,
     _envelope_for,
     _load_current,
     _release_run_worktree,
@@ -24,6 +25,19 @@ from ._session import (
     _worktree_mode,
 )
 from .mergeback import _remote_for
+
+
+def _push_refspecs(branch: str) -> list[str]:
+    return [f"{branch}:{branch}", f"{NOTES_REF}:{NOTES_REF}"]
+
+
+def _push_commands(evidence_refspecs: list[str], refspecs: list[str]) -> list[str]:
+    """Describe the same dependency-first atomic pushes used for publication."""
+    return [
+        shlex.join(["git", "push", "--atomic", "origin", *group])
+        for group in (evidence_refspecs, refspecs)
+        if group
+    ]
 
 
 def gate(session: Session) -> Envelope:
@@ -42,20 +56,14 @@ def gate(session: Session) -> Envelope:
         run.merge_base_sha,
         run.head_sha,
     )
-    assessment = riskmod.assess(
-        changed_files,
-        session.store.load_findings(run.run_id),
-        policy=session.config.policy,
-        review_blocking_severities=session.config.review.blocking_severities,
-        docs_blocking_severities=session.config.docs.blocking_severities,
-    )
+    assessment = _assess(session, changed_files, session.store.load_findings(run.run_id))
     try:
         portable = attestationmod.verify(session.repo_root, run.head_sha, purpose="publish")
     except (attestationmod.InvalidAttestation, gitx.GitError):
         portable = None
     if portable is not None:
         assessment = riskmod.include_attested_findings(assessment, portable.findings_summary)
-    refspecs = [f"{run.branch}:{run.branch}", f"{NOTES_REF}:{NOTES_REF}"]
+    refspecs = _push_refspecs(run.branch)
     evidence_refspecs = []
     if portable is not None:
         evidence_refspecs = evidence_transport.refspecs(portable)
@@ -83,11 +91,7 @@ def gate(session: Session) -> Envelope:
             run_id=run.run_id,
             data={
                 **summary.as_dict(),
-                "manual_command": " && ".join(
-                    shlex.join(["git", "push", "--atomic", "origin", *group])
-                    for group in (evidence_refspecs, refspecs)
-                    if group
-                ),
+                "manual_command": " && ".join(_push_commands(evidence_refspecs, refspecs)),
             },
             next_instruction=(
                 "Show the user this summary and data.manual_command, then stop; the user "
@@ -150,11 +154,7 @@ def gate(session: Session) -> Envelope:
         run,
         data={
             **summary.as_dict(),
-            "push_commands": [
-                shlex.join(["git", "push", "--atomic", "origin", *group])
-                for group in (evidence_refspecs, refspecs)
-                if group
-            ],
+            "push_commands": _push_commands(evidence_refspecs, refspecs),
         },
         next_instruction=(
             "Apply https://github.com/elanthus/agentic-preflight/blob/main/skill/SKILL.md#escalation-etiquette and its authorization rule to this "
@@ -190,10 +190,7 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
         portable = attestationmod.verify(session.repo_root, run.head_sha, purpose="publish")
     except (attestationmod.InvalidAttestation, gitx.GitError) as exc:
         raise AttestationFailed(str(exc), next_command="agentic-preflight status") from exc
-    refspecs = [
-        f"{run.branch}:{run.branch}",
-        f"{NOTES_REF}:{NOTES_REF}",
-    ]
+    refspecs = _push_refspecs(run.branch)
     evidence_refspecs = evidence_transport.refspecs(portable)
 
     if dry_run:
@@ -201,11 +198,7 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
             run,
             data={
                 "dry_run": True,
-                "would_push": " && ".join(
-                    shlex.join(["git", "push", "--atomic", "origin", *group])
-                    for group in (evidence_refspecs, refspecs)
-                    if group
-                ),
+                "would_push": " && ".join(_push_commands(evidence_refspecs, refspecs)),
                 "branch": run.branch,
                 "base_ref": run.base_ref,
                 "pr_mode": session.config.pr.mode,

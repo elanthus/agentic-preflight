@@ -1,0 +1,1 @@
+- Consolidated equivalent run risk assessments, finding-resolution hints, and publication command/refspec builders without changing stage ordering, policy selection, push ordering, or recovery responses.
