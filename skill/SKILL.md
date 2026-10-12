@@ -167,7 +167,7 @@ stops — do not improvise a recovery from the symptom alone.
 | Merge-back conflict (exit 4, isolated modes only) | Inspect and show `data.resolution`; resolve only an unambiguous, recoverable result permitted by the merge-back contract, then re-run `mergeback`, or stop |
 | Stage red after max attempts (exit 4) | Stop retrying; show a stage log, or abort if baseline setup never produced one |
 | Validation restarted too many times (exit 4, `max_restarts`) | Stop repairing; show `status` and wait for the user. Never abort and restart on your own to reset the counter |
-| Hosted attestation availability failure | Read the structured reason; retry only remote absence with the trusted bounded helper |
+| Hosted attestation fetch or verification failure | Inspect source fetch failures; read the offline verifier reason and restore exact-head evidence |
 | Hosted CI failed | Inspect the failure; unchanged-source CI reruns preserve local evidence, while source repairs revalidate affected stages |
 | Stale head (exit 3, `stale_run`) | Run `start` again; it preserves the old run as `ORPHANED` |
 | Interrupted legacy update | Follow `status` from the recorded source worktree; below the restart limit, `start` retires interrupted validation and discards its journal while preserving audit history and user work. At the limit, stop for the user’s abort/restart decision |

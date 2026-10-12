@@ -46,8 +46,6 @@ def test_protected_workflow_configuration(filename, job, head_variable):
     )
     for variable, field in {
         head_variable: "head.sha",
-        "BASE_SHA": "base.sha",
-        "HEAD_REF": "head.ref",
         "HEAD_REPOSITORY": "head.repo.full_name",
         "HEAD_REPOSITORY_URL": "head.repo.clone_url",
     }.items():
@@ -104,7 +102,14 @@ def run_step(tmp_path):
         pytest.skip("Bash and jq are required to execute the Linux workflow steps")
 
     def run(
-        filename, *, code=0, fork=False, mode="manual_merge", auto_merge=False, environment=True
+        filename,
+        *,
+        code=0,
+        fork=False,
+        mode="manual_merge",
+        auto_merge=False,
+        environment=True,
+        fetch_code=0,
     ):
         payload = {
             "ok": code == 0,
@@ -114,7 +119,6 @@ def run_step(tmp_path):
                 "approval_mode": mode,
                 "approval_environment": "high-risk-review",
                 "requires_human_approval": True,
-                "availability": {"expected_head": HEAD, "base_sha": BASE},
             },
         }
         (tmp_path / "response.json").write_text(json.dumps(payload))
@@ -148,7 +152,10 @@ agentic-preflight() {
   cat response.json
   return "$TEST_EXIT"
 }
-git() { printf '%s\n' "$@" >> git-args.txt; }
+git() {
+  printf '%s\n' "$@" >> git-args.txt
+  if [ "$1" = "fetch" ]; then return "$TEST_FETCH_EXIT"; fi
+}
 gh() {
   printf '%s\n' "$@" >> gh-args.txt
   case "$*" in
@@ -172,6 +179,7 @@ GITHUB_OUTPUT=output.txt
             "PR_AUTHOR": "author",
             "PR_NUMBER": "88",
             "TEST_EXIT": str(code),
+            "TEST_FETCH_EXIT": str(fetch_code),
             "TEST_AUTO_MERGE": str(auto_merge).lower(),
         }
         result = subprocess.run(
@@ -216,24 +224,27 @@ def test_success_passes_fixed_event_and_resolved_fork_remote(run_step, filename,
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["ok"] is True
     args = (path / "helper-args.txt").read_text().splitlines()
-    assert args[:2] == ["hosted-check", HEAD]
-    assert args[args.index("--base") + 1] == BASE
-    assert args[args.index("--head-ref") + 1] == "refs/heads/" + BRANCH
-    assert args[args.index("--source-remote") + 1] == (
-        "preflight-contributor" if fork else "origin"
-    )
+    assert args[:2] == ["verify" if filename == "ci.yml" else "approval-check", HEAD]
     assert not (path / "injected").exists()
+    git_args = (path / "git-args.txt").read_text().splitlines()
     if fork:
-        assert (path / "git-args.txt").read_text().splitlines() == [
+        assert git_args[:4] == [
             "remote",
             "add",
             "preflight-contributor",
             "https://github.com/contributor/project.git",
         ]
-    else:
-        assert not (path / "git-args.txt").exists()
+    assert git_args[4 if fork else 0 :] == [
+        "fetch",
+        "--no-tags",
+        "--",
+        "preflight-contributor" if fork else "origin",
+        HEAD,
+        "+refs/notes/agentic-preflight:refs/notes/agentic-preflight",
+        "+refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*",
+    ]
     if filename == "human-approval.yml":
-        assert args[args.index("--mode") + 1] == "approval"
+        assert args[args.index("--base") + 1] == BASE
         assert "--report-only" in args
         assert (path / "output.txt").read_text().splitlines() == [
             "approved=true",
@@ -243,6 +254,16 @@ def test_success_passes_fixed_event_and_resolved_fork_remote(run_step, filename,
         ]
     else:
         assert "--mode" not in args
+
+
+@pytest.mark.parametrize("filename", ["ci.yml", "human-approval.yml"])
+@pytest.mark.parametrize("fork", [True, False])
+def test_fetch_failure_stops_before_verification_or_approval(run_step, filename, fork):
+    result, path = run_step(filename, fork=fork, fetch_code=128)
+    assert result.returncode == 128
+    assert not (path / "helper-calls.txt").exists()
+    assert not (path / "gh-args.txt").exists()
+    assert (path / "output.txt").read_text() == ""
 
 
 def test_auto_merge_remains_blocked(run_step):

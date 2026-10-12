@@ -24,9 +24,9 @@ from ..errors import (
 from ..errors import (
     OperationInProgress as OperationInProgressError,
 )
+from ..gitx import redact_remote_credentials
 from ..machine import TERMINAL_STATES, Action, State
 from ..models import RiskAssessment, RunDoc, SetupFailure
-from ..note_availability import redact_remote_credentials
 from ..stages import shellstage
 from ..stages.protected_output import OutputProtection
 from ..store import CurrentRunExists, UnknownRun

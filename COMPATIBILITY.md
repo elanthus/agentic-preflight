@@ -74,7 +74,7 @@ consumers should use `path`, `size`, `touched_by_diff`, and candidate `source`. 
 candidates come from supported project manifests; workflow run lines are no longer
 detected. Attestation fingerprints are unchanged.
 
-`approval-check` and `hosted-check --mode approval` results add `approved_head` (the
+`approval-check` results add `approved_head` (the
 commit the counted review was submitted on, or `null`) and `approval_carried` (a
 boolean). `human_approvers` is unchanged. In `peer_review` and `owner_review` modes an
 approval of an earlier head with unchanged branch content now satisfies the policy, so
@@ -174,3 +174,9 @@ The repository workflows now share a narrowly scoped Dependabot eligibility chec
 Eligible Python patch/minor updates skip local-attestation verification and satisfy
 the hosted approval gate; existing required check names remain available. Other PRs
 retain their prior gates. See `docs/attestations-and-ci.md`.
+
+## Hosted verification command removal
+
+The `hosted-check` command was removed. Hosted callers fetch the exact head, notes,
+and evidence refs from the contributor remote, then call offline `verify` or
+`approval-check`; per-attempt availability diagnostics are no longer emitted.
