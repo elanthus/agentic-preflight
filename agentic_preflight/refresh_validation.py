@@ -7,7 +7,7 @@ from pathlib import Path
 
 from . import diff, findings, gitx, risk
 from .config import Config, snapshot_config
-from .digests import json_digest
+from .digests import json_digest, sha256_text
 from .fingerprints import (
     FINGERPRINT_VERSION,
     Disposition,
@@ -149,9 +149,7 @@ def _verify_fingerprint(
 
 def json_digest_command(command: str) -> str:
     """Return the SHA-256 hex digest of a command string."""
-    import hashlib
-
-    return hashlib.sha256(command.encode()).hexdigest()
+    return sha256_text(command)
 
 
 def verify_stage(

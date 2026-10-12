@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from . import gitx
@@ -39,14 +39,7 @@ class SyncResult:
     rebased: bool
 
     def as_dict(self) -> dict[str, str | bool | None]:
-        return {
-            "remote": self.remote,
-            "base_ref": self.base_ref,
-            "base_sha": self.base_sha,
-            "head_before": self.head_before,
-            "head_after": self.head_after,
-            "rebased": self.rebased,
-        }
+        return asdict(self)
 
 
 def _origin_base_ref(base_ref: str) -> tuple[str, str]:

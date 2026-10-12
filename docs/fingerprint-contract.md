@@ -34,6 +34,10 @@ Review binds base/head trees, included diff bytes, exclusions, delivered groundi
 `[general]`, `[review]`, `[policy]`, `[context]`, `[diff]`, and `[stage]` sections.
 The last section governs command-review timeouts and retries.
 
+Intent and shell-command digests hash the exact UTF-8 text bytes without
+normalizing whitespace or Unicode. Configuration and documentation-surface
+digests hash JSON with sorted keys and compact separators.
+
 Docs binds base/head trees, intent, grounding, documentation content, and
 `[general]`, `[docs]`, `[diff]`, `[context]`, and `[policy]`. Its digest includes
 every inventory entry's complete bytes, path, existence, size, and whether the
