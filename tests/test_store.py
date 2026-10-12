@@ -32,11 +32,10 @@ def test_removed_pr_lifecycle_document_is_rejected_as_earlier_release(store):
     )
     store.run_path("r_abc123").write_text(json.dumps(raw))
 
-    with pytest.raises(RunReadError, match="earlier release") as caught:
+    with pytest.raises(RunReadError, match="invalid or unsupported") as caught:
         store.load_run("r_abc123")
 
-    assert "associated work have been retained unchanged" in str(caught.value)
-    assert "compatible tool version" in str(caught.value)
+    assert caught.value.reason == "invalid"
 
 
 def test_schema_version_one_document_is_rejected_as_earlier_release(store):
@@ -46,11 +45,10 @@ def test_schema_version_one_document_is_rejected_as_earlier_release(store):
     raw["schema_version"] = 1
     path.write_text(json.dumps(raw))
 
-    with pytest.raises(RunReadError, match="earlier release") as caught:
+    with pytest.raises(RunReadError, match="invalid or unsupported") as caught:
         store.load_run("r_abc123")
 
-    assert "associated work have been retained unchanged" in str(caught.value)
-    assert "compatible tool version" in str(caught.value)
+    assert caught.value.reason == "invalid"
 
 
 @pytest.mark.parametrize(
@@ -72,8 +70,7 @@ def test_invalid_run_versions_are_classified_and_preserved(store, schema_version
     with pytest.raises(RunReadError) as caught:
         store.load_run(run.run_id)
 
-    assert caught.value.reason == "invalid_or_unsupported_schema"
-    assert caught.value.details()["fields"][0]["location"] == ["schema_version"]
+    assert caught.value.reason == "invalid"
     assert "DO_NOT_ECHO_RECORD_VALUES" not in json.dumps(caught.value.details())
     assert path.read_bytes() == original
 
@@ -259,19 +256,10 @@ def test_unreadable_run_errors_are_classified_without_values(store, kind):
     with pytest.raises(RunReadError) as caught:
         store.load_run(run.run_id)
     details = caught.value.details()
-    assert details["reason"] == (
-        "invalid_or_unsupported_schema" if kind in {"unknown_field", "invalid_value"} else kind
-    )
+    assert details["reason"] == ("unreadable" if kind == "invalid_encoding" else "invalid")
     assert details["run_id"] == run.run_id
     assert details["path"] == str(path)
     assert "DO_NOT_ECHO_RECORD_VALUES" not in json.dumps(details)
-    if kind == "unknown_field":
-        assert details["fields"] == [
-            {
-                "location": ["review_coverage", "future_coverage_revision"],
-                "category": "extra_forbidden",
-            }
-        ]
     assert path.read_bytes() == original
 
 
@@ -322,7 +310,7 @@ def test_scalar_and_array_json_roots_are_controlled_errors(store, payload):
     store.run_path("r_abc123").write_text(payload)
     with pytest.raises(RunReadError) as rejected:
         store.load_run("r_abc123")
-    assert rejected.value.reason == "invalid_record"
+    assert rejected.value.reason == "invalid"
 
 
 def test_a_torn_final_event_line_is_dropped(store):
@@ -339,7 +327,7 @@ def test_a_torn_earlier_event_line_is_a_read_error(store):
     store.events_path("r_abc123").write_text('{"event": "on\n{"event": "two"}\n', encoding="utf-8")
     with pytest.raises(RunReadError) as caught:
         store.load_events("r_abc123")
-    assert caught.value.reason == "invalid_events"
+    assert caught.value.reason == "invalid"
 
 
 def test_a_final_event_line_cut_inside_a_multibyte_character_is_dropped(store):
@@ -356,7 +344,7 @@ def test_invalid_utf8_on_an_earlier_event_line_is_a_read_error(store):
     store.events_path("r_abc123").write_bytes(b'{"event": "\xff"}\n{"event": "two"}\n')
     with pytest.raises(RunReadError) as caught:
         store.load_events("r_abc123")
-    assert caught.value.reason == "invalid_events"
+    assert caught.value.reason == "invalid"
 
 
 def test_append_event_waits_for_the_events_lock(store):
@@ -485,3 +473,34 @@ def test_historical_ci_run_remains_readable_without_rewriting_record(store, stat
     assert snapshot_run_settings(restored.config_snapshot) == (5, "in_place")
     assert restored.config_digest == raw["config_digest"]
     assert path.read_text() == original
+
+
+def test_run_loads_cache_full_snapshot_and_preserve_removed_keys(store):
+    from agentic_preflight.config import _snapshot_run_settings, config_digest
+
+    run = store.create_run(make_run())
+    path = store.run_path(run.run_id)
+    raw = json.loads(path.read_text())
+    raw["config_snapshot"].setdefault("hook", {})["enabled"] = True
+    raw["config_snapshot"].setdefault("review", {})["require_fix_commits"] = True
+    raw["config_snapshot"].setdefault("worktree", {})["ttl_hours"] = 24
+    raw["config_digest"] = config_digest(raw["config_snapshot"])
+    original = json.dumps(raw)
+    path.write_text(original)
+    _snapshot_run_settings.cache_clear()
+
+    loaded = store.load_run(run.run_id)
+    store.load_run(run.run_id)
+    assert _snapshot_run_settings.cache_info().misses == 1
+    assert _snapshot_run_settings.cache_info().hits == 1
+    assert loaded.config_snapshot == raw["config_snapshot"]
+    assert loaded.config_digest == raw["config_digest"]
+    assert path.read_text() == original
+
+    raw["config_snapshot"].setdefault("approval", {})["mode"] = "invalid-current-setting"
+    path.write_text(json.dumps(raw))
+    with pytest.raises(RunReadError) as caught:
+        store.load_run(run.run_id)
+    assert caught.value.reason == "invalid"
+    assert _snapshot_run_settings.cache_info().misses == 2
+    assert "invalid-current-setting" not in json.dumps(caught.value.details())

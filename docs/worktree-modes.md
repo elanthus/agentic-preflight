@@ -23,7 +23,7 @@ A `RUN_ID` must be `r_` followed by 10 lowercase hex digits; any other value fai
 
 A run's event log tolerates a torn final line left by an interrupted append: `events`
 and `status` drop that line and read the rest. A malformed earlier line is reported as
-`run_record_unreadable` with reason `invalid_events`.
+`run_record_unreadable` with reason `invalid`.
 
 If a stored record cannot be read or validated, `status` reports its identity and
 diagnostic without clearing its ownership pointer. `status --all` includes it as

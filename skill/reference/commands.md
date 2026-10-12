@@ -423,15 +423,14 @@ Ends the run and releases the worktree. Exits 5 if unmerged fix commits would be
 ### `agentic-preflight gc [--force]`
 Unreadable run records are retained and reported individually in `data.retained`, with
 their run ID, path, reason, and diagnostic. Collection continues for other eligible runs.
-Reasons distinguish `invalid_or_unsupported_schema`, `malformed_json`, `invalid_record`
-(a non-object JSON root), `invalid_encoding`, `io_error`, and a confirmed `missing`
-record. Schema diagnostics list field locations and validation categories without record
-values; an unknown field does not establish which tool version wrote it.
+Read failures use `unreadable` for encoding or I/O failures and `invalid` for JSON,
+run schema, or configuration failures. A confirmed absent record uses `missing`.
+Diagnostics omit record values.
 
-Even `--force` preserves unreadable records, their branches, worktrees, and ownership
-pointers. One exception: a nonterminal run whose snapshot holds only keys a later
-release removed is read tolerantly, and if its source worktree, lease, or head is gone
-it is orphaned and its resources released like any other abandoned run. Inspect the
+Even `--force` preserves invalid or unreadable records, their branches, worktrees, and
+ownership pointers. Saved configuration snapshots ignore keys a later release removed,
+while unknown keys and invalid current settings remain errors. Readable abandoned runs
+are orphaned and their resources released through the normal ownership checks. Inspect the
 indicated record. Neither `status` nor `status --all` treats an unreadable record as
 absent: inspection reports
 `readable: false`, and single-run status keeps `has_run: true` with `data.read_failure`.
