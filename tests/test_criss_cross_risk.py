@@ -102,6 +102,78 @@ def test_sync_fallback_merge_is_not_blocked_by_commit_hooks(tmp_repo, monkeypatc
     assert gitx.tree_sha(tmp_repo, "HEAD") == gitx.merge_tree(tmp_repo, base, head)
 
 
+@pytest.mark.parametrize("backend", ["apply", "merge"])
+def test_sync_never_overwrites_an_ignored_file(tmp_repo, backend):
+    """A directory rename would move a branch file onto an ignored local file.
+
+    The merge backend's rebase moves it; the apply backend keeps it in place, so the
+    fallback merge would move it instead. Either way, refuse before changing anything.
+    """
+    git("config", "rebase.backend", backend, cwd=tmp_repo)
+    git("config", "merge.directoryRenames", "true", cwd=tmp_repo)
+    write(tmp_repo, ".gitignore", ".env\nconfig.local\n")
+    commit_all(tmp_repo, "ignore local config")
+    git("switch", "-c", "feature/config", cwd=tmp_repo)
+    write(tmp_repo, "src/config.local", "TRACKED = 1\n")
+    git("add", "-f", "src/config.local", cwd=tmp_repo)
+    git("commit", "-m", "track config", cwd=tmp_repo)
+    head = git("rev-parse", "HEAD", cwd=tmp_repo)
+    git("switch", "main", cwd=tmp_repo)
+    git("mv", "src", "lib", cwd=tmp_repo)
+    base = commit_all(tmp_repo, "rename src to lib")
+    git("switch", "feature/config", cwd=tmp_repo)
+    write(tmp_repo, "lib/config.local", "LOCAL SECRET\n")
+    landed = gitx.merge_tree(tmp_repo, base, head)
+    assert landed is not None
+    assert "lib/config.local" in git("ls-tree", "-r", "--name-only", landed, cwd=tmp_repo)
+
+    with pytest.raises(sync.SyncObstructed) as caught:
+        sync.synchronize(tmp_repo, tmp_repo, base_ref="main")
+
+    assert caught.value.conflicting_files == ["lib/config.local"]
+    assert (tmp_repo / "lib/config.local").read_text(encoding="utf-8") == "LOCAL SECRET\n"
+    assert git("rev-parse", "HEAD", cwd=tmp_repo) == head
+    assert gitx.operation_in_progress(tmp_repo) is None
+
+
+@pytest.mark.parametrize("options", ["--no-commit", "--no-commit --squash"])
+def test_sync_fallback_merge_commits_despite_branch_merge_options(tmp_repo, monkeypatch, options):
+    base, head = _criss_cross(tmp_repo, monkeypatch)
+    git("config", "branch.feature/hidden.mergeOptions", options, cwd=tmp_repo)
+
+    result = sync.synchronize(tmp_repo, tmp_repo, base_ref="main")
+
+    assert result.merged is True
+    assert gitx.operation_in_progress(tmp_repo) is None
+    assert gitx.is_ancestor(tmp_repo, base, "HEAD")
+    assert gitx.is_ancestor(tmp_repo, head, "HEAD")
+
+
+def test_sync_stops_before_mutating_when_the_landed_tree_cannot_be_computed(tmp_repo, monkeypatch):
+    _, head = _criss_cross(tmp_repo, monkeypatch)
+
+    def failing_merge_tree(*_args, **_kwargs):
+        raise gitx.GitError(["merge-tree"], 128, "fatal: unable to write object")
+
+    monkeypatch.setattr(gitx, "merge_tree", failing_merge_tree)
+    with pytest.raises(gitx.GitError):
+        sync.synchronize(tmp_repo, tmp_repo, base_ref="main")
+
+    assert git("rev-parse", "HEAD", cwd=tmp_repo) == head
+
+
+def test_sync_rebases_unrelated_history_without_a_landed_tree(tmp_repo):
+    git("switch", "--orphan", "feature/unrelated", cwd=tmp_repo)
+    write(tmp_repo, "other.txt", "unrelated\n")
+    commit_all(tmp_repo, "unrelated root")
+
+    result = sync.synchronize(tmp_repo, tmp_repo, base_ref="main")
+
+    assert result.rebased is True
+    assert result.merged is False
+    assert gitx.is_ancestor(tmp_repo, "main", "HEAD")
+
+
 def test_sync_merges_when_a_rebase_would_skip_a_change_the_base_already_has(tmp_repo):
     """A rebase skips the branch commit the base already has, then replays its revert."""
     original = (tmp_repo / "src/app.py").read_text(encoding="utf-8")
