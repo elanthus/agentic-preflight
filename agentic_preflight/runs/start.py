@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from .. import gitx, housekeeping, worktree
 from .. import sync as syncmod
@@ -103,17 +103,6 @@ class _StartContext:
     head_sha: str
     snapshot: dict[str, Any]
     config_digest: str
-    merge_base: str | None = None
-    changed: list[str] | None = None
-    run_id: str | None = None
-    wt_path: Path | None = None
-    wt_branch: str | None = None
-    in_place: bool = False
-    reusable: bool = False
-    sync_result: syncmod.SyncResult | None = None
-    copied: list[str] | None = None
-    assessment: RiskAssessment | None = None
-    setup_result: dict[str, object] | None = None
 
 
 def _check_preconditions(
@@ -246,7 +235,7 @@ def _resolve_existing_run(ctx: _StartContext, *, replace: bool) -> Envelope | No
     return None
 
 
-def _require_changes(ctx: _StartContext) -> _StartContext:
+def _require_changes(ctx: _StartContext) -> str:
     try:
         merge_base = gitx.merge_base(ctx.repo, ctx.base_ref, "HEAD")
     except gitx.GitError as exc:
@@ -260,12 +249,10 @@ def _require_changes(ctx: _StartContext) -> _StartContext:
             f"{ctx.branch} has no changes over {ctx.base_ref}; there is nothing to review",
             next_instruction="Commit some work on a branch, then start a run.",
         )
-    return replace(ctx, merge_base=merge_base, changed=changed)
+    return merge_base
 
 
-def _create_run_record(ctx: _StartContext) -> _StartContext:
-    merge_base = cast(str, ctx.merge_base)
-
+def _create_run_record(ctx: _StartContext, merge_base: str) -> tuple[str, Path, str]:
     run_id = _new_run_id()
     run = RunDoc(
         schema_version=2,
@@ -321,24 +308,16 @@ def _create_run_record(ctx: _StartContext) -> _StartContext:
         else ctx.session.store.worktrees_dir / ("runner" if reusable else run_id)
     )
     wt_branch = ctx.branch if in_place else f"ap/{run_id}"
-    return replace(
-        ctx,
-        run_id=run_id,
-        wt_path=wt_path,
-        wt_branch=wt_branch,
-        in_place=in_place,
-        reusable=reusable,
-    )
+    return run_id, wt_path, wt_branch
 
 
-def _provision_validation_checkout(ctx: _StartContext) -> _StartContext:
-    run_id = cast(str, ctx.run_id)
-    wt_path = cast(Path, ctx.wt_path)
-    wt_branch = cast(str, ctx.wt_branch)
+def _provision_validation_checkout(
+    ctx: _StartContext, run_id: str, wt_path: Path, wt_branch: str
+) -> None:
     try:
-        if ctx.in_place:
+        if ctx.cfg.worktree.mode == "in_place":
             pass
-        elif ctx.reusable:
+        elif ctx.cfg.worktree.mode == "reusable":
             worktree.acquire_reusable(
                 ctx.repo,
                 path=wt_path,
@@ -400,13 +379,11 @@ def _provision_validation_checkout(ctx: _StartContext) -> _StartContext:
             doc.owner_ids.append(validation_owner)
         _apply(doc, Action.CREATE_WORKTREE)
         _apply(doc, Action.BEGIN_SYNC)
-    return ctx
 
 
-def _synchronize(ctx: _StartContext) -> _StartContext:
-    run_id = cast(str, ctx.run_id)
-    wt_path = cast(Path, ctx.wt_path)
-    wt_branch = cast(str, ctx.wt_branch)
+def _synchronize(
+    ctx: _StartContext, run_id: str, wt_path: Path, wt_branch: str
+) -> tuple[syncmod.SyncResult, list[str]]:
     try:
         with ctx.session.store.resource("sync"), ctx.session.store.resource("notes"):
             sync_result = syncmod.synchronize(ctx.repo, wt_path, base_ref=ctx.base_ref)
@@ -473,9 +450,9 @@ def _synchronize(ctx: _StartContext) -> _StartContext:
 
     changed = gitx.changed_files(wt_path, sync_result.base_sha, "HEAD")
     if not changed:
-        if ctx.in_place:
+        if ctx.cfg.worktree.mode == "in_place":
             pass
-        elif ctx.reusable:
+        elif ctx.cfg.worktree.mode == "reusable":
             worktree.release_reusable(ctx.repo, wt_path, branch=wt_branch, copied_files=[])
         else:
             worktree.remove(ctx.repo, wt_path, branch=wt_branch)
@@ -487,7 +464,17 @@ def _synchronize(ctx: _StartContext) -> _StartContext:
             "the branch has no changes after synchronizing with the fresh remote base",
             next_instruction="The requested change is already present upstream.",
         )
-    return replace(ctx, changed=changed, sync_result=sync_result)
+    with ctx.session.store.transaction(run_id) as doc:
+        doc.head_sha = sync_result.head_after
+        doc.source_head_sha = (
+            sync_result.head_after if ctx.cfg.worktree.mode == "in_place" else ctx.head_sha
+        )
+        doc.merge_base_sha = sync_result.base_sha
+        doc.sync_base_sha = sync_result.base_sha
+        doc.sync_base_ref = sync_result.base_ref
+        doc.sync_remote = sync_result.remote
+        doc.changed_files = changed
+    return sync_result, changed
 
 
 _SETUP_OUTPUT_TAIL = 4000
@@ -501,11 +488,10 @@ def _relative_to(path: Path, root: Path) -> str:
         return Path(path).name
 
 
-def _execute_setup(ctx: _StartContext, copied: list[str]) -> tuple[shellstage.StageResult, Path]:
+def _execute_setup(
+    ctx: _StartContext, run_id: str, wt_path: Path, copied: list[str], command: str
+) -> tuple[shellstage.StageResult, Path]:
     """Run the setup command with copied-file redaction and write its log."""
-    run_id = cast(str, ctx.run_id)
-    wt_path = cast(Path, ctx.wt_path)
-    command = cast(str, ctx.cfg.worktree.setup_command)
     log_path = ctx.session.store.logs_dir(run_id) / "setup.txt"
     try:
         protection = OutputProtection.capture(wt_path, copied)
@@ -532,14 +518,12 @@ def _execute_setup(ctx: _StartContext, copied: list[str]) -> tuple[shellstage.St
     return result, protected.log_path
 
 
-def _run_setup_command(ctx: _StartContext) -> _StartContext:
-    run_id = cast(str, ctx.run_id)
-    wt_path = cast(Path, ctx.wt_path)
-    sync_result = cast(syncmod.SyncResult, ctx.sync_result)
-    changed = cast(list[str], ctx.changed)
+def _run_setup_command(
+    ctx: _StartContext, run_id: str, wt_path: Path, changed: list[str]
+) -> tuple[list[str], RiskAssessment, dict[str, object] | None]:
     copied = (
         worktree.protect_in_place_files(ctx.repo, ctx.cfg.worktree.copy_files)
-        if ctx.in_place
+        if ctx.cfg.worktree.mode == "in_place"
         else worktree.copy_files(ctx.repo, wt_path, ctx.cfg.worktree.copy_files)
     )
     assessment = _assess(ctx.session, changed, [])
@@ -551,7 +535,9 @@ def _run_setup_command(ctx: _StartContext) -> _StartContext:
 
     setup_result = None
     if ctx.cfg.worktree.setup_command:
-        completed, log_path = _execute_setup(ctx, copied)
+        completed, log_path = _execute_setup(
+            ctx, run_id, wt_path, copied, ctx.cfg.worktree.setup_command
+        )
         setup_result = {
             "kind": "custom",
             "command": ctx.cfg.worktree.setup_command,
@@ -573,13 +559,6 @@ def _run_setup_command(ctx: _StartContext) -> _StartContext:
                 next_command="agentic-preflight abort --force",
             )
             with ctx.session.store.transaction(run_id) as doc:
-                doc.head_sha = sync_result.head_after
-                doc.source_head_sha = sync_result.head_after if ctx.in_place else ctx.head_sha
-                doc.merge_base_sha = sync_result.base_sha
-                doc.sync_base_sha = sync_result.base_sha
-                doc.sync_base_ref = sync_result.base_ref
-                doc.sync_remote = sync_result.remote
-                doc.changed_files = changed
                 doc.risk = assessment
                 doc.setup_failure = failure
                 _apply(doc, Action.SETUP_FAILED)
@@ -606,32 +585,23 @@ def _run_setup_command(ctx: _StartContext) -> _StartContext:
                 next_instruction=failure.next_instruction,
                 next_command=failure.next_command,
             )
-    return replace(
-        ctx,
-        copied=copied,
-        assessment=assessment,
-        setup_result=setup_result,
-    )
+    return copied, assessment, setup_result
 
 
-def _prime_review(ctx: _StartContext) -> Envelope:
-    run_id = cast(str, ctx.run_id)
-    wt_path = cast(Path, ctx.wt_path)
-    wt_branch = cast(str, ctx.wt_branch)
-    sync_result = cast(syncmod.SyncResult, ctx.sync_result)
-    changed = cast(list[str], ctx.changed)
-    copied = cast(list[str], ctx.copied)
-    assessment = cast(RiskAssessment, ctx.assessment)
+def _prime_review(
+    ctx: _StartContext,
+    run_id: str,
+    wt_path: Path,
+    wt_branch: str,
+    sync_result: syncmod.SyncResult,
+    changed: list[str],
+    copied: list[str],
+    assessment: RiskAssessment,
+    setup_result: dict[str, object] | None,
+) -> Envelope:
     with ctx.session.store.transaction(run_id) as doc:
         doc.worktree_path = str(wt_path)
         doc.worktree_branch = wt_branch
-        doc.head_sha = sync_result.head_after
-        doc.source_head_sha = sync_result.head_after if ctx.in_place else ctx.head_sha
-        doc.merge_base_sha = sync_result.base_sha
-        doc.sync_base_sha = sync_result.base_sha
-        doc.sync_base_ref = sync_result.base_ref
-        doc.sync_remote = sync_result.remote
-        doc.changed_files = changed
         doc.risk = assessment
         _apply(doc, Action.SYNC_PASSED)
         _apply(doc, Action.BEGIN_REVIEW)
@@ -674,7 +644,7 @@ def _prime_review(ctx: _StartContext) -> Envelope:
             "risk": assessment.model_dump(mode="json"),
             # Names only. Contents are never read, logged, or echoed.
             "copied_files": copied,
-            "setup": ctx.setup_result,
+            "setup": setup_result,
             "applicability": {
                 stage.value: value.model_dump(mode="json")
                 for stage, value in run.applicability.items()
@@ -708,9 +678,11 @@ def _start(
     existing = _resolve_existing_run(ctx, replace=replace)
     if existing is not None:
         return existing
-    ctx = _require_changes(ctx)
-    ctx = _create_run_record(ctx)
-    ctx = _provision_validation_checkout(ctx)
-    ctx = _synchronize(ctx)
-    ctx = _run_setup_command(ctx)
-    return _prime_review(ctx)
+    merge_base = _require_changes(ctx)
+    run_id, wt_path, wt_branch = _create_run_record(ctx, merge_base)
+    _provision_validation_checkout(ctx, run_id, wt_path, wt_branch)
+    sync_result, changed = _synchronize(ctx, run_id, wt_path, wt_branch)
+    copied, assessment, setup_result = _run_setup_command(ctx, run_id, wt_path, changed)
+    return _prime_review(
+        ctx, run_id, wt_path, wt_branch, sync_result, changed, copied, assessment, setup_result
+    )

@@ -89,25 +89,19 @@ class Plan:
     """Why a shell was required. ``None`` for direct execution."""
 
 
-def first_metacharacter(command: str, *, escapes: bool | None = None) -> str | None:
+def first_metacharacter(command: str) -> str | None:
     """The first shell-significant character outside quoting, if any.
 
     Quote tracking matters: ``pytest -k "foo bar"`` is a perfectly ordinary
     argv, while ``pytest -k "$PATTERN"`` is not, because a shell expands ``$``
     and backticks inside double quotes too.
-
-    ``escapes`` overrides :data:`BACKSLASH_ESCAPES` and exists so both
-    conventions stay testable from either platform.
     """
-    if escapes is None:
-        escapes = BACKSLASH_ESCAPES
-
     quote: str | None = None
     index = 0
     while index < len(command):
         char = command[index]
 
-        if escapes and char == "\\" and quote == '"':
+        if BACKSLASH_ESCAPES and char == "\\" and quote == '"':
             # Inside double quotes the shell and the splitter disagree. A shell
             # drops the backslash before ``$``, a backtick, a quote, or another
             # backslash and keeps it otherwise; ``shlex`` keeps it in every
@@ -116,7 +110,7 @@ def first_metacharacter(command: str, *, escapes: bool | None = None) -> str | N
             # chosen silently. Hand the whole string to the shell instead.
             return char
 
-        if escapes and char == "\\" and quote is None and index + 1 < len(command):
+        if BACKSLASH_ESCAPES and char == "\\" and quote is None and index + 1 < len(command):
             # Unquoted, the two agree: the backslash escapes the next character
             # and neither is significant.
             index += 2
@@ -142,22 +136,19 @@ def first_metacharacter(command: str, *, escapes: bool | None = None) -> str | N
     return None
 
 
-def split(command: str, *, escapes: bool | None = None) -> list[str] | None:
+def split(command: str) -> list[str] | None:
     """Word-split ``command``, or ``None`` when the quoting does not parse.
 
     ``shlex.split`` is POSIX-only in a way that matters: it always treats a
     backslash as an escape. The lexer is configured directly so that behaviour
     can be switched off where a backslash means "directory separator".
     """
-    if escapes is None:
-        escapes = BACKSLASH_ESCAPES
-
     lexer = shlex.shlex(command, posix=True)
     lexer.whitespace_split = True
     # Comments are handled by metacharacter detection, which reports '#' with a
     # reason rather than silently truncating the command here.
     lexer.commenters = ""
-    if not escapes:
+    if not BACKSLASH_ESCAPES:
         lexer.escape = ""
     try:
         return list(lexer)
@@ -165,14 +156,14 @@ def split(command: str, *, escapes: bool | None = None) -> list[str] | None:
         return None
 
 
-def _ambiguous_backslash(command: str, escapes: bool) -> bool:
+def _ambiguous_backslash(command: str) -> bool:
     """A backslash before a quote, where the two conventions disagree.
 
     POSIX reads ``\\"`` as a literal quote; Windows argument parsing does too,
     but the lexer that keeps ``C:\\path`` intact cannot. Rather than pick a
     reading and be silently wrong, hand the string to a shell.
     """
-    if escapes:
+    if BACKSLASH_ESCAPES:
         return False
     return any(
         command[index] == "\\" and command[index + 1] in {'"', "'"}
@@ -188,9 +179,9 @@ def _leading_assignment(argv: list[str]) -> bool:
     return bool(separator) and name.isidentifier()
 
 
-def _shell_reason(command: str, argv: list[str] | None, escapes: bool) -> str | None:
+def _shell_reason(command: str, argv: list[str] | None) -> str | None:
     """Why ``command`` cannot be split into an argv, in words fit for a user."""
-    found = first_metacharacter(command, escapes=escapes)
+    found = first_metacharacter(command)
     if found == "\\":
         return "escapes a character inside double quotes, which a shell reads differently"
     if found is not None:
@@ -200,7 +191,7 @@ def _shell_reason(command: str, argv: list[str] | None, escapes: bool) -> str | 
         return "has unbalanced quoting"
     if not argv:
         return "is empty"
-    if _ambiguous_backslash(command, escapes):
+    if _ambiguous_backslash(command):
         return "escapes a quote with a backslash, which is ambiguous on this platform"
     if _leading_assignment(argv):
         return "begins with a shell variable assignment"
@@ -282,18 +273,15 @@ def resolve_program(program: str, cwd: Path | str) -> str | None:
     return resolve_on_path(program)
 
 
-def plan(command: str, *, cwd: Path | str, escapes: bool | None = None) -> Plan:
+def plan(command: str, *, cwd: Path | str) -> Plan:
     """Decide whether ``command`` runs as an argv or through a shell.
 
     A program that does not resolve falls back to the shell rather than
     failing: it is most likely a shell builtin such as ``cd`` or ``source``,
     and the shell is the component entitled to say whether it exists.
     """
-    if escapes is None:
-        escapes = BACKSLASH_ESCAPES
-
-    argv = split(command, escapes=escapes)
-    reason = _shell_reason(command, argv, escapes)
+    argv = split(command)
+    reason = _shell_reason(command, argv)
     if reason is not None or argv is None:
         return Plan(command=command, argv=[], uses_shell=True, reason=reason)
 

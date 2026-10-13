@@ -15,7 +15,7 @@ from ..errors import (
     StageFailed,
     StaleRun,
 )
-from ..machine import Action, State, legal_actions
+from ..machine import Action, State
 from ..models import RunDoc, Stage, StageRecord
 from ..stages import detect, shellstage
 from . import evidence
@@ -68,12 +68,8 @@ _STAGE_STATES: dict[str, _StageSpec] = {
 
 
 _STAGE_READY_STATES: dict[str, tuple[State, ...]] = {
-    stage_name: tuple(
-        state
-        for state in State
-        if {spec["run"], spec["retry"], spec["failed"]}.intersection(legal_actions(state))
-    )
-    for stage_name, spec in _STAGE_STATES.items()
+    "lint": (State.DOCS_GREEN, State.LINT_RUNNING, State.LINT_RED),
+    "test": (State.LINT_GREEN, State.TEST_RUNNING, State.TEST_RED),
 }
 
 
