@@ -30,8 +30,10 @@ diagnostic without clearing its ownership pointer. `status --all` includes it as
 unreadable rather than calling it corrupt. `gc` retains the record and its resources,
 even with `--force`, while collecting other eligible runs. Saved configuration snapshots
 ignore keys a later release removed, so those keys do not make a run unreadable.
-Readable runs whose source worktree, lease, or head is gone are orphaned and their
-resources released through the normal abandonment checks. Inspect the reported path;
+For readable nonterminal runs, `gc` can mark a run orphaned when its source worktree
+or lease disappears, or its source head moves after startup. It waits if a run command
+is still executing and retains isolated resources containing unmerged fixes unless
+`--force` is used. In-place source commits remain intact. Inspect the reported path;
 never delete an alias merely to make an unreadable run look absent.
 
 A repeated `start` with the same head, intent, base, and effective configuration resumes
