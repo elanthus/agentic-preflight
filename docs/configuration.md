@@ -378,9 +378,9 @@ base and Git's merge of the pull-request head into it, so criss-cross history (s
 bases) cannot hide a change that the branch diff from a single merge base omits, such as
 an `-s ours` merge that reverts a side branch already in the base. Attestation verification
 classifies the same paths for a test skip and the review-executor policy. A local run
-needs no extra step: `start` rebases the validated head onto the base tip, which drops
-such a merge, so the branch diff it classifies is the merge result. `start` refuses a
-branch whose only change is hidden this way. Recorded `critical`
+needs no extra step: synchronization makes the base tip an ancestor of the validated head
+without changing what the branch lands, merging the base in when a rebase would drop such
+a merge, so the branch diff it classifies is the merge result. Recorded `critical`
 and `high` findings also make the run high-risk, including
 after a fix; a `medium` finding makes it at least medium-risk. Open blocking findings
 produce `changes_required` until they are resolved; once resolved, high risk produces

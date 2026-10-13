@@ -101,7 +101,8 @@ review -> documentation -> lint -> test -> merge-back -> gate -> push
 
 At the start of a run, the agent supplies your objective and acceptance criteria. When
 `origin` exists, Agentic Preflight fetches it and rebases the validation worktree onto
-the fresh base before review. Every agent-facing workflow command returns one JSON
+the fresh base before review, or merges the base in when a rebase would change what the
+branch lands. Every agent-facing workflow command returns one JSON
 object with the single next legal command, so an interrupted run can resume from
 recorded state.
 

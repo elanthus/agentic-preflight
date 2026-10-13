@@ -212,13 +212,13 @@ def _perform_merge(
     if not gitx.is_ancestor(repo, sync_base, "HEAD"):
         if not gitx.is_clean(repo):
             raise DirtyTree(
-                "the source worktree must be clean before rebasing onto the synchronized base",
+                "the source worktree must be clean before synchronizing with the recorded base",
                 state=run.state.value,
                 run_id=run.run_id,
                 next_instruction="Commit or stash the changes, then retry mergeback.",
                 next_command="git status",
             )
-        syncmod.rebase_onto(repo, sync_base)
+        syncmod.sync_onto(repo, sync_base)
     local_tree = gitx.tree_sha(repo)
     verified_tree = gitx.tree_sha(worktree_path)
     branch_moved = gitx.rev_parse(repo, "HEAD") != run.source_head_sha

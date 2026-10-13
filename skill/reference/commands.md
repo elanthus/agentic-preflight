@@ -94,8 +94,13 @@ starts fresh. On an unchanged head, a different intent or configuration requires
 run.
 Before review, the command fetches the configured base from `origin` when available and
 rebases the validation worktree onto that exact fresh base. In-place mode therefore
-rebases the PR branch itself. A sync conflict is aborted
-cleanly and reported; no conflicted rebase is left in progress.
+rebases the PR branch itself. When a rebase would change what merging the branch lands,
+for example by dropping an `-s ours` merge that reverts a branch already in the base, it
+merges the base in instead and reports `data.sync.merged: true`. A sync conflict is aborted
+cleanly and reported; no conflicted rebase or merge is left in progress. Synchronization also
+refuses, before changing anything, when a path added by the base or by the branch's merge
+result already exists as an untracked or ignored local file, and lists those files in
+`data.conflicting_files`.
 `start` classifies complete local evidence per stage, including when synchronization
 leaves the exact attested commit unchanged, and returns the next required
 command. Equal base/head trees and matching context
@@ -103,10 +108,7 @@ can preserve review and docs across rewritten commits. Shell stages require comm
 content contracts. Read `data.applicability`; `invalid` and `unknown` require a fresh
 stage, and later-stage candidates remain available while earlier stages are pending.
 Refuses a dirty tree (exit 3, `dirty_tree`) and a branch with no changes over the base
-(exit 3, `empty_diff`). When the branch diff is empty but criss-cross history hides a
-change that merging would make, `data.merge_result_files` lists those paths;
-synchronizing would rebase them away, so make the change in an ordinary commit, such as
-`git revert`. In-place mode protects `[worktree] copy_files` where they are;
+(exit 3, `empty_diff`). In-place mode protects `[worktree] copy_files` where they are;
 isolated modes copy them. Every mode refuses an entry git is not already ignoring.
 
 Returns `data.worktree_path` — **absolute**. Use it; do not rely on `cd` persisting.
@@ -342,8 +344,8 @@ On success: compares the branch tree against the worktree tree. `tree_equivalent
 means the verified content is byte-identical and a Git-note attestation is written for
 the exact commit. False returns to review with all snapshot-bound stage evidence cleared.
 
-A merge-back interrupted after rebasing the source but before reaching the recorded
-verified tree is stale. Follow `status` and restart preflight for the current source;
+A merge-back interrupted after synchronizing the source with the base but before reaching
+the recorded verified tree is stale. Follow `status` and restart preflight for the current source;
 only the unchanged source or the completed verified tree can resume a pending attempt.
 
 ### `agentic-preflight gate`
