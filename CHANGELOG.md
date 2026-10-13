@@ -248,6 +248,10 @@ See the [0.6.0 → 0.7.0 upgrade guide](docs/upgrade-0.7.md) before rollout.
 
 ### Fixed
 
+- Make Windows compatibility tests preserve exact LF/CRLF fixture bytes and
+  coordinate transient file sharing within the existing replacement retry budget.
+  Fingerprint and storage behavior are unchanged.
+
 - Keep POSIX termination handlers outside the Windows implementation so mypy
   does not reject the supported Windows build as unreachable. Process cleanup
   behavior is unchanged on both platforms.

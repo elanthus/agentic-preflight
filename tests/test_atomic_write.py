@@ -1,15 +1,13 @@
-"""Replacing the run document when something else has it open.
+"""Atomic replacement while an external reader holds a run document.
 
-POSIX ``rename`` cannot fail because a reader holds the destination. Windows
-can, and the window is real: the store's own ``load_run`` opens ``run.json``
-for the duration of a read, and two parallel agent invocations are the case
-this module is built around.
+Store API locks serialize its own readers and writers. An external reader such as
+an indexer can still briefly deny replacement on Windows. Test the bounded retry
+and preserved failure behavior without relying on thread scheduling delays.
 """
 
 import os
 import sys
 import threading
-import time
 
 import pytest
 
@@ -26,32 +24,40 @@ def store(tmp_path):
 
 
 @pytest.mark.skipif(not WINDOWS, reason="only Windows refuses to replace an open file")
-def test_a_write_survives_a_reader_that_holds_the_document_briefly(store):
-    """The real race: a concurrent ``load_run`` must not cost a state transition.
-
-    The reader here behaves like the store's own: it opens the document, holds
-    it for longer than the first retry delay, and closes. Without the retry the
-    transaction below fails outright with ``WinError 5``.
-    """
+def test_a_write_survives_a_reader_that_holds_the_document_briefly(store, monkeypatch):
+    """A real Windows sharing violation clears during the configured retry window."""
     store.create_run(make_run())
     path = store.run_path("r_abc123")
     reader_opened = threading.Event()
+    release_reader = threading.Event()
+    retry_delays: list[float] = []
 
-    def hold_briefly():
+    def hold_until_retry():
         with open(path, encoding="utf-8") as handle:
             handle.read()
             reader_opened.set()
-            time.sleep(0.15)
+            release_reader.wait(timeout=5)
 
-    reader = threading.Thread(target=hold_briefly)
+    reader = threading.Thread(target=hold_until_retry)
+
+    def release_on_retry(delay):
+        retry_delays.append(delay)
+        release_reader.set()
+        reader.join(timeout=5)
+        assert not reader.is_alive()
+
+    monkeypatch.setattr(store_module.time, "sleep", release_on_retry)
     reader.start()
-    reader_opened.wait(timeout=5)
     try:
+        assert reader_opened.wait(timeout=5)
         with store.transaction("r_abc123") as run:
             run.branch = "feature/updated"
     finally:
+        release_reader.set()
         reader.join(timeout=5)
 
+    assert retry_delays
+    assert all(delay == 0.005 for delay in retry_delays)
     assert store.load_run("r_abc123").branch == "feature/updated"
 
 

@@ -19,9 +19,10 @@ configuration, scan saved runs, delete worktrees, or refresh copied skills.
    For a package-based workflow, pin `agentic-preflight==0.7.0` only after it is on PyPI.
    For protected-base source installs, merge the reviewed source update first.
    While preparing the release, test the producer and verifier from the same immutable
-   proposed commit; do not execute PR code with policy credentials. This repository's
-   preparation PR uses the current main source verifier, which already implements
-   the 0.7.0 behavior. Its metadata still says 0.6.0; it is not the published 0.6.0 build.
+   proposed commit; do not execute PR code with policy credentials. For this
+   repository's preparation PR,
+   protected base `48b5b60` already implements the 0.7.0 verification behavior even
+   though its metadata says 0.6.0. That source build differs from published 0.6.0.
 3. Remove retired configuration from both `.agentic-preflight.toml` and
    `~/.config/agentic-preflight/config.toml`, using the table below. Commit repository
    configuration changes before starting a new run. Retain valid lint/test commands;
@@ -29,7 +30,7 @@ configuration, scan saved runs, delete worktrees, or refresh copied skills.
 4. Once 0.7.0 is published, upgrade the tool and its installed skill copies:
 
    ```bash
-   uv tool upgrade agentic-preflight
+   uv tool install --force 'agentic-preflight==0.7.0'
    agentic-preflight --version
    agentic-preflight integrations status
    agentic-preflight integrations update
