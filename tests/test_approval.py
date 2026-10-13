@@ -702,7 +702,7 @@ def test_environment_and_manual_merge_ignore_earlier_head_reviews(tmp_repo, monk
 
 
 @pytest.mark.parametrize("evidence_ref", [True, False])
-def test_hosted_check_carries_across_a_rebase_only_through_the_evidence_ref(
+def test_approval_check_carries_across_a_rebase_with_fetched_evidence(
     tmp_repo, tmp_path, monkeypatch, evidence_ref
 ):
     from agentic_preflight import refresh_validation
@@ -736,17 +736,21 @@ def test_hosted_check_carries_across_a_rebase_only_through_the_evidence_ref(
     reviews_file = tmp_path / "reviews.json"
     reviews_file.write_text(json.dumps([_review(1, login="owner", commit_id=approved)]))
 
+    git(
+        "fetch",
+        "--no-tags",
+        "--",
+        "origin",
+        head,
+        "+refs/notes/agentic-preflight:refs/notes/agentic-preflight",
+        "+refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*",
+        cwd=verifier,
+    )
     result = ScriptedAgent(verifier).run(
-        "hosted-check",
+        "approval-check",
         head,
         "--base",
         base,
-        "--source-remote",
-        "origin",
-        "--head-ref",
-        "refs/heads/feature/carry",
-        "--mode",
-        "approval",
         "--reviews-file",
         str(reviews_file),
         "--author",
@@ -757,9 +761,6 @@ def test_hosted_check_carries_across_a_rebase_only_through_the_evidence_ref(
     assert data["approved"] is evidence_ref
     assert data["approval_carried"] is evidence_ref
     assert data["approved_head"] == (approved if evidence_ref else None)
-    attempt = data["availability"]["attempts"][-1]
-    assert attempt.get("fetched_approved_heads", []) == ([approved] if evidence_ref else [])
-    assert not git("for-each-ref", "refs/agentic-preflight/availability", cwd=verifier)
 
 
 def test_criss_cross_history_cannot_hide_a_high_risk_revert_from_approval(tmp_repo, monkeypatch):

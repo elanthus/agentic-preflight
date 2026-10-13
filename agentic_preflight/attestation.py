@@ -27,7 +27,8 @@ def recovery(reason: str) -> str:
     if reason in {"missing_note", "missing_notes_ref"}:
         return (
             "Confirm publication of the expected head and its note to the source remote; "
-            "fetch fresh notes or rerun the bounded hosted check. Local verify stays offline."
+            "fetch the exact head, notes, and retained evidence refs from that source remote, "
+            "then retry offline verify for the exact head."
         )
     if reason == "incompatible_schema":
         return (

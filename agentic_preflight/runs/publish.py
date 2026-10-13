@@ -145,7 +145,7 @@ def gate(session: Session) -> Envelope:
     elif opens_pr:
         cleanup_instruction = (
             " Automated cleanup is disabled: do not enter the merge-state polling or "
-            "cleanup flow; report hosted-check results and leave cleanup for a later "
+            "cleanup flow; report hosted check results and leave cleanup for a later "
             "explicit user request."
         )
     else:

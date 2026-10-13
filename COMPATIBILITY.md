@@ -74,7 +74,7 @@ consumers should use `path`, `size`, `touched_by_diff`, and candidate `source`. 
 candidates come from supported project manifests; workflow run lines are no longer
 detected. Attestation fingerprints are unchanged.
 
-`approval-check` and `hosted-check --mode approval` results add `approved_head` (the
+`approval-check` results add `approved_head` (the
 commit the counted review was submitted on, or `null`) and `approval_carried` (a
 boolean). `human_approvers` is unchanged. In `peer_review` and `owner_review` modes an
 approval of an earlier head with unchanged branch content now satisfies the policy, so
@@ -180,3 +180,9 @@ schema, or configuration), without field-location lists. Unsupported records rem
 preserved. Removed configuration keys are ignored on reads without rewriting snapshots;
 unknown keys and invalid current settings are still rejected. Full snapshot content keys
 the bounded validation cache, so edits cannot reuse validation of a different snapshot.
+
+## Hosted verification command removal
+
+The `hosted-check` command was removed. Hosted callers fetch the exact head, notes,
+and evidence refs from the contributor remote, then call offline `verify` or
+`approval-check`; per-attempt availability diagnostics are no longer emitted.

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import sys
-from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
@@ -13,7 +12,7 @@ import click
 from . import runs
 from .cli_support import command, finish, finish_locked, read_json_file
 from .envelope import Envelope, ExitCode
-from .errors import AgenticError, AttestationFailed, NeedsHuman
+from .errors import AttestationFailed, NeedsHuman
 from .gitx import GitError
 from .models import Stage
 
@@ -151,88 +150,6 @@ def _finish_approval(result: dict, *, report_only: bool) -> None:
     finish(Envelope(data=result))
 
 
-@click.command("hosted-check")
-@click.argument("sha")
-@click.option("--base", "base_sha", required=True, help="Original protected event-base SHA.")
-@click.option("--source-remote", required=True, help="Configured source remote (including forks).")
-@click.option("--head-ref", required=True, help="Full source refs/heads/... from the event.")
-@click.option("--mode", type=click.Choice(["verify", "approval"]), default="verify")
-@click.option("--reviews-file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("--author")
-@click.option("--environment-approved", is_flag=True)
-@click.option("--report-only", is_flag=True)
-@command
-def hosted_check(
-    sha: str,
-    base_sha: str,
-    source_remote: str,
-    head_ref: str,
-    mode: str,
-    reviews_file: Path | None,
-    author: str | None,
-    environment_approved: bool,
-    report_only: bool,
-) -> None:
-    """Retry remote note absence, then verify/evaluate one pinned notes snapshot."""
-    from . import approval, gitx, note_availability
-    from .config import load_config
-    from .models import Attestation
-
-    repo = gitx.repo_root(Path.cwd())
-    reviews: object = []
-    if mode == "approval":
-        if reviews_file is None or author is None:
-            raise AgenticError("approval mode requires --reviews-file and --author")
-        try:
-            reviews = json.loads(reviews_file.read_text(encoding="utf-8"))
-        except (ValueError, OSError) as exc:
-            raise AttestationFailed(
-                "Cannot read reviews JSON", data={"reason": "invalid_reviews"}
-            ) from exc
-
-    def evaluate(value: Attestation, fetch_approved_head: Callable[[str], bool]) -> dict:
-        if mode == "verify":
-            return {
-                "verified": True,
-                "sha": value.sha,
-                "tree_sha": value.tree_sha,
-                "merge_requirements_satisfied": False,
-            }
-        return approval.evaluate_value(
-            repo,
-            value=value,
-            cfg=load_config(repo),
-            base_sha=base_sha,
-            head_sha=sha,
-            reviews=reviews,
-            pull_request_author=author or "",
-            environment_approved=environment_approved,
-            fetch_commit=fetch_approved_head,
-        )
-
-    try:
-        result = note_availability.check(
-            repo,
-            remote=source_remote,
-            head_ref=head_ref,
-            expected_head=sha,
-            base_sha=base_sha,
-            evaluate=evaluate,
-        )
-    except note_availability.HostedCheckFailed as exc:
-        raise _evidence_failure(
-            exc, {"sha": sha, "base_sha": base_sha, "availability": exc.diagnostics}
-        ) from exc
-    except ValueError as exc:
-        raise AttestationFailed(
-            "Invalid hosted-check candidate or policy inputs", data={"reason": "invalid_inputs"}
-        ) from exc
-    if mode == "approval":
-        _finish_approval(result, report_only=report_only)
-    else:
-        finish(Envelope(data=result))
-
-
 @click.command("hook-check")
 def hook_check() -> None:
     """Pre-push predicate over commit attestations. Reads stdin, writes prose to stderr.
@@ -279,7 +196,7 @@ def _has_valid_attestation(repo_root: Path, sha: str) -> bool:
     return True
 
 
-COMMANDS = (verify, approval_check, hosted_check, hook_check)
+COMMANDS = (verify, approval_check, hook_check)
 
 
 def register(group: click.Group) -> None:

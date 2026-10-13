@@ -6,6 +6,9 @@ unless that exact SHA has a valid attestation for publication.
 
 The hook checks ref tips, not every commit newly reachable from them. Remote CI should
 verify the pull-request or branch-tip SHA when complete remote enforcement is required.
+Fetch that exact commit, its notes, and `refs/agentic-preflight/evidence/*` from the
+contributor remote before running offline `agentic-preflight verify SHA`; see the
+[protected-base workflow](attestations-and-ci.md#protected-base-fetch-and-verification).
 
 Two kinds of update need no attestation. A push to `refs/tags/*` is allowed, so a
 release tag on a merge commit created by GitHub does not block. An update whose new
