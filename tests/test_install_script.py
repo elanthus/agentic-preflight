@@ -191,3 +191,27 @@ def test_installers_are_executable_and_included_in_the_source_distribution():
     includes = config["tool"]["hatch"]["build"]["targets"]["sdist"]["include"]
     assert "/install.sh" in includes
     assert "/uninstall.sh" in includes
+    assert "/install.ps1" in includes
+    assert "/uninstall.ps1" in includes
+
+
+def test_every_installer_defaults_to_the_supported_integrations():
+    """Four hardcoded agent lists across two languages, with nothing else linking them.
+
+    Platform-independent on purpose: a contributor adding an integration will most
+    likely be on one platform, and the list they forget is the one they cannot run.
+    """
+    from agentic_preflight import integrations
+
+    expected = set(integrations.SUPPORTED_INTEGRATIONS)
+    scripts = {
+        "install.sh": ROOT / "install.sh",
+        "uninstall.sh": ROOT / "uninstall.sh",
+        "install.ps1": ROOT / "install.ps1",
+        "uninstall.ps1": ROOT / "uninstall.ps1",
+    }
+
+    for name, path in scripts.items():
+        text = path.read_text(encoding="utf-8")
+        missing = {agent for agent in expected if agent not in text}
+        assert not missing, f"{name} does not offer {sorted(missing)}"
