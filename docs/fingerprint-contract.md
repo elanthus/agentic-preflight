@@ -90,8 +90,9 @@ execution/ownership records from portable notes.
 Origin and configuration snapshot digests are checked when evidence is admitted for
 reuse or archived, and when an attestation is verified. Loading a run record performs
 structural validation without rehashing its stage origins. Corrupt active evidence
-is reported with run-record recovery guidance before merge-back changes the source
-branch; its audit record and worktree remain available for inspection.
+is reported as `stage_evidence_invalid` before merge-back changes the source branch.
+Status remains inspectable and recommends inspecting the record, then aborting without
+`--force` before starting fresh; ordinary abort still protects unmerged work.
 
 An attestation embeds one original execution per stage, its content digest, and
 the current fingerprint. Derivation adds refresh time and `equivalent_inputs`, keeping

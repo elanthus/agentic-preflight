@@ -382,6 +382,17 @@ after `gc`.
 ## Inspection and recovery
 
 ### `agentic-preflight status [--all]`
+
+For a structurally readable active run with invalid stage-origin digests, single-run
+status succeeds with `data.readable = true`, `data.evidence_valid = false`, and
+`data.evidence_failure` containing code `stage_evidence_invalid`, path, stage, and
+reason. This inspection applies in every nonterminal state. Follow its recovery:
+inspect the record, abort without `--force`, preserve any unmerged work reported by
+abort, then start fresh. Commands that consume corrupt active evidence, including
+merge-back, instead return exit 3 with error code `stage_evidence_invalid` and the same recovery guidance. `status --all`
+checks structural loadability; its readable records have not had their evidence
+digests verified.
+
 Legal in **every** state and the universal recovery entry point. Reports state, seq,
 findings, staleness, worktree path, the gate token, and `data.hook` with the effective
 hook's `path` and `active` state. Hook-resolution failures report `path: null`,

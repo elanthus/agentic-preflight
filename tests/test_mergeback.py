@@ -769,7 +769,8 @@ def test_corrupt_current_evidence_preserves_source_and_reports_recovery(
     ready, feature_repo, state, mutation
 ):
     from agentic_preflight.digests import json_digest
-    from agentic_preflight.store import RUN_READ_RECOVERY, Store
+    from agentic_preflight.errors import STAGE_EVIDENCE_RECOVERY
+    from agentic_preflight.store import Store
 
     agent, wt = ready()
     status = agent.run("status")
@@ -795,11 +796,20 @@ def test_corrupt_current_evidence_preserves_source_and_reports_recovery(
     before = json.loads(path.read_text())
     source_head = git("rev-parse", "HEAD", cwd=feature_repo)
     validation_head = git("rev-parse", "HEAD", cwd=wt)
-    command = "status" if state == "LINT_GREEN" else "mergeback"
-    failed = agent.run(command, expect=ExitCode.PRECONDITION)
-    assert failed["error"]["code"] == "run_record_unreadable"
-    assert failed["data"]["reason"] == "invalid"
-    assert failed["next"]["instruction"] == RUN_READ_RECOVERY
+    inspected = agent.run("status")
+    assert inspected["data"]["readable"] is True
+    assert inspected["data"]["evidence_valid"] is False
+    assert inspected["data"]["evidence_failure"]["code"] == "stage_evidence_invalid"
+    assert inspected["next"]["instruction"] == STAGE_EVIDENCE_RECOVERY
+    assert inspected["next"]["command"] == "agentic-preflight abort"
+    inventory = agent.run("status", "--all")
+    assert any(item["run_id"] == run_id for item in inventory["data"]["runs"])
+    assert all(item.get("readable", True) for item in inventory["data"]["runs"])
+    if state != "LINT_GREEN":
+        failed = agent.run("mergeback", expect=ExitCode.PRECONDITION)
+        assert failed["error"]["code"] == "stage_evidence_invalid"
+        assert failed["data"]["reason"] == "invalid_origin_digest"
+        assert failed["next"]["instruction"] == STAGE_EVIDENCE_RECOVERY
     assert git("rev-parse", "HEAD", cwd=feature_repo) == source_head
     assert git("rev-parse", "HEAD", cwd=wt) == validation_head
     after = json.loads(path.read_text())
@@ -807,3 +817,8 @@ def test_corrupt_current_evidence_preserves_source_and_reports_recovery(
     assert after["state"] == before["state"]
     assert after["mergeback_attempt"] == before["mergeback_attempt"]
     assert git("notes", "--ref=agentic-preflight", "list", cwd=feature_repo) == ""
+    aborted = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+    assert aborted["error"]["code"] == "unmerged_work"
+    assert Path(wt).is_dir()
+    assert git("rev-parse", "HEAD", cwd=wt) == validation_head
+    assert json.loads(path.read_text())["evidence"] == before["evidence"]

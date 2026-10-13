@@ -9,6 +9,7 @@ from ..envelope import Envelope
 from ..errors import (
     START_COMMAND,
     MaxRestarts,
+    StageEvidenceInvalid,
     UnmergedWork,
     WrongState,
 )
@@ -614,6 +615,25 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
                 run.intent, base_ref=run.base_ref, default_base_ref=session.config.general.base_ref
             ),
         )
+
+    if run.state not in {State.ABORTED, State.DONE, State.ORPHANED}:
+        from . import evidence
+
+        try:
+            evidence.verify_origins(session, run, run.evidence)
+        except StageEvidenceInvalid as exc:
+            return _envelope_for(
+                run,
+                data={
+                    "has_run": True,
+                    "readable": True,
+                    "evidence_valid": False,
+                    "evidence_failure": {"code": exc.code, **exc.data},
+                    "hook": hook_status,
+                },
+                next_instruction=exc.next_instruction,
+                next_command=exc.next_command,
+            )
 
     findings = session.store.load_findings(run_id)
     run, findings, reuse_error = _try_advance_evidence(session, run, findings)
