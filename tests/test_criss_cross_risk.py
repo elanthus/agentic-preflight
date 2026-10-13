@@ -136,6 +136,38 @@ def test_sync_never_overwrites_an_ignored_file(tmp_repo, backend):
     assert gitx.operation_in_progress(tmp_repo) is None
 
 
+@pytest.mark.parametrize("history", ["conflicting", "unrelated"])
+def test_sync_protects_ignored_files_without_a_clean_merge_result(tmp_repo, history):
+    """Rebasing checks out the base first, so its new paths matter even with no landed tree."""
+    write(tmp_repo, ".gitignore", ".env\nconfig.local\n")
+    commit_all(tmp_repo, "ignore local config")
+    if history == "conflicting":
+        git("switch", "-c", "feature/local", cwd=tmp_repo)
+        write(tmp_repo, "src/app.py", "BRANCH = 1\n")
+        head = commit_all(tmp_repo, "branch edit")
+    else:
+        git("switch", "--orphan", "feature/local", cwd=tmp_repo)
+        write(tmp_repo, "other.txt", "unrelated\n")
+        head = commit_all(tmp_repo, "unrelated root")
+    git("switch", "main", cwd=tmp_repo)
+    write(tmp_repo, "src/app.py", "BASE = 1\n")
+    write(tmp_repo, "config.local", "TRACKED = 1\n")
+    git("add", "-f", "config.local", cwd=tmp_repo)
+    base = commit_all(tmp_repo, "base edit and tracked config")
+    git("switch", "feature/local", cwd=tmp_repo)
+    write(tmp_repo, "config.local", "LOCAL SECRET\n")
+    if history == "conflicting":
+        assert gitx.merge_tree(tmp_repo, base, head) is None
+
+    with pytest.raises(sync.SyncObstructed) as caught:
+        sync.synchronize(tmp_repo, tmp_repo, base_ref="main")
+
+    assert caught.value.conflicting_files == ["config.local"]
+    assert (tmp_repo / "config.local").read_text(encoding="utf-8") == "LOCAL SECRET\n"
+    assert git("rev-parse", "HEAD", cwd=tmp_repo) == head
+    assert gitx.operation_in_progress(tmp_repo) is None
+
+
 def test_sync_does_not_mistake_a_case_only_rename_for_a_local_file(tmp_repo):
     """On a case-insensitive filesystem the renamed path appears to exist already."""
     git("switch", "-c", "feature/readme", cwd=tmp_repo)
@@ -172,7 +204,7 @@ def test_sync_stops_before_mutating_when_the_landed_tree_cannot_be_computed(tmp_
     def failing_merge_tree(*_args, **_kwargs):
         raise gitx.GitError(["merge-tree"], 128, "fatal: unable to write object")
 
-    monkeypatch.setattr(gitx, "merge_tree", failing_merge_tree)
+    monkeypatch.setattr(gitx, "merge_tree_result", failing_merge_tree)
     with pytest.raises(gitx.GitError):
         sync.synchronize(tmp_repo, tmp_repo, base_ref="main")
 

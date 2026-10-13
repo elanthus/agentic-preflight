@@ -268,11 +268,11 @@ def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
     attestation remains valid against a newly synchronized base. Git may add
     unreachable tree objects, but this does not update refs, the index, or files.
     """
-    tree, clean = _merge_tree_result(cwd, left, right)
+    tree, clean = merge_tree_result(cwd, left, right)
     return tree if clean else None
 
 
-def _merge_tree_result(cwd: Path | str, left: str, right: str) -> tuple[str, bool]:
+def merge_tree_result(cwd: Path | str, left: str, right: str) -> tuple[str, bool]:
     """Return Git's merge-result tree and whether the merge was clean.
 
     A conflicted merge still writes a tree, with conflict markers in the
@@ -542,7 +542,7 @@ def merge_result_files(cwd: Path | str, base: str, head: str) -> list[str]:
     ``-s ours`` reverts it without showing the revert. The merge-tree result
     accounts for every merge base. Conflicted paths are reported too.
     """
-    tree, _clean = _merge_tree_result(cwd, base, head)
+    tree, _clean = merge_tree_result(cwd, base, head)
     output = run(
         cwd,
         "diff",

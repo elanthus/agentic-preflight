@@ -79,44 +79,49 @@ def _unmerged_paths(worktree_path: Path | str) -> list[str]:
     ]
 
 
-def _landed_tree(worktree_path: Path | str, base_sha: str, head: str) -> str | None:
-    """Return the tree a clean merge of ``head`` into the base would land.
+def _merge_trees(
+    worktree_path: Path | str, base_sha: str, head: str
+) -> tuple[str | None, str | None]:
+    """Return the clean landed tree and Git's merge-result tree for ``head`` into the base.
 
-    ``None`` means the merge conflicts or the histories are unrelated, so there is no
-    merge result to preserve. Any other Git failure propagates before the worktree is
-    touched, rather than silently disabling the comparison.
+    The landed tree is ``None`` when the merge conflicts or the histories are unrelated,
+    so there is no merge result to preserve. A conflicted merge still has a result tree,
+    with markers, that shows every path the merge would write; unrelated histories have
+    neither. Any other Git failure propagates before the worktree is touched, rather
+    than silently disabling the comparison.
     """
     args = ["merge-base", base_sha, head]
     common = gitx.run(worktree_path, *args, check=False)
     if common.returncode == 1:
-        return None
+        return None, None
     if common.returncode != 0:
         raise gitx.GitError(args, common.returncode, common.stderr)
-    return gitx.merge_tree(worktree_path, base_sha, head)
+    tree, clean = gitx.merge_tree_result(worktree_path, base_sha, head)
+    return (tree if clean else None), tree
 
 
-def _obstructed_paths(worktree_path: Path | str, before: str, landed: str) -> list[str]:
-    """Return untracked or ignored local files at paths that the landed tree adds.
+def _obstructed_paths(worktree_path: Path | str, before: str, trees: list[str]) -> list[str]:
+    """Return untracked or ignored local files at paths that any of ``trees`` adds.
 
-    Git treats ignored files as expendable, so a rebase or merge can overwrite them, for
-    example when a directory rename moves a branch file onto an ignored local file.
+    Git treats ignored files as expendable, so a rebase or merge can overwrite them: a
+    rebase first checks out the base, and a directory rename can move a branch file onto
+    an ignored local file.
     """
-    added = gitx.run(
-        worktree_path,
-        "diff",
-        "--name-only",
-        "-z",
-        "--no-renames",
-        "--diff-filter=A",
-        before,
-        landed,
-    ).stdout
+    added: list[str] = []
+    for tree in trees:
+        output = gitx.run(
+            worktree_path,
+            "diff",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "--diff-filter=A",
+            before,
+            tree,
+        ).stdout
+        added.extend(path for path in output.split("\0") if path and path not in added)
     root = Path(worktree_path)
-    candidates = [
-        path
-        for path in added.split("\0")
-        if path and ((root / path).exists() or (root / path).is_symlink())
-    ]
+    candidates = [path for path in added if (root / path).exists() or (root / path).is_symlink()]
     if not candidates:
         return []
     # On a case-insensitive filesystem a tracked file can answer for an added path that
@@ -190,13 +195,13 @@ def sync_onto(worktree_path: Path | str, base_ref: str) -> tuple[str, str, bool]
     if gitx.is_ancestor(worktree_path, base_sha, "HEAD"):
         return before, before, False
 
-    landed = _landed_tree(worktree_path, base_sha, before)
-    if landed is not None:
-        obstructed = _obstructed_paths(worktree_path, before, landed)
-        if obstructed:
-            raise SyncObstructed(
-                base_ref=base_ref, base_sha=base_sha, head_before=before, paths=obstructed
-            )
+    landed, merged = _merge_trees(worktree_path, base_sha, before)
+    # Check every path the base or the merge result adds, before anything changes.
+    obstructed = _obstructed_paths(worktree_path, before, [base_sha, *([merged] if merged else [])])
+    if obstructed:
+        raise SyncObstructed(
+            base_ref=base_ref, base_sha=base_sha, head_before=before, paths=obstructed
+        )
     result = gitx.run(worktree_path, "rebase", base_sha, check=False)
     if result.returncode == 0:
         after = gitx.rev_parse(worktree_path, "HEAD")

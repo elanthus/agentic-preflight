@@ -98,8 +98,9 @@ rebases the PR branch itself. When a rebase would change what merging the branch
 for example by dropping an `-s ours` merge that reverts a branch already in the base, it
 merges the base in instead and reports `data.sync.merged: true`. A sync conflict is aborted
 cleanly and reported; no conflicted rebase or merge is left in progress. Synchronization also
-refuses, before changing anything, when it would write over untracked or ignored local
-files, and lists them in `data.conflicting_files`.
+refuses, before changing anything, when a path added by the base or by the branch's merge
+result already exists as an untracked or ignored local file, and lists those files in
+`data.conflicting_files`.
 `start` classifies complete local evidence per stage, including when synchronization
 leaves the exact attested commit unchanged, and returns the next required
 command. Equal base/head trees and matching context

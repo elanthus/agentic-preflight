@@ -9,7 +9,7 @@
   histories, synchronization stops before changing the branch.
 - `start` now validates a branch whose only change is hidden by criss-cross history
   instead of reporting that it has no changes.
-- Synchronization now refuses, before changing anything, when the synchronized branch
-  would write over untracked or ignored local files, and lists them. Previously a rebase
-  could silently overwrite an ignored file, for example when a directory rename in the
-  base moved a branch file onto it.
+- Synchronization now refuses, before changing anything, when a path added by the base or
+  by the branch's merge result already exists as an untracked or ignored local file, and
+  lists those files. Previously a rebase could silently overwrite an ignored file, for
+  example one the base starts tracking, or one a directory rename moved a branch file onto.
