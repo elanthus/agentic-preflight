@@ -123,7 +123,13 @@ def _file_submission(
         "command" if recorded_executor == "in_harness" else "in_harness"
     )
     if isinstance(payload, dict) and {"manifest", "head_sha", "executor"} <= payload.keys():
-        return _parse_persisted(payload)
+        persisted = _parse_persisted(payload)
+        persisted["findings"], _ = review_coverage.validate(
+            persisted["findings"],
+            manifest=manifest,
+            submitted_manifest=persisted["manifest"],
+        )
+        return persisted
     submissions, submitted_manifest = review_protocol.parse_submission(payload, stage=Stage.REVIEW)
     submissions, _ = review_coverage.validate(
         submissions,

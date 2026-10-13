@@ -71,6 +71,7 @@ _STAGE_READY_STATES: dict[str, tuple[State, ...]] = {
     "test": (State.LINT_GREEN, State.TEST_RUNNING, State.TEST_RED),
 }
 
+
 def _recover_interrupted_stage(
     session: Session, run: RunDoc, stage: Stage, spec: _StageSpec
 ) -> RunDoc:

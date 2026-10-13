@@ -217,6 +217,8 @@ def run_review_command(session: Session) -> Envelope:
                 "exit_code": 0,
                 "log_path": log_path,
                 "reviewer_invocations": 1,
+                "timed_out": result.timed_out,
+                **shellstage.summarise(clean_output),
             },
             next_command="agentic-preflight review run",
         ) from exc
