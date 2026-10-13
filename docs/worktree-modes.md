@@ -50,8 +50,8 @@ and lock-boundary decision.
 ## `in_place` (default)
 
 Work happens directly in the current checkout. This is intended for a clean, dedicated
-one-agent/one-PR worktree: the fresh-base rebase and accepted repair commits land
-directly on the PR branch, and `mergeback` becomes a no-op attestation of the exact SHA
+one-agent/one-PR worktree: the fresh-base rebase (or base merge, when a rebase would
+change what the branch lands) and accepted repair commits land directly on the PR branch, and `mergeback` becomes a no-op attestation of the exact SHA
 whose local stages passed, were explicitly skipped, or supplied applicable reused
 evidence. With CI test authority, it records publication readiness with tests pending.
 

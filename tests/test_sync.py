@@ -75,6 +75,8 @@ def test_sync_fetches_and_rebases_the_worktree_onto_fresh_origin(
 
     assert result.remote == "origin"
     assert result.base_sha == upstream
+    assert result.rebased is True
+    assert result.merged is False
     assert gitx.is_ancestor(worktree_path, upstream, "HEAD")
     assert (worktree_path / "base.txt").read_text(encoding="utf-8") == "new upstream content\n"
 
@@ -227,11 +229,11 @@ def test_rebase_refuses_to_abort_the_users_paused_interactive_rebase(
 
     caught: Exception | None = None
     try:
-        sync.rebase_onto(feature_repo, "main")
+        sync.sync_onto(feature_repo, "main")
     except Exception as exc:  # noqa: BLE001 - identifies the BASE failure by assertion below
         caught = exc
 
-    assert rebase_dir.is_dir(), "rebase_onto aborted the user's paused interactive rebase"
+    assert rebase_dir.is_dir(), "sync_onto aborted the user's paused interactive rebase"
     assert type(caught).__name__ == "OperationInProgress"
     assert getattr(caught, "operation", None) == "rebase"
     assert git("rev-parse", "HEAD", cwd=feature_repo) == before_head
@@ -262,6 +264,7 @@ def test_sync_result_serialization_preserves_nullable_remote(remote):
         "head_before": "b" * 40,
         "head_after": "c" * 40,
         "rebased": True,
+        "merged": False,
     }
     serialized["remote"] = "changed"
     assert result.remote == remote

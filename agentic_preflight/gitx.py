@@ -563,7 +563,7 @@ def classified_files(cwd: Path | str, base: str, head: str) -> list[str]:
     This is the union of ``changed_files`` and ``merge_result_files``, so criss-cross
     history cannot hide a change from the classification. ``base`` must be the base
     tip, not a merge base. Within a run the two lists are equal, because
-    synchronization rebases the validated head onto the recorded base tip.
+    synchronization makes the recorded base tip an ancestor of the validated head.
     """
     return sorted({*changed_files(cwd, base, head), *merge_result_files(cwd, base, head)})
 

@@ -252,23 +252,10 @@ def _require_changes(ctx: _StartContext) -> _StartContext:
     except gitx.GitError as exc:
         raise EmptyDiff(f"cannot find a merge base with {ctx.base_ref!r}: {exc}") from exc
 
-    changed = gitx.changed_files(ctx.repo, merge_base, "HEAD")
+    # Criss-cross history can hide a change from the single merge base, such as an
+    # ``-s ours`` merge that reverts a branch already in the base; synchronization keeps it.
+    changed = gitx.classified_files(ctx.repo, ctx.base_ref, "HEAD")
     if not changed:
-        # Criss-cross history can hide a change from the single merge base, such as
-        # an ``-s ours`` merge that reverts a branch already in the base. Synchronizing
-        # would rebase that merge away, so refuse before touching the branch.
-        hidden = gitx.merge_result_files(ctx.repo, ctx.base_ref, "HEAD")
-        if hidden:
-            raise EmptyDiff(
-                f"{ctx.branch} has no changes since its merge base with {ctx.base_ref}, "
-                f"but merging it would change {len(hidden)} file(s)",
-                data={"merge_result_files": hidden},
-                next_instruction=(
-                    "The branch history hides these changes, and synchronizing would "
-                    "rebase them away. Make the intended change in an ordinary commit, "
-                    "for example with `git revert`, then start a run."
-                ),
-            )
         raise EmptyDiff(
             f"{ctx.branch} has no changes over {ctx.base_ref}; there is nothing to review",
             next_instruction="Commit some work on a branch, then start a run.",
