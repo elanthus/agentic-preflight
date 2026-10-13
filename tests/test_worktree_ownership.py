@@ -25,36 +25,20 @@ def test_commands_classify_and_preserve_unsupported_config_snapshot(feature_repo
     started = agent.run("start")
     path = _state_root(feature_repo) / "runs" / started["run_id"] / "run.json"
     raw = json.loads(path.read_text(encoding="utf-8"))
-    raw["config_snapshot"]["review"]["require_fix_commits"] = True
-    raw["config_snapshot"]["worktree"]["ttl_hours"] = 24
+    raw["config_snapshot"]["review"]["unknown_setting"] = "DO_NOT_ECHO_RECORD_VALUES"
     original = json.dumps(raw).encode()
     path.write_bytes(original)
 
-    expected_fields = [
-        {
-            "location": ["config_snapshot", "review", "require_fix_commits"],
-            "category": "extra_forbidden",
-        },
-        {
-            "location": ["config_snapshot", "worktree", "ttl_hours"],
-            "category": "extra_forbidden",
-        },
-    ]
     status = agent.run("status")
-    assert status["data"]["read_failure"]["reason"] == "invalid_or_unsupported_schema"
-    assert status["data"]["read_failure"]["fields"] == expected_fields
-    assert "review.require_fix_commits" in status["data"]["read_failure"]["diagnostic"]
-    assert "worktree.ttl_hours" in status["data"]["read_failure"]["diagnostic"]
-
+    assert status["data"]["read_failure"]["reason"] == "invalid"
+    assert "DO_NOT_ECHO_RECORD_VALUES" not in json.dumps(status)
     inventory = agent.run("status", "--all")
-    assert inventory["data"]["runs"][0]["fields"] == expected_fields
+    assert inventory["data"]["runs"][0]["reason"] == "invalid"
     collected = agent.run("gc")
-    assert collected["data"]["retained"][0]["fields"] == expected_fields
-
+    assert collected["data"]["retained"][0]["reason"] == "invalid"
     aborted = agent.run("abort", "--force", expect=ExitCode.PRECONDITION)
     assert aborted["error"]["code"] == "run_record_unreadable"
-    assert aborted["data"]["reason"] == "invalid_or_unsupported_schema"
-    assert aborted["data"]["fields"] == expected_fields
+    assert aborted["data"]["reason"] == "invalid"
     assert path.read_bytes() == original
 
 
@@ -297,7 +281,7 @@ def test_gc_orphans_an_abandoned_run_whose_snapshot_holds_a_removed_config_key(
     assert f"ap/{run_id}" not in git("branch", "--list", "ap/*", cwd=feature_repo)
 
 
-def test_gc_keeps_the_strict_verdict_for_a_removed_key_when_the_run_is_not_abandoned(
+def test_gc_preserves_active_run_with_removed_snapshot_keys(
     feature_repo,
 ):
     agent = ScriptedAgent(feature_repo)
@@ -312,13 +296,11 @@ def test_gc_keeps_the_strict_verdict_for_a_removed_key_when_the_run_is_not_aband
     collected = agent.run("gc", "--force")
 
     assert collected["data"]["removed"] == []
-    assert collected["data"]["retained"][0]["run_id"] == started["run_id"]
-    assert collected["data"]["retained"][0]["reason"] == "invalid_or_unsupported_schema"
-    assert collected["data"]["retained"][0]["fields"] == [
-        {"location": ["config_snapshot", "hook", "enabled"], "category": "extra_forbidden"}
-    ]
+    assert collected["data"]["retained"] == []
     assert runs.open_session(feature_repo).store.list_active() == ownership
     assert path.read_bytes() == original
+    assert agent.run("status")["data"].get("readable", True) is True
+    assert json.loads(path.read_text())["config_snapshot"] == raw["config_snapshot"]
 
 
 def test_alias_claim_failure_records_validator_for_gc(feature_repo, monkeypatch):
@@ -468,18 +450,8 @@ def test_gc_retains_earlier_release_record_without_offering_force(feature_repo, 
         {
             "run_id": started["run_id"],
             "path": str(path),
-            "reason": "invalid_or_unsupported_schema",
-            "diagnostic": (
-                "Run record declares a schema version from an earlier release. The "
-                "record and its associated work have been retained unchanged; use a "
-                "compatible tool version or inspect the record."
-            ),
-            "fields": [
-                {
-                    "location": ["schema_version"],
-                    "category": "value_error",
-                }
-            ],
+            "reason": "invalid",
+            "diagnostic": "Run record is invalid or unsupported.",
         }
     ]
     assert collected["next"]["command"] is None
@@ -507,7 +479,7 @@ def test_forced_gc_preserves_invalid_version_record_and_ownership(feature_repo, 
 
     collected = agent.run("gc", "--force")
 
-    assert collected["data"]["retained"][0]["reason"] == "invalid_or_unsupported_schema"
+    assert collected["data"]["retained"][0]["reason"] == "invalid"
     assert store.list_active() == ownership
     assert path.read_bytes() == original
 

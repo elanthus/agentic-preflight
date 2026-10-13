@@ -32,34 +32,7 @@ from .models import Finding, RunDoc
 
 def _parse_run(payload: str) -> RunDoc:
     """Parse and validate a current run document."""
-    raw = json.loads(payload)
-    if not isinstance(raw, dict):
-        raise InvalidRunRoot("run record must be a JSON object")
-    return RunDoc.model_validate(raw)
-
-
-def _validation_fields(exc: ValidationError, *, prefix: tuple[str, ...] = ()) -> list[dict]:
-    return [
-        {
-            "location": [*prefix, *error["loc"]],
-            "category": error["type"],
-        }
-        for error in exc.errors(include_url=False, include_context=False, include_input=False)
-    ]
-
-
-def _validate_snapshot(snapshot: dict, tolerate_removed_config: bool) -> None:
-    """Validate a stored config snapshot, strictly or ignoring removed keys."""
-    snapshot_run_settings(snapshot, tolerate_removed_config=tolerate_removed_config)
-
-
-def _config_snapshot_diagnostic(exc: ValidationError) -> str:
-    locations = [".".join(map(str, error["loc"])) for error in exc.errors()]
-    fields = ", ".join(location for location in locations if location) or "<root>"
-    return (
-        f"Run record configuration snapshot is unsupported or invalid at: {fields}. "
-        "It has been retained unchanged."
-    )
+    return RunDoc.model_validate(json.loads(payload))
 
 
 class StoreError(Exception):
@@ -73,19 +46,14 @@ RUN_READ_RECOVERY = (
 )
 
 
-class InvalidRunRoot(ValueError):
-    """A JSON value cannot represent a run document."""
-
-
 class RunReadError(StoreError):
     """An existing record could not be read or validated; preserve its resources."""
 
-    def __init__(self, run_id: str, path: Path, reason: str, diagnostic: str, *, fields=None):
-        super().__init__(diagnostic)
+    def __init__(self, run_id: str, path: Path, reason: str, detail: str):
+        super().__init__(detail)
         self.run_id = run_id
         self.path = path
         self.reason = reason
-        self.fields = fields or []
 
     def details(self) -> dict:
         return {
@@ -93,7 +61,6 @@ class RunReadError(StoreError):
             "path": str(self.path),
             "reason": self.reason,
             "diagnostic": str(self),
-            "fields": self.fields,
         }
 
 
@@ -220,17 +187,14 @@ class Store:
         _atomic_write(self.run_path(run.run_id), run.model_dump_json(indent=2))
         return run
 
-    def load_run(self, run_id: str, *, tolerate_removed_config: bool = False) -> RunDoc:
-        """Load and validate one run record.
+    def load_run(self, run_id: str) -> RunDoc:
+        """Load a current run, validating cached settings and ignoring retired keys.
 
-        ``tolerate_removed_config`` validates the stored config snapshot the way
-        attestation does, ignoring keys in :data:`REMOVED_CONFIG_KEYS`. It is for
-        callers that only need the record's lifecycle fields, such as ``gc``
-        deciding whether an abandoned run can be orphaned; every other caller
-        keeps the strict read so a snapshot still means exactly one config.
+        The stored snapshot remains unchanged so its digest still binds the original
+        evidence. Unknown keys and invalid current settings remain read failures.
         """
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
-            return self._load_run(run_id, tolerate_removed_config=tolerate_removed_config)
+            return self._load_run(run_id)
 
     def peek(self, run_id: str, *fields: str) -> dict[str, Any] | None:
         """Return top-level fields of a run record without validating it.
@@ -249,69 +213,21 @@ class Store:
             return None
         return {field: raw.get(field) for field in fields}
 
-    def _load_run(self, run_id: str, *, tolerate_removed_config: bool = False) -> RunDoc:
-        """Read under the caller's run lock, retaining structured read errors."""
+    def _load_run(self, run_id: str) -> RunDoc:
+        """Read under the caller's run lock, retaining value-free read errors."""
         path = self.run_path(run_id)
         try:
             payload = path.read_text(encoding="utf-8")
         except FileNotFoundError as exc:
             raise UnknownRun(run_id) from exc
-        except UnicodeDecodeError as exc:
-            raise RunReadError(
-                run_id, path, "invalid_encoding", "Run record is not UTF-8."
-            ) from exc
-        except OSError as exc:
-            raise RunReadError(
-                run_id,
-                path,
-                "io_error",
-                f"Cannot read run record ({type(exc).__name__}, errno {exc.errno}).",
-            ) from exc
+        except (UnicodeDecodeError, OSError) as exc:
+            raise RunReadError(run_id, path, "unreadable", "Cannot read run record.") from exc
         try:
             run = _parse_run(payload)
-        except json.JSONDecodeError as exc:
+            snapshot_run_settings(run.config_snapshot)
+        except (json.JSONDecodeError, ValidationError) as exc:
             raise RunReadError(
-                run_id,
-                path,
-                "malformed_json",
-                f"Invalid JSON at line {exc.lineno}, column {exc.colno}.",
-            ) from exc
-        except InvalidRunRoot as exc:
-            raise RunReadError(run_id, path, "invalid_record", str(exc)) from exc
-        except ValidationError as exc:
-            raw = json.loads(payload)
-            version = raw.get("schema_version")
-            earlier_release = type(version) is int and version < 2
-            version_error = any(error["loc"] == ("schema_version",) for error in exc.errors())
-            raise RunReadError(
-                run_id,
-                path,
-                "invalid_or_unsupported_schema",
-                (
-                    "Run record declares a schema version from an earlier release. The "
-                    "record and its associated work have been retained unchanged; use a "
-                    "compatible tool version or inspect the record."
-                    if earlier_release
-                    else (
-                        "Run record must explicitly declare current schema version 2 as a "
-                        "JSON integer. The record and its associated work have been retained "
-                        "unchanged; use a compatible tool version or inspect the record."
-                        if version_error
-                        else "Run record does not match the supported schema; it may be "
-                        "incompatible or invalid."
-                    )
-                ),
-                fields=_validation_fields(exc),
-            ) from exc
-        try:
-            _validate_snapshot(run.config_snapshot, tolerate_removed_config)
-        except ValidationError as exc:
-            raise RunReadError(
-                run_id,
-                path,
-                "invalid_or_unsupported_schema",
-                _config_snapshot_diagnostic(exc),
-                fields=_validation_fields(exc, prefix=("config_snapshot",)),
+                run_id, path, "invalid", "Run record is invalid or unsupported."
             ) from exc
         return run
 
@@ -340,7 +256,6 @@ class Store:
         run_id: str,
         *,
         findings: list[Finding] | None = None,
-        tolerate_removed_config: bool = False,
     ) -> Iterator[RunDoc]:
         """Read-modify-write a run document under an exclusive lock.
 
@@ -356,7 +271,7 @@ class Store:
             raise UnknownRun(run_id)
 
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
-            run = self._load_run(run_id, tolerate_removed_config=tolerate_removed_config)
+            run = self._load_run(run_id)
 
             yield run
 
@@ -422,7 +337,7 @@ class Store:
                 if index == len(lines) - 1:
                     break
                 raise RunReadError(
-                    run_id, path, "invalid_events", f"event line {index + 1}: {exc}"
+                    run_id, path, "invalid", f"Invalid event line {index + 1}."
                 ) from exc
         return events
 
