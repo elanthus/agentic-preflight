@@ -6,13 +6,12 @@ import json
 from typing import Any
 
 from .. import diff as diffmod
-from .. import gitx
 from ..attestation import output_digest
 from ..envelope import Envelope
 from ..errors import DiffTooLarge, InvalidFindings, StageFailed
 from ..machine import State
 from ..models import Stage
-from ..stages import protected_output, shellstage
+from ..stages import shellstage
 from . import review_protocol, review_retry
 from ._session import (
     Session,
@@ -20,8 +19,8 @@ from ._session import (
     _check_restart_limit,
     _load_current,
     _require_state,
-    _require_worktree,
 )
+from ._shell import _run_protected, _withheld_message
 from .review import submit_findings
 
 
@@ -79,36 +78,23 @@ def run_review_command(session: Session) -> Envelope:
     data = review_protocol.context_data(session, run, section="review", bundle=bundle)
     stdin_text = json.dumps(data, sort_keys=True, separators=(",", ":"))
 
-    wt = _require_worktree(run)
-    try:
-        protection = protected_output.OutputProtection.capture(wt, run.copied_files)
-    except shellstage.SecretRedactionError as exc:
-        raise StageFailed(
-            "the review command cannot run because copied-file redaction is unavailable",
-            state=run.state.value,
-            run_id=run.run_id,
-            stage=Stage.REVIEW.value,
-            data={"copied_file": str(exc.path), "reviewer_invocations": 0},
-            next_instruction=(
-                "Restore the reported copied file as readable text, or remove it from "
-                "[worktree] copy_files, then retry the review command."
-            ),
-            next_command="agentic-preflight review run",
-        ) from exc
+    def begin() -> None:
+        nonlocal run
+        run = review_retry.begin(session, run)
 
-    run = review_retry.begin(session, run)
-    result = shellstage.run_stage(
-        wt,
+    protected, _ = _run_protected(
+        session,
+        run,
         command,
-        timeout_seconds=session.config.stage.timeout_seconds,
+        log_name="review.txt",
+        retry_command="agentic-preflight review run",
+        what="review command",
+        stage=Stage.REVIEW.value,
         stdin_text=stdin_text,
         separate_stderr=True,
-        guarded_files=run.copied_files,
+        before_run=begin,
+        capture_data={"reviewer_invocations": 0},
     )
-    if not gitx.is_clean(wt):
-        result.exit_code = result.exit_code or 1
-        result.output += "\n[agentic-preflight] review command changed the worktree"
-    protected = protection.finish(result, session.store.logs_dir(run.run_id) / "review.txt")
     result = protected.result
     clean_output = protected.clean_output
     log_path = str(protected.log_path)
@@ -134,11 +120,7 @@ def run_review_command(session: Session) -> Envelope:
         }
         if redaction_error is not None:
             failure_data["copied_file"] = str(redaction_error.path)
-        message = (
-            "the review command output was withheld because a copied file changed during execution"
-            if redaction_error is None
-            else "the review command output was withheld because redaction became unavailable"
-        )
+        message = _withheld_message("review command", redaction_error)
         raise StageFailed(
             message,
             state=run.state.value,

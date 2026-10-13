@@ -17,7 +17,7 @@ from ..errors import (
 )
 from ..machine import Action, State
 from ..models import RunDoc, Stage, StageRecord
-from ..stages import detect, protected_output, shellstage
+from ..stages import detect, shellstage
 from . import evidence
 from ._session import (
     Session,
@@ -32,6 +32,7 @@ from ._session import (
     _require_worktree,
     _start_command,
 )
+from ._shell import _run_protected, _withheld_message
 from .review import _skip_test_if_not_applicable
 from .review_coverage import invalidate_stage_result, reopen_if_stale
 from .stage_baseline import check_baseline
@@ -241,39 +242,18 @@ def _check_attempt_limit(
         )
 
 
-def _prepare_output_protection(
-    session: Session,
-    run: RunDoc,
-    stage_name: str,
-    worktree_path: str,
-    command: str | None,
-    *,
-    record: bool,
-    baseline: bool,
-):
-    """Capture copied-file secrets or map capture failure to the stage protocol."""
-    try:
-        return protected_output.OutputProtection.capture(worktree_path, run.copied_files)
-    except shellstage.SecretRedactionError as exc:
-        retry = ["agentic-preflight", "stage", "run", stage_name]
-        if command is not None:
-            retry.extend(("--command", command))
-        if record:
-            retry.append("--record")
-        if baseline:
-            retry.append("--baseline")
-        raise StageFailed(
-            f"the {stage_name} stage cannot run because copied-file redaction is unavailable",
-            state=run.state.value,
-            run_id=run.run_id,
-            stage=stage_name,
-            data={"copied_file": str(exc.path)},
-            next_instruction=(
-                "Restore the reported copied file as readable text, or remove it from "
-                "[worktree] copy_files, then retry the stage."
-            ),
-            next_command=shlex.join(retry),
-        ) from exc
+def _stage_retry_command(
+    stage_name: str, command: str | None, *, record: bool, baseline: bool
+) -> str:
+    retry = ["agentic-preflight", "stage", "run", stage_name]
+    if command is not None:
+        retry.extend(("--command", command))
+    if record:
+        retry.append("--record")
+    if baseline:
+        retry.append("--baseline")
+
+    return shlex.join(retry)
 
 
 def _persist_stage_result(
@@ -322,12 +302,7 @@ def _stage_failure(
     message = f"the {stage_name} stage failed (exit {result.exit_code})"
     instruction = "Read the log, fix the cause in the worktree, commit, then re-run the stage."
     if redaction_failure_reason is not None:
-        message = (
-            f"the {stage_name} stage output was withheld because a copied file changed "
-            "during execution"
-            if redaction_error is None
-            else f"the {stage_name} stage output was withheld because redaction became unavailable"
-        )
+        message = _withheld_message(f"{stage_name} stage", redaction_error)
         instruction = (
             "Restore every copied file to its intended contents, then retry the stage. "
             "Commands must not rewrite [worktree] copy_files."
@@ -409,56 +384,33 @@ def run_stage(
 
     _check_attempt_limit(session, run, stage, record_entry)
     resolved = _resolve_command(session, run, stage_name, command)
-    protection = _prepare_output_protection(
+    baseline_red = None
+    input_fingerprint = None
+
+    def begin() -> None:
+        nonlocal run, baseline_red, input_fingerprint
+        with session.store.transaction(run.run_id) as doc:
+            _apply(doc, spec["retry"] if doc.state is spec["red"] else spec["run"])
+            doc.setup_failure = None
+            run = doc
+        baseline_red = (
+            check_baseline(session, run, stage, resolved, failure_action=spec["failed"])
+            if baseline
+            else None
+        )
+        input_fingerprint = evidence.fingerprint(session, run, stage, command=resolved, clean=True)
+
+    protected, clean_after = _run_protected(
         session,
         run,
-        stage_name,
-        worktree_path,
-        command,
-        record=record,
-        baseline=baseline,
-    )
-
-    with session.store.transaction(run.run_id) as doc:
-        _apply(doc, spec["retry"] if doc.state is spec["red"] else spec["run"])
-        doc.setup_failure = None
-        run = doc
-
-    wt = _require_worktree(run)
-    baseline_red = (
-        check_baseline(session, run, stage, resolved, failure_action=spec["failed"])
-        if baseline
-        else None
-    )
-
-    # The clean check above is the pre-command check; nothing since has touched
-    # the validation worktree (a baseline runs in its own scratch worktree).
-    input_fingerprint = evidence.fingerprint(session, run, stage, command=resolved, clean=True)
-    result = shellstage.run_stage(
-        wt,
         resolved,
-        timeout_seconds=session.config.stage.timeout_seconds,
-        guarded_files=run.copied_files,
+        log_name=f"{stage_name}.txt",
+        retry_command=_stage_retry_command(stage_name, command, record=record, baseline=baseline),
+        what=f"{stage_name} stage",
+        stage=stage_name,
+        before_run=begin,
+        dirty_message="stage changed the worktree; validation results are stale",
     )
-    # The command may have changed the worktree. Nothing computed before it may
-    # stand in for the post-command fingerprint below.
-    session.clear_memo()
-    # This check must follow the command: it is how a stage that changed the
-    # worktree is caught. Everything after the command reuses its result.
-    clean_after = gitx.is_clean(wt)
-    if not clean_after:
-        result = shellstage.StageResult(
-            command=result.command,
-            exit_code=result.exit_code or 1,
-            output=(
-                result.output
-                + "\n[agentic-preflight] stage changed the worktree; validation results are stale"
-            ),
-            timed_out=result.timed_out,
-            copied_files_changed=result.copied_files_changed,
-        )
-
-    protected = protection.finish(result, session.store.logs_dir(run.run_id) / f"{stage_name}.txt")
     result = protected.result
     clean_output = protected.clean_output
     log_path = protected.log_path

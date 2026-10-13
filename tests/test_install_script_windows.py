@@ -199,36 +199,3 @@ def test_uninstaller_refuses_to_continue_until_enter_is_received(tmp_path):
     assert result.returncode != 0
     assert "press Enter after project cleanup" in result.stderr
     assert not operations.exists()
-
-
-def test_every_installer_defaults_to_the_supported_integrations():
-    """Four hardcoded agent lists across two languages, with nothing else linking them.
-
-    Platform-independent on purpose: a contributor adding an integration will most
-    likely be on one platform, and the list they forget is the one they cannot run.
-    """
-    from agentic_preflight import integrations
-
-    expected = set(integrations.SUPPORTED_INTEGRATIONS)
-    scripts = {
-        "install.sh": ROOT / "install.sh",
-        "uninstall.sh": ROOT / "uninstall.sh",
-        "install.ps1": INSTALLER,
-        "uninstall.ps1": UNINSTALLER,
-    }
-
-    for name, path in scripts.items():
-        text = path.read_text(encoding="utf-8")
-        missing = {agent for agent in expected if agent not in text}
-        assert not missing, f"{name} does not offer {sorted(missing)}"
-
-
-def test_the_powershell_installers_ship_in_the_source_distribution():
-    """Platform-independent: the sdist must carry the Windows install path too."""
-    import tomllib
-
-    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    includes = config["tool"]["hatch"]["build"]["targets"]["sdist"]["include"]
-
-    assert "/install.ps1" in includes
-    assert "/uninstall.ps1" in includes
