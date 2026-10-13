@@ -109,14 +109,14 @@ def test_pending_mergeback_rejects_an_interrupted_source_rebase(
 
     agent, wt = ready(fresh_base=True)
     source = git("rev-parse", "HEAD", cwd=feature_repo)
-    original = sync.rebase_onto
+    original = sync.sync_onto
 
     def interrupted(*args, **kwargs):
         original(*args, **kwargs)
         raise OSError("interrupted after source rebase")
 
     with monkeypatch.context() as fault:
-        fault.setattr(sync, "rebase_onto", interrupted)
+        fault.setattr(sync, "sync_onto", interrupted)
         agent.run("mergeback", expect=1)
     rebased = git("rev-parse", "HEAD", cwd=feature_repo)
     assert rebased != source

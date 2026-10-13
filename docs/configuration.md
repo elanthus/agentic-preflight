@@ -383,10 +383,10 @@ cancels an earlier high-risk commit hides that commit from both tree comparisons
 rebase merge lands it. A branch that changes a high-risk path and later reverts it still
 needs approval. Attestation verification classifies the branch diff and merge-result
 paths for a test skip and the review-executor policy. A local run needs no extra step:
-`start` rebases the validated head onto the base tip, which drops such a merge, so the
-branch diff it classifies is the merge result. `start` refuses a branch whose only change
-is hidden this way. Recorded `critical` and `high` findings also make the run high-risk,
-including
+synchronization makes the base tip an ancestor of the validated head without changing
+what the branch lands, merging the base in when a rebase would drop such a merge, so the
+branch diff it classifies is the merge result. Recorded `critical` and `high` findings
+also make the run high-risk, including
 after a fix; a `medium` finding makes it at least medium-risk. Open blocking findings
 produce `changes_required` until they are resolved; once resolved, high risk produces
 `needs_human` for the hosted merge-approval check.

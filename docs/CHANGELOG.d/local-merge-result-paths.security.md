@@ -3,7 +3,3 @@
   policy. Previously, criss-cross history could hide a source change behind Git's single
   chosen merge base, so a test skip was accepted even though merging the head changed
   source.
-- `start` now refuses a branch whose diff from the merge base is empty but whose merge
-  into the base would change files, and lists them in `data.merge_result_files`.
-  Previously it reported no changes for such a branch, for example one that merges a
-  branch already in the base with `-s ours` and so would revert it.
