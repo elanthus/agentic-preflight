@@ -409,6 +409,7 @@ def run_stage(
         what=f"{stage_name} stage",
         stage=stage_name,
         before_run=begin,
+        dirty_message="stage changed the worktree; validation results are stale",
     )
     result = protected.result
     clean_output = protected.clean_output

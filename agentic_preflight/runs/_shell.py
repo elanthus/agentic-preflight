@@ -24,6 +24,7 @@ def _run_protected(
     separate_stderr: bool = False,
     before_run: Callable[[], None] | None = None,
     capture_data: dict | None = None,
+    dirty_message: str | None = None,
 ) -> tuple[protected_output.ProtectedResult, bool]:
     """Capture before bookkeeping, execute, check once, and persist safe output."""
     wt = _require_worktree(run)
@@ -56,7 +57,8 @@ def _run_protected(
     clean_after = gitx.is_clean(wt)
     if not clean_after:
         result.exit_code = result.exit_code or 1
-        result.output += f"\n[agentic-preflight] {what} changed the worktree"
+        message = dirty_message or f"{what} changed the worktree"
+        result.output += f"\n[agentic-preflight] {message}"
     return protection.finish(result, session.store.logs_dir(run.run_id) / log_name), clean_after
 
 
