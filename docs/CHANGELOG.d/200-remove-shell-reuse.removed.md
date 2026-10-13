@@ -1,2 +1,0 @@
-- Remove opt-in shell input contracts and file/toolchain/environment capture. Retired `[reuse]` configuration is ignored with a warning; lint/test evidence is never reused in a new run, even with identical trees. Same-run tree-equivalent merge-back publication remains supported. Original same-commit notes remain verifiable.
-- Preserve frozen historical run policy and committed protected-policy reads when ignoring retired sections. Active pre-upgrade shell evidence may conservatively revalidate once; original snapshot digests remain unchanged.

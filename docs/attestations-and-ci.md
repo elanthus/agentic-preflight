@@ -48,7 +48,7 @@ before this example can run.
 - run: git fetch origin refs/notes/agentic-preflight:refs/notes/agentic-preflight
 - run: git fetch origin 'refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*'
 - name: Install the matching released verifier
-  run: pipx install 'agentic-preflight==0.6.0'
+  run: pipx install 'agentic-preflight==0.7.0'
 - name: Verify the attested commit
   env:
     ATTESTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -66,8 +66,46 @@ what rejects a branch tip without an attestation.
 This repository dogfoods that check by installing the verifier from the protected pull
 request base commit, then fetching the proposed commit and its note from the
 contributor's remote. The pull request cannot change the verifier that judges it.
-Governance paths are also listed in `.github/CODEOWNERS`; enable **Require review from
-Code Owners** in the branch ruleset because the file alone only requests reviewers.
+Governance paths are also listed in `.github/CODEOWNERS`. That file requests reviewers;
+GitHub enforces Code Owner approval only when an administrator enables
+**Require review from Code Owners** in a branch ruleset.
+
+## Administrator setup and this repository's settings
+
+Local checks, hosted checks, and merge requirements are separate:
+
+| Layer | What enables it | What it establishes |
+| --- | --- | --- |
+| Local advisory workflow | Install the CLI/skill and run `init` in each clone | Normal pushes check the exact tip; the hook remains bypassable and fail-open on missing tooling/configuration. |
+| Hosted verification | Commit trusted workflows that install a pinned release or protected-base source | CI rejects missing or invalid evidence and evaluates configured approval policy. A workflow alone does not block merge. |
+| GitHub merge enforcement | An administrator enables a branch ruleset and names required checks | GitHub blocks merge until those checks satisfy the rules, subject to configured bypass permissions. |
+
+For a corporate pilot, require **trusted preflight attestation**, the team's CI and
+security checks, and **high-risk human approval** if approval policy must block merge.
+Enable Code Owner review for ownership enforcement and review-thread resolution if
+required by the team. Configure required reviewers for any approval Environment.
+Review ruleset bypass actors as part of that setup. Installing the package or committing
+its configuration changes none of these GitHub settings.
+
+Read-only GitHub API inspection on 2026-10-13 found this repository's active
+[PR first ruleset](https://github.com/elanthus/agentic-preflight/rules/19934690):
+
+- Pull requests and protection against branch deletion are required on `main`.
+- Required checks are `test / test (ubuntu-latest, py3.13)`, `built wheel smoke test`,
+  `trusted preflight attestation`, `CodeQL (Python)`, and `dependency vulnerability audit`.
+- Required approving reviews are zero; Code Owner review, last-push approval,
+  review-thread resolution, and strict up-to-date checks are disabled.
+- `high-risk human approval` is reported by its workflow but is not a required check.
+  Contributor instructions still require owner approval for substantive authorization,
+  approval-enforcement, or bypass-rule changes.
+- `elanthus` has a pull-request-only ruleset bypass. Repository auto-merge is disabled;
+  merge, squash, and rebase merge methods are enabled. The Dependabot auto-merge
+  workflow therefore needs an administrator to enable auto-merge before it can operate.
+- The `pypi` Environment requires `elanthus` review and permits `v*` tags. Self-review is
+  allowed and administrators can bypass its protection. See [Releasing](RELEASING.md).
+
+These are a dated observation, not a guarantee for another repository or a later run.
+No settings were changed during release preparation.
 
 ## Protected-base fetch and verification
 
@@ -129,8 +167,9 @@ any content change needs a new review. See
 This repository configures `owner_review` with `reviewer = "elanthus"`, so the approval
 check can report a review status for the current content: an Approve review on another
 author's PR, or a Comment review containing only `approved` on your own PR. Its current
-branch rules require automated CI and dependency audits, with review feedback resolved
-before merge; human approval and Code Owner review are not mandatory merge requirements.
+branch rules require automated CI and dependency audits. Human approval, Code Owner
+review, and resolved review threads are not mandatory GitHub merge requirements;
+contributors must still follow this repository's approval and review instructions.
 Changes only to `pyproject.toml` or `uv.lock` no longer trigger high-risk review or
 CODEOWNERS requests.
 Dependabot automation settings remain protected policy.

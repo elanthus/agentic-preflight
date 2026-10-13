@@ -17,7 +17,8 @@ checkout when it still exists; they do not mutate whichever unrelated worktree h
 to invoke them. If that source checkout was deleted, `status`, `events`, and `logs` remain
 available for inspection, and other mutating commands fail with `source_worktree_missing`
 and direct recovery to `gc`. `gc` is the exception: run from a surviving worktree in the
-same clone, it removes the run and its validation worktree.
+same clone, it can orphan the run and reclaim eligible validation resources while
+retaining the run directory and audit logs.
 A `RUN_ID` must be `r_` followed by 10 lowercase hex digits; any other value fails with
 `invalid_run_id` and exit code 6 before the run store is opened.
 
@@ -53,7 +54,7 @@ Work happens directly in the current checkout. This is intended for a clean, ded
 one-agent/one-PR worktree: the fresh-base rebase (or base merge, when a rebase would
 change what the branch lands) and accepted repair commits land directly on the PR branch, and `mergeback` becomes a no-op attestation of the exact SHA
 whose local stages passed, were explicitly skipped, or supplied applicable reused
-evidence. With CI test authority, it records publication readiness with tests pending.
+review or documentation evidence. Applicable shell stages complete locally before publication.
 
 Any uncommitted change or unaccounted branch movement stops the run. In-place mode reuses
 the checkout's existing dependency environment and does not run an automatic install; an

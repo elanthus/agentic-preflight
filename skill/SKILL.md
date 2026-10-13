@@ -33,7 +33,7 @@ Python here never calls a model — every judgment in this workflow is yours.
    always need separate approval. `[pr] mode = "auto"` is standing authorization to
    open or reuse the pull request after the authorized push and the run finish. The
    canonical rule is in
-   [push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/main/docs/configuration.md#push-and-pull-request-authorization).
+   [push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/configuration.md#push-and-pull-request-authorization).
    Follow [Pull-request lifecycle and cleanup](#pull-request-lifecycle-and-cleanup)
    for PR mode, `[pr] automated_cleanup = true` monitoring, and cleanup boundaries.
 6. **Treat merge-back conflicts as a bounded recovery, never a shortcut.** On exit 4,

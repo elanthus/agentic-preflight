@@ -7,7 +7,12 @@ commented starting file; the example below includes every supported section.
 `~/.config/agentic-preflight/config.toml` one section at a time: a section present in the
 repository file replaces the whole matching user section, and keys are not merged across
 the two files. A section that only the user file sets still applies. Unknown keys are
-errors that name the key rather than being ignored.
+errors that name the key rather than being ignored. Retired `[ci]` and `[reuse]`
+sections are the exception: file loading ignores them with a warning. Removed
+individual keys, including `[hook] enabled`, still fail file loading; remove them
+from both files. Historical run and attestation snapshots tolerate known removed
+keys without changing their original digest bindings. See the
+[0.7 upgrade guide](upgrade-0.7.md).
 
 Configuration models enforce the same mode, severity, risk-level, approval-environment,
 and constrained path rules for file loading and stored snapshots. Python callers can
@@ -290,8 +295,8 @@ happens the captured output is discarded and the stage output ends with an
 `[output truncated: ...]` line after the timeout marker. On POSIX, SIGTERM or SIGINT
 delivered to the CLI while a stage runs also kills that stage's process group.
 
-`max_restarts` bounds the whole run rather than one stage. It is new in the release
-after 0.6.0; 0.6.0 rejects it as an unknown key. Validation restarts whenever
+`max_restarts` bounds the whole run rather than one stage. It is new in 0.7.0;
+0.6.0 rejects it as an unknown key. Validation restarts whenever
 it returns to review after making progress: a committed lint or test repair, a repair
 that changes the reviewed snapshot, changed stage inputs, or a merge-back resolution that
 differs from the verified tree. When the count reaches `max_restarts`, the restart is

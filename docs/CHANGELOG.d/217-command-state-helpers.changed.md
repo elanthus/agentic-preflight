@@ -1,1 +1,0 @@
-- Simplify stage state declarations, command platform selection, and review submission validation while preserving command planning and review coverage checks.

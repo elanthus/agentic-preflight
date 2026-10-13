@@ -81,7 +81,7 @@ This repository uses `docs/CHANGELOG.d/<issue-or-slug>.<category>.md` fragments.
 They already match `docs/CHANGELOG*`, satisfying the mechanical check without editing
 the shared changelog. Review their bullets against the behavior change; assembly
 happens at release time. See
-[Contributing](https://github.com/elanthus/agentic-preflight/blob/main/CONTRIBUTING.md#changelog-fragments)
+[Contributing](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/CONTRIBUTING.md#changelog-fragments)
 for filenames and categories.
 
 ## Writing a good docs finding

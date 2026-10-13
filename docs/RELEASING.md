@@ -29,8 +29,12 @@ publishing page before the first upload.
 In **Settings → Environments → New environment**, name it `pypi`, then add
 yourself under **Required reviewers**.
 
-This is the release approval step: the `publish` job cannot start until a human approves
-it, and until then nothing has been uploaded.
+With required reviewers configured, this is the release approval step: the `publish`
+job waits for Environment approval, and until then nothing has been uploaded. On
+2026-10-13, read-only inspection confirmed `elanthus` as required reviewer, `v*` tag
+deployment restrictions, self-review allowed, and administrator bypass enabled.
+See the [settings snapshot](attestations-and-ci.md#administrator-setup-and-this-repositorys-settings);
+workflow YAML alone does not configure required reviewers or remove bypass access.
 
 Optionally restrict the environment's deployment branches to tags matching `v*`.
 
@@ -74,7 +78,15 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
    `coverage.svg` and other assets, then update the README to its commit-pinned raw
    URL. Never recreate or force-push the badges branch to update the animation.
    The coverage publisher updates only `coverage.svg` and preserves the animation.
-3. Commit and merge to `main`.
+3. Complete the four [repository checks](../AGENTS.md#checks), build both distributions,
+   run `scripts/smoke-wheel.sh` with isolated `UV_TOOL_DIR` and `UV_TOOL_BIN_DIR`, and
+   inspect the wheel's bundled skill and sdist contents. Test an upgrade from the current
+   published release, including configuration, saved runs and notes, and managed skill
+   refresh. Review [compatibility](../COMPATIBILITY.md) and the version's migration guide.
+   Complete preflight and open a ready-for-review preparation PR. A manual CI dispatch
+   with `--ref <preparation-branch>` can validate the nine supported combinations on the
+   proposed commit before merge; verify its `head_sha` and every job's conclusion.
+   After review, approval where required, and green checks, merge to `main`.
 4. Run the full [compatibility matrix](../COMPATIBILITY.md#validation-tiers) before
    tagging by dispatching the CI workflow:
 

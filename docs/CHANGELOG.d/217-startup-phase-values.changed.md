@@ -1,1 +1,0 @@
-- Simplify startup orchestration by passing completed phase results explicitly and persisting synchronized commit and base metadata once before setup.
