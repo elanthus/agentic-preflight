@@ -10,6 +10,7 @@ reverts it. Synchronization must keep that revert: a rebase would drop the merge
 import json
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -82,6 +83,23 @@ def test_sync_merges_the_base_when_a_rebase_would_change_what_the_branch_lands(
     assert git("rev-parse", f"{after}^1", cwd=tmp_repo) == head
     assert git("rev-parse", f"{after}^2", cwd=tmp_repo) == base
     assert gitx.changed_files(tmp_repo, base, after) == ["docs/notes.md", "src/security.py"]
+
+
+def test_sync_fallback_merge_is_not_blocked_by_commit_hooks(tmp_repo, monkeypatch):
+    base, head = _criss_cross(tmp_repo, monkeypatch)
+    hooks = Path(git("rev-parse", "--git-path", "hooks", cwd=tmp_repo))
+    if not hooks.is_absolute():
+        hooks = tmp_repo / hooks
+    hooks.mkdir(parents=True, exist_ok=True)
+    for name in ("pre-merge-commit", "commit-msg"):
+        hook = hooks / name
+        hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        hook.chmod(0o755)
+
+    result = sync.synchronize(tmp_repo, tmp_repo, base_ref="main")
+
+    assert result.merged is True
+    assert gitx.tree_sha(tmp_repo, "HEAD") == gitx.merge_tree(tmp_repo, base, head)
 
 
 def test_sync_merges_when_a_rebase_would_skip_a_change_the_base_already_has(tmp_repo):

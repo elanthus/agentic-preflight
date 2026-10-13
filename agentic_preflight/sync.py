@@ -22,7 +22,7 @@ class SyncConflict(Exception):
         head_before: str,
         conflicting_files: list[str],
     ) -> None:
-        super().__init__(f"rebasing onto {base_ref} conflicted")
+        super().__init__(f"synchronizing with {base_ref} conflicted")
         self.base_ref = base_ref
         self.base_sha = base_sha
         self.head_before = head_before
@@ -75,7 +75,11 @@ def _merge_base_in(
     worktree_path: Path | str, *, base_ref: str, base_sha: str, before: str, landed: str
 ) -> str:
     """Merge the base into the restored head, or restore it and report a conflict."""
-    result = gitx.run(worktree_path, "merge", "--no-ff", "--no-edit", base_sha, check=False)
+    # The rebase this replaces runs no commit hooks, and the merge adds no user content,
+    # so a commit hook must not reject it or reword it.
+    result = gitx.run(
+        worktree_path, "merge", "--no-ff", "--no-edit", "--no-verify", base_sha, check=False
+    )
     if result.returncode == 0 and gitx.tree_sha(worktree_path, "HEAD") == landed:
         return gitx.rev_parse(worktree_path, "HEAD")
     conflicts = _unmerged_paths(worktree_path)

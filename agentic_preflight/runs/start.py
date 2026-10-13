@@ -442,7 +442,7 @@ def _synchronize(ctx: _StartContext) -> _StartContext:
             run_id=run_id,
             data=report,
             next_instruction=(
-                "The validation-checkout rebase was aborted cleanly. Show the conflict "
+                "The validation-checkout synchronization was aborted cleanly. Show the conflict "
                 "report to the user, resolve or rebase the source branch deliberately, "
                 "then abort this run and start again with the same intent."
             ),
