@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from .. import findings, gitx
 from ..digests import json_digest
+from ..errors import STAGE_EVIDENCE_RECOVERY, StageEvidenceInvalid
 from ..fingerprints import (
     Classification,
     Disposition,
@@ -119,8 +120,30 @@ def classify(old: StageFingerprint, new: StageFingerprint) -> Classification:
     return Classification(disposition=Disposition.UNKNOWN, reasons=(ReasonCode.INPUTS_UNAVAILABLE,))
 
 
+def verify_origins(session: Session, run: RunDoc, origins: dict[Stage, StageEvidence]) -> None:
+    """Check saved evidence without confusing validity with record loadability."""
+    for stage, item in origins.items():
+        try:
+            item.verify_origin()
+        except ValueError as exc:
+            raise StageEvidenceInvalid(
+                str(exc),
+                state=run.state.value,
+                run_id=run.run_id,
+                stage=stage.value,
+                data={
+                    "path": str(session.store.run_path(run.run_id)),
+                    "stage": stage.value,
+                    "reason": "invalid_origin_digest",
+                },
+                next_instruction=STAGE_EVIDENCE_RECOVERY,
+                next_command="agentic-preflight abort",
+            ) from exc
+
+
 def archive(session: Session, run: RunDoc) -> RunDoc:
     """Finalize fresh origins without changing reused execution provenance."""
+    verify_origins(session, run, run.evidence)
     all_findings = session.store.load_findings(run.run_id)
     origins = dict(run.evidence)
     for stage in Stage:
@@ -164,6 +187,7 @@ def archive(session: Session, run: RunDoc) -> RunDoc:
             origin_sha256=json_digest(origin.model_dump(mode="json")),
             fingerprint=record.fingerprint,
         )
+    verify_origins(session, run, origins)
     with session.store.transaction(run.run_id) as doc:
         doc.evidence = origins
         return doc
@@ -251,6 +275,7 @@ def _select_candidates(
                     settled.add(stage)
                     continue
             try:
+                item.verify_origin()
                 verify_stage(
                     session.repo_root,
                     item,
@@ -389,6 +414,7 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
         try:
             # ``imported`` is refreshed, so verification returns the review coverage
             # it has already rebound to this head and base.
+            imported.verify_origin()
             coverage = verify_stage(
                 session.repo_root, imported, head=head, base=run.merge_base_sha, run_id=run.run_id
             )

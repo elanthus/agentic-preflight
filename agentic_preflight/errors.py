@@ -73,6 +73,17 @@ class AgenticError(Exception):
         )
 
 
+STAGE_EVIDENCE_RECOVERY = (
+    "Inspect the retained stage evidence record. Abort without --force, preserving any "
+    "unmerged work reported by abort, then start a fresh run."
+)
+
+
+class StageEvidenceInvalid(AgenticError):
+    code = "stage_evidence_invalid"
+    exit_code = ExitCode.PRECONDITION
+
+
 class NoRun(AgenticError):
     code = "no_run"
     exit_code = ExitCode.PRECONDITION
