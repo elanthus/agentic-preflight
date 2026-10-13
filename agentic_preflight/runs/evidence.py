@@ -164,6 +164,8 @@ def archive(session: Session, run: RunDoc) -> RunDoc:
             origin_sha256=json_digest(origin.model_dump(mode="json")),
             fingerprint=record.fingerprint,
         )
+    for item in origins.values():
+        item.verify_origin()
     with session.store.transaction(run.run_id) as doc:
         doc.evidence = origins
         return doc
@@ -251,6 +253,7 @@ def _select_candidates(
                     settled.add(stage)
                     continue
             try:
+                item.verify_origin()
                 verify_stage(
                     session.repo_root,
                     item,
@@ -389,6 +392,7 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
         try:
             # ``imported`` is refreshed, so verification returns the review coverage
             # it has already rebound to this head and base.
+            imported.verify_origin()
             coverage = verify_stage(
                 session.repo_root, imported, head=head, base=run.merge_base_sha, run_id=run.run_id
             )

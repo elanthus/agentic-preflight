@@ -87,6 +87,10 @@ three modes use the same classification/import path. A fresh clone with only
 portable notes needs a local run; the tool does not reconstruct local
 execution/ownership records from portable notes.
 
+Origin and configuration snapshot digests are checked when evidence is admitted for
+reuse or archived, and when an attestation is verified. Loading a run record performs
+structural validation without rehashing its stage origins.
+
 An attestation embeds one original execution per stage, its content digest, and
 the current fingerprint. Derivation adds refresh time and `equivalent_inputs`, keeping
 original timestamps, process hashes, findings, fixes, and coverage. Provenance is

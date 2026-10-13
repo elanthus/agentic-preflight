@@ -143,16 +143,21 @@ def test_upstream_content_invalidates_review_even_with_an_unchanged_patch(featur
     assert "base_tree_changed" in result["data"]["applicability"]["review"]["reasons"]
 
 
-def test_verifier_rejects_changed_origin_and_incomplete_provenance(feature_repo, tmp_path):
+@pytest.mark.parametrize("mutation", ["origin", "config"])
+def test_verifier_rejects_changed_origin_and_incomplete_provenance(
+    feature_repo, tmp_path, mutation
+):
     _prepare(feature_repo)
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     _finish(agent, tmp_path)
     value = attestation.verify(feature_repo, "HEAD")
     payload = json.loads(attestation.encode(value))
-    payload["evidence"]["lint"]["origin"]["finished_at"] = "2000-01-01T00:00:00Z"
+    item = payload["evidence"]["lint"]
+    _corrupt_origin(item, mutation)
+    decoded = attestation.decode(json.dumps(payload))
     with pytest.raises(attestation.InvalidAttestation, match="digest"):
-        attestation.decode(json.dumps(payload))
+        attestation.verify_value(feature_repo, decoded, value.sha, purpose="local")
     payload = json.loads(attestation.encode(value))
     del payload["evidence"]["test"]
     with pytest.raises(attestation.InvalidAttestation, match="complete"):
@@ -636,3 +641,77 @@ def test_interrupted_legacy_evidence_is_never_reused_after_retirement(feature_re
     assert later.evidence == {}
     assert later.reuse_candidates == {}
     assert later.stages == {}
+
+
+def _corrupt_origin(item, mutation):
+    from agentic_preflight.digests import json_digest
+
+    if mutation == "origin":
+        item["origin"]["finished_at"] = "2000-01-01T00:00:00Z"
+    else:
+        item["origin"]["config_sha256"] = "f" * 64
+        # A consistent outer digest must not hide a mismatched snapshot digest.
+        item["origin_sha256"] = json_digest(item["origin"])
+
+
+@pytest.mark.parametrize("mutation", ["origin", "config"])
+def test_discovery_rejects_changed_origin_after_structural_run_load(
+    feature_repo, tmp_path, mutation
+):
+    _prepare(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    started = agent.run("start")
+    _finish(agent, tmp_path)
+    agent.run("abort", "--force")
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    run_id = started["run_id"]
+    path = store.run_dir(run_id) / "run.json"
+    payload = json.loads(path.read_text())
+    for item in payload["evidence"].values():
+        _corrupt_origin(item, mutation)
+    path.write_text(json.dumps(payload))
+    # Loading owned audit data is cheap; admission still refuses its edited origins.
+    assert store.load_run(run_id).evidence
+    result = ScriptedAgent(feature_repo).run("start")
+    assert result["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert all(
+        item["reasons"] == ["fingerprint_missing"]
+        for item in result["data"]["applicability"].values()
+    )
+
+
+@pytest.mark.parametrize("mutation", ["origin", "config"])
+def test_import_rechecks_candidates_edited_after_discovery(
+    feature_repo, tmp_path, monkeypatch, mutation
+):
+    home = tmp_path / "home"
+    set_home(monkeypatch, home)
+    _prepare(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    _finish(agent, tmp_path)
+    agent.run("abort", "--force")
+    user_config = home / ".config/agentic-preflight/config.toml"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text("[context]\nenabled = false\n")
+    agent = ScriptedAgent(feature_repo)
+    started = agent.run("start")
+    assert started["data"]["applicability"]["lint"]["disposition"] == "reusable"
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    path = store.run_dir(started["run_id"]) / "run.json"
+    payload = json.loads(path.read_text())
+    _corrupt_origin(payload["reuse_candidates"]["lint"], mutation)
+    path.write_text(json.dumps(payload))
+    agent.run("context")
+    findings = tmp_path / "fresh-review.json"
+    findings.write_text('{"coverage":{"manifest":"$context","examined":"all"},"findings":[]}')
+    agent.run("submit-findings", "--file", str(findings))
+    agent.run("context", "--section", "docs")
+    findings.write_text('{"findings":[]}')
+    result = agent.run("submit-findings", "--file", str(findings))
+    assert result["state"] == "DOCS_GREEN"
+    run = store.load_run(started["run_id"])
+    assert [reason.value for reason in run.applicability[Stage.LINT].reasons] == [
+        "provenance_invalid"
+    ]
+    assert Stage.LINT not in run.evidence
