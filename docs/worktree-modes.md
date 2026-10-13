@@ -23,15 +23,17 @@ A `RUN_ID` must be `r_` followed by 10 lowercase hex digits; any other value fai
 
 A run's event log tolerates a torn final line left by an interrupted append: `events`
 and `status` drop that line and read the rest. A malformed earlier line is reported as
-`run_record_unreadable` with reason `invalid_events`.
+`run_record_unreadable` with reason `invalid`.
 
 If a stored record cannot be read or validated, `status` reports its identity and
 diagnostic without clearing its ownership pointer. `status --all` includes it as
 unreadable rather than calling it corrupt. `gc` retains the record and its resources,
-even with `--force`, while collecting other eligible runs, with one exception: a
-nonterminal run whose snapshot holds only configuration keys a later release removed
-is read tolerantly, and if its source worktree, lease, or head is gone it is orphaned
-and its resources released like any other abandoned run. Inspect the reported path;
+even with `--force`, while collecting other eligible runs. Saved configuration snapshots
+ignore keys a later release removed, so those keys do not make a run unreadable.
+For readable nonterminal runs, `gc` can mark a run orphaned when its source worktree
+or lease disappears, or its source head moves after startup. It skips orphaning while
+a run command is still executing and retains isolated resources containing unmerged fixes unless
+`--force` is used. In-place source commits remain intact. Inspect the reported path;
 never delete an alias merely to make an unreadable run look absent.
 
 A repeated `start` with the same head, intent, base, and effective configuration resumes

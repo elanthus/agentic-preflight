@@ -412,7 +412,7 @@ def test_owner_review_requires_explicit_reviewer():
     )
 
 
-def test_snapshot_cache_reuses_content_and_separates_validation_policy():
+def test_snapshot_cache_reuses_content_and_ignores_removed_keys():
     _snapshot_run_settings.cache_clear()
     snapshot = Config().model_dump(mode="json")
     snapshot_run_settings(snapshot)
@@ -421,9 +421,8 @@ def test_snapshot_cache_reuses_content_and_separates_validation_policy():
     assert _snapshot_run_settings.cache_info().hits == 1
 
     snapshot["hook"]["enabled"] = True
-    snapshot_run_settings(snapshot, tolerate_removed_config=True)
-    with pytest.raises(ValidationError):
-        snapshot_run_settings(snapshot)
+    assert snapshot_run_settings(snapshot) == (5, "in_place")
+    assert _snapshot_run_settings.cache_info().misses == 2
     assert snapshot["hook"]["enabled"] is True
 
 
