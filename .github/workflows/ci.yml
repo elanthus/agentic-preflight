@@ -34,6 +34,7 @@ jobs:
       always() && github.event_name == 'pull_request' &&
       needs.dependabot-policy.outputs.eligible != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       # Check out the protected base commit, not the pull request, so a change
       # cannot weaken the verifier that judges its own attestation.

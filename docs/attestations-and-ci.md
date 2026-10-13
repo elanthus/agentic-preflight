@@ -95,6 +95,11 @@ there are no retained evidence refs. Forced ref updates replace any previous run
 snapshot; verification always checks the exact event SHA, its tree and its evidence.
 A fork's notes must never be borrowed from the protected base repository.
 
+The trusted attestation job has a five-minute limit; the approval policy job has a
+thirty-minute limit. These limits cover setup, transport, verification, and policy API
+requests, so stalled operations cannot keep the checks pending for the default job
+duration.
+
 A failed fetch fails the job immediately. `verify SHA` and `approval-check` remain offline
 and deterministic; they do not retry or repair missing evidence. Evidence failures retain
 exit code 2, `attestation_failed`, a structured `data.reason`, and recovery instructions.
