@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 
 import pytest
@@ -187,6 +188,28 @@ def test_non_merge_commit_files_includes_reverted_paths_and_skips_merge_commits(
         "docs/side.md",
     ]
     assert gitx.non_merge_commit_files(tmp_repo, base, "HEAD") == ["docs/side.md", "src/app.py"]
+
+
+def test_non_merge_commit_files_ignores_signature_display(tmp_repo, tmp_path):
+    ssh_keygen = shutil.which("ssh-keygen")
+    if ssh_keygen is None:
+        pytest.skip("SSH commit signing needs ssh-keygen")
+    key = tmp_path / "signing-key"
+    subprocess.run(
+        [ssh_keygen, "-q", "-t", "ed25519", "-N", "", "-f", str(key)],
+        check=True,
+        capture_output=True,
+    )
+    git("config", "gpg.format", "ssh", cwd=tmp_repo)
+    git("config", "user.signingkey", str(key), cwd=tmp_repo)
+    git("config", "log.showSignature", "true", cwd=tmp_repo)
+    base = gitx.rev_parse(tmp_repo, "HEAD")
+    write(tmp_repo, "src/security.py", "signed change\n")
+    git("add", "src/security.py", cwd=tmp_repo)
+    git("commit", "-S", "-m", "signed security change", cwd=tmp_repo)
+    assert "gpgsig " in git("cat-file", "commit", "HEAD", cwd=tmp_repo)
+
+    assert gitx.non_merge_commit_files(tmp_repo, base, "HEAD") == ["src/security.py"]
 
 
 def test_changed_files_lists_only_files_touched_by_the_branch(feature_repo):

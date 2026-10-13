@@ -4,3 +4,5 @@
   from both the branch diff and the merge result, yet a rebase merge landed it without
   human approval. A branch that changes a high-risk path and later reverts it now requires
   approval.
+- Commit-path classification suppresses signature display even when `log.showSignature`
+  is enabled, so signature diagnostics cannot obscure a high-risk path.

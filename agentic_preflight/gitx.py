@@ -570,6 +570,7 @@ def non_merge_commit_files(cwd: Path | str, base: str, head: str) -> list[str]:
         cwd,
         "log",
         "--no-merges",
+        "--no-show-signature",
         "--root",
         "--format=",
         "--name-only",
