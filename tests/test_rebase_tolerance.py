@@ -88,7 +88,7 @@ def test_unchanged_attested_commit_imports_review_docs_and_reruns_shell(
 ):
     from agentic_preflight.machine import Action
     from agentic_preflight.models import Stage
-    from agentic_preflight.runs import _evidence_install
+    from agentic_preflight.runs import evidence
     from agentic_preflight.store import Store
     from tests.test_evidence_refresh import _finish, _prepare
 
@@ -100,13 +100,13 @@ def test_unchanged_attested_commit_imports_review_docs_and_reruns_shell(
     assert original.outcome == "verified"
     agent.run("abort", "--force")
     actions = []
-    apply = _evidence_install._apply
+    apply = evidence._apply
 
     def tracked(doc, action):
         actions.append(action)
         apply(doc, action)
 
-    monkeypatch.setattr(_evidence_install, "_apply", tracked)
+    monkeypatch.setattr(evidence, "_apply", tracked)
     env = ScriptedAgent(feature_repo).run("start")
     assert env["state"] == "DOCS_GREEN"
     assert set(env["data"]["applicability"]) == {stage.value for stage in Stage}

@@ -10,12 +10,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Iterable
+from collections import Counter
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from . import grounding_sources
+from . import gitx
 from . import risk as riskmod
 from .diff import path_matches
 from .models import RunDoc
@@ -281,7 +282,7 @@ def assemble(session: Session, run: RunDoc, changed_files: list[str]) -> dict[st
         return {"enabled": False, "entries": [], "dropped": {}}
 
     repo = Path(run.worktree_path or session.repo_root)
-    texts, omitted, _ = grounding_sources.load(
+    texts, omitted, _ = _load_sources(
         repo,
         lambda path: (
             path.startswith("docs/")
@@ -309,3 +310,73 @@ def digest(grounding: dict[str, Any]) -> str:
     """Bind a coverage manifest to the exact grounding object it accompanies."""
     payload = json.dumps(grounding, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode()).hexdigest()
+
+
+MAX_SOURCE_BYTES = 1024 * 1024
+MAX_READ_BYTES = 16 * 1024 * 1024
+MAX_SOURCES = 1024
+_BINARY_SUFFIXES = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".ico",
+        ".pdf",
+        ".zip",
+        ".gz",
+        ".woff",
+        ".woff2",
+        ".mp4",
+        ".mp3",
+        ".mov",
+        ".ttf",
+    }
+)
+
+
+def _load_sources(
+    repo: Path | str, select: Callable[[str], bool]
+) -> tuple[dict[str, str], dict[str, int], set[str]]:
+    """Select by metadata before one batched content read; report every omitted source.
+
+    Object IDs from ls-tree bind subsequent reads to that tree even if HEAD moves.
+    Neither staged files nor filesystem symlink targets enter the source set.
+    """
+    output = gitx.run(repo, "ls-tree", "-r", "-l", "-z", "HEAD").stdout
+    candidates = []
+    paths = set()
+    omitted: Counter[str] = Counter()
+    for record in output.split("\0"):
+        if not record:
+            continue
+        metadata, path = record.split("\t", 1)
+        if not select(path):
+            continue
+        paths.add(path)
+        mode, kind, oid, size = metadata.split()
+        if kind != "blob" or mode not in {"100644", "100755"}:
+            omitted["non_regular"] += 1
+        elif Path(path).suffix.lower() in _BINARY_SUFFIXES:
+            omitted["binary"] += 1
+        elif int(size) > MAX_SOURCE_BYTES:
+            omitted["oversized"] += 1
+        else:
+            candidates.append((path, oid, int(size)))
+    selected: list[tuple[str, str]] = []
+    total = 0
+    for path, oid, size in sorted(candidates):
+        if len(selected) >= MAX_SOURCES or total + size > MAX_READ_BYTES:
+            omitted["read_budget"] += 1
+            continue
+        total += size
+        selected.append((path, oid))
+    blobs = gitx.read_blobs(repo, [oid for _, oid in selected])
+    texts = {}
+    for (path, _), blob in zip(selected, blobs, strict=True):
+        if b"\0" in blob:
+            omitted["binary"] += 1
+            continue
+        texts[path] = blob.decode("utf-8", errors="backslashreplace")
+    return texts, dict(sorted(omitted.items())), paths

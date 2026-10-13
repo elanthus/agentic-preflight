@@ -12,6 +12,5 @@
 /agentic_preflight/attestation.py @elanthus
 /agentic_preflight/cli_policy.py @elanthus
 /agentic_preflight/hook.py @elanthus
-/agentic_preflight/publish/ @elanthus
 /agentic_preflight/risk.py @elanthus
 /agentic_preflight/runs/publish.py @elanthus

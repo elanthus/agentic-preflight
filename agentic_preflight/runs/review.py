@@ -17,7 +17,6 @@ from ..models import (
     Stage,
     StageRecord,
 )
-from ..stages import change_scope
 from ..stages import docs as docsstage
 from . import evidence, review_compare, review_coverage, review_protocol
 from ._session import (
@@ -77,9 +76,7 @@ def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
     if run.state is not State.LINT_GREEN:
         return run
     changed = gitx.changed_files(run.worktree_path or session.repo_root, run.merge_base_sha, "HEAD")
-    if not change_scope.tests_are_not_applicable(
-        changed, extra_doc_paths=session.config.docs.paths
-    ):
+    if not docsstage.tests_are_not_applicable(changed, extra_doc_paths=session.config.docs.paths):
         return run
     reason = "changes are limited to documentation and CI configuration"
     fingerprint = evidence.fingerprint(session, run, Stage.TEST, command="")

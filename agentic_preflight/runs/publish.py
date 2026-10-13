@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import secrets
 import shlex
+from dataclasses import asdict, dataclass, field
 
 from .. import attestation as attestationmod
 from .. import evidence_transport, gitx
@@ -11,7 +13,6 @@ from ..attestation import NOTES_REF
 from ..envelope import Envelope
 from ..errors import AttestationFailed, ManualGate, NeedsConfirm
 from ..machine import Action, State
-from ..publish import gate as gatemod
 from ._session import (
     Session,
     _apply,
@@ -72,7 +73,7 @@ def gate(session: Session) -> Envelope:
             doc.changed_files = changed_files
             doc.risk = assessment
             run = doc
-    summary = gatemod.GateSummary(
+    summary = GateSummary(
         remote="origin",
         refspec=" ".join([*evidence_refspecs, *refspecs]),
         branch=run.branch,
@@ -100,7 +101,7 @@ def gate(session: Session) -> Envelope:
             next_command="agentic-preflight status",
         )
 
-    summary.token = gatemod.mint_token()
+    summary.token = mint_token()
     with session.store.transaction(run.run_id) as doc:
         doc.gate_token = summary.token
         if doc.state is State.VERIFIED:
@@ -171,7 +172,7 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
     _assert_fresh(session, run)
     _require_state(run, State.AWAITING_PUSH_CONFIRM, command="push")
 
-    if not gatemod.token_matches(run.gate_token, confirm):
+    if not token_matches(run.gate_token, confirm):
         raise NeedsConfirm(
             "push requires the confirmation token from `gate`",
             state=run.state.value,
@@ -298,3 +299,32 @@ def finish(session: Session) -> Envelope:
         next_instruction=(_worktree_completion(_worktree_mode(run)) + pr_instruction),
         next_command="agentic-preflight gc",
     )
+
+
+@dataclass
+class GateSummary:
+    remote: str
+    refspec: str
+    branch: str
+    base_ref: str
+    pr_mode: str
+    automated_cleanup: bool
+    approval_mode: str
+    commits: list[dict] = field(default_factory=list)
+    risk: dict = field(default_factory=dict)
+    token: str = ""
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+def mint_token() -> str:
+    """Return a new random confirmation token."""
+    return secrets.token_hex(8)
+
+
+def token_matches(expected: str | None, supplied: str | None) -> bool:
+    """Return whether a supplied token matches the expected one."""
+    if not expected or not supplied:
+        return False
+    return secrets.compare_digest(expected, supplied)

@@ -239,7 +239,7 @@ def test_a_failing_setup_command_reports_rather_than_raising(feature_repo, wt):
 
 def test_a_setup_write_to_a_copied_file_withholds_output(feature_repo, wt):
     from agentic_preflight.stages import shellstage
-    from agentic_preflight.stages.protected_output import OutputProtection
+    from agentic_preflight.stages.shellstage import OutputProtection
 
     write(feature_repo, ".env", "SECRET=hunter2\n")
     copied = worktree.copy_files(feature_repo, wt, [".env"])

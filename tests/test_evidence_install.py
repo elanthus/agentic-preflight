@@ -5,7 +5,7 @@ import pytest
 from agentic_preflight.errors import WrongState
 from agentic_preflight.machine import State
 from agentic_preflight.models import AttestedStage, RunDoc, Stage
-from agentic_preflight.runs._evidence_install import install_stage, stage_record
+from agentic_preflight.runs.evidence import install_stage, stage_record
 
 
 def _run(state):

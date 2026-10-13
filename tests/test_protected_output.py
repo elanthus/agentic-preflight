@@ -3,7 +3,7 @@
 import pytest
 
 from agentic_preflight.stages import shellstage
-from agentic_preflight.stages.protected_output import OutputProtection
+from agentic_preflight.stages.shellstage import OutputProtection
 
 
 def test_capture_rejects_unreadable_secret_text(tmp_path):

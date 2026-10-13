@@ -187,7 +187,7 @@ def review_relevant_config(snapshot: dict[str, Any]) -> dict[str, Any]:
     risk-derived executor escalation, ``context`` governs grounding delivery,
     ``diff`` governs which files and hunks are in scope at all, and ``stage``
     governs the command executor's timeout and retry bound
-    (``review_executor.py``, ``review_retry.py``), an execution dependency
+    (``review_executor.py``), an execution dependency
     even though an in-harness review never reads it.
     """
     return _scoped_config(snapshot, ("general", "review", "policy", "context", "diff", "stage"))
