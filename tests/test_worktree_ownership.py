@@ -771,3 +771,30 @@ def test_gc_reclaims_ignored_caches_but_honors_git_removal_failure(
     assert runner in _registered(feature_repo)
     assert ScriptedAgent(feature_repo).run("gc")["data"]["reclaimed_runners"] == [str(runner)]
     assert not runner.exists()
+
+
+def test_corrupt_evidence_status_prioritizes_missing_source_recovery(feature_repo, tmp_path):
+    source_repo = _second_feature_worktree(feature_repo, tmp_path)
+    write(source_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(source_repo, "use strict validation")
+    agent = ScriptedAgent(source_repo)
+    started = agent.run("start", "--intent", "validate feature y")
+    validator = Path(started["data"]["worktree_path"])
+    agent.run("context")
+    findings = tmp_path / "clean-review.json"
+    findings.write_text('{"coverage":{"manifest":"$context","examined":"all"},"findings":[]}')
+    agent.run("submit-findings", "--file", str(findings))
+    path = _state_root(feature_repo) / "runs" / started["run_id"] / "run.json"
+    raw = json.loads(path.read_text())
+    raw["evidence"]["review"]["origin_sha256"] = "f" * 64
+    path.write_text(json.dumps(raw))
+    before = path.read_text()
+    git("worktree", "remove", "--force", str(source_repo), cwd=feature_repo)
+    inspected = ScriptedAgent(feature_repo).run("--run", started["run_id"], "status")
+    assert inspected["data"]["readable"] is True
+    assert inspected["data"]["evidence_valid"] is False
+    assert inspected["data"]["evidence_failure"]["code"] == "stage_evidence_invalid"
+    assert inspected["next"]["command"] == "agentic-preflight gc"
+    assert "source worktree no longer exists" in inspected["next"]["instruction"]
+    assert validator.exists()
+    assert path.read_text() == before

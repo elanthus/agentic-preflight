@@ -384,3 +384,35 @@ def test_invalid_saved_state_is_not_concealed_by_retired_delegation(state):
         payload["state"] = state
     with pytest.raises(ValidationError):
         RunDoc.model_validate(payload)
+
+
+def test_run_loading_does_not_hash_stage_origins(monkeypatch):
+    value = make_attestation(stages=_attestation_stages())
+    items = {stage: item.model_dump(mode="json") for stage, item in value.evidence.items()}
+    for item in items.values():
+        item["origin_sha256"] = "f" * 64
+        item["origin"]["config_sha256"] = "f" * 64
+
+    def unexpected_digest(_value):
+        pytest.fail("run loading must not canonicalize evidence origins")
+
+    monkeypatch.setattr("agentic_preflight.models.json_digest", unexpected_digest)
+    run = _run_doc(evidence=items, reuse_candidates=items)
+    assert len(run.evidence) == len(Stage)
+    assert len(run.reuse_candidates) == len(Stage)
+
+
+@pytest.mark.parametrize("mutation", ["pairing", "stage_type"])
+def test_stage_origin_loading_retains_structural_validation(mutation):
+    from agentic_preflight.models import StageEvidence
+
+    value = make_attestation(stages=_attestation_stages())
+    payload = value.evidence[Stage.REVIEW].model_dump(mode="json")
+    if mutation == "pairing":
+        payload["derivation_reason"] = "equivalent_inputs"
+        message = "must occur together"
+    else:
+        payload["fingerprint"] = value.evidence[Stage.LINT].fingerprint.model_dump(mode="json")
+        message = "fingerprint type"
+    with pytest.raises(ValidationError, match=message):
+        StageEvidence.model_validate(payload)
