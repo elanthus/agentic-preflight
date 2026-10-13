@@ -8,6 +8,9 @@ than looking like a pass.
 
 **Any source or otherwise unclassified file keeps tests mandatory.** The exception applies
 only when the whole diff qualifies; one unclassified file is enough to require them.
+When Agentic Preflight verifies an attestation's skip, it also classifies every path that differs between
+the attested base and Git's merge of the head into it, so criss-cross history cannot hide
+a source change from that check.
 
 ## What counts as documentation
 

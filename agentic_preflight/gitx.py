@@ -557,6 +557,17 @@ def merge_result_files(cwd: Path | str, base: str, head: str) -> list[str]:
     return [path for path in output.split("\0") if path]
 
 
+def classified_files(cwd: Path | str, base: str, head: str) -> list[str]:
+    """Return the paths a risk or change-scope decision must classify.
+
+    This is the union of ``changed_files`` and ``merge_result_files``, so criss-cross
+    history cannot hide a change from the classification. ``base`` must be the base
+    tip, not a merge base. Within a run the two lists are equal, because
+    synchronization rebases the validated head onto the recorded base tip.
+    """
+    return sorted({*changed_files(cwd, base, head), *merge_result_files(cwd, base, head)})
+
+
 _DIFF_PATH_BATCH_FILES = 256
 _DIFF_PATH_BATCH_BYTES = 24_000
 

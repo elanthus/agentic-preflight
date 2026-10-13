@@ -273,14 +273,7 @@ def evaluate_value(
     ``equivalent_heads``). ``fetch_commit`` may supply an approved head that is not
     an ancestor of the current head. It is used only when carryover is needed.
     """
-    # Classify what the merge would land as well as what the branch changed since
-    # the merge base. Criss-cross history can hide a change from the latter alone.
-    changed_files = sorted(
-        {
-            *gitx.changed_files(repo, base_sha, head_sha),
-            *gitx.merge_result_files(repo, base_sha, head_sha),
-        }
-    )
+    changed_files = gitx.classified_files(repo, base_sha, head_sha)
     path_assessment = risk.assess(
         changed_files,
         [],
