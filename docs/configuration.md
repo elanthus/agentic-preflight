@@ -40,7 +40,6 @@ timeout_seconds = 600
 max_attempts = 5
 max_restarts = 5
 
-[reuse]
 
 [review]
 blocking_severities = ["critical", "high"]
@@ -119,32 +118,13 @@ retry bound live there), and a docs fingerprint hashes `[general]`, `[docs]`,
 itself invalidate that stage's evidence. See
 [`docs/fingerprint-contract.md`](fingerprint-contract.md) for automatic refresh.
 
-## Evidence reuse (`[reuse]`)
+## Retired shell evidence reuse
 
-Review and docs reuse equivalent evidence automatically. Shell stages require
-separate committed input declarations. For example:
-
-```toml
-[reuse.test]
-mode = "content"
-files = ["local-settings.json"]
-environment = ["LANG", "TEST_MODE"]
-toolchain = []
-```
-
-This illustrates the syntax; it is not a complete dependency inventory for an
-arbitrary test command. `files`, `environment`, and `toolchain` are required lists.
-Empty lists assert no additional inputs in that category. The primary executable
-is captured automatically; additional interpreters, libraries, and installed
-dependencies must be listed as exact absolute `toolchain` file paths. `files`
-accepts exact repository-relative paths, including ignored/copied files, but not
-globs, directories, parent traversal, or symlinks. Every copied file must be
-included. Use `[reuse.lint]` for an independent lint declaration.
-
-Leave the contract unset for commands that read history, time, external services,
-or undeclared inputs. Login-shell commands are unsupported and rerun. A user-level
-declaration alone cannot enable shell reuse; it must match the committed contract.
-Input values and file contents never appear in fingerprint diagnostics.
+Review and documentation can reuse equivalent evidence automatically. Lint and
+test results never transfer into another run, even when its tree is identical.
+Each new run executes applicable shell stages again. The retired `[reuse]`
+section, including `[reuse.lint]` and `[reuse.test]`, is ignored with a warning.
+Historical configuration snapshots remain readable with their original digests.
 
 ## Push and pull-request authorization
 

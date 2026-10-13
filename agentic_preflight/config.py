@@ -28,7 +28,6 @@ from pydantic import (
 )
 
 from .digests import json_digest
-from .shell_fingerprints import ShellInputContract
 
 REPO_CONFIG_NAME = ".agentic-preflight.toml"
 USER_CONFIG_NAME = "config.toml"
@@ -81,11 +80,6 @@ class StageSection(_Section):
     timeout_seconds: int = Field(default=600, ge=1)
     max_attempts: int = Field(default=5, ge=1)
     max_restarts: int = Field(default=5, ge=1)
-
-
-class ReuseSection(_Section):
-    lint: ShellInputContract | None = None
-    test: ShellInputContract | None = None
 
 
 class ReviewSection(_Section):
@@ -168,17 +162,17 @@ class Config(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def discard_retired_ci_section(cls, value: object) -> object:
-        """Keep historical run snapshots readable without reviving CI authority."""
-        if isinstance(value, dict) and "ci" in value:
-            value = dict(value)
-            value.pop("ci")
+    def discard_retired_sections(cls, value: object) -> object:
+        """Normalize retired sections for every config reader without changing raw snapshots."""
+        if isinstance(value, dict):
+            return {
+                key: body for key, body in value.items() if (key, "*") not in REMOVED_CONFIG_KEYS
+            }
         return value
 
     general: GeneralSection = Field(default_factory=GeneralSection)
     commands: CommandsSection = Field(default_factory=CommandsSection)
     stage: StageSection = Field(default_factory=StageSection)
-    reuse: ReuseSection = Field(default_factory=ReuseSection)
     review: ReviewSection = Field(default_factory=ReviewSection)
     policy: PolicySection = Field(default_factory=PolicySection)
     docs: DocsSection = Field(default_factory=DocsSection)
@@ -198,7 +192,7 @@ REMOVED_CONFIG_KEYS: frozenset[tuple[str, str]] = frozenset(
     {
         ("review", "require_fix_commits"),
         ("worktree", "ttl_hours"),
-        ("reuse", "attestation_schema"),
+        ("reuse", "*"),
         ("ci", "*"),
         ("hook", "enabled"),
     }
@@ -290,7 +284,7 @@ def load_config(
                 import sys
 
                 print(
-                    f"agentic-preflight: ignoring removed [{section}] configuration in {path}; tests run locally",
+                    f"agentic-preflight: ignoring removed [{section}] configuration in {path}; this section is no longer used",
                     file=sys.stderr,
                 )
                 continue

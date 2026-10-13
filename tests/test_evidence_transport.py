@@ -24,6 +24,8 @@ def published(feature_repo, bare_remote, tmp_path):
     git("fetch", str(feature_repo), "main:refs/heads/main", cwd=bare_remote)
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
+    agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
     agent.run("mergeback")
     value = attestation.verify(feature_repo, "HEAD", purpose="publish")
     assert value.sha != original.sha

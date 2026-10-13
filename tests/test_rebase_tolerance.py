@@ -83,7 +83,7 @@ def test_a_different_docs_config_reuses_review_but_forces_fresh_docs(
     assert git("rev-parse", "HEAD", cwd=feature_repo) == head
 
 
-def test_unchanged_attested_commit_imports_green_through_refresh(
+def test_unchanged_attested_commit_imports_review_docs_and_reruns_shell(
     feature_repo, tmp_path, monkeypatch
 ):
     from agentic_preflight.machine import Action
@@ -108,22 +108,19 @@ def test_unchanged_attested_commit_imports_green_through_refresh(
 
     monkeypatch.setattr(_evidence_install, "_apply", tracked)
     env = ScriptedAgent(feature_repo).run("start")
-    assert env["state"] == "TEST_GREEN"
+    assert env["state"] == "DOCS_GREEN"
     assert set(env["data"]["applicability"]) == {stage.value for stage in Stage}
     assert all(
-        result["disposition"] == "reusable" for result in env["data"]["applicability"].values()
+        env["data"]["applicability"][stage]["disposition"] == "reusable"
+        for stage in ("review", "docs")
     )
     assert actions == [
         Action.SUBMIT_CLEAN,
         Action.BEGIN_DOCS,
         Action.SUBMIT_CLEAN,
-        Action.RUN_LINT,
-        Action.LINT_PASSED,
-        Action.RUN_TEST,
-        Action.TEST_PASSED,
     ]
     run = Store(feature_repo / ".git" / "agentic-preflight").load_run(env["run_id"])
-    for stage in Stage:
+    for stage in (Stage.REVIEW, Stage.DOCS):
         record = run.stages[stage]
         result = original.stages[stage]
         for field in ("status", "command", "reason", "exit_code", "output_sha256"):
@@ -134,3 +131,6 @@ def test_unchanged_attested_commit_imports_green_through_refresh(
         assert record.executor == result.executor
         assert record.finished_at == original.evidence[stage].origin.finished_at.isoformat()
     assert run.review_coverage is not None
+    for stage in (Stage.LINT, Stage.TEST):
+        assert run.applicability[stage].reasons == ("shell_reuse_disabled",)
+        assert stage not in run.evidence

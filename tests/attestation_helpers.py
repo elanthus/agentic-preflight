@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from agentic_preflight.digests import json_digest
-from agentic_preflight.fingerprints import DocsFingerprint, ReviewFingerprint
+from agentic_preflight.fingerprints import DocsFingerprint, ReviewFingerprint, ShellFingerprint
 from agentic_preflight.models import (
     Attestation,
     AttestedStage,
@@ -9,7 +9,6 @@ from agentic_preflight.models import (
     Stage,
     StageEvidence,
 )
-from agentic_preflight.shell_fingerprints import ShellFingerprint
 
 
 def make_attestation(

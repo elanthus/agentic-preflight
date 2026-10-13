@@ -186,3 +186,24 @@ the bounded validation cache, so edits cannot reuse validation of a different sn
 The `hosted-check` command was removed. Hosted callers fetch the exact head, notes,
 and evidence refs from the contributor remote, then call offline `verify` or
 `approval-check`; per-attempt availability diagnostics are no longer emitted.
+
+## Retired shell input reuse declarations
+
+`[reuse]`, including lint/test input contracts, is retired and ignored with a
+configuration warning. Applicable lint and test stages run again in every new
+run, even with identical trees. The protected verifier rejects refreshed shell
+evidence and preserves original execution/run identity and bound base/head trees.
+Existing same-run tree-equivalent merge-back publication remains supported.
+Review and documentation refresh remain available.
+
+Original same-commit notes and historical raw snapshots remain readable without
+rewriting their digests. Fingerprint version 2 and attestation schema 7 keep their
+existing wire fields and shell policy digest encoding. The typed fingerprint
+models and their remaining safety bindings stay supported.
+
+Active pre-upgrade runs with completed shell evidence can conservatively reopen
+review once because the retired capture fields no longer match fresh execution
+fingerprints. Follow the returned stage sequence; the existing restart limit
+still applies. Frozen policy stays authoritative for historical runs, and
+committed protected policies can contain retired sections without blocking
+approval checks.

@@ -29,9 +29,9 @@ remains advisory rather than a security boundary.
 
 The attestation note is bound to an exact SHA. Starting again, including on that same
 unchanged commit, reclassifies each stage through its recorded fingerprint. Review and
-docs require equivalent content, intent, grounding, and relevant policy; shell stages
-require complete committed input contracts. Unknown or changed inputs require a fresh
-stage instead of importing green.
+docs require equivalent content, intent, grounding, and relevant policy. Applicable
+shell stages rerun in each new run; their results never transfer across new runs.
+Unknown or changed review/docs inputs require a fresh stage instead of importing green.
 Changing stage applicability, commands, policy, another setting, or the objective starts
 a fresh review even when local run records have been garbage-collected.
 
@@ -43,10 +43,10 @@ identities and branches are not candidates.
 
 Cherry-picked merge-back is handled via tree-equivalence attestation.
 
-Shell reuse requires a committed declaration of supported content inputs. Unknown
-dependencies, shell profiles, time, history, or external services prevent reuse.
-Fingerprints are equality checks under that explicit assumption, not dependency
-discovery. See the [fingerprint contract](fingerprint-contract.md).
+Shell input declarations are retired. Lint and test evidence remains valid for
+its original execution and is never reused in a new run, even for identical trees.
+Existing same-run tree-equivalent merge-back publication remains supported.
+See the [fingerprint contract](fingerprint-contract.md).
 
 Agentic Preflight refuses to start or merge back while the checkout has a rebase,
 cherry-pick, or merge in progress. Finish or abort that Git operation yourself first;

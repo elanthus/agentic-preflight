@@ -106,7 +106,6 @@ def test_sensitive_changes_require_human_review_and_a_code_owner(path):
         "agentic_preflight/refresh_validation.py",
         "agentic_preflight/run_invariants.py",
         "agentic_preflight/runs/review_coverage.py",
-        "agentic_preflight/shell_fingerprints.py",
         "agentic_preflight/stages/change_scope.py",
         "agentic_preflight/wire_schema.py",
         "tests/test_risk.py",
