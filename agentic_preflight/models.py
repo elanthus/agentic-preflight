@@ -381,12 +381,15 @@ class StageEvidence(BaseModel):
     refreshed_at: AwareDatetime | None = None
     derivation_reason: Literal["equivalent_inputs"] | None = None
 
-    @model_validator(mode="after")
-    def validate_origin(self) -> StageEvidence:
+    def verify_origin(self) -> None:
+        """Check content digests when admitting or consuming execution evidence."""
         if json_digest(self.origin.config_snapshot) != self.origin.config_sha256:
             raise ValueError("original configuration digest does not match its snapshot")
         if json_digest(self.origin.model_dump(mode="json")) != self.origin_sha256:
             raise ValueError("original evidence digest does not match its contents")
+
+    @model_validator(mode="after")
+    def validate_origin(self) -> StageEvidence:
         if (self.refreshed_at is None) != (self.derivation_reason is None):
             raise ValueError("refresh time and derivation reason must occur together")
         if self.refreshed_at is not None and self.refreshed_at < self.origin.finished_at:

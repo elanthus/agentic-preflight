@@ -759,3 +759,66 @@ def test_cherry_pick_preserves_user_resolution_started_after_precondition(tmp_re
     assert git("status", "--porcelain", cwd=tmp_repo) == user_status
     assert (tmp_repo / "src/app.py").read_text() == "USER RESOLUTION\n"
     assert caught.value.report.restored is False
+
+
+@pytest.mark.parametrize(
+    "state", ["LINT_GREEN", "TEST_GREEN", "MERGEBACK_PENDING", "MERGEBACK_CONFLICT"]
+)
+@pytest.mark.parametrize("mutation", ["origin", "config"])
+def test_corrupt_current_evidence_preserves_source_and_reports_recovery(
+    ready, feature_repo, state, mutation
+):
+    from agentic_preflight.digests import json_digest
+    from agentic_preflight.errors import STAGE_EVIDENCE_RECOVERY
+    from agentic_preflight.store import Store
+
+    agent, wt = ready()
+    status = agent.run("status")
+    run_id = status["run_id"]
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    path = store.run_path(run_id)
+    raw = json.loads(path.read_text())
+    item = raw["evidence"]["review"]
+    if mutation == "origin":
+        item["origin_sha256"] = "f" * 64
+    else:
+        item["origin"]["config_sha256"] = "f" * 64
+        item["origin_sha256"] = json_digest(item["origin"])
+    raw["state"] = state
+    if state == "MERGEBACK_PENDING":
+        raw["mergeback_attempt"] = {
+            "source_sha": git("rev-parse", "HEAD", cwd=feature_repo),
+            "validation_sha": git("rev-parse", "HEAD", cwd=wt),
+            "validation_tree": git("rev-parse", "HEAD^{tree}", cwd=wt),
+            "retrying_conflict": False,
+        }
+    path.write_text(json.dumps(raw))
+    before = json.loads(path.read_text())
+    source_head = git("rev-parse", "HEAD", cwd=feature_repo)
+    validation_head = git("rev-parse", "HEAD", cwd=wt)
+    inspected = agent.run("status")
+    assert inspected["data"]["readable"] is True
+    assert inspected["data"]["evidence_valid"] is False
+    assert inspected["data"]["evidence_failure"]["code"] == "stage_evidence_invalid"
+    assert inspected["next"]["instruction"] == STAGE_EVIDENCE_RECOVERY
+    assert inspected["next"]["command"] == "agentic-preflight abort"
+    inventory = agent.run("status", "--all")
+    assert any(item["run_id"] == run_id for item in inventory["data"]["runs"])
+    assert all(item.get("readable", True) for item in inventory["data"]["runs"])
+    if state != "LINT_GREEN":
+        failed = agent.run("mergeback", expect=ExitCode.PRECONDITION)
+        assert failed["error"]["code"] == "stage_evidence_invalid"
+        assert failed["data"]["reason"] == "invalid_origin_digest"
+        assert failed["next"]["instruction"] == STAGE_EVIDENCE_RECOVERY
+    assert git("rev-parse", "HEAD", cwd=feature_repo) == source_head
+    assert git("rev-parse", "HEAD", cwd=wt) == validation_head
+    after = json.loads(path.read_text())
+    assert after["evidence"] == before["evidence"]
+    assert after["state"] == before["state"]
+    assert after["mergeback_attempt"] == before["mergeback_attempt"]
+    assert git("notes", "--ref=agentic-preflight", "list", cwd=feature_repo) == ""
+    aborted = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+    assert aborted["error"]["code"] == "unmerged_work"
+    assert Path(wt).is_dir()
+    assert git("rev-parse", "HEAD", cwd=wt) == validation_head
+    assert json.loads(path.read_text())["evidence"] == before["evidence"]

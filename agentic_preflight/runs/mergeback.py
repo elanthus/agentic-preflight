@@ -280,6 +280,8 @@ def mergeback(session: Session) -> Envelope:
         command="mergeback",
     )
 
+    # Validate saved origins before recording an attempt or changing the source branch.
+    run = evidence.archive(session, run)
     _check_dirty_paths(session, run, in_place=in_place)
     run = _record_attempt(session, run, retrying_conflict=retrying_conflict)
 
@@ -354,7 +356,6 @@ def mergeback(session: Session) -> Envelope:
             next_command="agentic-preflight context",
         )
 
-    run = evidence.archive(session, run)
     entry = attestationmod.build(
         run,
         sha=result.post_sha,

@@ -135,6 +135,8 @@ def build(
         evidence=run.evidence,
         config_snapshot=run.config_snapshot,
     )
+    for item in value.evidence.values():
+        item.verify_origin()
     verify_evidence(run.worktree_path, value)
     return value
 
@@ -193,6 +195,8 @@ def verify_value(
     from .refresh_validation import verify_evidence
 
     try:
+        for item in value.evidence.values():
+            item.verify_origin()
         verify_evidence(repo, value)
     except gitx.GitError as exc:
         raise InvalidAttestation(
