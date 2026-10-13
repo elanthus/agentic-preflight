@@ -10,6 +10,7 @@ when the patch text is byte-identical.
 from __future__ import annotations
 
 import hashlib
+import json
 
 import pytest
 
@@ -432,3 +433,20 @@ def test_doc_surface_preserves_historical_fingerprint_fields(tmp_path):
             "content_sha256": hashlib.sha256(b"hello\n").hexdigest(),
         }
     ]
+
+
+def test_docs_surface_digest_keeps_canonical_json_bytes(feature_repo):
+    surface = [{"path": "雪.md", "size": 0, "exists": True, "touched_by_diff": False}]
+    result = fp.compute_docs_fingerprint(
+        feature_repo,
+        base_sha="main",
+        head_sha="HEAD",
+        changed_files=[],
+        doc_paths=[],
+        config_snapshot={},
+        surface=surface,
+    )
+    expected = hashlib.sha256(
+        json.dumps(surface, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    assert result.doc_surface_sha256 == expected

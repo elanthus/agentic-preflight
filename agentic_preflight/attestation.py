@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
 from . import gitx
+from .digests import sha256_text
 from .models import Attestation, AttestedStage, RunDoc, Stage
 from .wire_schema import (
     InvalidAttestation as InvalidAttestation,
@@ -52,12 +52,12 @@ def recovery(reason: str) -> str:
 
 def output_digest(output: str) -> str:
     """Return the SHA-256 hex digest of captured stage output."""
-    return hashlib.sha256(output.encode()).hexdigest()
+    return sha256_text(output)
 
 
 def intent_digest(intent: str) -> str:
     """Return the SHA-256 hex digest of the run intent text."""
-    return hashlib.sha256(intent.encode()).hexdigest()
+    return sha256_text(intent)
 
 
 def build(

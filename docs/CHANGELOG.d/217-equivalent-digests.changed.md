@@ -1,0 +1,1 @@
+- Share equivalent text and JSON digest helpers and synchronization result serialization, preserving existing evidence bindings and callable keyword arguments.
