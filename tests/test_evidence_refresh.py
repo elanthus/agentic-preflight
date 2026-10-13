@@ -16,7 +16,7 @@ from tests.conftest import commit_all, git, set_home, write
 from tests.driver import ScriptedAgent
 
 
-def _prepare(repo, *, mode="in_place", contracts=True, commands_in_repo=True):
+def _prepare(repo, *, mode="in_place", contracts=False, commands_in_repo=True):
     command = json.dumps(f'"{sys.executable}" -c "print(1)"')
     body = f'[worktree]\nmode = "{mode}"\n'
     if commands_in_repo:
@@ -70,7 +70,7 @@ def test_invalid_snapshot_is_reported_as_invalid_attestation(feature_repo, tmp_p
 
 
 @pytest.mark.parametrize("mode", ["in_place", "reusable", "strict"])
-def test_history_only_restack_reuses_all_stages_without_execution(
+def test_history_only_restack_reuses_review_docs_and_reruns_shell_stages(
     feature_repo, tmp_path, monkeypatch, mode
 ):
     _prepare(feature_repo, mode=mode)
@@ -93,26 +93,32 @@ def test_history_only_restack_reuses_all_stages_without_execution(
 
     refreshed = ScriptedAgent(feature_repo)
     start = refreshed.run("start")
-    assert start["state"] == "TEST_GREEN"
-    assert start["next"]["command"] == "agentic-preflight mergeback"
-    assert {value["disposition"] for value in start["data"]["applicability"].values()} == {
-        "reusable"
-    }
+    assert start["state"] == "DOCS_GREEN"
+    assert start["next"]["command"] == "agentic-preflight stage run lint"
+    for stage in ("review", "docs"):
+        assert start["data"]["applicability"][stage]["disposition"] == "reusable"
+    for stage in ("lint", "test"):
+        assert start["data"]["applicability"][stage]["reasons"] == ["shell_reuse_disabled"]
+        refreshed.run("stage", "run", stage)
     refreshed.run("mergeback")
     value = attestation.verify(feature_repo, "HEAD")
     assert value.sha != original.sha
     assert value.tree_sha == original.tree_sha
-    assert len(calls) == 2
+    assert len(calls) == 4
     assert value.evidence is not None
     assert original.evidence is not None
-    for stage in Stage:
+    for stage in (Stage.REVIEW, Stage.DOCS):
         assert value.evidence[stage].origin == original.evidence[stage].origin
         assert value.evidence[stage].refreshed_at is not None
+    for stage in (Stage.LINT, Stage.TEST):
+        assert value.evidence[stage].origin.head_sha == value.sha
+        assert value.evidence[stage].origin.run_id != original.run_id
+        assert value.evidence[stage].refreshed_at is None
     assert attestation.verify(feature_repo, original.sha) == original
 
 
-def test_undeclared_shell_dependencies_rerun_only_shell_stages(feature_repo, tmp_path):
-    _prepare(feature_repo, contracts=False)
+def test_retired_shell_contract_is_ignored_and_shell_stages_rerun(feature_repo, tmp_path):
+    _prepare(feature_repo, contracts=True)
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     _finish(agent, tmp_path)
@@ -121,7 +127,7 @@ def test_undeclared_shell_dependencies_rerun_only_shell_stages(feature_repo, tmp
     resumed = ScriptedAgent(feature_repo)
     result = resumed.run("start")
     assert result["state"] == "DOCS_GREEN"
-    assert result["data"]["applicability"]["lint"]["reasons"] == ["contract_undeclared"]
+    assert result["data"]["applicability"]["lint"]["reasons"] == ["shell_reuse_disabled"]
     resumed.run("stage", "run", "lint")
     resumed.run("stage", "run", "test")
     resumed.run("mergeback")
@@ -164,7 +170,9 @@ def test_verifier_rejects_changed_origin_and_incomplete_provenance(
         attestation.decode(json.dumps(payload))
 
 
-def test_user_test_command_change_reuses_review_docs_and_lint(feature_repo, tmp_path, monkeypatch):
+def test_user_test_command_change_reuses_review_docs_and_reruns_shell(
+    feature_repo, tmp_path, monkeypatch
+):
     home = tmp_path / "home"
     set_home(monkeypatch, home)
     user_config = home / ".config/agentic-preflight/config.toml"
@@ -185,17 +193,18 @@ def test_user_test_command_change_reuses_review_docs_and_lint(feature_repo, tmp_
     )
     agent = ScriptedAgent(feature_repo)
     result = agent.run("start")
-    assert result["state"] == "LINT_GREEN"
-    assert result["data"]["applicability"]["test"]["reasons"] == ["command_changed"]
-    assert agent.run("status")["state"] == "LINT_GREEN"
+    assert result["state"] == "DOCS_GREEN"
+    assert result["data"]["applicability"]["test"]["reasons"] == ["shell_reuse_disabled"]
+    assert agent.run("status")["state"] == "DOCS_GREEN"
+    agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")
     agent.run("mergeback")
     refreshed = attestation.verify(feature_repo, "HEAD")
-    assert refreshed.evidence[Stage.LINT].origin == original.evidence[Stage.LINT].origin
+    assert refreshed.evidence[Stage.LINT].origin.run_id != original.run_id
     assert refreshed.evidence[Stage.TEST].origin.run_id != original.run_id
 
 
-def test_later_evidence_survives_a_pending_review_and_restart(feature_repo, tmp_path, monkeypatch):
+def test_docs_evidence_survives_a_pending_review_and_restart(feature_repo, tmp_path, monkeypatch):
     home = tmp_path / "home"
     set_home(monkeypatch, home)
     _prepare(feature_repo)
@@ -206,25 +215,23 @@ def test_later_evidence_survives_a_pending_review_and_restart(feature_repo, tmp_
     agent.run("abort", "--force")
     user_config = home / ".config/agentic-preflight/config.toml"
     user_config.parent.mkdir(parents=True)
-    user_config.write_text("[context]\nenabled = false\n")
+    user_config.write_text("[review]\nmax_findings = 51\n")
     agent = ScriptedAgent(feature_repo)
     result = agent.run("start")
     assert result["state"] == "REVIEW_AWAITING_FINDINGS"
-    assert result["data"]["applicability"]["test"]["disposition"] == "reusable"
-    # A new CLI/session invocation recovers the durable later-stage candidates.
+    assert result["data"]["applicability"]["docs"]["disposition"] == "reusable"
     agent = ScriptedAgent(feature_repo)
     agent.run("status")
     agent.run("context")
     payload = tmp_path / "fresh-review.json"
     payload.write_text('{"coverage":{"manifest":"$context","examined":"all"},"findings":[]}')
-    agent.run("submit-findings", "--file", str(payload))
-    agent.run("context", "--section", "docs")
-    payload.write_text('{"findings":[]}')
     result = agent.run("submit-findings", "--file", str(payload))
-    assert result["state"] == "TEST_GREEN"
+    assert result["state"] == "DOCS_GREEN"
+    agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
     agent.run("mergeback")
     refreshed = attestation.verify(feature_repo, "HEAD")
-    assert refreshed.evidence[Stage.TEST].origin == original.evidence[Stage.TEST].origin
+    assert refreshed.evidence[Stage.DOCS].origin == original.evidence[Stage.DOCS].origin
     assert refreshed.evidence[Stage.REVIEW].origin.run_id != original.run_id
 
 
@@ -237,7 +244,9 @@ def test_equivalent_target_is_checked_under_current_policy(feature_repo, tmp_pat
     git("branch", "alternate", "main", cwd=feature_repo)
     agent = ScriptedAgent(feature_repo)
     result = agent.run("start", "--base-ref", "alternate")
-    assert result["state"] == "TEST_GREEN"
+    assert result["state"] == "DOCS_GREEN"
+    agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
     agent.run("mergeback")
     value = attestation.verify(feature_repo, "HEAD")
     assert value.base_ref == "alternate"
@@ -256,6 +265,8 @@ def test_derived_provenance_rejects_wrong_bindings(feature_repo, tmp_path, mutat
     _restack(feature_repo)
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
+    agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
     agent.run("mergeback")
     value = attestation.verify(feature_repo, "HEAD")
     payload = json.loads(attestation.encode(value))
@@ -285,68 +296,6 @@ def test_derived_provenance_rejects_wrong_bindings(feature_repo, tmp_path, mutat
         attestation.verify(feature_repo, "HEAD")
 
 
-def test_unchanged_head_still_rechecks_declared_environment(feature_repo, tmp_path, monkeypatch):
-    _prepare(feature_repo)
-    config_path = feature_repo / ".agentic-preflight.toml"
-    before, test_contract = config_path.read_text().split("[reuse.test]")
-    config_path.write_text(
-        before
-        + "[reuse.test]"
-        + test_contract.replace("environment = []", 'environment = ["TEST_MODE"]')
-    )
-    commit_all(feature_repo, "declare the test environment input")
-    monkeypatch.setenv("TEST_MODE", "first")
-    agent = ScriptedAgent(feature_repo)
-    agent.run("start")
-    _finish(agent, tmp_path)
-    head = git("rev-parse", "HEAD", cwd=feature_repo)
-    agent.run("abort", "--force")
-    monkeypatch.setenv("TEST_MODE", "second")
-    result = ScriptedAgent(feature_repo).run("start")
-    assert git("rev-parse", "HEAD", cwd=feature_repo) == head
-    assert result["state"] == "LINT_GREEN"
-    assert result["data"]["applicability"]["test"]["reasons"] == ["inputs_changed"]
-
-
-@pytest.mark.parametrize("completed", ["lint", "test"])
-def test_changed_lint_inputs_reopen_through_cli_recovery(
-    feature_repo, tmp_path, monkeypatch, completed
-):
-    _prepare(feature_repo)
-    config = feature_repo / ".agentic-preflight.toml"
-    lint, test = config.read_text().split("[reuse.test]")
-    config.write_text(
-        lint.replace("environment = []", 'environment = ["AP_LINT_MODE"]') + "[reuse.test]" + test
-    )
-    commit_all(feature_repo, "declare lint environment input")
-    monkeypatch.setenv("AP_LINT_MODE", "before")
-    agent = ScriptedAgent(feature_repo)
-    agent.run("start")
-    agent.run("context")
-    payload = tmp_path / "review.json"
-    payload.write_text('{"coverage":{"manifest":"$context","examined":"all"},"findings":[]}')
-    agent.run("submit-findings", "--file", str(payload))
-    agent.run("context", "--section", "docs")
-    payload.write_text('{"findings":[]}')
-    agent.run("submit-findings", "--file", str(payload))
-    agent.run("stage", "run", "lint")
-    if completed == "test":
-        agent.run("stage", "run", "test")
-    monkeypatch.setenv("AP_LINT_MODE", "after")
-    recovered = agent.run("status" if completed == "lint" else "mergeback")
-    assert recovered["state"] == "DOCS_GREEN"
-    status = agent.run("status")
-    assert "reuse_error" not in status["data"]
-    assert status["data"]["stages"]["lint"]["status"] == "pending"
-    assert status["next"]["command"] == "agentic-preflight stage run lint"
-    lint_result = agent.run("stage", "run", "lint")
-    if completed == "test":
-        assert lint_result["state"] == "TEST_GREEN"  # The unchanged test evidence is reusable.
-    else:
-        agent.run("stage", "run", "test")
-    assert agent.run("mergeback")["state"] == "VERIFIED"
-
-
 def test_another_linked_source_worktree_cannot_borrow_evidence(feature_repo, tmp_path):
     _prepare(feature_repo)
     agent = ScriptedAgent(feature_repo)
@@ -359,27 +308,6 @@ def test_another_linked_source_worktree_cannot_borrow_evidence(feature_repo, tmp
     result = ScriptedAgent(other).run("start")
     assert result["state"] == "REVIEW_AWAITING_FINDINGS"
     assert result["data"]["applicability"]["review"]["reasons"] == ["fingerprint_missing"]
-
-
-def test_a_repair_reclassifies_preserved_later_evidence(feature_repo, tmp_path, monkeypatch):
-    home = tmp_path / "home"
-    set_home(monkeypatch, home)
-    _prepare(feature_repo)
-    agent = ScriptedAgent(feature_repo)
-    agent.run("start")
-    _finish(agent, tmp_path)
-    agent.run("abort", "--force")
-    user_config = home / ".config/agentic-preflight/config.toml"
-    user_config.parent.mkdir(parents=True)
-    user_config.write_text("[context]\nenabled = false\n")
-    agent = ScriptedAgent(feature_repo)
-    result = agent.run("start")
-    assert result["data"]["applicability"]["test"]["disposition"] == "reusable"
-    write(feature_repo, "repair.py", "changed = True\n")
-    commit_all(feature_repo, "repair the source")
-    result = ScriptedAgent(feature_repo).run("start")
-    assert result["data"]["applicability"]["test"]["disposition"] == "invalid"
-    assert "head_tree_changed" in result["data"]["applicability"]["test"]["reasons"]
 
 
 def test_three_branch_stack_refreshes_downstream_after_first_merge(
@@ -417,11 +345,13 @@ def test_three_branch_stack_refreshes_downstream_after_first_merge(
         git("switch", branch, cwd=feature_repo)
         agent = ScriptedAgent(feature_repo)
         result = agent.run("start", "--base-ref", base)
-        assert result["state"] == "TEST_GREEN"
+        assert result["state"] == "DOCS_GREEN"
+        agent.run("stage", "run", "lint")
+        agent.run("stage", "run", "test")
         agent.run("mergeback")
         assert attestation.verify(feature_repo, "HEAD").outcome == "verified"
         agent.run("abort", "--force")
-    assert len(calls) == 4
+    assert len(calls) == 8
 
 
 @pytest.mark.parametrize(
@@ -526,7 +456,7 @@ def test_status_reloads_persisted_state_after_interrupted_reuse(feature_repo, mo
 
 
 def test_fresh_verified_stages_preserve_explicit_command_overrides(feature_repo, tmp_path):
-    _prepare(feature_repo, contracts=False)
+    _prepare(feature_repo, contracts=True)
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     agent.run("context")
@@ -676,7 +606,8 @@ def test_discovery_rejects_changed_origin_after_structural_run_load(
     assert result["state"] == "REVIEW_AWAITING_FINDINGS"
     assert all(
         item["reasons"] == ["fingerprint_missing"]
-        for item in result["data"]["applicability"].values()
+        for stage, item in result["data"]["applicability"].items()
+        if stage in {"review", "docs"}
     )
 
 
@@ -693,25 +624,130 @@ def test_import_rechecks_candidates_edited_after_discovery(
     agent.run("abort", "--force")
     user_config = home / ".config/agentic-preflight/config.toml"
     user_config.parent.mkdir(parents=True)
-    user_config.write_text("[context]\nenabled = false\n")
+    user_config.write_text("[review]\nmax_findings = 51\n")
     agent = ScriptedAgent(feature_repo)
     started = agent.run("start")
-    assert started["data"]["applicability"]["lint"]["disposition"] == "reusable"
+    assert started["data"]["applicability"]["docs"]["disposition"] == "reusable"
     store = Store(feature_repo / ".git" / "agentic-preflight")
     path = store.run_dir(started["run_id"]) / "run.json"
     payload = json.loads(path.read_text())
-    _corrupt_origin(payload["reuse_candidates"]["lint"], mutation)
+    _corrupt_origin(payload["reuse_candidates"]["docs"], mutation)
     path.write_text(json.dumps(payload))
     agent.run("context")
     findings = tmp_path / "fresh-review.json"
     findings.write_text('{"coverage":{"manifest":"$context","examined":"all"},"findings":[]}')
     agent.run("submit-findings", "--file", str(findings))
-    agent.run("context", "--section", "docs")
-    findings.write_text('{"findings":[]}')
-    result = agent.run("submit-findings", "--file", str(findings))
-    assert result["state"] == "DOCS_GREEN"
+    result = agent.run("context", "--section", "docs")
+    assert result["state"] == "DOCS_AWAITING_FINDINGS"
     run = store.load_run(started["run_id"])
-    assert [reason.value for reason in run.applicability[Stage.LINT].reasons] == [
+    assert [reason.value for reason in run.applicability[Stage.DOCS].reasons] == [
         "provenance_invalid"
     ]
-    assert Stage.LINT not in run.evidence
+    assert Stage.DOCS not in run.evidence
+
+
+@pytest.mark.parametrize("refreshed", [False, True])
+def test_shell_evidence_cannot_refresh_or_cross_runs_between_identical_trees(
+    feature_repo, tmp_path, refreshed
+):
+    from datetime import UTC, datetime
+
+    from agentic_preflight.refresh_validation import verify_stage
+
+    _prepare(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    _finish(agent, tmp_path)
+    original = attestation.verify(feature_repo, "HEAD")
+    item = original.evidence[Stage.LINT]
+    replacement = git(
+        "commit-tree", original.tree_sha, "-p", original.sha, "-m", "same tree", cwd=feature_repo
+    )
+    if refreshed:
+        item = item.model_copy(
+            update={"refreshed_at": datetime.now(UTC), "derivation_reason": "equivalent_inputs"}
+        )
+    message = "cannot be refreshed" if refreshed else "transferred evidence requires"
+    with pytest.raises(ValueError, match=message):
+        verify_stage(
+            feature_repo,
+            item,
+            head=replacement,
+            base=original.merge_base_sha,
+            run_id=original.run_id if refreshed else "r_other",
+        )
+    assert attestation.verify(feature_repo, original.sha) == original
+
+
+def test_published_original_shell_contract_remains_valid_without_input_reads(
+    feature_repo, tmp_path, monkeypatch
+):
+    from agentic_preflight.digests import json_digest
+    from agentic_preflight.fingerprints import shell_config_digest
+
+    _prepare(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    _finish(agent, tmp_path)
+    original = attestation.verify(feature_repo, "HEAD")
+    raw = json.loads(attestation.encode(original))
+    contract = {
+        "mode": "content",
+        "files": ["retired-input"],
+        "environment": ["OLD_ENV"],
+        "toolchain": [],
+    }
+    raw = _with_snapshot_key(raw, "reuse", "lint", contract)
+    for name in ("lint", "test"):
+        item = raw["evidence"][name]
+        digest = shell_config_digest(item["origin"]["config_snapshot"], name)
+        for fp in (item["fingerprint"], item["origin"]["fingerprint"]):
+            fp["config_sha256"] = digest
+            fp["inputs_sha256"] = "f" * 64
+        item["origin_sha256"] = json_digest(item["origin"])
+    git(
+        "notes",
+        "--ref=agentic-preflight",
+        "add",
+        "-f",
+        "-m",
+        json.dumps(raw),
+        original.sha,
+        cwd=feature_repo,
+    )
+    read = Path.open
+
+    def guarded_open(path, *args, **kwargs):
+        assert path.name != "retired-input", "retired contract inputs must not be read"
+        return read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", guarded_open)
+
+    verified = attestation.verify(feature_repo, original.sha)
+
+    assert verified.config_snapshot["reuse"]["lint"] == contract
+    assert verified.evidence[Stage.LINT].origin.config_snapshot["reuse"]["lint"] == contract
+    assert verified.evidence[Stage.LINT].fingerprint.inputs_sha256 == "f" * 64
+
+
+def test_retired_contract_does_not_capture_declared_files(feature_repo, tmp_path, monkeypatch):
+    _prepare(feature_repo, contracts=True)
+    config = feature_repo / ".agentic-preflight.toml"
+    config.write_text(config.read_text().replace("files = []", 'files = ["retired-input"]'))
+    write(feature_repo, "retired-input", "previously captured input\n")
+    commit_all(feature_repo, "configure retired file capture")
+    read = Path.open
+
+    def guarded_open(path, *args, **kwargs):
+        assert path.name != "retired-input", "retired contract files must not be captured"
+        return read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", guarded_open)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    _finish(agent, tmp_path)
+
+    verified = attestation.verify(feature_repo, "HEAD")
+    assert "reuse" not in verified.config_snapshot
+    for stage in (Stage.LINT, Stage.TEST):
+        assert verified.evidence[stage].fingerprint.inputs_sha256 is None

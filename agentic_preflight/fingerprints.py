@@ -10,8 +10,9 @@ orchestration, and ``refresh_validation`` verifies derived attestations.
 
 Every fingerprint is intentionally a flat, ``extra="forbid"`` model over
 *content* identifiers (tree SHAs, content digests) rather than *history*
-identifiers (commit SHAs): the whole point of this contract is to let evidence
-survive a rebase or restack that does not touch the content a stage examined.
+identifiers (commit SHAs): review/docs evidence can survive a rebase or restack
+that does not touch the content those stages examined. Shell evidence retains
+its original execution bindings and is not transferable into another run.
 Two fingerprints compare equal only when every declared input matches; a field
 this contract does not yet know how to compare must not be silently ignored,
 so unknown provenance always classifies as ``unknown`` rather than reusable.
@@ -75,6 +76,7 @@ class ReasonCode(StrEnum):
     INPUTS_CHANGED = "inputs_changed"
     INPUTS_UNAVAILABLE = "inputs_unavailable"
     CONTRACT_UNDECLARED = "contract_undeclared"
+    SHELL_REUSE_DISABLED = "shell_reuse_disabled"
     CONFIG_UNSUPPORTED = "config_unsupported"
     FINDINGS_UNRESOLVED = "findings_unresolved"
     PROVENANCE_INVALID = "provenance_invalid"
@@ -87,6 +89,29 @@ class Classification(BaseModel):
 
     disposition: Disposition
     reasons: tuple[ReasonCode, ...] = ()
+
+
+class ShellFingerprint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = FINGERPRINT_VERSION
+    base_tree_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    head_tree_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    command_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    config_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    inputs_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    unavailable: ReasonCode | None = None
+
+
+def shell_config_digest(snapshot: dict, stage: str) -> str:
+    """Preserve original shell policy digest bytes for historical same-commit notes."""
+    retired = snapshot.get("reuse", {})
+    return config_digest(
+        {
+            "execution": {name: snapshot.get(name) for name in ("stage", "worktree")},
+            "contract": retired.get(stage) if isinstance(retired, dict) else None,
+        }
+    )
 
 
 class ReviewFingerprint(BaseModel):

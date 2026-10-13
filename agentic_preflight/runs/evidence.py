@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pydantic import ValidationError
 
 from .. import findings, gitx
-from ..digests import json_digest
+from ..digests import json_digest, sha256_text
 from ..errors import STAGE_EVIDENCE_RECOVERY, StageEvidenceInvalid
 from ..fingerprints import (
     Classification,
@@ -15,10 +15,12 @@ from ..fingerprints import (
     DocsFingerprint,
     ReasonCode,
     ReviewFingerprint,
+    ShellFingerprint,
     classify_docs,
     classify_review,
     compute_docs_fingerprint,
     compute_review_fingerprint,
+    shell_config_digest,
 )
 from ..machine import Action, State
 from ..models import (
@@ -30,12 +32,7 @@ from ..models import (
     StageFingerprint,
     StageRecord,
 )
-from ..refresh_validation import (
-    contract_is_committed,
-    shell_execution_config,
-    verify_stage,
-)
-from ..shell_fingerprints import ShellFingerprint, classify_shell, compute_shell_fingerprint
+from ..refresh_validation import verify_stage
 from ..store import RunReadError, UnknownRun
 from . import review_protocol
 from ._evidence_install import install_stage, stage_record
@@ -61,29 +58,19 @@ def fingerprint(
     """Compute the current fingerprint for a stage of a run.
 
     ``clean`` is a cleanliness check of the validation worktree the caller has
-    just made; lint and test fingerprints use it instead of checking again.
+    just made; no additional cleanliness check is needed for shell fingerprints.
     """
     wt = _require_worktree(run)
     head = gitx.rev_parse(wt, "HEAD")
     snapshot = run.config_snapshot
     if stage in {Stage.LINT, Stage.TEST}:
         configured = getattr(session.config.commands, stage.value)
-        result = compute_shell_fingerprint(
-            wt,
-            base_sha=run.merge_base_sha,
-            head_sha=head,
-            command=command if command is not None else configured or "",
-            contract=getattr(session.config.reuse, stage.value),
-            execution_config=shell_execution_config(snapshot),
-            copied_files=run.copied_files,
-            clean=clean,
-            resolved_head=head,
+        return ShellFingerprint(
+            base_tree_sha=gitx.tree_sha(wt, run.merge_base_sha),
+            head_tree_sha=gitx.tree_sha(wt, head),
+            command_sha256=sha256_text(command if command is not None else configured or ""),
+            config_sha256=shell_config_digest(snapshot, stage.value),
         )
-        if not contract_is_committed(wt, head, stage, getattr(session.config.reuse, stage.value)):
-            result = result.model_copy(
-                update={"unavailable": ReasonCode.CONTRACT_UNDECLARED, "inputs_sha256": None}
-            )
-        return result
     bundle = review_protocol.bundle_for(session, run, head=head)
     manifest = review_protocol.grounded_manifest(session, run, bundle, head=head)
     if stage is Stage.REVIEW:
@@ -116,7 +103,9 @@ def classify(old: StageFingerprint, new: StageFingerprint) -> Classification:
     if isinstance(old, DocsFingerprint) and isinstance(new, DocsFingerprint):
         return classify_docs(old, new)
     if isinstance(old, ShellFingerprint) and isinstance(new, ShellFingerprint):
-        return classify_shell(old, new)
+        return Classification(
+            disposition=Disposition.INVALID, reasons=(ReasonCode.SHELL_REUSE_DISABLED,)
+        )
     return Classification(disposition=Disposition.UNKNOWN, reasons=(ReasonCode.INPUTS_UNAVAILABLE,))
 
 
@@ -261,6 +250,8 @@ def _select_candidates(
 
     for old in prior_runs:
         for stage, item in old.evidence.items():
+            if stage in {Stage.LINT, Stage.TEST}:
+                continue
             if item.origin.source_worktree_id != run.source_worktree_id:
                 continue
             if stage in settled:
@@ -370,6 +361,11 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
     decisions: dict[Stage, Classification] = {}
     current: dict[Stage, StageFingerprint] = {}
     for stage in Stage:
+        if stage in {Stage.LINT, Stage.TEST}:
+            decisions[stage] = Classification(
+                disposition=Disposition.INVALID, reasons=(ReasonCode.SHELL_REUSE_DISABLED,)
+            )
+            continue
         item = run.reuse_candidates.get(stage)
         if item is None:
             decisions[stage] = Classification(

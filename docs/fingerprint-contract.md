@@ -1,9 +1,9 @@
 # Fingerprint contract for reusable preflight evidence
 
 After a history-only rebase or restack, `start` discovers applicable local evidence
-and returns the next required stage. `status` resumes after interruption. Review,
-docs, lint, and tests are classified independently. Complete stage evidence is
-eligible for refresh when its current fingerprint matches.
+and returns the next required stage. `status` resumes after interruption. Review
+and docs can transfer when their current fingerprints match. Lint and test evidence
+is never reused in a new run, including commits with identical trees.
 
 ## Applicability and audit identity
 
@@ -19,7 +19,7 @@ executor, and hosted approval policy still apply.
 | Disposition | Meaning |
 | --- | --- |
 | `reusable` | All inputs required by the supported contract match. |
-| `invalid` | Known inputs changed; `reasons` identifies the categories. |
+| `invalid` | Known inputs changed or stage reuse is disabled; `reasons` identifies the categories. |
 | `unknown` | Provenance, inputs, or configuration dependencies cannot be established. Rerun. |
 
 `data.applicability` describes candidate evidence, not the outcome of a stage
@@ -52,32 +52,23 @@ Review derivation recomputes both Git manifests, validates original coverage, an
 compares every original/current unit and exclusion. Only then can it replace the
 current coverage's commit and manifest identity. Original dispositions are retained.
 
-## Shell input contract
+## Shell execution evidence
 
-Each stage needs a **committed** `[reuse.lint]` or `[reuse.test]` content contract.
-Its author asserts that the command depends only on tracked source, declared
-file/toolchain inputs, declared environment, platform, and configured execution
-and setup policy. This is a bounded assumption, not dependency discovery.
+Lint and test results remain bound to their original execution and run. New
+runs execute applicable shell stages again; `shell_reuse_disabled`
+explains their applicability decision. Refreshed shell evidence is rejected by
+the verifier, including derivations between identical trees.
 
-The fingerprint captures command and policy digests, base/head trees, and a
-combined digest of exact repository-relative files and their modes, declared
-absolute toolchain files, the resolved primary executable, declared environment
-variables (absent differs from empty), and OS name/release and machine architecture.
-Additional interpreters, libraries, installed dependencies, and configuration
-files must be declared if the command reads them.
+Same-run tree-equivalent merge-back keeps its existing publication behavior:
+validated results can attest the tree-equivalent cherry-picked source commit
+without creating refreshed evidence. This does not enable reuse in a new run.
 
-Every copied file must be declared. Missing optional input files are recorded as
-absent; unreadable files, directories, and symlinked repository inputs are unknown.
-Toolchain symlinks bind their resolved target identity and bytes. Login-shell
-commands are unknown because profiles are unsupported. History, time, external
-services, and undeclared dependencies are unsupported; leave the contract unset
-for commands that depend on them.
-
-Inputs are captured before and after execution; changes prevent reuse. Only
-combined digests and reason categories are recorded, never environment values or
-input-file contents. Evidence rechecks these inputs even for an unchanged SHA.
-Local `stage run --command` overrides remain valid execution evidence. Their
-resolved commands are fingerprinted; a different command prevents automatic reuse.
+The retired `[reuse]` declarations no longer trigger file, toolchain, environment,
+or platform capture. Original same-commit notes remain readable, including their
+old declarations and recorded input digests. Fingerprint version 2 and the
+version 7 wire shape remain unchanged for this compatibility step; model
+consolidation is a separate change. Local `stage run --command` overrides remain
+valid fresh execution evidence, bound to their resolved command.
 
 ## Provenance, ownership, and recovery
 

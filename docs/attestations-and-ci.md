@@ -180,8 +180,7 @@ trigger a new PR workflow). Review and merge major and Actions updates manually.
 
 After a rebase, run `start` with the original intent. With the current verifier on the
 protected base, it classifies each stage, preserves applicable evidence, and returns the
-next command. `status` resumes after interruption. Shell stages rerun unless
-their committed content contracts are satisfied. See the
+next command. `status` resumes after interruption. Shell stages always rerun in new runs; their evidence never transfers into another run. See the
 [fingerprint contract](fingerprint-contract.md) for supported inputs and limits.
 
 The new exact commit receives a version 7 note. Reused stages retain original runs,

@@ -31,8 +31,6 @@ from tests.driver import ScriptedAgent
 def _prepare(repo) -> None:
     command = json.dumps(f'"{sys.executable}" -c "print(1)"')
     body = '[worktree]\nmode = "in_place"\n' + f"[commands]\nlint = {command}\ntest = {command}\n"
-    for stage in ("lint", "test"):
-        body += f'[reuse.{stage}]\nmode = "content"\nfiles = []\nenvironment = []\ntoolchain = []\n'
     write(repo, ".agentic-preflight.toml", body)
     write(repo, "AGENTS.md", "# Agents\n\nEdit src/app.py carefully.\n")
     write(repo, "docs/guide.md", "# Guide\n\nThe app.py module defines greet.\n")
@@ -282,7 +280,7 @@ def test_reuse_start_cost_does_not_grow_with_prior_runs(
         call_counts.take()
         envelope = agent.run("start")
         starts[prior] = call_counts.take()
-        assert envelope["state"] == "TEST_GREEN"
+        assert envelope["state"] == "DOCS_GREEN"
         _complete(agent, payload, envelope)
         agent.run("abort", "--force")
 
@@ -404,7 +402,9 @@ def test_review_verification_builds_each_manifest_once(feature_repo, tmp_path, m
 
     _restack(feature_repo)
     resumed = ScriptedAgent(feature_repo)
-    assert resumed.run("start")["state"] == "TEST_GREEN"
+    assert resumed.run("start")["state"] == "DOCS_GREEN"
+    resumed.run("stage", "run", "lint")
+    resumed.run("stage", "run", "test")
     resumed.run("mergeback")
     built.clear()
     resumed_value = attestation.verify(feature_repo, "HEAD")
@@ -459,11 +459,9 @@ def test_stage_run_checks_cleanliness_before_and_after_the_command_only(
     assert len(calls) <= 1
 
 
-def test_a_stage_that_dirties_the_worktree_still_fails_with_unavailable_inputs(
+def test_a_stage_that_dirties_the_worktree_still_fails_without_input_capture(
     feature_repo, tmp_path
 ):
-    from agentic_preflight.fingerprints import ReasonCode
-
     _prepare(feature_repo)
     stray = json.dumps(f"\"{sys.executable}\" -c \"open('stray.txt', 'w').write('x')\"")
     config = (feature_repo / ".agentic-preflight.toml").read_text()
@@ -480,7 +478,8 @@ def test_a_stage_that_dirties_the_worktree_still_fails_with_unavailable_inputs(
     run = Store(feature_repo / ".git" / "agentic-preflight").load_run(failed["run_id"])
     recorded = run.stages[Stage.LINT].fingerprint
     assert recorded is not None
-    assert recorded.unavailable is ReasonCode.INPUTS_UNAVAILABLE
+    assert run.stages[Stage.LINT].status == "red"
+    assert recorded.inputs_sha256 is None
 
 
 def test_documentation_contents_are_hashed_at_most_once_per_command(

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 
 from . import diff, findings, gitx, risk
@@ -17,31 +16,9 @@ from .fingerprints import (
     classify_review,
     docs_relevant_config,
     review_relevant_config,
+    shell_config_digest,
 )
 from .models import Attestation, OriginalExecution, ReviewCoverage, Stage, StageEvidence
-from .shell_fingerprints import ShellFingerprint, ShellInputContract, classify_shell
-
-
-def shell_execution_config(snapshot: dict) -> dict:
-    """Return the execution settings of a shell stage snapshot."""
-    return {"stage": snapshot.get("stage"), "worktree": snapshot.get("worktree")}
-
-
-def contract_is_committed(
-    repo: Path | str, head: str, stage: Stage, contract: ShellInputContract | None
-) -> bool:
-    """Return whether a shell input contract is committed at head."""
-    if contract is None:
-        return False
-    result = gitx.run(repo, "show", f"{head}:.agentic-preflight.toml", check=False)
-    if result.returncode != 0:
-        return False
-    try:
-        declaration = tomllib.loads(result.stdout).get("reuse", {}).get(stage.value)
-        return ShellInputContract.model_validate(declaration) == contract
-    except (ValueError, AttributeError):
-        return False
-
 
 #: Review manifests already built during one verification, keyed on ``(head, base)``.
 #: Commits are immutable, so a manifest for the same pair and origin never changes.
@@ -120,7 +97,7 @@ def _verify_fingerprint(
         raise ValueError("original base tree does not match its fingerprint")
     if fp.head_tree_sha != gitx.tree_sha(repo, origin.head_sha):
         raise ValueError("original head tree does not match its fingerprint")
-    cfg = snapshot_config(origin.config_snapshot)
+    snapshot_config(origin.config_snapshot)
     if isinstance(fp, ReviewFingerprint):
         expected = json_digest(review_relevant_config(origin.config_snapshot))
         if fp.config_sha256 != expected or fp.executor != origin.result.executor:
@@ -132,13 +109,7 @@ def _verify_fingerprint(
         if fp.config_sha256 != json_digest(docs_relevant_config(origin.config_snapshot)):
             raise ValueError("original docs policy does not match its fingerprint")
     else:
-        contract = getattr(cfg.reuse, origin.stage.value)
-        expected = json_digest(
-            {
-                "execution": shell_execution_config(origin.config_snapshot),
-                "contract": contract.model_dump(mode="json") if contract else None,
-            }
-        )
+        expected = shell_config_digest(origin.config_snapshot, origin.stage.value)
         if fp.config_sha256 != expected:
             raise ValueError("original shell policy does not match its fingerprint")
         if origin.result.status == "green" and fp.command_sha256 != json_digest_command(
@@ -177,6 +148,8 @@ def verify_stage(
         repo, base
     ):
         raise ValueError("current Git bindings do not match the stage fingerprint")
+    if origin.stage in {Stage.LINT, Stage.TEST} and item.refreshed_at is not None:
+        raise ValueError("shell execution evidence cannot be refreshed")
     if item.refreshed_at is None:
         if origin.run_id != run_id or fp != origin.fingerprint:
             raise ValueError("transferred evidence requires explicit derivation provenance")
@@ -188,13 +161,6 @@ def verify_stage(
         coverage = rebound_coverage(repo, origin, head=head, base=base, manifests=manifests)
     elif isinstance(old, DocsFingerprint) and isinstance(fp, DocsFingerprint):
         result = classify_docs(old, fp)
-    elif isinstance(old, ShellFingerprint) and isinstance(fp, ShellFingerprint):
-        result = classify_shell(old, fp)
-        contract = getattr(snapshot_config(origin.config_snapshot).reuse, origin.stage.value)
-        if not contract_is_committed(
-            repo, head, origin.stage, contract
-        ) or not contract_is_committed(repo, origin.head_sha, origin.stage, contract):
-            raise ValueError("shell derivation requires a committed input contract")
     else:
         raise ValueError("inconsistent fingerprint types")
     if result.disposition != Disposition.REUSABLE:
@@ -237,13 +203,7 @@ def _verify_current_stage(
         ):
             raise ValueError("current docs intent/policy binding changed")
     else:
-        contract = getattr(cfg.reuse, stage.value)
-        expected_config = json_digest(
-            {
-                "execution": shell_execution_config(value.config_snapshot),
-                "contract": contract.model_dump(mode="json") if contract else None,
-            }
-        )
+        expected_config = shell_config_digest(value.config_snapshot, stage.value)
         if fp.config_sha256 != expected_config:
             raise ValueError("current shell policy binding changed")
     severities = (

@@ -16,9 +16,8 @@ from typing import Annotated, Any, Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .digests import json_digest
-from .fingerprints import Classification, DocsFingerprint, ReviewFingerprint
+from .fingerprints import Classification, DocsFingerprint, ReviewFingerprint, ShellFingerprint
 from .machine import State
-from .shell_fingerprints import ShellFingerprint
 
 # Saved-state membership check that is valid on Python 3.11, where a plain string
 # `in` an enum class raises TypeError, and that mypy accepts.

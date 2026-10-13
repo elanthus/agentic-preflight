@@ -7,11 +7,11 @@ rules govern this walkthrough; examples do not grant permission to publish or me
 
 After a restack or base update, run `start` with the original intent and follow
 `next.command`. With complete applicable evidence, the CLI
-may reuse review, docs, lint, or test independently. `data.applicability` explains
+may reuse review and docs independently. Applicable lint and test stages rerun. `data.applicability` explains
 candidate reuse, invalidation, or unknown inputs. Do not manually repeat imported
 stages, edit fingerprints, or rewrite original timestamps. `status` resumes the
-persisted sequence. Unknown inputs require a fresh stage; content-mode shell reuse
-requires a committed repository input contract.
+persisted sequence. Unknown review/docs inputs require a fresh stage. Shell evidence
+is never reused in a new run, including commits with identical trees.
 
 When `start` returns `data.housekeeping.noisy` as true, tell the user in one sentence how
 much space preflight checkouts are holding (`reclaimable_bytes`) and that

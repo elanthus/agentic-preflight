@@ -1,0 +1,1 @@
+- Remove opt-in shell input contracts and file/toolchain/environment capture. Retired `[reuse]` configuration is ignored with a warning; lint/test evidence is never reused in a new run, even with identical trees. Same-run tree-equivalent merge-back publication remains supported. Original same-commit notes remain verifiable.

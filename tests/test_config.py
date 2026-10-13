@@ -93,13 +93,12 @@ def test_an_unknown_key_is_an_error_naming_the_key(tmp_repo, tmp_path):
 REMOVED_KEY_VALUES = {
     ("review", "require_fix_commits"): "true",
     ("worktree", "ttl_hours"): "48",
-    ("reuse", "attestation" + "_schema"): "5",
     ("hook", "enabled"): "false",
 }
 
 
-def test_every_removed_config_key_has_a_rejection_case():
-    assert set(REMOVED_KEY_VALUES) | {("ci", "*")} == REMOVED_CONFIG_KEYS
+def test_every_removed_config_key_has_a_rejection_or_warning_case():
+    assert set(REMOVED_KEY_VALUES) | {("ci", "*"), ("reuse", "*")} == REMOVED_CONFIG_KEYS
 
 
 @pytest.mark.parametrize(
@@ -484,3 +483,16 @@ def test_committed_config_ignores_ci_but_rejects_other_removed_keys(tmp_repo):
     commit_all(tmp_repo, "invalid protected policy")
     with pytest.raises(ValueError, match="invalid protected policy"):
         committed_config(tmp_repo, "HEAD")
+
+
+@pytest.mark.parametrize("scope", ["user", "repository"])
+def test_removed_reuse_table_is_ignored_with_warning(tmp_repo, tmp_path, capsys, scope):
+    user = tmp_path / "settings"
+    user.mkdir()
+    target = user / "config.toml" if scope == "user" else tmp_repo / ".agentic-preflight.toml"
+    target.write_text(
+        '[reuse.test]\nmode = "content"\nfiles = []\nenvironment = []\ntoolchain = []\n'
+    )
+    cfg = load_config(tmp_repo, user_config_dir=user)
+    assert "reuse" not in cfg.model_dump()
+    assert "ignoring removed [reuse]" in capsys.readouterr().err
