@@ -759,3 +759,51 @@ def test_cherry_pick_preserves_user_resolution_started_after_precondition(tmp_re
     assert git("status", "--porcelain", cwd=tmp_repo) == user_status
     assert (tmp_repo / "src/app.py").read_text() == "USER RESOLUTION\n"
     assert caught.value.report.restored is False
+
+
+@pytest.mark.parametrize(
+    "state", ["LINT_GREEN", "TEST_GREEN", "MERGEBACK_PENDING", "MERGEBACK_CONFLICT"]
+)
+@pytest.mark.parametrize("mutation", ["origin", "config"])
+def test_corrupt_current_evidence_preserves_source_and_reports_recovery(
+    ready, feature_repo, state, mutation
+):
+    from agentic_preflight.digests import json_digest
+    from agentic_preflight.store import RUN_READ_RECOVERY, Store
+
+    agent, wt = ready()
+    status = agent.run("status")
+    run_id = status["run_id"]
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    path = store.run_path(run_id)
+    raw = json.loads(path.read_text())
+    item = raw["evidence"]["review"]
+    if mutation == "origin":
+        item["origin_sha256"] = "f" * 64
+    else:
+        item["origin"]["config_sha256"] = "f" * 64
+        item["origin_sha256"] = json_digest(item["origin"])
+    raw["state"] = state
+    if state == "MERGEBACK_PENDING":
+        raw["mergeback_attempt"] = {
+            "source_sha": git("rev-parse", "HEAD", cwd=feature_repo),
+            "validation_sha": git("rev-parse", "HEAD", cwd=wt),
+            "validation_tree": git("rev-parse", "HEAD^{tree}", cwd=wt),
+            "retrying_conflict": False,
+        }
+    path.write_text(json.dumps(raw))
+    before = json.loads(path.read_text())
+    source_head = git("rev-parse", "HEAD", cwd=feature_repo)
+    validation_head = git("rev-parse", "HEAD", cwd=wt)
+    command = "status" if state == "LINT_GREEN" else "mergeback"
+    failed = agent.run(command, expect=ExitCode.PRECONDITION)
+    assert failed["error"]["code"] == "run_record_unreadable"
+    assert failed["data"]["reason"] == "invalid"
+    assert failed["next"]["instruction"] == RUN_READ_RECOVERY
+    assert git("rev-parse", "HEAD", cwd=feature_repo) == source_head
+    assert git("rev-parse", "HEAD", cwd=wt) == validation_head
+    after = json.loads(path.read_text())
+    assert after["evidence"] == before["evidence"]
+    assert after["state"] == before["state"]
+    assert after["mergeback_attempt"] == before["mergeback_attempt"]
+    assert git("notes", "--ref=agentic-preflight", "list", cwd=feature_repo) == ""
