@@ -198,5 +198,5 @@ Review and documentation refresh remain available.
 
 Original same-commit notes and historical raw snapshots remain readable without
 rewriting their digests. Fingerprint version 2 and attestation schema 7 keep their
-existing wire fields and shell policy digest encoding for this intermediate
-change; the separate fingerprint model consolidation follows in issue 201.
+existing wire fields and shell policy digest encoding. The typed fingerprint
+models and their remaining safety bindings stay supported.

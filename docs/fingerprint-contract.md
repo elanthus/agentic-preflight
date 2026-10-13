@@ -66,8 +66,8 @@ without creating refreshed evidence. This does not enable reuse in a new run.
 The retired `[reuse]` declarations no longer trigger file, toolchain, environment,
 or platform capture. Original same-commit notes remain readable, including their
 old declarations and recorded input digests. Fingerprint version 2 and the
-version 7 wire shape remain unchanged for this compatibility step; model
-consolidation is a separate change. Local `stage run --command` overrides remain
+version 7 wire shape remain unchanged for compatibility. The typed models and
+their remaining safety bindings stay supported. Local `stage run --command` overrides remain
 valid fresh execution evidence, bound to their resolved command.
 
 ## Provenance, ownership, and recovery
