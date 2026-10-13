@@ -39,7 +39,7 @@ def remote_identity(url: str) -> str:
     """Remove URL credentials, query, and fragment (including scp-style usernames)."""
     if "://" in url:
         parsed = urlsplit(url)
-        return urlunsplit((parsed.scheme, parsed.hostname or "", parsed.path, "", ""))
+        return urlunsplit((parsed.scheme, parsed.netloc.rsplit("@", 1)[-1], parsed.path, "", ""))
     return url.split("@", 1)[-1].split("?", 1)[0].split("#", 1)[0]
 
 
