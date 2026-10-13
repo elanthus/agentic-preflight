@@ -26,7 +26,6 @@ human_review_paths = [
   "agentic_preflight/attestation.py",
   "agentic_preflight/cli_policy.py",
   "agentic_preflight/hook.py",
-  "agentic_preflight/note_availability.py",
   "agentic_preflight/publish/**",
   "agentic_preflight/risk.py",
   "agentic_preflight/runs/publish.py",

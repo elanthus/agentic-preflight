@@ -338,13 +338,8 @@ def _assert_fresh(session: Session, run: RunDoc) -> None:
 
 
 def _worktree_mode(run: RunDoc) -> str:
-    """The run's validation mode, read from its snapshot.
-
-    Tolerates keys a later release removed so that ``gc`` can release the
-    worktree of a run recorded by an earlier release. A strictly loaded run
-    has already passed the stricter check, so the answer is the same there.
-    """
-    return snapshot_run_settings(run.config_snapshot, tolerate_removed_config=True)[1]
+    """The run's validation mode, ignoring keys a later release removed."""
+    return snapshot_run_settings(run.config_snapshot)[1]
 
 
 def _is_in_place(run: RunDoc) -> bool:

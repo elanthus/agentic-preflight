@@ -56,8 +56,8 @@ before this example can run.
 ```
 
 This minimal example assumes public fetch access and immediate note availability.
-For protected policy enforcement, private repositories, and bounded availability
-recovery, use the protected-base `hosted-check` flow below.
+For protected policy enforcement and private repositories, use the protected-base
+fetch and verification flow below.
 
 Make that job a required status check in branch protection. The local hook remains
 fail-open and bypassable so a missing tool never blocks every push; the required remote check is
@@ -69,69 +69,45 @@ contributor's remote. The pull request cannot change the verifier that judges it
 Governance paths are also listed in `.github/CODEOWNERS`; enable **Require review from
 Code Owners** in the branch ruleset because the file alone only requests reviewers.
 
-## Bounded hosted note availability
+## Protected-base fetch and verification
 
-`verify SHA` remains offline and deterministic. `verify` and `approval-check` preserve
-exit code 2 and `attestation_failed` for evidence failures, with a structured
-`data.reason` and recovery instruction. They do not infer a producer version from an
-unknown field or invoke local review/tests to repair missing remote evidence.
-
-The explicit `hosted-check` command provides shared availability handling for trusted
-CI callers. Run the installed protected-base tool from the original event-base checkout:
+Both repository workflows install their checker from the protected event-base commit
+and fetch proposed content only as inert Git data. They select the contributor's remote
+for fork pull requests, then fetch the exact event head, notes, and retained evidence:
 
 ```bash
-agentic-preflight hosted-check "$HEAD_SHA" --base "$BASE_SHA" \
-  --source-remote "$source_remote" --head-ref "refs/heads/$HEAD_REF"
+git fetch --no-tags -- "$source_remote" "$HEAD_SHA" \
+  '+refs/notes/agentic-preflight:refs/notes/agentic-preflight' \
+  '+refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*'
+agentic-preflight verify "$HEAD_SHA"
 ```
 
-All SHAs and the branch name come from the original event. Resolve `source_remote`
-to the contributor's configured remote for a fork, as with the existing workflows.
-For policy evaluation, add `--mode approval --reviews-file "$reviews_file" --author
-"$PR_AUTHOR"`. The existing `--report-only` and `--environment-approved` options retain
-their meanings. The caller must still enforce auto-merge restrictions and the actual
-GitHub Environment approval; availability never grants either approval.
+For approval evaluation, call `approval-check "$HEAD_SHA" --base "$BASE_SHA"`
+with `--reviews-file "$reviews_file" --author "$PR_AUTHOR"` and optional
+`--report-only` or `--environment-approved`. These flags retain their policy meanings.
+The caller still enforces auto-merge restrictions and actual GitHub Environment approval.
+Never install or execute proposed code with policy credentials.
 
-The helper makes at most four attempts, waiting 2, 4, and 8 seconds between them.
-Each availability Git command has a 30-second timeout. Only a missing advertised
-notes ref or a missing expected-head note is retried. A fetch failure is not proof of
-absence and stops immediately, even if a previous local note exists. No sleep follows
-the final attempt. The library accepts injected delays, clock, and sleeper for tests.
+The head and notes are published atomically. Retained evidence refs are published first
+and include original commits needed for reused stage evidence and approval after a clean
+rebase. Fetch them from the same source remote as the note. The wildcard also works when
+there are no retained evidence refs. Forced ref updates replace any previous runner
+snapshot; verification always checks the exact event SHA, its tree and its evidence.
+A fork's notes must never be borrowed from the protected base repository.
 
-Each attempt checks the advertised and fetched PR head against the fixed event SHA.
-It fetches notes into a temporary ref, records the actual notes commit, and reads its
-immutable tree. Strict verification and approval evaluation consume that same decoded
-note. A final head lookup must still match before success. Temporary refs are removed;
-the normal local notes ref is neither merged nor overwritten.
-For attestation evidence, missing original commits are fetched from exact
-`refs/agentic-preflight/evidence/<SHA>` refs in the same contributor remote and their
-identities are checked before verification. Missing or mismatched provenance is a
-permanent evidence/transport failure, not another missing-note retry.
+The trusted attestation job has a five-minute limit; the approval policy job has a
+thirty-minute limit. These limits cover setup, transport, verification, and policy API
+requests, so stalled operations cannot keep the checks pending for the default job
+duration.
 
-| Reason or policy result | Recovery |
-| --- | --- |
-| `missing_notes_ref`, `missing_note` | Confirm that the exact head and its note were published to the selected remote; rerun the bounded check after publication. |
-| `incompatible_schema` | Use the current producer and protected verifier so the note uses schema version 7. Repeating local preflight with a different producer does not repair the present note. |
-| `malformed_payload`, `invalid_evidence`, `commit_mismatch`, `tree_mismatch` | Inspect and restore valid evidence for the exact commit. The present note is not retried. |
-| `stale_candidate` | Run the new event's check. The old event never borrows the new head or its note. |
-| `git_failure`, `git_timeout`, `io_failure` | Investigate access, authentication, transport, or local I/O. Raw Git stderr is omitted because it can contain credentials; the operation and exit/timeout remain visible. |
-| `verifier_mismatch` | Use the original protected event-base checkout and its installed tool. |
-| Unmet human approval / manual merge | Follow the existing approval policy. Availability does not retry or override that policy. |
-
-Save the workflow run ID and attempt, event head/base, source remote/repository,
-`availability.verifier_revision` (the protected checkout revision), verifier package
-version, and each attempt's advertised/fetched notes commit, observed/fetched head,
-note presence/object ID, reason, and elapsed time. Diagnostics omit note bodies and
-URL credentials. CLI stdout contains one JSON envelope, including failure diagnostics.
-The hosted shell caller must print that envelope and return the original command exit
-status before reading approval outputs.
-
-Both repository workflows use `hosted-check` from their protected event-base
-installation. Never execute proposed helper code with policy credentials.
-
-Same-head failure followed by a successful rerun does not establish replication delay
-as the cause. Compare the recorded snapshots and verifier identities between attempts;
-publication timing, concurrent notes updates, and visibility remain hypotheses until
-those observations distinguish them.
+A failed fetch fails the job immediately. `verify SHA` and `approval-check` remain offline
+and deterministic; they do not retry or repair missing evidence. Evidence failures retain
+exit code 2, `attestation_failed`, a structured `data.reason`, and recovery instructions.
+Missing notes require publication to the selected remote. Unsupported schemas require a
+matching producer and verifier; invalid evidence or wrong commit/tree bindings require
+valid evidence for the exact commit. Investigate transport failures as Git access or
+permissions problems. Print the verification envelope and preserve its exit status
+before reading approval outputs. Rerun the workflow after correcting the cause.
 
 ## High-risk merge handling
 
