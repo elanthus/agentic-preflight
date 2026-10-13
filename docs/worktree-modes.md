@@ -192,6 +192,7 @@ the whole process group is killed and the result is exit 124. Initial setup outp
 redacted like stage output and written to `setup.txt` in the run's log directory; a
 failed setup envelope reports `timed_out`, `log_path`, and the tail of the output. A setup
 command that writes to a copied file fails and its output is withheld.
+On Windows, Ctrl+C cleans up the setup process tree before cancellation propagates.
 
 Setup failures remain recoverable after the original error scrolls away. `status`
 returns `abort --force` after initial checkout setup fails, releasing an isolated lease.

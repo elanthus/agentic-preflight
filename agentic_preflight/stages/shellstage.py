@@ -226,8 +226,12 @@ if sys.platform == "win32":
 
     @contextmanager
     def _kill_on_termination(process: subprocess.Popen) -> Iterator[None]:
-        """Windows uses timeout-based process-tree cleanup rather than POSIX signals."""
-        yield
+        """Stop the Windows stage tree before propagating Ctrl+C."""
+        try:
+            yield
+        except KeyboardInterrupt:
+            _kill_process_tree(process)
+            raise
 
 else:
 

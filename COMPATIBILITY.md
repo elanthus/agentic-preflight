@@ -46,6 +46,13 @@ so a command that relies on it already behaves differently there than it does lo
 Program resolution is PATH-only: a bare command name is never looked up in a working
 directory, so a repository cannot supply the program that validates it.
 
+## Windows cancellation
+
+In 0.7.0, Ctrl+C during a stage or setup command cleans up its Windows process tree
+and propagates the interrupt. The CLI creates a separate process group, so the child
+does not receive the console Ctrl+C directly; cleanup uses the existing bounded
+`taskkill` helper. POSIX signal handling is unchanged.
+
 ## Validation tiers
 
 The supported combinations receive different validation frequencies so pull-request

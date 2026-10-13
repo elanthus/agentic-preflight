@@ -294,6 +294,7 @@ the process group and still holds the output pipe cannot keep the stage open. Wh
 happens the captured output is discarded and the stage output ends with an
 `[output truncated: ...]` line after the timeout marker. On POSIX, SIGTERM or SIGINT
 delivered to the CLI while a stage runs also kills that stage's process group.
+On Windows, Ctrl+C kills the stage's process tree before propagating cancellation.
 
 `max_restarts` bounds the whole run rather than one stage. It is new in 0.7.0;
 0.6.0 rejects it as an unknown key. Validation restarts whenever
