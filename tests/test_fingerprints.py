@@ -216,7 +216,7 @@ def test_a_test_command_change_does_not_move_the_review_config_fingerprint(featu
 
 def test_a_stage_timeout_change_moves_the_review_config_fingerprint(feature_repo, tmp_path):
     """The command executor's timeout and retry bound live in `[stage]`
-    (`review_executor.py`, `review_retry.py`), so a change there is a real
+    (`review_executor.py`), so a change there is a real
     execution dependency of a command review, not an unrelated section."""
     _configure(feature_repo, "[commands]\nlint = 'true'\ntest = 'true'\n")
     base = git("rev-parse", "main", cwd=feature_repo)

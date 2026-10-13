@@ -7,7 +7,7 @@ from collections.abc import Callable
 from .. import gitx
 from ..errors import StageFailed
 from ..models import RunDoc
-from ..stages import protected_output, shellstage
+from ..stages import shellstage
 from ._session import Session, _require_worktree
 
 
@@ -25,11 +25,11 @@ def _run_protected(
     before_run: Callable[[], None] | None = None,
     capture_data: dict | None = None,
     dirty_message: str | None = None,
-) -> tuple[protected_output.ProtectedResult, bool]:
+) -> tuple[shellstage.ProtectedResult, bool]:
     """Capture before bookkeeping, execute, check once, and persist safe output."""
     wt = _require_worktree(run)
     try:
-        protection = protected_output.OutputProtection.capture(wt, run.copied_files)
+        protection = shellstage.OutputProtection.capture(wt, run.copied_files)
     except shellstage.SecretRedactionError as exc:
         raise StageFailed(
             f"the {what} cannot run because copied-file redaction is unavailable",

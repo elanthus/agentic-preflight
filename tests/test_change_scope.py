@@ -1,6 +1,6 @@
 import pytest
 
-from agentic_preflight.stages.change_scope import tests_are_not_applicable as not_applicable
+from agentic_preflight.stages.docs import tests_are_not_applicable as not_applicable
 
 
 def test_documentation_only_changes_do_not_need_software_tests():

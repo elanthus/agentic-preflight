@@ -6,8 +6,7 @@ import pytest
 
 from agentic_preflight.machine import State
 from agentic_preflight.models import MergebackAttempt, RunDoc, SetupFailure
-from agentic_preflight.run_invariants import RunInvariantViolation, violations
-from agentic_preflight.store import Store
+from agentic_preflight.store import RunInvariantViolation, Store, violations
 from tests.conftest import make_run
 
 

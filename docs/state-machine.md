@@ -42,7 +42,7 @@ external commands or reviewer judgment; integration and failure-injection tests
 cover those separate obligations.
 
 `RunDoc` contains both lifecycle state and supporting evidence. Its schema validates
-record structure, while `run_invariants.py` checks their lifecycle relationships on
+record structure, while `store.py` checks their lifecycle relationships on
 every transaction write. Reads are not checked so recovery can inspect a record that
 the current version would refuse to write. Coordinators must still establish the
 evidence needed before choosing a transition. Adding an action to the table without

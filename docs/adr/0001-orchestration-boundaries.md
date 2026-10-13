@@ -30,17 +30,17 @@ Keep thin, stable facades and split implementation by reason to change.
   evidence, and invalidates evidence when `HEAD` changes.
 - `runs/review_executor.py` is the external-process adapter: prepare, execute, parse,
   and hand the submission to the same coordinator used by in-harness review.
-- `stages/protected_output.py` shares copied-file secret snapshots, output withholding,
+- `stages/shellstage.py` shares copied-file secret snapshots, output withholding,
   redaction, and log writing between review and shell-stage executors. Callers capture
-  secrets before recording the running state and retain their own execution, retry,
-  and failure handling. Review parses the original stdout only after output protection
+  secrets before recording the running state. `runs/_shell.py` shares protected
+  execution and dirty-worktree checks; callers retain retry and failure handling. Review parses the original stdout only after output protection
   succeeds; redacted output is the log and digest input.
-- `runs/review_retry.py` alone persists command running/red transitions, attempt counts,
+- `runs/review_executor.py` also persists command running/red transitions, attempt counts,
   interrupted-run recovery, and successful process evidence.
 - `runs/__init__.py` remains the supported import facade.
 
-The dependency direction is coordinator/executor toward protocol, coverage, and retry.
-Protocol, coverage, and retry do not import the coordinator. The executor hands a parsed
+The dependency direction is coordinator/executor toward protocol and coverage.
+Protocol and coverage do not import the coordinator. The executor hands a parsed
 submission to the existing coordinator so command and in-harness review share one submission
 path.
 
@@ -73,8 +73,8 @@ transaction boundaries within those phases are part of the durable crash-recover
 
 Command names, envelopes, exit codes, state-machine actions, retry limits, logs, and coverage
 semantics remain unchanged. New executors must use `review_protocol`; new retry behavior must
-be implemented in `review_retry`; and new CLI commands belong to the narrowest command family.
+be implemented in `review_executor`; and new CLI commands belong to the narrowest command family.
 
-There are more modules and a small registration layer, but each module can now be tested and
-reviewed against one invariant. End-to-end CLI tests remain the contract test across all
+Related helpers share their consumers, while protocol and coverage retain focused boundaries
+that can be tested and reviewed independently. End-to-end CLI tests remain the contract test across all
 boundaries.

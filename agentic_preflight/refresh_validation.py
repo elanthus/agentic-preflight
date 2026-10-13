@@ -241,9 +241,9 @@ def verify_evidence(repo: Path | str, value: Attestation) -> None:
     # The attestation supplies its base, so nothing guarantees a single merge base.
     changed_files = gitx.classified_files(repo, value.merge_base_sha, value.sha)
     if value.stages[Stage.TEST].status == "skipped":
-        from .stages import change_scope
+        from .stages import docs as docsstage
 
-        if not change_scope.tests_are_not_applicable(
+        if not docsstage.tests_are_not_applicable(
             changed_files,
             extra_doc_paths=cfg.docs.paths,
         ):

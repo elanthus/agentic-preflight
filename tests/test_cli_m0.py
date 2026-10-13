@@ -131,7 +131,7 @@ def test_setup_reports_an_unreadable_copied_file_without_os_detail(
     agent, feature_repo, monkeypatch
 ):
     from agentic_preflight.stages import shellstage
-    from agentic_preflight.stages.protected_output import OutputProtection
+    from agentic_preflight.stages.shellstage import OutputProtection
 
     write(feature_repo, ".agentic-preflight.toml", "[worktree]\nsetup_command = 'exit 0'\n")
     commit_all(feature_repo, "configure setup")

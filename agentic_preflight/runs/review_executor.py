@@ -6,19 +6,23 @@ import json
 from typing import Any
 
 from .. import diff as diffmod
+from .. import gitx
 from ..attestation import output_digest
 from ..envelope import Envelope
-from ..errors import DiffTooLarge, InvalidFindings, StageFailed
-from ..machine import State
-from ..models import Stage
+from ..errors import DiffTooLarge, InvalidFindings, MaxAttempts, StageFailed
+from ..machine import Action, State
+from ..models import RunDoc, Stage, StageRecord
 from ..stages import shellstage
-from . import review_protocol, review_retry
+from . import review_protocol
 from ._session import (
     Session,
+    _apply,
     _assert_fresh,
     _check_restart_limit,
     _load_current,
+    _now,
     _require_state,
+    _require_worktree,
 )
 from ._shell import _run_protected, _withheld_message
 from .review import submit_findings
@@ -61,8 +65,8 @@ def run_review_command(session: Session) -> Envelope:
             next_command="agentic-preflight review run",
         )
 
-    run = review_retry.recover_interrupted(session, run, command=command)
-    review_retry.require_attempt(session, run)
+    run = _recover_interrupted(session, run, command=command)
+    _require_attempt(session, run)
 
     bundle = review_protocol.bundle_for(session, run)
     report = diffmod.check_budget(bundle, session.config.diff.max_bytes)
@@ -80,7 +84,7 @@ def run_review_command(session: Session) -> Envelope:
 
     def begin() -> None:
         nonlocal run
-        run = review_retry.begin(session, run)
+        run = _begin_review_command(session, run)
 
     protected, _ = _run_protected(
         session,
@@ -101,7 +105,7 @@ def run_review_command(session: Session) -> Envelope:
     redaction_error = protected.redaction_error
     redaction_failure_reason = protected.failure_reason
     if redaction_failure_reason is not None:
-        run = review_retry.fail(
+        run = _record_review_command(
             session,
             run,
             command=command,
@@ -144,7 +148,7 @@ def run_review_command(session: Session) -> Envelope:
             failure_reason = f"invalid review submission: {exc}"
 
     if failure_reason is not None:
-        run = review_retry.fail(
+        run = _record_review_command(
             session,
             run,
             command=command,
@@ -170,7 +174,7 @@ def run_review_command(session: Session) -> Envelope:
             next_command="agentic-preflight review run",
         )
 
-    run = review_retry.pass_execution(
+    run = _record_review_command(
         session,
         run,
         command=command,
@@ -180,7 +184,7 @@ def run_review_command(session: Session) -> Envelope:
     try:
         envelope = submit_findings(session, payload, _executor="command")
     except InvalidFindings as exc:
-        run = review_retry.fail(
+        run = _record_review_command(
             session,
             run,
             command=command,
@@ -215,3 +219,83 @@ def run_review_command(session: Session) -> Envelope:
         }
     )
     return envelope
+
+
+def _recover_interrupted(session: Session, run: RunDoc, *, command: str) -> RunDoc:
+    """Turn a persisted running state into an explicit retryable failure."""
+    if run.state is not State.REVIEW_COMMAND_RUNNING:
+        return run
+    return _record_review_command(
+        session,
+        run,
+        command=command,
+        exit_code=125,
+        clean_output="[agentic-preflight] previous review command was interrupted",
+        log_path="",
+        reason="interrupted",
+    )
+
+
+def _require_attempt(session: Session, run: RunDoc) -> None:
+    """Stop a non-converging reviewer at the configured durable attempt bound."""
+    entry = run.stages.get(Stage.REVIEW) or StageRecord()
+    if entry.attempts < session.config.stage.max_attempts:
+        return
+    raise MaxAttempts(
+        f"the review command has failed {entry.attempts} times "
+        f"(max_attempts={session.config.stage.max_attempts})",
+        state=run.state.value,
+        run_id=run.run_id,
+        stage=Stage.REVIEW.value,
+        data={
+            "attempts": entry.attempts,
+            "stage": Stage.REVIEW.value,
+            "reviewer_invocations": 0,
+        },
+        next_instruction="This independent reviewer needs human intervention.",
+        next_command="agentic-preflight status",
+    )
+
+
+def _begin_review_command(session: Session, run: RunDoc) -> RunDoc:
+    """Persist the running state before launching the external process."""
+    with session.store.transaction(run.run_id) as doc:
+        _apply(
+            doc,
+            Action.RETRY_REVIEW_COMMAND
+            if doc.state is State.REVIEW_COMMAND_RED
+            else Action.RUN_REVIEW_COMMAND,
+        )
+        return doc
+
+
+def _record_review_command(
+    session: Session,
+    run: RunDoc,
+    *,
+    command: str,
+    clean_output: str,
+    log_path: str,
+    exit_code: int = 0,
+    reason: str | None = None,
+) -> RunDoc:
+    """Record process evidence, counting only failures before domain validation."""
+    failed = reason is not None
+    with session.store.transaction(run.run_id) as doc:
+        if failed and doc.state is State.REVIEW_AWAITING_FINDINGS:
+            _apply(doc, Action.RUN_REVIEW_COMMAND)
+        entry = doc.stages.get(Stage.REVIEW) or StageRecord()
+        entry.status = "red" if failed else "green"
+        if failed:
+            entry.attempts += 1
+        entry.executor = "command"
+        entry.command = command
+        entry.exit_code = exit_code
+        entry.output_sha256 = output_digest(clean_output)
+        entry.log_path = log_path
+        entry.reason = reason
+        entry.finished_at = _now()
+        entry.head_sha = gitx.rev_parse(_require_worktree(doc), "HEAD")
+        doc.stages[Stage.REVIEW] = entry
+        _apply(doc, Action.REVIEW_COMMAND_FAILED if failed else Action.REVIEW_COMMAND_PASSED)
+        return doc

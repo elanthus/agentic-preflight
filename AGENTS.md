@@ -57,10 +57,9 @@ permits the operation; it does not replace the approval required by GitHub polic
   context grounding (`grounding.py`), the pre-push hook (`hook.py`), and the CLI
   (`cli.py` plus the `cli_*.py` command families).
 - `agentic_preflight/runs/`: run lifecycle application code, including `start.py`,
-  review, stages, merge-back, and publish.
+  review, stages, merge-back, and the publish gate.
 - `agentic_preflight/stages/`: the docs, lint, and test stage implementations and change
   scope detection.
-- `agentic_preflight/publish/`: the publish gate.
 - `agentic_preflight/templates/`: CI workflow templates written into user repositories.
 - `tests/`: pytest suite. `tests/driver.py` and `tests/conftest.py` hold shared fixtures.
 - `evals/`: the regression eval runner and its cases; see `evals/README.md`.
