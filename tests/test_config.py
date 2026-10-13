@@ -496,3 +496,25 @@ def test_removed_reuse_table_is_ignored_with_warning(tmp_repo, tmp_path, capsys,
     cfg = load_config(tmp_repo, user_config_dir=user)
     assert "reuse" not in cfg.model_dump()
     assert "ignoring removed [reuse]" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("section", ["ci", "reuse"])
+def test_committed_policy_ignores_retired_sections(tmp_repo, section):
+    from agentic_preflight.config import committed_config
+    from tests.conftest import commit_all
+
+    declaration = (
+        "[ci]\ntest_authority = 'github_actions'\n"
+        if section == "ci"
+        else "[reuse.test]\nmode = 'content'\nfiles = []\nenvironment = []\ntoolchain = []\n"
+    )
+    (tmp_repo / ".agentic-preflight.toml").write_text(
+        declaration + "[approval]\nmode = 'owner_review'\nreviewer = 'maintainer'\n"
+    )
+    head = commit_all(tmp_repo, "commit historical protected policy")
+
+    cfg = committed_config(tmp_repo, head)
+
+    assert cfg.approval.mode == "owner_review"
+    assert cfg.approval.reviewer == "maintainer"
+    assert section not in cfg.model_dump()

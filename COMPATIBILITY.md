@@ -200,3 +200,10 @@ Original same-commit notes and historical raw snapshots remain readable without
 rewriting their digests. Fingerprint version 2 and attestation schema 7 keep their
 existing wire fields and shell policy digest encoding. The typed fingerprint
 models and their remaining safety bindings stay supported.
+
+Active pre-upgrade runs with completed shell evidence can conservatively reopen
+review once because the retired capture fields no longer match fresh execution
+fingerprints. Follow the returned stage sequence; the existing restart limit
+still applies. Frozen policy stays authoritative for historical runs, and
+committed protected policies can contain retired sections without blocking
+approval checks.

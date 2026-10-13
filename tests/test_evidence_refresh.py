@@ -676,6 +676,16 @@ def test_shell_evidence_cannot_refresh_or_cross_runs_between_identical_trees(
             base=original.merge_base_sha,
             run_id=original.run_id if refreshed else "r_other",
         )
+    assert (
+        verify_stage(
+            feature_repo,
+            original.evidence[Stage.LINT],
+            head=replacement,
+            base=original.merge_base_sha,
+            run_id=original.run_id,
+        )
+        is None
+    )
     assert attestation.verify(feature_repo, original.sha) == original
 
 
@@ -751,3 +761,30 @@ def test_retired_contract_does_not_capture_declared_files(feature_repo, tmp_path
     assert "reuse" not in verified.config_snapshot
     for stage in (Stage.LINT, Stage.TEST):
         assert verified.evidence[stage].fingerprint.inputs_sha256 is None
+
+
+def test_active_legacy_reuse_snapshot_preserves_frozen_policy(feature_repo):
+    from agentic_preflight.digests import json_digest
+
+    _prepare(feature_repo)
+    config = feature_repo / ".agentic-preflight.toml"
+    config.write_text(config.read_text() + "[review]\nmax_findings = 17\n")
+    commit_all(feature_repo, "configure original review policy")
+    started = ScriptedAgent(feature_repo).run("start")
+    store = runs.open_session(feature_repo).store
+    path = store.run_path(started["run_id"])
+    raw = json.loads(path.read_text())
+    raw["config_snapshot"]["reuse"] = {"lint": None, "test": None}
+    raw["config_digest"] = json_digest(raw["config_snapshot"])
+    path.write_text(json.dumps(raw))
+    original = path.read_bytes()
+    config.write_text(config.read_text().replace("max_findings = 17", "max_findings = 99"))
+
+    session = runs.open_session(feature_repo)
+
+    assert session.config.review.max_findings == 17
+    assert path.read_bytes() == original
+    assert store.load_run(started["run_id"]).config_snapshot["reuse"] == {
+        "lint": None,
+        "test": None,
+    }

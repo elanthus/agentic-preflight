@@ -162,11 +162,12 @@ class Config(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def discard_retired_ci_section(cls, value: object) -> object:
-        """Keep historical run snapshots readable without reviving CI authority."""
-        if isinstance(value, dict) and "ci" in value:
-            value = dict(value)
-            value.pop("ci")
+    def discard_retired_sections(cls, value: object) -> object:
+        """Normalize retired sections for every config reader without changing raw snapshots."""
+        if isinstance(value, dict):
+            return {
+                key: body for key, body in value.items() if (key, "*") not in REMOVED_CONFIG_KEYS
+            }
         return value
 
     general: GeneralSection = Field(default_factory=GeneralSection)
@@ -283,7 +284,7 @@ def load_config(
                 import sys
 
                 print(
-                    f"agentic-preflight: ignoring removed [{section}] configuration in {path}; tests run locally",
+                    f"agentic-preflight: ignoring removed [{section}] configuration in {path}; this section is no longer used",
                     file=sys.stderr,
                 )
                 continue
