@@ -341,8 +341,8 @@ On success: compares the branch tree against the worktree tree. `tree_equivalent
 means the verified content is byte-identical and a Git-note attestation is written for
 the exact commit. False returns to review with all snapshot-bound stage evidence cleared.
 
-A merge-back interrupted after rebasing the source but before reaching the recorded
-verified tree is stale. Follow `status` and restart preflight for the current source;
+A merge-back interrupted after synchronizing the source with the base but before reaching
+the recorded verified tree is stale. Follow `status` and restart preflight for the current source;
 only the unchanged source or the completed verified tree can resume a pending attempt.
 
 ### `agentic-preflight gate`
