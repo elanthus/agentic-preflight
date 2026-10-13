@@ -90,32 +90,37 @@ def test_globs_inside_double_quotes_are_literal():
     assert command_plan.first_metacharacter('pytest -k "a*b"') is None
 
 
-def test_an_escaped_metacharacter_is_literal_where_backslash_escapes():
-    assert command_plan.first_metacharacter("pytest -k a\\*b", escapes=True) is None
+def test_an_escaped_metacharacter_is_literal_where_backslash_escapes(monkeypatch):
+    monkeypatch.setattr(command_plan, "BACKSLASH_ESCAPES", True)
+    assert command_plan.first_metacharacter("pytest -k a\\*b") is None
 
 
-def test_a_backslash_inside_single_quotes_does_not_escape():
+def test_a_backslash_inside_single_quotes_does_not_escape(monkeypatch):
     """``'\\'`` closes nothing: the quote after the backslash is the terminator."""
-    assert command_plan.first_metacharacter("pytest -k 'a\\' && mypy", escapes=True) == "&"
+    monkeypatch.setattr(command_plan, "BACKSLASH_ESCAPES", True)
+    assert command_plan.first_metacharacter("pytest -k 'a\\' && mypy") == "&"
 
 
 # -- backslash conventions --------------------------------------------------
 
 
-def test_a_windows_path_survives_splitting_unquoted():
+def test_a_windows_path_survives_splitting_unquoted(monkeypatch):
     """POSIX splitting would turn this into ``C:Usersmetool.exe`` — another program."""
-    argv = command_plan.split(r"C:\Users\me\tool.exe --flag", escapes=False)
+    monkeypatch.setattr(command_plan, "BACKSLASH_ESCAPES", False)
+    argv = command_plan.split(r"C:\Users\me\tool.exe --flag")
 
     assert argv == [r"C:\Users\me\tool.exe", "--flag"]
 
 
-def test_posix_splitting_still_honours_escapes():
-    assert command_plan.split(r"pytest -k a\ b", escapes=True) == ["pytest", "-k", "a b"]
+def test_posix_splitting_still_honours_escapes(monkeypatch):
+    monkeypatch.setattr(command_plan, "BACKSLASH_ESCAPES", True)
+    assert command_plan.split(r"pytest -k a\ b") == ["pytest", "-k", "a b"]
 
 
-def test_a_backslash_escaped_quote_is_refused_where_the_conventions_disagree(tmp_path):
+def test_a_backslash_escaped_quote_is_refused_where_the_conventions_disagree(tmp_path, monkeypatch):
     """Neither reading is safe to guess, so the shell gets the string intact."""
-    plan = command_plan.plan(r'git commit -m "say \"hi\""', cwd=tmp_path, escapes=False)
+    monkeypatch.setattr(command_plan, "BACKSLASH_ESCAPES", False)
+    plan = command_plan.plan(r'git commit -m "say \"hi\""', cwd=tmp_path)
 
     assert plan.uses_shell is True
     assert "ambiguous" in plan.reason
@@ -250,13 +255,14 @@ def test_a_non_executable_file_on_the_search_path_is_not_a_program(tmp_path, mon
 
 
 @pytest.mark.parametrize("command", [r'pytest -k "cost\$"', r'pytest -k "a\$b"', r'echo "a\nb"'])
-def test_an_escape_inside_double_quotes_falls_back_to_the_shell(command, tmp_path):
+def test_an_escape_inside_double_quotes_falls_back_to_the_shell(command, tmp_path, monkeypatch):
     """A shell drops the backslash before ``$``; the splitter keeps it.
 
     Judging this shell-free sent ``cost\\$`` to the program where a shell would
     have sent ``cost$`` — a different command, chosen silently.
     """
-    plan = command_plan.plan(command, cwd=tmp_path, escapes=True)
+    monkeypatch.setattr(command_plan, "BACKSLASH_ESCAPES", True)
+    plan = command_plan.plan(command, cwd=tmp_path)
 
     assert plan.uses_shell is True
     assert "inside double quotes" in plan.reason
@@ -267,7 +273,8 @@ def test_an_escape_outside_quotes_is_still_direct(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(tmp_path))
     name = executable(tmp_path)
 
-    assert command_plan.first_metacharacter(rf"{name} -k a\*b", escapes=True) is None
+    monkeypatch.setattr(command_plan, "BACKSLASH_ESCAPES", True)
+    assert command_plan.first_metacharacter(rf"{name} -k a\*b") is None
 
 
 def test_a_windows_path_in_double_quotes_stays_direct(tmp_path, monkeypatch):
@@ -279,7 +286,8 @@ def test_a_windows_path_in_double_quotes_stays_direct(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(tools))
     resolved = command_plan.resolve_on_path(name)
 
-    plan = command_plan.plan(f'"{resolved}" status', cwd=tmp_path, escapes=False)
+    monkeypatch.setattr(command_plan, "BACKSLASH_ESCAPES", False)
+    plan = command_plan.plan(f'"{resolved}" status', cwd=tmp_path)
 
     assert plan.uses_shell is False
     assert plan.argv[0] == resolved

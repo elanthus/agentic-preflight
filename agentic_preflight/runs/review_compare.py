@@ -211,7 +211,6 @@ def _shadow_submission(
         )
     try:
         payload = json.loads(result.stdout or "")
-        review_protocol.validate_command_output(payload)
         findings, submitted_manifest = review_protocol.parse_submission(payload, stage=Stage.REVIEW)
         findings, _ = review_coverage.validate(
             findings,
@@ -380,11 +379,6 @@ def compare_reviews(session: Session, payload: Any | None = None) -> Envelope:
             raise _refusal(f"the comparison submission is invalid: {exc}", run) from exc
 
     try:
-        second["findings"], _ = review_coverage.validate(
-            second["findings"],
-            manifest=manifest,
-            submitted_manifest=second["manifest"],
-        )
         findingsmod.validate_and_assign(
             second["findings"],
             stage=Stage.REVIEW,

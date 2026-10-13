@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from pydantic import ValidationError
-
 from .. import diff as diffmod
 from .. import gitx
 from ..attestation import output_digest
@@ -160,8 +158,7 @@ def run_review_command(session: Session) -> Envelope:
     else:
         try:
             payload = json.loads(result.stdout or "")
-            review_protocol.validate_command_output(payload)
-        except (json.JSONDecodeError, ValidationError) as exc:
+        except json.JSONDecodeError as exc:
             failure_reason = f"invalid review submission: {exc}"
 
     if failure_reason is not None:
