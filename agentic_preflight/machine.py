@@ -144,44 +144,6 @@ def _state(
     return StateDescription(targets, instruction, command)
 
 
-def _stage_cycle(
-    label: str,
-    awaiting: State,
-    blocked: State,
-    green: State,
-    *,
-    invalidate_to: State | None = None,
-) -> dict[State, StateDescription]:
-    """The sub-machine shared by the two agent-judgment stages (review, docs)."""
-    invalidate = ((Action.INVALIDATE_REVIEW, invalidate_to),) if invalidate_to is not None else ()
-    awaiting_instruction = (
-        "Review every delivered unit, then submit snapshot-bound coverage and findings."
-        if label == "review"
-        else "Review the docs surface, then submit findings (an empty findings list is valid)."
-    )
-    awaiting_transitions = [
-        (Action.SUBMIT_CLEAN, green),
-        (Action.SUBMIT_BLOCKING, blocked),
-    ]
-    if label == "review":
-        awaiting_transitions.append((Action.RUN_REVIEW_COMMAND, State.REVIEW_COMMAND_RUNNING))
-    return {
-        awaiting: _state(
-            awaiting_instruction,
-            "agentic-preflight submit-findings --file findings.json",
-            *awaiting_transitions,
-            *invalidate,
-        ),
-        blocked: _state(
-            "Check the blocking set and continue resolving findings.",
-            "agentic-preflight verify",
-            (Action.RESPOND, blocked),
-            (Action.RESOLVE_GREEN, green),
-            *invalidate,
-        ),
-    }
-
-
 _S, _A = State, Action
 _STATUS = "agentic-preflight status"
 
@@ -217,12 +179,20 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         "agentic-preflight context",
         (_A.BEGIN_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
     ),
-    **_stage_cycle(
-        "review",
-        _S.REVIEW_AWAITING_FINDINGS,
-        _S.REVIEW_BLOCKED,
-        _S.REVIEW_GREEN,
-        invalidate_to=_S.REVIEW_AWAITING_FINDINGS,
+    _S.REVIEW_AWAITING_FINDINGS: _state(
+        "Review every delivered unit, then submit snapshot-bound coverage and findings.",
+        "agentic-preflight submit-findings --file findings.json",
+        (_A.SUBMIT_CLEAN, _S.REVIEW_GREEN),
+        (_A.SUBMIT_BLOCKING, _S.REVIEW_BLOCKED),
+        (_A.RUN_REVIEW_COMMAND, _S.REVIEW_COMMAND_RUNNING),
+        (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
+    ),
+    _S.REVIEW_BLOCKED: _state(
+        "Check the blocking set and continue resolving findings.",
+        "agentic-preflight verify",
+        (_A.RESPOND, _S.REVIEW_BLOCKED),
+        (_A.RESOLVE_GREEN, _S.REVIEW_GREEN),
+        (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
     ),
     _S.REVIEW_COMMAND_RUNNING: _state(
         "The independent review command is running.",
@@ -243,12 +213,19 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         (_A.SKIP_DOCS, _S.DOCS_GREEN),
         (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
     ),
-    **_stage_cycle(
-        "docs",
-        _S.DOCS_AWAITING_FINDINGS,
-        _S.DOCS_BLOCKED,
-        _S.DOCS_GREEN,
-        invalidate_to=_S.REVIEW_AWAITING_FINDINGS,
+    _S.DOCS_AWAITING_FINDINGS: _state(
+        "Review the docs surface, then submit findings (an empty findings list is valid).",
+        "agentic-preflight submit-findings --file findings.json",
+        (_A.SUBMIT_CLEAN, _S.DOCS_GREEN),
+        (_A.SUBMIT_BLOCKING, _S.DOCS_BLOCKED),
+        (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
+    ),
+    _S.DOCS_BLOCKED: _state(
+        "Check the blocking set and continue resolving findings.",
+        "agentic-preflight verify",
+        (_A.RESPOND, _S.DOCS_BLOCKED),
+        (_A.RESOLVE_GREEN, _S.DOCS_GREEN),
+        (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
     ),
     _S.DOCS_GREEN: _state(
         "Docs are green. Run lint.",

@@ -200,11 +200,6 @@ def parse_submission(payload: Any, *, stage: Stage) -> tuple[list[FindingSubmiss
     return docs_submission.findings, None
 
 
-def validate_command_output(payload: Any) -> None:
-    """Check the command executor's output before entering submission orchestration."""
-    ReviewSubmission.model_validate(payload)
-
-
 def describe_validation(exc: ValidationError) -> str:
     """Describe a findings validation error for the agent."""
     parts = []
