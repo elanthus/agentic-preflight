@@ -429,8 +429,9 @@ Diagnostics omit record values.
 
 Even `--force` preserves invalid or unreadable records, their branches, worktrees, and
 ownership pointers. Saved configuration snapshots ignore keys a later release removed,
-while unknown keys and invalid current settings remain errors. Readable abandoned runs
-are orphaned and their resources released through the normal ownership checks. Inspect the
+while unknown keys and invalid current settings remain errors. Readable nonterminal runs can be orphaned through the normal abandonment checks; a
+running command prevents orphaning, and isolated resources with unmerged fixes are
+retained unless `--force` is used. Inspect the
 indicated record. Neither `status` nor `status --all` treats an unreadable record as
 absent: inspection reports
 `readable: false`, and single-run status keeps `has_run: true` with `data.read_failure`.
