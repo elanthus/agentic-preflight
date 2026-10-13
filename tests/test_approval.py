@@ -815,3 +815,45 @@ def test_criss_cross_history_cannot_hide_a_high_risk_revert_from_approval(tmp_re
     assert result["risk_level"] == "high"
     assert result["requires_human_approval"] is True
     assert result["approved"] is False
+
+
+def test_rebase_merge_cannot_land_a_high_risk_commit_hidden_by_an_evil_merge(tmp_repo, monkeypatch):
+    """A merge commit whose resolution cancels an earlier high-risk commit hides it.
+
+    The head tree and the merge-tree result both keep the base's high-risk file, so
+    neither tree comparison reports it. A GitHub rebase merge replays the non-merge
+    commits in ``base..head`` and drops the merge commit, so it lands the change anyway.
+    """
+    write(
+        tmp_repo,
+        ".agentic-preflight.toml",
+        "[policy]\nhigh_risk_paths = ['src/**']\n"
+        "[approval]\nmode = 'owner_review'\nreviewer = 'owner'\n",
+    )
+    write(tmp_repo, "src/security.py", "CHECK = 'on'\n")
+    base = commit_all(tmp_repo, "configure approval")
+    git("switch", "-c", "side", cwd=tmp_repo)
+    write(tmp_repo, "docs/notes.md", "one\n")
+    commit_all(tmp_repo, "edit notes")
+    git("switch", "-c", "feature/evil", base, cwd=tmp_repo)
+    write(tmp_repo, "src/security.py", "CHECK = 'off'\n")
+    commit_all(tmp_repo, "disable security check")
+    git("merge", "--no-ff", "--no-commit", "side", cwd=tmp_repo)
+    git("checkout", base, "--", "src/security.py", cwd=tmp_repo)
+    git("commit", "--no-edit", cwd=tmp_repo)
+    head = git("rev-parse", "HEAD", cwd=tmp_repo)
+    assert gitx.changed_files(tmp_repo, base, head) == ["docs/notes.md"]
+    assert gitx.merge_result_files(tmp_repo, base, head) == ["docs/notes.md"]
+    _stub_attestation(monkeypatch, head=head, branch="feature/evil", findings_summary={})
+
+    result = evaluate(
+        tmp_repo,
+        base_sha=base,
+        head_sha=head,
+        reviews=[],
+        pull_request_author="author",
+    )
+    assert "src/security.py" in result["changed_files"]
+    assert result["risk_level"] == "high"
+    assert result["requires_human_approval"] is True
+    assert result["approved"] is False

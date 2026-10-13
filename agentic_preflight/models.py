@@ -20,6 +20,11 @@ from .fingerprints import Classification, DocsFingerprint, ReviewFingerprint
 from .machine import State
 from .shell_fingerprints import ShellFingerprint
 
+# Saved-state membership check that is valid on Python 3.11, where a plain string
+# `in` an enum class raises TypeError, and that mypy accepts.
+_STATE_VALUES = frozenset(state.value for state in State)
+
+
 ReviewUnitId = Annotated[str, Field(pattern=r"^U\d{4,}$")]
 
 
@@ -305,7 +310,7 @@ class RunDoc(BaseModel):
             retired_state = value.get("state") in ("TEST_DELEGATED", "PUBLICATION_READY")
             if retired_state or (
                 delegation is not None
-                and value.get("state") in State
+                and value.get("state") in _STATE_VALUES
                 and value.get("state") not in ("PUSHED", "DONE", "ABORTED", "ORPHANED")
             ):
                 value["state"] = "ORPHANED"
