@@ -136,6 +136,23 @@ def test_sync_never_overwrites_an_ignored_file(tmp_repo, backend):
     assert gitx.operation_in_progress(tmp_repo) is None
 
 
+def test_sync_does_not_mistake_a_case_only_rename_for_a_local_file(tmp_repo):
+    """On a case-insensitive filesystem the renamed path appears to exist already."""
+    git("switch", "-c", "feature/readme", cwd=tmp_repo)
+    write(tmp_repo, "README.md", "# demo\n\nChanged on the branch.\n")
+    commit_all(tmp_repo, "edit readme")
+    git("switch", "main", cwd=tmp_repo)
+    git("mv", "src/app.py", "src/App.py", cwd=tmp_repo)
+    base = commit_all(tmp_repo, "rename by case")
+    git("switch", "feature/readme", cwd=tmp_repo)
+
+    result = sync.synchronize(tmp_repo, tmp_repo, base_ref="main")
+
+    assert result.rebased is True
+    assert gitx.is_ancestor(tmp_repo, base, "HEAD")
+    assert "src/App.py" in git("ls-tree", "-r", "--name-only", "HEAD", cwd=tmp_repo)
+
+
 @pytest.mark.parametrize("options", ["--no-commit", "--no-commit --squash"])
 def test_sync_fallback_merge_commits_despite_branch_merge_options(tmp_repo, monkeypatch, options):
     base, head = _criss_cross(tmp_repo, monkeypatch)

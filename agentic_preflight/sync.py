@@ -101,7 +101,7 @@ def _obstructed_paths(worktree_path: Path | str, before: str, landed: str) -> li
     Git treats ignored files as expendable, so a rebase or merge can overwrite them, for
     example when a directory rename moves a branch file onto an ignored local file.
     """
-    added = gitx.out(
+    added = gitx.run(
         worktree_path,
         "diff",
         "--name-only",
@@ -110,12 +110,28 @@ def _obstructed_paths(worktree_path: Path | str, before: str, landed: str) -> li
         "--diff-filter=A",
         before,
         landed,
-    )
+    ).stdout
     root = Path(worktree_path)
-    return [
+    candidates = [
         path
         for path in added.split("\0")
         if path and ((root / path).exists() or (root / path).is_symlink())
+    ]
+    if not candidates:
+        return []
+    # On a case-insensitive filesystem a tracked file can answer for an added path that
+    # differs only in case, so let Git decide which candidates are untracked or ignored.
+    untracked = [
+        path
+        for path in gitx.run(
+            worktree_path, "--literal-pathspecs", "ls-files", "-z", "--others", "--", *candidates
+        ).stdout.split("\0")
+        if path
+    ]
+    return [
+        path
+        for path in candidates
+        if any(found == path or found.startswith(f"{path}/") for found in untracked)
     ]
 
 
