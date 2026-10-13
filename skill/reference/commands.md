@@ -391,7 +391,8 @@ inspect the record, abort without `--force`, preserve any unmerged work reported
 abort, then start fresh. Commands that consume corrupt active evidence, including
 merge-back, instead return exit 3 with error code `stage_evidence_invalid` and the same recovery guidance. `status --all`
 checks structural loadability; its readable records have not had their evidence
-digests verified.
+digests verified. If the source worktree is missing, status retains the invalid-evidence
+diagnostics but recommends `gc` through the existing missing-source recovery path.
 
 Legal in **every** state and the universal recovery entry point. Reports state, seq,
 findings, staleness, worktree path, the gate token, and `data.hook` with the effective

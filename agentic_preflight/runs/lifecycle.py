@@ -622,7 +622,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
         try:
             evidence.verify_origins(session, run, run.evidence)
         except StageEvidenceInvalid as exc:
-            return _envelope_for(
+            envelope = _envelope_for(
                 run,
                 data={
                     "has_run": True,
@@ -634,6 +634,9 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
                 next_instruction=exc.next_instruction,
                 next_command=exc.next_command,
             )
+            if not session.source_worktree_available:
+                _set_status_next(session, run, envelope, stale=False)
+            return envelope
 
     findings = session.store.load_findings(run_id)
     run, findings, reuse_error = _try_advance_evidence(session, run, findings)
