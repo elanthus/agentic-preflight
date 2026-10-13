@@ -1,0 +1,1 @@
+- Loading a saved run that still carries retired CI delegation no longer raises `TypeError` on Python 3.11; the membership check compares against the state values instead of the enum class. This also clears the error reported by mypy 2.4.
