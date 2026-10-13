@@ -21,6 +21,7 @@ jobs:
     if: always() && needs.dependabot-policy.outputs.eligible != 'true'
     name: evaluate high-risk approval policy
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       approved: ${{ steps.policy.outputs.approved }}
       approval_mode: ${{ steps.policy.outputs.approval_mode }}
@@ -46,7 +47,6 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           HEAD_REPOSITORY_URL: ${{ github.event.pull_request.head.repo.clone_url }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -57,17 +57,17 @@ jobs:
             git remote add preflight-contributor "$HEAD_REPOSITORY_URL"
             source_remote=preflight-contributor
           fi
+          git fetch --no-tags -- "$source_remote" "$HEAD_SHA" \
+            '+refs/notes/agentic-preflight:refs/notes/agentic-preflight' \
+            '+refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*'
           reviews_file="$RUNNER_TEMP/pull-request-reviews.json"
           result_file="$RUNNER_TEMP/approval-policy.json"
           gh api --paginate --slurp \
             "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews?per_page=100" \
             > "$reviews_file"
           policy_exit=0
-          agentic-preflight hosted-check "$HEAD_SHA" \
+          agentic-preflight approval-check "$HEAD_SHA" \
             --base "$BASE_SHA" \
-            --source-remote "$source_remote" \
-            --head-ref "refs/heads/$HEAD_REF" \
-            --mode approval \
             --reviews-file "$reviews_file" \
             --author "$PR_AUTHOR" \
             --report-only \

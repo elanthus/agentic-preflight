@@ -7,7 +7,7 @@ from pathlib import Path
 
 from . import diff, findings, gitx, risk
 from .config import Config, snapshot_config
-from .digests import json_digest
+from .digests import json_digest, sha256_text
 from .fingerprints import (
     FINGERPRINT_VERSION,
     Disposition,
@@ -149,9 +149,7 @@ def _verify_fingerprint(
 
 def json_digest_command(command: str) -> str:
     """Return the SHA-256 hex digest of a command string."""
-    import hashlib
-
-    return hashlib.sha256(command.encode()).hexdigest()
+    return sha256_text(command)
 
 
 def verify_stage(
@@ -280,11 +278,13 @@ def verify_evidence(repo: Path | str, value: Attestation) -> None:
         raise ValueError("lint evidence must be green")
     if (value.stages[Stage.DOCS].status == "skipped") == cfg.docs.enabled:
         raise ValueError("docs outcome does not match the enabled policy")
+    # The attestation supplies its base, so nothing guarantees a single merge base.
+    changed_files = gitx.classified_files(repo, value.merge_base_sha, value.sha)
     if value.stages[Stage.TEST].status == "skipped":
         from .stages import change_scope
 
         if not change_scope.tests_are_not_applicable(
-            gitx.changed_files(repo, value.merge_base_sha, value.sha),
+            changed_files,
             extra_doc_paths=cfg.docs.paths,
         ):
             raise ValueError("test skip is not applicable to the current change")
@@ -299,7 +299,7 @@ def verify_evidence(repo: Path | str, value: Attestation) -> None:
     if summary != value.findings_summary:
         raise ValueError("findings summary does not preserve original finding dispositions")
     assessment = risk.assess(
-        gitx.changed_files(repo, value.merge_base_sha, value.sha),
+        changed_files,
         all_findings,
         policy=cfg.policy,
         review_blocking_severities=cfg.review.blocking_severities,

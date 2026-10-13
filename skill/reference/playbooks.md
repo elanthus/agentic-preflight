@@ -60,26 +60,19 @@ commit the source branch, then start a fresh synchronized preflight run with the
 original intent. Follow the returned stage sequence, including any validated reuse,
 until the run is green. Publish through `gate` and `push` again, then resume check monitoring with `gh`.
 
-## Hosted attestation availability failure
+## Hosted attestation fetch or verification failure
 
-Read `data.reason` before choosing recovery. `missing_note` and `missing_notes_ref`
-can use `hosted-check`'s four-attempt budget (2/4/8-second backoff). This is an explicit
-trusted CI command; local `verify SHA` never fetches or sleeps. A present unsupported
-schema requires a schema version 7 note and the current protected-base verifier.
-Unknown fields do not reveal the producer version. Malformed evidence and wrong
-commit/tree bindings fail immediately and need valid evidence for the exact head.
+Inspect Git fetch failures for transport and permissions before running verification.
+Fetch the exact event head, notes, and evidence refs from the contributor remote; keep
+fork evidence separate from the base repository. A failed fetch must fail the job.
 
-For `stale_candidate`, run the current event without changing the old event's expected
-SHA. For Git access, timeout, or I/O failures, inspect transport and permissions; do not
-label them missing notes or start another local review/test run. Human approval and
-manual-merge requirements remain independent and cannot be satisfied by retrying notes.
-
-Capture workflow run/attempt, event head/base, source repository/remote, protected
-verifier revision/version, and per-attempt observed head, notes commit, note presence,
-note-object ID, reason, and elapsed time. Compare snapshots before blaming propagation.
-Print the command's failure JSON and preserve its exit status before reading outputs.
-Install helper support on the protected base before switching hosted callers to it.
-See [the CI guide](../../docs/attestations-and-ci.md#bounded-hosted-note-availability).
+For verification failures, read `data.reason` and preserve the command's JSON and exit
+status before reading approval outputs. Missing notes require publication of the exact
+head and its note. Unsupported schemas require the current producer and protected-base
+verifier. Malformed evidence or wrong commit/tree bindings need valid evidence for the
+exact head. Local `verify SHA` and `approval-check` never fetch or retry. Human approval
+and manual-merge requirements remain independent of transport recovery.
+See [the CI guide](../../docs/attestations-and-ci.md#protected-base-fetch-and-verification).
 
 ## Stale head (exit 3, `stale_run`)
 

@@ -103,7 +103,10 @@ can preserve review and docs across rewritten commits. Shell stages require comm
 content contracts. Read `data.applicability`; `invalid` and `unknown` require a fresh
 stage, and later-stage candidates remain available while earlier stages are pending.
 Refuses a dirty tree (exit 3, `dirty_tree`) and a branch with no changes over the base
-(exit 3, `empty_diff`). In-place mode protects `[worktree] copy_files` where they are;
+(exit 3, `empty_diff`). When the branch diff is empty but criss-cross history hides a
+change that merging would make, `data.merge_result_files` lists those paths;
+synchronizing would rebase them away, so make the change in an ordinary commit, such as
+`git revert`. In-place mode protects `[worktree] copy_files` where they are;
 isolated modes copy them. Every mode refuses an entry git is not already ignoring.
 
 Returns `data.worktree_path` — **absolute**. Use it; do not rely on `cd` persisting.
@@ -216,7 +219,8 @@ it to green. Exits 2 listing the outstanding blocking set if anything remains.
 With a SHA, validates the portable attestation in `refs/notes/agentic-preflight` for
 CI. It checks the note schema, exact commit and tree binding, complete stage set, and
 process evidence for green lint/test stages. Fetch the notes ref before calling it in
-a fresh clone. Schema v7 requires an explicit `verified` outcome,
+a fresh clone, together with the head and `refs/agentic-preflight/evidence/*`
+from the contributor remote. Schema v7 requires an explicit `verified` outcome,
 complete local stage evidence, and the full configuration snapshot. It
 verifies original execution digests, Git and configuration bindings, stage applicability,
 finding dispositions, and original/current review-unit accounting. A missing note, a
@@ -224,29 +228,6 @@ note with any other schema, or invalid evidence exits 2. This remains an offline
 it does not execute stages or
 fetch evidence. The retained `--purpose` option accepts `local` or `publish`; both
 require complete local validation. Pending-test notes are rejected.
-
-### `agentic-preflight hosted-check SHA --base SHA --source-remote NAME --head-ref refs/heads/BRANCH`
-Explicit trusted CI entry point. Requires the original event's full head/base SHAs and
-protected-base checkout. Resolves the configured source remote once, then retries only
-missing remote notes/ref availability, at most four attempts with 2/4/8-second delays.
-Git availability commands time out after 30 seconds. A fetched immutable notes snapshot
-supplies both strict verification and optional approval policy; local notes stay intact.
-Head changes during backoff, fetch, or completion fail as stale without adopting a new SHA.
-
-Default `--mode verify` checks complete local evidence. `--mode approval` also requires
-`--reviews-file PATH --author LOGIN`, and accepts `--report-only` and
-`--environment-approved` with the same policy meaning as `approval-check`. The workflow
-still enforces real environment approval and disables auto-merge for manual-merge mode.
-Approval mode reports the same `approved_head` and `approval_carried` fields. When an
-approved earlier head is not an ancestor of the event head and is absent locally, it is
-fetched only through its evidence ref and recorded in the attempt's
-`fetched_approved_heads`. If it is absent locally and that ref is unavailable, the
-approval does not carry.
-
-Failures retain `attestation_failed` / exit 2 with `data.reason` and `data.availability`.
-Unmet approval remains exit 4 unless report-only. Diagnostic identities omit note bodies
-and URL credentials. See the hosted availability playbook for distinct recovery paths.
-Roll out this command on the protected base before adding workflow invocations.
 
 ### `agentic-preflight approval-check SHA --base SHA --reviews-file PATH --author LOGIN`
 CI-facing merge policy for an attested pull-request head. It recomputes path risk from
@@ -426,15 +407,15 @@ Ends the run and releases the worktree. Exits 5 if unmerged fix commits would be
 ### `agentic-preflight gc [--force]`
 Unreadable run records are retained and reported individually in `data.retained`, with
 their run ID, path, reason, and diagnostic. Collection continues for other eligible runs.
-Reasons distinguish `invalid_or_unsupported_schema`, `malformed_json`, `invalid_record`
-(a non-object JSON root), `invalid_encoding`, `io_error`, and a confirmed `missing`
-record. Schema diagnostics list field locations and validation categories without record
-values; an unknown field does not establish which tool version wrote it.
+Read failures use `unreadable` for encoding or I/O failures and `invalid` for JSON,
+run schema, or configuration failures. A confirmed absent record uses `missing`.
+Diagnostics omit record values.
 
-Even `--force` preserves unreadable records, their branches, worktrees, and ownership
-pointers. One exception: a nonterminal run whose snapshot holds only keys a later
-release removed is read tolerantly, and if its source worktree, lease, or head is gone
-it is orphaned and its resources released like any other abandoned run. Inspect the
+Even `--force` preserves invalid or unreadable records, their branches, worktrees, and
+ownership pointers. Saved configuration snapshots ignore keys a later release removed,
+while unknown keys and invalid current settings remain errors. Readable nonterminal runs can be orphaned through the normal abandonment checks; a
+running command prevents orphaning, and isolated resources with unmerged fixes are
+retained unless `--force` is used. Inspect the
 indicated record. Neither `status` nor `status --all` treats an unreadable record as
 absent: inspection reports
 `readable: false`, and single-run status keeps `has_run: true` with `data.read_failure`.

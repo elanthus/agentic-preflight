@@ -645,3 +645,51 @@ def test_branch_patch_id_survives_a_base_merge_but_not_a_content_change(tmp_repo
     assert gitx.range_patch_id(tmp_repo, base, merged) == identity
     assert gitx.range_patch_id(tmp_repo, base, escaped) != identity
     assert gitx.range_patch_id(tmp_repo, base, base) is None
+
+
+def test_redact_remote_credentials_strips_https_and_scp_userinfo():
+    from agentic_preflight.gitx import redact_remote_credentials
+
+    text = (
+        "fatal: unable to access 'https://user:secret-token@example.com/repo.git/': "
+        "and git@github.com:owner/repo.git failed"
+    )
+    redacted = redact_remote_credentials(text)
+
+    assert "secret-token" not in redacted
+    assert "user:" not in redacted
+    assert "git@" not in redacted
+    assert "https://example.com/repo.git/" in redacted
+    assert "github.com:owner/repo.git" in redacted
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            "https://user:password@git.example.com:8443/repo.git?token=secret#fragment",
+            "https://git.example.com:8443/repo.git",
+        ),
+        (
+            "ssh://user:password@[2001:db8::1]:2222/repo.git?token=secret#fragment",
+            "ssh://[2001:db8::1]:2222/repo.git",
+        ),
+        (
+            "https://user:password@git.example.com:invalid/repo.git?token=secret#fragment",
+            "https://git.example.com:invalid/repo.git",
+        ),
+        (
+            "https://user:password@git.example.com/repo.git?token=secret#fragment",
+            "https://git.example.com/repo.git",
+        ),
+        (
+            "git@github.com:owner/repo.git?token=secret#fragment",
+            "github.com:owner/repo.git",
+        ),
+    ],
+)
+def test_remote_redaction_preserves_endpoints_and_removes_credentials(source, expected):
+    assert gitx.remote_identity(source) == expected
+    assert (
+        gitx.redact_remote_credentials(f"fatal: '{source}' failed") == f"fatal: '{expected}' failed"
+    )

@@ -20,7 +20,6 @@ so unknown provenance always classifies as ``unknown`` rather than reusable.
 from __future__ import annotations
 
 import hashlib
-import json
 from collections.abc import Iterable
 from enum import StrEnum
 from pathlib import Path
@@ -31,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import gitx
 from .diff import ReviewManifest
 from .digests import json_digest as config_digest
+from .digests import sha256_text
 
 if TYPE_CHECKING:
     from .stages.docs import DocEntry
@@ -40,7 +40,7 @@ Sha = Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
 
 def intent_digest(intent: str) -> str:
     """Return the SHA-256 hex digest of the run intent text."""
-    return hashlib.sha256(intent.encode()).hexdigest()
+    return sha256_text(intent)
 
 
 #: Bumped whenever a fingerprint's field set or comparison semantics change.
@@ -234,9 +234,7 @@ def compute_docs_fingerprint(
         from .stages import docs as docsstage
 
         surface = doc_surface(repo, docsstage.build_inventory(repo, changed_files, doc_paths))
-    doc_surface_sha256 = hashlib.sha256(
-        json.dumps(surface, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    doc_surface_sha256 = config_digest(surface)
     return DocsFingerprint(
         configuration_supported=set(config_snapshot) <= _KNOWN_CONFIG,
         base_tree_sha=gitx.tree_sha(repo, base_sha),

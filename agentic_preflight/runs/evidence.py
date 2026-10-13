@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from pydantic import ValidationError
 
-from .. import findings, gitx, risk
+from .. import findings, gitx
 from ..digests import json_digest
 from ..fingerprints import (
     Classification,
@@ -38,7 +38,15 @@ from ..shell_fingerprints import ShellFingerprint, classify_shell, compute_shell
 from ..store import RunReadError, UnknownRun
 from . import review_protocol
 from ._evidence_install import install_stage, stage_record
-from ._session import Session, _apply, _check_restart_limit, _now, _require_worktree
+from ._session import (
+    Session,
+    _apply,
+    _assess,
+    _blocking_severities,
+    _check_restart_limit,
+    _now,
+    _require_worktree,
+)
 
 
 def fingerprint(
@@ -347,9 +355,8 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
             new = fingerprint(session, run, stage, clean=True)
             current[stage] = new
             decisions[stage] = classify(item.origin.fingerprint, new)
-            policy = session.config.docs if stage is Stage.DOCS else session.config.review
             if findings.blocking(
-                item.origin.findings, blocking_severities=policy.blocking_severities
+                item.origin.findings, blocking_severities=_blocking_severities(session, stage)
             ) or findings.actionable(item.origin.findings):
                 decisions[stage] = Classification(
                     disposition=Disposition.UNKNOWN, reasons=(ReasonCode.FINDINGS_UNRESOLVED,)
@@ -367,8 +374,9 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
         if decision.disposition != Disposition.REUSABLE:
             break
         item = run.reuse_candidates[stage]
-        policy = session.config.docs if stage is Stage.DOCS else session.config.review
-        if findings.blocking(item.origin.findings, blocking_severities=policy.blocking_severities):
+        if findings.blocking(
+            item.origin.findings, blocking_severities=_blocking_severities(session, stage)
+        ):
             break
         imported = item.model_copy(
             update={
@@ -416,13 +424,7 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
             if stage is Stage.REVIEW:
                 doc.review_coverage = coverage
             install_stage(doc, stage, record)
-            doc.risk = risk.assess(
-                doc.changed_files,
-                stored_findings,
-                policy=session.config.policy,
-                review_blocking_severities=session.config.review.blocking_severities,
-                docs_blocking_severities=session.config.docs.blocking_severities,
-            )
+            doc.risk = _assess(session, doc.changed_files, stored_findings)
             run = doc
         session.store.append_event(
             run.run_id,

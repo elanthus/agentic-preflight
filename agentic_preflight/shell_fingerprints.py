@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import gitx
 from .digests import json_digest as config_digest
+from .digests import sha256_text
 from .fingerprints import (
     FINGERPRINT_VERSION,
     Classification,
@@ -144,7 +145,7 @@ def compute_shell_fingerprint(
     record = ShellFingerprint(
         base_tree_sha=gitx.tree_sha(root, base_sha),
         head_tree_sha=gitx.tree_sha(root, head_sha),
-        command_sha256=hashlib.sha256(command.encode()).hexdigest(),
+        command_sha256=sha256_text(command),
         config_sha256=config_digest(
             {
                 "execution": execution_config,

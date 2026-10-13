@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from .. import gitx, hook, worktree
-from .. import risk as riskmod
 from ..envelope import Envelope
 from ..errors import (
     START_COMMAND,
@@ -20,6 +19,7 @@ from ._session import (
     RESTART_LIMIT_INSTRUCTION,
     Session,
     _apply,
+    _assess,
     _envelope_for,
     _head_moved,
     _interrupted_legacy_update,
@@ -144,21 +144,6 @@ def _classify_abandoned(
     return None
 
 
-def _abandoned_under_tolerant_read(
-    session: Session, run_id: str, active: dict[str, str], active_ids: set[str]
-) -> RunDoc | None:
-    """Return the run if a tolerant read shows it nonterminal and abandoned."""
-    try:
-        run = session.store.load_run(run_id, tolerate_removed_config=True)
-    except (RunReadError, UnknownRun):
-        return None
-    if run.state in (State.ABORTED, State.DONE, State.ORPHANED):
-        return None
-    if _classify_abandoned(session, run, active, active_ids) is None:
-        return None
-    return run
-
-
 def _collect_run(
     session: Session,
     run_id: str,
@@ -169,20 +154,10 @@ def _collect_run(
 ) -> tuple[bool, dict | None, bool]:
     """Classify and, when safe, reclaim one run record."""
     store = session.store
-    tolerate_removed_config = False
     try:
         run = store.load_run(run_id)
     except RunReadError as exc:
-        # A snapshot holding a key that a later release removed must not pin
-        # an abandoned run forever: its worktree, branch, and ownership
-        # pointers would outlive every command able to release them. Retry
-        # with the attestation-style read, and use it only to orphan a run
-        # that is provably abandoned. Anything else keeps the strict verdict.
-        abandoned = _abandoned_under_tolerant_read(session, run_id, active, active_run_ids)
-        if abandoned is None:
-            return False, exc.details(), True
-        run = abandoned
-        tolerate_removed_config = True
+        return False, exc.details(), True
     except UnknownRun:
         return (
             False,
@@ -205,9 +180,7 @@ def _collect_run(
                         {"run_id": run_id, "reason": "run command is still executing"},
                         False,
                     )
-                with store.transaction(
-                    run_id, tolerate_removed_config=tolerate_removed_config
-                ) as doc:
+                with store.transaction(run_id) as doc:
                     _apply(doc, Action.ORPHAN)
                     doc.orphaned_reason = abandoned_reason
                     run = doc
@@ -242,7 +215,7 @@ def _collect_run(
             )
     if not run.worktree_released and run.worktree_path and Path(run.worktree_path).exists():
         _release_run_worktree(session, run)
-        with store.transaction(run_id, tolerate_removed_config=tolerate_removed_config) as doc:
+        with store.transaction(run_id) as doc:
             doc.worktree_released = True
     return True, None, False
 
@@ -348,7 +321,7 @@ def _reclaim_released_runners(
         try:
             # Only lifecycle fields matter here, so read the way gc orphaning
             # does: a snapshot holding a removed config key does not pin a runner.
-            session.store.load_run(run_id, tolerate_removed_config=True)
+            session.store.load_run(run_id)
             preserved = run_id in retained_run_ids
         except RunReadError:
             preserved = True
@@ -647,13 +620,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
     summary = {status.value: 0 for status in FindingStatus}
     for finding in findings:
         summary[finding.status.value] += 1
-    assessment = riskmod.assess(
-        run.changed_files,
-        findings,
-        policy=session.config.policy,
-        review_blocking_severities=session.config.review.blocking_severities,
-        docs_blocking_severities=session.config.docs.blocking_severities,
-    )
+    assessment = _assess(session, run.changed_files, findings)
 
     tip = _head_moved(session, run)
     pending_mergeback = run.state is State.MERGEBACK_PENDING and run.mergeback_attempt is not None

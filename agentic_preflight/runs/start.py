@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
-from .. import gitx, housekeeping, risk, worktree
+from .. import gitx, housekeeping, worktree
 from .. import sync as syncmod
 from ..config import Config, config_digest, load_config
 from ..envelope import Envelope
@@ -24,9 +24,9 @@ from ..errors import (
 from ..errors import (
     OperationInProgress as OperationInProgressError,
 )
+from ..gitx import redact_remote_credentials
 from ..machine import TERMINAL_STATES, Action, State
 from ..models import RiskAssessment, RunDoc, SetupFailure
-from ..note_availability import redact_remote_credentials
 from ..stages import shellstage
 from ..stages.protected_output import OutputProtection
 from ..store import CurrentRunExists, UnknownRun
@@ -34,6 +34,7 @@ from . import evidence
 from ._session import (
     Session,
     _apply,
+    _assess,
     _check_restart_limit,
     _envelope_for,
     _interrupted_legacy_update,
@@ -253,6 +254,21 @@ def _require_changes(ctx: _StartContext) -> _StartContext:
 
     changed = gitx.changed_files(ctx.repo, merge_base, "HEAD")
     if not changed:
+        # Criss-cross history can hide a change from the single merge base, such as
+        # an ``-s ours`` merge that reverts a branch already in the base. Synchronizing
+        # would rebase that merge away, so refuse before touching the branch.
+        hidden = gitx.merge_result_files(ctx.repo, ctx.base_ref, "HEAD")
+        if hidden:
+            raise EmptyDiff(
+                f"{ctx.branch} has no changes since its merge base with {ctx.base_ref}, "
+                f"but merging it would change {len(hidden)} file(s)",
+                data={"merge_result_files": hidden},
+                next_instruction=(
+                    "The branch history hides these changes, and synchronizing would "
+                    "rebase them away. Make the intended change in an ordinary commit, "
+                    "for example with `git revert`, then start a run."
+                ),
+            )
         raise EmptyDiff(
             f"{ctx.branch} has no changes over {ctx.base_ref}; there is nothing to review",
             next_instruction="Commit some work on a branch, then start a run.",
@@ -539,13 +555,7 @@ def _run_setup_command(ctx: _StartContext) -> _StartContext:
         if ctx.in_place
         else worktree.copy_files(ctx.repo, wt_path, ctx.cfg.worktree.copy_files)
     )
-    assessment = risk.assess(
-        changed,
-        [],
-        policy=ctx.cfg.policy,
-        review_blocking_severities=ctx.cfg.review.blocking_severities,
-        docs_blocking_severities=ctx.cfg.docs.blocking_severities,
-    )
+    assessment = _assess(ctx.session, changed, [])
 
     # Persist copied paths before setup so an abort after a failed command still
     # removes secret-bearing copies from a reusable runner.

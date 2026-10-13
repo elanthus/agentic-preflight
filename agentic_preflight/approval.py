@@ -273,16 +273,13 @@ def evaluate_value(
     ``equivalent_heads``). ``fetch_commit`` may supply an approved head that is not
     an ancestor of the current head. It is used only when carryover is needed.
     """
-    # Classify what any GitHub merge method could land: the branch diff from the merge
-    # base (squash), Git's merge result (merge commit; criss-cross history can hide a
-    # change from the branch diff alone), and every path a non-merge commit touches
-    # (rebase, which replays those commits and drops merge commits, so a merge that
-    # cancels an earlier commit cannot hide it). A branch that touched and later
-    # reverted a high-risk path is therefore still high risk.
+    # Classify what any GitHub merge method could land: the shared branch and
+    # merge-result paths, plus every path a non-merge commit touches. A rebase
+    # replays those commits and drops merge commits, so a merge that cancels an
+    # earlier commit cannot hide it. Touched and reverted high-risk paths count.
     changed_files = sorted(
         {
-            *gitx.changed_files(repo, base_sha, head_sha),
-            *gitx.merge_result_files(repo, base_sha, head_sha),
+            *gitx.classified_files(repo, base_sha, head_sha),
             *gitx.non_merge_commit_files(repo, base_sha, head_sha),
         }
     )

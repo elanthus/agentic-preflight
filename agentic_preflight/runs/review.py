@@ -5,7 +5,6 @@ from __future__ import annotations
 from .. import diff as diffmod
 from .. import findings as findingsmod
 from .. import gitx
-from .. import risk as riskmod
 from ..envelope import Envelope
 from ..errors import (
     DiffTooLarge,
@@ -25,14 +24,16 @@ from ._session import (
     Session,
     _apply,
     _assert_fresh,
+    _assess,
+    _blocking_severities,
     _check_restart_limit,
     _envelope_for,
+    _findings_next_hint,
     _load_current,
     _now,
     _require_finding_stage,
     _require_state,
     _require_worktree,
-    _respond_command,
 )
 
 
@@ -198,19 +199,6 @@ def _parse_stage_submission(session: Session, run: RunDoc, stage: Stage, payload
     return submissions, manifest, coverage
 
 
-def _findings_next_hint(envelope: Envelope, blocking, actionable) -> None:
-    """Select the next finding-resolution instruction."""
-    if blocking:
-        envelope.next_instruction = "Resolve each blocking finding with `respond`."
-        envelope.next_command = _respond_command(blocking[0].id)
-    elif actionable:
-        envelope.next_instruction = (
-            "This stage is green, but an auto-fix finding is still open. Fix it, "
-            "or record why it is not worth fixing with `--action accepted --note`."
-        )
-        envelope.next_command = _respond_command(actionable[0].id)
-
-
 def submit_findings(
     session: Session,
     payload,
@@ -266,11 +254,7 @@ def submit_findings(
     else:
         allowed = set(bundle.files)
 
-    blocking_severities = (
-        session.config.review.blocking_severities
-        if stage is Stage.REVIEW
-        else session.config.docs.blocking_severities
-    )
+    blocking_severities = _blocking_severities(session, stage)
 
     try:
         accepted = findingsmod.validate_and_assign(
@@ -297,13 +281,7 @@ def submit_findings(
             combined = [*combined, injected]
     stage_findings = [f for f in combined if f.stage is stage]
     blocking = findingsmod.blocking(stage_findings, blocking_severities=blocking_severities)
-    assessment = riskmod.assess(
-        run.changed_files or bundle.files,
-        combined,
-        policy=session.config.policy,
-        review_blocking_severities=session.config.review.blocking_severities,
-        docs_blocking_severities=session.config.docs.blocking_severities,
-    )
+    assessment = _assess(session, run.changed_files or bundle.files, combined)
 
     with session.store.transaction(run.run_id, findings=combined) as doc:
         doc.risk = assessment
@@ -386,11 +364,7 @@ def verify(session: Session) -> Envelope:
     )
 
     stage = _require_finding_stage(run)
-    blocking_severities = (
-        session.config.review.blocking_severities
-        if stage is Stage.REVIEW
-        else session.config.docs.blocking_severities
-    )
+    blocking_severities = _blocking_severities(session, stage)
     stage_findings = [f for f in session.store.load_findings(run.run_id) if f.stage is stage]
     outstanding = findingsmod.blocking(stage_findings, blocking_severities=blocking_severities)
 

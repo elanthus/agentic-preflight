@@ -608,7 +608,7 @@ def test_gc_retains_unreadable_resources_and_collects_other_runs(
     assert retained[0]["run_id"] == bad_id
     assert retained[0]["path"] == str(path)
     assert retained[0]["reason"] == (
-        "invalid_or_unsupported_schema" if kind in {"unknown_field", "invalid_value"} else kind
+        "unreadable" if kind in {"invalid_encoding", "io_error"} else "invalid"
     )
     assert "DO_NOT_ECHO_RECORD_VALUES" not in json.dumps(result)
     assert result["next"]["command"] is None

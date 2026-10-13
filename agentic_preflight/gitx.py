@@ -12,10 +12,9 @@ import os
 import re
 import subprocess
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
-from contextvars import ContextVar
 from functools import cache
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from agentic_preflight.stages.command import resolve_on_path
 
@@ -36,17 +35,22 @@ _DECODE_ERRORS = "backslashreplace"
 _RESOLVED_GIT: str | None = None
 
 
-_COMMAND_TIMEOUT: ContextVar[float | None] = ContextVar("git_command_timeout", default=None)
+def remote_identity(url: str) -> str:
+    """Remove URL credentials, query, and fragment (including scp-style usernames)."""
+    if "://" in url:
+        parsed = urlsplit(url)
+        return urlunsplit((parsed.scheme, parsed.netloc.rsplit("@", 1)[-1], parsed.path, "", ""))
+    return url.split("@", 1)[-1].split("?", 1)[0].split("#", 1)[0]
 
 
-@contextmanager
-def bounded_commands(seconds: float) -> Iterator[None]:
-    """Bound every Git subprocess in this context without changing offline defaults."""
-    token = _COMMAND_TIMEOUT.set(seconds)
-    try:
-        yield
-    finally:
-        _COMMAND_TIMEOUT.reset(token)
+_SCHEME_URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s'\"]+")
+_SCP_REMOTE = re.compile(r"[^\s'\"@/]+@[A-Za-z0-9.-]+:[^\s'\"]*")
+
+
+def redact_remote_credentials(text: str) -> str:
+    """Replace every URL or scp-style remote in ``text`` with its credential-free form."""
+    text = _SCHEME_URL.sub(lambda match: remote_identity(match.group(0)), text)
+    return _SCP_REMOTE.sub(lambda match: remote_identity(match.group(0)), text)
 
 
 def _git_executable() -> str:
@@ -96,7 +100,7 @@ def run(
         text=True,
         encoding="utf-8",
         errors=_DECODE_ERRORS,
-        timeout=timeout if timeout is not None else _COMMAND_TIMEOUT.get(),
+        timeout=timeout,
     )
     if check and result.returncode != 0:
         raise GitError(list(args), result.returncode, result.stderr)
@@ -119,7 +123,6 @@ def read_blobs(cwd: Path | str, object_ids: Sequence[str]) -> list[bytes]:
         cwd=str(cwd),
         input=("\n".join(object_ids) + "\n").encode("ascii"),
         capture_output=True,
-        timeout=_COMMAND_TIMEOUT.get(),
     )
     if result.returncode:
         raise GitError(
@@ -363,7 +366,6 @@ def _stable_patch_id(cwd: Path | str, patch_args: list[str]) -> str | None:
         [_git_executable(), *patch_args],
         cwd=str(cwd),
         capture_output=True,
-        timeout=_COMMAND_TIMEOUT.get(),
     )
     if patch.returncode != 0:
         raise GitError(
@@ -374,7 +376,6 @@ def _stable_patch_id(cwd: Path | str, patch_args: list[str]) -> str | None:
         cwd=str(cwd),
         input=patch.stdout,
         capture_output=True,
-        timeout=_COMMAND_TIMEOUT.get(),
     )
     if result.returncode != 0:
         raise GitError(
@@ -408,7 +409,6 @@ def patch_ids(cwd: Path | str, base: str, head: str) -> dict[str, str | None]:
         [_git_executable(), *log_args],
         cwd=str(cwd),
         capture_output=True,
-        timeout=_COMMAND_TIMEOUT.get(),
     )
     if patches.returncode != 0:
         raise GitError(
@@ -428,7 +428,6 @@ def patch_ids(cwd: Path | str, base: str, head: str) -> dict[str, str | None]:
         cwd=str(cwd),
         input=patches.stdout,
         capture_output=True,
-        timeout=_COMMAND_TIMEOUT.get(),
     )
     if result.returncode != 0:
         raise GitError(
@@ -582,6 +581,17 @@ def non_merge_commit_files(cwd: Path | str, base: str, head: str) -> list[str]:
         "--",
     ).stdout
     return sorted({path for path in output.split("\0") if path})
+
+
+def classified_files(cwd: Path | str, base: str, head: str) -> list[str]:
+    """Return the paths a risk or change-scope decision must classify.
+
+    This is the union of ``changed_files`` and ``merge_result_files``, so criss-cross
+    history cannot hide a change from the classification. ``base`` must be the base
+    tip, not a merge base. Within a run the two lists are equal, because
+    synchronization rebases the validated head onto the recorded base tip.
+    """
+    return sorted({*changed_files(cwd, base, head), *merge_result_files(cwd, base, head)})
 
 
 _DIFF_PATH_BATCH_FILES = 256

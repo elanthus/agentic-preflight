@@ -74,7 +74,7 @@ consumers should use `path`, `size`, `touched_by_diff`, and candidate `source`. 
 candidates come from supported project manifests; workflow run lines are no longer
 detected. Attestation fingerprints are unchanged.
 
-`approval-check` and `hosted-check --mode approval` results add `approved_head` (the
+`approval-check` results add `approved_head` (the
 commit the counted review was submitted on, or `null`) and `approval_carried` (a
 boolean). `human_approvers` is unchanged. In `peer_review` and `owner_review` modes an
 approval of an earlier head with unchanged branch content now satisfies the policy, so
@@ -96,8 +96,8 @@ Agentic Preflight 0.6.0 does not read run records or attestation notes written b
 earlier releases. Unsupported saved data is reported as an error and left unchanged with
 the work and ownership information it refers to.
 
-Attestation verification ignores configuration keys that a later release removed, such
-as `[hook] enabled`, when they appear in an attested `config_snapshot`, so a newer
+Run reads and attestation verification ignore configuration keys that a later release removed, such
+as `[hook] enabled`, when they appear in a saved `config_snapshot`, so a newer
 verifier accepts notes written by an older release; a configuration file that sets one
 is still rejected.
 
@@ -174,3 +174,15 @@ The repository workflows now share a narrowly scoped Dependabot eligibility chec
 Eligible Python patch/minor updates skip local-attestation verification and satisfy
 the hosted approval gate; existing required check names remain available. Other PRs
 retain their prior gates. See `docs/attestations-and-ci.md`.
+
+Run read diagnostics now report `unreadable` (encoding or I/O) or `invalid` (JSON,
+schema, or configuration), without field-location lists. Unsupported records remain
+preserved. Removed configuration keys are ignored on reads without rewriting snapshots;
+unknown keys and invalid current settings are still rejected. Full snapshot content keys
+the bounded validation cache, so edits cannot reuse validation of a different snapshot.
+
+## Hosted verification command removal
+
+The `hosted-check` command was removed. Hosted callers fetch the exact head, notes,
+and evidence refs from the contributor remote, then call offline `verify` or
+`approval-check`; per-attempt availability diagnostics are no longer emitted.

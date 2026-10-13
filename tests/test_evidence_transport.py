@@ -56,22 +56,25 @@ def published(feature_repo, bare_remote, tmp_path):
     return runner, bare_remote, original, value, feature_repo
 
 
+def _fetch_hosted_evidence(runner, sha):
+    git(
+        "fetch",
+        "--no-tags",
+        "--",
+        "origin",
+        sha,
+        "+refs/notes/agentic-preflight:refs/notes/agentic-preflight",
+        "+refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*",
+        cwd=runner,
+    )
+
+
 def test_fresh_hosted_checkout_fetches_unreachable_originals(published):
     runner, _, original, value, _ = published
-    result = ScriptedAgent(runner).run(
-        "hosted-check",
-        value.sha,
-        "--base",
-        value.merge_base_sha,
-        "--source-remote",
-        "origin",
-        "--head-ref",
-        "refs/heads/feature/x",
-    )
+    _fetch_hosted_evidence(runner, value.sha)
+    result = ScriptedAgent(runner).run("verify", value.sha)
     assert result["data"]["verified"] is True
-    assert original.sha in result["data"]["availability"]["attempts"][0]["fetched_evidence_commits"]
     assert git("rev-parse", original.sha + "^{commit}", cwd=runner) == original.sha
-    assert not git("for-each-ref", "refs/agentic-preflight/availability", cwd=runner)
 
 
 def test_rejected_evidence_ref_prevents_partial_publication(feature_repo, bare_remote, tmp_path):
@@ -98,20 +101,9 @@ def test_hosted_provenance_failure_is_not_retried(published, bad):
         git("update-ref", "-d", ref, cwd=remote)
     else:
         git("update-ref", ref, value.merge_base_sha, cwd=remote)
-    result = ScriptedAgent(runner).run(
-        "hosted-check",
-        value.sha,
-        "--base",
-        value.merge_base_sha,
-        "--source-remote",
-        "origin",
-        "--head-ref",
-        "refs/heads/feature/x",
-        expect=2,
-    )
-    assert result["data"]["reason"] == ("git_failure" if bad == "missing" else "commit_mismatch")
-    assert len(result["data"]["availability"]["attempts"]) == 1
-    assert not git("for-each-ref", "refs/agentic-preflight/availability", cwd=runner)
+    _fetch_hosted_evidence(runner, value.sha)
+    result = ScriptedAgent(runner).run("verify", value.sha, expect=2)
+    assert result["data"]["reason"] == "git_failure"
 
 
 @pytest.mark.parametrize("allow_force_push", [False, True])

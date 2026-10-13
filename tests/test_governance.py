@@ -72,7 +72,6 @@ def owners_for(path):
         "agentic_preflight/approval.py",
         "agentic_preflight/attestation.py",
         "agentic_preflight/cli_policy.py",
-        "agentic_preflight/note_availability.py",
         "agentic_preflight/risk.py",
         "agentic_preflight/hook.py",
         "agentic_preflight/publish/new_gate.py",

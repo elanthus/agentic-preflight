@@ -218,18 +218,16 @@ def snapshot_config(snapshot: dict[str, Any]) -> Config:
 
 
 @lru_cache(maxsize=32)
-def _snapshot_run_settings(snapshot_json: str, tolerate_removed_config: bool) -> tuple[int, str]:
+def _snapshot_run_settings(snapshot_json: str) -> tuple[int, str]:
     snapshot = json.loads(snapshot_json)
-    cfg = snapshot_config(snapshot) if tolerate_removed_config else Config.model_validate(snapshot)
+    cfg = snapshot_config(snapshot)
     return cfg.stage.max_restarts, cfg.worktree.mode
 
 
-def snapshot_run_settings(
-    snapshot: dict[str, Any], *, tolerate_removed_config: bool = False
-) -> tuple[int, str]:
-    """Cache validated immutable run settings by full content and validation policy."""
+def snapshot_run_settings(snapshot: dict[str, Any]) -> tuple[int, str]:
+    """Cache validated immutable run settings by full snapshot content."""
     key = json.dumps(snapshot, sort_keys=True, separators=(",", ":"))
-    return _snapshot_run_settings(key, tolerate_removed_config)
+    return _snapshot_run_settings(key)
 
 
 def config_digest(snapshot: dict[str, Any]) -> str:

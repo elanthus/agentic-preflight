@@ -34,6 +34,7 @@ jobs:
       always() && github.event_name == 'pull_request' &&
       needs.dependabot-policy.outputs.eligible != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       # Check out the protected base commit, not the pull request, so a change
       # cannot weaken the verifier that judges its own attestation.
@@ -51,8 +52,6 @@ jobs:
       - name: Fetch and verify the pull request attestation
         env:
           ATTESTED_SHA: ${{ github.event.pull_request.head.sha }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           HEAD_REPOSITORY_URL: ${{ github.event.pull_request.head.repo.clone_url }}
         run: |
@@ -61,12 +60,12 @@ jobs:
             git remote add preflight-contributor "$HEAD_REPOSITORY_URL"
             source_remote=preflight-contributor
           fi
+          git fetch --no-tags -- "$source_remote" "$ATTESTED_SHA" \
+            '+refs/notes/agentic-preflight:refs/notes/agentic-preflight' \
+            '+refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*'
           result_file="$RUNNER_TEMP/attestation-result.json"
           verify_exit=0
-          agentic-preflight hosted-check "$ATTESTED_SHA" \
-            --base "$BASE_SHA" \
-            --source-remote "$source_remote" \
-            --head-ref "refs/heads/$HEAD_REF" \
+          agentic-preflight verify "$ATTESTED_SHA" \
             > "$result_file" || verify_exit=$?
           cat "$result_file"
           exit "$verify_exit"

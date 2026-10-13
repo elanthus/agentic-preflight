@@ -249,3 +249,19 @@ def test_rebase_refuses_to_abort_the_users_paused_interactive_rebase(
 
     git("rebase", "--abort", cwd=feature_repo)
     assert agent.run("start")["state"] == "REVIEW_AWAITING_FINDINGS"
+
+
+@pytest.mark.parametrize("remote", [None, "origin"])
+def test_sync_result_serialization_preserves_nullable_remote(remote):
+    result = sync.SyncResult(remote, "origin/main", "a" * 40, "b" * 40, "c" * 40, True)
+    serialized = result.as_dict()
+    assert serialized == {
+        "remote": remote,
+        "base_ref": "origin/main",
+        "base_sha": "a" * 40,
+        "head_before": "b" * 40,
+        "head_after": "c" * 40,
+        "rebased": True,
+    }
+    serialized["remote"] = "changed"
+    assert result.remote == remote

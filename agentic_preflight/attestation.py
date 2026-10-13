@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
 from . import gitx
+from .digests import sha256_text
 from .models import Attestation, AttestedStage, RunDoc, Stage
 from .wire_schema import (
     InvalidAttestation as InvalidAttestation,
@@ -27,7 +27,8 @@ def recovery(reason: str) -> str:
     if reason in {"missing_note", "missing_notes_ref"}:
         return (
             "Confirm publication of the expected head and its note to the source remote; "
-            "fetch fresh notes or rerun the bounded hosted check. Local verify stays offline."
+            "fetch the exact head, notes, and retained evidence refs from that source remote, "
+            "then retry offline verify for the exact head."
         )
     if reason == "incompatible_schema":
         return (
@@ -51,12 +52,12 @@ def recovery(reason: str) -> str:
 
 def output_digest(output: str) -> str:
     """Return the SHA-256 hex digest of captured stage output."""
-    return hashlib.sha256(output.encode()).hexdigest()
+    return sha256_text(output)
 
 
 def intent_digest(intent: str) -> str:
     """Return the SHA-256 hex digest of the run intent text."""
-    return hashlib.sha256(intent.encode()).hexdigest()
+    return sha256_text(intent)
 
 
 def build(

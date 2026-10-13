@@ -5,7 +5,6 @@ from __future__ import annotations
 from .. import attestation as attestationmod
 from .. import gitx, worktree
 from .. import mergeback as mergebackmod
-from .. import risk as riskmod
 from .. import sync as syncmod
 from ..envelope import Envelope
 from ..errors import (
@@ -24,6 +23,7 @@ from ._session import (
     Session,
     _apply,
     _assert_fresh,
+    _assess,
     _check_restart_limit,
     _envelope_for,
     _is_in_place,
@@ -103,13 +103,7 @@ def _reset_non_equivalent_merge_to_review(
     worktree.assert_paths_are_ignored(session.repo_root, run.copied_files)
     gitx.run(worktree_path, "reset", "--hard", result.post_sha)
     changed = gitx.changed_files(worktree_path, run.merge_base_sha, "HEAD")
-    assessment = riskmod.assess(
-        changed,
-        session.store.load_findings(run.run_id),
-        policy=session.config.policy,
-        review_blocking_severities=session.config.review.blocking_severities,
-        docs_blocking_severities=session.config.docs.blocking_severities,
-    )
+    assessment = _assess(session, changed, session.store.load_findings(run.run_id))
     with session.store.transaction(run.run_id) as doc:
         doc.head_sha = result.post_sha
         doc.source_head_sha = result.post_sha
