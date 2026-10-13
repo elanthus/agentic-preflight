@@ -222,35 +222,40 @@ else:
                 process.kill()
 
 
-@contextmanager
-def _kill_on_termination(process: subprocess.Popen) -> Iterator[None]:
-    """Kill ``process``'s tree if SIGTERM or SIGINT arrives while it runs."""
-    if sys.platform == "win32":
+if sys.platform == "win32":
+
+    @contextmanager
+    def _kill_on_termination(process: subprocess.Popen) -> Iterator[None]:
+        """Windows uses timeout-based process-tree cleanup rather than POSIX signals."""
         yield
-        return
 
-    previous: dict[int, signal.Handlers | int | Callable[..., object] | None] = {}
+else:
 
-    def restore() -> None:
-        for number, old_handler in previous.items():
-            signal.signal(number, old_handler)
-        previous.clear()
+    @contextmanager
+    def _kill_on_termination(process: subprocess.Popen) -> Iterator[None]:
+        """Kill ``process``'s tree if SIGTERM or SIGINT arrives while it runs."""
+        previous: dict[int, signal.Handlers | int | Callable[..., object] | None] = {}
 
-    def handler(signum: int, frame: object) -> None:
-        _kill_process_tree(process)
-        restore()
-        signal.raise_signal(signum)
+        def restore() -> None:
+            for number, old_handler in previous.items():
+                signal.signal(number, old_handler)
+            previous.clear()
 
-    try:
-        for number in (signal.SIGTERM, signal.SIGINT):
-            previous[int(number)] = signal.signal(number, handler)
-    except ValueError:
-        # Signal handlers can only be installed from the main thread.
-        restore()
-    try:
-        yield
-    finally:
-        restore()
+        def handler(signum: int, frame: object) -> None:
+            _kill_process_tree(process)
+            restore()
+            signal.raise_signal(signum)
+
+        try:
+            for number in (signal.SIGTERM, signal.SIGINT):
+                previous[int(number)] = signal.signal(number, handler)
+        except ValueError:
+            # Signal handlers can only be installed from the main thread.
+            restore()
+        try:
+            yield
+        finally:
+            restore()
 
 
 def _drain_after_kill(process: subprocess.Popen) -> tuple[str | None, str | None, bool]:

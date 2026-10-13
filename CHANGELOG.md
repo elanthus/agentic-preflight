@@ -248,6 +248,10 @@ See the [0.6.0 → 0.7.0 upgrade guide](docs/upgrade-0.7.md) before rollout.
 
 ### Fixed
 
+- Keep POSIX termination handlers outside the Windows implementation so mypy
+  does not reject the supported Windows build as unreachable. Process cleanup
+  behavior is unchanged on both platforms.
+
 - Require a single verified Dependabot commit matching the event and current PR head
   before applying the hosted exception; human-appended commits retain ordinary gates.
 
