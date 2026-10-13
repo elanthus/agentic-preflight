@@ -445,6 +445,10 @@ See the [0.6.0 → 0.7.0 upgrade guide](docs/upgrade-0.7.md) before rollout.
 
 - Loading a saved run that still carries retired CI delegation no longer raises `TypeError` on Python 3.11; the membership check compares against the state values instead of the enum class. This also clears the error reported by mypy 2.4.
 
+- On Windows, Ctrl+C during a stage, setup, or reviewer command now kills its
+  process tree before re-raising cancellation, preventing child processes from
+  continuing after the CLI exits. POSIX signal handling is unchanged.
+
 ### Security
 
 - The hosted approval check now classifies the paths that differ between the base and
