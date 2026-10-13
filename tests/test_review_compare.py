@@ -8,6 +8,9 @@ import shlex
 import sys
 from pathlib import Path
 
+import pytest
+
+from agentic_preflight import gitx
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.models import FindingAction, FindingSubmission, Severity
 from agentic_preflight.runs._session import open_session
@@ -308,3 +311,33 @@ def test_shadow_mutation_withholds_output_without_changing_review_state(feature_
     assert Path(env["data"]["log_path"]).read_text() == REDACTION_FAILURE_OUTPUT
     assert agent.run("status")["state"] == accepted["state"]
     assert (feature_repo / ".env").read_text() == "SECRET=original-secret\n"
+
+
+@pytest.mark.parametrize("invalid", ["manifest", "unit"])
+def test_persisted_comparison_rejects_invalid_coverage(feature_repo, tmp_path, invalid):
+    configure_in_harness(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    context = agent.run("context")
+    submit_review(agent, tmp_path / "clean.json", [])
+    coverage = context["data"]["review_coverage"]
+    finding = _finding(1).model_dump(mode="json")
+    payload = {
+        "manifest": coverage["manifest"],
+        "head_sha": gitx.rev_parse(feature_repo, "HEAD"),
+        "executor": "command",
+        "findings": [],
+    }
+    if invalid == "manifest":
+        payload["manifest"] = "stale"
+    else:
+        finding["unit"] = "U9999"
+        payload["findings"] = [finding]
+    path = tmp_path / "persisted.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = agent.run("review", "compare", "--file", str(path), expect=ExitCode.PRECONDITION)
+
+    assert result["ok"] is False
+    assert "invalid" in result["error"]["message"]
+    assert agent.run("status")["state"] == "DOCS_GREEN"

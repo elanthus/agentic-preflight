@@ -146,7 +146,7 @@ def push(confirm: str | None, dry_run: bool) -> None:
     finish_locked(lambda session: runs.push(session, confirm=confirm, dry_run=dry_run))
 
 
-@click.command()
+@click.command("finish")
 @command
 def finish_run() -> None:
     """Mark a pushed validation run complete."""
@@ -230,5 +230,4 @@ COMMANDS = (
 def register(group: click.Group) -> None:
     """Add the run commands to a CLI group."""
     for cli_command in COMMANDS:
-        name = "finish" if cli_command is finish_run else None
-        group.add_command(cli_command, name=name)
+        group.add_command(cli_command)
