@@ -45,7 +45,8 @@ a run before you push. The push publishes the attestation with your branch. The
 `trusted preflight attestation` CI job verifies it on the pull request head, as described
 in
 [Portable attestations and CI enforcement](docs/attestations-and-ci.md#required-github-check),
-so a branch pushed without a completed run fails that check.
+so an ordinary contributor branch pushed without a completed run fails that check.
+Eligible Dependabot Python patch/minor updates use the documented hosted exception.
 
 Keep changes focused and include tests for observable behavior. Update user-facing
 documentation whenever a reader following the current instructions would otherwise be

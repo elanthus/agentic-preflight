@@ -5,12 +5,53 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-13
+
+### Upgrade highlights
+
+See the [0.6.0 → 0.7.0 upgrade guide](docs/upgrade-0.7.md) before rollout.
+
+- **Breaking:** Remove trusted CI test delegation, `ci` commands, and `hosted-check`.
+  Applicable tests finish locally; hosted verification uses explicit fetches and
+  offline checks. Retired `[ci]` configuration warns and is ignored.
+- **Breaking:** Remove cross-run lint/test reuse and shell input contracts.
+  Retired `[reuse]` configuration warns and is ignored; review/docs refresh remains.
+- **Breaking:** Remove `[hook] enabled`; delete it from repository and user files.
+  Command-line usage errors now exit 6 with a JSON envelope.
+- Align producer, hook, copied skills, and protected verifier. Run schema 2,
+  attestation schema 7, and fingerprint version 2 remain, with stricter evidence
+  acceptance and new configuration fields that older consumers may reject.
+- Inspect active runs before upgrading. Pending delegation and interrupted legacy
+  journals require fresh validation; historical audit records and user work remain.
+
+### Added
+
+- `start` reports this clone's validation checkout footprint as `data.housekeeping`:
+  every directory under the worktrees root and every `ap/*` worktree, with its size,
+  registration, lease, owning run, and whether it is `reclaimable` or `retained`, plus
+  `total_bytes`, `reclaimable_bytes`, the `ap/*` branch count, and `next_command`
+  (`agentic-preflight gc` when anything is reclaimable). `noisy` is true at 1 GiB or
+  more reclaimable, and the skill then tells the user once. The report is read-only,
+  and a failure inside it sets `data.housekeeping.error` without failing `start`.
+- Stop a run for human resolution once validation has restarted `[stage] max_restarts`
+  times (default 5). A restart is any return to review that discards progress: a
+  committed lint or test repair, a changed reviewed snapshot, changed stage inputs, or a
+  non-equivalent merge-back resolution. The stopped run exits 4 with `max_restarts`,
+  refuses every command except `status`, `logs`, `events`, and `abort`, and reports
+  `validation_restarts`, `max_restarts`, and `needs_human` in `status`.
+- Exit code 6 (`USAGE_ERROR`) for command-line usage errors. An unknown option,
+  missing argument, bad choice, or unknown command now prints one JSON envelope with
+  error code `usage_error` instead of Click's usage text, and exits 6 instead of 2,
+  which collided with stage failure. `hook-check` keeps Click's behaviour.
+
 ### Changed
 
 - Narrowed this repository's human-review policy to explicit approval, verification,
-  publication, governance, and agent-instruction paths, with matching CODEOWNERS entries.
+  publication, and governance paths, with matching CODEOWNERS entries.
   Ordinary package code, tests, and CLI references are medium risk. The skill's CLI
-  walkthrough now lives separately from its protected approval and recovery rules.
+  walkthrough now lives separately from its authoritative approval and recovery rules.
+  Routine instruction documentation no longer requires owner approval solely by path;
+  substantive authorization, approval-enforcement, and bypass-rule changes still do.
   The configured review approval for high-risk changes and escalation from severe findings
   remain unchanged; installed projects' default policy is unchanged.
 
@@ -25,22 +66,203 @@ All notable changes to Agentic Preflight are documented here. This project follo
   and pinned the case study links to the archive commit. Collection data and case study
   counts are unchanged; the ledgers are no longer stored in this source tree.
 
+- Context grounding derives module terms for every Python package, not only
+  `agentic_preflight`. A changed `.py` file under any directory now contributes its path
+  relative to the top-level directory and its dotted module name.
+- Public regression eval method is now `public-smoke-v5`. A finding with a line is a catch
+  only within two lines of the gold range; hunk overlap applies only to findings without a
+  line. The substring category measure is renamed to keyword hit rate: `summary.json` keys
+  `category_agreement` become `keyword_hit` per case and `keyword_hit_rate` in aggregates.
+- Every eval fixed snapshot now changes the gold file, so its false-positive control can
+  fire. `plaintext-secret-log` gold lines are corrected to `[2, 2]`, and case loading fails
+  when a gold range misses the lines changed from base to vulnerable.
+- Eval fixture trees include `CODEOWNERS` and `AGENTS.md`, and grounding-on runs fail when
+  `context` returns no grounding entries.
+- The pytest configuration no longer passes `-q` in `addopts`, so the documented `uv run
+  pytest -q` prints its summary line.
+- Running `agentic-preflight` with no arguments prints the root help on stdout and exits
+  0 on every supported Click version. Click 8.2 and later previously made it exit 2.
+- Eval `summary.md` starts with a mode and executor line and renders booleans as `yes`
+  or `no`, missing values as `n/a`, and rates with three decimals. `summary.json` is
+  unchanged.
+- Documentation now matches current behavior for the docs surface, config section
+  replacement, `start --intent`, concurrent worktree modes, and SemVer scope. The push
+  and pull-request authorization rule lives in one section of `docs/configuration.md`.
+- Building the documentation inventory no longer walks the whole worktree. The walk skips
+  the root `.git` and every directory that no documentation pattern can match, such as
+  `node_modules` and `.venv` under the default patterns. Every docs fingerprint and docs
+  `context` builds this inventory. On a test worktree with 120,000 ignored entries, one
+  build fell from about 3 s to 3 ms. The inventory and `doc_surface_sha256` are
+  unchanged, so existing docs evidence remains reusable. A pattern that can match at any
+  depth, such as `**/*.md`, still needs the full walk.
+
+- Simplify saved-run read diagnostics to `unreadable` or `invalid`, preserving records and ownership on failures without exposing stored values.
+- Ignore retired configuration keys in saved runs consistently with attestation verification. Keep full-content cached validation of current settings and preserve original snapshots.
+
+- Check stage origin and configuration snapshot digests at evidence admission and attestation verification instead of rehashing every stage origin when loading run records.
+- Report corrupt active stage origins with dedicated stage-evidence recovery guidance before replacing saved evidence or changing the source branch during merge-back.
+- Keep status inspectable when active evidence digests are invalid, distinguishing structurally readable run records from invalid evidence and retaining ordinary unmerged-work cleanup protections.
+- Keep missing-source garbage-collection guidance ahead of abort recovery while retaining invalid-evidence status diagnostics.
+
+- Cache successful validation of immutable run settings in a bounded cache keyed by
+  complete snapshot content and validation policy. Strict restart checks and tolerant
+  historical cleanup retain their existing validation rules.
+
+- The advisory pre-push hook now skips updates to evidence refs like tags, including
+  replacement and deletion. Evidence objects pushed to branches still pass through
+  the ordinary force-push and attestation checks.
+
+- Interrupted merge-back after a source rebase now requires a fresh run when the source has not reached the verified tree. Older saved attempts still load, ignoring the removed intermediate tree field.
+- Preserve conflict-abort ownership checks, including canonical commit comparison for refs, so a user cherry-pick started after the initial operation check retains its staged resolution.
+
+- Windows atomic file replacement now makes at most three attempts, with a fixed
+  5 ms pause between permission failures, instead of eight attempts with exponential
+  backoff. Persistent failures still raise the final error; POSIX replacement and
+  owner-only protection for Windows `copy_files` are unchanged.
+
+- Fold eight helper modules into their existing consumers while preserving publication policy, attestation validation, lifecycle invariants, evidence transitions, grounding budgets, test eligibility, and copied-file output protection.
+
+- Replaced integration command factories and lifecycle operation tables with explicit
+  commands and install/uninstall functions, preserving CLI options and successful
+  results, installed-skill hashes, and symlink handling. Installation now removes and
+  copies a bundle after checking all targets for conflicts. A filesystem failure can
+  leave an absent or partial copy; correct the failure and rerun installation with
+  `--force` to repair it.
+
+- Share protected shell execution across validation stages, independent review, and shadow review while preserving copied-file redaction and failure envelopes.
+
+- Remove unused internal helpers and test-driver history. Documentation inventory entries
+  omit the always-true `exists` field; detected commands omit `trust` and retain their
+  source for supported project manifests. Workflow run-line detection is removed by
+  the subsequent grounding and detection simplification. Click 8.2 or newer is required.
+  Bare CLI invocation still prints help and exits 0. Fingerprint evidence is unchanged.
+
+- Simplify stage state declarations, command platform selection, and review submission validation while preserving command planning and review coverage checks.
+
+- Share equivalent text and JSON digest helpers and synchronization result serialization, preserving existing evidence bindings and callable keyword arguments.
+
+- Consolidated equivalent run risk assessments, finding-resolution hints, and publication command/refspec builders without changing stage ordering, policy selection, push ordering, or recovery responses.
+
+- Simplify startup orchestration by passing completed phase results explicitly and persisting synchronized commit and base metadata once before setup.
+
+- Consolidated equivalent scripted test agents, review submissions, and green-run
+  helpers, retaining CLI tests of recorded software-test skips and executable
+  helpers in documentation and CI directories. Docs submissions
+  keep their distinct payload; Git type-change and conditional symlink coverage
+  are unchanged. Product behavior is unchanged.
+
+- Consolidated prior art, PR lifecycle, exit-code, worktree setup, and CI matrix documentation into linked canonical sections; workflow behavior is unchanged.
+
+- Keep development dependencies focused on local checks; security CI runs the pinned
+  audit tool in an isolated environment. CI and release builds share one wheel smoke
+  script, and repository ignores cover the artifacts this project creates.
+- Replace randomized state-machine and glob-prefix checks with deterministic
+  enumeration, retaining their distinct guarantees without Hypothesis.
+- Keep the current README animation available from a pinned existing commit and
+  publish future recordings to the badges branch. Recording is optional, and
+  badge updates preserve other assets.
+
+- Verified Dependabot Python patch/minor updates limited to the root manifest and lockfile
+  can pass hosted attestation and approval gates and request squash auto-merge after required
+  checks. Major, Actions, unknown, and broader updates retain the existing workflow.
+  Eligibility requires exactly one verified bot commit matching the event and current
+  head, so appended human commits retain the ordinary gates. Repository administrators
+  must separately enable auto-merge and squash merging.
+
+- Isolated validation worktrees now default to a per-clone directory under
+  `$XDG_CACHE_HOME/agentic-preflight/worktrees/` when `XDG_CACHE_HOME` is absolute,
+  otherwise `~/.cache/agentic-preflight/worktrees/`. An explicit `[worktree] root`
+  remains authoritative. `gc` reclaims eligible unused reusable runners in both
+  the cache and old sibling locations while preserving leased, locked, dirty,
+  and retained work. Remaining old registrations appear in `data.legacy_worktrees`.
+
+- In `peer_review` and `owner_review` modes, an approval of an earlier pull-request head
+  now carries to the current head when the trusted checker proves from Git objects that
+  the branch content is unchanged. Both heads must change the same paths with the same
+  `git patch-id --stable` identity against the base, and the current tree must equal
+  Git's clean merge of the approved head with the base commit it now contains. Both heads
+  must also merge into the base with the same clean result and carry the same non-merge
+  commit patch identities, so `-s ours` merges cannot hide a revert or add commits. A clean
+  merge from the base or a clean rebase keeps approval. Content commits, conflict
+  resolution, merges that add content, and base changes next to the contribution still
+  need a new review. A later dismissal or changes-requested review on any head revokes
+  a carried approval. `environment` and `manual_merge` modes are unchanged.
+- An approved head replaced by a rebase is fetched only through its
+  `refs/agentic-preflight/evidence/<sha>` ref; without it, the approval does not carry.
+- Approval results add `approved_head` and `approval_carried`.
+
+- Contributors now add individual changelog fragments instead of editing the shared
+  Unreleased section. A dependency-free release command assembles those fragments
+  and existing Unreleased entries into a dated release while preserving history.
+
+- Narrow repository owner-review path triggers for routine skill documentation and
+  compatibility notes. Preserve protected enforcement paths and require exact-head owner
+  approval for substantive authorization, approval-enforcement, or bypass-rule instructions.
+
+- Prepare 0.7.0 with release-pinned README and bundled-skill links, corrected local
+  test and evidence-reuse guidance, verified GitHub settings, and a 0.6.0 upgrade guide
+  covering producer/verifier alignment, saved runs and notes, and rollback limits.
+
+- This repository's `human_review_paths` and CODEOWNERS now cover only decision points:
+  policy and ownership files, CI workflows, merge approval, attestation verification,
+  the pre-push hook, publication gates, and security guidance.
+  Configuration, data models, findings, the state machine, run invariants, review
+  coverage, change scope, the wire schema, evidence-reuse fingerprints, refresh
+  validation, and the release procedure are now classified medium or low risk and no
+  longer require owner approval on their own. Product behavior is unchanged.
+
+### Removed
+
+- The `[hook] enabled` key. It was never read, so setting it had no effect. A config that
+  still sets it now fails to load with an unknown-key error; delete the line from
+  `.agentic-preflight.toml` and the user config. `init` no longer writes it.
+- The unused `expect_seq` parameter of `Store.transaction` and its `StaleWrite` error.
+  The per-run exclusive lock is unchanged.
+
+- Removed opt-in trusted CI test authority, delegated test states, and the `ci` commands. Tests complete locally before publication, except the existing documentation/CI-only skip. Legacy `[ci]` tables are ignored with a warning; schema-7 verified notes remain readable, while pending-test notes are rejected.
+
+- Remove `hosted-check` and remote note polling. Trusted CI now fetches the exact
+  event head, notes, and retained evidence from the contributor remote, then runs
+  offline verification or approval evaluation with the protected-base checker.
+
+- Remove opt-in shell input contracts and file/toolchain/environment capture. Retired `[reuse]` configuration is ignored with a warning; lint/test evidence is never reused in a new run, even with identical trees. Same-run tree-equivalent merge-back publication remains supported. Original same-commit notes remain verifiable.
+- Preserve frozen historical run policy and committed protected-policy reads when ignoring retired sections. Active pre-upgrade shell evidence may conservatively revalidate once; original snapshot digests remain unchanged.
+
+- Removed the local run/findings write-ahead journal. Transactions now atomically replace findings then the run under the existing lock; interruption between writes can leave new findings with the prior run state and sequence.
+- The next `start` retires interrupted legacy validation identified by a pending journal and starts fresh, preserving audit history and user work for safe cleanup. `status` directs these runs to restart and validation commands refuse to continue their evidence.
+- Interrupted legacy-run guidance preserves the human stop at the validation restart limit and identifies the source worktree. Direct restart cannot reset that stop; explicit abort remains available.
+- Evidence discovery permanently excludes validation from retired interrupted legacy runs, so their preserved green audit records cannot satisfy a fresh run’s stages.
+
+- Remove generated CODEOWNERS grounding and its glob matcher. GitHub ownership policy
+  remains intact. Stop scraping lint/test command candidates from CI workflows;
+  configured commands and supported manifest candidates remain available.
+
+- Prose-pinning tests for skill wording. Structural CLI/documentation contracts,
+  protected workflow configuration checks, executable workflow tests, and built-wheel
+  alias coverage remain; product behavior is unchanged.
+
+- Remove the regression eval summary golden and duplicate dry-eval CI job, retaining
+  scripted scoring and determinism checks. Git-history isolation now builds one
+  representative repository per selected snapshot; every corpus case still receives
+  fixture validation.
+
 ### Fixed
+
+- Make Windows compatibility tests preserve exact LF/CRLF fixture bytes and
+  coordinate transient file sharing within the existing replacement retry budget.
+  Fingerprint and storage behavior are unchanged.
+
+- Keep POSIX termination handlers outside the Windows implementation so mypy
+  does not reject the supported Windows build as unreachable. Process cleanup
+  behavior is unchanged on both platforms.
 
 - Require a single verified Dependabot commit matching the event and current PR head
   before applying the hosted exception; human-appended commits retain ordinary gates.
 
-- `gc` can now orphan an abandoned run whose stored config snapshot holds a key that
-  a later release removed, such as `hook.enabled`. Reading such a record failed strict
-  validation, so a run whose source worktree had disappeared kept its validation
-  worktree, `ap/*` branch, and ownership pointers forever, and no flag could release
-  them. Collection now retries the read the way attestation does, ignoring only keys
-  the tool knows it removed, and uses that read solely to orphan a run that is
-  provably abandoned. The same tolerance applies when the read first replays an
-  interrupted findings update, so an older run's journal no longer blocks orphaning. A
-  run that is not abandoned, a terminal run, and a snapshot with any other unknown key
-  keep the strict unreadable verdict and are retained unchanged, and a strict read now
-  refuses to replay a journal whose snapshot it would then fail to load.
+- Saved runs and attestation snapshots tolerate known removed configuration keys
+  while preserving original digest bindings. Unknown keys and invalid current
+  settings remain errors; unreadable records, ownership, and unmerged work are
+  preserved during inspection and cleanup.
 - `gc` and `abort` no longer start two Git processes for every commit in a run's history
   when they check whether its fixes landed. Each commit's stable patch ID came from its
   own `git show` piped into `git patch-id`. One `git log` of the run's range now
@@ -181,71 +403,74 @@ All notable changes to Agentic Preflight are documented here. This project follo
   in `config.REMOVED_CONFIG_KEYS`, such as `[hook] enabled`) from an attested
   `config_snapshot` before validating it, so a verifier built from a newer base no
   longer rejects attestations written by an older CLI. Loading a configuration file that
-  sets one of these keys still fails with an unknown-key error.
+  sets a removed individual key still fails with an unknown-key error; retired
+  `[ci]` and `[reuse]` tables are ignored with warnings.
 - A failed `init`, `start`, or `context` in the regression eval now records that case
   and snapshot as unresolved and the run continues, as documented. Previously it aborted
   the whole eval without a summary.
 
-### Added
+- Retired CI delegation migration preserves invalid saved run states for validation to reject, rather than concealing them as orphaned runs. Exit-code recovery guidance directs invalid approval review JSON back to the reviews file.
 
-- `start` reports this clone's validation checkout footprint as `data.housekeeping`:
-  every directory under the worktrees root and every `ap/*` worktree, with its size,
-  registration, lease, owning run, and whether it is `reclaimable` or `retained`, plus
-  `total_bytes`, `reclaimable_bytes`, the `ap/*` branch count, and `next_command`
-  (`agentic-preflight gc` when anything is reclaimable). `noisy` is true at 1 GiB or
-  more reclaimable, and the skill then tells the user once. The report is read-only,
-  and a failure inside it sets `data.housekeeping.error` without failing `start`.
-- Stop a run for human resolution once validation has restarted `[stage] max_restarts`
-  times (default 5). A restart is any return to review that discards progress: a
-  committed lint or test repair, a changed reviewed snapshot, changed stage inputs, or a
-  non-equivalent merge-back resolution. The stopped run exits 4 with `max_restarts`,
-  refuses every command except `status`, `logs`, `events`, and `abort`, and reports
-  `validation_restarts`, `max_restarts`, and `needs_human` in `status`.
-- Exit code 6 (`USAGE_ERROR`) for command-line usage errors. An unknown option,
-  missing argument, bad choice, or unknown command now prints one JSON envelope with
-  error code `usage_error` instead of Click's usage text, and exits 6 instead of 2,
-  which collided with stage failure. `hook-check` keeps Click's behaviour.
+- Preserve ports and IPv6 brackets in credential-redacted remote diagnostics,
+  including invalid port text, while removing userinfo, queries, and fragments.
 
-### Changed
+- Bound trusted attestation verification to a five-minute job limit and approval
+  policy evaluation to a thirty-minute job limit, so stalled setup, transport, or
+  verification cannot leave the required checks pending for the default job duration.
 
-- Context grounding derives module terms for every Python package, not only
-  `agentic_preflight`. A changed `.py` file under any directory now contributes its path
-  relative to the top-level directory and its dotted module name.
-- Public regression eval method is now `public-smoke-v5`. A finding with a line is a catch
-  only within two lines of the gold range; hunk overlap applies only to findings without a
-  line. The substring category measure is renamed to keyword hit rate: `summary.json` keys
-  `category_agreement` become `keyword_hit` per case and `keyword_hit_rate` in aggregates.
-- Every eval fixed snapshot now changes the gold file, so its false-positive control can
-  fire. `plaintext-secret-log` gold lines are corrected to `[2, 2]`, and case loading fails
-  when a gold range misses the lines changed from base to vulnerable.
-- Eval fixture trees include `CODEOWNERS` and `AGENTS.md`, and grounding-on runs fail when
-  `context` returns no grounding entries.
-- CI diffs the dry eval `summary.json` against `evals/golden/dry-summary.json`.
-- The pytest configuration no longer passes `-q` in `addopts`, so the documented `uv run
-  pytest -q` prints its summary line.
-- Running `agentic-preflight` with no arguments prints the root help on stdout and exits
-  0 on every supported Click version. Click 8.2 and later previously made it exit 2.
-- Eval `summary.md` starts with a mode and executor line and renders booleans as `yes`
-  or `no`, missing values as `n/a`, and rates with three decimals. `summary.json` is
-  unchanged.
-- Documentation now matches current behavior for the docs surface, config section
-  replacement, `start --intent`, concurrent worktree modes, and SemVer scope. The push
-  and pull-request authorization rule lives in one section of `docs/configuration.md`.
-- Building the documentation inventory no longer walks the whole worktree. The walk skips
-  the root `.git` and every directory that no documentation pattern can match, such as
-  `node_modules` and `.venv` under the default patterns. Every docs fingerprint and docs
-  `context` builds this inventory. On a test worktree with 120,000 ignored entries, one
-  build fell from about 3 s to 3 ms. The inventory and `doc_surface_sha256` are
-  unchanged, so existing docs evidence remains reusable. A pattern that can match at any
-  depth, such as `**/*.md`, still needs the full walk.
+- Reusable validation now keeps one runner per clone, shared by its main checkout and
+  linked worktrees. The clone name and common Git directory hash identify the runner.
+- Garbage collection automatically reclaims eligible unused reusable runners at both
+  current and historical locations and reports their paths in `data.reclaimed_runners`.
+  Branch-attached, locked, or dirty runners and runners associated with retained fixes
+  are preserved. Existing source worktrees preserve their runner caches; unreadable
+  records preserve the runner they name, and unreadable top-level records preserve all
+  runners. Git removal failures preserve directories instead of deleting them directly.
 
-### Removed
+- Synchronization no longer silently changes what a branch lands. A rebase drops merge
+  commits and skips commits the base already has, so it could discard an `-s ours` merge
+  that reverts a branch already in the base, or a revert of a change the base also made,
+  and validate and publish different content from the branch. When a rebase would change
+  the tree that a clean merge of the branch produces, `start` and `mergeback` now restore
+  the branch and merge the base in instead, and `start` reports `data.sync.merged: true`.
+  The merge always commits and skips commit hooks regardless of local merge
+  configuration. If Git cannot compute the merge result for a reason other than unrelated
+  histories, synchronization stops before changing the branch.
+- `start` now validates a branch whose only change is hidden by criss-cross history
+  instead of reporting that it has no changes.
+- Synchronization now refuses, before changing anything, when a path added by the base or
+  by the branch's merge result already exists as an untracked or ignored local file, and
+  lists those files. Previously a rebase could silently overwrite an ignored file, for
+  example one the base starts tracking, or one a directory rename moved a branch file onto.
 
-- The `[hook] enabled` key. It was never read, so setting it had no effect. A config that
-  still sets it now fails to load with an unknown-key error; delete the line from
-  `.agentic-preflight.toml` and the user config. `init` no longer writes it.
-- The unused `expect_seq` parameter of `Store.transaction` and its `StaleWrite` error.
-  The per-run exclusive lock is unchanged.
+- Loading a saved run that still carries retired CI delegation no longer raises `TypeError` on Python 3.11; the membership check compares against the state values instead of the enum class. This also clears the error reported by mypy 2.4.
+
+- On Windows, Ctrl+C during a stage, setup, or reviewer command now kills its
+  process tree before re-raising cancellation, preventing child processes from
+  continuing after the CLI exits. POSIX signal handling is unchanged.
+
+### Security
+
+- The hosted approval check now classifies the paths that differ between the base and
+  Git's merge of the pull-request head into it, in addition to the paths changed since the
+  merge base. With criss-cross history, Git's single chosen merge base could hide a change
+  the merge makes, such as an `-s ours` merge that reverts a high-risk side branch already
+  in the base, so the pull request no longer required human approval.
+
+- The hosted approval check now also classifies every path touched by a non-merge commit
+  in `base..head`. A GitHub rebase merge replays those commits and drops merge commits, so
+  a merge commit whose resolution cancelled an earlier high-risk commit hid that commit
+  from both the branch diff and the merge result, yet a rebase merge landed it without
+  human approval. A branch that changes a high-risk path and later reverts it now requires
+  approval.
+- Commit-path classification suppresses signature display even when `log.showSignature`
+  is enabled, so signature diagnostics cannot obscure a high-risk path.
+
+- Attestation verification now classifies the paths that differ between the attested base
+  and Git's merge of the head into it when it checks a test skip and the review-executor
+  policy. Previously, criss-cross history could hide a source change behind Git's single
+  chosen merge base, so a test skip was accepted even though merging the head changed
+  source.
 
 ## [0.6.0] - 2026-09-13
 

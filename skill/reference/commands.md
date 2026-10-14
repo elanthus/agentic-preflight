@@ -72,7 +72,7 @@ preserved unless `--force` is explicit. At least one agent or custom target is r
 
 ### `agentic-preflight start --intent TEXT [--base-ref REF] [--replace]`
 Creates a run and prepares its validation worktree according to the configured
-[worktree mode](https://github.com/elanthus/agentic-preflight/blob/main/docs/worktree-modes.md).
+[worktree mode](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/worktree-modes.md).
 The intent is persisted as the user's objective and acceptance criteria. The parser
 accepts `start` without `--intent`, but the command then fails with exit 3 and
 `intent_required`.
@@ -104,15 +104,15 @@ result already exists as an untracked or ignored local file, and lists those fil
 `start` classifies complete local evidence per stage, including when synchronization
 leaves the exact attested commit unchanged, and returns the next required
 command. Equal base/head trees and matching context
-can preserve review and docs across rewritten commits. Shell stages require committed
-content contracts. Read `data.applicability`; `invalid` and `unknown` require a fresh
-stage, and later-stage candidates remain available while earlier stages are pending.
+can preserve review and docs across rewritten commits. Applicable lint and test stages
+rerun in every new run, including commits with identical trees. Read `data.applicability`;
+`invalid` and `unknown` require a fresh stage, and later-stage candidates remain available while earlier stages are pending.
 Refuses a dirty tree (exit 3, `dirty_tree`) and a branch with no changes over the base
 (exit 3, `empty_diff`). In-place mode protects `[worktree] copy_files` where they are;
 isolated modes copy them. Every mode refuses an entry git is not already ignoring.
 
 Returns `data.worktree_path` — **absolute**. Use it; do not rely on `cd` persisting.
-See [isolated worktree locations](https://github.com/elanthus/agentic-preflight/blob/main/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git)
+See [isolated worktree locations](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git)
 for the default location and `[worktree] root` override.
 
 Returns `data.housekeeping`, a read-only inventory of this clone's validation
@@ -127,7 +127,7 @@ exists. A released reusable runner whose source remains is `retained` with reaso
 `data.housekeeping` is `{"error": "..."}` and `start` still succeeds.
 
 For dependency installation, ignored build inputs, caches, and `setup_command`,
-see [Preparing the validation worktree](https://github.com/elanthus/agentic-preflight/blob/main/docs/worktree-modes.md#preparing-the-validation-worktree).
+see [Preparing the validation worktree](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/worktree-modes.md#preparing-the-validation-worktree).
 Use `copy_files` only for ignored files such as `.env`; directories are refused with a
 setup instruction.
 
@@ -268,8 +268,7 @@ self-review to other text revokes approval.
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
 Stages run in the fixed order docs → lint → test after review becomes green. Running lint
 before the potentially expensive test command means a committed mechanical lint repair
-cannot invalidate an already-green test result. With local test authority, after lint
-the CLI automatically skips
+cannot invalidate an already-green test result. After lint the CLI automatically skips
 the software test command when every changed path is documentation or standard CI
 configuration. This is an explicit state-machine transition, not an agent judgment:
 `status` and the final attestation note the test stage as `skipped`. A mixed diff
@@ -356,7 +355,7 @@ Mints a confirmation token and summarises the remote, refspec, branch, and commi
 The summary also includes the configured PR mode, `automated_cleanup` setting, and
 deterministic risk classification and verdict. Whether the agent may push without
 asking follows
-[push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/main/docs/configuration.md#push-and-pull-request-authorization).
+[push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/configuration.md#push-and-pull-request-authorization).
 Follow the skill's [PR lifecycle and cleanup](../SKILL.md#pull-request-lifecycle-and-cleanup)
 and [merge approval guidance](../SKILL.md#escalation-etiquette) for the returned policy.
 Only `[gate] mode = "manual"` exits 4 and puts the literal `git push` command in

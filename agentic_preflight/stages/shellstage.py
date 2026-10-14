@@ -222,35 +222,44 @@ else:
                 process.kill()
 
 
-@contextmanager
-def _kill_on_termination(process: subprocess.Popen) -> Iterator[None]:
-    """Kill ``process``'s tree if SIGTERM or SIGINT arrives while it runs."""
-    if sys.platform == "win32":
-        yield
-        return
+if sys.platform == "win32":
 
-    previous: dict[int, signal.Handlers | int | Callable[..., object] | None] = {}
+    @contextmanager
+    def _kill_on_termination(process: subprocess.Popen) -> Iterator[None]:
+        """Stop the Windows stage tree before propagating Ctrl+C."""
+        try:
+            yield
+        except KeyboardInterrupt:
+            _kill_process_tree(process)
+            raise
 
-    def restore() -> None:
-        for number, old_handler in previous.items():
-            signal.signal(number, old_handler)
-        previous.clear()
+else:
 
-    def handler(signum: int, frame: object) -> None:
-        _kill_process_tree(process)
-        restore()
-        signal.raise_signal(signum)
+    @contextmanager
+    def _kill_on_termination(process: subprocess.Popen) -> Iterator[None]:
+        """Kill ``process``'s tree if SIGTERM or SIGINT arrives while it runs."""
+        previous: dict[int, signal.Handlers | int | Callable[..., object] | None] = {}
 
-    try:
-        for number in (signal.SIGTERM, signal.SIGINT):
-            previous[int(number)] = signal.signal(number, handler)
-    except ValueError:
-        # Signal handlers can only be installed from the main thread.
-        restore()
-    try:
-        yield
-    finally:
-        restore()
+        def restore() -> None:
+            for number, old_handler in previous.items():
+                signal.signal(number, old_handler)
+            previous.clear()
+
+        def handler(signum: int, frame: object) -> None:
+            _kill_process_tree(process)
+            restore()
+            signal.raise_signal(signum)
+
+        try:
+            for number in (signal.SIGTERM, signal.SIGINT):
+                previous[int(number)] = signal.signal(number, handler)
+        except ValueError:
+            # Signal handlers can only be installed from the main thread.
+            restore()
+        try:
+            yield
+        finally:
+            restore()
 
 
 def _drain_after_kill(process: subprocess.Popen) -> tuple[str | None, str | None, bool]:

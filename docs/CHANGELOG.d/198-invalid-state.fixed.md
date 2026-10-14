@@ -1,1 +1,0 @@
-- Retired CI delegation migration preserves invalid saved run states for validation to reject, rather than concealing them as orphaned runs. Exit-code recovery guidance directs invalid approval review JSON back to the reviews file.

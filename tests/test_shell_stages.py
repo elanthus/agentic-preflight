@@ -599,6 +599,34 @@ def test_timeout_kills_the_whole_tree_on_windows(tmp_path, monkeypatch):
 
 
 @requires_windows
+def test_ctrl_c_kills_the_windows_stage_tree_and_preserves_cancellation(tmp_path, monkeypatch):
+    commands: list[list[str]] = []
+
+    class InterruptedProcess:
+        pid = 4242
+
+        def communicate(self, **kwargs):
+            raise KeyboardInterrupt("cancelled stage")
+
+    monkeypatch.setattr(
+        shellstage.subprocess, "Popen", lambda *_args, **_kwargs: InterruptedProcess()
+    )
+    monkeypatch.setattr(
+        shellstage.subprocess,
+        "run",
+        lambda argv, **_kwargs: (
+            commands.append(argv) or subprocess.CompletedProcess(argv, 0, b"", b"")
+        ),
+    )
+
+    with pytest.raises(KeyboardInterrupt, match="cancelled stage"):
+        shellstage.run_stage(tmp_path, "ignored", timeout_seconds=1)
+
+    taskkill = command_plan.windows_system_tool("taskkill.exe")
+    assert commands == [[taskkill, "/F", "/T", "/PID", "4242"]]
+
+
+@requires_windows
 @pytest.mark.parametrize(
     ("outcome", "label"),
     [

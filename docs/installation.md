@@ -73,6 +73,10 @@ uv tool upgrade agentic-preflight
 agentic-preflight integrations update
 ```
 
+For 0.6.0 → 0.7.0, follow the [upgrade guide](upgrade-0.7.md) before starting new
+runs: align the protected verifier, remove retired configuration, and inspect active
+runs. New runs always execute applicable lint and test stages locally.
+
 When upgrading from a version that wrote run/findings journals, interrupted runs
 with a pending journal are retired at the next `start` in their source worktree,
 and validation starts fresh. `status` directs an affected run to restart. Audit

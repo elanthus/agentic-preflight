@@ -29,7 +29,7 @@ their reasons.
 | --- | --- | --- |
 | Required stages occur in order | `machine.py` | Legal `(state, action)` pairs; graph reachability tests include explicit skips |
 | An action has sufficient evidence | `runs/review.py`, `runs/resolve.py`, `runs/stages.py` | Validated submissions, finding dispositions, command results and coordinator preconditions |
-| Evidence applies to current inputs | `runs/review_coverage.py`, `runs/evidence.py`, `refresh_validation.py` | Snapshot bindings, declared input fingerprints and conservative applicability decisions |
+| Evidence applies to current inputs | `runs/review_coverage.py`, `runs/evidence.py`, `refresh_validation.py` | Snapshot bindings, review/docs fingerprints and conservative applicability decisions |
 | Concurrent commands do not overwrite a run | `cli_support.py`, `store.py` | Per-run operation locks, record locks, an events lock for appends, and optional sequence checks |
 | Each local record replacement is atomic | `store.py` | Findings are replaced before the run under the record lock; the pair is best-effort across interruption |
 | Source content matches completed validation | `runs/mergeback.py` | Recorded attempt inputs and Git tree equality; changed resolutions reopen review |
@@ -120,7 +120,7 @@ examined. It does not prove understanding or defect detection. Git notes remain
 mutable, unsigned audit records, and the local hook remains advisory. See
 [limits](limits.md) and [attestation enforcement](attestations-and-ci.md).
 
-The executable recovery examples are in `tests/test_transaction_recovery.py`,
+The executable recovery examples are in `tests/test_store.py`, `tests/test_stage_recovery.py`,
 `tests/test_mergeback.py`, `tests/test_evidence_refresh.py` and
 `tests/test_publish.py`. They complement the ordering checks in
 `tests/test_machine_properties.py`.

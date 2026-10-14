@@ -418,19 +418,20 @@ def test_docs_invalidates_changed_delivered_context(field, reason):
     assert fp.classify_docs(before, after).reasons == (reason,)
 
 
-def test_doc_surface_preserves_historical_fingerprint_fields(tmp_path):
+@pytest.mark.parametrize("content", [b"hello\n", b"hello\r\n"])
+def test_doc_surface_preserves_historical_fingerprint_fields(tmp_path, content):
     from agentic_preflight.stages.docs import build_inventory
 
-    (tmp_path / "README.md").write_text("hello\n", encoding="utf-8")
+    (tmp_path / "README.md").write_bytes(content)
     inventory = build_inventory(tmp_path, [], [])
     assert "exists" not in inventory[0].as_dict()
     assert fp.doc_surface(tmp_path, inventory) == [
         {
             "path": "README.md",
             "exists": True,
-            "size": 6,
+            "size": len(content),
             "touched_by_diff": False,
-            "content_sha256": hashlib.sha256(b"hello\n").hexdigest(),
+            "content_sha256": hashlib.sha256(content).hexdigest(),
         }
     ]
 

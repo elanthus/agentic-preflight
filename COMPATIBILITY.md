@@ -46,6 +46,13 @@ so a command that relies on it already behaves differently there than it does lo
 Program resolution is PATH-only: a bare command name is never looked up in a working
 directory, so a repository cannot supply the program that validates it.
 
+## Windows cancellation
+
+In 0.7.0, Ctrl+C during a stage or setup command cleans up its Windows process tree
+and propagates the interrupt. The CLI creates a separate process group, so the child
+does not receive the console Ctrl+C directly; cleanup uses the existing bounded
+`taskkill` helper. POSIX signal handling is unchanged.
+
 ## Validation tiers
 
 The supported combinations receive different validation frequencies so pull-request
@@ -66,9 +73,16 @@ Other POSIX systems and newer Python prereleases may work, but they are best eff
 until they are added to the supported matrix. Successful installation on a version
 outside the matrix does not make that version supported.
 
+## Upgrading from 0.6.0 to 0.7.0
+
+Follow the [upgrade guide](docs/upgrade-0.7.md) for rollout order, configuration
+cleanup, saved-run inspection, verifier alignment, and rollback limits. Run schema 2,
+attestation schema 7, and fingerprint version 2 are retained; the schema number alone
+does not guarantee that an older verifier accepts new policy fields or evidence.
+
 ## Compatibility changes
 
-The release after 0.6.0 requires Click 8.2 or newer. Documentation inventory entries
+Agentic Preflight 0.7.0 requires Click 8.2 or newer. Documentation inventory entries
 no longer contain `exists`, and detected command candidates no longer contain `trust`;
 consumers should use `path`, `size`, `touched_by_diff`, and candidate `source`. Command
 candidates come from supported project manifests; workflow run lines are no longer
@@ -86,7 +100,7 @@ Versioning. The Python modules are internal and have no compatibility promise. W
 the version is 0.x, a minor release may include breaking changes, and each one is
 called out in `CHANGELOG.md`.
 
-Exit code 6 is new in the release after 0.6.0 and means a command-line usage error.
+Exit code 6 is new in 0.7.0 and means a command-line usage error.
 Earlier releases exited 2 for usage errors, the same code as a failed stage, and
 printed nothing on stdout. A wrapper that treated exit 2 from a malformed invocation
 as a stage failure should now expect 6 and a `usage_error` envelope. `hook-check`
@@ -151,7 +165,7 @@ remain readable for inspection and cleanup. Run history is preserved.
 
 ## Saved pending run updates
 
-The release after 0.6.0 removes the local run/findings write-ahead journal. An
+Agentic Preflight 0.7.0 removes the local run/findings write-ahead journal. An
 interrupted nonterminal run with `pending-update.json` cannot resume validation:
 `status` directs you to `start`, and other validation commands refuse it.
 
