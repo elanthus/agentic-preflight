@@ -89,15 +89,36 @@ def reviewer_effort(default: str) -> str:
 
 
 def run_cli(argv: list[str], prompt: str) -> subprocess.CompletedProcess[str]:
+    # A file owned by the eval harness survives wrapper/CLI failures and outer
+    # timeouts. Never mix telemetry into the strict findings submission.
+    events_path = os.environ.get("AP_REVIEWER_EVENTS_FILE")
     try:
-        result = subprocess.run(
-            argv,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds(),
-            check=False,
-        )
+        if events_path:
+            status_path = Path(events_path + ".status.json")
+            status_path.write_text('{"completed":false}\n', encoding="utf-8")
+            with open(events_path, "w", encoding="utf-8") as events:
+                result = subprocess.run(
+                    argv,
+                    input=prompt,
+                    stdout=events,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=timeout_seconds(),
+                    check=False,
+                )
+            result.stdout = Path(events_path).read_text(encoding="utf-8", errors="replace")
+            status_path.write_text(
+                json.dumps({"completed": result.returncode == 0}) + "\n", encoding="utf-8"
+            )
+        else:
+            result = subprocess.run(
+                argv,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds(),
+                check=False,
+            )
     except FileNotFoundError as exc:
         raise ReviewerError(f"reviewer CLI not found: {argv[0]}") from exc
     except subprocess.TimeoutExpired as exc:

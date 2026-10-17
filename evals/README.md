@@ -1,7 +1,7 @@
 # Public regression eval
 
 This directory is a synthetic smoke corpus for the real Agentic Preflight product path.
-Method `public-smoke-v5` gives each reviewed snapshot an isolated two-commit Git repository
+Method `public-smoke-v6` gives each reviewed snapshot an isolated two-commit Git repository
 with neutral metadata. Each tiny, plainly fictional project has base, vulnerable, and fixed
 snapshots. The runner creates real Git repositories and drives `init`, `start`, `context`,
 and command review through `python -m agentic_preflight`.
@@ -10,14 +10,14 @@ It is not the private decision-quality evaluation, does not contain private case
 artifacts, and must not be used as a substitute or comparison point for that evaluation.
 The scripted dry run proves orchestration and scoring, not reviewer judgment.
 
-Run the deterministic, model-free mode:
+Run the model-free mode with deterministic scoring:
 
 ```console
 uv run python evals/run.py --mode dry --out /tmp/agentic-preflight-evals
 ```
 
-The pytest suite checks scripted scoring outcomes and byte-identical reports from repeated
-runs. There is no committed summary golden or separate dry-eval CI job. All corpus cases
+The pytest suite checks repeated scripted scoring outcomes independently of measured timing.
+There is no committed summary golden or separate dry-eval CI job. All corpus cases
 are validated; Git-history isolation is checked with one case per selected snapshot.
 
 Real mode uses the worked Codex or Claude reviewer wrapper. It is deliberately authorization
@@ -30,7 +30,10 @@ AP_EVAL_AUTHORIZED=1 uv run python evals/run.py --mode real --executor claude --
 ```
 
 Pass `--grounding on` or `--grounding off` to run one setting (24 wrapper invocations in real
-mode). The output directory receives deterministic `summary.json` and a one-table `summary.md`.
-`reviewer_invocations` records launches. Dry-mode provider requests, tokens, and cost are zero;
-real-mode values are `null` unless measured outside this runner.
+mode). The output directory receives `summary.json` and `summary.md` with scoring, full
+evaluation and snapshot runtimes, findings, workflow state visits and timing, and CLI token
+usage. Reports include timestamps and measured durations, so their bytes vary across runs.
+`reviewer_invocations` records wrapper launches. Token accounting separates exact totals
+from partial observations; missing evidence stays `null`. Dry-mode provider requests,
+tokens, and cost are zero. Real-mode request counts and cost remain `null`.
 See [the full method and limits](../docs/regression-eval.md).

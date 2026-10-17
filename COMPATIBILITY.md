@@ -53,6 +53,14 @@ and propagates the interrupt. The CLI creates a separate process group, so the c
 does not receive the console Ctrl+C directly; cleanup uses the existing bounded
 `taskkill` helper. POSIX signal handling is unchanged.
 
+## Evaluation report compatibility
+
+The eval report method is now `public-smoke-v6`. It adds measured runtime, findings,
+state-history timing, and CLI token accounting; full reports are no longer byte-identical
+across runs. Consumers must preserve `null` exact totals and distinguish partial observations
+from complete usage. Run schema 2 is unchanged: new `state_transition` audit events do not
+add fields to `run.json`, and older run histories remain readable without backfilling timing.
+
 ## Validation tiers
 
 The supported combinations receive different validation frequencies so pull-request

@@ -319,7 +319,11 @@ def test_a_torn_final_event_line_is_dropped(store):
     store.append_event("r_abc123", {"event": "two"})
     with open(store.events_path("r_abc123"), "a", encoding="utf-8") as handle:
         handle.write('{"event": "thr')
-    assert [event["event"] for event in store.load_events("r_abc123")] == ["one", "two"]
+    assert [event["event"] for event in store.load_events("r_abc123")] == [
+        "state_transition",
+        "one",
+        "two",
+    ]
 
 
 def test_a_torn_earlier_event_line_is_a_read_error(store):
@@ -336,7 +340,11 @@ def test_a_final_event_line_cut_inside_a_multibyte_character_is_dropped(store):
     store.append_event("r_abc123", {"event": "two"})
     with open(store.events_path("r_abc123"), "ab") as handle:
         handle.write(b'{"event": "caf' + "\u20ac".encode("utf-8")[:2])
-    assert [event["event"] for event in store.load_events("r_abc123")] == ["one", "two"]
+    assert [event["event"] for event in store.load_events("r_abc123")] == [
+        "state_transition",
+        "one",
+        "two",
+    ]
 
 
 def test_invalid_utf8_on_an_earlier_event_line_is_a_read_error(store):
@@ -364,10 +372,17 @@ def test_append_event_waits_for_the_events_lock(store):
         worker = threading.Thread(target=append)
         worker.start()
         assert not appended.wait(0.5)
-        assert [event["event"] for event in store.load_events("r_abc123")] == ["one"]
+        assert [event["event"] for event in store.load_events("r_abc123")] == [
+            "state_transition",
+            "one",
+        ]
     worker.join(timeout=10)
     assert appended.is_set()
-    assert [event["event"] for event in store.load_events("r_abc123")] == ["one", "two"]
+    assert [event["event"] for event in store.load_events("r_abc123")] == [
+        "state_transition",
+        "one",
+        "two",
+    ]
 
 
 @pytest.mark.parametrize("failures", [0, 1, 2, 3])

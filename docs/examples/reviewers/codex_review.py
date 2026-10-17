@@ -33,6 +33,7 @@ def main() -> int:
             argv = [
                 executable,
                 "exec",
+                "--json",
                 "--ephemeral",
                 "--sandbox",
                 "read-only",

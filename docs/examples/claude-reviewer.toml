@@ -1,6 +1,6 @@
 # Complete repository configuration using Claude as an independent reviewer.
 # Each `review run` or shadow `review compare` invokes the reviewer wrapper once. The
-# wrapper does not expose provider request, token, or cost telemetry; do not infer it
+# wrapper can capture CLI token events with AP_REVIEWER_EVENTS_FILE; do not infer usage
 # from this invocation. Defaults: `claude-sonnet-5` at explicit `high` effort (Claude Code
 # 2.1.236, via `--effort`).
 [general]
