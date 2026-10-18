@@ -186,6 +186,16 @@ class Store:
         run.updated_at = run.created_at
         self.run_dir(run.run_id).mkdir(parents=True, exist_ok=True)
         _atomic_write(self.run_path(run.run_id), run.model_dump_json(indent=2))
+        self.append_event(
+            run.run_id,
+            {
+                "event": "state_transition",
+                "from": None,
+                "to": run.state.value,
+                "action": None,
+                "monotonic_ns": time.monotonic_ns(),
+            },
+        )
         return run
 
     def load_run(self, run_id: str) -> RunDoc:
@@ -288,6 +298,9 @@ class Store:
                     json.dumps([f.model_dump(mode="json") for f in findings], indent=2),
                 )
             _atomic_write(path, run.model_dump_json(indent=2))
+            for event in run._state_events:
+                self.append_event(run_id, {**event, "seq": run.seq})
+            run._state_events.clear()
 
     # -- findings ------------------------------------------------------------
 

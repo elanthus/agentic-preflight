@@ -1,8 +1,8 @@
 # Complete repository configuration using Codex as an independent reviewer.
 # Each `review run` or shadow `review compare` invokes the reviewer wrapper once. The
-# wrapper does not expose provider request, token, or cost telemetry; do not infer it
-# from this invocation. Defaults: `gpt-5.3-codex` at explicit `medium` effort (Codex CLI
-# 0.153.0, via `-c model_reasoning_effort=...`).
+# wrapper can capture CLI token events with AP_REVIEWER_EVENTS_FILE; request counts
+# and cost remain unknown. Defaults: `gpt-5.3-codex` at explicit `medium` effort
+# (via `-c model_reasoning_effort=...`).
 [general]
 base_ref = "main"
 

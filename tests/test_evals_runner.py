@@ -26,7 +26,7 @@ def test_dry_run_scores_scripted_misses_and_false_positives(tmp_path):
         case_ids=("unguarded-division", "off-by-one-page"),
     )
 
-    assert summary["method_version"] == "public-smoke-v5"
+    assert summary["method_version"] == "public-smoke-v6"
     assert summary["reviewer_invocations"] == 8
     assert summary["provider_requests"] == 0
     assert summary["provider_tokens"] == 0
@@ -46,7 +46,21 @@ def test_dry_run_scores_scripted_misses_and_false_positives(tmp_path):
         "provider_requests",
         "provider_tokens",
         "provider_cost_usd",
+        "started_at",
+        "finished_at",
+        "runtime_seconds",
+        "finding_count",
+        "observed_finding_count",
+        "finding_snapshots_measured",
+        "observed_findings_by_severity",
+        "usage",
+        "workflow",
     }
+    assert summary["runtime_seconds"] > 0
+    assert summary["finding_count"] == 4
+    assert summary["usage"]["status"] == "complete"
+    assert summary["workflow"]["complete"]
+    assert summary["workflow"]["states"]["REVIEW_COMMAND_RUNNING"]["visits"] == 8
     for setting in ("on", "off"):
         result = summary["grounding"][setting]
         assert result["unresolved"] == 0, json.dumps(result, indent=2)
@@ -82,7 +96,7 @@ def test_reviewer_uses_active_python(tmp_path, monkeypatch, mode, executor):
     assert Path(result.output.strip()).resolve() == executable.resolve()
 
 
-def test_summary_json_is_byte_identical_across_runs(tmp_path):
+def test_scoring_is_identical_across_runs_with_independently_measured_telemetry(tmp_path):
     first = tmp_path / "first"
     second = tmp_path / "second"
     kwargs = {
@@ -95,7 +109,21 @@ def test_summary_json_is_byte_identical_across_runs(tmp_path):
     eval_run.run_evaluation(out=first, **kwargs)
     eval_run.run_evaluation(out=second, **kwargs)
 
-    assert (first / "summary.json").read_bytes() == (second / "summary.json").read_bytes()
+    def scoring(value):
+        if isinstance(value, dict):
+            return {
+                key: scoring(item)
+                for key, item in value.items()
+                if key not in {"started_at", "finished_at", "runtime_seconds", "workflow"}
+            }
+        if isinstance(value, list):
+            return [scoring(item) for item in value]
+        return value
+
+    one = json.loads((first / "summary.json").read_text())
+    two = json.loads((second / "summary.json").read_text())
+    assert scoring(one) == scoring(two)
+    assert one["started_at"] != two["started_at"]
 
 
 def test_build_repo_copies_changed_same_size_file_with_fresh_mtime(tmp_path):
@@ -147,7 +175,8 @@ def test_real_mode_requires_authorization_and_reports_projected_wrapper_invocati
     expected_invocations = len(tuple(eval_run.discover_cases())) * 2 * 2
     assert exit_code == 2
     assert f"{expected_invocations} reviewer wrapper invocations" in captured.err
-    assert "provider requests, tokens, and cost are unavailable" in captured.err
+    assert "provider requests and cost are unavailable" in captured.err
+    assert "CLI token usage may be partial or unknown" in captured.err
     assert "AP_EVAL_AUTHORIZED=1" in captured.err
     assert not (tmp_path / "results").exists()
 
@@ -155,7 +184,8 @@ def test_real_mode_requires_authorization_and_reports_projected_wrapper_invocati
 def test_reviewer_invocation_count_comes_from_the_command_review_envelope():
     assert eval_run._reviewer_invocations({"data": {"reviewer_invocations": 0}}) == 0
     assert eval_run._reviewer_invocations({"data": {"reviewer_invocations": 1}}) == 1
-    assert eval_run._reviewer_invocations({"data": {}}) == 0
+    assert eval_run._reviewer_invocations({"data": {}}) is None
+    assert eval_run._reviewer_invocations({"data": {"reviewer_invocations": True}}) is None
 
 
 def test_gold_leakage_inside_snapshot_is_rejected(tmp_path):
@@ -164,15 +194,20 @@ def test_gold_leakage_inside_snapshot_is_rejected(tmp_path):
     (copied / "vulnerable" / "gold.json").write_text("planted scorer evidence\n")
     case = eval_run.load_case(copied)
 
-    with pytest.raises(eval_run.LeakageError, match=r"gold\.json"):
-        eval_run.run_case_snapshot(
-            case,
-            snapshot="vulnerable",
-            mode="dry",
-            executor=None,
-            grounding="on",
-            workspace=tmp_path / "workspace",
-        )
+    result = eval_run.run_case_snapshot(
+        case,
+        snapshot="vulnerable",
+        mode="dry",
+        executor=None,
+        grounding="on",
+        workspace=tmp_path / "workspace",
+    )
+    assert result["status"] == "unresolved"
+    assert result["failure"]["type"] == "LeakageError"
+    assert "gold.json" in result["failure"]["message"]
+    assert result["reviewer_invocations"] == 0
+    assert result["finding_count"] is None
+    assert result["runtime_seconds"] > 0
 
 
 def test_discover_cases_ignores_hidden_and_non_case_directories(tmp_path):

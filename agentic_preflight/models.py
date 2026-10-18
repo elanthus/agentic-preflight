@@ -13,7 +13,15 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    field_validator,
+    model_validator,
+)
 
 from .digests import json_digest
 from .fingerprints import Classification, DocsFingerprint, ReviewFingerprint, ShellFingerprint
@@ -247,6 +255,10 @@ class MergebackAttempt(BaseModel):
 
 class RunDoc(BaseModel):
     """The persisted state document, ``runs/<run_id>/run.json``."""
+
+    # Audit transitions are flushed only after a successful store transaction.
+    # Keep intermediate states without changing the persisted run schema.
+    _state_events: list[dict[str, Any]] = PrivateAttr(default_factory=list)
 
     model_config = ConfigDict(extra="forbid")
 

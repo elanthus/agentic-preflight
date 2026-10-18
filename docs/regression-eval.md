@@ -38,7 +38,8 @@ CLI in subprocesses for `init --no-hook`, `start --intent`, `context`, and `revi
 Grounding-on and grounding-off runs use the same flow. Every fixture tree carries a
 `CODEOWNERS` file and an `AGENTS.md`, and a grounding-on run fails unless `context` returns
 at least one grounding entry for every reviewed snapshot. Fixture commit identity and dates are
-fixed, and reports omit timestamps, so identical inputs produce byte-identical JSON.
+fixed. Scoring is deterministic; runtime and state timing are measured independently and
+make complete reports vary across runs.
 
 ## Scoring
 
@@ -52,7 +53,10 @@ Case loading fails unless every gold range intersects the lines changed from bas
 vulnerable. Failures before an accepted submission are
 reported as unresolved; they are not silently converted to catches or misses. A failed
 `init`, `start`, `context`, or `review run` marks only that case and snapshot unresolved,
-and the run continues to write `summary.json` and `summary.md`.
+and the run continues to write `summary.json` and `summary.md`. Repository setup errors,
+leakage guards, malformed CLI envelopes, and scoring errors also produce an unresolved
+snapshot with its failed operation and diagnostic. Leakage guards still prevent the review
+from starting. The complete failure envelope is retained when one was returned.
 
 Severity agreement checks whether a matched vulnerable finding falls within the gold severity
 range. Keyword hit rate is the share of matched findings whose title or detail contains a
@@ -66,7 +70,62 @@ and aggregate catch, fixed false-positive, unresolved, severity-agreement, and
 keyword-hit-rate values for each grounding setting.
 `summary.md` opens with the mode and executor, then presents the same case outcomes and
 aggregates in one table: booleans as `yes` or `no`, missing values as `n/a`, and rates
-with three decimals.
+with three decimals. Additional tables present token categories and workflow states.
+
+## Runtime, findings, states, and tokens
+
+Method `public-smoke-v6` adds telemetry to both reports without changing the scoring rules:
+
+- `started_at` and `finished_at` are UTC timestamps. `runtime_seconds` uses a monotonic
+  clock: each snapshot includes repository construction, CLI execution, review, and scoring;
+  the suite includes case loading, all snapshots, and temporary-workspace cleanup, ending
+  before report serialization. Each grounding setting also records the sum of snapshot
+  runtimes. Failed snapshots retain their runtime.
+- `finding_count` and `findings` retain accepted submissions per snapshot. A failed run
+  without an accepted submission has unknown findings, not zero. Aggregate `finding_count`
+  is `null` if any snapshot is unmeasured; `observed_finding_count`,
+  `finding_snapshots_measured`, and `observed_findings_by_severity` describe the measured
+  subset. Counts represent submitted findings, without deduplicating across independent
+  snapshots or grounding settings. Gold-location matches remain separate scoring evidence.
+- `workflow` contains ordered state visits, the final state, and visit counts and seconds
+  per state. State-transition audit events retain intermediate states within one committed
+  transaction. Repeated visits accumulate. The last state's duration ends when the snapshot
+  observation stops. Missing, inconsistent, or truncated history sets `complete` to false;
+  an unknown final duration stays `null`, while `observed_duration_seconds` retains measured
+  intervals. Monotonic times are compared only within this evaluation on the same host.
+- Each snapshot's `usage` has a source, a `complete`, `partial`, or `unknown` status, and
+  observed token categories. Aggregate `usage.totals` contains exact counts only when every
+  snapshot has complete evidence for that category. `usage.observed` retains known counts
+  from partial records; `usage.measurements` reports coverage by status. `provider_tokens`
+  is the exact aggregate total or `null`. Do not read a partial observed count as a total.
+
+Codex uses `codex exec --json` completion events. Input includes cached input; output
+includes reasoning output, so those subsets are not added again. Claude uses
+`--output-format stream-json --verbose` and prefers the final `modelUsage` aggregate,
+which includes subagents. Claude's uncached input, cache-read input, and cache-creation
+input are added to normalize total input. Its `result.usage` covers only the main loop
+and is reported as partial when no whole-call per-model aggregate is available.
+Assistant-message usage is deduplicated by message ID; its output count is a placeholder
+and remains unknown. A crash result's zeroed counters do not erase preceding observations.
+Error results, missing fields, malformed streams, and interrupted CLI processes retain
+available evidence with partial or unknown status.
+
+The harness captures CLI stdout directly to a temporary file outside the reviewer tree,
+through the worked wrappers' `AP_REVIEWER_EVENTS_FILE` interface. This retains flushed
+events on CLI failure, wrapper timeout, or an outer review-command timeout. A separate
+completion marker prevents a killed process's earlier completion event being mistaken
+for a complete invocation. Findings submission stdout stays unchanged. Temporary raw
+events are removed after normalized metrics and diagnostics have been collected.
+An abrupt termination of the eval runner itself can prevent report writing.
+
+These are CLI-reported usage measurements, not independent billing verification or a
+count of provider requests. Unsupported categories stay `null`. Known zero is reserved
+for dry mode or an explicitly unlaunched wrapper. The smoke eval still ends after review;
+its full runtime is the full evaluation, not a lint/test/merge-back lifecycle.
+
+Usage semantics follow the providers' documentation:
+[Codex JSONL events](https://learn.chatgpt.com/docs/non-interactive-mode#make-output-machine-readable)
+and [Claude token accounting](https://code.claude.com/docs/en/agent-sdk/cost-tracking).
 
 ## Running dry mode
 
@@ -79,8 +138,8 @@ uv run python evals/run.py --mode dry --out /tmp/agentic-preflight-evals
 Use `--grounding on` or `--grounding off` for one setting; the default is `both`.
 
 CI checks scripted catches, misses, fixed-snapshot false positives, and unresolved outcomes
-through the pytest suite. A separate test runs identical inputs twice and compares the
-resulting JSON bytes. Reports are not compared with committed fixture commit hashes;
+through the pytest suite. A separate test runs identical inputs twice and compares scoring
+with measured timing excluded. Reports are not compared with committed fixture commit hashes;
 intentional corpus or configuration changes do not require regenerating a summary golden.
 All cases retain fixture-validation coverage.
 
@@ -100,9 +159,9 @@ These commands are prepared for maintainer authorization; they are not run by CI
 one grounding setting halves the wrapper-invocation count to 24. A wrapper invocation is not
 a provider request: a CLI can fail before calling a provider, retry, use tools, or make more
 than one provider request. `summary.json` records `reviewer_invocations` and marks
-`provider_requests`, `provider_tokens`, and `provider_cost_usd` as `null`; those measurements
-are unavailable unless separately collected from provider telemetry. In dry mode all three are
-known zero.
+`provider_requests` and `provider_cost_usd` as `null`; wrapper launches do not establish
+either quantity. Token usage is measured from CLI output as described above. In dry mode
+requests, tokens, and cost are known zero.
 `AP_EVAL_AUTHORIZED=1` authorizes the disclosed wrapper launches only; it is not a
 provider-request or spend cap.
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import shlex
+import time
 import uuid
 from collections.abc import Callable, Hashable, Sequence
 from dataclasses import dataclass, field
@@ -183,6 +184,17 @@ def _apply(run: RunDoc, action: Action) -> None:
             state=run.state.value,
             run_id=run.run_id,
         ) from exc
+    if run.state is not previous:
+        run._state_events.append(
+            {
+                "event": "state_transition",
+                "from": previous.value,
+                "to": run.state.value,
+                "action": action.value,
+                "at": _now(),
+                "monotonic_ns": time.monotonic_ns(),
+            }
+        )
     # A reopen while review is already awaiting findings discards no progress.
     if action in RESTART_ACTIONS and run.state is not previous:
         run.validation_restarts += 1

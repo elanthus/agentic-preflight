@@ -412,6 +412,12 @@ Full captured output. Copied-file contents are redacted.
 
 ### `agentic-preflight events [--limit N]`
 Run history, oldest first.
+New runs include `state_transition` events for creation and committed state changes,
+including intermediate states within a transaction. Events carry `from`, `to`, `action`,
+UTC `at`, and `monotonic_ns`; committed changes also carry the run `seq`. Creation has
+null `from` and `action`. Rolled-back transactions emit no transitions. Audit history is
+append-only and may be incomplete after an interrupted write; older histories are not
+backfilled. Monotonic timestamps are suitable for intervals within one host boot.
 
 ### `agentic-preflight abort [--force]`
 Ends the run and releases the worktree. Exits 5 if unmerged fix commits would be lost;

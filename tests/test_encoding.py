@@ -40,7 +40,7 @@ def test_events_round_trip_non_ascii(store):
     store.create_run(make_run())
     store.append_event("r_abc123", {"kind": "note", "detail": NON_ASCII})
 
-    assert store.load_events("r_abc123")[0]["detail"] == NON_ASCII
+    assert store.load_events("r_abc123")[-1]["detail"] == NON_ASCII
 
 
 def test_the_events_log_uses_unix_line_endings(store):
@@ -52,7 +52,7 @@ def test_the_events_log_uses_unix_line_endings(store):
     raw = store.events_path("r_abc123").read_bytes()
 
     assert b"\r\n" not in raw
-    assert raw.count(b"\n") == 2
+    assert raw.count(b"\n") == 3
 
 
 def test_findings_round_trip_non_ascii(store):

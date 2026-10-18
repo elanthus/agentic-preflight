@@ -12,13 +12,22 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from agentic_preflight.models import FindingSubmission
+from evals.metrics import (
+    aggregate_states,
+    aggregate_usage,
+    read_usage,
+    workflow_metrics,
+    zero_usage,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 CASES_ROOT = ROOT / "evals" / "cases"
@@ -369,11 +378,11 @@ def _keyword_hit(finding: dict[str, Any], category: str) -> bool:
     return any(word in text for word in CATEGORY_WORDS[category])
 
 
-def _reviewer_invocations(envelope: dict[str, Any]) -> int:
+def _reviewer_invocations(envelope: dict[str, Any]) -> int | None:
     """Read the command-review launch count from the product envelope."""
     data = envelope.get("data")
-    value = data.get("reviewer_invocations") if isinstance(data, dict) else 0
-    return value if isinstance(value, int) and value >= 0 else 0
+    value = data.get("reviewer_invocations") if isinstance(data, dict) else None
+    return value if type(value) is int and value >= 0 else None
 
 
 def run_case_snapshot(
@@ -387,71 +396,114 @@ def run_case_snapshot(
 ) -> dict[str, Any]:
     if snapshot not in {"vulnerable", "fixed"}:
         raise EvaluationError("only vulnerable and fixed snapshots are reviewed")
+    started_ns = time.monotonic_ns()
+    started_at = datetime.now(UTC).isoformat()
     repo = workspace / f"review-{uuid.uuid4().hex}"
-    shas, env = _build_repo(
-        case, repo, snapshot=snapshot, mode=mode, executor=executor, grounding=grounding
-    )
-    env["AP_EVAL_PYTHON"] = sys.executable
-    env["AP_EVAL_EXECUTOR"] = str(
-        ROOT / "evals" / "scripted_executor.py"
-        if mode == "dry"
-        else EXAMPLES_ROOT / "reviewers" / f"{executor}_review.py"
-    )
-    env.pop("AP_EVAL_SCRIPT", None)
-    if mode == "dry":
-        env["AP_EVAL_SCRIPT"] = str(case.directory / "scripted" / f"{snapshot}.json")
-
-    def unresolved(command: str, envelope: dict[str, Any], exit_code: int) -> dict[str, Any]:
+    # Keep CLI output outside the reviewer-visible tree and Git history. Direct
+    # file capture survives both inner CLI and outer review-command timeouts.
+    events_path = workspace / f"events-{uuid.uuid4().hex}.jsonl"
+    result: dict[str, Any] = {
+        "status": "unresolved",
+        "exit_code": None,
+        "base_sha": None,
+        "head_sha": None,
+        "finding_count": None,
+        "findings": None,
+        "matched": None,
+        "severity_agreement": None,
+        "keyword_hit": None,
+        "reviewer_invocations": 0,
+        "failure": None,
+    }
+    run_dir = None
+    command = "build repository"
+    review_attempted = False
+    try:
+        workspace.mkdir(parents=True, exist_ok=True)
+        shas, env = _build_repo(
+            case, repo, snapshot=snapshot, mode=mode, executor=executor, grounding=grounding
+        )
+        result.update(base_sha=shas["base"], head_sha=shas[snapshot])
+        env["AP_EVAL_PYTHON"] = sys.executable
+        env["AP_EVAL_EXECUTOR"] = str(
+            ROOT / "evals" / "scripted_executor.py"
+            if mode == "dry"
+            else EXAMPLES_ROOT / "reviewers" / f"{executor}_review.py"
+        )
+        env["AP_REVIEWER_EVENTS_FILE"] = str(events_path)
+        env.pop("AP_EVAL_SCRIPT", None)
+        if mode == "dry":
+            env["AP_EVAL_SCRIPT"] = str(case.directory / "scripted" / f"{snapshot}.json")
+        for command, argv in (
+            ("init --no-hook", ("init", "--no-hook")),
+            ("start", ("start", "--intent", str(case.metadata["intent"]))),
+            ("context", ("context",)),
+            ("review run", ("review", "run")),
+        ):
+            review_attempted = command == "review run"
+            envelope, code = _cli(repo, env, *argv)
+            if envelope.get("run_id"):
+                run_dir = repo / ".git" / "agentic-preflight" / "runs" / envelope["run_id"]
+            result["exit_code"] = code
+            if review_attempted:
+                result["reviewer_invocations"] = _reviewer_invocations(envelope)
+            if code != 0:
+                result["failure"] = {"command": command, "envelope": envelope}
+                break
+            if command == "context":
+                context = envelope
+                _assert_bundle_is_clean(case, context)
+                if grounding == "on":
+                    _require_grounding_entries(case, snapshot, context)
+        else:
+            command = "score submission"
+            submission = _recorded_submission(repo, str(envelope["run_id"]))
+            findings = submission["findings"]
+            result.update(finding_count=len(findings), findings=findings)
+            units = context["data"]["review_coverage"]["units"]
+            matches = _matching_findings(findings, units, case.gold)
+            first = matches[0] if matches else None
+            result.update(
+                status="resolved",
+                finding_count=len(findings),
+                findings=findings,
+                matched=bool(matches),
+                severity_agreement=_severity_agrees(first, case.gold) if first else None,
+                keyword_hit=_keyword_hit(first, str(case.metadata["category"])) if first else None,
+            )
+    except (
+        EvaluationError,
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        subprocess.SubprocessError,
+    ) as exc:
+        result["failure"] = {"command": command, "type": type(exc).__name__, "message": str(exc)}
+        result["exit_code"] = None
+        if review_attempted and command == "review run":
+            # A broken CLI envelope cannot establish whether a wrapper launched.
+            result["reviewer_invocations"] = None
+    stopped_ns = time.monotonic_ns()
+    if result["failure"] is not None:
         print(
             f"{command} failed for {case.id}/{snapshot} ({grounding}): "
-            + json.dumps(envelope, sort_keys=True),
+            + json.dumps(result["failure"], sort_keys=True),
             file=sys.stderr,
         )
-        return {
-            "status": "unresolved",
-            "exit_code": exit_code,
-            "base_sha": shas["base"],
-            "head_sha": shas[snapshot],
-            "finding_count": 0,
-            "matched": None,
-            "severity_agreement": None,
-            "keyword_hit": None,
-            "reviewer_invocations": _reviewer_invocations(envelope),
-        }
-
-    for command, argv in (
-        ("init --no-hook", ("init", "--no-hook")),
-        ("start", ("start", "--intent", str(case.metadata["intent"]))),
-    ):
-        envelope, code = _cli(repo, env, *argv)
-        if code != 0:
-            return unresolved(command, envelope, code)
-    context, code = _cli(repo, env, "context")
-    if code != 0:
-        return unresolved("context", context, code)
-    _assert_bundle_is_clean(case, context)
-    if grounding == "on":
-        _require_grounding_entries(case, snapshot, context)
-    reviewed, code = _cli(repo, env, "review", "run")
-    if code != 0:
-        return unresolved("review run", reviewed, code)
-    run_id = str(reviewed["run_id"])
-    submission = _recorded_submission(repo, run_id)
-    findings = submission["findings"]
-    units = context["data"]["review_coverage"]["units"]
-    matches = _matching_findings(findings, units, case.gold)
-    first = matches[0] if matches else None
-    return {
-        "status": "resolved",
-        "exit_code": 0,
-        "base_sha": shas["base"],
-        "head_sha": shas[snapshot],
-        "finding_count": len(findings),
-        "matched": bool(matches),
-        "severity_agreement": _severity_agrees(first, case.gold) if first else None,
-        "keyword_hit": (_keyword_hit(first, str(case.metadata["category"])) if first else None),
-        "reviewer_invocations": _reviewer_invocations(reviewed),
-    }
+    usage = (
+        zero_usage("dry_run" if mode == "dry" else "not_invoked")
+        if mode == "dry" or result["reviewer_invocations"] == 0
+        else read_usage(events_path, str(executor), require_completion=True)
+    )
+    result.update(
+        started_at=started_at,
+        finished_at=datetime.now(UTC).isoformat(),
+        runtime_seconds=(stopped_ns - started_ns) / 1e9,
+        workflow=workflow_metrics(run_dir, stopped_ns),
+        usage=usage,
+    )
+    return result
 
 
 def _rate(values: list[bool]) -> float | None:
@@ -465,12 +517,41 @@ def _aggregate(cases: dict[str, dict[str, Any]]) -> dict[str, Any]:
     false_positives = [bool(item["matched"]) for item in fixed if item["status"] == "resolved"]
     severity = [item["severity_agreement"] for item in vulnerable if item["matched"]]
     keywords = [item["keyword_hit"] for item in vulnerable if item["matched"]]
+    snapshots = vulnerable + fixed
     return {
         "catch_rate": _rate(catches),
         "fixed_false_positive_rate": _rate(false_positives),
         "unresolved": sum(item["status"] == "unresolved" for item in vulnerable + fixed),
         "severity_agreement": _rate([bool(item) for item in severity]),
         "keyword_hit_rate": _rate([bool(item) for item in keywords]),
+        **_metrics_summary(snapshots),
+    }
+
+
+def _metrics_summary(snapshots: list[dict[str, Any]]) -> dict[str, Any]:
+    counts = [item["finding_count"] for item in snapshots]
+    known_counts = [count for count in counts if count is not None]
+    usage = aggregate_usage([item["usage"] for item in snapshots])
+    launches = [item["reviewer_invocations"] for item in snapshots]
+    return {
+        "runtime_seconds": sum(item["runtime_seconds"] for item in snapshots),
+        "finding_count": sum(known_counts) if len(known_counts) == len(counts) else None,
+        "observed_finding_count": sum(known_counts) if known_counts else None,
+        "finding_snapshots_measured": len(known_counts),
+        "observed_findings_by_severity": {
+            severity: sum(
+                finding["severity"] == severity
+                for item in snapshots
+                for finding in item["findings"] or []
+            )
+            for severity in SEVERITY_ORDER
+        },
+        "reviewer_invocations": sum(launches)
+        if all(item is not None for item in launches)
+        else None,
+        "usage": usage,
+        "provider_tokens": usage["totals"]["total_tokens"],
+        "workflow": aggregate_states(snapshots),
     }
 
 
@@ -547,19 +628,56 @@ def _markdown(summary: dict[str, Any]) -> str:
         )
     lines.append("| " + " | ".join(row) + " |")
     lines.append("")
-    provider_accounting = (
-        "0 (dry mode)"
-        if summary["provider_requests"] == 0
-        else "unavailable (real mode; not inferred from wrapper invocations)"
-    )
     lines.append(
         "Unresolved snapshots: "
         f"{summary['unresolved']}. Reviewer wrapper invocations: "
-        f"{summary['reviewer_invocations']}. Provider requests, tokens, and cost: "
-        f"{provider_accounting}."
+        f"{_cell(summary['reviewer_invocations'])}. Runtime: {summary['runtime_seconds']:.3f}s."
     )
+    usage = summary["usage"]
+    lines.extend(
+        [
+            "",
+            f"Findings: {_cell(summary['finding_count'])} total; "
+            f"{_cell(summary['observed_finding_count'])} observed across "
+            f"{summary['finding_snapshots_measured']} measured snapshots.",
+            f"Token usage: {usage['status']}; exact total "
+            f"{_cell(usage['totals']['total_tokens'])}; observed total "
+            f"{_cell(usage['observed']['total_tokens'])}. "
+            "Missing/partial observations are not zero. "
+            "Provider requests and cost remain unavailable in real mode.",
+            "",
+            "| Token category | Exact | Observed |",
+            "| --- | --- | --- |",
+        ]
+    )
+    lines.extend(
+        f"| {field} | {_cell(usage['totals'][field])} | {_cell(usage['observed'][field])} |"
+        for field in usage["totals"]
+    )
+    lines.extend(["", "| Workflow state | Visits | Seconds |", "| --- | --- | --- |"])
+    for state, measured in sorted(summary["workflow"]["states"].items()):
+        seconds = measured["duration_seconds"]
+        duration = f"{seconds:.6f}" if seconds is not None else "n/a"
+        lines.append(f"| {state} | {measured['visits']} | {duration} |")
+    if not summary["workflow"]["complete"]:
+        lines.extend(["", "State history is incomplete for one or more snapshots."])
+    failures = [item for item in _snapshots(summary["grounding"]) if item["failure"]]
+    if failures:
+        lines.extend(["", "Failures (full diagnostics are in summary.json):"])
+        for item in failures:
+            failure = item["failure"]
+            lines.append(f"- {failure['command']}: exit {_cell(item['exit_code'])}")
     lines.append("")
     return "\n".join(lines)
+
+
+def _snapshots(grounding_results: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        snapshot
+        for setting in grounding_results.values()
+        for case in setting["cases"].values()
+        for snapshot in (case["vulnerable"], case["fixed"])
+    ]
 
 
 def run_evaluation(
@@ -570,6 +688,8 @@ def run_evaluation(
     out: Path,
     case_ids: Sequence[str] | None = None,
 ) -> dict[str, Any]:
+    started_ns = time.monotonic_ns()
+    started_at = datetime.now(UTC).isoformat()
     all_cases = {path.name: load_case(path) for path in discover_cases()}
     selected_ids = tuple(case_ids) if case_ids is not None else tuple(all_cases)
     unknown = sorted(set(selected_ids) - set(all_cases))
@@ -582,11 +702,13 @@ def run_evaluation(
         invocations = len(selected_ids) * 2 * len(settings)
         raise EvaluationError(
             f"real mode would launch {invocations} reviewer wrapper invocations; actual provider "
-            "requests, tokens, and cost are unavailable from this runner. Set "
+            "requests and cost are unavailable; CLI token usage may be partial or unknown. Set "
             "AP_EVAL_AUTHORIZED=1 to authorize"
         )
     if mode not in {"dry", "real"}:
         raise EvaluationError("mode must be dry or real")
+    if mode == "real" and executor not in {"codex", "claude"}:
+        raise EvaluationError("real mode requires --executor codex or claude")
 
     effective_executor = "scripted" if mode == "dry" else str(executor)
     grounding_results: dict[str, Any] = {}
@@ -628,7 +750,7 @@ def run_evaluation(
         for key in ("catch", "fixed_false_positive", "severity_agreement", "keyword_hit")
     }
     summary = {
-        "method_version": "public-smoke-v5",
+        "method_version": "public-smoke-v6",
         "mode": mode,
         "executor": effective_executor,
         "cases": list(selected_ids),
@@ -638,14 +760,11 @@ def run_evaluation(
         "unresolved": sum(item["unresolved"] for item in grounding_results.values()),
         "severity_agreement": aggregates["severity_agreement"],
         "keyword_hit_rate": aggregates["keyword_hit"],
-        "reviewer_invocations": sum(
-            snapshot["reviewer_invocations"]
-            for setting in grounding_results.values()
-            for case in setting["cases"].values()
-            for snapshot in (case["vulnerable"], case["fixed"])
-        ),
+        **_metrics_summary(_snapshots(grounding_results)),
+        "started_at": started_at,
+        "finished_at": datetime.now(UTC).isoformat(),
+        "runtime_seconds": (time.monotonic_ns() - started_ns) / 1e9,
         "provider_requests": 0 if mode == "dry" else None,
-        "provider_tokens": 0 if mode == "dry" else None,
         "provider_cost_usd": 0 if mode == "dry" else None,
     }
     out.mkdir(parents=True, exist_ok=True)

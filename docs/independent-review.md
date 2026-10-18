@@ -27,6 +27,13 @@ defaults to `claude-sonnet-5` and passes `high` through Claude Code 2.1.236's ve
 `--effort` option. Those are example configuration defaults, not comparative quality claims;
 without either environment variable, `medium` for Codex and `high` for Claude are the wrapper's
 effective efforts rather than inherited CLI defaults. These calls may consume paid model quota.
+Codex requests JSONL events with `--json`; Claude requests `stream-json` with `--verbose`.
+Set `AP_REVIEWER_EVENTS_FILE` to an absolute file path to capture the underlying CLI stdout
+without adding telemetry to the strict findings submission. The wrapper overwrites that
+file and `<path>.status.json`; the latter records whether the CLI exited successfully.
+Flushed events survive a CLI failure or timeout. The eval harness sets this interface
+automatically and normalizes its measurements as described in
+[eval telemetry](regression-eval.md#runtime-findings-states-and-tokens).
 Provider guidance recommends selecting effort with task-specific evaluation rather than model
 recency alone: [OpenAI's latest-model guide](https://developers.openai.com/api/docs/guides/latest-model),
 [OpenAI's GPT-5.6 guide](https://openai.com/index/builders-guide-to-gpt-5-6/),
@@ -57,8 +64,8 @@ AP_EVAL_AUTHORIZED=1 AP_REVIEWER_MODEL=gpt-5.3-codex AP_REVIEWER_EFFORT=high \
 
 Compare catch rate, fixed false-positive rate, unresolved runs, and the recorded exact
 configuration. The report's `reviewer_invocations` counts wrapper launches only. Provider
-requests, tokens, and cost are `null` unless independently measured by provider telemetry,
-so do not compare cost from the report. This repository does not run paid evaluations during
+requests and cost stay `null`; CLI token accounting separates exact totals from partial
+observations. Do not compare cost from the report. This repository does not run paid evaluations during
 ordinary development; the example is a reproducible maintainer procedure, not a result.
 For an explicit, unevaluated sweep, retain the configured defaults as controls and add exact
 candidate IDs such as `gpt-5.6-sol`, `claude-fable-5-1`, and `claude-opus-5` only after
