@@ -329,8 +329,10 @@ def test_events_record_ordered_history_with_the_resolved_config_snapshot(blocked
         < kinds.index("findings_submitted")
         < kinds.index("finding_resolved")
     )
-    created = events[0]
-    assert created["event"] == "run_created"
+    assert events[0]["event"] == "state_transition"
+    assert events[0]["from"] is None
+    assert events[0]["to"] == "CREATED"
+    created = events[kinds.index("run_created")]
     assert "runtime" not in created["config_snapshot"]
     assert len(created["config_digest"]) == 64
 

@@ -8,6 +8,7 @@ and preserved failure behavior without relying on thread scheduling delays.
 import os
 import sys
 import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -73,7 +74,9 @@ def test_the_replace_is_retried_until_it_succeeds(store, monkeypatch):
         return real_replace(src, dst)
 
     with monkeypatch.context() as simulated:
-        simulated.setattr(store_module.sys, "platform", "win32")
+        # Simulate only the replacement helper's platform. Run creation also
+        # appends an audit event, whose lock must use the actual host backend.
+        simulated.setattr(store_module, "sys", SimpleNamespace(platform="win32"))
         simulated.setattr(store_module.time, "sleep", lambda _: None)
         simulated.setattr(store_module.os, "replace", flaky)
         store.create_run(make_run(branch="feature/retried"))
