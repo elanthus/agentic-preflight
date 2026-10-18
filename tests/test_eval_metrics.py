@@ -253,7 +253,8 @@ def test_workflow_duration_accounts_for_repeated_visits_and_final_observation(tm
     assert sum(visit["duration_seconds"] for visit in result["visits"]) == 6.0
 
 
-def test_truncated_state_history_keeps_known_intervals_without_inventing_tail_time(tmp_path):
+@pytest.mark.parametrize("tail", [b'{"event":', b'{"event":"caf' + "\u20ac".encode()[:2]])
+def test_truncated_state_history_keeps_known_intervals_without_inventing_tail_time(tmp_path, tail):
     events = [
         {"event": "state_transition", "from": None, "to": "CREATED", "monotonic_ns": 0},
         {
@@ -263,7 +264,8 @@ def test_truncated_state_history_keeps_known_intervals_without_inventing_tail_ti
             "monotonic_ns": 1_000_000_000,
         },
     ]
-    stream(tmp_path, events, tail='{"event":')
+    path = stream(tmp_path, events)
+    path.write_bytes(path.read_bytes() + tail)
     (tmp_path / "run.json").write_text(json.dumps({"state": "GREEN"}))
     result = metrics.workflow_metrics(tmp_path, 6_000_000_000)
     assert not result["complete"]

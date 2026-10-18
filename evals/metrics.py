@@ -265,7 +265,7 @@ def read_usage(path: Path, executor: str, *, require_completion: bool = False) -
 def _state_events(path: Path) -> tuple[list[dict[str, Any]], bool]:
     events = []
     intact = True
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         if not line.strip():
             continue
         try:
