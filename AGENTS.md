@@ -27,6 +27,13 @@ can take a few minutes.
 
 ## Approval readiness
 
+Verified Dependabot updates do not require human review, including major versions and
+GitHub Actions updates. Require the protected-base hosted approval workflow to verify
+the exact head's bot provenance and pass its applicable attestation and CI checks.
+Clean merges from the protected base may preserve bot provenance; human-added commits
+and merge resolutions do not. A bot author or label alone is not an exemption. See
+[Dependabot verification](docs/attestations-and-ci.md#dependabot-and-other-bot-authored-pull-requests).
+
 For changes requiring human approval, treat approval of an exact PR head as the final
 readiness step. Routine documentation that accurately reflects reviewed implementation
 does not require owner approval solely because it edits skill or reference material.

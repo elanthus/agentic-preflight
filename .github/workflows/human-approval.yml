@@ -27,6 +27,7 @@ jobs:
       approval_mode: ${{ steps.policy.outputs.approval_mode }}
       environment: ${{ steps.policy.outputs.environment }}
       requires_approval: ${{ steps.policy.outputs.requires_approval }}
+      dependabot_exempt: ${{ steps.dependabot.outputs.verified }}
     steps:
       # pull_request_target is safe here because every executable comes from the
       # protected base. The proposed branch is fetched only as inert Git data.
@@ -109,11 +110,38 @@ jobs:
           echo "environment=$approval_environment" >> "$GITHUB_OUTPUT"
           echo "requires_approval=$requires_approval" >> "$GITHUB_OUTPUT"
 
+      - name: Verify Dependabot contributions for the exact head
+        id: dependabot
+        if: >-
+          github.event.pull_request.user.login == 'dependabot[bot]' &&
+          github.event.pull_request.user.type == 'Bot' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The checkout and script are from the protected base. PR code is
+          # inspected only as Git objects, after normal attestation verification.
+          commits_file="$RUNNER_TEMP/dependabot-approval-commits.json"
+          pr_file="$RUNNER_TEMP/dependabot-approval-pr.json"
+          result_file="$RUNNER_TEMP/dependabot-approval.json"
+          gh api --paginate --slurp \
+            "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100" > "$commits_file"
+          gh api "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$pr_file"
+          uv run --locked --no-dev --python 3.11 python .github/scripts/verify_dependabot.py \
+            --repository "$GITHUB_REPOSITORY" --head "$HEAD_SHA" --base "$BASE_SHA" \
+            --pr-file "$pr_file" --commits-file "$commits_file" > "$result_file"
+          cat "$result_file"
+          echo "verified=$(jq -r '.verified' "$result_file")" >> "$GITHUB_OUTPUT"
+
   environment:
     name: owner environment approval
     needs: policy
     if: >-
       needs.policy.outputs.requires_approval == 'true' &&
+      needs.policy.outputs.dependabot_exempt != 'true' &&
       needs.policy.outputs.approval_mode == 'environment'
     runs-on: ubuntu-latest
     environment:
@@ -130,6 +158,7 @@ jobs:
       - name: Enforce the configured approval result
         env:
           DEPENDABOT_ELIGIBLE: ${{ needs.dependabot-policy.outputs.eligible }}
+          DEPENDABOT_EXEMPT: ${{ needs.policy.outputs.dependabot_exempt }}
           APPROVED: ${{ needs.policy.outputs.approved }}
           APPROVAL_MODE: ${{ needs.policy.outputs.approval_mode }}
           ENVIRONMENT_RESULT: ${{ needs.environment.result }}
@@ -141,7 +170,9 @@ jobs:
             exit 0
           fi
           test "$POLICY_RESULT" = "success"
-          if [ "$REQUIRES_APPROVAL" != "true" ]; then
+          if [ "${DEPENDABOT_EXEMPT:-false}" = "true" ]; then
+            echo "Verified Dependabot contributions; human review is not required."
+          elif [ "$REQUIRES_APPROVAL" != "true" ]; then
             echo "No high-risk approval is required."
           elif [ "$APPROVAL_MODE" = "manual_merge" ]; then
             echo "High-risk change verified; a person must perform the merge manually."
