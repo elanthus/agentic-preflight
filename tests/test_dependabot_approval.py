@@ -24,7 +24,8 @@ def snapshot(repo, base, head):
                 for parent in git("show", "-s", "--format=%P", sha, cwd=repo).split()
             ],
             "author": {"login": "dependabot[bot]", "type": "Bot"},
-            "commit": {"verification": {"verified": True}},
+            "committer": {"login": "web-flow"},
+            "commit": {"verification": {"verified": True, "reason": "valid"}},
         }
         for sha in git("rev-list", "--reverse", f"{base}..{head}", cwd=repo).split()
     ]
@@ -76,7 +77,18 @@ def test_identity_and_snapshot_mismatches_are_not_exempt(bot_change, field):
     assert verify(**bot_change)["reason"] == "snapshot_mismatch"
 
 
-@pytest.mark.parametrize("field", ["author", "type", "signature", "missing_signature"])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "author",
+        "type",
+        "signature",
+        "missing_signature",
+        "committer",
+        "missing_committer",
+        "reason",
+    ],
+)
 def test_unsigned_or_human_contributions_are_not_exempt(bot_change, field):
     commit = bot_change["commits"][0][0]
     if field == "author":
@@ -85,8 +97,14 @@ def test_unsigned_or_human_contributions_are_not_exempt(bot_change, field):
         commit["author"]["type"] = "User"
     elif field == "signature":
         commit["commit"]["verification"]["verified"] = False
-    else:
+    elif field == "missing_signature":
         del commit["commit"]["verification"]
+    elif field == "committer":
+        commit["committer"]["login"] = "human"
+    elif field == "missing_committer":
+        commit["committer"] = None
+    else:
+        commit["commit"]["verification"]["reason"] = "unknown_key"
     assert verify(**bot_change)["verified"] is False
 
 

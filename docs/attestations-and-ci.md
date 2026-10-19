@@ -188,8 +188,10 @@ This repository exempts **all verified Dependabot updates from human approval**,
 including major versions and GitHub Actions. The protected-base human-approval
 workflow verifies the actual `dependabot[bot]` Bot identity, same-repository head and
 base, current event SHAs, and the complete paginated commit list against Git history.
-Every non-merge contribution must be attributed to the bot with a signature verified
-by GitHub. Merge commits qualify only when their second parent belongs to the
+Every non-merge contribution must be attributed to the bot, committed by GitHub's
+`web-flow` identity, and have a verified signature whose verification reason is
+`valid`. A human-signed commit with a forged bot author does not qualify.
+Merge commits qualify only when their second parent belongs to the
 protected base and their tree exactly matches Git's clean merge of the two parents.
 Human-added commits, conflict resolutions, unrelated branch merges, missing records,
 and snapshot mismatches do not receive this exemption; ordinary approval policy applies.

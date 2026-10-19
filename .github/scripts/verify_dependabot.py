@@ -47,10 +47,14 @@ def _commit_reason(repo: Path, commit: dict[str, Any], base: str) -> str | None:
         return "parent_mismatch"
     if len(parents) == 1:
         author = commit.get("author") or {}
+        committer = commit.get("committer") or {}
+        verification = commit["commit"]["verification"]
         if (
             author.get("login") != "dependabot[bot]"
             or author.get("type") != "Bot"
-            or commit["commit"]["verification"]["verified"] is not True
+            or committer.get("login") != "web-flow"
+            or verification["verified"] is not True
+            or verification.get("reason") != "valid"
         ):
             return "unverified_non_merge_commit"
         return None
