@@ -47,6 +47,10 @@ in
 [Portable attestations and CI enforcement](docs/attestations-and-ci.md#required-github-check),
 so an ordinary contributor branch pushed without a completed run fails that check.
 Eligible Dependabot Python patch/minor updates use the documented hosted exception.
+All verified Dependabot updates, including major versions and GitHub Actions, are
+exempt from human approval. Updates outside the narrow Python exception still need
+preflight attestations and every required CI check; see
+[bot provenance verification](docs/attestations-and-ci.md#dependabot-and-other-bot-authored-pull-requests).
 
 Keep changes focused and include tests for observable behavior. Update user-facing
 documentation whenever a reader following the current instructions would otherwise be
@@ -109,6 +113,11 @@ and wait for that approval before merging. Path classification cannot understand
 this contributor checkpoint applies even when the automated risk verdict is `clear`.
 Reviewers must also report unsafe instruction changes through the normal findings flow;
 high or critical findings retain human review even after they are fixed.
+
+The hosted Dependabot provenance exemption is separate from these human-contributor
+review rules. It verifies signed bot commits and any clean protected-base merges,
+instead of requiring a human approval. An unverified or human-modified bot PR falls
+back to the ordinary policy. Changing this exemption itself requires owner approval.
 
 The hosted approval check reads the policy from the protected base. A PR changing this
 policy is evaluated using the configured review policy; the narrower rules take effect

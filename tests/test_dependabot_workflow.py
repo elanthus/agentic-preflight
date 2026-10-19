@@ -267,3 +267,54 @@ def test_commit_list_must_bind_the_single_current_event_head(classify, changes):
     result, output = classify(**changes)
     assert result.returncode != 0
     assert output == "eligible=false"
+
+
+@pytest.mark.parametrize("exempt", ["true", "false", "", "yes"])
+@pytest.mark.parametrize("policy_result", ["success", "failure", "skipped"])
+def test_provenance_exemption_still_requires_successful_attestation(
+    tmp_path, exempt, policy_result
+):
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("Bash is unavailable")
+    workflow = (ROOT / ".github/workflows/human-approval.yml").read_text()
+    script = textwrap.dedent(
+        workflow.split("      - name: Enforce the configured approval result", 1)[1].split(
+            "        run: |\n", 1
+        )[1]
+    )
+    result = subprocess.run(
+        [bash, "-e", "-u", "-o", "pipefail", "-c", script],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "DEPENDABOT_ELIGIBLE": "false",
+            "DEPENDABOT_EXEMPT": exempt,
+            "POLICY_RESULT": policy_result,
+            "APPROVED": "false",
+            "REQUIRES_APPROVAL": "true",
+            "APPROVAL_MODE": "owner_review",
+        },
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert (result.returncode == 0) == (exempt == "true" and policy_result == "success")
+
+
+def test_provenance_verifier_runs_from_protected_base_with_read_only_permissions():
+    workflow = (ROOT / ".github/workflows/human-approval.yml").read_text()
+    assert "ref: ${{ github.event.pull_request.base.sha }}" in workflow
+    assert (
+        "uv run --locked --no-dev --python 3.11 python .github/scripts/verify_dependabot.py"
+        in workflow
+    )
+    assert "gh api --paginate --slurp" in workflow
+    assert ": write" not in workflow
+    assert (
+        '".github/scripts/verify_dependabot.py"' in (ROOT / ".agentic-preflight.toml").read_text()
+    )
+    assert (
+        "/.github/scripts/verify_dependabot.py @elanthus"
+        in (ROOT / ".github/CODEOWNERS").read_text()
+    )

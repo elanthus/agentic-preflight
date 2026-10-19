@@ -25,7 +25,7 @@ def _policy_script(filename):
     )
     end = "\n  test:" if filename == "ci.yml" else "\n  environment:"
     block = workflow[workflow.index("      - name: " + label) : workflow.index(end)]
-    return textwrap.dedent(block.split("        run: |\n", 1)[1])
+    return textwrap.dedent(block.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0])
 
 
 @pytest.mark.parametrize(
@@ -74,13 +74,14 @@ def test_approval_events_outputs_and_dependencies():
     assert [line.strip() for line in outputs.splitlines() if line.strip()] == [
         f"{key}: ${{{{ steps.policy.outputs.{key} }}}}"
         for key in ("approved", "approval_mode", "environment", "requires_approval")
-    ]
+    ] + ["dependabot_exempt: ${{ steps.dependabot.outputs.verified }}"]
     environment = " ".join(
         workflow.split("\n  environment:\n", 1)[1].split("\n  approval:\n", 1)[0].split()
     )
     assert (
-        "needs: policy if: >- needs.policy.outputs.requires_approval == 'true' && needs.policy.outputs.approval_mode == 'environment'"
-        in environment
+        "needs: policy if: >- needs.policy.outputs.requires_approval == 'true' && "
+        "needs.policy.outputs.dependabot_exempt != 'true' && "
+        "needs.policy.outputs.approval_mode == 'environment'" in environment
     )
     assert "environment: name: ${{ needs.policy.outputs.environment }}" in environment
     approval = " ".join(workflow.split("\n  approval:\n", 1)[1].split())
@@ -91,6 +92,7 @@ def test_approval_events_outputs_and_dependencies():
         "ENVIRONMENT_RESULT": "environment.result",
         "POLICY_RESULT": "policy.result",
         "REQUIRES_APPROVAL": "policy.outputs.requires_approval",
+        "DEPENDABOT_EXEMPT": "policy.outputs.dependabot_exempt",
     }.items():
         assert f"{variable}: ${{{{ needs.{source} }}}}" in approval
 

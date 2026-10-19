@@ -7,6 +7,7 @@
 /.github/CODEOWNERS @elanthus
 /.github/dependabot.yml @elanthus
 /.github/workflows/ @elanthus
+/.github/scripts/verify_dependabot.py @elanthus
 /SECURITY.md @elanthus
 /agentic_preflight/approval.py @elanthus
 /agentic_preflight/attestation.py @elanthus
