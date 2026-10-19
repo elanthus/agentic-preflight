@@ -184,14 +184,34 @@ user configuration. A base commit with no such file uses the defaults.
 
 ## Dependabot and other bot-authored pull requests
 
-This repository exempts a narrow class of Dependabot updates from local attestation
-and the hosted human-approval policy: same-repository PRs authored by the actual
+This repository exempts **all verified Dependabot updates from human approval**,
+including major versions and GitHub Actions. The protected-base human-approval
+workflow verifies the actual `dependabot[bot]` Bot identity, same-repository head and
+base, current event SHAs, and the complete paginated commit list against Git history.
+Every non-merge contribution must be attributed to the bot, committed by GitHub's
+`web-flow` identity, and have a verified signature whose verification reason is
+`valid`. A human-signed commit with a forged bot author does not qualify.
+Merge commits qualify only when their second parent belongs to the
+protected base and their tree exactly matches Git's clean merge of the two parents.
+Human-added commits, conflict resolutions, unrelated branch merges, missing records,
+and snapshot mismatches do not receive this exemption; ordinary approval policy applies.
+Only protected-base code runs, with read-only permissions; proposed code is inert Git
+data. The hosted report records the exact head and base and the verification result.
+
+This approval exemption does not skip attestation, tests, packaging checks, or audits,
+and does not expand auto-merge eligibility. Outside the narrow exception below, the
+normal attestation check must succeed before bot provenance can waive human review.
+The local `approval-check` command still reports the configured path-based policy;
+the repository's hosted workflow separately verifies and applies the bot exemption.
+
+A narrower class of Dependabot updates also skips local attestation and is eligible
+for the auto-merge workflow: same-repository PRs authored by the actual
 `dependabot[bot]` Bot account, with exactly one verified Dependabot commit matching
 the event and current head, whose metadata
 identifies every dependency as a Python patch/minor update in the root directory and
 whose modified files are limited to `pyproject.toml` and `uv.lock`. Unknown metadata,
 renames, deletions, additional commits or files, major updates, and GitHub Actions updates do not
-qualify. Grouped updates qualify only when every member qualifies.
+qualify for the attestation/auto-merge exception. Grouped updates qualify only when every member qualifies.
 
 The shared `dependabot-policy.yml` workflow checks the bot identity, signed commit
 metadata, every grouped dependency, the complete paginated commit and file lists, and the current
@@ -210,10 +230,12 @@ squash merging, and retain required tests, packaging checks, and dependency audi
 this workflow change does not alter repository settings or enable auto-merge on an
 existing PR.
 
-Major updates, GitHub Actions updates, and all other bot or human PRs keep the original
-attestation and approval workflow. Check out those Dependabot PRs, run preflight against
-the exact unchanged tip, publish its note, then rerun CI (a notes-only push does not
-trigger a new PR workflow). Review and merge major and Actions updates manually.
+Major updates and GitHub Actions updates keep the original attestation workflow.
+Check out those Dependabot PRs, run preflight, publish the head and its note, then
+rerun CI if only notes changed (a notes-only push does not trigger a PR workflow).
+After required CI and the protected-base provenance check pass for the exact head,
+an agent may perform the user-authorized merge without human review. Other bots and
+human-modified Dependabot PRs retain the ordinary approval workflow.
 
 ## Evidence reuse across rebases
 

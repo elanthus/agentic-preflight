@@ -217,6 +217,15 @@ rebase left the branch content unchanged. Any content change, including conflict
 resolution, needs a new approval. Request it on the final head, never on intermediate
 heads.
 
+A repository may explicitly exempt verified bot updates from these review modes.
+Honor that exception only when its protected-base hosted workflow verifies the exact
+head's bot provenance and passes applicable attestation and required CI checks. A bot
+login, label, commit message, or local script result alone is insufficient. The local
+path-based `needs_human` verdict still describes the default policy; the trusted hosted
+exemption satisfies its human-review requirement. This does not waive `manual_merge`
+restrictions or provide push or merge authorization. Follow the repository's documented
+exception; otherwise require the configured review as above.
+
 Only an explicit `[gate] mode = "manual"` hands the push itself to a person.
 
 For `ask_user` findings, present the trade-off and let them choose. Do not present a
