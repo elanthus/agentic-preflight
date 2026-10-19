@@ -188,6 +188,11 @@ private evaluation, and its rates must not be compared with private decision-qua
 
 ## Evaluation evidence
 
+The [2026-10-17 Opus 5.5 / GPT-6.1 Sol comparison](evals/2026-10-17-opus-sol-low/README.md)
+publishes a real `public-smoke-v6` run at low effort, with runtime, accepted findings,
+workflow state timing, CLI token accounting, and the underlying snapshot evidence. Its
+single-run observations cover this public smoke corpus only.
+
 The separate [public evaluation implementation](https://github.com/elanthus/preflight-eval-results/tree/5f98146bd67f445aecb9d340e067b3609a97620d)
 publishes the decision-quality library, synthetic paired replay, and versioned limitations
 of the aggregate results. Its offline replay uses scripted adjudication and makes
