@@ -111,7 +111,7 @@ CLI system/tool contexts also limit direct interpretation of the token compariso
 - [Comparison JSON](comparison.json) contains aggregate metrics and all paired outcomes.
 - [Snapshot CSV](snapshots.csv) and [state CSV](states.csv) provide tables for analysis.
   Empty CSV cells preserve unavailable values; use JSON to distinguish `null` explicitly.
-- [Provenance](provenance.json) records source and corpus commits, requested models, CLI
+- [Provenance](provenance.json) records the source commit and corpus tree, requested models, CLI
   versions, equivalent commands, original and published artifact hashes, and transformations.
 - [SHA256SUMS](SHA256SUMS) checks the published files: run `shasum -a 256 -c SHA256SUMS`
   from this report directory.
