@@ -197,6 +197,7 @@ evaluation material. Follow the question you want to investigate:
 | How are attestations enforced in CI? | [CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/attestations-and-ci.md) |
 | What does a second reviewer add, and how are reviewers compared? | [Independent review and agreement](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/independent-review.md) |
 | What public evidence supports the project, and what does it not prove? | [Dogfooding case study](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/dogfooding-case-study.md) and [public regression eval](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/regression-eval.md) |
+| What did real Claude and Codex smoke runs measure? | [Opus 5.5 and GPT-6.1 Sol at low effort: runtime, findings, states, and tokens (2026-10-17)](docs/evals/2026-10-17-opus-sol-low/README.md) |
 
 The implementation uses real Git repositories in its integration tests rather than
 mocking Git behavior. CI rejects overall test coverage below 85% and installs the built

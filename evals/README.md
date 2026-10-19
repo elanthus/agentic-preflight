@@ -37,3 +37,5 @@ usage. Reports include timestamps and measured durations, so their bytes vary ac
 from partial observations; missing evidence stays `null`. Dry-mode provider requests,
 tokens, and cost are zero. Real-mode request counts and cost remain `null`.
 See [the full method and limits](../docs/regression-eval.md).
+
+Published real-run evidence: [Opus 5.5 and GPT-6.1 Sol at low effort, 2026-10-17](../docs/evals/2026-10-17-opus-sol-low/README.md).

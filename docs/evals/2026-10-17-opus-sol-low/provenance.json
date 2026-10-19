@@ -1,0 +1,111 @@
+{
+  "artifacts": {
+    "claude.summary.json": {
+      "published_sha256": "8dd282c80180ebe86b1e22b884de21c301b95a00b95ca8c01b409feb12376048",
+      "source_sha256": "390c04af187c23c792c2b623647f6cd6ed4b970b7d59c02c0a1be7f828c1223e",
+      "transformation": "Whitespace reformatted; parsed JSON is equal to the original summary."
+    },
+    "codex.summary.json": {
+      "published_sha256": "c7b49bbc45d25257e9bf269acc8310f1ad31b287592e7d0ffe6a4ddfb1b06430",
+      "source_sha256": "02e80e75f487fb2534c878d1cae37035950aa18a3053a35fe51cd1a6dbe073a8",
+      "transformation": "Whitespace reformatted; parsed JSON is equal to the original summary."
+    },
+    "comparison.json": {
+      "published_sha256": "c0783fddd42658e2d1abe3fca36938d1e17bfb41d9beeadd4667552f3e4ff32f",
+      "source_sha256": "b34286f3f3f3ec0798886e5100985c42b6d21ce83b46bf8867e6cb6449f2ae56",
+      "transformation": "Provider metrics and all paired outcomes unchanged. Original machine-local manifest replaced with a reference to portable provenance.json."
+    },
+    "snapshots.csv": {
+      "published_sha256": "1dfd4c3aba4b3b921924e8ca46ef6ac4427c8235d56bb7bcc66835a47b9e08e7",
+      "source_sha256": "c7898e5e9ef441cc09022f5e7205b6b0aa06cfe6de13ed07b0db566d9549361c",
+      "transformation": "CRLF line endings normalized to LF; parsed CSV rows are unchanged."
+    },
+    "states.csv": {
+      "published_sha256": "e881b9365c324a82a8a77b969b18cef38c5d6e8b1694c12ca0132223f4c44de6",
+      "source_sha256": "2f9ef2ed6961c07a5eeb3796102488d7bd81700f3ecfe4258f821793b03e80de",
+      "transformation": "CRLF line endings normalized to LF; parsed CSV rows are unchanged."
+    }
+  },
+  "cells": [
+    {
+      "cli_version": "2.1.292 (Claude Code)",
+      "effort": "low",
+      "environment": {
+        "AP_EVAL_AUTHORIZED": "1",
+        "AP_REVIEWER_EFFORT": "low",
+        "AP_REVIEWER_MODEL": "claude-opus-5-5",
+        "AP_REVIEWER_TIMEOUT": "600"
+      },
+      "equivalent_cli_command": [
+        "uv",
+        "run",
+        "python",
+        "evals/run.py",
+        "--mode",
+        "real",
+        "--executor",
+        "claude",
+        "--grounding",
+        "both",
+        "--out",
+        "/tmp/ap-eval-claude-low"
+      ],
+      "executor": "claude",
+      "model_identifier_evidence": "CLI modelUsage and assistant messages reported claude-opus-5-5.",
+      "requested_model": "claude-opus-5-5"
+    },
+    {
+      "cli_version": "codex-cli 0.163.0",
+      "effort": "low",
+      "environment": {
+        "AP_EVAL_AUTHORIZED": "1",
+        "AP_REVIEWER_EFFORT": "low",
+        "AP_REVIEWER_MODEL": "gpt-6.1-sol",
+        "AP_REVIEWER_TIMEOUT": "600"
+      },
+      "equivalent_cli_command": [
+        "uv",
+        "run",
+        "python",
+        "evals/run.py",
+        "--mode",
+        "real",
+        "--executor",
+        "codex",
+        "--grounding",
+        "both",
+        "--out",
+        "/tmp/ap-eval-codex-low"
+      ],
+      "executor": "codex",
+      "model_identifier_evidence": "Pinned --model gpt-6.1-sol in codex exec; the captured Codex event stream did not report a resolved model identifier.",
+      "requested_model": "gpt-6.1-sol"
+    }
+  ],
+  "corpus_tree": "26f9eb46e0dfabdf50c3dd49be16db16476ed70a",
+  "effort": "low",
+  "execution": "sequential: Claude then Codex, 48 snapshots each",
+  "finished_at": "2026-10-18T02:01:52.695550+00:00",
+  "grounding": [
+    "on",
+    "off"
+  ],
+  "launcher_note": "Original execution imported the unchanged run_evaluation function through a local observer that wrote snapshot checkpoints and collected reported model identifiers. The local launcher is not included in this publication. Equivalent uninstrumented CLI commands appear in README.md and cells; results and runtimes are observations, not byte-reproducible outputs.",
+  "limits": [
+    "One sequential run per model on the public synthetic smoke corpus; not the private decision-quality evaluation.",
+    "Grounding on ran before off for each model; order and cache warming may affect timings and usage.",
+    "Findings count submitted observations, not unique verified defects. Fixed-control flags use the published location-based scorer.",
+    "CLI-reported normalized token counts include cache reads and cache creation as input where applicable. Provider tokenizers and system/tool contexts differ; token totals are not cost measurements.",
+    "The harness ends after review and automatic stage skips, not a complete docs/lint/test/publish lifecycle."
+  ],
+  "method_version": "public-smoke-v6",
+  "reviewer_timeout_seconds": 600,
+  "run_date": "2026-10-17",
+  "run_date_timezone": "America/Los_Angeles",
+  "source_commit": "b99ef109f1f012926d7ca508100957ca51406b72",
+  "source_launcher_sha256": "e9b7adb962941d1daa643e69a991803f989be1b212c6bb37264e34c390dd9675",
+  "source_manifest_sha256": "487f3bd47bbe6770871b2831e2fa0feee90fad3cfc6e8c52c372673c1d0fe4b5",
+  "source_repository": "https://github.com/elanthus/agentic-preflight",
+  "started_at": "2026-10-18T01:43:05.829687+00:00",
+  "timing_note": "Snapshot timers are unmodified. Suite runtime includes small checkpoint-write overhead between snapshots."
+}
