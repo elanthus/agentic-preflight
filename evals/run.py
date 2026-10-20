@@ -649,6 +649,7 @@ def _markdown(summary: dict[str, Any]) -> str:
             f"Total findings: {_cell(summary['finding_count'])}. "
             f"Observed findings: {_cell(summary['observed_finding_count'])} across "
             f"{summary['finding_snapshots_measured']} measured snapshots.",
+            "",
             f"Token usage status: {usage['status']}. Exact total: "
             f"{_cell(usage['totals']['total_tokens'])}. Observed count: "
             f"{_cell(usage['observed']['total_tokens'])}. "
