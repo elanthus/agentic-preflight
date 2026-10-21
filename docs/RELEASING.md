@@ -74,12 +74,14 @@ Optionally, restrict the environment's deployment branches to tags that match `v
    A cold cache makes the recording install packages on camera, and the lint stage can then outlast its sleep in the tape.
    Watch the GIF through the final `AWAITING_PUSH_CONFIRM` frame and check the demo run's status.
    A successful renderer exit alone does not prove that the recorded commands passed.
-   The current README animation is pinned to an existing commit in `main` history.
-   Thus, the removal of the tracked GIF does not depend on the `badges` branch.
+   The README animation is pinned to a commit on the `badges` branch.
+   Thus, the animation depends on that branch keeping its history.
    The generated `docs/demo.gif` is ignored. It is not committed to `main`.
-   When the coverage publisher that preserves other assets is on `main`, publish the GIF as `demo.gif` on the existing `badges` branch.
+   Publish the GIF as `demo.gif` on the existing `badges` branch.
    Use a normal commit that preserves `coverage.svg` and the other assets.
    Then update the README to the commit-pinned raw URL.
+   The pre-push hook blocks that push because an asset commit has no attestation.
+   A person runs `git push origin badges --no-verify`.
    Never recreate or force-push the `badges` branch to update the animation.
    The coverage publisher updates only `coverage.svg` and preserves the animation.
 3. Complete the four [repository checks](../AGENTS.md#checks).

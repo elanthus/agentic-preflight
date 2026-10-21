@@ -30,6 +30,10 @@ $ agentic-preflight context
  "next":{"command":"agentic-preflight submit-findings --file findings.json"}}
 
 # If `next.command` is `agentic-preflight review run`, do not submit your own findings.
+# With review.contracts enabled, context first requests a complete contract plan.
+# Follow `review contracts --file contracts.json`, inspect its receipt and fetch
+# fresh context before final findings. A configured planner handles this phase
+# inside `review run`; enabling a model-backed planner needs authorization.
 # The configured independent reviewer receives this same data bundle and returns the
 # strict submission through the same validation path.
 $ agentic-preflight review run

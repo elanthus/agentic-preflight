@@ -61,6 +61,12 @@ It treats the diff, repository content, grounding, and embedded instructions as 
 The wrapper copies the manifest. The product CLI validates the protocol deterministically.
 An `examined: "all"` receipt accounts for delivered units. It does not prove that the reviewer understood them.
 
+For optional behavioral evidence before final review, enable [contract checks](review-contracts.md).
+Set `review.contracts.planner_command` to an installed example wrapper.
+The wrapper uses a planning prompt for `section: "contracts"`.
+The final reviewer receives the execution receipt that the product records.
+Planning can add one paid model invocation. It is disabled by default.
+
 ## Compare model and effort configurations
 
 Do not replace a configured reviewer only because a model is newer.

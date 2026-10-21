@@ -19,7 +19,9 @@ from pydantic import (
     ConfigDict,
     Field,
     PrivateAttr,
+    SerializerFunctionWrapHandler,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -177,6 +179,14 @@ class ReviewCoverage(BaseModel):
     cited_units: list[ReviewUnitId] = Field(default_factory=list)
     clean_units: list[ReviewUnitId] = Field(default_factory=list)
     excluded_files: list[str] = Field(default_factory=list)
+    contracts_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_serializer(mode="wrap")
+    def omit_disabled_contracts(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if self.contracts_sha256 is None:
+            data.pop("contracts_sha256", None)
+        return data
 
     @model_validator(mode="after")
     def complete_accounting(self) -> ReviewCoverage:
@@ -191,7 +201,7 @@ class ReviewCoverage(BaseModel):
         return self
 
     def summary(self) -> dict[str, str | int | list[str] | None]:
-        return {
+        data: dict[str, str | int | list[str] | None] = {
             "manifest": self.manifest,
             "head_sha": self.head_sha,
             "grounding_sha256": self.grounding_sha256,
@@ -200,6 +210,9 @@ class ReviewCoverage(BaseModel):
             "clean_count": len(self.clean_units),
             "excluded_files": self.excluded_files,
         }
+        if self.contracts_sha256 is not None:
+            data["contracts_sha256"] = self.contracts_sha256
+        return data
 
 
 class StageRecord(BaseModel):

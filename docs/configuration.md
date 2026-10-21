@@ -23,6 +23,7 @@ A file-loading error identifies the affected section and key and the file that s
 > During a run, `[worktree] setup_command` runs at `start`.
 > Every `[commands]` entry runs at its lint or test stage.
 > `[review] command` runs when command review is in effect, that is, when `executor = "command"` or when a risk level in `require_command_for` applies.
+> When contract checks are enabled, `[review.contracts] planner_command` runs on the host before command review.
 > Each command can come from this committed file or from the user configuration.
 > The repository file overrides the user file section by section.
 > Thus, the repository under validation decides what runs with your privileges.
@@ -51,6 +52,15 @@ max_findings = 50
 executor = "in_harness"       # default; or "command"
 # command = "reviewer --json" # receives review context JSON on stdin
 require_command_for = []      # e.g. ["high"] to require independence by risk
+
+[review.contracts]
+enabled = false              # opt-in executable review evidence
+# planner_command = "python3 -B docs/examples/reviewers/claude_review.py"
+# image = "registry.example/runtime@sha256:<64 lowercase hex characters>"
+max_checks = 8               # 1..32, three probes per check
+timeout_seconds = 10         # 1..60 per probe
+total_timeout_seconds = 60   # 1..300 for export and execution
+max_output_bytes = 16384     # 256..65536, combined stdout/stderr per probe
 
 [policy]
 # The default is []. `init` seeds these ownership-sensitive paths, which are
@@ -120,6 +130,20 @@ A review fingerprint hashes only `[general]`, `[review]`, `[policy]`, `[context]
 A docs fingerprint hashes `[general]`, `[docs]`, `[diff]`, `[context]`, and `[policy]`.
 Thus, a change to an unrelated section, for example `[commands]`, cannot by itself invalidate that stage's evidence.
 See [`docs/fingerprint-contract.md`](fingerprint-contract.md) for automatic refresh.
+
+## Contract checks
+
+Contract checks are configured by the nested `[review.contracts]` table. `image` is
+optional; when set it must be an immutable `sha256:` image ID or repository digest.
+An unavailable image or Docker engine yields unverified evidence, with no host-code
+fallback or image pull. `planner_command` is optional for locally submitted plans;
+a model-backed planner can add a paid invocation and needs explicit authorization.
+It is a normal host command, subject to `[stage] timeout_seconds`; only the probes
+run in the restricted container. See [contract checks](review-contracts.md) for
+the protocol, resource limits, local artifacts and non-gating evidence semantics.
+
+Contract-enabled review results are not automatically reused in a new run. The
+plan and receipt bind the current head, manifest and execution configuration.
 
 ## Retired shell evidence reuse
 

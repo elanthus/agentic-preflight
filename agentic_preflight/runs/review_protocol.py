@@ -177,6 +177,10 @@ def context_data(
     }
     if review_manifest is not None:
         data["review_coverage"] = review_manifest.as_dict()
+        if session.config.review.contracts.enabled:
+            from .contracts import contract_context
+
+            data["contract_checks"] = contract_context(session, run, review_manifest)
     if section == "docs":
         inventory = docs_inventory(session, run, bundle.files, head=head)
         data["doc_surface"] = [entry.as_dict() for entry in inventory]
