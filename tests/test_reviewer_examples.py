@@ -144,7 +144,7 @@ def test_native_wrapper_returns_a_code_bound_contract_plan(tmp_path, monkeypatch
         "contract_checks": {"max_checks": 8},
     }
     result = subprocess.run(
-        [sys.executable, str(EXAMPLES / "reviewers" / f"{reviewer}_review.py")],
+        [sys.executable, "-B", str(EXAMPLES / "reviewers" / f"{reviewer}_review.py")],
         input=json.dumps(context),
         text=True,
         capture_output=True,

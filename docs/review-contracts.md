@@ -101,7 +101,8 @@ Code-owned container settings enforce:
 - A 64 MiB temporary filesystem, with executable mounts and setuid disabled there.
 - An unprivileged probe user. A separate trusted root watchdog is PID 1 in the
   container's private PID namespace. Its deadline terminates the whole namespace,
-  including descendants that created their own process groups.
+  including descendants that created their own process groups. An independent
+  duration cap prevents engine clock differences from extending that deadline.
 - Per-probe and total deadlines, plus at most two seconds for each attempted
   container cleanup. Both output streams share the configured byte limit.
 

@@ -358,6 +358,16 @@ def test_real_container_isolation_and_watchdog(feature_repo, monkeypatch):
         probe["code"] = (
             "import subprocess,sys,time;subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'],start_new_session=True);time.sleep(60)"
         )
+    # The watchdog must stop descendants itself even when the engine's clock is
+    # behind the host. Allow the attached client longer to observe that exit.
+    original_time = time.time
+    original_capture = contract_runner._capture
+    monkeypatch.setattr(contract_runner.time, "time", lambda: original_time() + 3600)
+
+    def observe_watchdog(argv, timeout, limit, *, cwd):
+        return original_capture(argv, timeout + 3 if argv[1] == "run" else timeout, limit, cwd=cwd)
+
+    monkeypatch.setattr(contract_runner, "_capture", observe_watchdog)
     receipt = execute_plan(
         feature_repo,
         gitx.rev_parse(feature_repo, "HEAD"),
@@ -365,6 +375,11 @@ def test_real_container_isolation_and_watchdog(feature_repo, monkeypatch):
         config,
     )
     assert receipt.status == "unverified"
+    assert all(
+        probe.exit_code == 124 and probe.reason == "runtime or resource failure"
+        for check in receipt.checks
+        for probe in check.probes
+    )
     names = [probe.container_name for check in receipt.checks for probe in check.probes]
     containers = subprocess.run(
         ["docker", "ps", "--format", "{{.Names}}"],

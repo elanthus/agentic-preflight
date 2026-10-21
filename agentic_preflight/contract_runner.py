@@ -37,7 +37,7 @@ MAX_SNAPSHOT_FILES = 4096
 # probe loses root and all supplementary groups, so it cannot kill its watchdog.
 # Exiting PID 1 terminates even descendants that created another process group.
 WATCHDOG = r"""import hashlib,json,pathlib,signal,subprocess,sys,time
-remaining = max(0,float(sys.argv[1])-time.time())
+remaining = min(float(sys.argv[2]),max(0,float(sys.argv[1])-time.time()))
 signal.signal(signal.SIGALRM, lambda *_: sys.exit(124))
 signal.setitimer(signal.ITIMER_REAL, max(.001,remaining))
 root = pathlib.Path('/workspace')
@@ -244,6 +244,7 @@ def container_argv(
         "-B",
         "/watchdog.py",
         str(time.time() + timeout),
+        str(timeout),
     ]
 
 
