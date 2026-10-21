@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import click
 
 from . import runs
@@ -13,6 +15,23 @@ from .cli_support import (
     open_cli_session,
     read_json_file,
 )
+from .runs.start import normalize_client, normalize_model
+
+
+def _normalized(
+    normalize: Callable[[str], str],
+) -> Callable[[click.Context, click.Parameter, str | None], str | None]:
+    """Validate a self-reported producer value at parse time."""
+
+    def callback(ctx: click.Context, param: click.Parameter, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            return normalize(value)
+        except ValueError as exc:
+            raise click.BadParameter(str(exc), ctx=ctx, param=param) from exc
+
+    return callback
 
 
 @click.command()
@@ -27,12 +46,41 @@ from .cli_support import (
     is_flag=True,
     help="Orphan a non-stale active run in this worktree and start a new one.",
 )
+@click.option(
+    "--client",
+    metavar="NAME",
+    default=None,
+    callback=_normalized(normalize_client),
+    help="Coding agent running this command, e.g. claude-code or codex (self-report).",
+)
+@click.option(
+    "--model",
+    metavar="NAME",
+    default=None,
+    callback=_normalized(normalize_model),
+    help="The agent's exact model id (self-report; never inferred).",
+)
 @command
-def start(base_ref: str | None, intent: str | None, replace: bool) -> None:
+def start(
+    base_ref: str | None,
+    intent: str | None,
+    replace: bool,
+    client: str | None,
+    model: str | None,
+) -> None:
     """Create a run and prepare its validation checkout."""
     session = open_cli_session()
     with session.store.resource(f"start-{session.owner_id}"):
-        finish(runs.start(session, base_ref=base_ref, intent=intent, replace=replace))
+        finish(
+            runs.start(
+                session,
+                base_ref=base_ref,
+                intent=intent,
+                replace=replace,
+                client=client,
+                model=model,
+            )
+        )
 
 
 @click.command()

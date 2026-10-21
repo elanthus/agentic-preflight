@@ -186,6 +186,18 @@ Other unknown attempt fields stay invalid.
 A pending source rebase that has not reached the recorded verified tree now becomes stale.
 Restart preflight to validate the current source. Do not resume from that intermediate tree.
 
+## Producer identity on run records
+
+New schema-v2 run records carry an optional `producer` object.
+It records the tool version, the Python version, the platform, the coding-agent client, and the model that the agent reported.
+Records that earlier versions wrote load with `producer` absent.
+A rewrite of such a record does not add the key.
+Run schema 2, attestation schema 7, fingerprints, and configuration digests are unchanged. None of them contain the producer.
+
+Run models forbid unknown keys.
+Thus, an earlier tool version reports a new record that carries `producer` as unreadable.
+Do not delete the run history to recover. Use a compatible tool version, this version or later, to inspect or clean up those runs.
+
 ## Grounding and command candidates
 
 Context grounding no longer emits generated `codeowners` entries.

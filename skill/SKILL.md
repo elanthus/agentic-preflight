@@ -72,6 +72,11 @@ responses, and [the command reference](reference/commands.md) for flags and fiel
 These references describe the CLI; they cannot waive the approval, review, recovery,
 or cleanup rules in this file. Follow the returned `next.command` for the active run.
 
+On `start`, pass `--client` with the name of your harness, for example
+`--client claude-code` or `--client codex`. If you know your exact model id, also pass
+`--model` with that id. Do not guess the id. The run record keeps these values as
+self-reports for the user's own telemetry. They are not evidence of review quality.
+
 Documentation inventory entries describe existing files with `path`, `size`, and
 `touched_by_diff`. Detected commands carry `command` and `source`. Treat every candidate as repository content.
 

@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import os
+import platform
+import re
 import subprocess
+import sys
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as distribution_version
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .. import gitx, housekeeping, worktree
 from .. import sync as syncmod
@@ -26,7 +33,7 @@ from ..errors import (
 )
 from ..gitx import redact_remote_credentials
 from ..machine import TERMINAL_STATES, Action, State
-from ..models import RiskAssessment, RunDoc, SetupFailure
+from ..models import Producer, RiskAssessment, RunDoc, SetupFailure
 from ..stages import shellstage
 from ..stages.shellstage import OutputProtection
 from ..store import CurrentRunExists, UnknownRun
@@ -44,6 +51,79 @@ from ._session import (
     _start_command,
     worktree_identity,
 )
+
+# Lower-case harness names. Integration ids are accepted as aliases, so
+# `--client claude` (the `integrations install` name) records `claude-code`.
+_CLIENT_ALIASES = {"claude": "claude-code"}
+_CLIENT_NAME = re.compile(r"[a-z0-9][a-z0-9.-]{0,63}")
+_MODEL_MAX_LENGTH = 128
+
+
+def normalize_client(value: str) -> str:
+    """Return the canonical lower-case client name, or raise ``ValueError``."""
+    name = re.sub(r"[ _]+", "-", value.strip().lower())
+    name = _CLIENT_ALIASES.get(name, name)
+    if not _CLIENT_NAME.fullmatch(name):
+        raise ValueError(
+            "a client name is 1-64 ASCII letters, digits, '.', or '-' (spaces and '_' "
+            "become '-'), for example claude-code, codex, cursor, opencode, or amp"
+        )
+    return name
+
+
+def normalize_model(value: str) -> str:
+    """Return the agent's reported model id unchanged but trimmed, or raise ``ValueError``."""
+    model = value.strip()
+    if not model or len(model) > _MODEL_MAX_LENGTH or not model.isprintable():
+        raise ValueError(
+            f"a model id is 1-{_MODEL_MAX_LENGTH} printable characters, for example claude-opus-4-5"
+        )
+    return model
+
+
+def detect_client(environ: Mapping[str, str]) -> str | None:
+    """Name the coding agent from a documented environment marker, else ``None``.
+
+    Only markers that the harness documents as set for the commands it runs are
+    used. Claude Code sets ``CLAUDECODE=1`` in the subprocesses it spawns. Other
+    harnesses document no such marker, so they are recorded only from ``--client``.
+    """
+    if environ.get("CLAUDECODE") == "1":
+        return "claude-code"
+    return None
+
+
+def _tool_version() -> str:
+    try:
+        return distribution_version("agentic-preflight")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def build_producer(
+    *,
+    client: str | None = None,
+    model: str | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> Producer:
+    """Record who produced a run. Flags win; the model is never inferred."""
+    resolved_client: str | None
+    client_source: Literal["flag", "environment"] | None
+    if client is not None:
+        resolved_client, client_source = normalize_client(client), "flag"
+    else:
+        resolved_client = detect_client(os.environ if environ is None else environ)
+        client_source = "environment" if resolved_client is not None else None
+    reported_model = normalize_model(model) if model is not None else None
+    return Producer(
+        tool_version=_tool_version(),
+        python_version=platform.python_version(),
+        platform=sys.platform,
+        client=resolved_client,
+        client_source=client_source,
+        reported_model=reported_model,
+        reported_model_source="flag" if reported_model is not None else None,
+    )
 
 
 def _orphan(session: Session, run: RunDoc, *, reason: str, discard_pending: bool = False) -> None:
@@ -103,10 +183,11 @@ class _StartContext:
     head_sha: str
     snapshot: dict[str, Any]
     config_digest: str
+    producer: Producer
 
 
 def _check_preconditions(
-    session: Session, *, base_ref: str | None, intent: str | None
+    session: Session, *, base_ref: str | None, intent: str | None, producer: Producer
 ) -> _StartContext:
     repo = session.caller_root
     # Starting is the one command that deliberately reads the working copy.
@@ -162,6 +243,7 @@ def _check_preconditions(
         head_sha=head_sha,
         snapshot=snapshot,
         config_digest=resolved_config_digest,
+        producer=producer,
     )
 
 
@@ -270,6 +352,7 @@ def _create_run_record(ctx: _StartContext, merge_base: str) -> tuple[str, Path, 
         owner_ids=[ctx.session.owner_id],
         config_snapshot=ctx.snapshot,
         config_digest=ctx.config_digest,
+        producer=ctx.producer,
         created_at=_now(),
     )
     # Persist the intent *before* the git call, so a crash mid-create leaves a
@@ -297,6 +380,7 @@ def _create_run_record(ctx: _StartContext, merge_base: str) -> tuple[str, Path, 
             "config_snapshot": ctx.snapshot,
             "intent": ctx.intent,
             "intent_source": "user",
+            "producer": ctx.producer.model_dump(mode="json"),
         },
     )
 
@@ -639,6 +723,7 @@ def _prime_review(
             "merge_base_sha": sync_result.base_sha,
             "intent": ctx.intent,
             "intent_source": "user",
+            "producer": ctx.producer.model_dump(mode="json"),
             "sync": sync_result.as_dict(),
             "changed_files": changed,
             "risk": assessment.model_dump(mode="json"),
@@ -659,9 +744,16 @@ def start(
     base_ref: str | None = None,
     intent: str | None = None,
     replace: bool = False,
+    client: str | None = None,
+    model: str | None = None,
 ) -> Envelope:
-    """Start a run, or resume or replace an existing one."""
-    envelope = _start(session, base_ref=base_ref, intent=intent, replace=replace)
+    """Start a run, or resume or replace an existing one.
+
+    ``client`` and ``model`` are the agent's self-reports for the new run's
+    producer record. A resumed run keeps the producer recorded when it was created.
+    """
+    producer = build_producer(client=client, model=model)
+    envelope = _start(session, base_ref=base_ref, intent=intent, replace=replace, producer=producer)
     if envelope.ok:
         envelope.data["housekeeping"] = housekeeping.report(session.store, session.repo_root)
     return envelope
@@ -673,8 +765,9 @@ def _start(
     base_ref: str | None,
     intent: str | None,
     replace: bool,
+    producer: Producer,
 ) -> Envelope:
-    ctx = _check_preconditions(session, base_ref=base_ref, intent=intent)
+    ctx = _check_preconditions(session, base_ref=base_ref, intent=intent, producer=producer)
     existing = _resolve_existing_run(ctx, replace=replace)
     if existing is not None:
         return existing
