@@ -136,7 +136,7 @@ Sleep 1800ms
 # 10. Merge fixes back, then show the gate target, risk, and next command.
 Type "agentic-preflight mergeback | jqs"
 Enter
-Sleep 1000ms
+Sleep 1800ms
 
 Type "agentic-preflight gate | jqg"
 Enter

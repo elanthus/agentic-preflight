@@ -88,6 +88,6 @@ Update documentation in the same commit as the code it describes:
   `skill/reference/commands.md`; update `skill/reference/workflow.md` when the walkthrough
   changes. Update `skill/SKILL.md` when approval, review, recovery, or cleanup rules change.
 - Schema or configuration compatibility changes are recorded in `COMPATIBILITY.md`.
-- `tests/test_docs_match_cli.py` pins the skill, README, and configuration docs against
-  the CLI and config model. If it fails, fix the docs rather than the test unless the
-  pinned fact itself changed.
+- `tests/test_docs_match_cli.py` pins the skill, README, configuration, and state-machine
+  docs against the CLI, the config model, and the transition table. If it fails, fix the
+  docs rather than the test unless the pinned fact itself changed.

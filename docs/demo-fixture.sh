@@ -28,6 +28,12 @@ for tool in git agentic-preflight uvx; do
     }
 done
 
+# Warm the uvx tool caches first. A cold cache makes the recorded `uvx pytest -q`
+# print an "Installed N packages" line, and makes the lint stage outlast its sleep
+# in the tape, so the next typed command lands on top of its output.
+uvx pytest --version >/dev/null 2>&1
+uvx ruff --version >/dev/null 2>&1
+
 rm -rf "$ROOT" "$ORIGIN"
 mkdir -p "$REPO" "$WORKSPACE"
 

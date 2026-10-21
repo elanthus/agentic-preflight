@@ -1,34 +1,33 @@
 # Configuration
 
-This is the canonical configuration reference. `agentic-preflight init` writes a
-commented starting file; the example below includes every supported section.
+This page is the canonical configuration reference.
+`agentic-preflight init` writes a starting file with comments.
+The example below includes every supported section.
 
-`.agentic-preflight.toml` sits in the repo root and is committed. It is combined with
-`~/.config/agentic-preflight/config.toml` one section at a time: a section present in the
-repository file replaces the whole matching user section, and keys are not merged across
-the two files. A section that only the user file sets still applies. Unknown keys are
-errors that name the key rather than being ignored. Retired `[ci]` and `[reuse]`
-sections are the exception: file loading ignores them with a warning. Removed
-individual keys, including `[hook] enabled`, still fail file loading; remove them
-from both files. Historical run and attestation snapshots tolerate known removed
-keys without changing their original digest bindings. See the
-[0.7 upgrade guide](upgrade-0.7.md).
+`.agentic-preflight.toml` is in the repository root. Commit it.
+The CLI combines it with `~/.config/agentic-preflight/config.toml` one section at a time.
+A section in the repository file replaces the whole matching user section.
+Keys are not merged across the two files.
+A section that only the user file sets still applies.
+Unknown keys are errors that name the key. They are not ignored.
+The retired `[ci]` and `[reuse]` sections are the exception. File loading ignores them with a warning.
+Removed individual keys, including `[hook] enabled`, still fail file loading. Remove them from both files.
+Historical run and attestation snapshots tolerate known removed keys. Their original digest bindings do not change.
+See the [0.7 upgrade guide](upgrade-0.7.md).
 
-Configuration models enforce the same mode, severity, risk-level, approval-environment,
-and constrained path rules for file loading and stored snapshots. Python callers can
-use `Config(...)` or `Config.model_validate(...)` without a separate validation step.
-File-loading errors identify the affected section/key and the file that supplied it,
-after section-wise layering.
+The configuration models enforce the same mode, severity, risk-level, approval-environment, and constrained path rules for file loading and for stored snapshots.
+Python callers can use `Config(...)` or `Config.model_validate(...)` without a separate validation step.
+A file-loading error identifies the affected section and key and the file that supplied it, after section-wise layering.
 
-> **Warning: the configuration executes committed code.** During a run, `[worktree]
-> setup_command` runs at `start`, every `[commands]` entry runs at its lint or test
-> stage, and `[review] command` runs when command review is in effect (`executor =
-> "command"`, or a risk level listed in `require_command_for`). Each may come from
-> this committed file or the user config, with the repository file overriding the
-> user file section by section — so the repository being validated decides what runs
-> with your privileges. Starting a preflight run on a freshly cloned repository is
-> equivalent in trust to running that repository's build or test suite; run it only
-> on repositories whose code you would build.
+> **Warning: the configuration executes committed code.**
+> During a run, `[worktree] setup_command` runs at `start`.
+> Every `[commands]` entry runs at its lint or test stage.
+> `[review] command` runs when command review is in effect, that is, when `executor = "command"` or when a risk level in `require_command_for` applies.
+> Each command can come from this committed file or from the user configuration.
+> The repository file overrides the user file section by section.
+> Thus, the repository under validation decides what runs with your privileges.
+> A preflight run on a freshly cloned repository has the same trust as that repository's build or test suite.
+> Run it only on repositories whose code you would build.
 
 ## Complete example
 
@@ -108,162 +107,163 @@ allow_force_push = false
 
 ## Configuration is snapshotted per run
 
-The resolved configuration is snapshotted when `start` creates a run. Editing
-`.agentic-preflight.toml` afterward does not change that run; the snapshot and its digest
-are recorded with the run events.
+`start` snapshots the resolved configuration when it creates a run.
+A later edit of `.agentic-preflight.toml` does not change that run.
+The snapshot and its digest are recorded with the run events.
 
-Commit configuration changes **before** starting the run they should affect. This is also
-why the file must be committed before `start` and must not be edited mid-run.
+Commit configuration changes **before** you start the run that they must affect.
+For the same reason, the file must be committed before `start`. Do not edit it during a run.
 
-`agentic_preflight/fingerprints.py` additionally scopes that same snapshot per stage: a
-review fingerprint hashes only `[general]`, `[review]`, `[policy]`, `[context]`,
-`[diff]`, and `[stage]` (the last because the command review executor's timeout and
-retry bound live there), and a docs fingerprint hashes `[general]`, `[docs]`,
-`[diff]`, `[context]`, and `[policy]`, so changing an unrelated section (`[commands]`, for example) cannot by
-itself invalidate that stage's evidence. See
-[`docs/fingerprint-contract.md`](fingerprint-contract.md) for automatic refresh.
+`agentic_preflight/fingerprints.py` also scopes that same snapshot per stage.
+A review fingerprint hashes only `[general]`, `[review]`, `[policy]`, `[context]`, `[diff]`, and `[stage]`.
+`[stage]` is included because the command review executor's timeout and retry bound live there.
+A docs fingerprint hashes `[general]`, `[docs]`, `[diff]`, `[context]`, and `[policy]`.
+Thus, a change to an unrelated section, for example `[commands]`, cannot by itself invalidate that stage's evidence.
+See [`docs/fingerprint-contract.md`](fingerprint-contract.md) for automatic refresh.
 
 ## Retired shell evidence reuse
 
-Review and documentation can reuse equivalent evidence automatically. Lint and
-test results never transfer into another run, even when its tree is identical.
-Each new run executes applicable shell stages again. The retired `[reuse]`
-section, including `[reuse.lint]` and `[reuse.test]`, is ignored with a warning.
-Historical configuration snapshots remain readable with their original digests.
+Review and documentation can reuse equivalent evidence automatically.
+Lint and test results never transfer into another run, even when its tree is identical.
+Each new run executes the applicable shell stages again.
+The retired `[reuse]` section, including `[reuse.lint]` and `[reuse.test]`, is ignored with a warning.
+Historical configuration snapshots stay readable with their original digests.
 
 ## Push and pull-request authorization
 
-This section is the canonical statement of when an agent may push or open a pull
-request. The skill and the other documents link here.
+This section is the canonical statement of when an agent can push or open a pull request.
+The skill and the other documents link here.
 
-An agent may push only with user authorization. Authorization comes from one of two
-sources:
+An agent can push only with user authorization.
+Authorization comes from one of two sources:
 
-- An explicit request in the current task to push, publish, or create or open a pull
-  request. That request authorizes the matching push.
-- The user's applicable standing instructions. For example, standing instructions that
-  permit pushing fixes for existing PR feedback authorize pushing those fixes to that
-  PR's existing head branch when the user asks to address the feedback.
+- An explicit request in the current task to push, publish, or create or open a pull request.
+  That request authorizes the matching push.
+- The user's applicable standing instructions.
+  For example, standing instructions can permit pushes of fixes for existing PR feedback.
+  Then a request to address that feedback authorizes a push of those fixes to the PR's existing head branch.
 
-A request only to implement or commit, or a generic "proceed", is not push
-authorization.
+A request only to implement or commit is not push authorization.
+A generic "proceed" is not push authorization.
 
-After `gate`, the agent shows the remote, branch, commits, and risk. When that summary
-matches the authorization, the agent pushes without asking a second time. When
-authorization is missing, or the summary differs from its scope (another remote or
-branch, unexpected commits, or a different risk decision), the agent asks and waits for
-an answer. No authorization covers a force-push, a merge, a destructive action, or work
-beyond the requested scope; each needs its own approval, and the merge restrictions in
-[`[approval]`](#high-risk-merge-handling-approval) still apply.
+After `gate`, the agent shows the remote, branch, commits, and risk.
+When that summary matches the authorization, the agent pushes without a second question.
+When authorization is missing, the agent asks and waits for an answer.
+The agent also asks when the summary differs from the authorized scope: another remote or branch, unexpected commits, or a different risk decision.
+No authorization covers a force-push, a merge, a destructive action, or work beyond the requested scope.
+Each of these needs its own approval.
+The merge restrictions in [`[approval]`](#high-risk-merge-handling-approval) still apply.
 
 ## Pull-request publication (`[pr]`)
 
-`mode = "auto"` is the default and is standing authorization for pull-request creation.
-After the authorized push and the run finish, the agent opens or reuses the pull request
-without a second approval prompt.
+`mode = "auto"` is the default. It is standing authorization for pull-request creation.
+After the authorized push and the run finish, the agent opens or reuses the pull request without a second approval prompt.
 
-`mode = "manual"` keeps pull-request creation in the user's hands. The agent may still
-push, but it never opens the pull request and provides a compare URL instead.
+`mode = "manual"` keeps pull-request creation with the user.
+The agent can still push. It never opens the pull request. It supplies a compare URL instead.
 
-`automated_cleanup = false` is the default. Automatic pull-request creation still works,
-but the agent stops after hosted checks: it does not poll the merge state or delete
-anything until the user explicitly requests cleanup. Set the field to `true` to have the
-agent disclose the exact cleanup scope, poll an automatically opened or reused pull
-request every 5 minutes, and remove only the disclosed run-scoped targets after GitHub
-verifies the merge.
+`automated_cleanup = false` is the default.
+Automatic pull-request creation still works, but the agent stops after the hosted checks.
+It does not poll the merge state or delete anything until the user explicitly requests cleanup.
+Set the field to `true` for automatic cleanup.
+The agent then discloses the exact cleanup scope.
+It polls an automatically opened or reused pull request every 5 minutes.
+It removes only the disclosed run-scoped targets after GitHub verifies the merge.
 
-This is independent of `[gate] mode`. With `mode = "token"` the agent pushes once it
-has [authorization](#push-and-pull-request-authorization); with `mode = "manual"` the CLI
-refuses to push and hands the command to a person.
+This setting is independent of `[gate] mode`.
+With `[gate] mode = "token"`, the agent pushes after it has [authorization](#push-and-pull-request-authorization).
+With `[gate] mode = "manual"`, the CLI refuses to push and hands the command to a person.
 
 ## High-risk merge handling (`[approval]`)
 
-`mode = "manual_merge"` is the default. The hosted approval check reports success for a
-high-risk pull request only while GitHub auto-merge is disabled. It reruns when auto-merge
-is enabled or disabled. The agent must never merge the pull request or enable auto-merge;
-the user reviews and merges it manually.
+`mode = "manual_merge"` is the default.
+The hosted approval check reports success for a high-risk pull request only while GitHub auto-merge is disabled.
+It runs again when auto-merge is enabled or disabled.
+The agent must never merge the pull request or enable auto-merge.
+The user reviews and merges it manually.
 
-`mode = "environment"` routes high-risk approval through the GitHub Environment named by
-`environment` (default: `high-risk-review`). Configure that Environment's required
-reviewers in the repository settings. The final hosted check passes only after the
-Environment job is approved and completes. The policy job fails closed if the Environment
-does not exist or has no required reviewer. For a solo repository, select the owner as
-the required reviewer and leave **Prevent self-review** disabled. GitHub plan restrictions
-may limit required reviewers for private repositories.
+`mode = "environment"` routes high-risk approval through the GitHub Environment that `environment` names.
+The default name is `high-risk-review`.
+Configure that Environment's required reviewers in the repository settings.
+The final hosted check passes only after the Environment job is approved and completes.
+The policy job fails closed if the Environment does not exist or has no required reviewer.
+For a solo repository, select the owner as the required reviewer and leave **Prevent self-review** disabled.
+GitHub plan restrictions can limit required reviewers for private repositories.
 
-`mode = "peer_review"` retains the original pull-request-review policy: an eligible
-repository owner, member, or collaborator other than the author must approve the current
-head or an equivalent earlier head.
+`mode = "peer_review"` keeps the original pull-request-review policy.
+An eligible repository owner, member, or collaborator other than the author must approve the current head or an equivalent earlier head.
 
-`mode = "owner_review"` requires the human GitHub login in `reviewer` to review the
-current head or an equivalent earlier head. They must be a repository owner, member, or
-collaborator. On another author's pull request, submit an **Approve** review. On their
-own pull request, submit a **Comment** review whose trimmed body is exactly `approved`
-(lowercase); an ordinary PR conversation comment does not count. Dismissal or a later
-changes-requested review on any head revokes approval; editing or replacing a self-review
-with other text also removes its approval. Bots and other reviewers cannot satisfy this
-mode.
+`mode = "owner_review"` requires the human GitHub login in `reviewer` to review the current head or an equivalent earlier head.
+They must be a repository owner, member, or collaborator.
+On another author's pull request, they submit an **Approve** review.
+On their own pull request, they submit a **Comment** review whose trimmed body is exactly `approved` in lowercase.
+An ordinary PR conversation comment does not count.
+A dismissal or a later changes-requested review on any head revokes the approval.
+An edit or replacement of a self-review with other text also removes its approval.
+Bots and other reviewers cannot satisfy this mode.
 
-In both review modes, an approval of an earlier head carries to a new head only when the
-branch content is unchanged. The trusted checker decides this from Git objects, not from
-attestation notes. Both heads must change the same paths against the base with the same
-`git patch-id --stable` identity. The new head's tree must also equal Git's clean merge of
-the approved head with the base commit the new head contains. Merging either head into the
-base must produce the same clean tree, and the non-merge commits since the base must have
-the same patch identities, so history tricks such as an `-s ours` merge cannot hide a
-revert or add commits a rebase merge would replay. A clean merge from the base
-or a clean rebase therefore keeps approval. A content commit, a merge that resolves
-conflicts or adds content, or a base change next to the contribution needs a new review.
-An approved head that is not an ancestor of the new head, such as one replaced by a
-rebase, is used directly when the verifier already has it. Otherwise it is fetched only
-through its `refs/agentic-preflight/evidence/<sha>` ref. If the head is absent and that
-ref is unavailable, the approval does not carry. The result reports `approved_head` and
-`approval_carried`.
+In both review modes, an approval of an earlier head carries to a new head only when the branch content is unchanged.
+The trusted checker decides this from Git objects, not from attestation notes.
+Both heads must change the same paths against the base, with the same `git patch-id --stable` identity.
+The new head's tree must also equal Git's clean merge of the approved head with the base commit that the new head contains.
+A merge of either head into the base must produce the same clean tree.
+The non-merge commits since the base must have the same patch identities.
+Thus, history tricks such as an `-s ours` merge cannot hide a revert or add commits that a rebase merge would replay.
+A clean merge from the base or a clean rebase keeps the approval.
+A content commit, a merge that resolves conflicts or adds content, or a base change beside the contribution needs a new review.
+An approved head is not always an ancestor of the new head, for example after a rebase.
+The verifier uses such a head directly when it already has it.
+Otherwise, it is fetched only through its `refs/agentic-preflight/evidence/<sha>` ref.
+If the head is absent and that ref is unavailable, the approval does not carry.
+The result reports `approved_head` and `approval_carried`.
 
-The policy checker reads trusted configuration from the protected base commit. A pull
-request that changes `[approval]` is therefore evaluated under the old base-branch mode;
-the new mode applies to subsequent pull requests after merge.
+The policy checker reads trusted configuration from the protected base commit.
+Thus, a pull request that changes `[approval]` is evaluated under the old base-branch mode.
+The new mode applies to subsequent pull requests after the merge.
 
 ## The documentation surface (`[docs]`)
 
-The docs stage inspects `README*`, `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING*`,
-`CHANGELOG*`, `docs/**`, agent instructions under `.claude/rules/**` and
-`.github/instructions/**`, plus `PRODUCT.md` and `DESIGN.md`.
+The docs stage inspects `README*`, `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING*`, `CHANGELOG*`, and `docs/**`.
+It also inspects agent instructions under `.claude/rules/**` and `.github/instructions/**`, plus `PRODUCT.md` and `DESIGN.md`.
 
-Use `[docs] paths` for repository-specific documentation surfaces. The surface is an
-allowlist: a docs finding filed against a path outside it is rejected, which is a statement
-about the allowlist rather than a verdict on the finding. Repos often keep binding rules
-outside the default surface, so add them here rather than working around the rejection.
+Use `[docs] paths` for repository-specific documentation surfaces.
+The surface is an allowlist.
+A docs finding against a path outside the surface is rejected.
+The rejection is a statement about the allowlist, not a verdict on the finding.
+Repositories often keep binding rules outside the default surface.
+Add those rules here. Do not work around the rejection.
 
-`require_changelog` requires the diff to touch an existing changelog on the docs
-surface. The CLI records an untouched changelog as a code-owned finding, which remains
-blocking regardless of `[docs] blocking_severities`. It does not create a missing
-changelog or judge the entry’s content; the reviewer checks that content.
+`require_changelog` requires the diff to touch an existing changelog on the docs surface.
+The CLI records an untouched changelog as a code-owned finding.
+That finding blocks regardless of `[docs] blocking_severities`.
+The CLI does not create a missing changelog. It does not judge the content of the entry.
+The reviewer checks that content.
 
 ## Grounded context ([context])
 
-`context` retrieves deterministic repository knowledge related to the changed paths and
-returns it in `data.grounding`. The default sources are matching files under
-`docs/**`, root `AGENTS.md` and `CLAUDE.md`, relevant findings from earlier local runs,
-and the deterministic policy reasons for the change. See
-[Grounded context](context-grounding.md) for the matching and ordering rules.
+`context` retrieves deterministic repository knowledge that is related to the changed paths.
+It returns that knowledge in `data.grounding`.
+The default sources are matching files under `docs/**` and the root `AGENTS.md` and `CLAUDE.md` files.
+They also include relevant findings from earlier local runs and the deterministic policy reasons for the change.
+See [Grounded context](context-grounding.md) for the matching and ordering rules.
 
-`enabled = false` returns an explicit empty grounding block. `max_bytes` limits the sum
-of included entry byte counts, and `entry_max_bytes` truncates document excerpts and
-convention contents on a line boundary. `extra_paths` adds repository-specific rule files;
-entries may be exact repo-relative paths or globs using the same matching rules as policy
-paths. Absolute paths and any path containing `..` are rejected.
+`enabled = false` returns an explicit empty grounding block.
+`max_bytes` limits the sum of the included entry byte counts.
+`entry_max_bytes` truncates document excerpts and convention contents on a line boundary.
+`extra_paths` adds repository-specific rule files.
+Entries can be exact repository-relative paths or globs. Globs use the same matching rules as policy paths.
+Absolute paths and paths that contain `..` are rejected.
 
 ## Oversized diffs (`[diff]`)
 
-Over `[diff] max_bytes`, `context` **refuses** rather than truncating. An agent that
-reviews half a diff believing it saw all of it is exactly how a false green happens.
+Over `[diff] max_bytes`, `context` **refuses**. It does not truncate.
+An agent that reviews half a diff and believes that it saw all of it produces a false green.
 
-The envelope lists per-file sizes so the agent can narrow the diff with `[diff] exclude`.
-Raise `max_bytes` only when the change genuinely is that large.
+The envelope lists the size of each file, so the agent can narrow the diff with `[diff] exclude`.
+Raise `max_bytes` only when the change really is that large.
 
-**`exclude` replaces the defaults; it does not extend them.** Omit the key entirely to
-keep all eight built-in globs:
+**`exclude` replaces the defaults. It does not extend them.**
+Omit the key to keep all eight built-in globs:
 
 ```toml
 exclude = [
@@ -278,117 +278,121 @@ exclude = [
 ]
 ```
 
-Setting a shorter list — including the abbreviated one in the complete example above — drops the
-globs you leave out. If you want to add a project-specific pattern, copy this list and
-append to it rather than writing a fresh one.
+A shorter list drops the globs that you leave out.
+This includes the abbreviated list in the complete example above.
+To add a project-specific pattern, copy this list and append to it.
 
 ## Stage execution (`[stage]`)
 
-`timeout_seconds` bounds a single stage run and `max_attempts` bounds retries. When a
-stage is still red after `max_attempts`, the run stops and asks for human resolution
-rather than retrying indefinitely.
+`timeout_seconds` bounds a single stage run. `max_attempts` bounds the retries.
+When a stage is still red after `max_attempts`, the run stops and asks for human resolution.
+It does not retry indefinitely.
 
-When `timeout_seconds` expires, the stage's whole process group is killed and the stage
-exits 124. Output is collected for at most a few more seconds, so a descendant that left
-the process group and still holds the output pipe cannot keep the stage open. When that
-happens the captured output is discarded and the stage output ends with an
-`[output truncated: ...]` line after the timeout marker. On POSIX, SIGTERM or SIGINT
-delivered to the CLI while a stage runs also kills that stage's process group.
-On Windows, Ctrl+C kills the stage's process tree before propagating cancellation.
+When `timeout_seconds` expires, the stage's whole process group is killed and the stage exits 124.
+Output is collected for at most a few more seconds.
+Thus, a descendant process that left the process group and still holds the output pipe cannot keep the stage open.
+In that case, the captured output is discarded.
+The stage output ends with an `[output truncated: ...]` line after the timeout marker.
+On POSIX, a SIGTERM or SIGINT delivered to the CLI while a stage runs also kills that stage's process group.
+On Windows, Ctrl+C kills the stage's process tree before cancellation propagates.
 
-`max_restarts` bounds the whole run rather than one stage. It is new in 0.7.0;
-0.6.0 rejects it as an unknown key. Validation restarts whenever
-it returns to review after making progress: a committed lint or test repair, a repair
-that changes the reviewed snapshot, changed stage inputs, or a merge-back resolution that
-differs from the verified tree. When the count reaches `max_restarts`, the restart is
-still recorded so stale green evidence cannot survive, and then the run stops with exit 4
-and error code `max_restarts`. From then on only `status`, `logs`, `events`, and `abort`
-work. The counter never resets within a run, and the limit comes from the run's
-configuration snapshot, so editing the file does not release a stopped run. A person
-decides what happens next, usually `agentic-preflight abort --force` followed by a fresh
-run once the cause of the loop is understood.
+`max_restarts` bounds the whole run, not one stage.
+It is new in 0.7.0. Version 0.6.0 rejects it as an unknown key.
+Validation restarts when it returns to review after progress.
+Examples are a committed lint or test repair and a repair that changes the reviewed snapshot.
+Changed stage inputs and a merge-back resolution that differs from the verified tree are also restarts.
+When the count reaches `max_restarts`, the restart is still recorded, so stale green evidence cannot survive.
+Then the run stops with exit 4 and error code `max_restarts`.
+From then on, only `status`, `logs`, `events`, and `abort` work.
+The counter never resets within a run.
+The limit comes from the run's configuration snapshot, so an edit of the file does not release a stopped run.
+A person decides what happens next.
+Usually, that is `agentic-preflight abort --force` and a fresh run after the cause of the loop is understood.
 
-Treat a first green from a newly configured command as unproven. Pass/fail is the exit
-code alone, so a command that no-ops and exits zero reads as a pass forever, and a false
-green retires the check instead of costing a retry. Confirm the run actually did work — a
-test count, a results file, a non-empty log — before believing it.
+Treat a first green from a newly configured command as unproven.
+Pass or fail is the exit code alone.
+A command that does nothing and exits zero reads as a pass forever.
+A false green retires the check instead of a retry.
+Confirm that the run did work before you believe it: a test count, a results file, or a non-empty log.
 
 ## Finding thresholds (`[review]` and `[docs]`)
 
-Each section's `blocking_severities` decides which reviewer-submitted findings must be
-resolved before the run may proceed; `critical` and `high` block by default. A finding
-whose action is `ask_user` blocks at any severity, because choosing on the user's behalf
-is the decision that was declined. Code-owned findings also block at every severity,
-because they record mechanical requirements established by the CLI rather than reviewer
-judgment.
+Each section's `blocking_severities` decides which reviewer-submitted findings must be resolved before the run can proceed.
+`critical` and `high` block by default.
+A finding whose action is `ask_user` blocks at any severity.
+A choice on the user's behalf is the decision that was declined.
+Code-owned findings also block at every severity.
+They record mechanical requirements that the CLI established, not reviewer judgment.
 
-`max_findings` caps how many findings a single submission may carry.
+`max_findings` caps the number of findings in a single submission.
 
 ## Review independence (`[review]`)
 
-`executor = "in_harness"` is the default and preserves the normal agent-driven
-`context` → `submit-findings` workflow. `executor = "command"` instead makes
-`agentic-preflight review run` send the complete review context JSON to `command` on
-stdin. The command must return one strict review submission on stdout, including the
-current coverage manifest and `examined = "all"`.
+`executor = "in_harness"` is the default.
+It keeps the normal agent-driven `context` → `submit-findings` workflow.
+With `executor = "command"`, `agentic-preflight review run` sends the complete review context JSON to `command` on stdin.
+The command must return one strict review submission on stdout.
+The submission must include the current coverage manifest and `examined = "all"`.
 
-`require_command_for` lists risk levels (`low`, `medium`, `high`) that must use command
-review even when the configured executor is `in_harness`. Direct `submit-findings` is
-refused for those runs. If command review is effective but `command` is unset, the CLI
-stops with `data.mode = "needs_command"`; it never guesses a reviewer.
+`require_command_for` lists the risk levels (`low`, `medium`, `high`) that must use command review, even when the configured executor is `in_harness`.
+Direct `submit-findings` is refused for those runs.
+If command review is in effect but `command` is unset, the CLI stops with `data.mode = "needs_command"`.
+It never guesses a reviewer.
 
-Command review uses `[stage] timeout_seconds` and `max_attempts`. Attempts persist across
-process restarts, and every repair invalidates the prior executor and coverage evidence.
-Attestation schema v7 records `executor` and per-stage provenance for every review;
-command reviews also record the configured command, exit code, and redacted output digest.
+Command review uses `[stage] timeout_seconds` and `max_attempts`.
+Attempts persist across process restarts.
+Every repair invalidates the prior executor and coverage evidence.
+Attestation schema v7 records `executor` and per-stage provenance for every review.
+Command reviews also record the configured command, the exit code, and the redacted output digest.
 
-See [Independent review and agreement](independent-review.md) for worked Codex and Claude
-configurations and the two-reviewer comparison report.
+See [Independent review and agreement](independent-review.md) for worked Codex and Claude configurations and the two-reviewer comparison report.
 
 ## Deterministic risk policy (`[policy]`)
 
-Risk and review size answer different questions. `[diff] max_bytes` is only the maximum
-complete diff the agent may hold in review context; it never makes a small change safe or
-a large change dangerous. `[policy]` classifies the paths changed by the branch:
+Risk and review size answer different questions.
+`[diff] max_bytes` is only the maximum complete diff that the agent can hold in review context.
+It never makes a small change safe or a large change dangerous.
+`[policy]` classifies the paths that the branch changes:
 
-- `human_review_paths` marks ownership-sensitive paths as high risk and records the
-  specific policy match for reviewers.
-- `high_risk_paths` assigns high risk. Every high-risk result uses the configured
-  approval mode before merge, but does not require a person to perform the push.
+- `human_review_paths` marks ownership-sensitive paths as high risk. It records the specific policy match for reviewers.
+- `high_risk_paths` assigns high risk. Every high-risk result uses the configured approval mode before merge. It does not require a person to perform the push.
 - `medium_risk_paths` assigns medium risk. Unmatched changes start at low risk.
 
-Patterns are repo-relative and use the same gitignore-like glob matching as
-`[diff] exclude`. Absolute paths and `..` are rejected. When several patterns match, the highest
-risk wins. The hosted approval check also classifies every path that differs between the
-base and Git's merge of the pull-request head into it, so criss-cross history (several merge
-bases) cannot hide a change that the branch diff from a single merge base omits, such as
-an `-s ours` merge that reverts a side branch already in the base. The hosted check also
-classifies every path touched by a non-merge commit in `base..head`, because a GitHub
-rebase merge replays those commits and drops merge commits: a merge whose resolution
-cancels an earlier high-risk commit hides that commit from both tree comparisons, yet a
-rebase merge lands it. A branch that changes a high-risk path and later reverts it still
-needs approval. Attestation verification classifies the branch diff and merge-result
-paths for a test skip and the review-executor policy. A local run needs no extra step:
-synchronization makes the base tip an ancestor of the validated head without changing
-what the branch lands, merging the base in when a rebase would drop such a merge, so the
-branch diff it classifies is the merge result. Recorded `critical` and `high` findings
-also make the run high-risk, including
-after a fix; a `medium` finding makes it at least medium-risk. Open blocking findings
-produce `changes_required` until they are resolved; once resolved, high risk produces
-`needs_human` for the hosted merge-approval check.
+Patterns are repository-relative. They use the same gitignore-like glob matching as `[diff] exclude`.
+Absolute paths and `..` are rejected.
+When several patterns match, the highest risk wins.
 
-The verdict is derived by ordinary code from the committed policy and stored findings;
-the reviewing model cannot submit or override it. Protect the policy file with your
-forge's ownership rules so a change cannot quietly remove its own human-review rule. On
-GitHub, make the repository's `high-risk human approval` job a required status check and
-require Code Owner reviews for the protected paths. The job evaluates trusted base code.
-Depending on `[approval] mode`, it records the manual-merge requirement, waits for the
-configured Environment, or accepts only an eligible non-bot, non-author approval of the
-current head or of an earlier head with identical branch content.
+The hosted approval check also classifies every path that differs between the base and Git's merge of the pull-request head into it.
+Thus, criss-cross history with several merge bases cannot hide a change that the branch diff from a single merge base omits.
+An example is an `-s ours` merge that reverts a side branch already in the base.
+The hosted check also classifies every path that a non-merge commit in `base..head` touches.
+A GitHub rebase merge replays those commits and drops merge commits.
+A merge whose resolution cancels an earlier high-risk commit hides that commit from both tree comparisons, but a rebase merge lands it.
+A branch that changes a high-risk path and later reverts it still needs approval.
+Attestation verification classifies the branch diff and the merge-result paths for a test skip and for the review-executor policy.
+A local run needs no extra step.
+Synchronization makes the base tip an ancestor of the validated head without a change to what the branch lands.
+It merges the base in when a rebase would drop such a merge.
+Thus, the branch diff that it classifies is the merge result.
+
+Recorded `critical` and `high` findings also make the run high-risk, including after a fix.
+A `medium` finding makes the run at least medium-risk.
+Open blocking findings produce `changes_required` until they are resolved.
+After resolution, high risk produces `needs_human` for the hosted merge-approval check.
+
+Ordinary code derives the verdict from the committed policy and the stored findings.
+The reviewing model cannot submit or override it.
+Protect the policy file with your forge's ownership rules, so a change cannot quietly remove its own human-review rule.
+On GitHub, make the repository's `high-risk human approval` job a required status check.
+Require Code Owner reviews for the protected paths.
+The job evaluates trusted base code.
+Its behavior depends on `[approval] mode`.
+It records the manual-merge requirement, waits for the configured Environment, or requires an eligible approval.
+An eligible approval comes from a non-bot, non-author reviewer of the current head or of an earlier head with identical branch content.
 
 ## Removed CI test authority
 
 Legacy `[ci]` tables in user or repository configuration are ignored with a warning.
-Tests run locally before publication, apart from the existing documentation/CI-only
-skip. Remove the retired table to silence the warning. Other unknown configuration
-keys continue to fail validation.
+Tests run locally before publication, apart from the existing documentation-only and CI-only skip.
+Remove the retired table to silence the warning.
+Other unknown configuration keys still fail validation.

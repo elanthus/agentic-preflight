@@ -1,37 +1,37 @@
 # Change scope and the test-skip exception
 
-When every changed file in a diff is documentation
-or standard CI configuration, Agentic Preflight does not run the software test command after lint. It takes an explicit `SKIP_TEST`
-transition through `TEST_GREEN` and records the test stage as `skipped` with its reason,
-so the exception stays visible in `status` and the commit's attestation note rather
-than looking like a pass.
+Agentic Preflight does not run the software test command when every changed file is documentation or standard CI configuration.
+In that case, lint runs and then the run takes an explicit `SKIP_TEST` transition to `TEST_GREEN`.
+The run records the test stage as `skipped` with its reason.
+`status` and the commit's attestation note show the skip. The skip does not look like a pass.
 
-**Any source or otherwise unclassified file keeps tests mandatory.** The exception applies
-only when the whole diff qualifies; one unclassified file is enough to require them.
-When Agentic Preflight verifies an attestation's skip, it also classifies every path that differs between
-the attested base and Git's merge of the head into it, so criss-cross history cannot hide
-a source change from that check.
+**Any source file or unclassified file keeps tests mandatory.**
+The exception applies only when the whole diff qualifies.
+One unclassified file is sufficient to require tests.
+Attestation verification also checks the skip.
+It classifies every path that differs between the attested base and Git's merge of the head into that base.
+Thus, criss-cross history cannot hide a source change from that check.
 
 ## What counts as documentation
 
-- Markdown (`.md`), reStructuredText (`.rst`), and AsciiDoc (`.adoc`) files
-- Extensionless root `README`, `CONTRIBUTING`, and `CHANGELOG` files
-- Plain `.txt` files on the standard documentation surface or selected by `[docs] paths`
+- Markdown (`.md`), reStructuredText (`.rst`), and AsciiDoc (`.adoc`) files in any directory
+- The root `README`, `CONTRIBUTING`, and `CHANGELOG` files with no extension
+- Plain `.txt` files on the standard documentation surface or in `[docs] paths`
 
-The documentation review surface is broader than this exception. Executable examples,
-MDX components, and unknown file types keep tests mandatory even under `docs/**` or a
-configured `[docs] paths` glob. A name such as `README.sh` is still software.
+The documentation review surface is larger than this exception.
+Executable examples, MDX components, and unknown file types keep tests mandatory.
+This applies also under `docs/**` or a configured `[docs] paths` glob.
+A name such as `README.sh` is software.
 
 ## What counts as CI configuration
 
-Recognized YAML paths for GitHub Actions, CircleCI, GitLab CI, Azure Pipelines,
-Bitbucket Pipelines, Buildkite, Travis CI, and AppVeyor. Scripts in these directories
-keep tests mandatory. Jenkinsfiles also keep tests mandatory because they contain
-executable pipeline code.
+The recognized paths are the YAML files of these systems: GitHub Actions, CircleCI, GitLab CI, Azure Pipelines, Bitbucket Pipelines, Buildkite, Travis CI, and AppVeyor.
+Scripts in these directories keep tests mandatory.
+A Jenkinsfile also keeps tests mandatory because it contains executable pipeline code.
 
 ## Why the skip is recorded rather than silent
 
-A skipped stage and a passed stage are different facts, and an attestation that renders
-them identically cannot be audited. `status` and the Git note both carry the `skipped`
-status and its reason, so a reader can tell which checks actually executed against a
-given SHA.
+A skipped stage and a passed stage are different facts.
+An attestation that shows them in the same way cannot be audited.
+`status` and the Git note both carry the `skipped` status and its reason.
+A reader can see which checks executed against a given SHA.
