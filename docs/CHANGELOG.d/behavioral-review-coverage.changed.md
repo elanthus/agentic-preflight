@@ -4,5 +4,6 @@
   Report inventory and check omissions separately and direct reviewers to the full receipt.
 - Deliver failed and unverified checks before passed ones in the handoff, cap the inventory's share of the budget,
   shorten long probe output streams in the summary, and count the input classes that rely on each probe.
+- Refuse a receipt whose results do not match its plan's checks and probes instead of failing while building context.
 - Preserve schema-1 receipt files and their digest-bound representation.
   Require a schema-2 plan before a new findings submission; ordinary disabled-contract review is unchanged.

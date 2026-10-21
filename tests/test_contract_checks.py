@@ -213,6 +213,44 @@ def test_legacy_receipt_is_readable_without_rewriting_its_digest_bound_plan(
         ContractReceipt.model_validate(wire)
 
 
+@pytest.mark.parametrize("mutation", ["empty_probes", "wrong_kind", "missing_check", "wrong_id"])
+def test_receipt_results_must_match_the_plan(feature_repo, monkeypatch, mutation):
+    monkeypatch.setattr(contract_runner, "resolve_on_path", lambda _: None)
+    receipt = execute_plan(
+        feature_repo,
+        gitx.rev_parse(feature_repo, "HEAD"),
+        ContractPlan.model_validate(plan_for()),
+        ReviewContractsSection(),
+    )
+    wire = receipt.model_dump(mode="json")
+    if mutation == "empty_probes":
+        wire["checks"][0]["probes"] = []
+    elif mutation == "wrong_kind":
+        wire["checks"][0]["probes"][0]["kind"] = "boundary"
+    elif mutation == "missing_check":
+        wire["checks"] = []
+    else:
+        wire["checks"][0]["id"] = "C002"
+    with pytest.raises(ValidationError, match="must match"):
+        ContractReceipt.model_validate(wire)
+
+
+def test_receipt_with_missing_results_is_refused_not_crashed(feature_repo, tmp_path, monkeypatch):
+    monkeypatch.setattr(contract_runner, "resolve_on_path", lambda _: None)
+    enable(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    checked = agent.run("review", "contracts", "--file", str(deliver_plan(agent, tmp_path)))
+    path = Path(checked["data"]["contract_checks"]["receipt"]["path"])
+    crafted = json.loads(path.read_text())
+    crafted["checks"][0]["probes"] = []
+    digest = json_digest(crafted)
+    path.with_name(digest + ".json").write_text(json.dumps(crafted))
+    path.with_name("current.json").write_text(json.dumps({"sha256": digest}))
+    result = agent.run("context", expect=ExitCode.PRECONDITION)
+    assert "receipt is unreadable or changed" in result["error"]["message"]
+
+
 @pytest.mark.parametrize(
     "image", ["python:latest", "--privileged", "sha256:abc", "x@sha256:" + "G" * 64]
 )

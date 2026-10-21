@@ -199,7 +199,12 @@ class ContractReceipt(_Strict):
     )
 
     @model_validator(mode="after")
-    def matching_schema(self) -> ContractReceipt:
+    def results_match_plan(self) -> ContractReceipt:
         if self.schema_version != self.plan.schema_version:
             raise ValueError("receipt and plan schema versions must match")
+        if [result.id for result in self.checks] != [check.id for check in self.plan.checks]:
+            raise ValueError("receipt results must match the plan checks in order")
+        for check, result in zip(self.plan.checks, self.checks, strict=True):
+            if [p.kind for p in result.probes] != [p.kind for p in check.probes]:
+                raise ValueError(f"receipt results for {check.id} must match its plan probes")
         return self

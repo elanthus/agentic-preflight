@@ -176,6 +176,7 @@ Receipts retain the plan, the code, and the declared consumer and oracle.
 They also retain each probe's output and status, the container cleanup result, the image identity, and the snapshot digest.
 Immutable receipt files live under the run's `contracts/` directory, with a pointer to the current receipt.
 A receipt binds the plan and execution configuration to the current review manifest and head.
+A receipt whose results do not match its plan's checks and probes is refused.
 A rerun retains prior receipts.
 Review coverage adds the selected receipt digest as `contracts_sha256`.
 Thus, a receipt cannot be replaced without a change to the accepted review evidence.
