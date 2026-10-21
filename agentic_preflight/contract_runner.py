@@ -312,7 +312,8 @@ def _remove_container(docker: str, name: str, cwd: Path) -> bool:
 def _parse_packages(stdout: bytes) -> list[InstalledPackage]:
     try:
         items = json.loads(stdout.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError) as exc:
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+        # Deep nesting raises RecursionError, which is not a ValueError.
         raise ValueError("image listing returned invalid output") from exc
     if not isinstance(items, list) or not all(
         isinstance(item, list) and len(item) == 2 and all(isinstance(p, str) for p in item)
@@ -326,7 +327,7 @@ def list_image_packages(config: ReviewContractsSection) -> ImageInventory:
     """List the pinned image's distributions in one bounded container, never on the host.
 
     A failure is an explicit ``unavailable`` listing with its reason, not an empty one.
-    ``container_name`` is set exactly when a container was attempted.
+    ``container_name`` is set once a container run was requested from the engine.
     """
     image = config.image
     if image is None:

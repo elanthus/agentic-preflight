@@ -444,9 +444,10 @@ def test_image_packages_are_listed_once_per_run_in_a_restricted_container(
 
 
 @pytest.mark.parametrize(
-    "failure", ["no_docker", "no_image", "missing_image", "invalid_output", "output_limit"]
+    "failure",
+    ["no_docker", "no_image", "missing_image", "invalid_output", "nested_output", "output_limit"],
 )
-def test_unavailable_listing_is_explicit_and_never_host_run(feature_repo, monkeypatch, failure):
+def test_unavailable_listing_is_explicit_with_a_reason(feature_repo, monkeypatch, failure):
     if failure == "no_docker":
         calls = fake_docker(monkeypatch)
         monkeypatch.setattr(contract_runner, "resolve_on_path", lambda _: None)
@@ -458,6 +459,9 @@ def test_unavailable_listing_is_explicit_and_never_host_run(feature_repo, monkey
         )
     elif failure == "invalid_output":
         calls = fake_docker(monkeypatch, stdout=b"not json")
+    elif failure == "nested_output":
+        # json.loads raises RecursionError, not ValueError, on deep nesting.
+        calls = fake_docker(monkeypatch, stdout=b"[" * 40_000)
     else:
         calls = fake_docker(monkeypatch, stdout=b"[", reason="output limit exceeded")
     enable(feature_repo, "" if failure == "no_image" else f'image="{PIN}"\n')
@@ -476,6 +480,7 @@ def test_unavailable_listing_is_explicit_and_never_host_run(feature_repo, monkey
         "no_image": "no pinned image",
         "missing_image": "image listing exited 125: docker: No such image",
         "invalid_output": "invalid output",
+        "nested_output": "invalid output",
         "output_limit": "output limit exceeded",
     }[failure]
     assert expected in listing["reason"]
@@ -487,6 +492,20 @@ def test_unavailable_listing_is_explicit_and_never_host_run(feature_repo, monkey
         # An attempted container is cached for the run; nothing re-runs on the next call.
         assert Path(listing["path"]).is_file()
         assert [argv[1] for argv in calls] == ["run", "rm"]
+
+
+@pytest.mark.parametrize("damage", [b"not json", b"[" * 40_000, b'{"status": "available"}'])
+def test_unreadable_cache_entry_is_derived_again(feature_repo, monkeypatch, damage):
+    calls = fake_docker(monkeypatch)
+    enable(feature_repo, f'image="{PIN}"\n')
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    first = agent.run("context")["data"]["contract_checks"]["execution"]["installed_packages"]
+    Path(first["path"]).write_bytes(damage)
+    second = agent.run("context")["data"]["contract_checks"]["execution"]["installed_packages"]
+    assert second == first
+    assert [argv[1] for argv in calls] == ["run", "rm", "run", "rm"]
+    assert json.loads(Path(first["path"]).read_text())["status"] == "available"
 
 
 def test_delivered_listing_is_bounded_and_points_at_the_full_file(feature_repo, monkeypatch):
@@ -802,7 +821,7 @@ def test_command_review_plans_before_final_findings(feature_repo, tmp_path, monk
 @pytest.mark.skipif(
     not os.environ.get("AP_CONTRACT_TEST_IMAGE"), reason="explicit local cached-image integration"
 )
-def test_real_image_listing_runs_unprivileged_and_offline():
+def test_real_image_listing_returns_packages_and_removes_its_container():
     config = ReviewContractsSection(
         enabled=True, image=os.environ["AP_CONTRACT_TEST_IMAGE"], timeout_seconds=20
     )

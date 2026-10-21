@@ -151,7 +151,7 @@ review coverage is stale, it reopens review instead.
 - Review adds `review_coverage`: a snapshot-bound `manifest`, the exact `head`, and
   every hunk or non-textual file-level review unit.
 - With `[review.contracts] enabled`, review adds `contract_checks`: `max_checks`,
-  `plan_schema` until a receipt exists, `execution`, and the current `receipt`.
+  `plan_schema` until a schema-2 receipt exists, `execution`, and the current `receipt`.
   `execution` carries the pinned `image`, the execution limits, and
   `installed_packages`: a cached, code-owned listing of the distributions installed in
   the image (`status`, `packages`, `packages_omitted`, `path`), or an explicit

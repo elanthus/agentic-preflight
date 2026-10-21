@@ -139,7 +139,7 @@ def _read_inventory(path: Path) -> ImageInventory | None:
         if not path.is_file() or path.stat().st_size > MAX_INVENTORY_FILE_BYTES:
             return None
         return ImageInventory.model_validate(json.loads(path.read_text(encoding="utf-8")))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         # An unreadable cache entry is simply derived again; it is not evidence.
         return None
 
