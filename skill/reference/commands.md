@@ -182,18 +182,30 @@ first for the delivered manifest, unit IDs and `contract_checks.plan_schema`.
 Account for every delivered unit, including units with no initial finding, using
 checks, explained non-applicability or an explicit unverified gap. Each check
 declares its producer, consumer, contract and independent oracle, plus ordinary,
-boundary and composition probes. No defect-specific examples are supplied.
+boundary and composition probes. Schema-2 plans also require checked units to inventory
+their transformations and input classes. Each class references concrete probes or
+records an unverified gap. Every probe needs an input-class reference. Checks record
+oracle provenance: kind, source, rationale, supported input domain, runtime, and an
+explicit limitations list. No defect-specific examples are supplied.
 
 Only committed Git blobs enter the disposable offline container. Probes have hard
 resource/output/deadline limits; an absent pinned image or execution capability is
 unverified, with no host-interpreter fallback. The envelope returns `contract_checks`
 with the receipt digest, overall/per-probe status, bounded details and a private
-full-artifact path. The accepted review binds the receipt as `contracts_sha256`.
+full-artifact path. Details include the consumer, provenance, and exact assertions.
+`handoff_complete` reports whether the inventory and check details are both present;
+`inventory_units_omitted` and `details_omitted` count their omissions separately.
+`plan_pointer` locates each check in the full receipt. Details are ordered failed,
+unverified, then passed; long output streams are shortened in the summary; and
+`claimed_classes` counts the input classes that rely on each probe. Unverified input classes keep
+the receipt unverified even when all probes pass. Schema-1 artifacts remain readable,
+but new submissions require a schema-2 plan. The accepted review binds the receipt as `contracts_sha256`.
 Invalid, incomplete or stale plans fail with `invalid_findings` (exit 3).
 
 Checks supply evidence to the final review; failures are candidate counterexamples,
 not automatic findings or a replacement for lint/tests. Read omitted evidence and
-verify the oracle before reporting a defect. See
+verify the oracle before reporting a defect. Challenge declared input coverage and
+unsupported consumer assumptions for passed checks as well. See
 [contract checks](../../docs/review-contracts.md) for execution restrictions and limits.
 
 ### `agentic-preflight review compare [--file PATH]`

@@ -75,7 +75,21 @@ Ordinary review does not require Docker. The default disabled configuration and
 coverage wire shape remain unchanged. The worked wrappers support both planning
 and final review; update the shared helper together with either wrapper.
 
-Enabled receipts use schema `"1"` in private run artifacts. Accepted review coverage
+New plans and enabled receipts use schema `"2"` in private run artifacts. Checked
+units require a behavioral inventory with input-class probe references or explicit
+gaps. Checks require structured oracle provenance. Update the worked wrappers and
+their shared helper together with the product. Schema-1 receipts remain readable
+without changing their digest-bound plan representation. They cannot satisfy a new
+findings submission: context preserves their reference under `previous_receipt` and
+requests a schema-2 plan. Existing completed evidence is not reinterpreted as schema 2.
+
+Final context adds inventory, oracle provenance, and probe code within its summary
+budget. Check details are ordered failed first, and long output streams are shortened
+while the receipt keeps them whole. Omitted inventory and check details have separate counts; `handoff_complete`
+reports whether both are present. Read the immutable full receipt for omitted data.
+These are declared coverage claims, not proof that every input class was explored.
+
+Accepted review coverage
 includes optional `contracts_sha256`. Current readers accept older coverage without
 that field. Older readers may refuse enabled configuration or new coverage fields;
 preserve their records and use a compatible tool instead of deleting run history.

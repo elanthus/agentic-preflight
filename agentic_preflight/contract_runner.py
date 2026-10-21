@@ -354,7 +354,12 @@ def execute_plan(
             ]
             results.append(CheckResult(id=check.id, probes=probes))
     statuses = {probe.status for check in results for probe in check.probes}
-    if any(unit.disposition == "unverified" for unit in plan.units):
+    if any(unit.disposition == "unverified" for unit in plan.units) or any(
+        item.disposition == "unverified"
+        for unit in plan.units
+        for behavior in unit.inventory
+        for item in behavior.input_classes
+    ):
         statuses.add("unverified")
     status: ReceiptStatus = (
         "unverified"
