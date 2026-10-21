@@ -136,17 +136,19 @@ itself invalidate that stage's evidence. See
 
 ## Contract checks
 
-Contract checks are configured by the nested `[review.contracts]` table. `image` is
-optional; when set it must be an immutable `sha256:` image ID or repository digest.
-An unavailable image or Docker engine yields unverified evidence, with no host-code
-fallback or image pull. `planner_command` is optional for locally submitted plans;
-a model-backed planner can add a paid invocation and needs explicit authorization.
-It is a normal host command, subject to `[stage] timeout_seconds`; only the probes
-run in the restricted container. See [contract checks](review-contracts.md) for
-the protocol, resource limits, local artifacts and non-gating evidence semantics.
+The nested `[review.contracts]` table configures contract checks.
+`image` is optional.
+When `image` is set, it must be an immutable `sha256:` image ID or repository digest.
+An unavailable image or Docker engine yields unverified evidence.
+There is no host-code fallback and no image pull.
+`planner_command` is optional for locally submitted plans.
+A model-backed planner can add a paid invocation and needs explicit authorization.
+The planner is a normal host command, subject to `[stage] timeout_seconds`.
+Only the probes run in the restricted container.
+See [contract checks](review-contracts.md) for the protocol, resource limits, local artifacts, and non-gating evidence semantics.
 
-Contract-enabled review results are not automatically reused in a new run. The
-plan and receipt bind the current head, manifest and execution configuration.
+A new run does not automatically reuse contract-enabled review results.
+The plan and receipt bind the current head, manifest, and execution configuration.
 
 ## Retired shell evidence reuse
 
