@@ -1,25 +1,29 @@
 # Case study: sustained dogfooding across four repositories
 
-Two observation windows, August 3–17 and August 18–September 6, 2026, contain 408
-merged PRs across the same four owner-operated repositories. Of those, 323 descriptions
-explicitly record Preflight use and 64 contain a concrete finding record. These are
-combined snapshot counts, not external adoption or distinct bugs fixed. The original
-snapshot is preserved below, followed by the newer evidence and its limits.
+Two observation windows cover August 3–17 and August 18–September 6, 2026.
+They contain 408 merged PRs across the same four repositories, all operated by one owner.
+Of these PRs, 323 descriptions explicitly record Preflight use.
+Of the merged PR descriptions, 64 contain a concrete finding record.
+These combined snapshot counts do not measure external adoption or distinct defects fixed.
+The original snapshot follows, with the later evidence and its limits.
 
-From August 3 through August 17, 2026, Agentic Preflight was used while shipping work
-across four public repositories: this project, a citation-grounded news pipeline, an
-OSWorld evaluation and deployment project, and an agentic job-research application. The
-period is useful as an operating sample because the repositories exercise different
-failure surfaces: Git and release policy, untrusted content and model evaluation,
-browser and deployment evidence, and long-running cached agent workflows.
+From August 3 through August 17, 2026, the owner used Agentic Preflight to publish work across four public repositories:
 
-This is an observational case study, not a controlled evaluation. It reports what the
-public pull-request record supports and states the limits of that evidence explicitly.
+- Agentic Preflight
+- A news pipeline that grounds its output in citations
+- An OSWorld evaluation and deployment project
+- An application that uses agents for job research
+
+These repositories exercise different failure conditions.
+They cover Git and release policy, untrusted content, model evaluation, browser and deployment evidence, and long-running workflows with cached results.
+This observational case study describes evidence from public pull requests and its limits.
+It is not a controlled evaluation.
 
 ## Original snapshot: August 3–17
 
-The observation window begins at `2026-08-03T00:00:00Z` and ends with the data collected
-on August 17 at approximately 20:40 UTC. Pull requests are counted by creation time.
+The observation window starts at `2026-08-03T00:00:00Z`.
+It ends with data collected on August 17 at approximately 20:40 UTC.
+Pull requests count by creation time.
 
 | Repository | PRs opened | PRs merged | Merged PRs that explicitly record preflight use | Merged PRs with a concrete finding record |
 |---|---:|---:|---:|---:|
@@ -29,59 +33,81 @@ on August 17 at approximately 20:40 UTC. Pull requests are counted by creation t
 | [`jobwright`](https://github.com/elanthus/jobwright/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 33 | 30 | 26 | 7 |
 | **Total** | **167** | **153** | **122** | **24** |
 
-The repository links in the table are live, day-level browsing links. They can include
-PRs created later on August 17 than the exact cutoff and are not the aggregate snapshots.
-The fixed counts and the excerpts used to classify them are preserved in the
-[`dogfooding-case-study-evidence.json`](https://github.com/elanthus/preflight-eval-results/blob/f784772cbbc17618ad05636c9ca37065affc194f/evidence/dogfooding/dogfooding-case-study-evidence.json) ledger.
-Evidence ledgers are collection records and are never edited by hand after collection.
-A correction is a fresh collection with a new `collected_at` value.
+The table's repository links are live browsing links with day-level date filters.
+They can include PRs created after the exact August 17 cutoff.
+They are not the aggregate snapshots.
+The [`dogfooding-case-study-evidence.json`](https://github.com/elanthus/preflight-eval-results/blob/f784772cbbc17618ad05636c9ca37065affc194f/evidence/dogfooding/dogfooding-case-study-evidence.json)
+ledger preserves fixed counts and classification excerpts.
 
-"Explicitly record" is narrower than "used." A merged PR is counted only
-when its description contains positive workflow-status evidence for Preflight or a
-detailed `F`-identifier-and-severity finding record. Package paths such as
-`agentic_preflight` do not qualify by themselves. A statement such as "no findings"
-records use but not a concrete finding, and a hypothetical "preflight caught no issue"
-does not qualify as a finding. This avoids claiming that all 153 merged PRs had a run
-when the public record does not prove that.
+Evidence ledgers are collection records. They are never edited by hand after collection.
+A correction requires a new collection with a new `collected_at` value.
 
-The aggregate was produced from the `number`, `createdAt`, `mergedAt`, `closedAt`,
-`body`, and `url` fields returned by the following command for each repository:
+A PR can use Preflight without explicitly recording that use.
+The count includes a merged PR only if its description contains positive workflow-status evidence or a detailed `F`-identifier-and-severity finding record.
+A package path such as `agentic_preflight` alone does not qualify.
+A statement such as "no findings" records use but no concrete finding.
+A hypothetical "preflight caught no issue" does not qualify as a finding.
+The public record therefore does not prove that all 153 merged PRs had a run.
+
+The original ledger records this collection command for each repository:
 
 ```bash
 gh pr list --repo OWNER/REPOSITORY --state all --limit 100 \
+  --json number,createdAt,mergedAt,body,url
+```
+
+This historical command limits results before the date filter.
+It can omit in-window PRs when newer PRs fill the first 100 results.
+For a new collection, restrict the dates in the query:
+
+```bash
+gh pr list --repo OWNER/REPOSITORY --state all \
+  --search 'created:2026-08-03..2026-08-17' --limit 1000 \
   --json number,createdAt,mergedAt,closedAt,body,url
 ```
 
-The point-in-time interval is inclusive from `2026-08-03T00:00:00Z` through
-`2026-08-17T20:40:03Z`. A PR counts as merged only when `mergedAt` is non-null and no
-later than the interval end. Recorded-use evidence is either a line containing a
-word-boundary `F` followed by at least three digits plus a severity, a Markdown heading
-containing the standalone word `preflight`, an attestation or audit reference, an
-explicit outcome such as `passed`, `green`, `examined`, or a risk verdict, or a
-validation-list item that names a Preflight check. Feature, configuration, and review-
-scope mentions without an outcome do not qualify. Concrete-finding evidence is either
-the detailed `F` record or an affirmative statement that Preflight caught, identified,
-found, or flagged an issue. Immediate `no`/`none`/`zero` negations are excluded. The
-ledger stores the selected excerpt and classification reason for every counted PR, plus
-the rejected borderline examples. Each repository returned fewer than 100 PRs in the
-interval, so the requested result limit did not truncate the sample.
+Check that the response has fewer than 1,000 records.
+If it reaches the limit, retrieve all pages before calculating totals.
+Apply the exact timestamp cutoff below after the day-level search.
+A new collection cannot recover the original PR descriptions because descriptions can change.
 
-The public descriptions also show clean runs at very different sizes. Examples include
-9 delivered review units in
-[`agentic-preflight` #57](https://github.com/elanthus/agentic-preflight/pull/57),
-55 changed units in
-[`OSWorldTasks` #8](https://github.com/elanthus/OSWorldTasks/pull/8), and 698 delivered
-review units in [`jobwright` #63](https://github.com/elanthus/jobwright/pull/63). These
-numbers are review-manifest units, not lines of code, and a clean receipt proves only
-that every delivered unit was cited or marked examined clean.
+The interval includes both endpoints: `2026-08-03T00:00:00Z` through `2026-08-17T20:40:03Z`.
+A PR counts as merged only if `mergedAt` is non-null and no later than the interval end.
+Recorded-use evidence can be any of the following:
+
+- A line with a word-boundary `F`, at least three following digits, and a severity
+- A Markdown heading with the standalone word `preflight`
+- An attestation or audit reference
+- An explicit outcome such as `passed`, `green`, `examined`, or a risk verdict
+- A validation-list item that names a Preflight check
+
+Feature, configuration, and review-scope mentions without an outcome do not qualify.
+Concrete-finding evidence requires a detailed `F` record or an affirmative statement that Preflight caught, identified, found, or flagged an issue.
+Immediate `no`/`none`/`zero` negations are excluded.
+The ledger stores the selected excerpt and classification reason for each counted PR.
+It also stores rejected borderline examples.
+
+The original in-window counts alone do not prove that the unfiltered query returned every eligible PR.
+A [population check collected on October 20, 2026](evals/2026-10-20-dogfooding-population.json) used the date-bounded query and exact cutoff.
+Each response had fewer than 1,000 records.
+The check matched all four repositories' original opened and merged counts: 167 opened and 153 merged in total.
+It does not reclassify recorded use or concrete findings. The original classification ledger and totals remain unchanged.
+
+Public descriptions show clean runs with different review sizes:
+
+- [`agentic-preflight` #57](https://github.com/elanthus/agentic-preflight/pull/57): 9 delivered review units
+- [`OSWorldTasks` #8](https://github.com/elanthus/OSWorldTasks/pull/8): 55 changed units
+- [`jobwright` #63](https://github.com/elanthus/jobwright/pull/63): 698 delivered review units
+
+These are review-manifest units, not lines of code.
+A clean receipt proves only that each delivered unit was cited or marked examined clean.
 
 ## Follow-up: August 18–September 6
 
-The follow-up uses PR creation times from `2026-08-18T00:00:00Z` through
-`2026-09-06T23:59:59Z`, inclusive. A PR counts as merged only if its `mergedAt` is
-within that cutoff. The descriptions were collected on September 7, so they may include
-edits made after September 6; this is a retrospective reading of the public record,
-not a preserved September 6 description snapshot.
+The follow-up includes PR creation times from `2026-08-18T00:00:00Z` through `2026-09-06T23:59:59Z`, including both endpoints.
+A PR counts as merged only if its `mergedAt` is within that cutoff.
+The descriptions were collected on September 7 and can include later edits.
+This is a retrospective reading of the public record. It is not a preserved September 6 description snapshot.
 
 | Repository | PRs opened | PRs merged | Merged PRs recording use | Merged PRs with a concrete finding record |
 |---|---:|---:|---:|---:|
@@ -92,10 +118,11 @@ not a preserved September 6 description snapshot.
 | **Follow-up total** | **257** | **255** | **201** | **40** |
 | **Original + follow-up** | **424** | **408** | **323** | **64** |
 
-The [follow-up evidence ledger](https://github.com/elanthus/preflight-eval-results/blob/f784772cbbc17618ad05636c9ca37065affc194f/evidence/dogfooding/dogfooding-follow-up-2026-09-06-evidence.json) preserves
-all 257 PR identities and timestamps, the selected exact excerpts, exclusion reasons,
-and SHA-256 hashes of the retrieved descriptions. Each repository returned fewer than
-the requested 1,000 records. Collection used:
+The [follow-up evidence ledger](https://github.com/elanthus/preflight-eval-results/blob/f784772cbbc17618ad05636c9ca37065affc194f/evidence/dogfooding/dogfooding-follow-up-2026-09-06-evidence.json)
+preserves all 257 PR identities and timestamps.
+It includes selected exact excerpts, exclusion reasons, and SHA-256 hashes of retrieved descriptions.
+Each repository returned fewer than the requested 1,000 records.
+Collection used this command:
 
 ```bash
 gh pr list --repo OWNER/REPOSITORY --state all \
@@ -103,206 +130,186 @@ gh pr list --repo OWNER/REPOSITORY --state all \
   --json number,title,createdAt,mergedAt,closedAt,body,url
 ```
 
-The substantive positive-evidence criteria from the original snapshot are retained.
-For the follow-up, manual adjudication also recognizes explicit zero-exit stage results
-and `TEST_GREEN`, preserving adjacent command/result lines together when Markdown
-formatting separates them. A successful stage records use; it does not prove that the
-entire workflow completed. Configuration descriptions and evidence explicitly attributed
-only to another PR do not qualify. For example,
-[`news-briefing` #160](https://github.com/elanthus/news-briefing/pull/160) describes the
-workflow and earlier findings, while
-[`OSWorldTasks` #127](https://github.com/elanthus/OSWorldTasks/pull/127) attributes its
-Preflight record to source PRs. Neither is counted as recorded use in this follow-up.
+The follow-up keeps the original criteria for positive evidence.
+Manual classification also recognizes explicit zero-exit stage results and `TEST_GREEN`.
+It keeps adjacent command/result lines together when Markdown formatting separates them.
+A successful stage records use. It does not prove that the complete workflow finished.
+Configuration descriptions and evidence attributed only to another PR do not qualify.
 
-Combined totals add the two disjoint snapshots without reclassifying the original
-ledger or updating its merge states. They exclude the unsampled remainder of August 17
-after 20:40:03 UTC and do not backfill later merges of PRs from the original window.
-[`jobwright` #179](https://github.com/elanthus/jobwright/pull/179), for example, was
-opened on September 6 but merged on September 7, so it contributes only to the
-follow-up's opened count. Counts include PRs merged into branches other than `main`;
-they are not counts of releases or independent deployments. The windows differ in
-length and work mix, so their raw totals are not a productivity comparison.
+For example, [`news-briefing` #160](https://github.com/elanthus/news-briefing/pull/160) describes the workflow and earlier findings.
+[`OSWorldTasks` #127](https://github.com/elanthus/OSWorldTasks/pull/127) attributes its Preflight record to source PRs.
+Neither counts as recorded use in this follow-up.
+
+Combined totals add the two separate snapshots.
+They do not reclassify the original ledger or update its merge states.
+They exclude the unsampled part of August 17 after 20:40:03 UTC.
+They also exclude later merges of PRs from the original window.
+
+For example, [`jobwright` #179](https://github.com/elanthus/jobwright/pull/179) opened on September 6 and merged on September 7.
+It contributes only to the follow-up's opened count.
+Counts include PRs merged into branches other than `main`.
+They do not count releases or independent deployments.
+The windows differ in length and work mix. Their raw totals do not compare productivity.
 
 ### Three additional findings
 
-- **Preserve literal property names while adapting schemas.**
-  [`news-briefing` #146](https://github.com/elanthus/news-briefing/pull/146) records a
-  medium-severity finding: removing an unsupported schema keyword could also remove a
-  legitimate property named `uniqueItems`. Commit `e795a5f` distinguished schema-keyword
-  dictionaries from literal property maps. The description records a clean seven-unit
-  review after the repair.
-- **Make a spending cap cover the entire policy lifecycle.**
-  [`OSWorldTasks` #86](https://github.com/elanthus/OSWorldTasks/pull/86) records a
-  high-severity design finding: the proposed paid-call cap omitted calls during reset
-  or close. Commit `284c45d` prohibited provider calls outside `act` and counted retries
-  toward the per-action request limit. This was a correction to a design contract;
-  the PR did not run paid calls or demonstrate realized cost savings.
-- **Keep targeted evidence from being crowded out.**
-  [`jobwright` #164](https://github.com/elanthus/jobwright/pull/164) records a
-  high-severity finding: targeted topics could lose their slots within a retrieval
-  category. Commit `010b444` interleaved topic groups. The PR describes hermetic
-  regression coverage; it did not establish live model-quality gains.
+- **Preserve literal property names during schema changes.**
+  [`news-briefing` #146](https://github.com/elanthus/news-briefing/pull/146) records a medium-severity finding.
+  Removal of an unsupported schema keyword could also remove a valid property named `uniqueItems`.
+  Commit `e795a5f` distinguished schema-keyword dictionaries from literal property maps.
+  The description records a clean seven-unit review after repair.
+- **Apply a spending cap to the complete policy lifecycle.**
+  [`OSWorldTasks` #86](https://github.com/elanthus/OSWorldTasks/pull/86) records a high-severity design finding.
+  The proposed paid-call cap omitted calls during reset or close.
+  Commit `284c45d` prohibited provider calls outside `act` and counted retries toward the per-action request limit.
+  This corrected a design contract. The PR did not run paid calls or demonstrate actual cost savings.
+- **Keep space for targeted evidence.**
+  [`jobwright` #164](https://github.com/elanthus/jobwright/pull/164) records a high-severity finding.
+  Targeted topics could lose their slots within a retrieval category.
+  Commit `010b444` interleaved topic groups.
+  The PR describes regression tests in an isolated environment. It did not establish live model-quality gains.
 
 ### Where the workflow still needed help
 
-A clean local review did not end the repair process. In
-[`agentic-preflight` #61](https://github.com/elanthus/agentic-preflight/pull/61), the
-record separates Preflight's initial redaction findings from CodeRabbit's follow-up
-findings and later repairs, including transient secret-file rewrites and incomplete
-SHA-256 repository support. In
-[`OSWorldTasks` #86](https://github.com/elanthus/OSWorldTasks/pull/86), the description
-records a clean revised diff before several further hosted-review rounds found gaps
-in recovery, provider-attempt accounting, and evidence persistence. Those subsequent
-findings are not presented here as Preflight's initial catches, and the changed
-snapshots do not support a numerical miss rate.
+A clean local review did not end repairs.
+In [`agentic-preflight` #61](https://github.com/elanthus/agentic-preflight/pull/61), the record separates initial Preflight redaction findings from later CodeRabbit findings and repairs.
+Later repairs included temporary secret-file rewrites and incomplete SHA-256 repository support.
 
-Hosted CI also exposed an evidence-manifest problem in
-[`OSWorldTasks` #54](https://github.com/elanthus/OSWorldTasks/pull/54): editing
-`deploy/README.md` disturbed frozen evidence. The repair preserved the tracked file and
-required a fresh Preflight run. This is an example of CI supplying information beyond
-the local review record.
+In [`OSWorldTasks` #86](https://github.com/elanthus/OSWorldTasks/pull/86), the description records a clean revised diff before further hosted reviews found gaps.
+Those gaps concerned recovery, provider-attempt accounting, and evidence persistence.
+This case study does not attribute those later findings to Preflight's initial review.
+The changed snapshots do not support a numerical miss rate.
 
-The 40 follow-up finding records include documentation corrections, low-severity
-observations, and intentional `no_op` dispositions. Multiple PRs can also discuss the
-same issue. Neither 40 nor the combined 64 measures distinct defects fixed, prevented
-incidents, or reviewer recall. The newer record supports sustained use and documented
-repair loops while continuing to show why hosted checks and additional review matter.
+Hosted CI also found an evidence-manifest problem in
+[`OSWorldTasks` #54](https://github.com/elanthus/OSWorldTasks/pull/54).
+An edit to `deploy/README.md` changed frozen evidence.
+The repair preserved the tracked file and required a new Preflight run.
+CI supplied information beyond the local review record.
+
+The 40 follow-up finding records include documentation corrections, low-severity observations, and intentional `no_op` dispositions.
+Multiple PRs can discuss the same issue.
+Neither 40 nor the combined 64 measures distinct defects fixed, prevented incidents, or reviewer recall.
+The later record shows continued use and documented repair cycles.
+It also shows why hosted checks and additional review remain necessary.
 
 ## What the original sample's runs caught
 
-The representative findings were semantic rather than syntax errors. Their PR records
-describe regression coverage added with the repairs and final configured stages green,
-with hosted CI providing a separate verification source when it was present. The
-findings clustered at boundaries where an otherwise plausible implementation could
-still preserve stale evidence, authorize the wrong actor, mutate supposedly immutable
-input, or scan the wrong trust domain.
+The representative findings concerned meaning and behavior rather than syntax.
+Their PR records describe regression tests added with repairs and final configured stages that passed.
+Where available, hosted CI supplied separate verification.
+These findings concerned implementations that could keep invalid evidence, authorize the wrong actor, change immutable input, or scan the wrong trust domain.
 
 ### Green evidence must bind every decision-making input
 
-The same failure pattern appeared independently in three codebases:
+The same failure pattern occurred independently in three codebases:
 
-- In [`agentic-preflight` #27](https://github.com/elanthus/agentic-preflight/pull/27), a
-  high-severity finding showed that reused stage evidence was not originally bound to
-  the user's intent. Follow-up review found that it could also outlive an effective
-  configuration change. The repair added portable intent and configuration digests,
-  fresh-base ancestry checks, and regression coverage.
-- In [`jobwright` #37](https://github.com/elanthus/jobwright/pull/37), automatic model
-  selection was missing from cache identity. A cached result could therefore survive a
-  provider or model change. The repair fingerprints the resolved provider and model
-  without recording credentials.
-- In [`news-briefing` #46](https://github.com/elanthus/news-briefing/pull/46), evaluator
-  checkpoints were not bound to the manifest and suite contents; a related semantic
-  checkpoint could reuse an older first-topic-only result after the prompt expanded to
-  all citing topics. The repairs added input hashes, advanced checkpoint identity, and
-  stale-input tests.
+- [`agentic-preflight` #27](https://github.com/elanthus/agentic-preflight/pull/27) records a high-severity finding.
+  Reused stage evidence was not bound to the user's intent.
+  Further review found that evidence could also remain valid after an effective configuration change.
+  The repair added portable intent and configuration digests, current-base ancestry checks, and regression tests.
+- [`jobwright` #37](https://github.com/elanthus/jobwright/pull/37) omitted automatic model selection from cache identity.
+  A cached result could remain valid after a provider or model change.
+  The repair fingerprints the resolved provider and model without recording credentials.
+- [`news-briefing` #46](https://github.com/elanthus/news-briefing/pull/46) had evaluator checkpoints that were not bound to the manifest and suite contents.
+  A related semantic checkpoint could reuse an older result for only the first topic after the prompt expanded to all citing topics.
+  Repairs added input hashes, changed checkpoint identity, and tests for changed inputs.
 
-The general lesson was stronger than "invalidate caches carefully": a green result is
-valid only for the complete input manifest that produced it. Code, configuration,
-intent, selected model, prompts, and evaluation corpus can all be correctness inputs.
+A successful result is valid only for the complete input manifest that produced it.
+Code, configuration, intent, selected model, prompts, and evaluation corpus can all affect correctness.
 
 ### Human approval needs both identity and state checks
 
-Two self-hosting changes exposed gaps that ordinary tests would not treat as publication
-policy violations:
+Two changes to Agentic Preflight exposed publication policy gaps that ordinary tests would not identify:
 
-- [`agentic-preflight` #23](https://github.com/elanthus/agentic-preflight/pull/23)
-  initially allowed an approval check without proving that the approving account was a
-  repository owner, member, or collaborator. The same review found that repository Git
-  configuration could influence notes-conflict handling. Both paths were made explicit
-  and deterministic.
-- [`agentic-preflight` #24](https://github.com/elanthus/agentic-preflight/pull/24) found
-  that manual-merge policy did not reject a pull request whose GitHub auto-merge had
-  already been enabled. Another high-severity finding corrected instructions that
-  conflated push authorization with standing authorization to create a PR. The workflow
-  now checks auto-merge state and keeps the two permissions distinct.
+- [`agentic-preflight` #23](https://github.com/elanthus/agentic-preflight/pull/23) initially permitted an approval check without proof of the approving account's eligibility.
+  The account had to be a repository owner, member, or collaborator.
+  The review also found that repository Git configuration could affect notes-conflict handling.
+  Repairs made both paths explicit and deterministic.
+- [`agentic-preflight` #24](https://github.com/elanthus/agentic-preflight/pull/24) found that manual-merge policy did not reject a PR with GitHub auto-merge enabled.
+  Another high-severity finding concerned instructions that confused push authorization with standing permission to create a PR.
+  The repair added an auto-merge state check and kept the permissions separate.
 
-These repairs turned "a human is involved" into two testable claims: an eligible person
-approved the exact head, and the hosted PR state still enforces the intended merge path.
+The repairs established two testable claims.
+An eligible person must approve the exact head.
+The hosted PR state must still enforce the intended merge path.
 
 ### Trust boundaries can fail in both directions
 
-The review record includes both missed protection and over-broad protection:
+The record includes insufficient protection and protection applied too broadly:
 
-- [`agentic-preflight` #33](https://github.com/elanthus/agentic-preflight/pull/33)
-  caught a secret-redaction gap: a dotenv loader could decode an escaped apostrophe in a
-  double-quoted value while the redaction set retained the escaped spelling. The repair
-  added the decoded representation and a regression test.
-- [`news-briefing` #28](https://github.com/elanthus/news-briefing/pull/28) caught a
-  high-severity ambiguity in configured source identifiers. An identifier containing
-  the evaluator's error delimiter could bypass the intended corpus-health contract. The
-  repair rejects ambiguous identifiers at configuration load.
-- [`jobwright` #48](https://github.com/elanthus/jobwright/pull/48) caught the opposite
-  error: a generated-output injection scan included the raw, untrusted research ledger.
-  It would fail when a canary correctly remained confined to its source. The repair
-  excludes raw source material and tests that boundary.
+- [`agentic-preflight` #33](https://github.com/elanthus/agentic-preflight/pull/33) found a secret-redaction gap.
+  A dotenv loader could decode an escaped apostrophe in a double-quoted value.
+  The redaction set kept the escaped spelling.
+  The repair added the decoded representation and a regression test.
+- [`news-briefing` #28](https://github.com/elanthus/news-briefing/pull/28) found a high-severity ambiguity in configured source identifiers.
+  An identifier with the evaluator's error delimiter could bypass the intended corpus-health contract.
+  The repair rejects ambiguous identifiers when configuration loads.
+- [`jobwright` #48](https://github.com/elanthus/jobwright/pull/48) found the opposite error.
+  An injection scan for generated output also scanned the raw, untrusted research ledger.
+  It would fail when a canary correctly stayed within its source.
+  The repair excludes raw source material and tests that boundary.
 
-The third example mattered because a check that reports expected containment as a
-failure trains users to ignore it. False-positive boundaries are part of safety design,
-not merely review polish.
+A check that reports correct containment as failure can teach users to ignore it.
+False-positive boundaries are part of safety design.
 
 ### Resumability and immutability need adversarial review
 
-Long-running and paid workflows produced another recurring class of findings:
+Long-running and paid workflows produced another repeated group of findings:
 
-- [`news-briefing` #38](https://github.com/elanthus/news-briefing/pull/38) checkpointed
-  validated review batches but did not resume from them. A later malformed response
-  could repeat already-paid calls. The fix binds resumable checkpoints to the suite
-  hash, models, and batch size.
-- [`jobwright` #53](https://github.com/elanthus/jobwright/pull/53) found that rescoring a
-  newly added benchmark case could create artifact directories inside the source run,
-  violating its immutability guarantee. The repaired path emits a missing-artifact
-  result without constructing a mutating run context.
-- [`OSWorldTasks` #2](https://github.com/elanthus/OSWorldTasks/pull/2) found that a cached
-  extracted guest image could bypass archive-member validation. The repair verifies the
-  cached member's size and CRC32 against the SHA-256-verified archive and adds regression
-  tests.
+- [`news-briefing` #38](https://github.com/elanthus/news-briefing/pull/38) saved checkpoints for validated review batches but did not resume from them.
+  A later malformed response could repeat calls that had already incurred cost.
+  The fix binds resumable checkpoints to the suite hash, models, and batch size.
+- [`jobwright` #53](https://github.com/elanthus/jobwright/pull/53) found that rescoring a new benchmark case could create artifact directories inside the source run.
+  This violated the guarantee that the source run would not change.
+  The repair returns a missing-artifact result without a run context that changes the source.
+- [`OSWorldTasks` #2](https://github.com/elanthus/OSWorldTasks/pull/2) found that a cached extracted guest image could bypass archive-member validation.
+  The repair checks the cached member's size and CRC32 against the SHA-256-verified archive.
+  It also adds regression tests.
 
-All three defects were recovery-path defects. The happy path could pass while a resume,
-rescore, or cache hit violated the stronger contract.
+All three defects occurred during recovery.
+The normal path could pass while a resume, rescore, or cache hit violated the stronger contract.
 
 ## How findings changed publication in the original sample
 
-The runs did more than write comments. Blocking findings stopped the state machine,
-repair commits changed the reviewed snapshot, and the next review used a new manifest.
-High-risk paths and high-severity findings also produced human-review verdicts rather
-than allowing an automatic merge path. PR descriptions such as
-[`agentic-preflight` #24](https://github.com/elanthus/agentic-preflight/pull/24),
-[`news-briefing` #28](https://github.com/elanthus/news-briefing/pull/28), and
-[`jobwright` #53](https://github.com/elanthus/jobwright/pull/53) preserve the finding,
-repair commit, final disposition, and manual-merge requirement for a reviewer.
+Blocking findings stopped the state machine.
+Repair commits changed the reviewed snapshot. The next review used a new manifest.
+High-risk paths and high-severity findings also required human review instead of an automatic merge path.
+The following PR descriptions preserve findings, repair commits, final dispositions, and manual-merge requirements:
 
-Across all 153 merged PRs, the median GitHub time from PR creation to merge was about
-12.6 minutes; among the 122 PRs that explicitly recorded preflight use, it was about
-13.1 minutes. Those numbers show the owner-operated workflow did not create a multi-day
-publication queue, but they do **not** measure preflight overhead: most local review,
-repair, lint, and test work happened before the PR was created. No causal speed claim is
-made.
+- [`agentic-preflight` #24](https://github.com/elanthus/agentic-preflight/pull/24)
+- [`news-briefing` #28](https://github.com/elanthus/news-briefing/pull/28)
+- [`jobwright` #53](https://github.com/elanthus/jobwright/pull/53)
+
+Across all 153 merged PRs, the median GitHub time from PR creation to merge was about 12.6 minutes.
+For the 122 PRs that explicitly recorded Preflight use, it was about 13.1 minutes.
+These values show that the owner-operated workflow did not create a publication queue lasting several days.
+They do **not** measure additional time caused by Preflight.
+Most local review, repair, lint, and test work occurred before PR creation.
+The evidence does not show that Preflight caused a speed change.
 
 ## What this evidence does not prove
 
-- There was no randomized control group, so the record cannot estimate defect escape
-  rate, reviewer recall, false-negative rate, or productivity improvement.
-- PR bodies are author-maintained audit records, not independent telemetry. The
-  representative findings above were checked against their linked public descriptions,
-  but descriptions are mutable, the preserved rule-based classification can still miss
-  undocumented use or misclassify prose, and it cannot grade review quality.
-- These four repositories have one owner. The sample demonstrates repeated use across
-  heterogeneous codebases, not organization-wide adoption or peer-review effectiveness.
-- Generated evaluation evidence and large refactors make line-count totals misleading,
-  so this case study does not present changed lines as a quality or productivity metric.
-- Clean review receipts prove reported coverage, not understanding. The same diff can
-  produce different findings on another review, and CI and human review remain separate
-  evidence sources.
+- There was no randomized control group.
+  The record cannot estimate defect escape rate, reviewer recall, false-negative rate, or productivity improvement.
+- Authors maintain PR bodies as audit records. These bodies are not independent measurements.
+  The representative findings were checked against linked public descriptions, but descriptions can change.
+  The preserved classification rules can miss undocumented use or misclassify prose. They cannot grade review quality.
+- One owner operates all four repositories.
+  The sample shows repeated use across different codebases. It does not establish organization-wide adoption or peer-review effectiveness.
+- Generated evaluation evidence and large refactors make line counts misleading.
+  This study does not use changed lines as a quality or productivity measure.
+- Clean review receipts prove reported coverage. They do not prove understanding.
+  Another review of the same diff can produce different findings.
+  CI and human review remain separate evidence sources.
 
 ## Conclusion
 
-The original sample and follow-up support a bounded claim: Agentic Preflight repeatedly
-converted agent review judgments into snapshot-bound repair loops and publication decisions across
-four different repositories. Its highest-value catches were semantic
-boundary failures—stale evidence, approval eligibility, secret normalization, trust
-domain selection, resumability, and immutable inputs—that deterministic tests alone had
-not made visible in the proposed changes.
+The original sample and follow-up support a limited claim.
+Agentic Preflight repeatedly converted agent review judgments into repairs and publication decisions bound to specific snapshots across four repositories.
+Its most valuable findings concerned behavior at boundaries between components or policies.
+These included invalid evidence, approval eligibility, secret normalization, trust domain selection, resumability, and immutable inputs.
+Deterministic tests alone had not exposed those failures in the proposed changes.
 
-The sample does not establish autonomous review quality. It does show why the project
-records coverage, findings, stage results, and human-review requirements separately: a
-useful check must preserve both what it checked and what that check cannot prove.
+The sample does not establish autonomous review quality.
+It shows why the project records coverage, findings, stage results, and human-review requirements separately.
+A useful check must preserve both what it checked and the limits of that evidence.

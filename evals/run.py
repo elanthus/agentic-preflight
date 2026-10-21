@@ -587,15 +587,24 @@ def _markdown(summary: dict[str, Any]) -> str:
         headers.extend(
             [
                 f"{setting}/{executor} catch",
-                f"{setting}/{executor} fixed-FP",
-                f"{setting}/{executor} severity",
+                f"{setting}/{executor} fixed false positive",
+                f"{setting}/{executor} severity agreement",
                 f"{setting}/{executor} keyword hit",
             ]
         )
     lines = [
-        "# Regression eval summary",
+        "# Regression evaluation summary",
         "",
         f"Mode: {summary['mode']}. Executor: {executor}.",
+        "",
+        "This report covers the public synthetic smoke corpus.",
+        "A catch matches the expected defect location in a vulnerable snapshot.",
+        "A fixed false positive matches that location in a fixed snapshot.",
+        "These location matches do not establish finding quality.",
+        "Do not compare these results with the private decision-quality evaluation.",
+        "",
+        "Table columns identify the grounding setting and executor.",
+        "Missing values appear as n/a. Rates have three decimal places.",
         "",
         "| " + " | ".join(headers) + " |",
     ]
@@ -630,20 +639,22 @@ def _markdown(summary: dict[str, Any]) -> str:
     lines.append("")
     lines.append(
         "Unresolved snapshots: "
-        f"{summary['unresolved']}. Reviewer wrapper invocations: "
+        f"{summary['unresolved']}. Reviewer wrapper launches: "
         f"{_cell(summary['reviewer_invocations'])}. Runtime: {summary['runtime_seconds']:.3f}s."
     )
     usage = summary["usage"]
     lines.extend(
         [
             "",
-            f"Findings: {_cell(summary['finding_count'])} total; "
-            f"{_cell(summary['observed_finding_count'])} observed across "
+            f"Total findings: {_cell(summary['finding_count'])}. "
+            f"Observed findings: {_cell(summary['observed_finding_count'])} across "
             f"{summary['finding_snapshots_measured']} measured snapshots.",
-            f"Token usage: {usage['status']}; exact total "
-            f"{_cell(usage['totals']['total_tokens'])}; observed total "
+            "",
+            f"Token usage status: {usage['status']}. Exact total: "
+            f"{_cell(usage['totals']['total_tokens'])}. Observed count: "
             f"{_cell(usage['observed']['total_tokens'])}. "
-            "Missing/partial observations are not zero. "
+            "Missing or partial observations do not mean zero usage. "
+            "Do not use a partial observed count as a total. "
             "Provider requests and cost remain unavailable in real mode.",
             "",
             "| Token category | Exact | Observed |",
@@ -663,7 +674,7 @@ def _markdown(summary: dict[str, Any]) -> str:
         lines.extend(["", "State history is incomplete for one or more snapshots."])
     failures = [item for item in _snapshots(summary["grounding"]) if item["failure"]]
     if failures:
-        lines.extend(["", "Failures (full diagnostics are in summary.json):"])
+        lines.extend(["", "Failures follow. See summary.json for complete diagnostics.", ""])
         for item in failures:
             failure = item["failure"]
             lines.append(f"- {failure['command']}: exit {_cell(item['exit_code'])}")
