@@ -49,6 +49,12 @@ The JSON reports for each reviewer retain complete findings, paths, lines, and s
 
 ### Grounding settings
 
+Grounding is extra repository context supplied with the review.
+With **grounding on**, Preflight adds relevant documentation, repository conventions such as `AGENTS.md`, and available review history and path-policy information.
+With **grounding off**, that extra context block is empty.
+Both settings supply the same objective, diff, changed-file list, and review units.
+The setting does not control web search or the reviewer's ability to read repository files through tools.
+
 | Reviewer | Grounding | Snapshot runtime sum | Findings | Vulnerable matches | Fixed-control matches |
 |---|---|---:|---:|---:|---:|
 | Opus 5.5 | On | 301.931 s | 32 | 12/12 | 5/12 |

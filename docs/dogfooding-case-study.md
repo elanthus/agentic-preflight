@@ -49,13 +49,27 @@ A statement such as "no findings" records use but no concrete finding.
 A hypothetical "preflight caught no issue" does not qualify as a finding.
 The public record therefore does not prove that all 153 merged PRs had a run.
 
-The aggregate uses the `number`, `createdAt`, `mergedAt`, `closedAt`, `body`, and `url` fields.
-The following command returned those fields for each repository:
+The original ledger records this collection command for each repository:
 
 ```bash
 gh pr list --repo OWNER/REPOSITORY --state all --limit 100 \
+  --json number,createdAt,mergedAt,body,url
+```
+
+This historical command limits results before the date filter.
+It can omit in-window PRs when newer PRs fill the first 100 results.
+For a new collection, restrict the dates in the query:
+
+```bash
+gh pr list --repo OWNER/REPOSITORY --state all \
+  --search 'created:2026-08-03..2026-08-17' --limit 1000 \
   --json number,createdAt,mergedAt,closedAt,body,url
 ```
+
+Check that the response has fewer than 1,000 records.
+If it reaches the limit, retrieve all pages before calculating totals.
+Apply the exact timestamp cutoff below after the day-level search.
+A new collection cannot recover the original PR descriptions because descriptions can change.
 
 The interval includes both endpoints: `2026-08-03T00:00:00Z` through `2026-08-17T20:40:03Z`.
 A PR counts as merged only if `mergedAt` is non-null and no later than the interval end.
@@ -72,7 +86,11 @@ Concrete-finding evidence requires a detailed `F` record or an affirmative state
 Immediate `no`/`none`/`zero` negations are excluded.
 The ledger stores the selected excerpt and classification reason for each counted PR.
 It also stores rejected borderline examples.
-Each repository returned fewer than 100 PRs in the interval, so the result limit did not truncate the sample.
+The original in-window counts alone do not prove that the unfiltered query returned every eligible PR.
+A [population check collected on October 20, 2026](evals/2026-10-20-dogfooding-population.json) used the date-bounded query and exact cutoff.
+Each response had fewer than 1,000 records.
+The check matched all four repositories' original opened and merged counts: 167 opened and 153 merged in total.
+It does not reclassify recorded use or concrete findings. The original classification ledger and totals remain unchanged.
 
 Public descriptions show clean runs with different review sizes:
 
