@@ -86,6 +86,7 @@ Concrete-finding evidence requires a detailed `F` record or an affirmative state
 Immediate `no`/`none`/`zero` negations are excluded.
 The ledger stores the selected excerpt and classification reason for each counted PR.
 It also stores rejected borderline examples.
+
 The original in-window counts alone do not prove that the unfiltered query returned every eligible PR.
 A [population check collected on October 20, 2026](evals/2026-10-20-dogfooding-population.json) used the date-bounded query and exact cutoff.
 Each response had fewer than 1,000 records.
