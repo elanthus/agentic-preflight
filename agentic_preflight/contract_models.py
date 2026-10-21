@@ -183,6 +183,28 @@ class CheckResult(_Strict):
     probes: list[ProbeResult]
 
 
+class InstalledPackage(_Strict):
+    name: str = Field(min_length=1, max_length=200)
+    version: str = Field(min_length=1, max_length=200)
+
+
+class ImageInventory(_Strict):
+    """Code-owned listing of the distributions installed in a pinned image.
+
+    The listing states availability only: what a probe can import, never which
+    consumer contracts the repository supports or what a consumer should output.
+    """
+
+    schema_version: Literal["1"] = "1"
+    image: str
+    status: Literal["available", "unavailable"]
+    packages: list[InstalledPackage] = Field(default_factory=list)
+    reason: str = ""
+    exit_code: int | None = None
+    container_name: str | None = None
+    cleanup_succeeded: bool | None = None
+
+
 class ContractReceipt(_Strict):
     schema_version: Literal["1", "2"] = "2"
     manifest: str

@@ -10,8 +10,8 @@ from typing import Any
 from pydantic import ValidationError
 
 from .. import gitx
-from ..contract_models import ContractPlan, ContractReceipt, ProbeKind
-from ..contract_runner import execute_plan
+from ..contract_models import ContractPlan, ContractReceipt, ImageInventory, ProbeKind
+from ..contract_runner import execute_plan, list_image_packages
 from ..diff import DiffBundle, ReviewManifest
 from ..digests import json_digest
 from ..envelope import Envelope
@@ -56,6 +56,15 @@ def _claimed_classes(plan: ContractPlan) -> Counter[tuple[str, ProbeKind]]:
         for input_class in behavior.input_classes
         for reference in input_class.probes
     )
+
+
+# The delivered package listing stays bounded; the private cache file keeps every entry.
+PACKAGES_BYTES = 24_000
+PACKAGES_LIMITATION = (
+    "Lists the distributions installed in the configured image. It states availability "
+    "only; it does not say which consumer contracts the repository supports."
+)
+MAX_INVENTORY_FILE_BYTES = 1024 * 1024
 
 
 def _directory(session: Session, run: RunDoc, manifest: ReviewManifest) -> Path:
@@ -117,14 +126,77 @@ def receipt_for(
         ) from exc
 
 
+def _image_cache(session: Session, run: RunDoc, image: str) -> Path:
+    """Listings are keyed by image digest alone: the same bytes list the same packages."""
+    digest = image.rsplit("sha256:", 1)[1]
+    return session.store.run_dir(run.run_id) / "contracts" / "images" / (digest + ".json")
+
+
+def _read_inventory(path: Path) -> ImageInventory | None:
+    try:
+        if any(part.is_symlink() for part in (path, path.parent, path.parent.parent)):
+            return None
+        if not path.is_file() or path.stat().st_size > MAX_INVENTORY_FILE_BYTES:
+            return None
+        return ImageInventory.model_validate(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError, RecursionError):
+        # An unreadable cache entry is simply derived again; it is not evidence.
+        return None
+
+
+def image_packages(session: Session, run: RunDoc) -> tuple[ImageInventory, Path | None]:
+    """Return the configured image's listing, starting at most one container per run."""
+    config = session.config.review.contracts
+    if config.image is None:
+        return list_image_packages(config), None
+    path = _image_cache(session, run, config.image)
+    cached = _read_inventory(path)
+    if cached is not None:
+        return cached, path
+    inventory = list_image_packages(config)
+    folder = path.parent
+    if inventory.container_name is None or folder.is_symlink() or folder.parent.is_symlink():
+        # Nothing was attempted (no Docker), so the next call re-checks for it cheaply.
+        return inventory, None
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _atomic_write(
+        path, json.dumps(inventory.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    )
+    return inventory, path
+
+
+def _packages_context(session: Session, run: RunDoc) -> dict[str, Any]:
+    inventory, path = image_packages(session, run)
+    packages: list[dict[str, str]] = []
+    used = 0
+    for package in inventory.packages:
+        item = {"name": package.name, "version": package.version}
+        used += len(json.dumps(item).encode())
+        if used > PACKAGES_BYTES:
+            break
+        packages.append(item)
+    return {
+        "status": inventory.status,
+        "reason": inventory.reason,
+        "path": None if path is None else str(path),
+        "packages": packages,
+        "packages_omitted": len(inventory.packages) - len(packages),
+        "limitation": PACKAGES_LIMITATION,
+    }
+
+
 def contract_context(session: Session, run: RunDoc, manifest: ReviewManifest) -> dict[str, Any]:
     receipt = receipt_for(session, run, manifest, allow_legacy=True)
+    config = session.config.review.contracts
     data: dict[str, Any] = {
         "enabled": True,
-        "max_checks": session.config.review.contracts.max_checks,
+        "max_checks": config.max_checks,
         "execution": {
-            key: getattr(session.config.review.contracts, key)
-            for key in ("image", "timeout_seconds", "total_timeout_seconds", "max_output_bytes")
+            "image": config.image,
+            "timeout_seconds": config.timeout_seconds,
+            "total_timeout_seconds": config.total_timeout_seconds,
+            "max_output_bytes": config.max_output_bytes,
+            "installed_packages": _packages_context(session, run),
         },
         "plan_schema": ContractPlan.model_json_schema(),
         "receipt": None,

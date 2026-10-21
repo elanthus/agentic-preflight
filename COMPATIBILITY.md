@@ -95,6 +95,14 @@ that field. Older readers may refuse enabled configuration or new coverage field
 preserve their records and use a compatible tool instead of deleting run history.
 Execution evidence does not imply that the final reviewer or its oracle was correct.
 
+The planning context's `contract_checks` object adds `execution`: the pinned `image`, the
+execution limits, and `installed_packages`, a code-owned listing of the distributions
+installed in the image or an explicit `unavailable` entry with a reason. The listing is a
+private run artifact under `contracts/images/`, keyed by image digest. The listing adds
+no `[review.contracts]` configuration key, no receipt field, and no change to the
+configuration digest that existing receipts bind. It states availability only; it does
+not assert which consumer contracts the repository supports.
+
 ## Validation tiers
 
 The supported combinations receive different validation frequencies, so pull-request feedback stays fast:

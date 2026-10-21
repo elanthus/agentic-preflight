@@ -38,7 +38,7 @@ Use a trusted image and engine.
 With an in-harness reviewer:
 
 1. Run `agentic-preflight context`.
-   The response includes `contract_checks.plan_schema`, the current review manifest, the unit IDs, and the configured check limit.
+   The response includes `contract_checks.plan_schema`, the current review manifest, the unit IDs, the configured check limit, and `contract_checks.execution`.
 2. Write a plan that conforms to that schema.
    Account for every delivered unit exactly once, including units that appear correct.
    Use `checks` with referenced check IDs, `not_applicable` with a concrete reason, or `unverified` with the missing information.
@@ -102,8 +102,30 @@ Keep unsupported requirements and unavailable consumers unverified.
 An unverified input class makes the overall receipt `unverified`, even when all executable assertions pass.
 This status remains evidence for review, not a new blocking policy.
 
-The planning context includes the configured image identity and execution limits.
-It does not assert which packages an image contains or which consumer contracts the repository supports.
+## Installed packages in the image
+
+The planning context includes `contract_checks.execution`.
+It has the configured image identity, the execution limits, and `installed_packages`.
+`installed_packages` is a code-owned listing of the distributions installed in the pinned image.
+Agentic Preflight runs one bounded offline container for each image digest.
+The container lists the distributions with `importlib.metadata` and the same interpreter flags as a probe.
+It uses the probe restrictions: no network, a read-only root, resource limits, the unprivileged probe user, a deadline, and an output cap.
+No snapshot is mounted.
+No host interpreter is used instead.
+The listing is cached under the run's `contracts/images/` directory, keyed by the image digest.
+Repeated `context` calls do not start another container.
+A new run lists the image again.
+
+When Docker, the image, or the container is unavailable, the entry has `status: "unavailable"` and a `reason`.
+It is never an empty list.
+The delivered list is bounded.
+`packages_omitted` counts the entries that only the full listing at `path` contains.
+
+The listing states availability only.
+It does not assert which consumer contracts the repository supports.
+Prefer a listed real consumer to a substitute implementation.
+When the real consumer is absent, record that limitation in the check's `oracle_provenance.limitations` and in the input class reason.
+Keep the affected input class unverified when no independent oracle remains.
 
 ## Command reviewers
 

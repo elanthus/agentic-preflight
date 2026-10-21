@@ -80,7 +80,11 @@ Documentation inventory entries describe existing files with `path`, `size`, and
 
 When `[review.contracts] enabled` is true, first account for every delivered unit
 in a contract plan, including code with no initial finding. Follow `next.command`;
-the configured planner may handle this before command review. Inspect the execution
+the configured planner may handle this before command review. Use
+`contract_checks.execution.installed_packages` to choose a real installed consumer over
+a hand-written substitute; it states availability only. When the real consumer is
+absent, record the limitation in the oracle provenance and keep the affected input
+class unverified unless an independent oracle remains. Inspect the execution
 receipt: challenge the declared inventory for untested input classes and consumer
 semantics, including those of passed checks, and validate the oracle provenance and
 its exact assertions before interpreting a failure. Read the full artifact at its

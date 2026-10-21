@@ -150,6 +150,13 @@ review coverage is stale, it reopens review instead.
 - Both sections: `diff`, `changed_files`, `excluded_files`, `worktree_path`.
 - Review adds `review_coverage`: a snapshot-bound `manifest`, the exact `head`, and
   every hunk or non-textual file-level review unit.
+- With `[review.contracts] enabled`, review adds `contract_checks`: `max_checks`,
+  `plan_schema` until a schema-2 receipt exists, `execution`, and the current `receipt`.
+  `execution` carries the pinned `image`, the execution limits, and
+  `installed_packages`: a cached, code-owned listing of the distributions installed in
+  the image (`status`, `packages`, `packages_omitted`, `path`), or an explicit
+  `unavailable` entry with a `reason`. The listing states availability only, not which
+  consumers the repository supports.
 - `--section docs` adds `doc_surface`: every file in the configured documentation
   allowlist, with `path`, `size`, and `touched_by_diff`. Entries describe existing files. From `REVIEW_GREEN` this
   opens the docs stage.
@@ -178,7 +185,8 @@ review; validated derivation retains original process evidence and coverage prov
 ### `agentic-preflight review contracts --file PATH`
 
 Runs an opt-in contract plan from a JSON file or `-` for stdin. Fetch `context`
-first for the delivered manifest, unit IDs and `contract_checks.plan_schema`.
+first for the delivered manifest, unit IDs, `contract_checks.plan_schema` and
+`contract_checks.execution.installed_packages`.
 Account for every delivered unit, including units with no initial finding, using
 checks, explained non-applicability or an explicit unverified gap. Each check
 declares its producer, consumer, contract and independent oracle, plus ordinary,
@@ -186,7 +194,10 @@ boundary and composition probes. Schema-2 plans also require checked units to in
 their transformations and input classes. Each class references concrete probes or
 records an unverified gap. Every probe needs an input-class reference. Checks record
 oracle provenance: kind, source, rationale, supported input domain, runtime, and an
-explicit limitations list. No defect-specific examples are supplied.
+explicit limitations list. No defect-specific examples are supplied. Prefer a listed
+real consumer over a substitute implementation; when the real consumer is absent or
+the listing is unavailable, record the limitation in the provenance and keep the
+affected input class unverified unless an independent oracle remains.
 
 Only committed Git blobs enter the disposable offline container. Probes have hard
 resource/output/deadline limits; an absent pinned image or execution capability is

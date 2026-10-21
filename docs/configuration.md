@@ -138,6 +138,8 @@ The nested `[review.contracts]` table configures contract checks.
 When `image` is set, it must be an immutable `sha256:` image ID or repository digest.
 An unavailable image or Docker engine yields unverified evidence.
 There is no host-code fallback and no image pull.
+The planning context lists the distributions installed in `image`, once for each run and image digest.
+The listing states availability only.
 `planner_command` is optional for locally submitted plans.
 A model-backed planner can add a paid invocation and needs explicit authorization.
 The planner is a normal host command, subject to `[stage] timeout_seconds`.
