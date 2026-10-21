@@ -22,7 +22,7 @@ Of these pull requests, 323 record an Agentic Preflight run.
 The [dogfooding case study](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/dogfooding-case-study.md)
 describes this evidence and its limits.
 
-![The hook blocks a push. Review finds an unguarded division. A verified fix passes the gate, which shows the publication target.](https://raw.githubusercontent.com/elanthus/agentic-preflight/38108bda45422460f644b9a5cc6804e7600ca41d/docs/demo.gif)
+![The hook blocks a push. Review finds an unguarded division. A verified fix passes the gate, which shows the publication target.](https://raw.githubusercontent.com/elanthus/agentic-preflight/daba4f3e7b9652ac9bf59c125f6e9ba9d2f50d91/demo.gif)
 
 ## Quickstart
 
