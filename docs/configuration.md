@@ -23,7 +23,9 @@ after section-wise layering.
 > **Warning: the configuration executes committed code.** During a run, `[worktree]
 > setup_command` runs at `start`, every `[commands]` entry runs at its lint or test
 > stage, and `[review] command` runs when command review is in effect (`executor =
-> "command"`, or a risk level listed in `require_command_for`). Each may come from
+> "command"`, or a risk level listed in `require_command_for`). When contract checks
+> are enabled, `[review.contracts] planner_command` runs on the host before command
+> review. Each may come from
 > this committed file or the user config, with the repository file overriding the
 > user file section by section — so the repository being validated decides what runs
 > with your privileges. Starting a preflight run on a freshly cloned repository is

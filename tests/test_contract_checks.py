@@ -276,7 +276,7 @@ def test_tampered_receipt_is_refused(feature_repo, tmp_path, monkeypatch):
     )
 
 
-@pytest.mark.parametrize("mode", ["valid", "invalid", "nonzero"])
+@pytest.mark.parametrize("mode", ["valid", "invalid", "nonzero", "capture"])
 def test_command_review_plans_before_final_findings(feature_repo, tmp_path, monkeypatch, mode):
     monkeypatch.setattr(contract_runner, "resolve_on_path", lambda _: None)
     fixture = plan_for()
@@ -301,7 +301,7 @@ def test_command_review_plans_before_final_findings(feature_repo, tmp_path, monk
     write(
         feature_repo,
         ".agentic-preflight.toml",
-        '[worktree]\nmode="in_place"\ncopy_files=[]\n'
+        '[worktree]\nmode="in_place"\ncopy_files=[".env"]\n'
         '[docs]\nenabled=false\n[review]\nexecutor="command"\ncommand='
         + json.dumps(command)
         + "\n[review.contracts]\nenabled=true\nplanner_command="
@@ -309,15 +309,29 @@ def test_command_review_plans_before_final_findings(feature_repo, tmp_path, monk
         + "\n",
     )
     commit_all(feature_repo, "configure offline fake contract planner")
+    if mode == "capture":
+        (feature_repo / ".env").write_bytes(b"SECRET=\xff\n")
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
-    env = agent.run("review", "run", expect=0 if mode == "valid" else ExitCode.STAGE_FAILED)
+    if mode == "capture":
+        for _ in range(2):
+            env = agent.run("review", "run", expect=ExitCode.STAGE_FAILED)
+            assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+            assert env["data"]["phase"] == "contracts"
+            assert env["data"]["reviewer_invocations"] == 0
+            assert "review" not in agent.run("status")["data"]["stages"]
+            assert not calls.exists()
+        (feature_repo / ".env").write_text("SECRET=readable-again\n")
+    env = agent.run(
+        "review", "run", expect=0 if mode in {"valid", "capture"} else ExitCode.STAGE_FAILED
+    )
     delivered = [json.loads(line) for line in calls.read_text().splitlines()]
-    if mode == "valid":
+    if mode in {"valid", "capture"}:
         assert [d["section"] for d in delivered] == ["contracts", "review"]
         assert env["data"]["reviewer_invocations"] == 2
         assert env["data"]["contract_checks"]["receipt"]["status"] == "unverified"
         assert env["data"]["coverage"]["contracts_sha256"]
+        assert agent.run("status")["data"]["stages"]["review"]["attempts"] == 0
     else:
         assert [d["section"] for d in delivered] == ["contracts"]
         assert env["state"] == "REVIEW_COMMAND_RED"
@@ -327,7 +341,8 @@ def test_command_review_plans_before_final_findings(feature_repo, tmp_path, monk
 @pytest.mark.skipif(
     not os.environ.get("AP_CONTRACT_TEST_IMAGE"), reason="explicit local cached-image integration"
 )
-def test_real_container_isolation_and_watchdog(feature_repo, monkeypatch):
+@pytest.mark.parametrize("wall_clock_offset", [-3600, 3600])
+def test_real_container_isolation_and_watchdog(feature_repo, monkeypatch, wall_clock_offset):
     config = ReviewContractsSection(
         enabled=True, image=os.environ["AP_CONTRACT_TEST_IMAGE"], timeout_seconds=2
     )
@@ -347,6 +362,8 @@ def test_real_container_isolation_and_watchdog(feature_repo, monkeypatch):
         },
     ]
     monkeypatch.setenv("AP_CONTRACT_HOST_SECRET", "host-only-sentinel")
+    original_time = time.time
+    monkeypatch.setattr(contract_runner.time, "time", lambda: original_time() + wall_clock_offset)
     receipt = execute_plan(
         feature_repo,
         gitx.rev_parse(feature_repo, "HEAD"),
@@ -358,11 +375,9 @@ def test_real_container_isolation_and_watchdog(feature_repo, monkeypatch):
         probe["code"] = (
             "import subprocess,sys,time;subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'],start_new_session=True);time.sleep(60)"
         )
-    # The watchdog must stop descendants itself even when the engine's clock is
-    # behind the host. Allow the attached client longer to observe that exit.
-    original_time = time.time
+    # The watchdog must stop descendants itself regardless of host/engine clock
+    # skew. Allow the attached client longer to observe that exit.
     original_capture = contract_runner._capture
-    monkeypatch.setattr(contract_runner.time, "time", lambda: original_time() + 3600)
 
     def observe_watchdog(argv, timeout, limit, *, cwd):
         return original_capture(argv, timeout + 3 if argv[1] == "run" else timeout, limit, cwd=cwd)

@@ -242,7 +242,11 @@ def _prepare_contracts(
         )
     data = review_protocol.context_data(session, run, section="review", bundle=bundle)
     data["section"] = "contracts"
-    run = _begin_review_command(session, run)
+
+    def begin() -> None:
+        nonlocal run
+        run = _begin_review_command(session, run)
+
     protected, _ = _run_protected(
         session,
         run,
@@ -253,6 +257,8 @@ def _prepare_contracts(
         stage="review",
         stdin_text=json.dumps(data, sort_keys=True, separators=(",", ":")),
         separate_stderr=True,
+        before_run=begin,
+        capture_data={"phase": "contracts", "reviewer_invocations": 0},
     )
     result = protected.result
     reason = protected.failure_reason
