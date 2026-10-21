@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
 from .. import gitx
-from ..contract_models import ContractPlan, ContractReceipt
+from ..contract_models import ContractPlan, ContractReceipt, ProbeKind
 from ..contract_runner import execute_plan
 from ..diff import DiffBundle, ReviewManifest
 from ..digests import json_digest
@@ -27,6 +28,34 @@ from ._session import (
     _require_state,
     _require_worktree,
 )
+
+# The delivered summary stays bounded even at the largest configured plan and output
+# limits; the private immutable receipt keeps every byte. Inventory claims take at most
+# a fixed share so that check details, failed ones first, always have room.
+HANDOFF_BYTES = 48_000
+INVENTORY_BYTES = 16_000
+STREAM_HEAD = 1_000
+STREAM_TAIL = 1_000
+_STATUS_ORDER = {"failed": 0, "unverified": 1, "passed": 2}
+
+
+def _shorten(text: str) -> tuple[str, bool]:
+    """Keep the head and tail of a probe stream; the receipt retains the whole stream."""
+    if len(text) <= STREAM_HEAD + STREAM_TAIL:
+        return text, False
+    omitted = len(text) - STREAM_HEAD - STREAM_TAIL
+    marker = f"\n[... {omitted} characters omitted; the full receipt keeps the whole stream ...]\n"
+    return text[:STREAM_HEAD] + marker + text[-STREAM_TAIL:], True
+
+
+def _claimed_classes(plan: ContractPlan) -> Counter[tuple[str, ProbeKind]]:
+    return Counter(
+        (reference.check, reference.kind)
+        for unit in plan.units
+        for behavior in unit.inventory
+        for input_class in behavior.input_classes
+        for reference in input_class.probes
+    )
 
 
 def _directory(session: Session, run: RunDoc, manifest: ReviewManifest) -> Path:
@@ -112,32 +141,44 @@ def contract_context(session: Session, run: RunDoc, manifest: ReviewManifest) ->
             "reason": "Schema-1 evidence is preserved; submit a schema-2 plan for this review.",
         }
         return data
-    # Full source, probes and output stay in a private immutable artifact. Keep the
-    # delivered summary small even at the largest configured plan/output limits.
-    details = []
-    used = 0
+    claimed = _claimed_classes(receipt.plan)
     inventory = []
+    used = 0
     for unit in receipt.plan.units:
         item = unit.model_dump(mode="json")
         size = len(json.dumps(item).encode())
-        if used + size <= 16_000:
+        if used + size <= INVENTORY_BYTES:
             inventory.append(item)
             used += size
-    for check, result in zip(receipt.plan.checks, receipt.checks, strict=True):
+    # Candidate counterexamples matter most to the final review, so failed and
+    # unverified checks are delivered before passed ones whatever their plan order.
+    indexed = list(enumerate(zip(receipt.plan.checks, receipt.checks, strict=True)))
+    indexed.sort(
+        key=lambda item: (min(_STATUS_ORDER[p.status] for p in item[1][1].probes), item[0])
+    )
+    details = []
+    for index, (check, result) in indexed:
+        probes = []
+        for probe, outcome in zip(check.probes, result.probes, strict=True):
+            entry = {**probe.model_dump(mode="json"), **outcome.model_dump(mode="json")}
+            shortened = False
+            for stream in ("stdout", "stderr"):
+                entry[stream], cut = _shorten(entry[stream])
+                shortened = shortened or cut
+            entry["output_shortened"] = shortened
+            probes.append(entry)
         detail = {
             "id": check.id,
+            "plan_pointer": f"/plan/checks/{index}",
             "contract": check.contract,
             "producer": check.producer,
             "consumer": check.consumer,
             "oracle": check.oracle,
             "oracle_provenance": check.oracle_provenance.model_dump(mode="json"),
-            "probes": [
-                {**probe.model_dump(mode="json"), **outcome.model_dump(mode="json")}
-                for probe, outcome in zip(check.probes, result.probes, strict=True)
-            ],
+            "probes": probes,
         }
         size = len(json.dumps(detail).encode())
-        if used + size > 16_000:
+        if used + size > HANDOFF_BYTES:
             continue
         details.append(detail)
         used += size
@@ -151,7 +192,14 @@ def contract_context(session: Session, run: RunDoc, manifest: ReviewManifest) ->
             {
                 "id": result.id,
                 "plan_pointer": f"/plan/checks/{index}",
-                "probes": [{"kind": p.kind, "status": p.status} for p in result.probes],
+                "probes": [
+                    {
+                        "kind": p.kind,
+                        "status": p.status,
+                        "claimed_classes": claimed[(result.id, p.kind)],
+                    }
+                    for p in result.probes
+                ],
             }
             for index, result in enumerate(receipt.checks)
         ],
@@ -164,6 +212,7 @@ def contract_context(session: Session, run: RunDoc, manifest: ReviewManifest) ->
             for item in behavior.input_classes
         ),
         "details": details,
+        "details_order": ["failed", "unverified", "passed"],
         "details_omitted": len(receipt.checks) - len(details),
         "probe_code_included": len(details) == len(receipt.checks),
         "handoff_complete": (

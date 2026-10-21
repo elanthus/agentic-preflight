@@ -84,7 +84,8 @@ findings submission: context preserves their reference under `previous_receipt` 
 requests a schema-2 plan. Existing completed evidence is not reinterpreted as schema 2.
 
 Final context adds inventory, oracle provenance, and probe code within its summary
-budget. Omitted inventory and check details have separate counts; `handoff_complete`
+budget. Check details are ordered failed first, and long output streams are shortened
+while the receipt keeps them whole. Omitted inventory and check details have separate counts; `handoff_complete`
 reports whether both are present. Read the immutable full receipt for omitted data.
 These are declared coverage claims, not proof that every input class was explored.
 

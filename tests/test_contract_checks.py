@@ -16,10 +16,11 @@ from pydantic import ValidationError
 
 from agentic_preflight import contract_runner, gitx
 from agentic_preflight.config import ReviewContractsSection
-from agentic_preflight.contract_models import ContractPlan, ContractReceipt
+from agentic_preflight.contract_models import ContractPlan, ContractReceipt, ProbeResult
 from agentic_preflight.contract_runner import Capture, execute_plan, export_snapshot
 from agentic_preflight.digests import json_digest
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.runs.contracts import HANDOFF_BYTES, INVENTORY_BYTES
 from tests.conftest import commit_all, write
 from tests.driver import ScriptedAgent, findings_json
 
@@ -383,13 +384,14 @@ def test_final_handoff_binds_claims_assertions_and_explicit_omissions(
     def expand(plan):
         if large == "code":
             for probe in plan["checks"][0]["probes"]:
-                probe["code"] = "#" + "x" * 10_000
+                probe["code"] = "#" + "x" * 15_990
         elif large == "inventory":
+            # Larger than the inventory share, smaller than the whole budget.
             for unit in plan["units"]:
                 original = unit["inventory"][0]["input_classes"][0]
                 unit["inventory"][0]["input_classes"] = [
                     {**original, "name": f"Class {index}", "reason": "r" * 1000}
-                    for index in range(32)
+                    for index in range(20)
                 ]
 
     path = deliver_plan(agent, tmp_path, expand)
@@ -398,23 +400,116 @@ def test_final_handoff_binds_claims_assertions_and_explicit_omissions(
     full = json.loads(Path(handoff["path"]).read_text())
     assert handoff["sha256"] == json_digest(full)
     assert handoff["checks"][0]["plan_pointer"] == "/plan/checks/0"
+    # Every declared input class of every delivered unit relies on the same check.
+    classes = sum(
+        len(behavior["input_classes"])
+        for unit in full["plan"]["units"]
+        for behavior in unit["inventory"]
+    )
+    assert handoff["checks"][0]["probes"][0]["claimed_classes"] == classes
     assert handoff["handoff_complete"] is (large is None)
     assert handoff["probe_code_included"] is (large != "code")
     assert bool(handoff["inventory_units_omitted"]) is (large == "inventory")
     assert bool(handoff["details_omitted"]) is (large == "code")
+    if large == "inventory":
+        unit_bytes = len(json.dumps(full["plan"]["units"][0]).encode())
+        assert INVENTORY_BYTES < unit_bytes < HANDOFF_BYTES
     if large != "code":
         detail = handoff["details"][0]
         check = full["plan"]["checks"][0]
+        assert detail["plan_pointer"] == "/plan/checks/0"
         for name in ("producer", "consumer", "oracle", "oracle_provenance"):
             assert detail[name] == check[name]
         assert detail["probes"][0]["code"] == check["probes"][0]["code"]
         assert detail["probes"][0]["status"] == "unverified"
+        assert detail["probes"][0]["output_shortened"] is False
     assert (
         len(json.dumps(handoff["details"]).encode())
         + len(json.dumps(handoff["inventory"]).encode())
-        < 16_100
+        <= HANDOFF_BYTES
     )
     assert summary["execution"]["total_timeout_seconds"] == 60
+
+
+def with_checks(plan, count, code):
+    """Give the plan several checks, each claimed by one input class."""
+    unit = plan["units"][0]
+    template = copy.deepcopy(plan["checks"][0])
+    plan["checks"], unit["checks"], classes = [], [], []
+    for index in range(count):
+        check_id = f"C{index + 1:03d}"
+        check = copy.deepcopy(template)
+        check["id"] = check_id
+        for probe in check["probes"]:
+            probe["code"] = code(check_id)
+        plan["checks"].append(check)
+        unit["checks"].append(check_id)
+        classes.append(
+            {
+                "name": f"Class {check_id}",
+                "disposition": "probes",
+                "probes": [
+                    {"check": check_id, "kind": kind}
+                    for kind in ("ordinary", "boundary", "composition")
+                ],
+                "reason": "One declared class relies on this check.",
+            }
+        )
+    unit["inventory"][0]["input_classes"] = classes
+
+
+def test_handoff_delivers_failed_checks_first_and_shortens_streams(
+    feature_repo, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(contract_runner, "resolve_on_path", lambda _: "/trusted/docker")
+    stderr = "Traceback line\n" * 400
+
+    def fake_probe(docker, config, snapshot, code, kind, deadline, temporary):
+        failed = "FAIL" in code
+        return ProbeResult(
+            kind=kind,
+            status="failed" if failed else "passed",
+            exit_code=1 if failed else 0,
+            stderr=stderr if failed else "",
+        )
+
+    monkeypatch.setattr(contract_runner, "_probe", fake_probe)
+    enable(feature_repo, f"image={PIN!r}\n")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+
+    def expand(plan):
+        # Three checks of ~22 KB each cannot all fit; the failing one is last in plan order.
+        with_checks(plan, 3, lambda check: ("# FAIL " if check == "C003" else "# ") + "x" * 7000)
+        plan["units"][0]["inventory"][0]["input_classes"][0]["probes"].append(
+            {"check": "C002", "kind": "ordinary"}
+        )
+
+    path = deliver_plan(agent, tmp_path, expand)
+    handoff = agent.run("review", "contracts", "--file", str(path))["data"]["contract_checks"][
+        "receipt"
+    ]
+    assert handoff["status"] == "failed"
+    ids = [detail["id"] for detail in handoff["details"]]
+    assert 1 <= len(ids) < 3
+    assert ids == ["C003", "C001", "C002"][: len(ids)]
+    assert handoff["details_omitted"] == 3 - len(ids)
+    assert handoff["details_order"] == ["failed", "unverified", "passed"]
+    failed = handoff["details"][0]
+    assert failed["plan_pointer"] == "/plan/checks/2"
+    probe = failed["probes"][0]
+    assert probe["output_shortened"] is True
+    assert "characters omitted" in probe["stderr"]
+    assert len(probe["stderr"]) < len(stderr)
+    full = json.loads(Path(handoff["path"]).read_text())
+    assert full["checks"][2]["probes"][0]["stderr"] == stderr
+    claimed = {
+        (check["id"], p["kind"]): p["claimed_classes"]
+        for check in handoff["checks"]
+        for p in check["probes"]
+    }
+    assert claimed[("C002", "ordinary")] == 2
+    assert claimed[("C002", "boundary")] == 1
 
 
 def test_old_receipt_is_preserved_but_requires_a_new_plan(feature_repo, tmp_path, monkeypatch):

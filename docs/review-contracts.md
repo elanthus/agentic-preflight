@@ -182,8 +182,13 @@ Thus, a receipt cannot be replaced without a change to the accepted review evide
 
 The final context includes a bounded summary and the path of the full receipt.
 It lists all check statuses even when output details are omitted.
-The summary includes the unit inventory and check details within a shared byte budget.
+The summary includes the unit inventory and check details within a fixed byte budget.
+The inventory takes at most one third of that budget, so check details always have room.
 Check details include the producer, consumer, oracle provenance, exact probe code, and execution results.
+Details are ordered failed, unverified, then passed, and then by plan order.
+A long probe output stream is shortened in the summary with a marker; the full receipt keeps every byte.
+`claimed_classes` counts the declared input classes that rely on each probe.
+A probe that many classes rely on deserves a closer look.
 `inventory_units_omitted` and `details_omitted` report omitted inventory entries and checks separately.
 `probe_code_included` reports whether all check details are present.
 `handoff_complete` is true only when both the inventory and all check details are included.

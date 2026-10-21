@@ -195,7 +195,9 @@ with the receipt digest, overall/per-probe status, bounded details and a private
 full-artifact path. Details include the consumer, provenance, and exact assertions.
 `handoff_complete` reports whether the inventory and check details are both present;
 `inventory_units_omitted` and `details_omitted` count their omissions separately.
-`plan_pointer` locates each check in the full receipt. Unverified input classes keep
+`plan_pointer` locates each check in the full receipt. Details are ordered failed,
+unverified, then passed; long output streams are shortened in the summary; and
+`claimed_classes` counts the input classes that rely on each probe. Unverified input classes keep
 the receipt unverified even when all probes pass. Schema-1 artifacts remain readable,
 but new submissions require a schema-2 plan. The accepted review binds the receipt as `contracts_sha256`.
 Invalid, incomplete or stale plans fail with `invalid_findings` (exit 3).
