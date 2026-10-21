@@ -16,8 +16,8 @@ A successful run visits the stages in this order:
 ```text
 start
   CREATED -> WORKTREE_READY -> SYNC_RUNNING -> SYNC_GREEN
-                                  |-> SYNC_CONFLICT   (abort only)
-                                  '-> SETUP_FAILED    (abort only)
+                                  |-> SYNC_CONFLICT   (closing only)
+                                  '-> SETUP_FAILED    (closing only)
 
 review
   SYNC_GREEN -> REVIEW_AWAITING_FINDINGS -> REVIEW_GREEN
@@ -43,7 +43,9 @@ merge-back and publication
 Three kinds of transition do not appear in that picture:
 
 - **Restart.** `LINT_FIX_RESTART`, `TEST_FIX_RESTART`, and `INVALIDATE_REVIEW` return the run to `REVIEW_AWAITING_FINDINGS`.
-  `INVALIDATE_REVIEW` is legal from every review, documentation, green lint, green test, and merge-back state.
+  `INVALIDATE_REVIEW` is legal from `REVIEW_AWAITING_FINDINGS`, `REVIEW_BLOCKED`, and `REVIEW_GREEN`.
+  It is also legal from every documentation state, `LINT_GREEN`, `TEST_GREEN`, and both merge-back states.
+  It is not legal while an independent review command runs or after that command fails.
   A red lint or test stage restarts after a committed repair.
   `RETRY_LINT`, `RETRY_TEST`, and `RETRY_REVIEW_COMMAND` return a red stage to its running state.
 - **Disposition.** `RESPOND` keeps the run in `REVIEW_BLOCKED`, `REVIEW_GREEN`, `DOCS_BLOCKED`, or `DOCS_GREEN`.
