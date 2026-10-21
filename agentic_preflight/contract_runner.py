@@ -23,6 +23,8 @@ from .contract_models import (
     CheckResult,
     ContractPlan,
     ContractReceipt,
+    ImageInventory,
+    InstalledPackage,
     ProbeKind,
     ProbeResult,
     ReceiptStatus,
@@ -32,6 +34,9 @@ from .stages.command import resolve_on_path
 
 MAX_SNAPSHOT_BYTES = 32 * 1024 * 1024
 MAX_SNAPSHOT_FILES = 4096
+# A package listing is code-owned output, so its cap is independent of the configured
+# probe output limit; 64 KiB holds well over a thousand name/version pairs.
+MAX_INVENTORY_BYTES = 64 * 1024
 
 # This trusted root process is PID 1 inside the private container namespace. The
 # probe loses root and all supplementary groups, so it cannot kill its watchdog.
@@ -61,6 +66,24 @@ try:
 except subprocess.TimeoutExpired:
     result = 124
 sys.exit(result if result >= 0 else 128 - result)
+"""
+
+# This trusted, code-owned script runs as the unprivileged probe user with no snapshot
+# mounted. The same isolated interpreter flags as a probe decide what it can see, and
+# its own timer bounds the run even when the host and engine clocks disagree.
+INVENTORY = r"""import json,signal,sys
+signal.signal(signal.SIGALRM, lambda *_: sys.exit(124))
+signal.setitimer(signal.ITIMER_REAL, max(.001, float(sys.argv[1])))
+from importlib import metadata
+found = {}
+for dist in metadata.distributions():
+    try:
+        name, version = dist.metadata["Name"], dist.version
+    except Exception:
+        continue
+    if name and version:
+        found.setdefault(str(name), str(version))
+sys.stdout.write(json.dumps(sorted(found.items(), key=lambda item: item[0].casefold())))
 """
 
 
@@ -191,6 +214,34 @@ def export_snapshot(repo: Path, head: str, destination: Path, deadline: float) -
     return hashlib.sha256(listing).hexdigest()
 
 
+def _restricted_run(name: str) -> list[str]:
+    """Engine restrictions shared by probe and listing containers; never plan-supplied."""
+    return [
+        "run",
+        "--name",
+        name,
+        "--pull=never",
+        "--network=none",
+        "--read-only",
+        "--cap-drop=ALL",
+        "--security-opt=no-new-privileges",
+        "--cpus=1",
+        "--memory=256m",
+        "--memory-swap=256m",
+        "--pids-limit=64",
+        "--ulimit=nofile=256:256",
+        "--log-driver=none",
+        "--env=HOME=/tmp",
+        "--env=TMPDIR=/tmp",
+        "--tmpfs=/tmp:rw,noexec,nosuid,size=64m,mode=1777",
+    ]
+
+
+def _check_bind_paths(*paths: Path) -> None:
+    if any("," in str(path) or "\n" in str(path) for path in paths):
+        raise ValueError("container bind paths cannot contain mount-option separators")
+
+
 def container_argv(
     docker: str,
     image: str,
@@ -202,34 +253,16 @@ def container_argv(
     timeout: float,
 ) -> list[str]:
     """All execution restrictions are code-owned, never supplied by the plan."""
-    if any(
-        "," in str(path) or "\n" in str(path)
-        for path in (snapshot, probe, watchdog, source_manifest)
-    ):
-        raise ValueError("container bind paths cannot contain mount-option separators")
+    _check_bind_paths(snapshot, probe, watchdog, source_manifest)
     return [
         docker,
-        "run",
-        "--name",
-        name,
-        "--pull=never",
-        "--network=none",
-        "--read-only",
-        "--cap-drop=ALL",
+        *_restricted_run(name),
+        # Only the root watchdog keeps what it needs to start and supervise the probe
+        # as the unprivileged user.
         "--cap-add=SETUID",
         "--cap-add=SETGID",
         "--cap-add=KILL",
-        "--security-opt=no-new-privileges",
         "--user=0:0",
-        "--cpus=1",
-        "--memory=256m",
-        "--memory-swap=256m",
-        "--pids-limit=64",
-        "--ulimit=nofile=256:256",
-        "--log-driver=none",
-        "--env=HOME=/tmp",
-        "--env=TMPDIR=/tmp",
-        "--tmpfs=/tmp:rw,noexec,nosuid,size=64m,mode=1777",
         "--mount",
         f"type=bind,src={snapshot},dst=/workspace,readonly",
         "--mount",
@@ -246,6 +279,95 @@ def container_argv(
         "/watchdog.py",
         str(timeout),
     ]
+
+
+def inventory_argv(docker: str, image: str, name: str, script: Path, timeout: float) -> list[str]:
+    """List installed distributions as the probe user, with no snapshot and no capability."""
+    _check_bind_paths(script)
+    return [
+        docker,
+        *_restricted_run(name),
+        "--user=65534:65534",
+        "--mount",
+        f"type=bind,src={script},dst=/inventory.py,readonly",
+        "--workdir=/tmp",
+        "--entrypoint=python",
+        image,
+        "-I",
+        "-B",
+        "/inventory.py",
+        str(timeout),
+    ]
+
+
+def _remove_container(docker: str, name: str, cwd: Path) -> bool:
+    """Killing the attached client alone leaves the container running."""
+    try:
+        cleanup = _capture([docker, "rm", "--force", name], 2, 4096, cwd=cwd)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return cleanup.exit_code == 0 and not cleanup.reason
+
+
+def _parse_packages(stdout: bytes) -> list[InstalledPackage]:
+    try:
+        items = json.loads(stdout.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ValueError("image listing returned invalid output") from exc
+    if not isinstance(items, list) or not all(
+        isinstance(item, list) and len(item) == 2 and all(isinstance(p, str) for p in item)
+        for item in items
+    ):
+        raise ValueError("image listing returned invalid output")
+    return [InstalledPackage(name=name, version=version) for name, version in items]
+
+
+def list_image_packages(config: ReviewContractsSection) -> ImageInventory:
+    """List the pinned image's distributions in one bounded container, never on the host.
+
+    A failure is an explicit ``unavailable`` listing with its reason, not an empty one.
+    ``container_name`` is set exactly when a container was attempted.
+    """
+    image = config.image
+    if image is None:
+        return ImageInventory(
+            image="", status="unavailable", reason="no pinned image is configured"
+        )
+    docker = resolve_on_path("docker")
+    if docker is None:
+        return ImageInventory(
+            image=image, status="unavailable", reason="Docker is not available on PATH"
+        )
+    name = "ap-contract-" + uuid.uuid4().hex
+    inventory = ImageInventory(image=image, status="unavailable", container_name=name)
+    with tempfile.TemporaryDirectory(prefix="ap-contract-") as folder:
+        temporary = Path(folder).resolve()
+        script = temporary / f"{name}.py"
+        try:
+            script.write_text(INVENTORY, encoding="utf-8")
+            script.chmod(0o444)
+            capture = _capture(
+                inventory_argv(docker, image, name, script, config.timeout_seconds),
+                config.timeout_seconds,
+                MAX_INVENTORY_BYTES,
+                cwd=temporary,
+            )
+            inventory.exit_code = capture.exit_code
+            if capture.reason:
+                inventory.reason = capture.reason
+            elif capture.exit_code != 0:
+                detail = " ".join(capture.stderr.decode("utf-8", errors="replace").split())[-500:]
+                inventory.reason = f"image listing exited {capture.exit_code}" + (
+                    f": {detail}" if detail else ""
+                )
+            else:
+                inventory.packages = _parse_packages(capture.stdout)
+                inventory.status = "available"
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            inventory.reason = str(exc)[:2000]
+        finally:
+            inventory.cleanup_succeeded = _remove_container(docker, name, temporary)
+    return inventory
 
 
 def _probe(
@@ -301,13 +423,8 @@ def _probe(
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         result.reason = str(exc)[:2000]
     finally:
-        # Killing the attached client alone leaves the container running.
-        try:
-            cleanup = _capture([docker, "rm", "--force", name], 2, 4096, cwd=temporary)
-            result.cleanup_succeeded = cleanup.exit_code == 0 and not cleanup.reason
-        except (OSError, subprocess.SubprocessError):
-            result.cleanup_succeeded = False
         # The in-container watchdog independently terminates the PID namespace.
+        result.cleanup_succeeded = _remove_container(docker, name, temporary)
     return result
 
 

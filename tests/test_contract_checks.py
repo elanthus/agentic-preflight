@@ -19,10 +19,12 @@ from agentic_preflight.config import ReviewContractsSection
 from agentic_preflight.contract_models import ContractPlan
 from agentic_preflight.contract_runner import Capture, execute_plan, export_snapshot
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.runs import contracts as run_contracts
 from tests.conftest import commit_all, write
 from tests.driver import ScriptedAgent, findings_json
 
 PIN = "sha256:" + "a" * 64
+PACKAGES = json.dumps([["python-dotenv", "1.0.1"], ["pytest", "8.3.3"]]).encode()
 
 
 def plan_for(manifest="a" * 64, units=("U0001",)):
@@ -210,6 +212,125 @@ def enable(repo, extra=""):
     commit_all(repo, "enable contract checks")
 
 
+def fake_docker(monkeypatch, *, exit_code=0, stdout=PACKAGES, stderr=b"", reason=""):
+    """Record engine invocations and answer the listing container without Docker."""
+    calls = []
+
+    def capture(argv, timeout, limit, *, cwd):
+        calls.append(argv)
+        if argv[1] != "run":
+            return Capture(0, b"", b"")
+        return Capture(exit_code, stdout, stderr, reason)
+
+    monkeypatch.setattr(contract_runner, "resolve_on_path", lambda _: "/trusted/docker")
+    monkeypatch.setattr(contract_runner, "_capture", capture)
+    return calls
+
+
+def test_image_packages_are_listed_once_per_run_in_a_restricted_container(
+    feature_repo, monkeypatch
+):
+    calls = fake_docker(monkeypatch)
+    enable(feature_repo, f'image="{PIN}"\n')
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    first = agent.run("context")["data"]["contract_checks"]["execution"]
+    second = agent.run("context")["data"]["contract_checks"]["execution"]
+    assert first["image"] == PIN
+    listing = first["installed_packages"]
+    assert listing["status"] == "available"
+    assert listing["reason"] == ""
+    assert listing["packages"] == [
+        {"name": "python-dotenv", "version": "1.0.1"},
+        {"name": "pytest", "version": "8.3.3"},
+    ]
+    assert listing["packages_omitted"] == 0
+    assert "availability only" in listing["limitation"]
+    assert second == first
+    # The second context call read the cache instead of starting another container.
+    assert [argv[1] for argv in calls] == ["run", "rm"]
+    argv = calls[0]
+    for flag in (
+        "--network=none",
+        "--pull=never",
+        "--read-only",
+        "--cap-drop=ALL",
+        "--security-opt=no-new-privileges",
+        "--user=65534:65534",
+        "--pids-limit=64",
+        "--memory=256m",
+        "--cpus=1",
+    ):
+        assert flag in argv
+    assert not any(arg.startswith("--cap-add") for arg in argv)
+    assert not any("/workspace" in arg for arg in argv)
+    assert all("readonly" in argv[i + 1] for i, arg in enumerate(argv) if arg == "--mount")
+    assert argv[-4:-1] == ["-I", "-B", "/inventory.py"]
+    cache = Path(listing["path"])
+    assert cache.parent.name == "images"
+    assert cache.name == "a" * 64 + ".json"
+    assert json.loads(cache.read_text())["packages"][0]["name"] == "python-dotenv"
+
+
+@pytest.mark.parametrize(
+    "failure", ["no_docker", "no_image", "missing_image", "invalid_output", "output_limit"]
+)
+def test_unavailable_listing_is_explicit_and_never_host_run(feature_repo, monkeypatch, failure):
+    if failure == "no_docker":
+        calls = fake_docker(monkeypatch)
+        monkeypatch.setattr(contract_runner, "resolve_on_path", lambda _: None)
+    elif failure == "no_image":
+        calls = fake_docker(monkeypatch)
+    elif failure == "missing_image":
+        calls = fake_docker(
+            monkeypatch, exit_code=125, stdout=b"", stderr=b"docker: No such image\n"
+        )
+    elif failure == "invalid_output":
+        calls = fake_docker(monkeypatch, stdout=b"not json")
+    else:
+        calls = fake_docker(monkeypatch, stdout=b"[", reason="output limit exceeded")
+    enable(feature_repo, "" if failure == "no_image" else f'image="{PIN}"\n')
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    listings = [
+        agent.run("context")["data"]["contract_checks"]["execution"]["installed_packages"]
+        for _ in range(2)
+    ]
+    listing = listings[0]
+    assert listing["status"] == "unavailable"
+    assert listing["packages"] == []
+    assert listing["packages_omitted"] == 0
+    expected = {
+        "no_docker": "Docker is not available",
+        "no_image": "no pinned image",
+        "missing_image": "image listing exited 125: docker: No such image",
+        "invalid_output": "invalid output",
+        "output_limit": "output limit exceeded",
+    }[failure]
+    assert expected in listing["reason"]
+    assert listings[1] == listing
+    if failure in {"no_docker", "no_image"}:
+        assert listing["path"] is None
+        assert calls == []
+    else:
+        # An attempted container is cached for the run; nothing re-runs on the next call.
+        assert Path(listing["path"]).is_file()
+        assert [argv[1] for argv in calls] == ["run", "rm"]
+
+
+def test_delivered_listing_is_bounded_and_points_at_the_full_file(feature_repo, monkeypatch):
+    fake_docker(monkeypatch, stdout=json.dumps([[f"pkg{i:03}", "1.0"] for i in range(40)]).encode())
+    monkeypatch.setattr(run_contracts, "PACKAGES_BYTES", 200)
+    enable(feature_repo, f'image="{PIN}"\n')
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    listing = agent.run("context")["data"]["contract_checks"]["execution"]["installed_packages"]
+    assert listing["status"] == "available"
+    assert 0 < len(listing["packages"]) < 40
+    assert listing["packages_omitted"] == 40 - len(listing["packages"])
+    assert len(json.loads(Path(listing["path"]).read_text())["packages"]) == 40
+
+
 def deliver_plan(agent, tmp_path, transform=None):
     data = agent.run("context")["data"]
     plan = plan_for(
@@ -287,6 +408,7 @@ def test_command_review_plans_before_final_findings(feature_repo, tmp_path, monk
         "data=json.load(sys.stdin)\n"
         f"with Path({str(calls)!r}).open('a') as f:f.write(json.dumps(data)+'\\n')\n"
         "if data['section']=='contracts':\n"
+        " assert data['contract_checks']['execution']['installed_packages']['status']=='unavailable'\n"
         f" if {mode!r}=='nonzero':raise SystemExit(7)\n"
         f" if {mode!r}=='invalid':print('not JSON');raise SystemExit(0)\n"
         f" plan={fixture!r}\n"
@@ -336,6 +458,27 @@ def test_command_review_plans_before_final_findings(feature_repo, tmp_path, monk
         assert [d["section"] for d in delivered] == ["contracts"]
         assert env["state"] == "REVIEW_COMMAND_RED"
         assert agent.run("status")["data"]["stages"]["review"]["attempts"] == 1
+
+
+@pytest.mark.skipif(
+    not os.environ.get("AP_CONTRACT_TEST_IMAGE"), reason="explicit local cached-image integration"
+)
+def test_real_image_listing_runs_unprivileged_and_offline():
+    config = ReviewContractsSection(
+        enabled=True, image=os.environ["AP_CONTRACT_TEST_IMAGE"], timeout_seconds=20
+    )
+    inventory = contract_runner.list_image_packages(config)
+    assert inventory.status == "available", inventory.model_dump()
+    assert inventory.packages
+    assert all(package.name and package.version for package in inventory.packages)
+    assert inventory.cleanup_succeeded is True
+    containers = subprocess.run(
+        ["docker", "ps", "--all", "--format", "{{.Names}}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert inventory.container_name not in containers.stdout.splitlines()
 
 
 @pytest.mark.skipif(

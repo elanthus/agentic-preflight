@@ -141,7 +141,15 @@ def test_native_wrapper_returns_a_code_bound_contract_plan(tmp_path, monkeypatch
         "section": "contracts",
         "diff": "diff --git a/count.py b/count.py",
         "review_coverage": {"manifest": "a" * 64, "units": [{"id": "U0001"}]},
-        "contract_checks": {"max_checks": 8},
+        "contract_checks": {
+            "max_checks": 8,
+            "execution": {
+                "installed_packages": {
+                    "status": "available",
+                    "packages": [{"name": "python-dotenv", "version": "1.0.1"}],
+                }
+            },
+        },
     }
     result = subprocess.run(
         [sys.executable, "-B", str(EXAMPLES / "reviewers" / f"{reviewer}_review.py")],
@@ -155,6 +163,10 @@ def test_native_wrapper_returns_a_code_bound_contract_plan(tmp_path, monkeypatch
     prompt = capture.read_text()
     assert "Do not execute probes yourself" in prompt
     assert "independent oracle" in prompt
+    assert "installed_packages" in prompt
+    assert "real consumer" in prompt
+    assert "substitute" in prompt
+    assert "python-dotenv" in prompt
     assert context["diff"] in prompt
 
 
