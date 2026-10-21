@@ -107,6 +107,9 @@ That approval is a review of the final head.
 It can also be a review of an earlier head that the hosted approval check reports as carried (`approval_carried`).
 A carried approval requires that only a clean merge from the base or a clean rebase followed the earlier head.
 Identify this requirement in the PR. Wait for that approval before merge.
+For a batch of PRs, select the merge order and complete the preceding merges first.
+Then refresh the next PR to the latest base, and request approval only when it needs no further base update.
+Do not request approval on every intermediate push.
 Path classification cannot understand prose.
 This contributor checkpoint applies even when the automated risk verdict is `clear`.
 Reviewers must also report unsafe instruction changes through the normal findings flow.

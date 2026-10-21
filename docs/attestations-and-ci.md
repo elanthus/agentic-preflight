@@ -253,7 +253,8 @@ The publisher keeps the original commits locally.
 It publishes their evidence refs before it publishes the branch and the note atomically.
 Gate summaries, manual push commands, and dry runs include these refs.
 Keep them while published notes reference them. Ordinary run cleanup does not delete them.
-A fresh consumer fetches only the originals that the selected note names.
+The documented wildcard fetch retrieves every retained evidence ref from the source remote.
+The verifier then uses only the originals that the selected note names.
 Keep the publisher, the hook, and the protected verifier on the same release.
 A note's hashes cannot recover lost data.
 
