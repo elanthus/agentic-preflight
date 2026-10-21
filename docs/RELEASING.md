@@ -70,14 +70,15 @@ Optionally restrict the environment's deployment branches to tags matching `v*`.
    This requires VHS, its recording dependencies, `zsh`, and `jq`. Watch the GIF
    through the final `AWAITING_PUSH_CONFIRM` frame and check the demo run's status;
    a successful renderer exit alone does not prove the recorded commands passed.
-   The current README animation is pinned to an existing commit in `main` history,
-   so removing the tracked GIF does not depend on the badges branch retaining it.
-   The generated `docs/demo.gif` is ignored and is not committed to `main`. Once the
-   coverage publisher that preserves other assets is on `main`, publish
-   it as `demo.gif` on the existing `badges` branch in a normal commit that preserves
+   The README animation is pinned to a commit on the `badges` branch, so the
+   animation depends on that branch keeping its history. The generated
+   `docs/demo.gif` is ignored and is not committed to `main`. Publish it as
+   `demo.gif` on the existing `badges` branch in a normal commit that preserves
    `coverage.svg` and other assets, then update the README to its commit-pinned raw
-   URL. Never recreate or force-push the badges branch to update the animation.
-   The coverage publisher updates only `coverage.svg` and preserves the animation.
+   URL. The pre-push hook blocks that push because an asset commit has no
+   attestation; a person runs `git push origin badges --no-verify`. Never recreate
+   or force-push the badges branch to update the animation. The coverage publisher
+   updates only `coverage.svg` and preserves the animation.
 3. Complete the four [repository checks](../AGENTS.md#checks), build both distributions,
    run `scripts/smoke-wheel.sh` with isolated `UV_TOOL_DIR` and `UV_TOOL_BIN_DIR`, and
    inspect the wheel's bundled skill and sdist contents. Test an upgrade from the current
