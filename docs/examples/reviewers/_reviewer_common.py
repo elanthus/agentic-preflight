@@ -71,10 +71,16 @@ def reviewer_prompt(context: dict[str, Any]) -> str:
         parts.append(
             "Contract execution evidence:\n"
             + json.dumps(context["contract_checks"], indent=2)
-            + "\nReview failed and unverified checks, including code with no initial finding. "
-            "Read the full receipt at its path when summary details are omitted. Validate the "
-            "contract, supported consumer and oracle before treating a failure as a defect. "
-            "A passed probe does not prove its oracle correct or establish complete defect recall.\n"
+            + "\nChallenge the behavioral inventory before judging findings: identify important "
+            "input classes or consumer semantics left untested, even for passed checks. Validate "
+            "the oracle provenance, supported input domain, runtime and limitations against the "
+            "exact probe assertions. Review failed and unverified checks, including code with no "
+            "initial finding. Read the full receipt at its path when handoff_complete is false "
+            "or needed assertions are absent; plan_pointer locates each check. An inventory "
+            "reference is a declared coverage claim, not proof of semantic coverage. Keep "
+            "unsupported requirements and unavailable consumers unverified. Report only "
+            "code-supported defects, not generic coverage gaps. A passed probe does not prove "
+            "its oracle correct or establish complete defect recall.\n"
         )
     parts.append("Diff:\n" + str(context.get("diff", "")))
     return "\n".join(parts)
@@ -96,6 +102,17 @@ def contract_prompt(context: dict[str, Any]) -> str:
         "boundary and composed inputs in separate probes. Expectations must not be copied from "
         "the implementation being checked or from a supposed repair. Look for interactions and "
         "consumer disagreements rather than checking only existing test examples. "
+        "Before selecting probes, give each checked unit an inventory of transformations and "
+        "their distinct input classes, representations and relevant interactions derived from "
+        "the supplied code and contracts. Each input class needs a name, disposition, reason "
+        "and probe references (check ID and kind), or an explicit unverified gap with no probes. "
+        "Map every probe and every unit check to inventory classes. Units marked unverified "
+        "may record known gaps; not_applicable units cannot claim inventory coverage. "
+        "For each check supply oracle_provenance: kind (documented_contract, reference_consumer "
+        "or derived_property), source location/reference, rationale for independence, input_domain, "
+        "runtime with version when known, and limitations (an explicit list, empty if none known). "
+        "A substitute implementation or one runtime does not establish another consumer's "
+        "semantics. State missing evidence and assumptions as limitations or unverified gaps. "
         "Checks have C001-style IDs, a contract, producer, consumer, oracle and exactly three probes "
         "with kinds ordinary, boundary, composition. Probe code is Python 3 running in a disposable "
         "offline container with the committed repository at /workspace, available on sys.path. "
@@ -236,7 +253,7 @@ def emit_review_output(context: dict[str, Any], *outputs: str) -> None:
         raise ReviewerError("contract planner must return only units and checks")
     json.dump(
         {
-            "schema_version": "1",
+            "schema_version": "2",
             "manifest": context["review_coverage"]["manifest"],
             "units": candidate["units"],
             "checks": candidate["checks"],

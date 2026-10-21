@@ -44,6 +44,8 @@ def receipt_for(
     session: Session,
     run: RunDoc,
     manifest: ReviewManifest,
+    *,
+    allow_legacy: bool = False,
 ) -> ContractReceipt | None:
     if not session.config.review.contracts.enabled:
         return None
@@ -79,7 +81,7 @@ def receipt_for(
             or receipt.plan_sha256 != json_digest(receipt.plan.model_dump(mode="json"))
         ):
             raise ValueError("receipt does not bind the current review")
-        return receipt
+        return receipt if allow_legacy or receipt.schema_version == "2" else None
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise InvalidFindings(
             "contract receipt is unreadable or changed; run review contracts again"
@@ -87,26 +89,52 @@ def receipt_for(
 
 
 def contract_context(session: Session, run: RunDoc, manifest: ReviewManifest) -> dict[str, Any]:
-    receipt = receipt_for(session, run, manifest)
+    receipt = receipt_for(session, run, manifest, allow_legacy=True)
     data: dict[str, Any] = {
         "enabled": True,
         "max_checks": session.config.review.contracts.max_checks,
+        "execution": {
+            key: getattr(session.config.review.contracts, key)
+            for key in ("image", "timeout_seconds", "total_timeout_seconds", "max_output_bytes")
+        },
         "plan_schema": ContractPlan.model_json_schema(),
         "receipt": None,
     }
     if receipt is None:
         return data
     digest = json_digest(receipt.model_dump(mode="json"))
+    path = str(_directory(session, run, manifest) / (digest + ".json"))
+    if not isinstance(receipt.plan, ContractPlan):
+        data["previous_receipt"] = {
+            "schema_version": receipt.schema_version,
+            "sha256": digest,
+            "path": path,
+            "reason": "Schema-1 evidence is preserved; submit a schema-2 plan for this review.",
+        }
+        return data
     # Full source, probes and output stay in a private immutable artifact. Keep the
     # delivered summary small even at the largest configured plan/output limits.
     details = []
     used = 0
+    inventory = []
+    for unit in receipt.plan.units:
+        item = unit.model_dump(mode="json")
+        size = len(json.dumps(item).encode())
+        if used + size <= 16_000:
+            inventory.append(item)
+            used += size
     for check, result in zip(receipt.plan.checks, receipt.checks, strict=True):
         detail = {
             "id": check.id,
             "contract": check.contract,
+            "producer": check.producer,
+            "consumer": check.consumer,
             "oracle": check.oracle,
-            "probes": [p.model_dump(mode="json") for p in result.probes],
+            "oracle_provenance": check.oracle_provenance.model_dump(mode="json"),
+            "probes": [
+                {**probe.model_dump(mode="json"), **outcome.model_dump(mode="json")}
+                for probe, outcome in zip(check.probes, result.probes, strict=True)
+            ],
         }
         size = len(json.dumps(detail).encode())
         if used + size > 16_000:
@@ -117,17 +145,30 @@ def contract_context(session: Session, run: RunDoc, manifest: ReviewManifest) ->
     data["receipt"] = {
         "sha256": digest,
         "status": receipt.status,
-        "path": str(_directory(session, run, manifest) / (digest + ".json")),
+        "path": path,
         "unverified_units": sum(unit.disposition == "unverified" for unit in receipt.plan.units),
         "checks": [
             {
                 "id": result.id,
+                "plan_pointer": f"/plan/checks/{index}",
                 "probes": [{"kind": p.kind, "status": p.status} for p in result.probes],
             }
-            for result in receipt.checks
+            for index, result in enumerate(receipt.checks)
         ],
+        "inventory": inventory,
+        "inventory_units_omitted": len(receipt.plan.units) - len(inventory),
+        "unverified_input_classes": sum(
+            item.disposition == "unverified"
+            for unit in receipt.plan.units
+            for behavior in unit.inventory
+            for item in behavior.input_classes
+        ),
         "details": details,
         "details_omitted": len(receipt.checks) - len(details),
+        "probe_code_included": len(details) == len(receipt.checks),
+        "handoff_complete": (
+            len(inventory) == len(receipt.plan.units) and len(details) == len(receipt.checks)
+        ),
         "limitation": receipt.limitation,
     }
     return data

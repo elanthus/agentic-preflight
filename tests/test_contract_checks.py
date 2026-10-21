@@ -16,8 +16,9 @@ from pydantic import ValidationError
 
 from agentic_preflight import contract_runner, gitx
 from agentic_preflight.config import ReviewContractsSection
-from agentic_preflight.contract_models import ContractPlan
+from agentic_preflight.contract_models import ContractPlan, ContractReceipt
 from agentic_preflight.contract_runner import Capture, execute_plan, export_snapshot
+from agentic_preflight.digests import json_digest
 from agentic_preflight.envelope import ExitCode
 from tests.conftest import commit_all, write
 from tests.driver import ScriptedAgent, findings_json
@@ -27,7 +28,7 @@ PIN = "sha256:" + "a" * 64
 
 def plan_for(manifest="a" * 64, units=("U0001",)):
     return {
-        "schema_version": "1",
+        "schema_version": "2",
         "manifest": manifest,
         "units": [
             {
@@ -35,6 +36,22 @@ def plan_for(manifest="a" * 64, units=("U0001",)):
                 "disposition": "checks",
                 "checks": ["C001"],
                 "reason": "The changed operation has a preservation contract.",
+                "inventory": [
+                    {
+                        "transformation": "Count a constructed iterable",
+                        "input_classes": [
+                            {
+                                "name": "Constructed finite lists",
+                                "disposition": "probes",
+                                "probes": [
+                                    {"check": "C001", "kind": kind}
+                                    for kind in ("ordinary", "boundary", "composition")
+                                ],
+                                "reason": "Compare the result with the constructed length.",
+                            }
+                        ],
+                    }
+                ],
             }
             for unit in units
         ],
@@ -45,6 +62,14 @@ def plan_for(manifest="a" * 64, units=("U0001",)):
                 "producer": "An iterable producer",
                 "consumer": "A length consumer",
                 "oracle": "The number of constructed elements, independent of implementation.",
+                "oracle_provenance": {
+                    "kind": "derived_property",
+                    "source": "Constructed list fixture",
+                    "rationale": "Expected cardinality comes from fixture construction.",
+                    "input_domain": "Finite lists of known cardinality",
+                    "runtime": "Python 3 builtin list semantics",
+                    "limitations": ["Does not establish behavior for infinite iterables."],
+                },
                 "probes": [
                     {"kind": kind, "code": "assert len([2, 3]) == 2"}
                     for kind in ("ordinary", "boundary", "composition")
@@ -78,6 +103,113 @@ def test_plan_rejects_incomplete_or_ambiguous_accounting(mutation):
         data["units"][0]["disposition"] = "not_applicable"
     with pytest.raises(ValidationError):
         ContractPlan.model_validate(data)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing_inventory",
+        "missing_provenance",
+        "blank_source",
+        "unmapped_probe",
+        "foreign_check",
+        "duplicate_probe",
+        "duplicate_class",
+        "duplicate_transformation",
+        "gap_with_probe",
+        "covered_without_probe",
+        "skip_with_inventory",
+    ],
+)
+def test_behavioral_claims_require_provenance_and_resolvable_probe_references(mutation):
+    data = plan_for()
+    unit, check = data["units"][0], data["checks"][0]
+    behavior = unit["inventory"][0]
+    item = behavior["input_classes"][0]
+    if mutation == "missing_inventory":
+        del unit["inventory"]
+    elif mutation == "missing_provenance":
+        del check["oracle_provenance"]
+    elif mutation == "blank_source":
+        check["oracle_provenance"]["source"] = "   "
+    elif mutation == "unmapped_probe":
+        item["probes"].pop()
+    elif mutation == "foreign_check":
+        item["probes"][0]["check"] = "C002"
+    elif mutation == "duplicate_probe":
+        item["probes"].append(copy.deepcopy(item["probes"][0]))
+    elif mutation == "duplicate_class":
+        behavior["input_classes"].append(copy.deepcopy(item))
+    elif mutation == "duplicate_transformation":
+        unit["inventory"].append(copy.deepcopy(behavior))
+    elif mutation == "gap_with_probe":
+        item["disposition"] = "unverified"
+    elif mutation == "covered_without_probe":
+        item["probes"] = []
+    else:
+        unit.update(disposition="not_applicable", checks=[])
+        data["checks"] = []
+    with pytest.raises(ValidationError):
+        ContractPlan.model_validate(data)
+
+
+def as_legacy_plan(data):
+    data = copy.deepcopy(data)
+    data["schema_version"] = "1"
+    for unit in data["units"]:
+        unit.pop("inventory", None)
+    for check in data["checks"]:
+        check.pop("oracle_provenance", None)
+    return data
+
+
+def test_new_plan_schema_refuses_legacy_claims():
+    with pytest.raises(ValidationError):
+        ContractPlan.model_validate(as_legacy_plan(plan_for()))
+
+
+def test_unverified_input_class_is_visible_even_when_all_probes_pass(feature_repo, monkeypatch):
+    monkeypatch.setattr(contract_runner, "resolve_on_path", lambda _: "/trusted/docker")
+    monkeypatch.setattr(contract_runner, "_capture", lambda *a, **kw: Capture(0, b"", b""))
+    data = plan_for()
+    data["units"][0]["inventory"][0]["input_classes"].append(
+        {
+            "name": "External iterator semantics",
+            "disposition": "unverified",
+            "probes": [],
+            "reason": "The external iterator contract is unavailable.",
+        }
+    )
+    receipt = execute_plan(
+        feature_repo,
+        gitx.rev_parse(feature_repo, "HEAD"),
+        ContractPlan.model_validate(data),
+        ReviewContractsSection(enabled=True, image=PIN),
+    )
+    assert all(p.status == "passed" for c in receipt.checks for p in c.probes)
+    assert receipt.status == "unverified"
+
+
+def test_legacy_receipt_is_readable_without_rewriting_its_digest_bound_plan(
+    feature_repo, monkeypatch
+):
+    monkeypatch.setattr(contract_runner, "resolve_on_path", lambda _: None)
+    receipt = execute_plan(
+        feature_repo,
+        gitx.rev_parse(feature_repo, "HEAD"),
+        ContractPlan.model_validate(plan_for()),
+        ReviewContractsSection(),
+    )
+    wire = receipt.model_dump(mode="json")
+    wire["schema_version"] = "1"
+    wire["plan"] = as_legacy_plan(wire["plan"])
+    wire["plan_sha256"] = json_digest(wire["plan"])
+    restored = ContractReceipt.model_validate(wire)
+    assert restored.model_dump(mode="json") == wire
+    assert json_digest(restored.plan.model_dump(mode="json")) == wire["plan_sha256"]
+    wire["schema_version"] = "2"
+    with pytest.raises(ValidationError, match="schema versions must match"):
+        ContractReceipt.model_validate(wire)
 
 
 @pytest.mark.parametrize(
@@ -237,6 +369,80 @@ def test_in_harness_plan_is_required_and_receipt_is_bound(feature_repo, tmp_path
     assert checked["data"]["contract_checks"]["receipt"]["status"] == "unverified"
     result = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     assert len(result["data"]["coverage"]["contracts_sha256"]) == 64
+
+
+@pytest.mark.parametrize("large", [None, "code", "inventory"])
+def test_final_handoff_binds_claims_assertions_and_explicit_omissions(
+    feature_repo, tmp_path, monkeypatch, large
+):
+    monkeypatch.setattr(contract_runner, "resolve_on_path", lambda _: None)
+    enable(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+
+    def expand(plan):
+        if large == "code":
+            for probe in plan["checks"][0]["probes"]:
+                probe["code"] = "#" + "x" * 10_000
+        elif large == "inventory":
+            for unit in plan["units"]:
+                original = unit["inventory"][0]["input_classes"][0]
+                unit["inventory"][0]["input_classes"] = [
+                    {**original, "name": f"Class {index}", "reason": "r" * 1000}
+                    for index in range(32)
+                ]
+
+    path = deliver_plan(agent, tmp_path, expand)
+    summary = agent.run("review", "contracts", "--file", str(path))["data"]["contract_checks"]
+    handoff = summary["receipt"]
+    full = json.loads(Path(handoff["path"]).read_text())
+    assert handoff["sha256"] == json_digest(full)
+    assert handoff["checks"][0]["plan_pointer"] == "/plan/checks/0"
+    assert handoff["handoff_complete"] is (large is None)
+    assert handoff["probe_code_included"] is (large != "code")
+    assert bool(handoff["inventory_units_omitted"]) is (large == "inventory")
+    assert bool(handoff["details_omitted"]) is (large == "code")
+    if large != "code":
+        detail = handoff["details"][0]
+        check = full["plan"]["checks"][0]
+        for name in ("producer", "consumer", "oracle", "oracle_provenance"):
+            assert detail[name] == check[name]
+        assert detail["probes"][0]["code"] == check["probes"][0]["code"]
+        assert detail["probes"][0]["status"] == "unverified"
+    assert (
+        len(json.dumps(handoff["details"]).encode())
+        + len(json.dumps(handoff["inventory"]).encode())
+        < 16_100
+    )
+    assert summary["execution"]["total_timeout_seconds"] == 60
+
+
+def test_old_receipt_is_preserved_but_requires_a_new_plan(feature_repo, tmp_path, monkeypatch):
+    monkeypatch.setattr(contract_runner, "resolve_on_path", lambda _: None)
+    enable(feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    plan = deliver_plan(agent, tmp_path)
+    checked = agent.run("review", "contracts", "--file", str(plan))
+    path = Path(checked["data"]["contract_checks"]["receipt"]["path"])
+    old = json.loads(path.read_text())
+    old["schema_version"] = "1"
+    old["plan"] = as_legacy_plan(old["plan"])
+    old["plan_sha256"] = json_digest(old["plan"])
+    digest = json_digest(old)
+    old_path = path.with_name(digest + ".json")
+    old_bytes = json.dumps(old).encode()
+    old_path.write_bytes(old_bytes)
+    path.with_name("current.json").write_text(json.dumps({"sha256": digest}))
+    context = agent.run("context")["data"]["contract_checks"]
+    assert context["receipt"] is None
+    assert context["plan_schema"]["properties"]["schema_version"]["const"] == "2"
+    assert context["previous_receipt"]["sha256"] == digest
+    agent.run(
+        "submit-findings", "--file", findings_json(tmp_path, []), expect=ExitCode.PRECONDITION
+    )
+    agent.run("review", "contracts", "--file", str(plan))
+    assert old_path.read_bytes() == old_bytes
 
 
 @pytest.mark.parametrize("mutation", ["missing_unit", "stale_manifest", "too_many_checks"])

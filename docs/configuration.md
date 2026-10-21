@@ -146,6 +146,8 @@ See [contract checks](review-contracts.md) for the protocol, resource limits, lo
 
 A new run does not automatically reuse contract-enabled review results.
 The plan and receipt bind the current head, manifest, and execution configuration.
+New plans use schema 2 and require behavioral coverage and oracle provenance.
+These records and the final-review handoff do not add model calls or change the configured execution limits.
 
 ## Retired shell evidence reuse
 
