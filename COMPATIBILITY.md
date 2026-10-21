@@ -61,6 +61,20 @@ across runs. Consumers must preserve `null` exact totals and distinguish partial
 from complete usage. Run schema 2 is unchanged: new `state_transition` audit events do not
 add fields to `run.json`, and older run histories remain readable without backfilling timing.
 
+## Opt-in contract-check evidence
+
+`[review.contracts]` adds an optional phase requiring a locally available, trusted,
+digest-pinned Python 3 image on a Linux Docker engine (including Docker Desktop).
+Ordinary review does not require Docker. The default disabled configuration and
+coverage wire shape remain unchanged. The worked wrappers support both planning
+and final review; update the shared helper together with either wrapper.
+
+Enabled receipts use schema `"1"` in private run artifacts. Accepted review coverage
+includes optional `contracts_sha256`. Current readers accept older coverage without
+that field. Older readers may refuse enabled configuration or new coverage fields;
+preserve their records and use a compatible tool instead of deleting run history.
+Execution evidence does not imply that the final reviewer or its oracle was correct.
+
 ## Validation tiers
 
 The supported combinations receive different validation frequencies so pull-request

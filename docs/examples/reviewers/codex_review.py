@@ -9,8 +9,7 @@ from pathlib import Path
 
 from _reviewer_common import (
     ReviewerError,
-    emit_submission,
-    extract_findings,
+    emit_review_output,
     read_context,
     read_optional,
     report_error,
@@ -48,8 +47,7 @@ def main() -> int:
                 "-",
             ]
             result = run_cli(argv, reviewer_prompt(context))
-            findings = extract_findings(result.stdout, read_optional(output_path))
-        emit_submission(context, findings)
+            emit_review_output(context, result.stdout, read_optional(output_path))
     except ReviewerError as exc:
         return report_error(exc)
     return 0

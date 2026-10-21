@@ -13,7 +13,7 @@ from ..errors import DiffTooLarge, InvalidFindings, MaxAttempts, StageFailed
 from ..machine import Action, State
 from ..models import RunDoc, Stage, StageRecord
 from ..stages import shellstage
-from . import review_protocol
+from . import contracts, review_protocol
 from ._session import (
     Session,
     _apply,
@@ -79,6 +79,7 @@ def run_review_command(session: Session) -> Envelope:
             data={"reviewer_invocations": 0},
             next_command="agentic-preflight context",
         )
+    run, planner_invocations = _prepare_contracts(session, run, bundle)
     data = review_protocol.context_data(session, run, section="review", bundle=bundle)
     stdin_text = json.dumps(data, sort_keys=True, separators=(",", ":"))
 
@@ -97,7 +98,7 @@ def run_review_command(session: Session) -> Envelope:
         stdin_text=stdin_text,
         separate_stderr=True,
         before_run=begin,
-        capture_data={"reviewer_invocations": 0},
+        capture_data={"reviewer_invocations": planner_invocations},
     )
     result = protected.result
     clean_output = protected.clean_output
@@ -117,7 +118,7 @@ def run_review_command(session: Session) -> Envelope:
         failure_data = {
             "command": command,
             "exit_code": result.exit_code,
-            "reviewer_invocations": 1,
+            "reviewer_invocations": 1 + planner_invocations,
             "copied_files": run.copied_files,
             "log_path": log_path,
             **shellstage.summarise(clean_output),
@@ -165,7 +166,7 @@ def run_review_command(session: Session) -> Envelope:
             data={
                 "command": command,
                 "exit_code": result.exit_code,
-                "reviewer_invocations": 1,
+                "reviewer_invocations": 1 + planner_invocations,
                 "timed_out": result.timed_out,
                 "log_path": log_path,
                 **shellstage.summarise(clean_output),
@@ -202,7 +203,7 @@ def run_review_command(session: Session) -> Envelope:
                 "command": command,
                 "exit_code": 0,
                 "log_path": log_path,
-                "reviewer_invocations": 1,
+                "reviewer_invocations": 1 + planner_invocations,
                 "timed_out": result.timed_out,
                 **shellstage.summarise(clean_output),
             },
@@ -213,12 +214,84 @@ def run_review_command(session: Session) -> Envelope:
             "executor": "command",
             "command": command,
             "exit_code": 0,
-            "reviewer_invocations": 1,
+            "reviewer_invocations": 1 + planner_invocations,
             "output_sha256": output_digest(clean_output),
             "log_path": log_path,
+            **({"contract_checks": data["contract_checks"]} if "contract_checks" in data else {}),
         }
     )
     return envelope
+
+
+def _prepare_contracts(
+    session: Session,
+    run: RunDoc,
+    bundle: diffmod.DiffBundle,
+) -> tuple[RunDoc, int]:
+    if not session.config.review.contracts.enabled:
+        return run, 0
+    manifest = review_protocol.grounded_manifest(session, run, bundle)
+    if contracts.receipt_for(session, run, manifest) is not None:
+        return run, 0
+    command = session.config.review.contracts.planner_command
+    if not command:
+        raise InvalidFindings(
+            "a contract plan is required before command review",
+            next_instruction="Submit a plan locally or configure review.contracts.planner_command.",
+            next_command="agentic-preflight review contracts --file contracts.json",
+        )
+    data = review_protocol.context_data(session, run, section="review", bundle=bundle)
+    data["section"] = "contracts"
+    run = _begin_review_command(session, run)
+    protected, _ = _run_protected(
+        session,
+        run,
+        command,
+        log_name="contract-planner.txt",
+        retry_command="agentic-preflight review run",
+        what="contract planner",
+        stage="review",
+        stdin_text=json.dumps(data, sort_keys=True, separators=(",", ":")),
+        separate_stderr=True,
+    )
+    result = protected.result
+    reason = protected.failure_reason
+    if reason is None:
+        if not result.passed:
+            reason = (
+                "contract planner timed out"
+                if result.timed_out
+                else f"contract planner exited {result.exit_code}"
+            )
+        else:
+            try:
+                payload = json.loads(result.stdout or "")
+                contracts.record_plan(session, run, payload, bundle)
+            except (ValueError, InvalidFindings) as exc:
+                reason = f"invalid contract plan: {exc}"[:2000]
+    run = _record_review_command(
+        session,
+        run,
+        command=command,
+        clean_output=protected.clean_output,
+        log_path=str(protected.log_path),
+        exit_code=result.exit_code,
+        reason=reason,
+    )
+    if reason is not None:
+        raise StageFailed(
+            reason,
+            run_id=run.run_id,
+            state=run.state.value,
+            stage="review",
+            data={
+                "phase": "contracts",
+                "reviewer_invocations": 1,
+                "log_path": str(protected.log_path),
+            },
+            next_command="agentic-preflight review run",
+        )
+    return run, 1
 
 
 def _recover_interrupted(session: Session, run: RunDoc, *, command: str) -> RunDoc:

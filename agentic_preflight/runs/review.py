@@ -5,6 +5,7 @@ from __future__ import annotations
 from .. import diff as diffmod
 from .. import findings as findingsmod
 from .. import gitx
+from ..digests import json_digest
 from ..envelope import Envelope
 from ..errors import (
     DiffTooLarge,
@@ -175,6 +176,9 @@ def context(session: Session, *, section: str = "review") -> Envelope:
             "sent to its standard input and its strict JSON submission will be validated."
         )
         envelope.next_command = "agentic-preflight review run"
+    elif session.config.review.contracts.enabled and data["contract_checks"]["receipt"] is None:
+        envelope.next_instruction = "Build a contract plan for every delivered unit, including units with no initial finding."
+        envelope.next_command = "agentic-preflight review contracts --file contracts.json"
     return envelope
 
 
@@ -191,6 +195,17 @@ def _parse_stage_submission(session: Session, run: RunDoc, stage: Stage, payload
             submitted_manifest=coverage_manifest,
         )
         coverage = coverage.model_copy(update={"grounding_sha256": manifest.grounding_sha256})
+        if session.config.review.contracts.enabled:
+            from .contracts import receipt_for
+
+            receipt = receipt_for(session, run, manifest)
+            if receipt is None:
+                raise InvalidFindings(
+                    "complete a contract plan before submitting review findings",
+                    next_instruction="Fetch context and account for every delivered unit in a contract plan.",
+                    next_command="agentic-preflight review contracts --file contracts.json",
+                )
+            coverage.contracts_sha256 = json_digest(receipt.model_dump(mode="json"))
     elif any(submission.unit is not None for submission in submissions):
         raise InvalidFindings("docs findings cannot cite review units")
     return submissions, manifest, coverage

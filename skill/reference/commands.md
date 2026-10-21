@@ -175,6 +175,27 @@ configured command, zero exit code, and SHA-256 of redacted captured output alon
 coverage in the schema-v7 attestation. Changed review inputs require fresh command
 review; validated derivation retains original process evidence and coverage provenance.
 
+### `agentic-preflight review contracts --file PATH`
+
+Runs an opt-in contract plan from a JSON file or `-` for stdin. Fetch `context`
+first for the delivered manifest, unit IDs and `contract_checks.plan_schema`.
+Account for every delivered unit, including units with no initial finding, using
+checks, explained non-applicability or an explicit unverified gap. Each check
+declares its producer, consumer, contract and independent oracle, plus ordinary,
+boundary and composition probes. No defect-specific examples are supplied.
+
+Only committed Git blobs enter the disposable offline container. Probes have hard
+resource/output/deadline limits; an absent pinned image or execution capability is
+unverified, with no host-interpreter fallback. The envelope returns `contract_checks`
+with the receipt digest, overall/per-probe status, bounded details and a private
+full-artifact path. The accepted review binds the receipt as `contracts_sha256`.
+Invalid, incomplete or stale plans fail with `invalid_findings` (exit 3).
+
+Checks supply evidence to the final review; failures are candidate counterexamples,
+not automatic findings or a replacement for lint/tests. Read omitted evidence and
+verify the oracle before reporting a defect. See
+[contract checks](../../docs/review-contracts.md) for execution restrictions and limits.
+
 ### `agentic-preflight review compare [--file PATH]`
 Compares the run's accepted review submission with an independent second submission while
 leaving the state and stored findings unchanged. `--file` accepts a strict review

@@ -345,6 +345,19 @@ def reopen_changed_inputs(session: Session, run: RunDoc, *, clean: bool | None =
     return run
 
 
+def _execution_boundary(session: Session, stage: Stage) -> Classification | None:
+    if stage in {Stage.LINT, Stage.TEST}:
+        return Classification(
+            disposition=Disposition.INVALID, reasons=(ReasonCode.SHELL_REUSE_DISABLED,)
+        )
+    if stage is Stage.REVIEW and session.config.review.contracts.enabled:
+        # Receipts are local and head-bound; a new run needs its own phase.
+        return Classification(
+            disposition=Disposition.UNKNOWN, reasons=(ReasonCode.INPUTS_UNAVAILABLE,)
+        )
+    return None
+
+
 def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunDoc:
     """Persist decisions, then import consecutive applicable stages atomically.
 
@@ -360,10 +373,8 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
     decisions: dict[Stage, Classification] = {}
     current: dict[Stage, StageFingerprint] = {}
     for stage in Stage:
-        if stage in {Stage.LINT, Stage.TEST}:
-            decisions[stage] = Classification(
-                disposition=Disposition.INVALID, reasons=(ReasonCode.SHELL_REUSE_DISABLED,)
-            )
+        if (boundary := _execution_boundary(session, stage)) is not None:
+            decisions[stage] = boundary
             continue
         item = run.reuse_candidates.get(stage)
         if item is None:
