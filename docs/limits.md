@@ -1,96 +1,107 @@
 # Limits
 
-The [README](../README.md#limits) introduces the main limits: Agentic Preflight is advisory
-rather than a security boundary, `git push --no-verify` bypasses it by design, and the
-confirmation token prevents accidental pushes but is not a secret. This page covers the rest.
+The [README](../README.md#limits) introduces the main limits.
+Agentic Preflight is advisory. It is not a security boundary.
+`git push --no-verify` bypasses it by design.
+The confirmation token prevents accidental pushes. It is not a secret.
+This page covers the other limits.
 
 ## Repository content is untrusted input
 
-The agent receives repository-controlled text in diffs and changed-file names, commit
-subjects and messages, stage output and logs, review-command findings, and detected
-command candidates. Preserving that text verbatim is necessary for review and diagnosis,
-so the tool can label its source but cannot sanitize it into trustworthy instructions or
-decide whether an authorization claim embedded in it is genuine.
-The `excerpt`, `content`, and `title` fields in `data.grounding` are the same
-class of repository-controlled input.
+The agent receives repository-controlled text in these places:
 
-Detected commands include their source. No detected candidate is copied into `next.command`; the agent must show the exact command to the user
-and obtain approval before first use. The gate keeps the live confirmation token only in
-`data.token`, while gate and push dry-run envelopes use a `<token>` placeholder in
-`next.command`; the agent replaces it from the gate data only after authorization.
+- Diffs and changed-file names
+- Commit subjects and messages
+- Stage output and logs
+- Review-command findings
+- Detected command candidates
+- The `excerpt`, `content`, and `title` fields in `data.grounding`
 
-These labels and placements make repository text distinguishable from protocol guidance
-and prevent the CLI from directly proposing a repository-supplied shell command. They do not
-sandbox repository commands or stop a shell-capable agent that ignores its installed skill,
-misreads repository content as instructions, or invokes Git directly. Agentic Preflight
-remains advisory rather than a security boundary.
+Review and diagnosis need that text verbatim.
+The tool can label its source. It cannot sanitize the text into trustworthy instructions.
+It cannot decide whether an authorization claim in that text is genuine.
+
+Detected commands include their source.
+The CLI never copies a detected candidate into `next.command`.
+The agent must show the exact command to the user and obtain approval before the first use.
+The gate keeps the live confirmation token only in `data.token`.
+Gate and push dry-run envelopes use a `<token>` placeholder in `next.command`.
+The agent replaces the placeholder from the gate data only after authorization.
+
+These labels and placements separate repository text from protocol guidance.
+They prevent the CLI from proposing a repository-supplied shell command directly.
+They do not sandbox repository commands.
+They do not stop a shell-capable agent that ignores its installed skill, reads repository content as instructions, or invokes Git directly.
+Agentic Preflight stays advisory. It is not a security boundary.
 
 ## History rewrites require evidence refresh
 
-The attestation note is bound to an exact SHA. Starting again, including on that same
-unchanged commit, reclassifies each stage through its recorded fingerprint. Review and
-docs require equivalent content, intent, grounding, and relevant policy. Applicable
-shell stages rerun in each new run; their results never transfer across new runs.
-Unknown or changed review/docs inputs require a fresh stage instead of importing green.
-Changing stage applicability, commands, policy, another setting, or the objective starts
-a fresh review even when local run records have been garbage-collected.
+The attestation note is bound to an exact SHA.
+A new `start`, including one on the same unchanged commit, classifies each stage again through its recorded fingerprint.
+Review and docs require equivalent content, intent, grounding, and relevant policy.
+Applicable shell stages run again in each new run. Their results never transfer to a new run.
+Unknown or changed review or docs inputs require a fresh stage. The CLI does not import a green result for them.
+A change to stage applicability, commands, policy, another setting, or the objective starts a fresh review.
+This applies even when the local run records have been garbage-collected.
 
-With sufficient local execution records, `start`
-can reuse equivalent evidence after a rebase in all three worktree modes. It
-compares base/head trees and stage-specific context and policy. Changed upstream
-content invalidates review even if the patch is unchanged. Other source-worktree
-identities and branches are not candidates.
+With sufficient local execution records, `start` can reuse equivalent evidence after a rebase in all three worktree modes.
+It compares base and head trees and the stage-specific context and policy.
+Changed upstream content invalidates review even if the patch is unchanged.
+Other source-worktree identities and other branches are not candidates.
 
-Cherry-picked merge-back is handled via tree-equivalence attestation.
+Tree-equivalence attestation handles cherry-picked merge-back.
 
-Shell input declarations are retired. Lint and test evidence remains valid for
-its original execution and is never reused in a new run, even for identical trees.
-Existing same-run tree-equivalent merge-back publication remains supported.
+Shell input declarations are retired.
+Lint and test evidence stays valid for its original execution. It is never reused in a new run, even for identical trees.
+Same-run tree-equivalent merge-back publication is still supported.
 See the [fingerprint contract](fingerprint-contract.md).
 
-Agentic Preflight refuses to start or merge back while the checkout has a rebase,
-cherry-pick, or merge in progress. Finish or abort that Git operation yourself first;
-the tool never aborts an operation it did not start.
+Agentic Preflight refuses to start or merge back while the checkout has a rebase, cherry-pick, or merge in progress.
+Finish or abort that Git operation yourself first.
+The tool never aborts an operation that it did not start.
 
 ## Isolated validation worktrees can differ from your environment
 
-In-place mode uses the checkout's existing dependencies and ignored files. An
-isolated validation worktree does not inherit the source checkout's `.venv`, `node_modules`, or `.env`.
+In-place mode uses the checkout's existing dependencies and ignored files.
+An isolated validation worktree does not inherit the source checkout's `.venv`, `node_modules`, or `.env`.
 
-- Configure `[worktree] setup_command` to install dependencies or prepare ignored build
-  inputs. Agentic Preflight does not select a package manager or install automatically.
+- Configure `[worktree] setup_command` to install dependencies or prepare ignored build inputs.
+  Agentic Preflight does not select a package manager. It does not install automatically.
 - Configure `copy_files` for ignored files such as `.env`.
 
-The setup command runs before review and in the scratch worktree used by `--baseline`.
+The setup command runs before review. It also runs in the scratch worktree that `--baseline` uses.
 A nonzero exit is reported as a setup failure.
 
-Use `--baseline` so a pre-existing failure is reported rather than blamed on your diff.
+Use `--baseline` so that a pre-existing failure is reported and not attributed to your diff.
 
 ## What a green run does and does not prove
 
-It proves what the stages reported: that the configured in-harness or command executor
-accounted for every included review unit in a snapshot-bound diff manifest, that the
-executed green commands exited zero against their recorded execution commits, and which
-judgment calls were recorded along the way. Command review additionally carries its command, zero exit code,
-and redacted output digest. Derived stages preserve those original executions and
-record why their evidence applies to the new exact commit. Excluded files remain
-explicitly outside that coverage. Skipped stages record a reason, not a successful
-execution.
+A green run proves what the stages reported:
 
-It does not prove the review was good or that the agent understood every unit it marked
-clean. The same diff reviewed twice can yield different findings. Treat the attestation as
-an audit trail, and note that it substitutes for neither CI nor a human reviewer. It is
-not a signature: anyone allowed to update the notes ref can replace it.
+- The configured in-harness or command executor accounted for every included review unit in a snapshot-bound diff manifest.
+- The executed green commands exited zero against their recorded execution commits.
+- The run recorded its judgment calls.
+
+Command review also carries its command, its zero exit code, and its redacted output digest.
+Derived stages preserve those original executions. They record why their evidence applies to the new exact commit.
+Excluded files stay explicitly outside that coverage.
+A skipped stage records a reason, not a successful execution.
+
+A green run does not prove that the review was good.
+It does not prove that the agent understood every unit that it marked clean.
+The same diff reviewed twice can yield different findings.
+Treat the attestation as an audit trail.
+It does not replace CI or a human reviewer.
+It is not a signature. Anyone with permission to update the notes ref can replace it.
 
 ## Attestations are not signatures
 
-Anyone allowed to update `refs/notes/agentic-preflight` can replace an attestation.
-Protect the notes ref on the remote if the forge supports ref-level policy, and treat
-`verify` as enforcement that a structurally valid, commit-bound record exists—not proof
-that the agent's review judgment was good.
+Anyone with permission to update `refs/notes/agentic-preflight` can replace an attestation.
+Protect the notes ref on the remote if the forge supports ref-level policy.
+Treat `verify` as enforcement that a structurally valid, commit-bound record exists.
+It is not proof that the agent's review judgment was good.
 
-Cryptographic unforgeability requires a signing authority whose key and execution path
-the evaluated agent cannot reach. Putting an agent-accessible key around the current
-note would add steps without adding a security boundary. A signed ledger was proposed in
-[issue #25](https://github.com/elanthus/agentic-preflight/issues/25), which was closed as
-not planned on 2026-09-07. Attestations remain unsigned.
+Cryptographic unforgeability requires a signing authority whose key and execution path the evaluated agent cannot reach.
+An agent-accessible key around the current note would add steps without a security boundary.
+[Issue #25](https://github.com/elanthus/agentic-preflight/issues/25) proposed a signed ledger.
+It was closed as not planned on 2026-09-07. Attestations stay unsigned.

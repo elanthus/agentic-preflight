@@ -1,16 +1,25 @@
 # Support
 
-For usage questions and workflow discussions, use [GitHub Discussions](https://github.com/elanthus/agentic-preflight/discussions).
-For a reproducible defect, open a [bug report](https://github.com/elanthus/agentic-preflight/issues/new/choose).
-Feature proposals also belong in the issue tracker so their scope and tradeoffs remain
-searchable.
+Use [GitHub Discussions](https://github.com/elanthus/agentic-preflight/discussions) for usage questions and workflow discussions.
+Open a [bug report](https://github.com/elanthus/agentic-preflight/issues/new/choose) for a defect that you can reproduce.
+Open an issue for a feature proposal.
+The issue tracker keeps the scope and the tradeoffs of each proposal searchable.
 
-This is a community-maintained project, so response times are best effort. Include the
-Agentic Preflight version, operating system, Python and Git versions, the command you
-ran, and the complete JSON envelope. Remove secrets and private repository content
-before posting.
+The community maintains this project.
+Response times are best effort.
 
-See [COMPATIBILITY.md](COMPATIBILITY.md) for the supported Python and operating-system
-versions and the frequency with which each combination is exercised.
+Include this information in a report:
 
-Do not report vulnerabilities publicly. Follow [SECURITY.md](SECURITY.md) instead.
+- The Agentic Preflight version
+- The operating system
+- The Python and Git versions
+- The command that you ran
+- The complete JSON envelope
+
+Remove secrets and private repository content before you post.
+
+[COMPATIBILITY.md](COMPATIBILITY.md) lists the supported Python and operating-system versions.
+It also gives the validation frequency for each combination.
+
+Do not report vulnerabilities in public.
+Follow [SECURITY.md](SECURITY.md).

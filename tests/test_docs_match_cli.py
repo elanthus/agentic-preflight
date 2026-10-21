@@ -26,6 +26,7 @@ REFERENCE = SKILL_DIR / "reference"
 README = PROJECT_ROOT / "README.md"
 CONFIGURATION = PROJECT_ROOT / "docs" / "configuration.md"
 ATTESTATIONS_AND_CI = PROJECT_ROOT / "docs" / "attestations-and-ci.md"
+STATE_MACHINE = PROJECT_ROOT / "docs" / "state-machine.md"
 
 
 def real_commands() -> set[str]:
@@ -243,6 +244,24 @@ def test_current_docs_do_not_reference_retired_transition_contracts():
     for doc in docs:
         text = doc.read_text(encoding="utf-8")
         assert not any(name in text for name in retired), f"{doc} links a retired document"
+
+
+def test_state_machine_doc_lists_every_declared_transition():
+    """docs/state-machine.md's table is the real table, minus the universal closing moves."""
+    from agentic_preflight.machine import CLOSING_ACTIONS, TRANSITIONS
+
+    text = STATE_MACHINE.read_text(encoding="utf-8")
+    section = re.search(r"<!-- transitions:start -->\n(.*?)<!-- transitions:end -->", text, re.S)
+    assert section is not None, "docs/state-machine.md lost its transition table markers"
+    documented = set(
+        re.findall(r"^\| `([A-Z_]+)` \| `([A-Z_]+)` \| `([A-Z_]+)` \|$", section.group(1), re.M)
+    )
+    declared = {
+        (state.value, action.value, target.value)
+        for (state, action), target in TRANSITIONS.items()
+        if action not in CLOSING_ACTIONS
+    }
+    assert documented == declared
 
 
 def test_worktree_and_doc_surface_descriptions_name_their_boundaries():
