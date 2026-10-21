@@ -47,9 +47,10 @@ With an in-harness reviewer:
    Inspect the execution evidence and its full receipt.
    Then submit the normal strict findings payload.
 
-The plan has `schema_version: "1"`, the delivered `manifest`, `units`, and `checks`.
+The plan has `schema_version: "2"`, the delivered `manifest`, `units`, and `checks`.
 Each unit has `unit`, `disposition`, `checks`, and `reason`.
-Each check has an ID such as `C001`, a `contract`, a `producer`, a `consumer`, an `oracle`, and exactly three `probes`.
+Each checked unit also has an `inventory` of changed transformations and their input classes.
+Each check has an ID such as `C001`, a `contract`, a `producer`, a `consumer`, an `oracle`, `oracle_provenance`, and exactly three `probes`.
 Each probe has a `kind` and Python `code`.
 The `kind` is `ordinary`, `boundary`, or `composition`.
 The code imports the snapshot from `/workspace`, which is on its module search path.
@@ -60,6 +61,46 @@ A finding is not required for every unit.
 An explicit gap is better than an invented oracle.
 When the phase is enabled, Agentic Preflight requires a valid plan and receipt before it accepts findings.
 It rejects a missing, incomplete, or stale plan instead of skipping the phase silently.
+
+## Behavioral inventory and oracle provenance
+
+Build the inventory before you select probes.
+Derive the transformations, input forms, representations, and relevant interactions from the reviewed source and its contracts.
+Do not use a fixed list of target functions or known defects.
+
+Each entry in a unit's `inventory` has a `transformation` and nonempty `input_classes`.
+Each input class has these fields:
+
+- `name`: a distinct input class within that transformation.
+- `disposition`: `probes` or `unverified`.
+- `probes`: references with a `check` ID and probe `kind`.
+  A `probes` disposition requires at least one reference.
+  An `unverified` disposition requires an empty list.
+- `reason`: why these probes exercise the class, or what evidence is missing.
+
+References must point to checks assigned to that unit.
+Every unit check and every probe must have an input-class reference.
+A unit marked `unverified` can record known input-class gaps.
+A `not_applicable` unit cannot claim inventory coverage.
+Transformation names must be distinct within a unit.
+These rules validate the declared references.
+They do not prove that the inventory is complete or that a probe exercises its claimed class.
+
+Each check's `oracle_provenance` has these fields:
+
+- `kind`: `documented_contract`, `reference_consumer`, or `derived_property`.
+- `source`: a repository location, reference consumer, or specification reference.
+- `rationale`: why the expectation is independent of the implementation under review.
+- `input_domain`: the inputs for which the oracle is supported.
+- `runtime`: the relevant runtime and version when known.
+- `limitations`: an explicit list of assumptions or missing evidence.
+  Use an empty list when none are known.
+
+One runtime does not establish another consumer's semantics.
+A handwritten reference implementation also needs a supported domain and recorded limitations.
+Keep unsupported requirements and unavailable consumers unverified.
+An unverified input class makes the overall receipt `unverified`, even when all executable assertions pass.
+This status remains evidence for review, not a new blocking policy.
 
 ## Installed packages in the image
 
@@ -83,8 +124,8 @@ The delivered list is bounded.
 The listing states availability only.
 It does not assert which consumer contracts the repository supports.
 Prefer a listed real consumer to a substitute implementation.
-When the real consumer is absent, record that limitation in the check and in the unit reason.
-Keep the unit unverified when no independent oracle remains.
+When the real consumer is absent, record that limitation in the check's `oracle_provenance.limitations` and in the input class reason.
+Keep the affected input class unverified when no independent oracle remains.
 
 ## Command reviewers
 
@@ -105,7 +146,10 @@ Agentic Preflight validates the whole plan, runs its probes, and sends `contract
 Planning does not receive a first reviewer's finding list.
 
 An enabled command review without `planner_command` asks for a locally submitted plan instead.
-An existing matching receipt prevents another planner call on retry.
+An existing matching schema-2 receipt prevents another planner call on retry.
+Schema-1 receipt files remain readable and unchanged.
+Pending reviews need a schema-2 plan before a new findings submission.
+Context reports an older receipt under `previous_receipt` and returns the current plan schema.
 An invalid or failing planner command counts against the normal durable review-attempt limit.
 The planner runs with the privileges and stage timeout of other configured host commands.
 It is **not** the sandbox for untrusted probe code.
@@ -154,13 +198,28 @@ Receipts retain the plan, the code, and the declared consumer and oracle.
 They also retain each probe's output and status, the container cleanup result, the image identity, and the snapshot digest.
 Immutable receipt files live under the run's `contracts/` directory, with a pointer to the current receipt.
 A receipt binds the plan and execution configuration to the current review manifest and head.
+A receipt whose results do not match its plan's checks and probes is refused.
 A rerun retains prior receipts.
 Review coverage adds the selected receipt digest as `contracts_sha256`.
 Thus, a receipt cannot be replaced without a change to the accepted review evidence.
 
 The final context includes a bounded summary and the path of the full receipt.
 It lists all check statuses even when output details are omitted.
-The reviewer must read relevant omitted evidence and validate the oracle before it reports a defect.
+The summary includes the unit inventory and check details within a fixed byte budget.
+The inventory takes at most one third of that budget, so check details always have room.
+Check details include the producer, consumer, oracle provenance, exact probe code, and execution results.
+Details are ordered failed, unverified, then passed, and then by plan order.
+A long probe output stream is shortened in the summary with a marker; the full receipt keeps every byte.
+`claimed_classes` counts the declared input classes that rely on each probe.
+A probe that many classes rely on deserves a closer look.
+`inventory_units_omitted` and `details_omitted` report omitted inventory entries and checks separately.
+`probe_code_included` reports whether all check details are present.
+`handoff_complete` is true only when both the inventory and all check details are included.
+Each check's `plan_pointer` locates its plan entry in the full receipt.
+The reviewer must read the full receipt when the handoff is incomplete or a needed assertion is absent.
+Before judging findings, the reviewer challenges untested classes and consumer semantics, including those associated with passed checks.
+The reviewer validates the oracle's provenance, domain, limitations, and actual assertions.
+Only supported defects become findings; a generic coverage gap is not a defect by itself.
 A new run does not automatically import contract-enabled review evidence.
 It needs its own phase.
 Lint and test stages continue to run normally.

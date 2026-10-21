@@ -83,13 +83,15 @@ in a contract plan, including code with no initial finding. Follow `next.command
 the configured planner may handle this before command review. Use
 `contract_checks.execution.installed_packages` to choose a real installed consumer over
 a hand-written substitute; it states availability only. When the real consumer is
-absent, record the limitation and keep the unit unverified unless an independent
-oracle remains. Inspect the execution
-receipt, read omitted details at its full artifact path and validate the supported
-consumer and independent oracle before interpreting a failure. Failed probes are
-candidate counterexamples; unavailable execution remains an explicit unverified
-gap. Never describe an unverified receipt or unit-delivery coverage as successful
-behavioral verification. See [contract checks](reference/commands.md#agentic-preflight-review-contracts---file-path).
+absent, record the limitation in the oracle provenance and keep the affected input
+class unverified unless an independent oracle remains. Inspect the execution
+receipt: challenge the declared inventory for untested input classes and consumer
+semantics, including those of passed checks, and validate the oracle provenance and
+its exact assertions before interpreting a failure. Read the full artifact at its
+path when `handoff_complete` is false or a needed assertion is absent. Failed probes
+are candidate counterexamples; unavailable execution and declared gaps remain explicit
+unverified evidence. Never describe an unverified receipt or unit-delivery coverage
+as successful behavioral verification. See [contract checks](reference/commands.md#agentic-preflight-review-contracts---file-path).
 
 Judge the diff, not the repo. Only findings against changed files are accepted.
 Account for the complete `review_coverage` manifest returned by `context`; never reuse a

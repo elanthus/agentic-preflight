@@ -159,7 +159,7 @@ def test_native_wrapper_returns_a_code_bound_contract_plan(tmp_path, monkeypatch
         cwd=tmp_path,
     )
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {"schema_version": "1", "manifest": "a" * 64, **plan}
+    assert json.loads(result.stdout) == {"schema_version": "2", "manifest": "a" * 64, **plan}
     prompt = capture.read_text()
     assert "Do not execute probes yourself" in prompt
     assert "independent oracle" in prompt
@@ -167,6 +167,8 @@ def test_native_wrapper_returns_a_code_bound_contract_plan(tmp_path, monkeypatch
     assert "real consumer" in prompt
     assert "substitute" in prompt
     assert "python-dotenv" in prompt
+    assert "oracle_provenance" in prompt
+    assert "inventory" in prompt
     assert context["diff"] in prompt
 
 
