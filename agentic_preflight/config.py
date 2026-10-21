@@ -13,6 +13,7 @@ a config that governs a safety gate would weaken the gate without any signal.
 from __future__ import annotations
 
 import json
+import re
 import tomllib
 from functools import lru_cache
 from pathlib import Path, PureWindowsPath
@@ -23,7 +24,9 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SerializerFunctionWrapHandler,
     ValidationError,
+    model_serializer,
     model_validator,
 )
 
@@ -82,12 +85,40 @@ class StageSection(_Section):
     max_restarts: int = Field(default=5, ge=1)
 
 
+class ReviewContractsSection(_Section):
+    enabled: bool = False
+    planner_command: str | None = None
+    image: str | None = None
+    max_checks: int = Field(default=8, ge=1, le=32)
+    timeout_seconds: int = Field(default=10, ge=1, le=60)
+    total_timeout_seconds: int = Field(default=60, ge=1, le=300)
+    max_output_bytes: int = Field(default=16_384, ge=256, le=65_536)
+
+    @model_validator(mode="after")
+    def pinned_image(self) -> ReviewContractsSection:
+        if self.image is not None and not re.fullmatch(
+            r"(?:[A-Za-z0-9][A-Za-z0-9._:/-]*@)?sha256:[0-9a-f]{64}", self.image
+        ):
+            raise ValueError(
+                "contract image must be pinned by a sha256 image ID or repository digest"
+            )
+        return self
+
+
 class ReviewSection(_Section):
     blocking_severities: list[SeverityName] = Field(default_factory=_default_blocking_severities)
     max_findings: int = Field(default=50, ge=1)
     executor: Literal["in_harness", "command"] = "in_harness"
     command: str | None = None
     require_command_for: list[RiskName] = Field(default_factory=list)
+    contracts: ReviewContractsSection = Field(default_factory=ReviewContractsSection)
+
+    @model_serializer(mode="wrap")
+    def omit_default_contracts(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if self.contracts == ReviewContractsSection():
+            data.pop("contracts", None)
+        return data
 
 
 class PolicySection(_Section):

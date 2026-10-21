@@ -78,6 +78,15 @@ Documentation inventory entries describe existing files with `path`, `size`, and
 
 ## How to review
 
+When `[review.contracts] enabled` is true, first account for every delivered unit
+in a contract plan, including code with no initial finding. Follow `next.command`;
+the configured planner may handle this before command review. Inspect the execution
+receipt, read omitted details at its full artifact path and validate the supported
+consumer and independent oracle before interpreting a failure. Failed probes are
+candidate counterexamples; unavailable execution remains an explicit unverified
+gap. Never describe an unverified receipt or unit-delivery coverage as successful
+behavioral verification. See [contract checks](reference/commands.md#agentic-preflight-review-contracts---file-path).
+
 Judge the diff, not the repo. Only findings against changed files are accepted.
 Account for the complete `review_coverage` manifest returned by `context`; never reuse a
 manifest after a commit. The payload's one `examined: "all"` assertion keeps clean hunks

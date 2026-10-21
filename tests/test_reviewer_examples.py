@@ -41,6 +41,8 @@ if os.environ.get("FAKE_ARGUMENTS"):
     open(os.environ["FAKE_ARGUMENTS"], "w", encoding="utf-8").write(json.dumps(sys.argv[1:]))
 if os.environ.get("FAKE_NO_JSON"):
     print("review completed without a structured response")
+elif os.environ.get("FAKE_CONTRACT_PLAN"):
+    print(os.environ["FAKE_CONTRACT_PLAN"])
 else:
     findings = []
     if os.environ.get("FAKE_FINDING"):
@@ -115,6 +117,45 @@ def test_shared_reviewer_contract_values_match_the_product_protocol():
 
     assert contract["SEVERITIES"] == tuple(member.value for member in Severity)
     assert contract["ACTIONS"] == tuple(member.value for member in FindingAction)
+
+
+@pytest.mark.parametrize("reviewer", ["codex", "claude"])
+def test_native_wrapper_returns_a_code_bound_contract_plan(tmp_path, monkeypatch, reviewer):
+    fake = install_fake(tmp_path / "bin" / reviewer)
+    capture = tmp_path / "prompt.txt"
+    monkeypatch.setenv(f"AP_{reviewer.upper()}_BIN", str(fake))
+    monkeypatch.setenv("FAKE_CAPTURE", str(capture))
+    plan = {
+        "units": [
+            {
+                "unit": "U0001",
+                "disposition": "unverified",
+                "checks": [],
+                "reason": "Consumer is unavailable.",
+            }
+        ],
+        "checks": [],
+    }
+    monkeypatch.setenv("FAKE_CONTRACT_PLAN", json.dumps(plan))
+    context = {
+        "section": "contracts",
+        "diff": "diff --git a/count.py b/count.py",
+        "review_coverage": {"manifest": "a" * 64, "units": [{"id": "U0001"}]},
+        "contract_checks": {"max_checks": 8},
+    }
+    result = subprocess.run(
+        [sys.executable, "-B", str(EXAMPLES / "reviewers" / f"{reviewer}_review.py")],
+        input=json.dumps(context),
+        text=True,
+        capture_output=True,
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"schema_version": "1", "manifest": "a" * 64, **plan}
+    prompt = capture.read_text()
+    assert "Do not execute probes yourself" in prompt
+    assert "independent oracle" in prompt
+    assert context["diff"] in prompt
 
 
 @pytest.mark.parametrize("reviewer", ["codex", "claude"])

@@ -7,8 +7,7 @@ import os
 
 from _reviewer_common import (
     ReviewerError,
-    emit_submission,
-    extract_findings,
+    emit_review_output,
     read_context,
     report_error,
     reviewer_effort,
@@ -40,8 +39,7 @@ def main() -> int:
             ],
             reviewer_prompt(context),
         )
-        findings = extract_findings(result.stdout)
-        emit_submission(context, findings)
+        emit_review_output(context, result.stdout)
     except ReviewerError as exc:
         return report_error(exc)
     return 0

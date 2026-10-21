@@ -85,6 +85,15 @@ def review_compare(file_path: str | None) -> None:
     finish_locked(lambda session: runs.compare_reviews(session, payload))
 
 
+@review.command("contracts")
+@click.option("--file", "file_path", required=True, help="Contract plan JSON file, or - for stdin.")
+@command
+def review_contracts(file_path: str) -> None:
+    """Execute a complete contract plan against the current committed snapshot."""
+    payload = read_json_file(file_path, "contract plan")
+    finish_locked(lambda session: runs.check_contracts(session, payload))
+
+
 @click.command()
 @click.option("--id", "finding_id", required=True, help="Finding id, e.g. F001.")
 @click.option(
