@@ -329,6 +329,7 @@ def test_cross_stage_repairs_preserve_attempt_limits(docs_green, tmp_path):
         "log_path": None,
         "output_sha256": None,
         "reason": None,
+        "started_at": None,
         "status": "pending",
     }
 

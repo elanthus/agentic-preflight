@@ -146,10 +146,7 @@ Agentic Preflight validates the whole plan, runs its probes, and sends `contract
 Planning does not receive a first reviewer's finding list.
 
 An enabled command review without `planner_command` asks for a locally submitted plan instead.
-An existing matching schema-2 receipt prevents another planner call on retry.
-Schema-1 receipt files remain readable and unchanged.
-Pending reviews need a schema-2 plan before a new findings submission.
-Context reports an older receipt under `previous_receipt` and returns the current plan schema.
+An existing matching receipt prevents another planner call on retry.
 An invalid or failing planner command counts against the normal durable review-attempt limit.
 The planner runs with the privileges and stage timeout of other configured host commands.
 It is **not** the sandbox for untrusted probe code.

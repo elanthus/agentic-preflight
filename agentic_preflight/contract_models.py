@@ -21,37 +21,23 @@ class ContractProbe(_Strict):
     code: str = Field(min_length=1, max_length=16_000)
 
 
-class LegacyContractCheck(_Strict):
+class ContractCheck(_Strict):
     id: str = Field(pattern=r"^C[0-9]{3,}$", max_length=20)
     contract: str = Field(min_length=1, max_length=2000)
     producer: str = Field(min_length=1, max_length=1000)
     consumer: str = Field(min_length=1, max_length=1000)
     oracle: str = Field(min_length=1, max_length=2000)
     probes: list[ContractProbe] = Field(min_length=3, max_length=3)
+    oracle_provenance: OracleProvenance
 
     @model_validator(mode="after")
-    def input_classes(self) -> LegacyContractCheck:
+    def input_classes(self) -> ContractCheck:
         if {probe.kind for probe in self.probes} != {"ordinary", "boundary", "composition"}:
             raise ValueError("each check needs ordinary, boundary, and composition probes")
         return self
 
 
-class LegacyContractUnit(_Strict):
-    unit: str = Field(pattern=r"^U[0-9]{4,}$")
-    disposition: Literal["checks", "not_applicable", "unverified"]
-    checks: list[str] = Field(default_factory=list, max_length=32)
-    reason: str = Field(min_length=1, max_length=2000)
-
-    @model_validator(mode="after")
-    def checked_or_explained(self) -> LegacyContractUnit:
-        if bool(self.checks) != (self.disposition == "checks"):
-            raise ValueError("only a checks disposition may reference nonempty checks")
-        if len(set(self.checks)) != len(self.checks):
-            raise ValueError("a unit may not reference a check twice")
-        return self
-
-
-def _references(units: Sequence[LegacyContractUnit], checks: Sequence[LegacyContractCheck]) -> None:
+def _references(units: Sequence[ContractUnit], checks: Sequence[ContractCheck]) -> None:
     unit_ids = [unit.unit for unit in units]
     check_ids = [check.id for check in checks]
     references = {check for unit in units for check in unit.checks}
@@ -59,20 +45,6 @@ def _references(units: Sequence[LegacyContractUnit], checks: Sequence[LegacyCont
         raise ValueError("contract unit and check identities must be unique")
     if references != set(check_ids):
         raise ValueError("all checks must be referenced, and all references must exist")
-
-
-class LegacyContractPlan(_Strict):
-    """Read schema-1 receipts without changing their digest-bound wire shape."""
-
-    schema_version: Literal["1"] = "1"
-    manifest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    units: list[LegacyContractUnit] = Field(max_length=10_000)
-    checks: list[LegacyContractCheck] = Field(default_factory=list, max_length=32)
-
-    @model_validator(mode="after")
-    def complete_references(self) -> LegacyContractPlan:
-        _references(self.units, self.checks)
-        return self
 
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
@@ -120,8 +92,20 @@ class BehaviorCoverage(_Strict):
         return self
 
 
-class ContractUnit(LegacyContractUnit):
+class ContractUnit(_Strict):
+    unit: str = Field(pattern=r"^U[0-9]{4,}$")
+    disposition: Literal["checks", "not_applicable", "unverified"]
+    checks: list[str] = Field(default_factory=list, max_length=32)
+    reason: str = Field(min_length=1, max_length=2000)
     inventory: list[BehaviorCoverage] = Field(default_factory=list, max_length=32)
+
+    @model_validator(mode="after")
+    def checked_or_explained(self) -> ContractUnit:
+        if bool(self.checks) != (self.disposition == "checks"):
+            raise ValueError("only a checks disposition may reference nonempty checks")
+        if len(set(self.checks)) != len(self.checks):
+            raise ValueError("a unit may not reference a check twice")
+        return self
 
     @model_validator(mode="after")
     def inventoried_or_explained(self) -> ContractUnit:
@@ -133,10 +117,6 @@ class ContractUnit(LegacyContractUnit):
         if len(set(transformations)) != len(transformations):
             raise ValueError("transformation names must be unique within a unit")
         return self
-
-
-class ContractCheck(LegacyContractCheck):
-    oracle_provenance: OracleProvenance
 
 
 class ContractPlan(_Strict):
@@ -206,7 +186,7 @@ class ImageInventory(_Strict):
 
 
 class ContractReceipt(_Strict):
-    schema_version: Literal["1", "2"] = "2"
+    schema_version: Literal["2"] = "2"
     manifest: str
     head_sha: str
     config_sha256: str
@@ -214,7 +194,7 @@ class ContractReceipt(_Strict):
     image: str | None
     snapshot_sha256: str | None = None
     status: ReceiptStatus
-    plan: Annotated[ContractPlan | LegacyContractPlan, Field(discriminator="schema_version")]
+    plan: ContractPlan
     checks: list[CheckResult]
     limitation: str = (
         "Execution checks the proposed assertions, not the correctness of their oracle."
@@ -222,8 +202,6 @@ class ContractReceipt(_Strict):
 
     @model_validator(mode="after")
     def results_match_plan(self) -> ContractReceipt:
-        if self.schema_version != self.plan.schema_version:
-            raise ValueError("receipt and plan schema versions must match")
         if [result.id for result in self.checks] != [check.id for check in self.plan.checks]:
             raise ValueError("receipt results must match the plan checks in order")
         for check, result in zip(self.plan.checks, self.checks, strict=True):

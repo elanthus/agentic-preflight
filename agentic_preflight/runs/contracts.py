@@ -82,8 +82,6 @@ def receipt_for(
     session: Session,
     run: RunDoc,
     manifest: ReviewManifest,
-    *,
-    allow_legacy: bool = False,
 ) -> ContractReceipt | None:
     if not session.config.review.contracts.enabled:
         return None
@@ -119,7 +117,7 @@ def receipt_for(
             or receipt.plan_sha256 != json_digest(receipt.plan.model_dump(mode="json"))
         ):
             raise ValueError("receipt does not bind the current review")
-        return receipt if allow_legacy or receipt.schema_version == "2" else None
+        return receipt
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise InvalidFindings(
             "contract receipt is unreadable or changed; run review contracts again"
@@ -186,7 +184,7 @@ def _packages_context(session: Session, run: RunDoc) -> dict[str, Any]:
 
 
 def contract_context(session: Session, run: RunDoc, manifest: ReviewManifest) -> dict[str, Any]:
-    receipt = receipt_for(session, run, manifest, allow_legacy=True)
+    receipt = receipt_for(session, run, manifest)
     config = session.config.review.contracts
     data: dict[str, Any] = {
         "enabled": True,
@@ -205,14 +203,6 @@ def contract_context(session: Session, run: RunDoc, manifest: ReviewManifest) ->
         return data
     digest = json_digest(receipt.model_dump(mode="json"))
     path = str(_directory(session, run, manifest) / (digest + ".json"))
-    if not isinstance(receipt.plan, ContractPlan):
-        data["previous_receipt"] = {
-            "schema_version": receipt.schema_version,
-            "sha256": digest,
-            "path": path,
-            "reason": "Schema-1 evidence is preserved; submit a schema-2 plan for this review.",
-        }
-        return data
     claimed = _claimed_classes(receipt.plan)
     inventory = []
     used = 0

@@ -30,7 +30,6 @@ from agentic_preflight.runs.start import (
     normalize_client,
     normalize_model,
 )
-from agentic_preflight.store import Store
 from tests.conftest import commit_all, git, make_run, write
 from tests.driver import ScriptedAgent, findings_json
 
@@ -168,18 +167,8 @@ def test_producer_forbids_unknown_keys():
 
 def test_a_record_written_before_producer_identity_still_loads():
     payload = make_run().model_dump(mode="json")
-    assert "producer" not in payload
+    del payload["producer"]
     assert RunDoc.model_validate(payload).producer is None
-
-
-def test_rewriting_an_old_record_does_not_add_a_producer_key(tmp_path):
-    store = Store(tmp_path / "agentic-preflight")
-    store.create_run(make_run())
-    with store.transaction("r_abc123") as doc:
-        doc.seq += 0
-    saved = json.loads(store.run_path("r_abc123").read_text(encoding="utf-8"))
-    assert "producer" not in saved
-    assert store.load_run("r_abc123").producer is None
 
 
 def test_a_null_producer_key_also_loads():

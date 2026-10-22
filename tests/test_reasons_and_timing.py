@@ -300,7 +300,7 @@ def test_each_stage_starts_at_its_own_begin_transition(ticking_clock, feature_re
     assert stages["lint"]["started_at"] == starts["RUN_LINT"]
     assert stages["test"]["started_at"] == starts["RUN_TEST"]
     # Docs are disabled here, so that stage was skipped and never began.
-    assert "started_at" not in stages["docs"]
+    assert stages["docs"]["started_at"] is None
 
 
 def test_a_full_run_summarizes_stage_durations_and_state_timing(feature_repo, tmp_path):
@@ -326,10 +326,10 @@ def test_a_full_run_summarizes_stage_durations_and_state_timing(feature_repo, tm
     assert summary["terminal"]["aborted_from_state"] == "VERIFIED"
 
 
-def test_stage_records_without_a_start_serialize_as_before():
+def test_stage_records_without_a_start_store_a_null_start():
     record = StageRecord(status="green", finished_at="2026-10-21T10:00:00+00:00")
 
-    assert "started_at" not in record.model_dump(mode="json")
+    assert record.model_dump(mode="json")["started_at"] is None
     started = record.model_copy(update={"started_at": "2026-10-21T09:59:00+00:00"})
     assert started.model_dump(mode="json")["started_at"] == "2026-10-21T09:59:00+00:00"
 
