@@ -13,20 +13,24 @@ version reaches that release while the shim still exists.
 Under this rule, 0.8.0 must read 0.7.0 records, notes, and snapshots. It need not read
 0.6.0 data, and it need not keep its own records readable by 0.7.0.
 
+> **Schedule note, 2026-10-22.** 0.8.0 shipped the same day as stage 0, with nothing
+> from stage 1. Every later release number below has therefore moved one minor later than
+> the first draft: stage 1 lands in 0.9.0 and stage 2 in 0.10.0. The rule is unchanged.
+
 ## Inventory and schedule
 
 | # | Shim | Introduced | Protects | Drop in |
 | --- | --- | --- | --- | --- |
 | 1 | `LegacyContractPlan`, `allow_legacy`, `previous_receipt` | after v0.7.0 | schema-1 receipts from unreleased dev builds | now |
 | 2 | `omit_absent_producer` serializer | after v0.7.0 | 0.7.0 reading records 0.8.0 rewrote (downgrade) | now |
-| 3 | `discard_legacy_rebased_tree` | 0.7.0 | 0.6.0 merge-back attempts | 0.8.0 |
-| 4 | `retire_ci_delegation` and `telemetry._effective_state` | 0.7.0 | 0.6.0 delegated runs | 0.8.0 |
-| 5 | `pending-update.json` handling (four sites) | 0.7.0 | 0.6.0 interrupted runs | 0.8.0, one line stays to 0.9.0 |
-| 6 | `REMOVED_CONFIG_KEYS` entries removed in 0.6.0 | 0.6.0 | 0.5.x snapshots | 0.8.0 |
-| 7 | `discard_retired_null_fields` on attestations | 0.7.0 | 0.6.0 verified notes | 0.9.0 |
-| 8 | `REMOVED_CONFIG_KEYS` entries removed in 0.7.0 | 0.7.0 | 0.6.0 snapshots and config files | 0.9.0 |
-| 9 | `LEGACY_DIRNAME`, `legacy_worktrees`, runner reclamation at the old root | 0.7.0 | worktrees created before 0.7.0 | 0.9.0 |
-| 10 | `record.get("producer")` raw fallback in `telemetry._producer` | after v0.7.0 | 0.7.0 records without the key | 0.9.0 |
+| 3 | `discard_legacy_rebased_tree` | 0.7.0 | 0.6.0 merge-back attempts | 0.9.0 |
+| 4 | `retire_ci_delegation` and `telemetry._effective_state` | 0.7.0 | 0.6.0 delegated runs | 0.9.0 |
+| 5 | `pending-update.json` handling (four sites) | 0.7.0 | 0.6.0 interrupted runs | 0.9.0, one line stays to 0.10.0 |
+| 6 | `REMOVED_CONFIG_KEYS` entries removed in 0.6.0 | 0.6.0 | 0.5.x snapshots | 0.9.0 |
+| 7 | `discard_retired_null_fields` on attestations | 0.7.0 | 0.6.0 verified notes | 0.10.0 |
+| 8 | `REMOVED_CONFIG_KEYS` entries removed in 0.7.0 | 0.7.0 | 0.6.0 snapshots and config files | 0.10.0 |
+| 9 | `LEGACY_DIRNAME`, `legacy_worktrees`, runner reclamation at the old root | 0.7.0 | worktrees created before 0.7.0 | 0.10.0 |
+| 10 | `record.get("producer")` raw fallback in `telemetry._producer` | after v0.7.0 | 0.7.0 records without the key | 0.10.0 |
 
 Run schema 2, attestation schema 7, and fingerprint version 2 do not change in any stage.
 No stage rewrites saved data or deletes user work. Rejected records keep the existing
@@ -80,16 +84,16 @@ bytes of every existing 0.7.0 evidence record and note, which breaks the rule ra
 than applying it. They are wire-shape decisions for attested data, not downgrade shims,
 and belong with any future attestation schema bump.
 
-## Stage 1: 0.8.0
+## Stage 1: 0.9.0
 
 Each item gets a `removed` changelog fragment and one line in `COMPATIBILITY.md` stating
-that 0.8.0 reads 0.7.0 data only. The existing per-feature paragraphs in
+that 0.9.0 reads 0.8.0 data only. The existing per-feature paragraphs in
 `COMPATIBILITY.md` for these shims move to `docs/upgrade-0.7.md`, which is where a reader
 on 0.6.0 looks.
 
 ### 3. `mergeback_attempt.rebased_tree`
 
-0.7.0 never writes the field. Delete `discard_legacy_rebased_tree` from `MergebackAttempt`
+Neither 0.7.0 nor 0.8.0 writes the field. Delete `discard_legacy_rebased_tree` from `MergebackAttempt`
 in `agentic_preflight/models.py` and its test in `tests/test_store.py`. A 0.6.0 attempt
 then fails with `extra_forbidden`, which `store.py` already reports as `invalid` with the
 preserve-and-use-a-compatible-tool recovery.
@@ -97,7 +101,7 @@ preserve-and-use-a-compatible-tool recovery.
 ### 4. CI delegation retirement
 
 0.7.0 writes no `test_delegation` key and no `TEST_DELEGATED` or `PUBLICATION_READY` state,
-and its `start` already orphaned any such run it met.
+and its `start`, like 0.8.0's, already orphaned any such run it met.
 
 - `agentic_preflight/models.py`: delete `retire_ci_delegation`. The states are not in
   `State`, so such a record fails validation naturally.
@@ -110,8 +114,8 @@ and its `start` already orphaned any such run it met.
 
 ### 5. Interrupted legacy updates
 
-0.7.0 orphans a run with `pending-update.json` on the next `start`, so by 0.8.0 the only
-such runs are ones nobody has started since 0.6.0. Collapse the four sites into one.
+0.7.0 and 0.8.0 orphan a run with `pending-update.json` on the next `start`, so by 0.9.0
+the only such runs are ones nobody has started since 0.6.0. Collapse the four sites into one.
 
 - `agentic_preflight/store.py`: in `load_run`, treat a nonterminal record with a
   `pending-update.json` beside it as a `RunReadError` with reason `invalid` and a message
@@ -121,8 +125,8 @@ such runs are ones nobody has started since 0.6.0. Collapse the four sites into 
   `runs/lifecycle.py` (the `status` branch around line 612 and the
   `interrupted_legacy_update` envelope key).
 - `runs/evidence.py`: keep the single `orphaned_reason == "interrupted legacy update"`
-  comparison through 0.8.0. Records that 0.7.0 orphaned persist that string, and the
-  comparison is what keeps their green evidence out of reuse. Drop it in 0.9.0 together
+  comparison through 0.9.0. Records that 0.7.0 orphaned persist that string, and the
+  comparison is what keeps their green evidence out of reuse. Drop it in 0.10.0 together
   with the string constant. Replace the `pending-update.json` existence check there now,
   since `load_run` rejects those records first.
 - Docs: `skill/reference/commands.md` lines 83 to 90, the row in `skill/SKILL.md` line 200,
@@ -139,20 +143,20 @@ in `agentic_preflight/config.py` and their cases in `tests/test_config.py`. A 0.
 then fails verification with `incompatible_schema`-style recovery text, which is correct:
 0.6.0 already refused to read 0.5.x run records.
 
-## Stage 2: 0.9.0
+## Stage 2: 0.10.0
 
 ### 7. Null retired attestation fields
 
 Attestation notes outlive runs: a branch verified under 0.6.0 can still be open when the
-verifier moves to 0.8.0. Keeping `discard_retired_null_fields` one release longer costs
+verifier moves to 0.9.0. Keeping `discard_retired_null_fields` one release longer costs
 six lines and avoids forcing a re-run on an open PR. Delete it, and the matching cases in
 `tests/test_models.py`, `tests/test_store.py`, `tests/test_evidence_transport.py`, and
-`tests/test_telemetry.py`, in 0.9.0.
+`tests/test_telemetry.py`, in 0.10.0.
 
 ### 8. Config sections removed in 0.7.0
 
 `("reuse", "*")`, `("ci", "*")`, and `("hook", "enabled")` serve two readers: historical
-snapshots in notes, and user configuration files that still carry the sections. In 0.9.0
+snapshots in notes, and user configuration files that still carry the sections. In 0.10.0
 both become plain unknown-key errors. Delete the entries, `discard_retired_sections`, the
 wildcard warning branch around `config.py` line 339, and `snapshot_config`'s filtering.
 At that point `REMOVED_CONFIG_KEYS` is empty and should be deleted rather than left as an
@@ -173,11 +177,11 @@ explicit root of that name stays valid. Note the envelope key removal in
 
 `producer` itself is not a shim and never becomes required. A 0.7.0 record has no
 producer, and 0.8.0 rewrites it with `"producer": null` rather than inventing one, so
-0.9.0 still meets null producers inside its support window and must read them. Null is
+0.10.0 still meets null producers inside its support window and must read them. Null is
 the honest value for "unknown", and the summary keeps reporting it as such.
 
 What does expire is the missing key. Every record 0.8.0 writes carries the key, so in
-0.9.0 the `record.get("producer")` fallback in `telemetry._producer`, which exists for
+0.10.0 the `record.get("producer")` fallback in `telemetry._producer`, which exists for
 raw records without it, can go. The model field stays `Producer | None`.
 
 ## Guardrail: keep this from growing back
@@ -187,7 +191,7 @@ Add `agentic_preflight/_compat.py` holding one table:
 ```python
 REMOVALS: Final = (
     # (identifier, introduced_in, remove_in)
-    ("models.MergebackAttempt.discard_legacy_rebased_tree", "0.7.0", "0.8.0"),
+    ("models.MergebackAttempt.discard_legacy_rebased_tree", "0.7.0", "0.9.0"),
     ...,
 )
 ```

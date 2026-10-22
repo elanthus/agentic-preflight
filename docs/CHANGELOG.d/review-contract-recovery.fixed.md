@@ -1,3 +1,0 @@
-- Use a container-local monotonic deadline for contract probes so host/engine clock skew cannot shorten the execution budget.
-- Preserve review state and attempt counts when copied-file redaction prevents the contract planner from launching; report zero reviewer invocations and the contracts phase.
-- Include the host-run contract planner in the configuration trust warning.

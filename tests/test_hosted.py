@@ -1014,4 +1014,9 @@ def test_docs_describe_the_sync_and_say_it_only_reads_github():
     assert "agentic-preflight telemetry sync-hosted" in playbook
     assert "calls GitHub" in playbook
     assert "## Hosted outcome records" in compatibility
-    assert fragment.read_text(encoding="utf-8").startswith("- ")
+    # Release assembly consumes the fragment into CHANGELOG.md; accept either home.
+    if fragment.exists():
+        assert fragment.read_text(encoding="utf-8").startswith("- ")
+    else:
+        changelog = (PROJECT_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        assert "telemetry sync-hosted" in changelog
