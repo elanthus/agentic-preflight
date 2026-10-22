@@ -9,6 +9,7 @@ made deterministic with fixed identity and timestamp environment instead.
 from __future__ import annotations
 
 import functools
+import json
 import os
 import signal
 import stat
@@ -21,6 +22,12 @@ import pytest
 
 from agentic_preflight.machine import State
 from agentic_preflight.models import RunDoc
+from tests import telemetry_guard
+
+#: The environment and home directory before any test changes them. The telemetry
+#: guard reads the user's real files from these, not from a test's override.
+_REAL_ENVIRON = dict(os.environ)
+_REAL_HOME = Path.home()
 
 DETERMINISTIC_ENV = {
     "GIT_AUTHOR_NAME": "Test Author",
@@ -34,6 +41,26 @@ DETERMINISTIC_ENV = {
 }
 
 
+@pytest.fixture(scope="session", autouse=True)
+def user_telemetry_guard(tmp_path_factory):
+    """Fail the session if a temporary repository's row reached the user's real telemetry.
+
+    It reads the real ``runs.jsonl`` and ``hook-decisions.jsonl`` themselves, so it
+    covers rows that a CLI subprocess wrote as well as in-process ones. Rows from other
+    repositories are ignored. See :mod:`tests.telemetry_guard`.
+    """
+    directories = telemetry_guard.real_telemetry_dirs(_REAL_ENVIRON, _REAL_HOME)
+    before = telemetry_guard.snapshot(directories)
+    yield
+    leaked = telemetry_guard.check(
+        before,
+        basetemp=telemetry_guard.session_basetemp(tmp_path_factory.getbasetemp()),
+        roots=telemetry_guard.temporary_roots(_REAL_ENVIRON),
+    )
+    if leaked:
+        pytest.fail(telemetry_guard.failure_message(leaked), pytrace=False)
+
+
 @pytest.fixture(autouse=True)
 def deterministic_git_env(monkeypatch, tmp_path_factory):
     for key, value in DETERMINISTIC_ENV.items():
@@ -43,12 +70,40 @@ def deterministic_git_env(monkeypatch, tmp_path_factory):
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path_factory.mktemp("xdg-cache")))
     # Finished runs append to the user-level telemetry mirror. Keep it per test too.
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path_factory.mktemp("xdg-data")))
+    # The user configuration lives under the home directory. A developer's
+    # ``[telemetry] path`` there is an explicit opt-in that the product honours even
+    # for temporary repositories, so no test may read it.
+    set_home(monkeypatch, tmp_path_factory.mktemp("home"))
     # Real-push tests invoke the installed hook, which resolves
     # ``agentic-preflight`` through PATH. Pin that lookup to the same environment
     # running pytest so an unrelated user installation cannot test older code.
     python_bin = str(Path(sys.executable).parent)
     current_path = os.environ.get("PATH", "")
     monkeypatch.setenv("PATH", os.pathsep.join(part for part in (python_bin, current_path) if part))
+
+
+@pytest.fixture
+def telemetry_opt_in(deterministic_git_env) -> Path:
+    """Opt this test's fixture repositories in to telemetry, and return the directory.
+
+    Every fixture repository is under the system temporary directory, so by default the
+    product neither mirrors its runs nor logs its hook decisions. An explicit
+    ``[telemetry] path`` is an opt-in. This writes one into the test's own user
+    configuration, naming the per-test directory that ``XDG_DATA_HOME`` already selects,
+    so ``telemetry.mirror_path()`` and ``hooklog.log_path()`` still find the files.
+    """
+    return opt_in_telemetry(Path(os.environ["XDG_DATA_HOME"]) / "agentic-preflight" / "telemetry")
+
+
+def opt_in_telemetry(directory: Path, *, home: Path | None = None) -> Path:
+    """Write ``[telemetry] path = directory`` into the user configuration file of ``home``.
+
+    ``home`` defaults to the test's own home directory.
+    """
+    config = (home or Path.home()) / ".config" / "agentic-preflight" / "config.toml"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(f"[telemetry]\npath = {json.dumps(str(directory))}\n", encoding="utf-8")
+    return directory
 
 
 def git(*args: str, cwd: Path) -> str:

@@ -18,8 +18,13 @@ from agentic_preflight.envelope import ExitCode
 from agentic_preflight.machine import State
 from agentic_preflight.models import RunDoc
 from agentic_preflight.store import Store
-from tests.conftest import commit_all, git, make_run, set_home, write
+from tests.conftest import commit_all, git, make_run, opt_in_telemetry, set_home, write
 from tests.driver import ScriptedAgent, findings_json, green_run
+
+#: Every fixture repository is under the system temporary directory, which the product
+#: keeps out of the default telemetry location. These tests are about what the files
+#: record, so they opt in with an explicit ``[telemetry] path``.
+pytestmark = pytest.mark.usefixtures("telemetry_opt_in")
 
 PRIVATE_INTENT = "ship the widget; secret acceptance criteria 7f3a"
 FINDING_KEYS = (
@@ -672,10 +677,10 @@ def test_mirror_off_keeps_the_summary_in_the_run_directory(agent, feature_repo):
     assert not telemetry.mirror_path().exists()
 
 
-def test_an_unwritable_mirror_never_fails_the_command(agent, feature_repo, monkeypatch, tmp_path):
+def test_an_unwritable_mirror_never_fails_the_command(agent, feature_repo, tmp_path):
     blocker = tmp_path / "not-a-directory"
     blocker.write_text("occupied\n", encoding="utf-8")
-    monkeypatch.setenv("XDG_DATA_HOME", str(blocker))
+    opt_in_telemetry(blocker)
     run_id = agent.run("start")["run_id"]
 
     aborted = agent.run("abort")
@@ -773,6 +778,8 @@ def test_rebuild_regenerates_summaries_and_rewrites_only_this_repositorys_rows(t
         "path": str(mirror),
         "rows": 4,
         "preserved_rows": 2,
+        "temporary_runs": 0,
+        "reason": None,
         "error": None,
     }
     assert result["next"]["instruction"].startswith("Some run records could not be read")
@@ -816,10 +823,10 @@ def test_rebuild_with_the_mirror_off_writes_summaries_only(tmp_repo):
     assert not telemetry.mirror_path().exists()
 
 
-def test_rebuild_reports_a_mirror_it_cannot_write(tmp_repo, monkeypatch, tmp_path):
+def test_rebuild_reports_a_mirror_it_cannot_write(tmp_repo, tmp_path):
     blocker = tmp_path / "not-a-directory"
     blocker.write_text("occupied\n", encoding="utf-8")
-    monkeypatch.setenv("XDG_DATA_HOME", str(blocker))
+    opt_in_telemetry(blocker)
     _store_record(tmp_repo, _schema_2_record())
 
     failed = ScriptedAgent(tmp_repo).run("telemetry", "rebuild", expect=ExitCode.USAGE)

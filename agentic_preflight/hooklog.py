@@ -15,6 +15,9 @@ The log follows the telemetry rules:
 * Writing never changes the push. ``hook-check`` decides its exit code and message
   before it writes. The write is bounded in time, every failure is swallowed, and
   nothing here writes to stdout or stderr.
+* A repository under a system temporary directory without a network remote logs
+  nothing, unless an explicit ``[telemetry] path`` opts it in
+  (:func:`agentic_preflight.telemetry.exclusion_reason`).
 """
 
 from __future__ import annotations
@@ -53,6 +56,7 @@ _REMOTE_LIMIT = 200
 #: What :func:`record` did. Only tests read it; ``hook-check`` ignores it.
 WRITTEN = "written"
 DISABLED = "disabled"
+TEMPORARY = telemetry.TEMPORARY_REPOSITORY
 UNRESOLVED = "unresolved"
 TIMED_OUT = "timed_out"
 FAILED = "failed"
@@ -236,12 +240,34 @@ class Pending:
         self._timeout = TIMEOUT_SECONDS
         self._root = Path()
         self._directory = Path()
+        self._temporary_path = False
         self._worker: threading.Thread | None = None
 
-    def _start(self, root: Path, directory: Path, timeout: float) -> None:
+    def _start(self, root: Path, directory: Path, timeout: float, *, temporary_path: bool) -> None:
         self._root, self._directory, self._timeout = root, directory, timeout
+        self._temporary_path = temporary_path
         self._worker = threading.Thread(target=self._run, name=_THREAD_NAME, daemon=True)
         self._worker.start()
+
+    def _push_remote(self) -> str | None:
+        """The normalized URL of the remote that Git named for this push, if any."""
+        value = (self._remote or "").strip()
+        if not value:
+            return None
+        if _REMOTE_NAME.fullmatch(value):
+            value = telemetry._git_output(self._root, "remote", "get-url", value) or ""
+        return telemetry.normalize_remote(value)
+
+    def _temporary(self, identity: telemetry.RepoIdentity) -> bool:
+        """Whether the rule keeps this repository's line out of the log.
+
+        Only a repository under a system temporary directory is checked. Its ``origin``
+        decides; without one, the remote of the push decides.
+        """
+        if not self._temporary_path:
+            return False
+        remote = identity.remote or self._push_remote()
+        return not telemetry.has_network_remote(remote)
 
     def _run(self) -> None:
         try:
@@ -250,6 +276,9 @@ class Pending:
             decision = self._decision
             if decision is None or time.monotonic() >= self._deadline:
                 self._result.append(TIMED_OUT)
+                return
+            if self._temporary(identity):
+                self._result.append(TEMPORARY)
                 return
             line = build_line(decision, repo=identity, remote=self._remote)
             append(self._directory, line, deadline=self._deadline)
@@ -281,7 +310,10 @@ def begin(
     ``config`` is the loaded configuration, or ``None`` when it could not be loaded,
     and then :func:`fallback_section` decides. ``repo_root`` defaults to the current
     directory, where Git runs the hook. Nothing starts when logging is off or the
-    preference is unknown.
+    preference is unknown. When the repository is under a system temporary directory
+    and has not opted in with an explicit ``[telemetry] path``, the worker decides
+    from the repository's remote, within the same time bound, and writes nothing for
+    a repository without a network remote.
     """
     try:
         root = repo_root or Path.cwd()
@@ -290,11 +322,12 @@ def begin(
             return Pending(UNRESOLVED)
         if not section.hook_log:
             return Pending(DISABLED)
-        directory = telemetry.telemetry_dir(
-            config if config is not None else Config(telemetry=section)
-        )
+        effective = config if config is not None else Config(telemetry=section)
+        # With no remote, the rule reduces to its path part. The remote is read later.
+        temporary_path = telemetry.exclusion_reason(effective, root, None) is not None
+        directory = telemetry.telemetry_dir(effective)
         pending = Pending()
-        pending._start(root, directory, timeout)
+        pending._start(root, directory, timeout, temporary_path=temporary_path)
         return pending
     except Exception:  # noqa: BLE001 - a broken log must never block or alter a push
         return Pending(FAILED)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -65,19 +66,30 @@ def _guidance(source: dict[str, Any], mirror_enabled: bool) -> tuple[str | None,
     clone = source["clone"] or {}
     parts: list[str] = []
     command_text = None
+    temporary = clone.get("temporary_runs") or 0
     # Suggest a rebuild only when it adds rows; otherwise following `next` would loop.
+    adds = False
     if source["used"] == "clone_records" and clone.get("summarized"):
         parts.append(
             "The mirror has no rows for this repository, so the report summarized this "
             "clone's run records in memory."
         )
+        adds = clone["summarized"] > temporary
     elif clone.get("unmirrored_terminal_runs"):
         parts.append("Some finished runs in this clone are not in the mirror.")
-    if parts and mirror_enabled:
+        adds = True
+    if parts and mirror_enabled and adds:
         parts.append(f"Run `{REBUILD_COMMAND}` to add them, then run the report again.")
         command_text = REBUILD_COMMAND
-    elif parts:
+    elif parts and not mirror_enabled:
         parts.append("The mirror is off, so `telemetry rebuild` does not add them.")
+    if temporary and mirror_enabled:
+        parts.append(
+            f"{temporary} finished run(s) of this clone come from a repository under the "
+            "system temporary directory without a network remote, so `telemetry rebuild` "
+            "does not mirror them. An explicit `[telemetry] path` in the user file mirrors "
+            "them."
+        )
     if clone.get("unreadable"):
         parts.append(
             "Some run records could not be read and are not in the report. Inspect each "
@@ -150,6 +162,8 @@ def report(
             "agentic-preflight report --all-repos",
         )
     config = load_config(repo_root or cwd)
+    if clone is not None:
+        clone = dataclasses.replace(clone, config=config)
     path = telemetry.mirror_path(config)
     try:
         mirror = reportmod.read_mirror(path)

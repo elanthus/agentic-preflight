@@ -287,6 +287,19 @@ def _build_repo(
     return {"base": base, snapshot: selected}, env
 
 
+def isolated_data_env(workspace: Path) -> dict[str, str]:
+    """The runner's own data and cache directories, under the eval workspace.
+
+    Every CLI subprocess gets them, so an eval run never appends to the user's
+    telemetry mirror or hook decision log, or creates worktrees in the user's cache,
+    even if the product's temporary-repository rule were bypassed.
+    """
+    return {
+        "XDG_DATA_HOME": str(workspace / "xdg-data"),
+        "XDG_CACHE_HOME": str(workspace / "xdg-cache"),
+    }
+
+
 def _cli(repo: Path, env: dict[str, str], *argv: str) -> tuple[dict[str, Any], int]:
     result = _run([sys.executable, "-m", "agentic_preflight", *argv], cwd=repo, env=env)
     try:
@@ -424,6 +437,7 @@ def run_case_snapshot(
             case, repo, snapshot=snapshot, mode=mode, executor=executor, grounding=grounding
         )
         result.update(base_sha=shas["base"], head_sha=shas[snapshot])
+        env.update(isolated_data_env(workspace))
         env["AP_EVAL_PYTHON"] = sys.executable
         env["AP_EVAL_EXECUTOR"] = str(
             ROOT / "evals" / "scripted_executor.py"

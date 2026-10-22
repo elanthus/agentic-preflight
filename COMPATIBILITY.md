@@ -368,3 +368,23 @@ A hook from an earlier version still works. Its log lines have `remote = null`.
 
 In `agentic-preflight report`, `data.hook_decisions` is a new key, and the Markdown has a new "Hook decisions" section before the limits.
 `data.limits` has two more items.
+
+## Temporary repositories and telemetry
+
+Without an explicit `[telemetry] path`, runs and hook decisions of temporary repositories no longer reach the telemetry directory.
+A repository is temporary when both are true: its worktree is under a system temporary directory, and it has no network remote.
+The system temporary directories are `tempfile.gettempdir()`, `$TMPDIR` when it is set, and `/tmp` except on Windows, compared as resolved real paths.
+A network remote is an `origin` whose normalized form starts with a host name. A missing `origin`, a local path such as a bare repository, and a loopback host are not network remotes.
+Thus, a scratch clone under the temporary directory that pushes to GitHub keeps its telemetry.
+A run of a temporary repository still writes `summary.json`. It appends no line to `runs.jsonl`, and `hook-check` appends no line to `hook-decisions.jsonl`.
+See [Temporary repositories](docs/local-telemetry.md#temporary-repositories).
+
+An explicit `[telemetry] path` is an opt-in, and keeps the earlier behavior for every repository.
+`[telemetry] mirror` and `hook_log` are unchanged.
+Rows that the mirror already has are not removed.
+
+The `summary_written` event and `data.telemetry` add `reason`: `temporary_repository`, or `null`.
+The `mirror` object of `telemetry rebuild` and of `telemetry sync-hosted` adds `reason` and `temporary_runs`.
+In `agentic-preflight report`, `data.source.clone` adds `temporary_runs`, and `unmirrored_terminal_runs` no longer counts those runs.
+The summary schema 1, the hook decision lines, run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+No fingerprint, evidence digest, configuration digest, or attestation reads these keys.

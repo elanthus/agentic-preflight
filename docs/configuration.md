@@ -118,7 +118,7 @@ allow_force_push = false
 [telemetry]
 mirror = true                     # append each finished run's summary to runs.jsonl
 hook_log = true                   # append each pre-push hook decision to hook-decisions.jsonl
-# path = "~/agentic-preflight-telemetry"  # directory override; absolute or ~
+# path = "~/agentic-preflight-telemetry"  # directory override; absolute or ~; also opts in temporary repositories
 ```
 
 ## Configuration is snapshotted per run
@@ -152,6 +152,10 @@ When a run ends, the CLI writes `summary.json` in the run directory.
 `path` sets the telemetry directory. The value must be an absolute path or start with `~`.
 Without `path`, the directory is `$XDG_DATA_HOME/agentic-preflight/telemetry` when `XDG_DATA_HOME` is an absolute path.
 Otherwise, it is `~/.local/share/agentic-preflight/telemetry`.
+Without `path`, runs and hook decisions of temporary repositories are not written to the telemetry directory.
+A temporary repository is under the system temporary directory and has no network remote.
+A `path` is an opt-in: that directory also receives them, even when `path` names the default location.
+See [Temporary repositories](local-telemetry.md#temporary-repositories).
 
 The CLI reads this section from the configuration files when a run ends. The pre-push hook reads it on each push.
 Run snapshots do not contain it.

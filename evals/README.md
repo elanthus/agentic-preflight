@@ -5,6 +5,11 @@ Method `public-smoke-v6` gives each reviewed snapshot a separate Git repository 
 Each small fictional project has base, vulnerable, and fixed snapshots.
 The runner creates real Git repositories.
 It runs `init`, `start`, `context`, and command review through `python -m agentic_preflight`.
+The repositories and a data directory are in one temporary workspace, which the runner deletes at the end.
+Each CLI subprocess gets `XDG_DATA_HOME` and `XDG_CACHE_HOME` in that workspace.
+Thus, an eval run does not write to your default telemetry directory or to your worktree cache.
+An explicit `[telemetry] path` in your user file still applies.
+See [Temporary repositories](../docs/local-telemetry.md#temporary-repositories).
 
 This corpus does not contain private cases or gold artifacts from the private decision-quality evaluation.
 Do not use it as a replacement or comparison for that evaluation.

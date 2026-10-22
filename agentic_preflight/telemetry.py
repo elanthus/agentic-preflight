@@ -16,14 +16,19 @@ Everything here is derived output:
   and ``summary.json`` is never read back as evidence.
 * Absent evidence is ``None``, never zero. Older records lack many fields.
 * Writing a summary never fails the command that ended the run.
+* A repository under a system temporary directory that has no network remote is
+  a test fixture. Its rows never reach the default telemetry directory; only an
+  explicit ``[telemetry] path`` receives them (:func:`exclusion_reason`).
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import subprocess
+import tempfile
 from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
@@ -44,6 +49,16 @@ SUMMARY_KIND = "agentic-preflight-run-summary"
 SUMMARY_NAME = "summary.json"
 MIRROR_NAME = "runs.jsonl"
 _MIRROR_LOCK_NAME = "runs.jsonl.lock"
+#: Why rows were kept out of the telemetry directory: the repository is under a
+#: system temporary directory, has no network remote, and no explicit
+#: ``[telemetry] path`` opted it in.
+TEMPORARY_REPOSITORY = "temporary_repository"
+#: A Windows drive, the first segment of a normalized local path such as ``C:/repos/x``.
+_DRIVE = re.compile(r"[A-Za-z]:")
+#: Loopback hosts. A remote on this machine is a test server, not a hosted repository.
+_LOOPBACK = re.compile(r"localhost|127(?:\.\d{1,3}){3}|::1")
+#: Compared against repository paths only; nothing is created there.
+_POSIX_TMP = "/tmp"  # noqa: S108
 
 #: Events this module appends. They are left out of ``event_counts`` so that a
 #: rebuilt summary counts the same events as the one written when the run ended.
@@ -612,6 +627,97 @@ def mirror_path(config: Config | None = None) -> Path:
     return telemetry_dir(config) / MIRROR_NAME
 
 
+def _resolved(path: Path | str) -> Path | None:
+    try:
+        return Path(path).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def temporary_roots() -> list[Path]:
+    """The system temporary directories, as resolved real paths.
+
+    ``tempfile.gettempdir()`` (``%TEMP%`` or ``%TMP%`` on Windows), ``$TMPDIR``
+    when it is set, and ``/tmp`` outside Windows. ``gettempdir`` keeps its first
+    answer for the process, so ``$TMPDIR`` is read again. Symlinks are resolved,
+    so ``/var/folders/...`` and ``/private/var/folders/...`` on macOS are one
+    directory. A filesystem root or the home directory itself is ignored: either
+    would mark every repository as temporary.
+    """
+    candidates: list[str] = []
+    with contextlib.suppress(OSError):  # no usable temporary directory
+        candidates.append(tempfile.gettempdir())
+    if tmpdir := os.environ.get("TMPDIR"):
+        candidates.append(tmpdir)
+    if os.name != "nt":
+        candidates.append(_POSIX_TMP)
+    try:
+        home = _resolved(Path.home())
+    except RuntimeError:  # no home directory can be determined
+        home = None
+    roots: list[Path] = []
+    for candidate in candidates:
+        if not Path(candidate).is_absolute():
+            continue
+        root = _resolved(candidate)
+        if root is None or root == Path(root.anchor) or root == home or root in roots:
+            continue
+        roots.append(root)
+    return roots
+
+
+def is_temporary_repository(path: Path | str | None) -> bool:
+    """Whether ``path`` lies under a system temporary directory.
+
+    Both sides are compared as resolved real paths. A path that cannot be
+    resolved is not temporary.
+    """
+    if not path:
+        return False
+    resolved = _resolved(path)
+    if resolved is None:
+        return False
+    return any(resolved.is_relative_to(root) for root in temporary_roots())
+
+
+def has_network_remote(remote: str | None) -> bool:
+    """Whether a :func:`normalize_remote` value names a repository on another host.
+
+    True for ``host/path``. False when there is no remote, for a local path (one that
+    starts with ``/``, ``\\``, ``.``, ``~``, or a drive letter, as a bare repository
+    on this machine does), for a loopback host, and for a value without a path.
+    """
+    if not remote:
+        return False
+    head, separator, rest = remote.partition("/")
+    if not separator or not rest or not head or "\\" in head:
+        return False
+    if head in {".", ".."} or head.startswith("~") or _DRIVE.fullmatch(head):
+        return False
+    return not _LOOPBACK.fullmatch(head.lower())
+
+
+def exclusion_reason(
+    config: Config | None, repo_path: Path | str | None, remote: str | None
+) -> str | None:
+    """Why rows of the repository at ``repo_path`` stay out of the telemetry directory.
+
+    Returns :data:`TEMPORARY_REPOSITORY` when both parts of the rule hold: the
+    repository is under a system temporary directory, and ``remote`` (its
+    normalized ``origin``) is not a network remote (:func:`has_network_remote`).
+    Test fixtures have no remote or a bare repository on this machine, while real
+    work in a scratch clone pushes to a host and keeps its rows. An explicit
+    ``[telemetry] path`` is an opt-in and receives every row. The default location,
+    which is the user's own record across repositories, is what the rule protects.
+    ``None`` otherwise.
+    """
+    if config is not None and config.telemetry.path:
+        return None
+    if has_network_remote(remote) or not is_temporary_repository(repo_path):
+        return None
+    return TEMPORARY_REPOSITORY
+
+
 def _describe(exc: BaseException) -> str:
     message = f"{type(exc).__name__}: {exc}"
     return message[:_ERROR_LIMIT]
@@ -649,13 +755,16 @@ def write_summary(
 
     ``config`` supplies ``[telemetry]``. ``None`` means the configuration could
     not be read, so the user's mirror preference is unknown and nothing is
-    mirrored. The returned status names what was written and any error.
+    mirrored. A run of a temporary repository is not mirrored either
+    (:func:`exclusion_reason`), and ``reason`` names the rule. The returned
+    status names what was written and any error.
     """
     status: dict[str, Any] = {
         "run_id": summary.run_id,
         "summary_path": None,
         "mirrored": False,
         "mirror_path": None,
+        "reason": None,
         "error": None,
     }
     errors: list[str] = []
@@ -669,10 +778,14 @@ def write_summary(
         errors.append(f"mirror skipped: {config_error or 'configuration unavailable'}")
     elif config.telemetry.mirror:
         try:
-            target = mirror_path(config)
-            status["mirror_path"] = str(target)
-            _append_row(target, summary)
-            status["mirrored"] = True
+            status["reason"] = exclusion_reason(
+                config, summary.repo.source_worktree_path, summary.repo.remote
+            )
+            if status["reason"] is None:
+                target = mirror_path(config)
+                status["mirror_path"] = str(target)
+                _append_row(target, summary)
+                status["mirrored"] = True
         except Exception as exc:  # noqa: BLE001 - telemetry must never fail the caller
             errors.append(f"mirror: {_describe(exc)}")
     status["error"] = "; ".join(errors) or None
@@ -742,6 +855,7 @@ def record_run_end(store: Store, repo_root: Path | str, run: RunDoc) -> dict[str
             "summary_path": None,
             "mirrored": False,
             "mirror_path": None,
+            "reason": None,
             "error": _describe(exc),
         }
     event = "summary_written" if status["summary_path"] else "summary_failed"
@@ -920,6 +1034,56 @@ def _rewrite_mirror(
     return mine, preserved
 
 
+def replace_mirror_rows(
+    config: Config,
+    fresh: list[RunSummary],
+    identity: RepoIdentity,
+    *,
+    rewrite_without_rows: bool = True,
+) -> dict[str, Any]:
+    """Replace the mirror rows of the clone ``identity`` names; the envelope's ``mirror``.
+
+    Nothing is written when the mirror is off, or when the clone itself is
+    temporary (:func:`exclusion_reason`): ``reason`` then names the rule and the
+    mirror is not touched. Otherwise a summary of a temporary repository, judged by
+    its own source worktree and remote, is left out, and ``temporary_runs`` counts
+    it. ``rewrite_without_rows=False`` leaves the mirror alone when no summary
+    remains to write.
+    """
+    mirror: dict[str, Any] = {
+        "enabled": config.telemetry.mirror,
+        "path": None,
+        "rows": None,
+        "preserved_rows": None,
+        "temporary_runs": None,
+        "reason": None,
+        "error": None,
+    }
+    if not config.telemetry.mirror:
+        return mirror
+    kept = [
+        summary
+        for summary in fresh
+        if exclusion_reason(config, summary.repo.source_worktree_path, summary.repo.remote) is None
+    ]
+    mirror["temporary_runs"] = len(fresh) - len(kept)
+    if reason := exclusion_reason(config, identity.source_worktree_path, identity.remote):
+        mirror["reason"] = reason
+        return mirror
+    if not kept and not rewrite_without_rows:
+        return mirror
+    target = mirror_path(config)
+    mirror["path"] = str(target)
+    try:
+        mirror["rows"], mirror["preserved_rows"] = _rewrite_mirror(
+            target, kept, identity.root_commit
+        )
+    except (OSError, UnicodeDecodeError) as exc:
+        # An unreadable mirror is left exactly as it was.
+        mirror["error"] = _describe(exc)
+    return mirror
+
+
 def _summarize_stored_run(
     store: Store, run_id: str, identity: RepoIdentity, written_at: str
 ) -> RunSummary | None:
@@ -968,6 +1132,8 @@ def rebuild(store: Store, repo_root: Path | str, config: Config) -> dict[str, An
 
     Returns the counts and paths for the command envelope. Records that cannot
     be read are reported and keep any summary and mirror row they already had.
+    A temporary clone writes its summaries but no mirror rows
+    (:func:`replace_mirror_rows`).
     """
     identity = repo_identity(repo_root)
     written_at = _now()
@@ -998,23 +1164,6 @@ def rebuild(store: Store, repo_root: Path | str, config: Config) -> dict[str, An
         except OSError as exc:
             write_failures.append({"run_id": run_id, "error": _describe(exc)})
 
-    mirror: dict[str, Any] = {
-        "enabled": config.telemetry.mirror,
-        "path": None,
-        "rows": None,
-        "preserved_rows": None,
-        "error": None,
-    }
-    if config.telemetry.mirror:
-        target = mirror_path(config)
-        mirror["path"] = str(target)
-        try:
-            mirror["rows"], mirror["preserved_rows"] = _rewrite_mirror(
-                target, fresh, identity.root_commit
-            )
-        except (OSError, UnicodeDecodeError) as exc:
-            # An unreadable mirror is left exactly as it was.
-            mirror["error"] = _describe(exc)
     return {
         "repo": identity.model_dump(mode="json", exclude={"source_worktree_path"}),
         "summarized": len(fresh),
@@ -1022,5 +1171,5 @@ def rebuild(store: Store, repo_root: Path | str, config: Config) -> dict[str, An
         "unreadable": len(unreadable),
         "unreadable_runs": unreadable,
         "write_failures": write_failures,
-        "mirror": mirror,
+        "mirror": replace_mirror_rows(config, fresh, identity),
     }
