@@ -47,6 +47,9 @@ Run snapshots do not contain `[telemetry]`.
 Thus, a telemetry setting cannot change a configuration digest, stage evidence, or an attestation.
 The files use your default file permissions.
 
+Uninstalling the CLI does not delete the telemetry directory or the `summary.json` files.
+You can delete them at any time. They are not evidence, and the next finished run starts a new mirror.
+
 ## What a summary contains
 
 A summary has `kind = "agentic-preflight-run-summary"` and `schema_version = 1`.
