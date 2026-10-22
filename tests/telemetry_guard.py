@@ -64,7 +64,7 @@ class LeakedRow:
 
 def _resolved(path: Path | str) -> Path | None:
     try:
-        return Path(path).expanduser().resolve()
+        return Path(path).resolve()
     except (OSError, RuntimeError, ValueError):
         return None
 
@@ -79,7 +79,7 @@ def real_telemetry_dirs(environ: Mapping[str, str], home: Path) -> list[Path]:
     xdg = environ.get("XDG_DATA_HOME", "")
     if xdg and Path(xdg).is_absolute():
         candidates.append(Path(xdg) / "agentic-preflight" / "telemetry")
-    configured = _configured_path(home / ".config" / "agentic-preflight" / "config.toml")
+    configured = _configured_path(home)
     if configured is not None:
         candidates.append(configured)
     directories: list[Path] = []
@@ -90,14 +90,20 @@ def real_telemetry_dirs(environ: Mapping[str, str], home: Path) -> list[Path]:
     return directories
 
 
-def _configured_path(config_file: Path) -> Path | None:
+def _configured_path(home: Path) -> Path | None:
+    """The ``[telemetry] path`` of the user file under ``home``, with ``~`` meaning ``home``."""
     try:
-        with open(config_file, "rb") as handle:
+        with open(home / ".config" / "agentic-preflight" / "config.toml", "rb") as handle:
             section = tomllib.load(handle).get("telemetry")
     except (OSError, ValueError):
         return None
     value = section.get("path") if isinstance(section, dict) else None
-    return Path(value).expanduser() if isinstance(value, str) and value else None
+    if not isinstance(value, str) or not value:
+        return None
+    if value == "~" or value.startswith(("~/", "~\\")):
+        return home / value[2:]
+    # ``~user`` names another account's home, which the environment does not decide.
+    return Path(value).expanduser()
 
 
 def temporary_roots(environ: Mapping[str, str]) -> list[Path]:

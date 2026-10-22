@@ -173,11 +173,12 @@ def test_the_real_directories_come_from_the_environment_before_the_tests(tmp_pat
     directories = guard.real_telemetry_dirs({"XDG_DATA_HOME": str(data)}, home)
 
     default = home / ".local" / "share" / "agentic-preflight" / "telemetry"
-    configured = Path("~/custom-telemetry").expanduser()
+    # "~" is the captured home, not the HOME that this test runs with.
+    assert home != Path.home()
     assert directories == [
         default.resolve(),
         (data / "agentic-preflight" / "telemetry").resolve(),
-        configured.resolve(),
+        (home / "custom-telemetry").resolve(),
     ]
 
 
