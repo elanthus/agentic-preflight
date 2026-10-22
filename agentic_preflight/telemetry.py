@@ -474,8 +474,48 @@ def _terminal(
     }
 
 
+#: Hosted outcomes that ``telemetry sync-hosted`` joined onto a pushed run.
+HOSTED_NAME = "hosted.json"
+
+
+def _read_hosted(store: Store, run_id: str) -> dict[str, Any] | None:
+    """The run's ``hosted.json``, or ``None`` when it has none.
+
+    The file is derived from GitHub, not evidence. A file that cannot be read,
+    or that is not a JSON object, counts as not synced, and the next
+    ``sync-hosted`` writes it again.
+    """
+    try:
+        value = json.loads((store.run_dir(run_id) / HOSTED_NAME).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _synced(record: Mapping[str, Any], hosted: Mapping[str, Any] | None) -> dict[str, Any]:
+    """The keys joined from ``hosted.json``. All are ``None`` until the run is synced.
+
+    A file whose ``sha`` is not the run's pushed commit describes another
+    commit, so it is ignored.
+    """
+    pushed = _str(record.get("pushed_sha"))
+    if not isinstance(hosted, Mapping) or not pushed or hosted.get("sha") != pushed:
+        hosted = {}
+    pr = _dict(hosted.get("pr"))
+    checks = _dict(hosted.get("checks")) or {}
+    return {
+        "pr_number": _int(pr.get("number")) if pr else None,
+        "pr_state": _str(pr.get("state")) if pr else None,
+        "merged": bool(_str(pr.get("merged_at"))) if pr else None,
+        "checks_conclusion": _str(checks.get("conclusion")),
+        "fetched_at": _str(hosted.get("fetched_at")),
+    }
+
+
 def _hosted(
-    record: Mapping[str, Any], events: Sequence[Mapping[str, Any]] | None
+    record: Mapping[str, Any],
+    events: Sequence[Mapping[str, Any]] | None,
+    hosted: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     outcome = None
     pr_event = False
@@ -488,7 +528,7 @@ def _hosted(
     recorded: bool | None = bool(record.get("pr_url")) or pr_event
     if events is None and not recorded:
         recorded = None
-    return {"last_ci_outcome": outcome, "pr_url_recorded": recorded}
+    return {"last_ci_outcome": outcome, "pr_url_recorded": recorded, **_synced(record, hosted)}
 
 
 def summarize(
@@ -498,12 +538,14 @@ def summarize(
     repo: RepoIdentity,
     *,
     written_at: str | None = None,
+    hosted: Mapping[str, Any] | None = None,
 ) -> RunSummary:
     """Summarize one run record from code-derived facts.
 
     ``run`` is a loaded run document or the raw ``run.json`` object of any
     schema version. ``findings`` and ``events`` are ``None`` when they are not
     available, and the fields derived from them are then ``None`` too.
+    ``hosted`` is the run's ``hosted.json`` object, when ``sync-hosted`` wrote one.
     Raises :class:`pydantic.ValidationError` when the record lacks a field that
     every summary requires.
     """
@@ -539,7 +581,7 @@ def summarize(
             "validation_restarts": _int(record.get("validation_restarts")),
             "event_counts": _event_counts(events),
             "terminal": _terminal(state, orphaned_reason, events),
-            "hosted": _hosted(record, events),
+            "hosted": _hosted(record, events, hosted),
             "worktree_mode": _str((_dict(snapshot.get("worktree")) or {}).get("mode")),
             "pr_mode": _str((_dict(snapshot.get("pr")) or {}).get("mode")),
             "config_digest": record.get("config_digest"),
@@ -896,6 +938,7 @@ def _summarize_stored_run(
             events,
             identity.model_copy(update={"source_worktree_path": source}),
             written_at=written_at,
+            hosted=_read_hosted(store, run_id),
         )
     except ValidationError as exc:
         raise _Unreadable(

@@ -555,7 +555,7 @@ exact text. Nonterminal runs count as `skipped`. An unreadable record is listed 
 and mirror row are kept, never treated as absent. `data` reports `repo`, `summarized`,
 `skipped`, `unreadable`, `unreadable_runs`, `write_failures`, and `mirror` (`enabled`,
 `path`, `rows`, `preserved_rows`, `error`). A failed write exits 1 with error code
-`telemetry_write_failed` and the same `data`. Telemetry makes no network request.
+`telemetry_write_failed` and the same `data`. `telemetry rebuild` makes no network request.
 
 The summary is first written when a transaction commits `DONE`, `ABORTED`, or `ORPHANED`:
 from `finish`, `abort`, `gc`, or `start` when it orphans the previous run or aborts the
@@ -565,6 +565,74 @@ the same outcome, with `run_id`, in `data.telemetry`; `gc` reports a list there,
 for each run it orphaned. A telemetry failure never changes a command's result or rolls
 back its transaction. The `aborted` event is now written with the terminal transition
 and carries its `seq`. See [Local run telemetry](../../docs/local-telemetry.md).
+
+### `agentic-preflight telemetry sync-hosted [--limit N] [--run RUN_ID] [--refresh] [--dry-run]`
+Joins GitHub pull-request and check outcomes onto this clone's pushed runs. This is the
+only telemetry command that talks to a network service. It only reads: it sends `GET`
+requests to the GitHub API with `gh api --hostname github.com`, and it writes local files
+only. No workflow command calls it. Run it only when the user wants hosted outcomes. It
+needs `gh`, logged in for github.com, and an `origin` on `github.com`.
+
+It selects the `DONE` runs that have a `pushed_sha`, newest `created_at` first. A run that
+already has `hosted.json` for its pushed commit is skipped unless `--refresh` is given, so
+an outcome read while checks were pending or the pull request was open stays until a
+`--refresh`. `--limit` (default 50, at least 1) caps the runs that it reads. `--run RUN_ID`,
+or the root `--run`, selects one run. `--dry-run` lists the selection in `data.runs` with
+`outcome` `planned`, contacts nothing, and writes nothing. `data.gh_found` tells whether
+PATH has `gh`.
+
+For each run it reads `/repos/{owner}/{repo}/commits/{sha}/pulls` and
+`/repos/{owner}/{repo}/commits/{sha}/check-runs`. Of several pull requests it uses the one
+whose head is the commit, then the one whose head branch is the run's branch, then the
+first. GitHub does not associate a commit with a pull request that was closed without
+merging, so when the list is empty it also reads
+`/repos/{owner}/{repo}/pulls?state=all&head={owner}:{branch}` and uses the pull request
+whose head is the commit. The check runs reduce to one conclusion: `failure` when any has
+the conclusion `failure`, `cancelled`, or `timed_out`; otherwise `pending` when any is not
+complete; `none` when there are none; otherwise `success`. Commit statuses are not read.
+It writes `hosted.json` in the run directory with `fetched_at`, `sha`, `pr` (`number`,
+`url`, `state`, `merged_at`, or `null`), `checks` (`conclusion`, `total`, and the `failed`
+check names, or `null`), `missing`, and `source` (`"gh"`). A commit that GitHub does not
+know (HTTP 422) is written with `missing: true` and null `pr` and `checks`, so later syncs
+skip it. Then it regenerates the `summary.json` and mirror row of each run that it wrote,
+with the `telemetry rebuild` code. The summary's `hosted` object gains `pr_number`,
+`pr_state`, `merged` (`null` without a pull request), `checks_conclusion`, and
+`fetched_at`; all five are `null` for a run that was never synced. A synced run whose
+`summary.json` does not carry its `hosted.json`, for example after an interrupted sync, is
+regenerated too, without a request. Run records and event logs are not changed.
+
+`data` reports `repo`, `dry_run`, `refresh`, `limit`, `run`, `eligible`, `not_eligible`
+(`not_done`, `no_pushed_sha`), `unreadable`, `unreadable_runs`, `already_synced`,
+`selected`, `deferred` (eligible runs past `--limit`), `synced`, `commit_not_found`,
+`stale_summaries` (synced runs whose summary is regenerated without a request),
+`gh_found`, `runs` (`run_id`, `sha`, `outcome`, `pr_number`, `pr_state`, `merged`,
+`checks_conclusion`), `errors`, `stopped`, and `summaries` (`regenerated`,
+`unreadable_runs`, `write_failures`, `mirror`). After a sync that wrote outcomes or
+summaries, `next.command` is `agentic-preflight report`. `next.command` never repeats the
+network call.
+
+An HTTP error other than those below, or an answer that cannot be read, concerns one
+commit: it is listed in `data.errors`, and the older runs are still read. Any other
+failure stops the sync, and `data.stopped` names it. Runs synced before the failure keep
+their outcomes. Each entry of `errors` and `stopped` gives `reason`, `run_id`,
+`http_status`, and `message`. Each failure exits 1 with the full `data`:
+
+- `gh_unavailable`: `gh` is not on PATH, is not logged in, or its token was refused. Ask
+  the user to install `gh` and run `gh auth login`.
+- `unsupported_remote`: `origin` is not on github.com. Nothing was read.
+- `hosted_rate_limited`: HTTP 429, or HTTP 403 for a rate limit. Wait for the reset; the
+  next sync skips the runs already synced.
+- `hosted_network_error`: GitHub did not answer.
+- `hosted_request_failed`: the sync stopped on HTTP 403 or 404, for example when the `gh`
+  account cannot read the repository, or on a `gh` failure without an HTTP status; or it
+  finished with entries in `data.errors`.
+- `telemetry_write_failed`: a local file could not be written. When `hosted.json` was
+  written but a summary or the mirror was not, `next.command` is
+  `agentic-preflight telemetry rebuild`.
+
+A `--run` that names no stored run exits 3 with `no_run`. Messages never copy `gh` output
+or tokens, and remotes are shown without credentials. See
+[Join hosted outcomes](../../docs/local-telemetry.md#join-hosted-outcomes).
 
 ### `agentic-preflight report [--since TIME] [--until TIME] [--repo NAME_OR_REMOTE] [--state STATE] [--all-repos] [--format json|markdown] [--rows]`
 Counts finished runs from the local run summaries. It reads files only and writes
@@ -623,7 +691,7 @@ the group `unknown`. The statistics are:
 - the share of run time in the review and docs states and in the lint and test
   states, over runs with complete `timing`;
 - aborted runs by reason and by `aborted_from_state`;
-- hosted outcomes recorded, and orphaned reasons;
+- hosted outcomes recorded, hosted outcomes synced, and orphaned reasons;
 - the counts of `review_coverage_invalidated`, `test_interrupted`, `sync_conflict`, and
   `stage_reused` events.
 
@@ -635,9 +703,15 @@ and for hosted values as `pr_url_excluded_runs`. A total is null, not 0, when no
 the group has the value. The Markdown shows a null value as `n/a`. The median and p90
 are null when there are fewer than 5 observations. A stage's `attempts` counts its
 recorded failed attempts. A summary does not cross finding status with severity, so the
-fixed count of blocking findings is a `min` and `max` range. Hosted
-outcomes are counts of recorded values only. Current versions record none, so do not use
-them to count pull requests.
+fixed count of blocking findings is a `min` and `max` range. Recorded hosted
+outcomes are counts of values that older runs observed. Current versions record none, so do
+not use them to count pull requests. `hosted.synced` counts the outcomes that
+`telemetry sync-hosted` joined: `runs` (over all runs); `green_checks_failed`, the synced
+`DONE` runs whose checks concluded `failure`, over synced runs with settled checks, with
+`checks_excluded_runs` for the pending runs and the runs whose commit GitHub did not know;
+`pull_request_found`, over synced runs whose commit GitHub knew, with
+`commit_unknown_runs`; `merged`, over synced runs with a pull request; `pr_states`; and
+`checks_conclusions`, where a synced run whose commit GitHub did not know is `unknown`.
 
 `data.limits` lists what the counts do not measure. `--format markdown` also renders the
 report as compact Markdown tables in `data.markdown`, which ends with the limits. The
