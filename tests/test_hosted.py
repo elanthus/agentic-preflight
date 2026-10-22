@@ -12,6 +12,7 @@ import re
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 import pytest
 
@@ -70,15 +71,26 @@ def _check(name: str, conclusion: str | None = "success", status: str = "complet
 class FakeGh:
     """Answers ``gh api`` like GitHub would, from a table of commits."""
 
-    def __init__(self, commits: dict[str, dict], overrides: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        commits: dict[str, dict],
+        overrides: dict[str, Any] | None = None,
+        branch_pulls: dict[str, list] | None = None,
+    ) -> None:
         self.commits = commits
         self.overrides = overrides or {}
+        self.branch_pulls = branch_pulls or {}
         self.calls: list[list[str]] = []
 
     def __call__(self, args: Any) -> hosted.GhResult:
         args = list(args)
         self.calls.append(args)
         assert args[:5] == ["api", "--method", "GET", "--hostname", "github.com"]
+        by_branch = re.fullmatch(
+            r"/repos/owner/widget/pulls\?state=all&head=owner%3A([^&]+)&per_page=100", args[-1]
+        )
+        if by_branch:
+            return _ok(self.branch_pulls.get(unquote(by_branch.group(1)), []))
         match = re.fullmatch(
             r"/repos/owner/widget/commits/([0-9a-f]{40})/(pulls|check-runs)\?(.*)", args[-1]
         )
@@ -99,8 +111,8 @@ class FakeGh:
 
     def fetched(self) -> list[str]:
         """The commits asked about, in order, one entry per commit."""
-        shas = [re.search(r"commits/([0-9a-f]{40})/", call[-1]).group(1) for call in self.calls]
-        return list(dict.fromkeys(shas))
+        found = (re.search(r"commits/([0-9a-f]{40})/", call[-1]) for call in self.calls)
+        return list(dict.fromkeys(match.group(1) for match in found if match))
 
 
 @pytest.fixture(autouse=True)
@@ -661,6 +673,10 @@ def test_an_unreadable_record_is_listed_and_the_other_runs_sync(github_repo, mon
     assert result["data"]["synced"] == 2
     assert "data.unreadable_runs" in result["next"]["instruction"]
 
+    one = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", "--run", "r_0000000001")
+    assert "data.unreadable_runs" in one["next"]["instruction"]
+    assert "not a DONE run" not in one["next"]["instruction"]
+
 
 def test_a_hosted_json_that_cannot_be_written_stops_the_sync(github_repo, monkeypatch):
     _use(monkeypatch, FakeGh(_commits()))
@@ -676,6 +692,96 @@ def test_a_hosted_json_that_cannot_be_written_stops_the_sync(github_repo, monkey
     assert result["data"]["stopped"]["reason"] == "write_failed"
     assert result["data"]["stopped"]["run_id"] == "r_0000000003"
     assert result["data"]["synced"] == 0
+
+
+def test_a_pull_request_closed_without_merging_is_found_by_its_branch(github_repo, monkeypatch):
+    abandoned = _pull(7, SHA_MID, state="closed", merged_at=None)
+    other = _pull(6, "e" * 40, state="closed", merged_at=None)
+    fake = FakeGh(_commits(), branch_pulls={"feature/widget": [other, abandoned]})
+    _use(monkeypatch, fake)
+
+    ScriptedAgent(github_repo).run("telemetry", "sync-hosted")
+
+    assert _hosted_file(github_repo, "r_0000000002")["pr"]["number"] == 7
+    assert _summary_hosted(github_repo, "r_0000000002")["merged"] is False
+    branch_calls = [call[-1] for call in fake.calls if "/pulls?state=all" in call[-1]]
+    # Only the commit with no associated pull request needs the branch search.
+    assert branch_calls == [
+        "/repos/owner/widget/pulls?state=all&head=owner%3Afeature%2Fwidget&per_page=100"
+    ]
+
+
+def test_a_commit_that_fails_alone_does_not_block_older_runs(github_repo, monkeypatch):
+    broken = _http_error(502, "Server Error")
+    _use(monkeypatch, FakeGh(_commits(), overrides={SHA_MID: broken}))
+
+    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.USAGE)
+
+    assert result["error"]["code"] == "hosted_request_failed"
+    data = result["data"]
+    assert data["stopped"] is None
+    assert data["synced"] == 2
+    assert data["errors"] == [
+        {
+            "reason": "http_error",
+            "run_id": "r_0000000002",
+            "http_status": 502,
+            "message": "GitHub returned HTTP 502: Server Error",
+        }
+    ]
+    assert _hosted_file(github_repo, "r_0000000001") is not None
+    assert _hosted_file(github_repo, "r_0000000002") is None
+    assert data["summaries"]["regenerated"] == 2
+
+
+def test_an_answer_of_an_unexpected_shape_is_an_error_for_that_commit(github_repo, monkeypatch):
+    commits = _commits()
+    commits[SHA_NEW]["checks"] = [{"name": "x", "status": "completed", "conclusion": ["odd"]}]
+    fake = FakeGh(commits)
+    _use(monkeypatch, fake)
+
+    def explode(*args, **kwargs):
+        raise KeyError("surprise")
+
+    real_fetch = hosted.fetch
+    monkeypatch.setattr(
+        hosted,
+        "fetch",
+        lambda runner, slug, sha, branch: (
+            explode() if sha == SHA_OLD else real_fetch(runner, slug, sha, branch)
+        ),
+    )
+
+    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.USAGE)
+
+    # A conclusion that is not text is not a failure, and never crashes the reduction.
+    assert _hosted_file(github_repo, "r_0000000003")["checks"]["conclusion"] == "success"
+    assert result["data"]["synced"] == 2
+    assert result["data"]["errors"][0]["run_id"] == "r_0000000001"
+    assert result["data"]["errors"][0]["message"] == (
+        "GitHub's answer could not be read (KeyError)."
+    )
+
+
+def test_a_summary_left_behind_by_an_interrupted_sync_is_regenerated_without_requests(
+    github_repo, monkeypatch
+):
+    _use(monkeypatch, FakeGh(_commits()))
+    agent = ScriptedAgent(github_repo)
+    agent.run("telemetry", "sync-hosted")
+    (_run_dir(github_repo, "r_0000000002") / "summary.json").unlink()
+    fake = FakeGh(_commits())
+    _use(monkeypatch, fake)
+
+    preview = agent.run("telemetry", "sync-hosted", "--dry-run")
+    result = agent.run("telemetry", "sync-hosted")
+
+    assert preview["data"]["stale_summaries"] == 1
+    assert fake.calls == []
+    assert (result["data"]["synced"], result["data"]["stale_summaries"]) == (0, 1)
+    assert result["data"]["summaries"]["regenerated"] == 1
+    assert _summary_hosted(github_repo, "r_0000000002")["checks_conclusion"] == "none"
+    assert result["next"]["command"] == "agentic-preflight report"
 
 
 def test_with_the_mirror_off_only_the_summaries_are_regenerated(github_repo, monkeypatch):
@@ -701,12 +807,10 @@ def test_rebuild_and_report_carry_the_synced_outcomes(github_repo, monkeypatch):
     synced = result["data"]["overall"]["hosted"]["synced"]
     # r_0000000004 aborted and r_0000000005 pushed nothing: finished, never synced.
     assert synced["runs"] == report.ratio(3, 5, "runs")
-    assert synced["green_checks_failed"] == report.ratio(1, 3, "synced runs")
+    assert synced["green_checks_failed"] == report.ratio(1, 3, "synced runs with settled checks")
     assert synced["merged"] == report.ratio(1, 2, "synced runs with a pull request")
-    assert (
-        "| Preflight green, hosted checks failed | 33.3% | 1 | synced runs: 3 | n/a |"
-        in (result["data"]["markdown"])
-    )
+    line = "| Preflight green, hosted checks failed | 33.3% | 1 | synced runs with settled checks: 3 | 0 |"
+    assert line in result["data"]["markdown"]
 
 
 def test_a_stale_or_unreadable_hosted_json_is_not_synced(github_repo, monkeypatch):
@@ -770,18 +874,30 @@ def _report_rows() -> list[dict[str, Any]]:
         ),
         make_row("r_0000000006"),
         make_row("r_0000000007", hosted={**_hosted_row("x")["hosted"], "fetched_at": None}),
+        _hosted_row("r_0000000008", checks_conclusion="pending"),
     ]
 
 
 def test_report_counts_green_runs_whose_hosted_checks_failed_over_synced_runs():
     synced = report.aggregate(_report_rows())["hosted"]["synced"]
 
-    assert synced["runs"] == report.ratio(5, 7, "runs")
-    assert synced["green_checks_failed"] == report.ratio(2, 5, "synced runs")
-    assert synced["pull_request_found"] == report.ratio(3, 5, "synced runs")
+    assert synced["runs"] == report.ratio(6, 8, "runs")
+    # The pending run and the run whose commit GitHub did not know are left out.
+    assert synced["green_checks_failed"] == report.ratio(2, 4, "synced runs with settled checks")
+    assert synced["checks_excluded_runs"] == 2
+    assert synced["pull_request_found"] == report.ratio(
+        3, 5, "synced runs whose commit GitHub knew"
+    )
+    assert synced["commit_unknown_runs"] == 1
     assert synced["merged"] == report.ratio(1, 3, "synced runs with a pull request")
     assert synced["pr_states"] == {"closed": 2, "open": 1}
-    assert synced["checks_conclusions"] == {"failure": 2, "none": 1, "success": 1, "unknown": 1}
+    assert synced["checks_conclusions"] == {
+        "failure": 2,
+        "none": 1,
+        "pending": 1,
+        "success": 1,
+        "unknown": 1,
+    }
     assert "Only synced runs count" in synced["note"]
 
 
@@ -811,16 +927,25 @@ def test_report_markdown_shows_synced_outcomes_overall_and_per_repository():
     section = text.split("### Hosted outcomes synced\n\n", 1)[1].split("\n### ", 1)[0]
 
     assert section.startswith(report.SYNC_NOTE)
-    assert "| Runs synced | 71.4% | 5 | runs: 7 | n/a |" in section
-    assert "| Preflight green, hosted checks failed | 40.0% | 2 | synced runs: 5 | n/a |" in section
+    assert "| Runs synced | 75.0% | 6 | runs: 8 | n/a |" in section
+    assert (
+        "| Preflight green, hosted checks failed | 50.0% | 2 "
+        "| synced runs with settled checks: 4 | 2 |" in section
+    )
+    assert (
+        "| Pull request found | 60.0% | 3 | synced runs whose commit GitHub knew: 5 | 1 |"
+        in section
+    )
     assert (
         "| Pull request merged | 33.3% | 1 | synced runs with a pull request: 3 | n/a |" in section
     )
     assert "| failure | 2 |" in section
-    assert "| widget (github.com/owner/widget) | 4 | 1 | 25.0% | 1 of 2 | 50.0% |" in section
+    assert "| widget (github.com/owner/widget) | 5 | 1 | 33.3% | 1 of 2 | 50.0% |" in section
     assert "| gadget (github.com/owner/gadget) | 1 | 1 | 100.0% | 0 of 1 | 0.0% |" in section
     by_repo = {group["name"]: group["metrics"]["hosted"]["synced"] for group in data["by_repo"]}
-    assert by_repo["gadget"]["green_checks_failed"] == report.ratio(1, 1, "synced runs")
+    assert by_repo["gadget"]["green_checks_failed"] == report.ratio(
+        1, 1, "synced runs with settled checks"
+    )
 
 
 def test_report_limits_name_what_a_hosted_failure_does_not_prove():
@@ -866,6 +991,8 @@ def test_docs_describe_the_sync_and_say_it_only_reads_github():
         0
     ]
     assert commands.index("telemetry rebuild`") < commands.index("telemetry sync-hosted")
+    for key in ("errors", "stale_summaries", "gh_found"):
+        assert f"`{key}`" in section, key
     for code in (
         "gh_unavailable",
         "unsupported_remote",

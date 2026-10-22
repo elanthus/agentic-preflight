@@ -7,13 +7,15 @@
   and `fetched_at`. `--limit` (default 50), `--run`, `--refresh`, and `--dry-run` select
   the runs. A missing or logged-out `gh`, an `origin` that is not on github.com, a rate
   limit, or a network failure stops the command with an error code in the envelope, and
-  the runs synced before it keep their outcomes. No workflow command calls it.
+  the runs synced before it keep their outcomes. A failure that concerns one commit is
+  listed in `data.errors`, and the older runs are still read. No workflow command calls
+  it.
 
 - `agentic-preflight report` adds synced hosted outcomes, overall and for each
-  repository: synced runs, "preflight green, hosted checks failed" over synced runs,
-  pull requests found, the merged share over synced runs with a pull request, and the
-  check conclusions. Two new limits say that a failed hosted check is not proof of an
-  escaped defect, and that only synced runs count.
+  repository: synced runs, "preflight green, hosted checks failed" over synced runs with
+  settled checks, pull requests found, the merged share over synced runs with a pull
+  request, and the check conclusions. Two new limits say that a failed hosted check is
+  not proof of an escaped defect, and that only synced runs count.
 
 - Add a `telemetry sync-hosted` step to the "Summarize preflight history" playbook, for
   when the user wants hosted outcomes.

@@ -76,6 +76,7 @@ HOSTED_NOTE = (
 )
 SYNC_NOTE = (
     "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. "
+    "Runs with pending checks are left out of the failed share. "
     "A conclusion of `unknown` is a run whose commit GitHub did not know."
 )
 BLOCKING_NOTE = (
@@ -592,22 +593,33 @@ def _hosted(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 
 def _hosted_synced(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """Outcomes that ``telemetry sync-hosted`` joined. Every ratio counts synced runs only."""
+    """Outcomes that ``telemetry sync-hosted`` joined. Every ratio counts synced runs only.
+
+    A run whose commit GitHub did not know has no conclusion, and a run whose
+    checks were pending has no settled one. Each is left out of the shares that
+    need that value, and counted as excluded.
+    """
     synced = [
         (row, row.get("hosted") or {})
         for row in rows
         if _str((row.get("hosted") or {}).get("fetched_at"))
     ]
-    with_pr = [item for _, item in synced if _int(item.get("pr_number")) is not None]
+    known = [(row, item) for row, item in synced if _str(item.get("checks_conclusion"))]
+    settled = [(row, item) for row, item in known if item["checks_conclusion"] != "pending"]
+    with_pr = [item for _, item in known if _int(item.get("pr_number")) is not None]
     green_failed = sum(
         1
-        for row, item in synced
-        if row.get("state") == "DONE" and item.get("checks_conclusion") == "failure"
+        for row, item in settled
+        if row.get("state") == "DONE" and item["checks_conclusion"] == "failure"
     )
     return {
         "runs": ratio(len(synced), len(rows), "runs"),
-        "green_checks_failed": ratio(green_failed, len(synced), "synced runs"),
-        "pull_request_found": ratio(len(with_pr), len(synced), "synced runs"),
+        "green_checks_failed": ratio(green_failed, len(settled), "synced runs with settled checks"),
+        "checks_excluded_runs": len(synced) - len(settled),
+        "pull_request_found": ratio(
+            len(with_pr), len(known), "synced runs whose commit GitHub knew"
+        ),
+        "commit_unknown_runs": len(synced) - len(known),
         "merged": ratio(
             sum(1 for item in with_pr if item.get("merged") is True),
             len(with_pr),
@@ -889,8 +901,14 @@ def _hosted_sync_section(
     synced = metrics["hosted"]["synced"]
     rows = [
         _rate_row("Runs synced", synced["runs"], None),
-        _rate_row("Preflight green, hosted checks failed", synced["green_checks_failed"], None),
-        _rate_row("Pull request found", synced["pull_request_found"], None),
+        _rate_row(
+            "Preflight green, hosted checks failed",
+            synced["green_checks_failed"],
+            synced["checks_excluded_runs"],
+        ),
+        _rate_row(
+            "Pull request found", synced["pull_request_found"], synced["commit_unknown_runs"]
+        ),
         _rate_row("Pull request merged", synced["merged"], None),
     ]
     per_repo = []
@@ -911,7 +929,7 @@ def _hosted_sync_section(
         "Repository",
         "Synced runs",
         "Green, hosted checks failed",
-        "Share of synced runs",
+        "Share of synced runs with settled checks",
         "Merged of synced runs with a pull request",
         "Merged share",
     ]

@@ -195,9 +195,11 @@ for a summary of their runs. It is not a failure recovery.
 2. Only when the user wants pull-request or hosted CI outcomes, run
    `agentic-preflight telemetry sync-hosted` in each clone first. It calls GitHub through
    `gh` and reads only. It writes `hosted.json` and the derived summaries, and nothing
-   else. Run it one time for each clone. When it stops with an error code, do not retry:
-   tell the user the code, `data.synced`, and `next.instruction`. Ask the user to run
-   `gh auth login` when the code is `gh_unavailable`. Never log in for the user.
+   else. Run it one time for each clone. Add `--refresh --limit 10` only when the user
+   wants recent runs read again, for example runs whose checks were pending. When it
+   stops with an error code, do not retry: tell the user the code, `data.synced`, and
+   `next.instruction`. Ask the user to run `gh auth login` when the code is
+   `gh_unavailable`. Never log in for the user.
 3. Run `agentic-preflight report --all-repos --format markdown`.
 4. Show the user `data.markdown` as it is, including its limits. Do not shorten the
    limits, and do not add rates or conclusions that the report does not contain.

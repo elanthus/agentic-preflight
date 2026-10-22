@@ -135,13 +135,16 @@ The command selects runs as follows:
 For each run, it reads the pull requests that GitHub associates with the pushed commit, and the check runs of the commit.
 When there is more than one pull request, it uses the one whose head is the commit.
 If there is none, it uses the one whose head branch is the run's branch, else the first one.
+GitHub does not associate a commit with a pull request that was closed without merging.
+When GitHub associates no pull request with the commit, the command thus also reads the pull requests of the run's branch, and uses the one whose head is the commit.
+A pull request that was closed without merging is found only when the pushed commit is its last commit.
 The check runs give one conclusion:
 
 | Conclusion | Meaning |
 |---|---|
 | `failure` | One or more check runs failed, were cancelled, or timed out. |
 | `pending` | No check run failed, and one or more check runs are not complete. |
-| `success` | All check runs are complete, and none failed. A skipped or neutral check run is not a failure. |
+| `success` | All check runs are complete, and none failed. Only the conclusions `failure`, `cancelled`, and `timed_out` are failures. For example, `skipped`, `neutral`, `action_required`, and `stale` are not. |
 | `none` | The commit has no check runs. |
 
 The command does not read commit statuses from the older status API.
@@ -176,13 +179,19 @@ It uses the same code as `telemetry rebuild`. The `hosted` object of the summary
 All five keys are `null` for a run that was not synced.
 For a commit that GitHub does not know, only `fetched_at` has a value.
 
+If a sync stops before it writes the summaries, the next sync writes them, without a request to GitHub.
+`data.stale_summaries` counts these runs.
+
 The command changes no run record and adds no events.
 `hosted.json` is derived data. It is not evidence, and no fingerprint, evidence digest, or attestation reads it.
 `telemetry rebuild` reads `hosted.json` too, so a rebuild keeps the outcomes.
 If you delete `hosted.json`, the next sync reads that run again.
 
-When a request fails, the command stops. The runs that it synced before the failure keep their outcomes.
-`data.stopped` gives the reason, the run, the HTTP status, and a message.
+Some failures concern only one commit: an HTTP error that is not in the list below, or an answer that the command cannot read.
+The command lists that commit in `data.errors`, and continues with the older runs.
+Other failures stop the command. `data.stopped` names the failure.
+The runs that the command synced before the failure keep their outcomes.
+Each item in `data.errors` and `data.stopped` gives the reason, the run, the HTTP status, and a message.
 The message never contains the output of `gh` or a token.
 The error code tells you what to do:
 
@@ -190,11 +199,12 @@ The error code tells you what to do:
 - `unsupported_remote`: `origin` is not on `github.com`. The command read nothing.
 - `hosted_rate_limited`: GitHub's rate limit stopped the command. Wait until the limit resets, then run the command again. It skips the runs that it already synced.
 - `hosted_network_error`: GitHub did not answer. Check your network connection.
-- `hosted_request_failed`: GitHub returned a different error. For example, the account of `gh` cannot read the repository.
+- `hosted_request_failed`: GitHub refused the request with HTTP 403 or 404, for example because the account of `gh` cannot read the repository. Or `data.errors` lists commits that the command could not read. Run the command again later.
 - `telemetry_write_failed`: a file on your machine could not be written.
 
 An outcome is a snapshot at `fetched_at`.
 A check that runs again, or a pull request that merges later, changes the outcome only after `--refresh`.
+For example, `agentic-preflight telemetry sync-hosted --refresh --limit 10` reads the 10 newest runs again.
 
 ## Read the report
 
@@ -247,7 +257,10 @@ Some values need care:
 - A summary counts blocking findings and finding statuses separately. Thus, the number of fixed blocking findings is a range, from `min` to `max`.
 - A stage's `attempts` counts its failed attempts. "Failed attempts: more than one" counts runs where a stage failed more than one time.
 - Recorded hosted outcomes come only from older runs that observed an outcome. Do not use them to count pull requests.
-- Synced hosted outcomes come from `telemetry sync-hosted`. Each of their shares counts synced runs only. "Preflight green, hosted checks failed" counts the synced `DONE` runs whose checks concluded `failure`. The merged share counts the synced runs that have a pull request.
+- Synced hosted outcomes come from `telemetry sync-hosted`. Each of their shares counts synced runs only.
+  "Preflight green, hosted checks failed" counts the synced `DONE` runs whose checks concluded `failure`, over the synced runs with settled checks.
+  A run whose checks were pending, or whose commit GitHub did not know, is left out and counted as excluded.
+  The merged share counts the synced runs that have a pull request.
 - A failed hosted check is not proof of an escaped defect. The check can be flaky, or fail for a reason that is not related to the change.
 
 Every report ends with `data.limits`. The Markdown repeats them.

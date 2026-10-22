@@ -90,8 +90,8 @@ _STOPS: dict[str, tuple[str, str]] = {
 }
 _REQUEST_FAILED = (
     "hosted_request_failed",
-    "GitHub did not answer a request. Check that the gh account can read the repository "
-    f"named in `data.repo.remote`. {_RETRY}",
+    "A request to GitHub failed. Check that `gh api` works and that its account can read "
+    f"the repository named in `data.repo.remote`. {_RETRY}",
 )
 
 
@@ -109,6 +109,16 @@ def _sync_error(data: dict[str, Any]) -> AgenticError | None:
     if stopped is not None:
         code, instruction = _STOPS.get(stopped["reason"], _REQUEST_FAILED)
         error = as_error(code, stopped["message"], ExitCode.USAGE, instruction)
+        error.data = data
+        return error
+    if data["errors"]:
+        error = as_error(
+            "hosted_request_failed",
+            "GitHub's answer for some commits could not be used; the other runs were synced",
+            ExitCode.USAGE,
+            "Each failed commit is in `data.errors`. Run the sync again later. It skips the "
+            "runs that it already synced.",
+        )
         error.data = data
         return error
     summaries = data["summaries"] or {}
@@ -136,10 +146,10 @@ def _sync_next(data: dict[str, Any]) -> tuple[str | None, str | None]:
                 f"This was a dry run. `{SYNC_COMMAND}` without `--dry-run` reads these runs "
                 "from GitHub."
             )
-    elif data["synced"]:
+    elif data["synced"] or data["summaries"]:
         parts.append("Run the report to see the hosted outcomes.")
         command_text = REPORT_COMMAND
-    if run is not None and not data["eligible"]:
+    if run is not None and not data["eligible"] and not data["unreadable"]:
         parts.append(f"Run {run} is not a DONE run with a pushed commit. Nothing to fetch.")
     elif run is not None and data["already_synced"]:
         parts.append(f"Run {run} is already synced. Pass `--refresh` to fetch it again.")

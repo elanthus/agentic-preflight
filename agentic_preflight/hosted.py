@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from . import gitx, telemetry
 from .config import Config
@@ -39,6 +40,8 @@ _PAGE_SIZE = 100
 #: A commit with more check runs than this has its first pages counted only.
 _MAX_CHECK_PAGES = 10
 _FAILED_CONCLUSIONS = frozenset({"failure", "cancelled", "timed_out"})
+#: Failures that concern one commit. The sync records them and goes on to older runs.
+_COMMIT_ERRORS = frozenset({"http_error", "invalid_response"})
 _SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 _HTTP_STATUS = re.compile(r"\(HTTP (\d{3})\)")
 _TOKEN = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,})")
@@ -259,7 +262,7 @@ def reduce_checks(check_runs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         {
             telemetry._str(run.get("name")) or "unnamed"
             for run in check_runs
-            if run.get("conclusion") in _FAILED_CONCLUSIONS
+            if telemetry._str(run.get("conclusion")) in _FAILED_CONCLUSIONS
         }
     )
     if failed:
@@ -289,6 +292,24 @@ def _check_runs(runner: GhRunner, slug: str, sha: str) -> list[Mapping[str, Any]
     return runs
 
 
+def _branch_pull_request(
+    runner: GhRunner, slug: str, sha: str, branch: str
+) -> dict[str, Any] | None:
+    """The pull request of the run's branch whose head is ``sha``, if there is one.
+
+    GitHub does not associate a commit with a pull request that was closed
+    without merging. That pull request still names its last commit as its head.
+    """
+    head = quote(f"{slug.split('/', 1)[0]}:{branch}", safe="")
+    pulls = _api(runner, f"/repos/{slug}/pulls?state=all&head={head}&per_page={_PAGE_SIZE}")
+    if not isinstance(pulls, list):
+        raise GhError("invalid_response", "GitHub's pull-request list is not a list.")
+    for item in pulls:
+        if isinstance(item, Mapping) and _head(item).get("sha") == sha:
+            return _pull_request(item)
+    return None
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -296,8 +317,10 @@ def _now() -> str:
 def fetch(runner: GhRunner, slug: str, sha: str, branch: str | None) -> dict[str, Any]:
     """The ``hosted.json`` document for one pushed commit. Raises :class:`GhError`.
 
-    A commit that GitHub does not know is recorded with ``missing`` true, so
-    the next sync does not ask for it again.
+    When GitHub associates no pull request with the commit, the pull requests
+    of the run's branch are searched for one whose head is the commit. A commit
+    that GitHub does not know is recorded with ``missing`` true, so the next
+    sync does not ask for it again.
     """
     document: dict[str, Any] = {
         "fetched_at": _now(),
@@ -310,6 +333,8 @@ def fetch(runner: GhRunner, slug: str, sha: str, branch: str | None) -> dict[str
     try:
         pulls = _api(runner, f"/repos/{slug}/commits/{sha}/pulls?per_page={_PAGE_SIZE}")
         pr = choose_pull_request(pulls, sha, branch)
+        if pr is None and branch:
+            pr = _branch_pull_request(runner, slug, sha, branch)
         checks = reduce_checks(_check_runs(runner, slug, sha))
     except GhError as exc:
         if exc.reason != "commit_not_found":
@@ -328,6 +353,19 @@ class _Candidate:
     branch: str | None
     created_at: str
     synced: bool
+    #: Synced, but ``summary.json`` does not carry this ``hosted.json`` yet.
+    summary_stale: bool
+
+
+def _summary_fetched_at(store: Store, run_id: str) -> Any:
+    """The ``hosted.fetched_at`` that the run's ``summary.json`` carries, if any."""
+    try:
+        path = store.run_dir(run_id) / telemetry.SUMMARY_NAME
+        summary = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    hosted = summary.get("hosted") if isinstance(summary, dict) else None
+    return hosted.get("fetched_at") if isinstance(hosted, dict) else None
 
 
 def _unreadable(run_id: str, exc: telemetry._Unreadable) -> dict[str, str]:
@@ -360,13 +398,17 @@ def _candidates(
             left_out["no_pushed_sha"] += 1
         else:
             existing = telemetry._read_hosted(store, run_id)
+            synced = existing is not None and existing.get("sha") == sha
             eligible.append(
                 _Candidate(
                     run_id=run_id,
                     sha=sha,
                     branch=telemetry._str(record.get("branch")),
                     created_at=telemetry._str(record.get("created_at")) or "",
-                    synced=existing is not None and existing.get("sha") == sha,
+                    synced=synced,
+                    summary_stale=synced
+                    and existing is not None
+                    and existing.get("fetched_at") != _summary_fetched_at(store, run_id),
                 )
             )
     eligible.sort(key=lambda item: (item.created_at, item.run_id), reverse=True)
@@ -448,14 +490,26 @@ class UnknownRun(LookupError):
 def _fetch_all(
     store: Store, runner: GhRunner, slug: str, selected: Sequence[_Candidate], data: dict[str, Any]
 ) -> list[str]:
-    """Fetch and store each selected run until one fails. Returns the runs written."""
+    """Fetch and store each selected run. Returns the runs written.
+
+    A failure that concerns one commit is recorded in ``data["errors"]``, and
+    the older runs are still fetched. Any other failure stops the loop.
+    """
     written: list[str] = []
     for candidate in selected:
         try:
             document = fetch(runner, slug, candidate.sha, candidate.branch)
         except GhError as exc:
+            if exc.reason in _COMMIT_ERRORS:
+                data["errors"].append(exc.describe(candidate.run_id))
+                continue
             data["stopped"] = exc.describe(candidate.run_id)
             break
+        except (TypeError, ValueError, KeyError, AttributeError) as exc:
+            # An answer of an unexpected shape must not lose the runs already synced.
+            reading = f"GitHub's answer could not be read ({type(exc).__name__})."
+            data["errors"].append(GhError("invalid_response", reading).describe(candidate.run_id))
+            continue
         try:
             path = store.run_dir(candidate.run_id) / telemetry.HOSTED_NAME
             _atomic_write(path, json.dumps(document, indent=2) + "\n")
@@ -484,8 +538,11 @@ def sync_hosted(
 ) -> dict[str, Any]:
     """Join GitHub outcomes onto this clone's pushed runs and return the envelope data.
 
-    ``data["stopped"]`` names the first failure, and the runs synced before it
-    stay synced. A dry run reads nothing from GitHub and writes nothing.
+    ``data["stopped"]`` names the failure that stopped the sync, and the runs
+    synced before it stay synced. ``data["errors"]`` lists the commits that
+    failed alone. A synced run whose summary does not carry its ``hosted.json``,
+    for example after an interrupted sync, has its summary regenerated without a
+    request. A dry run reads nothing from GitHub and writes nothing.
     """
     identity = telemetry.repo_identity(repo_root)
     repo = identity.model_dump(mode="json", exclude={"source_worktree_path"})
@@ -506,8 +563,10 @@ def sync_hosted(
         "deferred": 0,
         "synced": 0,
         "commit_not_found": 0,
-        "gh_found": None,
+        "stale_summaries": 0,
+        "gh_found": runner is not None or resolve_on_path("gh") is not None,
         "runs": [],
+        "errors": [],
         "stopped": None,
         "summaries": None,
     }
@@ -525,6 +584,8 @@ def sync_hosted(
     )
     pending = [item for item in candidates if refresh or not item.synced]
     selected = pending[:limit]
+    chosen = {item.run_id for item in selected}
+    stale = [item.run_id for item in candidates if item.summary_stale and item.run_id not in chosen]
     data.update(
         eligible=len(candidates),
         not_eligible=left_out,
@@ -533,20 +594,20 @@ def sync_hosted(
         already_synced=len(candidates) - len(pending),
         selected=len(selected),
         deferred=len(pending) - len(selected),
+        stale_summaries=len(stale),
     )
     if dry_run:
-        data["gh_found"] = runner is not None or resolve_on_path("gh") is not None
         data["runs"] = [_outcome(item, None) for item in selected]
         return data
-    if not selected:
-        return data
-    runner = runner or gh_runner()
-    data["gh_found"] = runner is not None
-    if runner is None:
-        data["stopped"] = GhError("gh_unavailable", "gh was not found on PATH.").describe(None)
-        return data
-    written = _fetch_all(store, runner, slug, selected, data)
+    written: list[str] = []
+    if selected:
+        runner = runner or gh_runner()
+        data["gh_found"] = runner is not None
+        if runner is None:
+            data["stopped"] = GhError("gh_unavailable", "gh was not found on PATH.").describe(None)
+        else:
+            written = _fetch_all(store, runner, slug, selected, data)
     data["synced"] = len(written)
-    if written:
-        data["summaries"] = resummarize(store, identity, config, written)
+    if written or stale:
+        data["summaries"] = resummarize(store, identity, config, [*written, *stale])
     return data
