@@ -168,7 +168,13 @@ def archive(session: Session, run: RunDoc) -> RunDoc:
             finished_at=datetime.fromisoformat(record.finished_at),
             result=result,
             fingerprint=record.fingerprint,
-            findings=[finding for finding in all_findings if finding.stage is stage],
+            # A response reason is telemetry: evidence keeps the finding as earlier
+            # versions wrote it, so older verifiers can still read the note.
+            findings=[
+                finding.model_copy(update={"response_reason": None})
+                for finding in all_findings
+                if finding.stage is stage
+            ],
         )
         origins[stage] = StageEvidence(
             origin=origin,
@@ -433,8 +439,9 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
             break
         stored_findings = session.store.load_findings(run.run_id)
         existing_stage = [f for f in stored_findings if f.stage is stage]
-        if existing_stage and [f.model_dump(exclude={"id"}) for f in existing_stage] != [
-            f.model_dump(exclude={"id"}) for f in item.origin.findings
+        compared = {"id", "response_reason"}
+        if existing_stage and [f.model_dump(exclude=compared) for f in existing_stage] != [
+            f.model_dump(exclude=compared) for f in item.origin.findings
         ]:
             break
         next_id = max((int(f.id[1:]) for f in stored_findings), default=0) + 1

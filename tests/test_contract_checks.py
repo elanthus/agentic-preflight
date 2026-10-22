@@ -799,7 +799,13 @@ def test_command_review_plans_before_final_findings(feature_repo, tmp_path, monk
             assert env["state"] == "REVIEW_AWAITING_FINDINGS"
             assert env["data"]["phase"] == "contracts"
             assert env["data"]["reviewer_invocations"] == 0
-            assert "review" not in agent.run("status")["data"]["stages"]
+            # Review has begun, so it has a start time, but no attempt or result.
+            review = agent.run("status")["data"]["stages"]["review"]
+            assert (review["status"], review["attempts"], review["exit_code"]) == (
+                "pending",
+                0,
+                None,
+            )
             assert not calls.exists()
         (feature_repo / ".env").write_text("SECRET=readable-again\n")
     env = agent.run(

@@ -36,7 +36,7 @@ Stop retrying — you have already tried `max_attempts` times and the tool is te
 you the loop is not converging. For a stage failure, show the user
 `agentic-preflight logs --stage <name>` output and ask how to proceed. For a baseline
 setup failure, no stage log exists; show `data.setup_failure` and obey the returned
-`agentic-preflight abort --force` command.
+`agentic-preflight abort --force` command, with `--reason environment_failure`.
 
 ## Validation restarted too many times (exit 4, `max_restarts`)
 
@@ -147,6 +147,32 @@ worktrees cannot retain the active lease. A baseline setup failure remains in it
 red state and returns the exact lint or test retry, including the
 resolved command and `--baseline`. It does not have a stage log because the stage never
 ran, so do not replace that recovery with `logs --stage`.
+
+## Record a dismissal, acceptance, or abort
+
+This entry is not a failure recovery. Use it every time you dismiss or accept a finding,
+or abort a run, including when you follow a returned `abort --force` command.
+
+1. Always pass `--reason`. It is optional only so that older installed skills keep
+   working.
+2. Choose the closest term. If no term fits, pass `other`. Do not invent a term: an
+   unknown value exits 6 with `usage_error`.
+   - `respond --action dismissed|accepted`: `false_positive` (the finding is wrong),
+     `out_of_scope` (real, but outside the requested change), `duplicate` (another
+     finding covers it), `already_fixed` (the current diff already resolves it),
+     `accepted_risk` (real, and the risk is accepted), `deferred` (real, and left for
+     later work), `other`.
+   - `abort`: `user_cancelled` (the user asked to stop), `superseded` (a newer run or
+     change replaces this one), `wrong_base` (the run targets the wrong base or branch),
+     `environment_failure` (setup, toolchain, or network failure outside the change),
+     `tool_error` (Agentic Preflight itself failed), `no_longer_needed` (the change is
+     already upstream or was dropped), `other`.
+3. Put the specifics in `--note` for `respond`. `abort` has no note, so tell the user
+   the specifics in your reply.
+4. Never pass `--reason` with `--action fixed`. The verified commit is the record.
+
+A reason is a label for the local report. It does not change the run, the risk
+verdict, or the attestation, so never choose one to make a run look better.
 
 ## Stage far slower than normal
 

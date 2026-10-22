@@ -45,6 +45,10 @@ MIN_QUANTILE_OBSERVATIONS = 5
 #: The malformed mirror lines listed by number. All of them are counted.
 MALFORMED_LINE_LIMIT = 20
 UNKNOWN = "unknown"
+#: A response or abort recorded without the agent's reason.
+UNSPECIFIED = "unspecified"
+#: Finding statuses that record a response to the finding.
+RESPONDED_STATUSES = ("fixed", "dismissed", "accepted")
 _STAGE_ORDER = [stage.value for stage in Stage]
 _FINDING_DIMENSIONS = ("by_stage", "by_severity", "by_status", "by_action")
 
@@ -64,11 +68,27 @@ LIMITS: tuple[str, ...] = (
     "An orphaned run can be a replaced attempt, not a failure.",
     "A null value is unknown, not zero. "
     "Each statistic leaves out null values and reports how many runs it left out.",
+    "Finding response reasons and abort reasons are labels that the agent chose. "
+    "They record the agent's judgment, not a verified cause. "
+    "The perceived false-positive share is not a measured false-positive rate.",
+    "Stage and state times are wall-clock seconds from recorded transitions, "
+    "to the nearest second. They include the agent's working time and any wait for the user. "
+    "Reused and skipped stages, and runs without a complete transition history, have no time.",
 )
 
 HOSTED_NOTE = (
     "Recorded only when a run observed a hosted outcome. Current versions record none. "
     "Do not use these counts as pull-request or CI counts."
+)
+FALSE_POSITIVE_NOTE = (
+    "The perceived false-positive share counts the findings that the agent dismissed "
+    "or accepted as `false_positive`, over every finding with a recorded response. "
+    "A dismissal or acceptance without a reason counts as `unspecified`. "
+    "While any are unspecified, the share is a range."
+)
+TIMING_NOTE = (
+    "Review time covers the review and docs states. Shell time covers the lint and test states. "
+    "Only runs with a complete transition history are counted."
 )
 BLOCKING_NOTE = (
     "A summary counts blocking findings and finding statuses separately. "
@@ -402,6 +422,15 @@ def _tally(values: Iterable[Any]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def _reason_tally(values: Iterable[Any]) -> dict[str, int]:
+    """Tally agent-chosen reasons. A missing reason is ``unspecified``, not ``unknown``."""
+    counts = Counter(
+        UNSPECIFIED if value is None else value if isinstance(value, str) and value else UNKNOWN
+        for value in values
+    )
+    return dict(sorted(counts.items()))
+
+
 def ratio(numerator: int, denominator: int, label: str) -> dict[str, Any]:
     """A ratio that names its denominator. ``value`` is null when nothing was counted."""
     return {
@@ -494,6 +523,45 @@ def _findings(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _finding_responses(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Reasons for dismissed and accepted findings, and the perceived false-positive share.
+
+    The share is ``false_positive`` responses over every finding with a recorded
+    response (``fixed``, ``dismissed``, or ``accepted``). A dismissal or acceptance
+    without a reason could be either, so ``max`` also counts the unspecified ones,
+    as the blocking-fix range does. Only runs whose summary tallies reasons are
+    counted; older summaries are excluded runs.
+    """
+    findings = (row.get("findings") or {} for row in rows)
+    known = [
+        item
+        for item in findings
+        if isinstance(item.get("by_response_reason"), Mapping)
+        and isinstance(item.get("by_status"), Mapping)
+    ]
+    reasons: Counter[str] = Counter()
+    responses = 0
+    for item in known:
+        _add_counts(reasons, item["by_response_reason"])
+        responses += sum(_int(item["by_status"].get(name)) or 0 for name in RESPONDED_STATUSES)
+    false_positive, unspecified = reasons["false_positive"], reasons[UNSPECIFIED]
+    upper = false_positive + unspecified
+    return {
+        "runs_observed": len(known),
+        "excluded_runs": len(rows) - len(known),
+        "by_reason": dict(sorted(reasons.items())),
+        "responses": responses if known else None,
+        "unspecified": ratio(unspecified, sum(reasons.values()), "dismissed or accepted findings"),
+        "perceived_false_positive_share": {
+            **ratio(false_positive, responses, "findings with a recorded response"),
+            "max": round(upper / responses, 4) if responses else None,
+            "numerator_max": upper,
+            "exact": unspecified == 0,
+        },
+        "note": FALSE_POSITIVE_NOTE,
+    }
+
+
 def _any_positive(rows: Sequence[Mapping[str, Any]], key: str, label: str) -> dict[str, Any]:
     known = [value for value in (_int(row.get(key)) for row in rows) if value is not None]
     return {
@@ -505,6 +573,36 @@ def _any_positive(rows: Sequence[Mapping[str, Any]], key: str, label: str) -> di
 
 def _stage_key(name: str) -> tuple[int, str]:
     return (_STAGE_ORDER.index(name) if name in _STAGE_ORDER else len(_STAGE_ORDER), name)
+
+
+def _numbers(values: Iterable[Any]) -> list[float]:
+    """The numeric values, sorted. Null and non-numeric values are left out."""
+    return sorted(
+        float(value)
+        for value in values
+        if isinstance(value, int | float) and not isinstance(value, bool)
+    )
+
+
+def _quantiles(values: Sequence[float], population: int) -> dict[str, Any]:
+    """Median and p90 of ``values``, from ``population`` runs that could have had one."""
+    enough = len(values) >= MIN_QUANTILE_OBSERVATIONS
+    return {
+        "observations": len(values),
+        "excluded_runs": population - len(values),
+        "minimum_observations": MIN_QUANTILE_OBSERVATIONS,
+        "median": round(statistics.median(values), 1) if enough else None,
+        # Linear interpolation between the closest ranks, inclusive of both ends.
+        "p90": (
+            round(statistics.quantiles(values, n=10, method="inclusive")[8], 1) if enough else None
+        ),
+        "note": (
+            None
+            if enough
+            else f"Fewer than {MIN_QUANTILE_OBSERVATIONS} observations. "
+            "The median and p90 are not computed."
+        ),
+    }
 
 
 def _stage(present: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -525,6 +623,10 @@ def _stage(present: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "attempts_excluded_runs": len(present) - len(attempts),
         "reused": ratio(sum(reused), len(reused), "runs with a reuse value for this stage"),
         "reused_excluded_runs": len(present) - len(reused),
+        # Reused and skipped stages, and records from before stage start times, have none.
+        "duration_seconds": _quantiles(
+            _numbers(item.get("duration_seconds") for item in present), len(present)
+        ),
     }
 
 
@@ -537,33 +639,54 @@ def _stages(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
     }
 
 
-def _quantile_values(rows: Sequence[Mapping[str, Any]]) -> list[float]:
-    values = (row.get("duration_seconds") for row in rows)
-    return sorted(
-        float(value)
-        for value in values
-        if isinstance(value, int | float) and not isinstance(value, bool)
-    )
-
-
 def _durations(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    values = _quantile_values(rows)
-    enough = len(values) >= MIN_QUANTILE_OBSERVATIONS
+    return _quantiles(_numbers(row.get("duration_seconds") for row in rows), len(rows))
+
+
+def _run_seconds(timing: Mapping[str, Any]) -> float | None:
+    """Seconds in every listed state of one timing, or ``None`` when any is unknown."""
+    states = timing.get("states")
+    if not isinstance(states, Mapping):
+        return None
+    seconds = [
+        entry.get("seconds") if isinstance(entry, Mapping) else None for entry in states.values()
+    ]
+    values = _numbers(seconds)
+    return sum(values) if len(values) == len(seconds) else None
+
+
+def _seconds_share(numerator: float, denominator: float, label: str) -> dict[str, Any]:
     return {
-        "observations": len(values),
-        "excluded_runs": len(rows) - len(values),
-        "minimum_observations": MIN_QUANTILE_OBSERVATIONS,
-        "median": round(statistics.median(values), 1) if enough else None,
-        # Linear interpolation between the closest ranks, inclusive of both ends.
-        "p90": (
-            round(statistics.quantiles(values, n=10, method="inclusive")[8], 1) if enough else None
-        ),
-        "note": (
-            None
-            if enough
-            else f"Fewer than {MIN_QUANTILE_OBSERVATIONS} observations. "
-            "The median and p90 are not computed."
-        ),
+        "value": round(numerator / denominator, 4) if denominator else None,
+        "numerator": numerator,
+        "denominator": denominator,
+        "denominator_label": label,
+    }
+
+
+def _time_split(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Share of run time in the review and docs states versus the lint and test states."""
+    observed: list[tuple[float, float, float]] = []
+    for row in rows:
+        timing = row.get("timing")
+        if not isinstance(timing, Mapping) or timing.get("complete") is not True:
+            continue
+        review = _numbers([timing.get("review_wall_seconds")])
+        shell = _numbers([timing.get("shell_wall_seconds")])
+        total = _run_seconds(timing)
+        if review and shell and total is not None:
+            observed.append((review[0], shell[0], total))
+    review_seconds = sum(item[0] for item in observed)
+    shell_seconds = sum(item[1] for item in observed)
+    total_seconds = sum(item[2] for item in observed)
+    label = "seconds in runs with a complete transition history"
+    return {
+        "runs_observed": len(observed),
+        "excluded_runs": len(rows) - len(observed),
+        "total_seconds": total_seconds if observed else None,
+        "review_share": _seconds_share(review_seconds, total_seconds, label),
+        "shell_share": _seconds_share(shell_seconds, total_seconds, label),
+        "note": TIMING_NOTE,
     }
 
 
@@ -590,6 +713,16 @@ def _orphaned_reasons(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     )
 
 
+def _abort_reasons(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Aborted runs by the agent's reason and by the state the run was in."""
+    aborted = [row.get("terminal") or {} for row in rows if row.get("state") == "ABORTED"]
+    return {
+        "runs": len(aborted),
+        "by_reason": _reason_tally(item.get("abort_reason") for item in aborted),
+        "by_state": _tally(item.get("aborted_from_state") for item in aborted),
+    }
+
+
 def _events(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     known = [row["event_counts"] for row in rows if isinstance(row.get("event_counts"), Mapping)]
     counts: dict[str, Any] = {}
@@ -612,14 +745,17 @@ def aggregate(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "states": states,
         "completion_rate": ratio(states["DONE"], len(rows), "runs"),
         "findings": _findings(rows),
+        "finding_responses": _finding_responses(rows),
         "fix_commits": _any_positive(rows, "fix_commits", "runs with a fix-commit count"),
         "validation_restarts": _any_positive(
             rows, "validation_restarts", "runs with a validation-restart count"
         ),
         "stages": _stages(rows),
         "duration_seconds": _durations(rows),
+        "time_in_stages": _time_split(rows),
         "hosted": _hosted(rows),
         "orphaned_reasons": _orphaned_reasons(rows),
+        "abort_reasons": _abort_reasons(rows),
         "events": _events(rows),
     }
 
@@ -936,10 +1072,50 @@ def _stages_section(metrics: Mapping[str, Any]) -> list[str]:
         "Reused",
         "Excluded runs (attempts / reuse)",
     ]
-    return ["### Stages", "", *_table(headers, rows)]
+    durations = [
+        [
+            name,
+            stage["duration_seconds"]["observations"],
+            stage["duration_seconds"]["excluded_runs"],
+            _quantile_cell(stage["duration_seconds"], "median"),
+            _quantile_cell(stage["duration_seconds"], "p90"),
+        ]
+        for name, stage in metrics["stages"].items()
+    ]
+    duration_headers = ["Stage", "Duration observations", "Excluded runs", "Median", "p90"]
+    return [
+        "### Stages",
+        "",
+        *_table(headers, rows),
+        *_table(duration_headers, durations),
+    ]
 
 
-def _duration_section(metrics: Mapping[str, Any]) -> list[str]:
+def _quantile_cell(quantiles: Mapping[str, Any], key: str) -> str:
+    if quantiles["note"] is not None:
+        return "not computed: too few observations"
+    return _duration(quantiles[key])
+
+
+def _share_row(name: str, share: Mapping[str, Any], excluded: int) -> list[Any]:
+    known = share["denominator"] or None
+    return [
+        name,
+        _percent(share["value"]),
+        _duration(share["numerator"]) if known else "n/a",
+        f"{share['denominator_label']}: {_duration(share['denominator']) if known else 'n/a'}",
+        excluded,
+    ]
+
+
+def _stage_median(metrics: Mapping[str, Any], stage: str) -> str:
+    item = metrics["stages"].get(stage)
+    return _duration(item["duration_seconds"]["median"]) if item else "n/a"
+
+
+def _duration_section(
+    metrics: Mapping[str, Any], repositories: Sequence[Mapping[str, Any]] = ()
+) -> list[str]:
     duration = metrics["duration_seconds"]
     enough = duration["note"] is None
     rows = [
@@ -952,7 +1128,114 @@ def _duration_section(metrics: Mapping[str, Any]) -> list[str]:
         ],
         ["p90", _duration(duration["p90"]) if enough else "not computed: too few observations"],
     ]
-    return ["### Duration", "", *_table(["Measure", "Value"], rows)]
+    split = metrics["time_in_stages"]
+    shares = [
+        _share_row("Review and docs states", split["review_share"], split["excluded_runs"]),
+        _share_row("Lint and test states", split["shell_share"], split["excluded_runs"]),
+    ]
+    per_repo = [
+        [
+            group["label"],
+            group["metrics"]["time_in_stages"]["runs_observed"],
+            _percent(group["metrics"]["time_in_stages"]["review_share"]["value"]),
+            _percent(group["metrics"]["time_in_stages"]["shell_share"]["value"]),
+            *(_stage_median(group["metrics"], stage) for stage in _STAGE_ORDER),
+        ]
+        for group in repositories
+    ]
+    per_repo_headers = [
+        "Repository",
+        "Runs with complete timing",
+        "Review and docs share",
+        "Lint and test share",
+        *(f"Median {stage}" for stage in _STAGE_ORDER),
+    ]
+    return [
+        "### Duration",
+        "",
+        *_table(["Measure", "Value"], rows),
+        split["note"],
+        "",
+        *_table(["Time in", "Share", "Time", "Denominator", "Excluded runs"], shares),
+        *(_table(per_repo_headers, per_repo) if per_repo else []),
+    ]
+
+
+def _false_positive_row(name: str, share: Mapping[str, Any], excluded: int) -> list[Any]:
+    """A share that is a range while some responses have no reason."""
+    if share["exact"] or share["value"] is None:
+        rate, count = _percent(share["value"]), share["numerator"]
+    else:
+        rate = f"{_percent(share['value'])} to {_percent(share['max'])}"
+        count = f"{share['numerator']} to {share['numerator_max']}"
+    return [name, rate, count, _of(share["denominator"], share["denominator_label"]), excluded]
+
+
+def _finding_responses_section(
+    metrics: Mapping[str, Any], repositories: Sequence[Mapping[str, Any]] = ()
+) -> list[str]:
+    responses = metrics["finding_responses"]
+    measures = [
+        _false_positive_row(
+            "Perceived false-positive share",
+            responses["perceived_false_positive_share"],
+            responses["excluded_runs"],
+        ),
+        _rate_row(
+            "Dismissed or accepted without a reason",
+            responses["unspecified"],
+            responses["excluded_runs"],
+        ),
+    ]
+    reasons = list(responses["by_reason"].items())
+    per_repo = [
+        [group["label"], reason, count]
+        for group in repositories
+        for reason, count in group["metrics"]["finding_responses"]["by_reason"].items()
+    ]
+    shares = [
+        _false_positive_row(
+            group["label"],
+            group["metrics"]["finding_responses"]["perceived_false_positive_share"],
+            group["metrics"]["finding_responses"]["excluded_runs"],
+        )
+        for group in repositories
+    ]
+    return [
+        "### Finding responses",
+        "",
+        responses["note"],
+        "",
+        *_table(["Measure", "Rate", "Count", "Denominator", "Excluded runs"], measures),
+        *(_table(["Reason", "Findings"], reasons) if reasons else []),
+        *(_table(["Repository", "Reason", "Findings"], per_repo) if per_repo else []),
+        *(
+            _table(
+                [
+                    "Repository",
+                    "Perceived false-positive share",
+                    "Count",
+                    "Denominator",
+                    "Excluded runs",
+                ],
+                shares,
+            )
+            if shares
+            else []
+        ),
+    ]
+
+
+def _abort_reasons_section(metrics: Mapping[str, Any]) -> list[str]:
+    aborts = metrics["abort_reasons"]
+    if not aborts["runs"]:
+        return []
+    return [
+        "### Abort reasons",
+        "",
+        *_table(["Reason", "Runs"], aborts["by_reason"].items()),
+        *_table(["State when aborted", "Runs"], aborts["by_state"].items()),
+    ]
 
 
 def _events_section(metrics: Mapping[str, Any]) -> list[str]:
@@ -1027,9 +1310,11 @@ def render_markdown(data: Mapping[str, Any]) -> str:
         *_source_section(data),
         *_runs_section(overall),
         *_findings_section(overall),
+        *_finding_responses_section(overall, repositories),
         *_stages_section(overall),
-        *_duration_section(overall),
+        *_duration_section(overall, repositories),
         *_events_section(overall),
+        *_abort_reasons_section(overall),
         *_group_section("By repository", "Repository", repositories),
         *_group_section("By client", "Client", data["by_client"]),
         *_group_section("By reported model", "Reported model", data["by_model"]),
