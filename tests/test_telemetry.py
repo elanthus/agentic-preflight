@@ -22,6 +22,15 @@ from tests.conftest import commit_all, git, make_run, set_home, write
 from tests.driver import ScriptedAgent, findings_json, green_run
 
 PRIVATE_INTENT = "ship the widget; secret acceptance criteria 7f3a"
+FINDING_KEYS = (
+    "total",
+    "by_stage",
+    "by_severity",
+    "by_status",
+    "by_action",
+    "by_response_reason",
+    "blocking",
+)
 
 
 def _state_root(repo: Path) -> Path:
@@ -355,15 +364,23 @@ def test_a_schema_1_record_summarizes_with_unknown_values_left_null():
     assert row["review"] is None
     assert row["pr_mode"] is None
     assert row["worktree_mode"] == "in_place"
-    assert row["findings"] == dict.fromkeys(
-        ("total", "by_stage", "by_severity", "by_status", "by_action", "blocking")
-    )
+    assert row["findings"] == dict.fromkeys(FINDING_KEYS)
     assert row["stages"]["test"] == {
         "status": "skipped",
         "attempts": 0,
+        "started_at": None,
         "finished_at": "2026-07-29T03:54:23+00:00",
+        "duration_seconds": None,
         "reused": None,
         "reason": "changes are limited to documentation and CI configuration",
+    }
+    # No transition events in this log, so no state timing at all.
+    assert row["timing"] is None
+    assert row["terminal"] == {
+        "aborted_forced": None,
+        "abort_reason": None,
+        "aborted_from_state": None,
+        "orphaned_reason": None,
     }
     assert list(row["stages"]) == ["lint", "test"]
     assert row["hosted"] == {"last_ci_outcome": "merged", "pr_url_recorded": True}
@@ -412,12 +429,29 @@ def test_a_schema_2_record_summarizes_reuse_review_findings_and_terminal_facts()
         "by_severity": {"critical": 1, "high": 1, "low": 1, "medium": 1},
         "by_status": {"accepted": 1, "dismissed": 1, "fixed": 1, "open": 1},
         "by_action": {"ask_user": 1, "auto_fix": 1, "no_op": 2},
+        # Older findings carry no reason for their dismissal or acceptance.
+        "by_response_reason": {"unspecified": 2},
         # review blocks only critical here, docs blocks high and medium.
         "blocking": 2,
     }
     assert row["fix_commits"] == 2
     assert row["validation_restarts"] == 1
-    assert row["terminal"] == {"aborted_forced": True, "orphaned_reason": None}
+    # An older marker has neither a reason nor a state, and this transition has no `from`.
+    assert row["terminal"] == {
+        "aborted_forced": True,
+        "abort_reason": None,
+        "aborted_from_state": None,
+        "orphaned_reason": None,
+    }
+    # The first transition has no time, so the chain breaks before any visit.
+    assert row["timing"] == {
+        "complete": False,
+        "states": {},
+        "review_wall_seconds": None,
+        "shell_wall_seconds": None,
+    }
+    assert row["stages"]["lint"]["started_at"] is None
+    assert row["stages"]["lint"]["duration_seconds"] is None
     assert row["hosted"] == {"last_ci_outcome": None, "pr_url_recorded": False}
     assert row["event_counts"] == {"stage_reused": 1, "state_transition": 2}
     assert row["worktree_mode"] == "reusable"
@@ -903,9 +937,7 @@ def test_a_non_text_severity_is_counted_as_unknown_and_never_blocks():
 def test_a_findings_file_that_is_not_a_list_of_objects_gives_null_counts(findings):
     counts = telemetry.summarize(_schema_2_record(), findings, [], _identity()).findings
 
-    assert counts == dict.fromkeys(
-        ("total", "by_stage", "by_severity", "by_status", "by_action", "blocking")
-    )
+    assert counts == dict.fromkeys(FINDING_KEYS)
 
 
 def test_rebuild_gives_null_counts_for_a_findings_file_of_non_objects(tmp_repo):

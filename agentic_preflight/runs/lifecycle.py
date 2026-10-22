@@ -14,7 +14,7 @@ from ..errors import (
     WrongState,
 )
 from ..machine import Action, State
-from ..models import FindingStatus, RunDoc
+from ..models import ABORT_REASONS, AbortReason, FindingStatus, RunDoc
 from ..store import RUN_READ_RECOVERY, RunReadError, StoreError, UnknownRun
 from ._session import (
     RESTART_LIMIT_INSTRUCTION,
@@ -43,13 +43,18 @@ def events(session: Session, *, limit: int | None = None) -> Envelope:
     return _envelope_for(run, data={"events": history, "count": len(history)})
 
 
-def abort(session: Session, *, force: bool = False) -> Envelope:
+def abort(session: Session, *, force: bool = False, reason: AbortReason | None = None) -> Envelope:
     """End the run and reclaim its worktree.
 
     Unmerged fix commits are reported rather than discarded: the agent may have
     done real work in there, and silently deleting it is the one outcome nobody
     can undo.
+
+    ``reason`` is the agent's label for why the run ended. The state the run was
+    in is taken from the transition itself, never from the caller.
     """
+    if reason is not None and reason not in ABORT_REASONS:
+        raise ValueError(f"abort reason must be one of {', '.join(ABORT_REASONS)}, not {reason!r}")
     run = _load_current(session, allow_interrupted=True)
 
     isolated = not _is_in_place(run)
@@ -70,10 +75,11 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
     _release_run_worktree(session, run)
 
     # The marker commits with the transition, so the run summary written at the
-    # terminal commit can record whether the abort was forced.
-    with session.store.transaction(
-        run.run_id, events=[{"event": "aborted", "forced": force}]
-    ) as doc:
+    # terminal commit can record whether the abort was forced, why, and from where.
+    marker: dict[str, object] = {"event": "aborted", "forced": force, "reason": reason}
+    with session.store.transaction(run.run_id, events=[marker]) as doc:
+        # The state the transition leaves: the ``from`` of its state_transition event.
+        marker["aborted_from_state"] = doc.state.value
         _apply(doc, Action.ABORT)
         doc.worktree_released = True
         run = doc

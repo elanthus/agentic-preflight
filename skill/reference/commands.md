@@ -261,13 +261,21 @@ the worktree; paths outside the changed-file set (review) or documentation allow
 (docs); line numbers past end of file; and batches over `[review] max_findings`.
 All-or-nothing — one bad finding rejects the batch.
 
-### `agentic-preflight respond --id F001 --action fixed|dismissed|accepted [--commit SHA] [--note TEXT]`
+### `agentic-preflight respond --id F001 --action fixed|dismissed|accepted [--commit SHA] [--note TEXT] [--reason REASON]`
 - `fixed` requires `--commit`. The commit is verified four ways: it exists, it touches
   the finding's file, it contains no `copy_files` path, and in `reusable` or `strict`
   mode it is reachable from the validation worktree's current `HEAD`.
 - `dismissed` and `accepted` require `--note` and refuse `--commit`: passing
   `--commit` with any action other than `fixed` exits 6 with `usage_error`, and the
   Python `respond` API raises `invalid_response`.
+- `--reason` labels a `dismissed` or `accepted` response with one of `false_positive`,
+  `out_of_scope`, `duplicate`, `already_fixed`, `accepted_risk`, `deferred`, or `other`.
+  It is optional. Any other value exits 6 with `usage_error`. Passing `--reason` with
+  `--action fixed` exits 6 with `usage_error`, and the Python `respond` API raises
+  `invalid_response`. The finding stores it as `response_reason`, and the
+  `finding_resolved` event repeats it as `reason` (`null` when absent). A finding without
+  a reason has no `response_reason` key. The reason is telemetry only: it never enters
+  stage evidence or the attestation. Put the specifics in `--note`.
 - Unknown id exits 3 listing the valid ids. Each finding is resolved once.
 - Non-blocking findings may be resolved after their review or docs stage is green. A
   note-only disposition preserves the green state. A fix that changes the reviewed
@@ -480,9 +488,13 @@ null `from` and `action`. Rolled-back transactions emit no transitions. Audit hi
 append-only and may be incomplete after an interrupted write; older histories are not
 backfilled. Monotonic timestamps are suitable for intervals within one host boot.
 
-### `agentic-preflight abort [--force]`
+### `agentic-preflight abort [--force] [--reason REASON]`
 Ends the run and releases the worktree. Exits 5 if unmerged fix commits would be lost;
 `--force` discards them.
+`--reason` labels the abort with one of `user_cancelled`, `superseded`, `wrong_base`,
+`environment_failure`, `tool_error`, `no_longer_needed`, or `other`. It is optional. Any
+other value exits 6 with `usage_error`. The `aborted` event records `forced`, `reason`
+(`null` when absent), and `aborted_from_state`, the state that the transition left.
 
 ### `agentic-preflight gc [--force]`
 Unreadable run records are retained and reported individually in `data.retained`, with
@@ -618,8 +630,15 @@ the group `unknown`. The statistics are:
 - blocking findings, and the range of them that are `fixed`;
 - review-stage findings per 100 review units;
 - runs with a fix commit, and runs with a validation restart;
-- failed stage attempts and stage reuse, for each stage;
+- finding responses by reason, and the perceived false-positive share: findings
+  dismissed or accepted as `false_positive` over findings with a recorded response,
+  a range from `value` to `max` while any response has no reason;
+- failed stage attempts and stage reuse, and the median and p90 of stage
+  `duration_seconds`, for each stage;
 - the median and p90 of `duration_seconds`;
+- the share of run time in the review and docs states and in the lint and test
+  states, over runs with complete `timing`;
+- aborted runs by reason and by `aborted_from_state`;
 - hosted outcomes recorded, and orphaned reasons;
 - the counts of `review_coverage_invalidated`, `test_interrupted`, `sync_conflict`, and
   `stage_reused` events.

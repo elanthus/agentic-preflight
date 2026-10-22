@@ -162,7 +162,10 @@ def test_unreadable_copied_file_blocks_review_command_before_execution(feature_r
     assert env["data"]["copied_file"].endswith("/.env")
     assert env["data"]["reviewer_invocations"] == 0
     assert "redaction is unavailable" in env["error"]["message"]
-    assert "review" not in agent.run("status")["data"]["stages"]
+    # Review has begun, so it has a start time, but no attempt or result is recorded.
+    review = agent.run("status")["data"]["stages"]["review"]
+    assert (review["status"], review["attempts"], review["exit_code"]) == ("pending", 0, None)
+    assert review["started_at"] is not None
 
 
 def test_command_review_success_reports_one_wrapper_launch(feature_repo):
