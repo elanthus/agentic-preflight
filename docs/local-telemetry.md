@@ -120,7 +120,7 @@ Thus, the duration of a stage that failed and was retried includes the failed at
 `started_at` is not in the stage evidence, the fingerprints, or the attestation.
 
 `timing` comes from the `state_transition` events.
-It uses their wall-clock `at` values, to the nearest second.
+It uses their wall-clock `at` values, which have one-second granularity: each is the whole second in which the transition was made.
 It does not use `monotonic_ns`, because that clock is valid only within one boot of one host.
 
 | Key | Value |

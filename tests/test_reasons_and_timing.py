@@ -286,9 +286,7 @@ def test_review_starts_at_begin_review_and_restarts_with_the_review(
     assert restarted.get("finished_at") is None
 
 
-def test_each_stage_starts_at_its_own_begin_transition(
-    ticking_clock, feature_repo, tmp_path, monkeypatch
-):
+def test_each_stage_starts_at_its_own_begin_transition(ticking_clock, feature_repo, tmp_path):
     agent = green_run(feature_repo, tmp_path)
     run_id = agent.run("status")["run_id"]
     stages = _stages(agent)

@@ -72,7 +72,8 @@ LIMITS: tuple[str, ...] = (
     "They record the agent's judgment, not a verified cause. "
     "The perceived false-positive share is not a measured false-positive rate.",
     "Stage and state times are wall-clock seconds from recorded transitions, "
-    "to the nearest second. They include the agent's working time and any wait for the user. "
+    "with one-second granularity. They include the agent's working time and any wait for "
+    "the user. "
     "Reused and skipped stages, and runs without a complete transition history, have no time.",
 )
 

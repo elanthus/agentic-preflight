@@ -310,7 +310,7 @@ The `aborted` event is now written together with the terminal transition. It car
 A stored finding can carry the new optional `response_reason`. A stage record can carry the new optional `started_at`.
 A key without a value is left out. A rewrite of an older record does not add either key.
 Run models forbid unknown keys.
-Thus, an earlier tool version reports a findings file or a run record that carries either key as unreadable.
+Thus, an earlier tool version cannot read a findings file or a run record that carries either key, and it reports such a run record as unreadable.
 Do not delete the run history to recover. Use this version or a later one to inspect or clean up those runs.
 
 Stage evidence and attestations never contain `response_reason` or `started_at`.
