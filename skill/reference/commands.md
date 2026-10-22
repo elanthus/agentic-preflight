@@ -530,6 +530,30 @@ The pre-push predicate. Reads git's stdin protocol, consults only the commit's
 `refs/notes/agentic-preflight` note, and exits 0 or 10. Not for you to call — git calls
 it.
 
+### `agentic-preflight telemetry rebuild`
+Regenerates `summary.json` for every terminal run record in this clone, of run schema 1
+or 2. When `[telemetry] mirror` is true, it also rewrites this repository's rows in the
+user-level `runs.jsonl` mirror under the mirror lock: one row for each
+`(repo.root_commit or repo.source_worktree_path, run_id)`, keeping the newest
+`written_at`, then one row for each `(run_id, created_at, repo.source_worktree_path)`,
+so a run mirrored once with and once without a root commit stays one row. Event lines
+and findings that are not objects never fail a record. Rows of other repositories, and lines that are not summaries, keep their
+exact text. Nonterminal runs count as `skipped`. An unreadable record is listed in
+`data.unreadable_runs` with its run ID, path, reason, and diagnostic; its earlier summary
+and mirror row are kept, never treated as absent. `data` reports `repo`, `summarized`,
+`skipped`, `unreadable`, `unreadable_runs`, `write_failures`, and `mirror` (`enabled`,
+`path`, `rows`, `preserved_rows`, `error`). A failed write exits 1 with error code
+`telemetry_write_failed` and the same `data`. Telemetry makes no network request.
+
+The summary is first written when a transaction commits `DONE`, `ABORTED`, or `ORPHANED`:
+from `finish`, `abort`, `gc`, or `start` when it orphans the previous run or aborts the
+run it was creating. The event log then gains `summary_written` (with `summary_path`,
+`mirrored`, `mirror_path`, and `error`) or `summary_failed`. `finish` and `abort` report
+the same outcome, with `run_id`, in `data.telemetry`; `gc` reports a list there, one item
+for each run it orphaned. A telemetry failure never changes a command's result or rolls
+back its transaction. The `aborted` event is now written with the terminal transition
+and carries its `seq`. See [Local run telemetry](../../docs/local-telemetry.md).
+
 ## Exit codes
 
 | Code | Meaning | What to do |

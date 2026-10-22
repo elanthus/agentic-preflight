@@ -280,3 +280,27 @@ The retired capture fields no longer match fresh execution fingerprints.
 Follow the returned stage sequence. The existing restart limit still applies.
 Frozen policy stays authoritative for historical runs.
 Committed protected policies can contain retired sections without blocking approval checks.
+
+## Run summaries and the local telemetry mirror
+
+Finished runs now write `summary.json` in the run directory and append one line to the user-level `runs.jsonl` mirror.
+The summary is a new stored schema: `kind = "agentic-preflight-run-summary"`, `schema_version = 1`.
+A reader must check both values and reject other versions.
+Absent values are `null`. A reader must not count them as zero.
+See [Local run telemetry](docs/local-telemetry.md) for the fields.
+
+`summary.json` is derived data. It never binds evidence.
+No fingerprint, evidence digest, configuration digest, or attestation contains a summary field.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+`[telemetry]` is a new configuration section.
+Older tool versions reject a configuration file that contains it, as an unknown section.
+Put it only in the user file of a machine that runs this version or a later one.
+Run snapshots never contain the section. Thus, older versions still read the run records and attestations that this version writes.
+
+`agentic-preflight telemetry rebuild` reads run schema 1 and 2 records without changing them.
+It writes only `summary.json` files and the mirror.
+
+The run event log can contain the new `summary_written` and `summary_failed` events.
+The `aborted` event is now written together with the terminal transition. It carries the transition's `seq`.
+`finish`, `abort`, and `gc` envelopes add `data.telemetry`.

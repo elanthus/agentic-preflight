@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import gitx, hook, worktree
+from .. import gitx, hook, telemetry, worktree
 from ..envelope import Envelope
 from ..errors import (
     START_COMMAND,
@@ -69,13 +69,16 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
 
     _release_run_worktree(session, run)
 
-    with session.store.transaction(run.run_id) as doc:
+    # The marker commits with the transition, so the run summary written at the
+    # terminal commit can record whether the abort was forced.
+    with session.store.transaction(
+        run.run_id, events=[{"event": "aborted", "forced": force}]
+    ) as doc:
         _apply(doc, Action.ABORT)
         doc.worktree_released = True
         run = doc
 
     session.store.clear_run(run.run_id)
-    session.store.append_event(run.run_id, {"event": "aborted", "forced": force})
 
     return _envelope_for(
         run,
@@ -269,6 +272,12 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
             "legacy_worktrees": legacy,
             "runs_known": sorted(known_runs),
             "active": store.list_active(),
+            # Summaries written for the runs this collection orphaned.
+            "telemetry": [
+                report
+                for run_id in sorted(known_runs)
+                if (report := telemetry.take_report(run_id)) is not None
+            ],
         },
         next_instruction=(
             RUN_READ_RECOVERY

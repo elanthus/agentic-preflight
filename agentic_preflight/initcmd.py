@@ -78,6 +78,13 @@ environment = "high-risk-review"
 
 [hook]
 allow_force_push = false
+
+# [telemetry]
+# Each finished run writes a local summary. Nothing is sent over the network.
+# Set this section in ~/.config/agentic-preflight/config.toml instead of here:
+# a section in this file replaces every contributor's own preference.
+# mirror = true    # also append summaries to the user-level runs.jsonl
+# path = "~/.local/share/agentic-preflight/telemetry"
 """
 
 

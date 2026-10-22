@@ -26,6 +26,7 @@ from pydantic import (
     Field,
     SerializerFunctionWrapHandler,
     ValidationError,
+    field_validator,
     model_serializer,
     model_validator,
 )
@@ -188,6 +189,26 @@ class HookSection(_Section):
     allow_force_push: bool = False
 
 
+class TelemetrySection(_Section):
+    """Where finished runs are summarized for the user, on this machine only.
+
+    Telemetry is derived output. The section is excluded from configuration
+    snapshots, so it never changes a configuration digest, never binds stage
+    evidence, and never reaches a published attestation. It is meant for the
+    user configuration file; a repository section replaces it like any other.
+    """
+
+    mirror: bool = True
+    path: str | None = None
+
+    @field_validator("path")
+    @classmethod
+    def absolute_path(cls, value: str | None) -> str | None:
+        if value is not None and not Path(value).expanduser().is_absolute():
+            raise ValueError("path must be absolute or start with ~")
+        return value
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -214,6 +235,8 @@ class Config(BaseModel):
     pr: PRSection = Field(default_factory=PRSection)
     approval: ApprovalSection = Field(default_factory=ApprovalSection)
     hook: HookSection = Field(default_factory=HookSection)
+    # Excluded from model dumps: snapshots and their digests stay telemetry-free.
+    telemetry: TelemetrySection = Field(default_factory=TelemetrySection, exclude=True)
 
 
 # Keys an earlier release accepted and a later one removed, as (section, key).

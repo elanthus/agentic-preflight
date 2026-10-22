@@ -113,6 +113,11 @@ reviewer = ""                     # required GitHub login for owner_review
 
 [hook]
 allow_force_push = false
+
+# Set [telemetry] in the user file. A repository section replaces it.
+[telemetry]
+mirror = true                     # append each finished run's summary to runs.jsonl
+# path = "~/agentic-preflight-telemetry"  # directory override; absolute or ~
 ```
 
 ## Configuration is snapshotted per run
@@ -120,6 +125,7 @@ allow_force_push = false
 `start` snapshots the resolved configuration when it creates a run.
 A later edit of `.agentic-preflight.toml` does not change that run.
 The snapshot and its digest are recorded with the run events.
+The snapshot does not contain `[telemetry]`.
 
 Commit configuration changes **before** you start the run that they must affect.
 For the same reason, the file must be committed before `start`. Do not edit it during a run.
@@ -130,6 +136,24 @@ A review fingerprint hashes only `[general]`, `[review]`, `[policy]`, `[context]
 A docs fingerprint hashes `[general]`, `[docs]`, `[diff]`, `[context]`, and `[policy]`.
 Thus, a change to an unrelated section, for example `[commands]`, cannot by itself invalidate that stage's evidence.
 See [`docs/fingerprint-contract.md`](fingerprint-contract.md) for automatic refresh.
+
+## Local run telemetry (`[telemetry]`)
+
+Set this section in the user file, `~/.config/agentic-preflight/config.toml`.
+A `[telemetry]` section in the repository file replaces the user section, the same as every other section.
+Thus, a committed section sets the preference for every contributor. Do not commit it without a reason.
+
+When a run ends, the CLI writes `summary.json` in the run directory.
+`mirror = true` is the default. The CLI then also appends the summary as one line to `runs.jsonl` in the telemetry directory.
+`mirror = false` keeps each summary in its run directory only.
+`path` sets the telemetry directory. The value must be an absolute path or start with `~`.
+Without `path`, the directory is `$XDG_DATA_HOME/agentic-preflight/telemetry` when `XDG_DATA_HOME` is an absolute path.
+Otherwise, it is `~/.local/share/agentic-preflight/telemetry`.
+
+The CLI reads this section from the configuration files when a run ends.
+Run snapshots do not contain it.
+Thus, a telemetry setting does not change the configuration digest, stage evidence, or an attestation.
+See [Local run telemetry](local-telemetry.md) for the recorded fields and the `telemetry rebuild` command.
 
 ## Contract checks
 
