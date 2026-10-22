@@ -784,6 +784,94 @@ def test_with_the_mirror_off_the_report_does_not_suggest_a_rebuild(tmp_repo):
     assert "The mirror is off" in result["next"]["instruction"]
 
 
+def test_a_record_that_cannot_be_summarized_is_unreadable_not_fatal(tmp_repo):
+    _store_record(tmp_repo, _schema_1_record(), events=[[1, 2]])
+    bad_finding = [{**_findings()[0], "severity": ["high"]}]
+    _store_record(tmp_repo, _schema_2_record(), findings=bad_finding)
+    good = {**_schema_2_record(), "run_id": "r_0000000003"}
+    _store_record(tmp_repo, good)
+
+    result = ScriptedAgent(tmp_repo).run("report")
+
+    clone = result["data"]["source"]["clone"]
+    assert result["data"]["rows_reported"] == 1
+    assert clone["unreadable"] == 2
+    by_run = {item["run_id"]: item for item in clone["unreadable_runs"]}
+    assert by_run["r_0000000001"]["reason"] == "invalid"
+    assert by_run["r_0000000001"]["diagnostic"] == (
+        "Run record could not be summarized (AttributeError)."
+    )
+    assert by_run["r_0000000002"]["diagnostic"] == (
+        "Run record could not be summarized (TypeError)."
+    )
+    assert "data.source.clone.unreadable_runs" in result["next"]["instruction"]
+
+
+def test_unknown_totals_are_null_and_render_as_not_available():
+    rows = [
+        make_row(
+            f"r_000000000{index}",
+            findings=FINDINGS_NULL,
+            fix_commits=None,
+            validation_restarts=None,
+            event_counts=None,
+        )
+        for index in (1, 2)
+    ]
+
+    metrics = report.aggregate(rows)
+    text = _markdown(rows)
+
+    assert metrics["findings"]["total"] is None
+    assert metrics["findings"]["blocking"]["total"] is None
+    assert metrics["findings"]["blocking"]["fixed"] is None
+    assert metrics["fix_commits"]["total"] is None
+    assert metrics["validation_restarts"]["total"] is None
+    assert metrics["events"]["counts"]["stage_reused"]["total"] is None
+    assert "| Findings | n/a | runs with a findings file: 0 | 2 |" in text
+    assert "| Blocking findings fixed | n/a |" in text
+    assert "| widget (github.com/owner/widget) | 2 | 2 | 0 | 0 | 100.0% | n/a |" in text
+
+
+def test_one_run_mirrored_under_two_identity_keys_counts_once(tmp_path):
+    path_only = {
+        "root_commit": None,
+        "remote": "github.com/owner/widget",
+        "name": "widget",
+        "source_worktree_path": "/repos/widget",
+    }
+    early = make_row("r_0000000001", repo=path_only, written_at="2026-10-01T00:00:00+00:00")
+    later = make_row("r_0000000001", written_at="2026-10-02T00:00:00+00:00")
+    payload = b"\n".join(_line(row) for row in (later, early))
+
+    mirror = report.parse_mirror(payload, tmp_path / "runs.jsonl")
+
+    assert mirror.duplicates == 1
+    (row,) = mirror.rows
+    assert row["repo"]["root_commit"] == ROOT_A
+
+
+def test_a_written_at_tie_keeps_the_later_line_like_rebuild(tmp_path):
+    first = make_row("r_0000000001", fix_commits=1)
+    second = make_row("r_0000000001", fix_commits=2)
+
+    mirror = report.parse_mirror(_line(first) + b"\n" + _line(second), tmp_path / "runs.jsonl")
+
+    assert [row["fix_commits"] for row in mirror.rows] == [2]
+
+
+def test_markdown_cells_collapse_newlines():
+    rows = [
+        make_row(
+            "r_0000000001",
+            state="ORPHANED",
+            terminal={"aborted_forced": None, "orphaned_reason": "line one\nline two"},
+        )
+    ]
+
+    assert "| line one line two | 1 |" in _markdown(rows)
+
+
 def test_markdown_formats_computed_durations():
     rows = [
         make_row(f"r_000000000{index}", duration_seconds=float(seconds))

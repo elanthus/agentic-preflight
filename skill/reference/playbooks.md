@@ -190,7 +190,8 @@ for a summary of their runs. It is not a failure recovery.
    clone has runs from before mirroring, or `report` returned
    `agentic-preflight telemetry rebuild` in `next.command`. Run it in the current clone
    and in each other clone that the user names. Rebuild writes only derived summaries.
-   It does not change run records or evidence.
+   It does not change run records or evidence. Run it one time for each clone. If
+   `report` names it again after that, do not run it again: tell the user about the gap.
 2. Run `agentic-preflight report --all-repos --format markdown`.
 3. Show the user `data.markdown` as it is, including its limits. Do not shorten the
    limits, and do not add rates or conclusions that the report does not contain.

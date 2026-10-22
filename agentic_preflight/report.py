@@ -129,14 +129,32 @@ def _finish_order(row: Mapping[str, Any]) -> tuple[str, str]:
     return (_str(row.get("finished_at")) or "", row["run_id"])
 
 
-def _dedupe(rows: Sequence[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
-    """Keep one row per repository and run: the newest ``written_at``, as rebuild does."""
+def _keep_newest(
+    rows: Iterable[dict[str, Any]], key: Callable[[int, dict[str, Any]], Any]
+) -> list[dict[str, Any]]:
+    """One row per key: the newest ``written_at``, the later row on a tie, as rebuild does."""
     kept: dict[Any, dict[str, Any]] = {}
     for index, row in enumerate(rows):
-        key = telemetry._row_key(row) or ("line", index)
-        if key not in kept or row["written_at"] >= kept[key]["written_at"]:
-            kept[key] = row
-    unique = sorted(kept.values(), key=_finish_order)
+        name = key(index, row)
+        if name not in kept or row["written_at"] >= kept[name]["written_at"]:
+            kept[name] = row
+    return list(kept.values())
+
+
+def _same_run(_: int, row: Mapping[str, Any]) -> tuple[Any, ...]:
+    repo = row.get("repo") or {}
+    return (row["run_id"], row.get("created_at"), repo.get("source_worktree_path"))
+
+
+def _dedupe(rows: Sequence[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Keep one valid row per repository and run, then one per run.
+
+    The first pass uses the mirror key that rebuild uses. The second pass joins
+    one run that was mirrored under two keys, for example once without a root
+    commit: the same run ID, start time, and source worktree.
+    """
+    by_key = _keep_newest(rows, lambda index, row: telemetry._row_key(row) or ("line", index))
+    unique = sorted(_keep_newest(by_key, _same_run), key=_finish_order)
     return unique, len(rows) - len(unique)
 
 
@@ -187,6 +205,23 @@ class CloneScan:
     unreadable_runs: list[dict[str, str]] = field(default_factory=list)
 
 
+def _summarize_one(
+    store: Store, run_id: str, identity: telemetry.RepoIdentity, stamp: str
+) -> telemetry.RunSummary | None:
+    """Summarize one record. Any failure makes the record unreadable, never the report."""
+    try:
+        return telemetry._summarize_stored_run(store, run_id, identity, stamp)
+    except telemetry._Unreadable:
+        raise
+    except Exception as exc:  # one malformed record must not fail the report
+        # Name only the exception type: its message can quote record values.
+        raise telemetry._Unreadable(
+            store.run_dir(run_id),
+            "invalid",
+            f"Run record could not be summarized ({type(exc).__name__}).",
+        ) from exc
+
+
 def summarize_clone(
     store: Store,
     identity: telemetry.RepoIdentity,
@@ -199,7 +234,7 @@ def summarize_clone(
     stamp = written_at or telemetry._now()
     for run_id in store.list_runs() if run_ids is None else run_ids:
         try:
-            summary = telemetry._summarize_stored_run(store, run_id, identity, stamp)
+            summary = _summarize_one(store, run_id, identity, stamp)
         except telemetry._Unreadable as exc:
             scan.unreadable_runs.append(
                 {
@@ -419,10 +454,10 @@ def _blocking(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         low += max(0, fixed - max(0, findings - blocking))
         high += min(fixed, blocking)
     return {
-        "total": total,
+        "total": total if known else None,
         "runs_observed": len(known),
         "excluded_runs": len(rows) - len(known),
-        "fixed": {"min": low, "max": high, "exact": low == high},
+        "fixed": {"min": low, "max": high, "exact": low == high} if known else None,
         "fixed_share": {
             "min": round(low / total, 4) if total else None,
             "max": round(high / total, 4) if total else None,
@@ -465,7 +500,7 @@ def _findings(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return {
         "runs_observed": len(known),
         "excluded_runs": len(rows) - len(known),
-        "total": sum(item["total"] for item in known),
+        "total": sum(item["total"] for item in known) if known else None,
         **{name: dict(sorted(counter.items())) for name, counter in tallies.items()},
         "blocking": _blocking(rows),
         "review_findings_per_100_units": _per_100_units(rows),
@@ -476,7 +511,7 @@ def _any_positive(rows: Sequence[Mapping[str, Any]], key: str, label: str) -> di
     known = [value for value in (_int(row.get(key)) for row in rows) if value is not None]
     return {
         "runs_with_any": ratio(sum(1 for value in known if value > 0), len(known), label),
-        "total": sum(known),
+        "total": sum(known) if known else None,
         "excluded_runs": len(rows) - len(known),
     }
 
@@ -574,7 +609,7 @@ def _events(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     for name in SELECTED_EVENTS:
         per_run = [_int(item.get(name)) or 0 for item in known]
         counts[name] = {
-            "total": sum(per_run),
+            "total": sum(per_run) if known else None,
             "runs": ratio(
                 sum(1 for count in per_run if count), len(known), "runs with event counts"
             ),
@@ -688,7 +723,8 @@ def build_report(
 
 
 def _cell(value: Any) -> str:
-    text = "none" if value is None else str(value)
+    """One table cell. A null value is unknown, so it reads ``n/a``, never ``0``."""
+    text = "n/a" if value is None else str(value)
     return " ".join(text.split()).replace("|", "\\|")
 
 
@@ -829,12 +865,13 @@ def _findings_section(metrics: Mapping[str, Any]) -> list[str]:
     share = blocking["fixed_share"]
     fixed = blocking["fixed"]
     per_units = findings["review_findings_per_100_units"]
-    fixed_count = fixed["min"] if fixed["exact"] else f"{fixed['min']} to {fixed['max']}"
-    fixed_share = (
-        _percent(share["min"])
-        if fixed["exact"]
-        else f"{_percent(share['min'])} to {_percent(share['max'])}"
-    )
+    if fixed is None:
+        fixed_count = fixed_share = None
+    elif fixed["exact"]:
+        fixed_count, fixed_share = fixed["min"], _percent(share["min"])
+    else:
+        fixed_count = f"{fixed['min']} to {fixed['max']}"
+        fixed_share = f"{_percent(share['min'])} to {_percent(share['max'])}"
     rows = [
         [
             "Findings",

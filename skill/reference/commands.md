@@ -559,11 +559,16 @@ time without a zone is UTC. A value that is not ISO 8601 exits 6 with `usage_err
 
 `data.source` tells you where the rows came from: `used` (`mirror` or `clone_records`),
 `scope` (`clone` or `all`), and `mirror` (`path`, `enabled`, `exists`, `lines`, `rows`,
-`malformed`, `malformed_by_reason`, `malformed_lines`, and `duplicates`). A malformed line
-is counted and listed by line number. It is never treated as absent. Of several rows for
-one repository and run, the row with the newest `written_at` is used, as in
-`telemetry rebuild`. Inside a clone, `data.source.clone` gives the repository identity,
-`mirror_rows`, `run_records`, `unreadable`, and `unreadable_runs`. When the mirror is the
+`malformed`, `malformed_by_reason`, `malformed_lines`, and `duplicates`). Every malformed
+line is counted in `malformed` and `malformed_by_reason`, and `malformed_lines` lists the
+first 20 by line number. A malformed line is never treated as absent. Only valid summary
+rows are deduplicated. Of several valid rows for one repository and run, the row with the
+newest `written_at` is used, and the later line wins a tie, as in `telemetry rebuild`.
+Rows with the same run ID, `created_at`, and source worktree are also one run, even when
+only one of them has a root commit. `duplicates` counts the rows left out.
+Inside a clone, `data.source.clone` gives the repository identity, `mirror_rows`,
+`run_records`, `unreadable`, and `unreadable_runs`. A record that cannot be summarized is
+listed there with reason `invalid`. It does not fail the report. When the mirror is the
 source, it also gives `unmirrored_terminal_runs`: the finished runs of this clone that
 the mirror does not have. After a fallback, it gives `summarized` and `skipped` instead.
 When a rebuild can add missing runs, `next.command` is
@@ -586,11 +591,15 @@ the group `unknown`. The statistics are:
 - the counts of `review_coverage_invalidated`, `test_interrupted`, `sync_conflict`, and
   `stage_reused` events.
 
-Each ratio gives its `numerator`, `denominator`, and `denominator_label`. A null value is
-left out, and the statistic reports the runs that it left out as `excluded_runs`. The
-median and p90 are null when there are fewer than 5 observations. A stage's `attempts`
-counts its recorded failed attempts. A summary does not cross finding status with
-severity, so the fixed count of blocking findings is a `min` and `max` range. Hosted
+Each ratio gives its `numerator`, `denominator`, and `denominator_label`.
+`findings.blocking.fixed_share` gives `numerator_min` and `numerator_max` instead. A null
+value is left out of a statistic. The statistic reports the runs that it left out as
+`excluded_runs`, or for each stage as `attempts_excluded_runs` and `reused_excluded_runs`,
+and for hosted values as `pr_url_excluded_runs`. A total is null, not 0, when no run in
+the group has the value. The Markdown shows a null value as `n/a`. The median and p90
+are null when there are fewer than 5 observations. A stage's `attempts` counts its
+recorded failed attempts. A summary does not cross finding status with severity, so the
+fixed count of blocking findings is a `min` and `max` range. Hosted
 outcomes are counts of recorded values only. Current versions record none, so do not use
 them to count pull requests.
 

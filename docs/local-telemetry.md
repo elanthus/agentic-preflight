@@ -118,7 +118,7 @@ The command selects rows as follows:
 - Without options, it reads the mirror rows of the current repository, from all clones of that repository on this machine.
 - When the mirror has no rows for the current repository, it summarizes the clone's finished run records in memory. `data.source.used` is then `clone_records`.
 - `--all-repos` reads every mirror row.
-- `--repo NAME_OR_REMOTE` reads every mirror row and keeps one repository, by name or remote.
+- `--repo NAME_OR_REMOTE` reads every mirror row and keeps the repositories whose name or remote matches. Two repositories can have the same name.
 - `--since` and `--until` keep runs by their `finished_at` time. `--since` includes the time. `--until` does not.
 - `--state` keeps `DONE`, `ABORTED`, or `ORPHANED` runs.
 - `--rows` adds the selected summary rows to `data.rows`.
@@ -133,12 +133,13 @@ The report gives the statistics for all runs, for each repository, for each clie
 A run without a recorded client or model is in the group `unknown`.
 Each ratio names its denominator.
 A null value is left out of each statistic, and the report counts the runs that it left out.
+A total is null when no run in the group has the value. The Markdown shows it as `n/a`, not `0`.
 The median and p90 duration are not computed when fewer than 5 runs have a duration.
 
 The report tells you about every gap in its data:
 
-- `data.source.mirror.malformed` counts the mirror lines that are not readable summaries. `malformed_lines` lists them by line number.
-- `data.source.clone.unreadable_runs` lists the run records of the clone that could not be read.
+- `data.source.mirror.malformed` counts the mirror lines that are not readable summaries. `malformed_lines` lists the first 20 by line number.
+- `data.source.clone.unreadable_runs` lists the run records of the clone that could not be read or summarized.
 - `data.source.clone.unmirrored_terminal_runs` counts the finished runs of the clone that are not in the mirror. `telemetry rebuild` adds them.
 - `data.filtered_out` counts the rows that each filter left out.
 
