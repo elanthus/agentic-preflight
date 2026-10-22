@@ -520,7 +520,9 @@ Regenerates `summary.json` for every terminal run record in this clone, of run s
 or 2. When `[telemetry] mirror` is true, it also rewrites this repository's rows in the
 user-level `runs.jsonl` mirror under the mirror lock: one row for each
 `(repo.root_commit or repo.source_worktree_path, run_id)`, keeping the newest
-`written_at`. Rows of other repositories, and lines that are not summaries, keep their
+`written_at`, then one row for each `(run_id, created_at, repo.source_worktree_path)`,
+so a run mirrored once with and once without a root commit stays one row. Event lines
+and findings that are not objects never fail a record. Rows of other repositories, and lines that are not summaries, keep their
 exact text. Nonterminal runs count as `skipped`. An unreadable record is listed in
 `data.unreadable_runs` with its run ID, path, reason, and diagnostic; its earlier summary
 and mirror row are kept, never treated as absent. `data` reports `repo`, `summarized`,
