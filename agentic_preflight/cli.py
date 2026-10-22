@@ -12,6 +12,7 @@ from .cli_integrations import register as register_integrations
 from .cli_policy import register as register_policy
 from .cli_runs import register as register_runs
 from .cli_support import EnvelopeGroup, as_error, fail
+from .cli_telemetry import register as register_telemetry
 from .envelope import ExitCode
 
 RUN_ID_PATTERN = re.compile(r"r_[0-9a-f]{10}")
@@ -65,6 +66,7 @@ def main(ctx: click.Context, run_id: str | None) -> None:
 register_runs(main)
 register_policy(main)
 register_integrations(main)
+register_telemetry(main)
 
 
 if __name__ == "__main__":

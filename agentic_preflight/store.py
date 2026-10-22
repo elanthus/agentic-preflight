@@ -17,7 +17,8 @@ import os
 import sys
 import tempfile
 import time
-from collections.abc import Iterator
+import traceback
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -146,6 +147,10 @@ class Store:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
         self._worktrees_root: Path | None = None
+        #: Called once for each run that a transaction moves into a terminal
+        #: state, after the record is durably written and the run lock is free.
+        #: Sessions wire it to the local run summary; it must never raise.
+        self.on_terminal: Callable[[RunDoc], None] | None = None
 
     # -- paths ---------------------------------------------------------------
 
@@ -267,6 +272,7 @@ class Store:
         run_id: str,
         *,
         findings: list[Finding] | None = None,
+        events: list[dict[str, Any]] | None = None,
     ) -> Iterator[RunDoc]:
         """Read-modify-write a run document under an exclusive lock.
 
@@ -275,7 +281,13 @@ class Store:
         so an exception in the body leaves the records untouched. When findings
         accompany the run, findings are atomically replaced before the run. A
         failure between these writes can leave new findings with the previous
-        run; there is no automatic roll-forward recovery.
+        run; there is no automatic roll-forward recovery. ``events`` are
+        appended after the state transitions, with the same ``seq``, only when
+        the write succeeds.
+
+        This is the one place a run becomes terminal, so it is also where
+        :attr:`on_terminal` fires: once, after the commit and outside the run
+        lock. A failure there is reported on stderr and never undoes the commit.
         """
         path = self.run_path(run_id)
         if not path.exists():
@@ -283,6 +295,7 @@ class Store:
 
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
             run = self._load_run(run_id)
+            was_terminal = run.state in TERMINAL_STATES
 
             yield run
 
@@ -298,9 +311,21 @@ class Store:
                     json.dumps([f.model_dump(mode="json") for f in findings], indent=2),
                 )
             _atomic_write(path, run.model_dump_json(indent=2))
-            for event in run._state_events:
+            for event in [*run._state_events, *(events or [])]:
                 self.append_event(run_id, {**event, "seq": run.seq})
             run._state_events.clear()
+
+        if not was_terminal and run.state in TERMINAL_STATES:
+            self._notify_terminal(run)
+
+    def _notify_terminal(self, run: RunDoc) -> None:
+        """Run the terminal hook without letting it fail a committed transaction."""
+        if self.on_terminal is None:
+            return
+        try:
+            self.on_terminal(run)
+        except Exception:  # noqa: BLE001 - derived output must never fail the command
+            traceback.print_exc(file=sys.stderr)
 
     # -- findings ------------------------------------------------------------
 

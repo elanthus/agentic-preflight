@@ -15,7 +15,7 @@ from typing import Any, TypeVar
 from pydantic import ValidationError
 
 from .. import findings as findingsmod
-from .. import gitx, risk, worktree
+from .. import gitx, risk, telemetry, worktree
 from ..config import Config, load_config, snapshot_run_settings
 from ..envelope import Envelope
 from ..errors import (
@@ -112,7 +112,7 @@ def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) ->
     cfg = cfg or load_config(repo_root)
     if cfg.worktree.mode != "in_place":
         store.set_worktrees_root(worktree.resolve_root(repo_root, cfg.worktree.root))
-    return Session(
+    session = Session(
         repo_root=repo_root,
         caller_root=caller_root,
         owner_id=owner_id,
@@ -121,6 +121,15 @@ def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) ->
         selected_run_id=run_id,
         source_worktree_available=source_worktree_available,
     )
+    # Every path into DONE, ABORTED, or ORPHANED commits through a store
+    # transaction, so the run summary hangs off that one commit point.
+    store.on_terminal = lambda run: _summarize_ended_run(session, run)
+    return session
+
+
+def _summarize_ended_run(session: Session, run: RunDoc) -> None:
+    """Write the local summary of a run whose terminal state was just committed."""
+    telemetry.record_run_end(session.store, session.repo_root, run)
 
 
 def _now() -> str:
@@ -273,6 +282,10 @@ def _envelope_for(run: RunDoc, **overrides) -> Envelope:
         "next_command": command,
     }
     fields.update(overrides)
+    report = telemetry.take_report(run.run_id) if run.state in TERMINAL_STATES else None
+    if report is not None:
+        # The summary written when this command ended the run.
+        fields["data"] = {**fields.get("data", {}), "telemetry": report}
     if stopped:
         # Machine-readable on every envelope, not only in the wording.
         fields["data"] = {**fields.get("data", {}), "needs_human": True}
