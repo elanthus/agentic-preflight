@@ -305,6 +305,28 @@ The run event log can contain the new `summary_written` and `summary_failed` eve
 The `aborted` event is now written together with the terminal transition. It carries the transition's `seq`.
 `finish`, `abort`, and `gc` envelopes add `data.telemetry`.
 
+## Reasons and timing on run records and summaries
+
+A stored finding can carry the new optional `response_reason`. A stage record can carry the new optional `started_at`.
+A key without a value is left out. A rewrite of an older record does not add either key.
+Run models forbid unknown keys.
+Thus, an earlier tool version cannot read a findings file or a run record that carries either key, and it reports such a run record as unreadable.
+Do not delete the run history to recover. Use this version or a later one to inspect or clean up those runs.
+
+Stage evidence and attestations never contain `response_reason` or `started_at`.
+This version removes the reason from each finding before it archives stage evidence, and it rejects evidence that contains one.
+Thus, earlier verifiers, including a protected-base CI verifier, still read the notes that this version writes.
+Evidence digests of earlier findings are unchanged.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+`respond` and `abort` accept the new optional `--reason`. Existing invocations are unchanged.
+The `finding_resolved` event adds `reason`. The `aborted` event adds `reason` and `aborted_from_state`.
+
+Run summaries add `findings.by_response_reason`, `terminal.abort_reason`, `terminal.aborted_from_state`,
+`stages.<name>.started_at`, `stages.<name>.duration_seconds`, and the optional top-level `timing`.
+The summary stays at `schema_version = 1`, because no release has written summaries yet, and `telemetry rebuild` regenerates every row.
+A summary row without the new keys is still valid. The report counts the missing values as unknown.
+
 ## Hosted outcome records
 
 `agentic-preflight telemetry sync-hosted` writes `hosted.json` in the run directory of each pushed run that it reads.

@@ -57,6 +57,8 @@ Any other unrecognised field is also rejected.
 | `code_owned` | `true` only for a mechanical requirement derived by the CLI; otherwise `false` |
 | `status` | Starts `open`; becomes `fixed` / `dismissed` / `accepted` via `respond` |
 | `fix_commit` | Set by `respond --commit`, after verification |
+| `response_note` | Set by `respond --note` |
+| `response_reason` | Set by `respond --reason` for `dismissed` and `accepted`; absent when no reason was given |
 
 ## Validation
 
