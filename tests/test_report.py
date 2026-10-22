@@ -785,11 +785,12 @@ def test_with_the_mirror_off_the_report_does_not_suggest_a_rebuild(tmp_repo):
 
 
 def test_a_record_that_cannot_be_summarized_is_unreadable_not_fatal(tmp_repo):
-    _store_record(tmp_repo, _schema_1_record(), events=[[1, 2]])
-    bad_finding = [{**_findings()[0], "severity": ["high"]}]
-    _store_record(tmp_repo, _schema_2_record(), findings=bad_finding)
-    good = {**_schema_2_record(), "run_id": "r_0000000003"}
-    _store_record(tmp_repo, good)
+    broken_findings = _store_record(tmp_repo, _schema_1_record())
+    (broken_findings / "findings.json").write_text("[{", encoding="utf-8")
+    missing_branch = _schema_2_record()
+    del missing_branch["branch"]
+    _store_record(tmp_repo, missing_branch)
+    _store_record(tmp_repo, {**_schema_2_record(), "run_id": "r_0000000003"})
 
     result = ScriptedAgent(tmp_repo).run("report")
 
@@ -798,13 +799,45 @@ def test_a_record_that_cannot_be_summarized_is_unreadable_not_fatal(tmp_repo):
     assert clone["unreadable"] == 2
     by_run = {item["run_id"]: item for item in clone["unreadable_runs"]}
     assert by_run["r_0000000001"]["reason"] == "invalid"
-    assert by_run["r_0000000001"]["diagnostic"] == (
-        "Run record could not be summarized (AttributeError)."
-    )
+    assert by_run["r_0000000001"]["diagnostic"] == "Findings file is not valid JSON."
+    assert by_run["r_0000000002"]["reason"] == "invalid"
     assert by_run["r_0000000002"]["diagnostic"] == (
-        "Run record could not be summarized (TypeError)."
+        "Run record lacks fields that a summary requires."
     )
     assert "data.source.clone.unreadable_runs" in result["next"]["instruction"]
+
+
+def test_an_unexpected_summary_error_is_unreadable_and_names_only_its_type(tmp_repo, monkeypatch):
+    _store_record(tmp_repo, _schema_2_record())
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("SECRET RECORD VALUE")
+
+    monkeypatch.setattr(telemetry, "summarize", broken)
+    scan = report.summarize_clone(Store(_state_root(tmp_repo)), telemetry.repo_identity(tmp_repo))
+
+    assert scan.summaries == []
+    (item,) = scan.unreadable_runs
+    assert item["reason"] == "invalid"
+    assert item["diagnostic"] == "Run record could not be summarized (RuntimeError)."
+    assert "SECRET" not in json.dumps(item)
+
+
+def test_tolerated_corrupt_shapes_are_summarized_and_counted_as_rows(tmp_repo):
+    # A non-object event line is skipped, and a non-text severity is `unknown`.
+    _store_record(tmp_repo, _schema_1_record(), events=[[1, 2], {"event": "pushed"}])
+    bad_finding = [{**_findings()[0], "severity": ["high"]}]
+    _store_record(tmp_repo, _schema_2_record(), findings=bad_finding)
+
+    result = ScriptedAgent(tmp_repo).run("report", "--rows")
+
+    data = result["data"]
+    assert data["source"]["clone"]["unreadable"] == 0
+    assert data["rows_reported"] == 2
+    by_run = {row["run_id"]: row for row in data["rows"]}
+    assert by_run["r_0000000001"]["event_counts"] == {"pushed": 1}
+    assert data["overall"]["findings"]["by_severity"] == {"unknown": 1}
+    assert data["overall"]["findings"]["blocking"]["total"] == 0
 
 
 def test_unknown_totals_are_null_and_render_as_not_available():

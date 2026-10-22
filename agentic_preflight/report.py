@@ -149,9 +149,9 @@ def _same_run(_: int, row: Mapping[str, Any]) -> tuple[Any, ...]:
 def _dedupe(rows: Sequence[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
     """Keep one valid row per repository and run, then one per run.
 
-    The first pass uses the mirror key that rebuild uses. The second pass joins
-    one run that was mirrored under two keys, for example once without a root
-    commit: the same run ID, start time, and source worktree.
+    Both passes match ``telemetry rebuild``. The first uses the mirror key. The
+    second joins one run that was mirrored under two keys, for example once
+    without a root commit: the same run ID, start time, and source worktree.
     """
     by_key = _keep_newest(rows, lambda index, row: telemetry._row_key(row) or ("line", index))
     unique = sorted(_keep_newest(by_key, _same_run), key=_finish_order)
@@ -205,23 +205,6 @@ class CloneScan:
     unreadable_runs: list[dict[str, str]] = field(default_factory=list)
 
 
-def _summarize_one(
-    store: Store, run_id: str, identity: telemetry.RepoIdentity, stamp: str
-) -> telemetry.RunSummary | None:
-    """Summarize one record. Any failure makes the record unreadable, never the report."""
-    try:
-        return telemetry._summarize_stored_run(store, run_id, identity, stamp)
-    except telemetry._Unreadable:
-        raise
-    except Exception as exc:  # one malformed record must not fail the report
-        # Name only the exception type: its message can quote record values.
-        raise telemetry._Unreadable(
-            store.run_dir(run_id),
-            "invalid",
-            f"Run record could not be summarized ({type(exc).__name__}).",
-        ) from exc
-
-
 def summarize_clone(
     store: Store,
     identity: telemetry.RepoIdentity,
@@ -229,12 +212,16 @@ def summarize_clone(
     *,
     written_at: str | None = None,
 ) -> CloneScan:
-    """Summarize terminal run records with the rebuild's code path. Nothing is written."""
+    """Summarize terminal run records with the rebuild's code path. Nothing is written.
+
+    A record that cannot be read or summarized is listed in ``unreadable_runs``,
+    exactly as ``telemetry rebuild`` reports it, and never fails the scan.
+    """
     scan = CloneScan()
     stamp = written_at or telemetry._now()
     for run_id in store.list_runs() if run_ids is None else run_ids:
         try:
-            summary = _summarize_one(store, run_id, identity, stamp)
+            summary = telemetry._summarize_stored_run_safely(store, run_id, identity, stamp)
         except telemetry._Unreadable as exc:
             scan.unreadable_runs.append(
                 {
