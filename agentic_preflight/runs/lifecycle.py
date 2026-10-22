@@ -663,6 +663,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             "source_head_sha": run.source_head_sha,
             "intent": run.intent,
             "intent_source": run.intent_source,
+            "producer": run.producer.model_dump(mode="json") if run.producer else None,
             "sync": {
                 "remote": run.sync_remote,
                 "base_ref": run.sync_base_ref,
