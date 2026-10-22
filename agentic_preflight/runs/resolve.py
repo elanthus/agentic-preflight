@@ -287,6 +287,7 @@ def _in_place_fix_commits(session: Session, run: RunDoc, commit: str) -> list[st
                 run.intent,
                 base_ref=run.base_ref,
                 default_base_ref=session.config.general.base_ref,
+                producer=run.producer,
             ),
         )
     commits = gitx.commits_between(repo, run.head_sha, current)

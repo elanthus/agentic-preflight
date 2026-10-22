@@ -34,7 +34,7 @@ from ..machine import (
     next_state,
     recovery_hint,
 )
-from ..models import Finding, RiskAssessment, RunDoc, Stage, StageRecord
+from ..models import Finding, Producer, RiskAssessment, RunDoc, Stage, StageRecord
 from ..store import RunReadError, Store, UnknownRun
 
 STATE_DIR_NAME = "agentic-preflight"
@@ -276,20 +276,44 @@ def _respond_command(finding_id: str) -> str:
     return f"agentic-preflight respond --id {finding_id} --action fixed --commit <sha>"
 
 
+def _producer_flags(producer: Producer | None) -> list[str]:
+    """Repeat the producer values that came from flags, and only those.
+
+    A client detected from the environment is left out: the next invocation
+    detects it again from the same marker, and turning it into ``--client``
+    would promote a detection into a self-report.
+    """
+    if producer is None:
+        return []
+    flags: list[str] = []
+    if producer.client is not None and producer.client_source == "flag":
+        flags.extend(["--client", producer.client])
+    if producer.reported_model is not None and producer.reported_model_source == "flag":
+        flags.extend(["--model", producer.reported_model])
+    return flags
+
+
 def _start_command(
     intent: str | None,
     *,
     base_ref: str,
     default_base_ref: str,
+    producer: Producer | None,
     replace: bool = False,
 ) -> str:
-    """Build a restart command without silently changing a run's base ref."""
+    """Build a restart command without silently changing a run's base ref.
+
+    ``producer`` is required so that no caller can drop the recorded client and
+    model: the next run should record what this one did, or what the refused
+    invocation asked for. Every value is shell-quoted by ``shlex.join``.
+    """
     args = ["agentic-preflight", "start"]
     if replace:
         args.append("--replace")
     if base_ref != default_base_ref:
         args.extend(["--base-ref", base_ref])
     args.extend(["--intent", intent or "<objective and acceptance criteria>"])
+    args.extend(_producer_flags(producer))
     return shlex.join(args)
 
 
@@ -347,7 +371,10 @@ def _load_current(session: Session, *, allow_interrupted: bool = False) -> RunDo
             next_command=None
             if stopped
             else _start_command(
-                run.intent, base_ref=run.base_ref, default_base_ref=session.config.general.base_ref
+                run.intent,
+                base_ref=run.base_ref,
+                default_base_ref=session.config.general.base_ref,
+                producer=run.producer,
             ),
         )
     return run
@@ -382,6 +409,7 @@ def _assert_fresh(session: Session, run: RunDoc) -> None:
             run.intent,
             base_ref=run.base_ref,
             default_base_ref=session.config.general.base_ref,
+            producer=run.producer,
         ),
     )
 

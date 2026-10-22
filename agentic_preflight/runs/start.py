@@ -297,6 +297,7 @@ def _resolve_existing_run(ctx: _StartContext, *, replace: bool) -> Envelope | No
                         ctx.intent,
                         base_ref=ctx.base_ref,
                         default_base_ref=ctx.cfg.general.base_ref,
+                        producer=ctx.producer,
                         replace=True,
                     )
                     raise WrongState(
