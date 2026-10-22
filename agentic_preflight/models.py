@@ -266,6 +266,34 @@ class MergebackAttempt(BaseModel):
         return value
 
 
+class Producer(BaseModel):
+    """Which tool, interpreter, and coding agent created a run.
+
+    Informational only: never attested, fingerprinted, or digested. The tool
+    fields are code-derived. ``client`` comes from a flag or a documented
+    environment marker, and ``reported_model`` is the agent's self-report; each
+    carries its provenance so a reader never mistakes a claim for a measurement.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tool_version: str
+    python_version: str
+    platform: str
+    client: str | None = None
+    client_source: Literal["flag", "environment"] | None = None
+    reported_model: str | None = None
+    reported_model_source: Literal["flag"] | None = None
+
+    @model_validator(mode="after")
+    def provenance_accompanies_value(self) -> Producer:
+        if (self.client is None) != (self.client_source is None):
+            raise ValueError("client and client_source must be set together")
+        if (self.reported_model is None) != (self.reported_model_source is None):
+            raise ValueError("reported_model and reported_model_source must be set together")
+        return self
+
+
 class RunDoc(BaseModel):
     """The persisted state document, ``runs/<run_id>/run.json``."""
 
@@ -303,6 +331,8 @@ class RunDoc(BaseModel):
     changed_files: list[str] = Field(default_factory=list)
     review_coverage: ReviewCoverage | None = None
     risk: RiskAssessment | None = None
+    # Absent from records written before producer identity existed.
+    producer: Producer | None = None
 
     fix_commits: list[str] = Field(default_factory=list)
     # Times validation returned to review after making progress. Never reset
@@ -349,6 +379,18 @@ class RunDoc(BaseModel):
         if type(value) is not int or value != 2:
             raise ValueError("schema_version must be the JSON integer 2")
         return value
+
+    @model_serializer(mode="wrap")
+    def omit_absent_producer(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """Rewrite records that predate producer identity without adding the key.
+
+        Older releases forbid unknown keys, so a null ``producer`` written into a
+        record they created would make that record unreadable to them.
+        """
+        data = handler(self)
+        if self.producer is None:
+            data.pop("producer", None)
+        return data
 
 
 class AttestedStage(BaseModel):

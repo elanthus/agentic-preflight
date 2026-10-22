@@ -70,7 +70,7 @@ preserved unless `--force` is explicit. At least one agent or custom target is r
 
 ## Running validation
 
-### `agentic-preflight start --intent TEXT [--base-ref REF] [--replace]`
+### `agentic-preflight start --intent TEXT [--base-ref REF] [--replace] [--client NAME] [--model NAME]`
 Creates a run and prepares its validation worktree according to the configured
 [worktree mode](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/worktree-modes.md).
 The intent is persisted as the user's objective and acceptance criteria. The parser
@@ -110,6 +110,19 @@ rerun in every new run, including commits with identical trees. Read `data.appli
 Refuses a dirty tree (exit 3, `dirty_tree`) and a branch with no changes over the base
 (exit 3, `empty_diff`). In-place mode protects `[worktree] copy_files` where they are;
 isolated modes copy them. Every mode refuses an entry git is not already ignoring.
+
+The new run records its producer. `data.producer` and the `run_created` event contain
+the same object: `tool_version`, `python_version`, `platform`, `client`, `client_source`,
+`reported_model`, and `reported_model_source`. `--client NAME` names the coding-agent
+harness, for example `claude-code`, `codex`, `cursor`, `opencode`, or `amp`. The name is
+stored in lower case, and `claude` becomes `claude-code`. Without `--client`, the command
+records `claude-code` when `CLAUDECODE=1` is set. Otherwise `client` is `null`.
+`client_source` is `flag`, `environment`, or `null`. `--model NAME` is the agent's exact
+model id. The command never infers a model, so `reported_model_source` is `flag` or
+`null`. These values are self-reports for the user's own telemetry. They are not
+evidence: the attestation, the fingerprints, and `config_digest` do not contain them. A
+resumed run keeps the producer that it recorded at creation. A malformed value exits 6
+with `usage_error` before a run is created.
 
 Returns `data.worktree_path` — **absolute**. Use it; do not rely on `cd` persisting.
 See [isolated worktree locations](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git)
@@ -447,6 +460,8 @@ findings, staleness, worktree path, the gate token, and `data.hook` with the eff
 hook's `path` and `active` state. Hook-resolution failures report `path: null`,
 `active: false`, and a short `error` instead of breaking recovery. Never raises for a
 wedged run.
+The full single-run report also contains `data.producer` from `start`. It is `null` for
+a run record that an earlier version wrote.
 In `MERGEBACK_CONFLICT`, it replays the stored conflict report and points back to the
 legal `mergeback` retry.
 `--all` inventories stored and active runs across every linked worktree in the clone.

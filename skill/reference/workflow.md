@@ -13,14 +13,20 @@ stages, edit fingerprints, or rewrite original timestamps. `status` resumes the
 persisted sequence. Unknown review/docs inputs require a fresh stage. Shell evidence
 is never reused in a new run, including commits with identical trees.
 
+Pass `--client` and, when you know your exact model id, `--model` to `start`. These
+are self-reports for the user's own telemetry. `data.producer` returns what the run
+recorded.
+
 When `start` returns `data.housekeeping.noisy` as true, tell the user in one sentence how
 much space preflight checkouts are holding (`reclaimable_bytes`) and that
 `agentic-preflight gc` reclaims it. Otherwise say nothing about housekeeping.
 
 ```
-$ agentic-preflight start --intent "<the user's objective and acceptance criteria>"
+$ agentic-preflight start --intent "<the user's objective and acceptance criteria>" \
+    --client codex --model <your exact model id>
 {"ok":true,"run_id":"r_4f2a","state":"REVIEW_AWAITING_FINDINGS",
- "data":{"worktree_path":"/repos/my-project","worktree_mode":"in_place","changed_files":["src/auth.py"]},
+ "data":{"worktree_path":"/repos/my-project","worktree_mode":"in_place","changed_files":["src/auth.py"],
+         "producer":{"client":"codex","client_source":"flag",...}},
  "next":{"instruction":"Fetch the diff before judging it.","command":"agentic-preflight context"}}
 
 $ agentic-preflight context
