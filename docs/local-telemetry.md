@@ -10,6 +10,7 @@ The CLI makes no network request for it, and no summary leaves your machine unle
 
 A run is finished when it reaches `DONE`, `ABORTED`, or `ORPHANED`.
 The CLI writes the summary one time, after the terminal state is written to the run record.
+If the process stops before that write, the run has no summary until `telemetry rebuild` writes it.
 All paths to a terminal state use this step:
 
 - `finish` after a push.
@@ -26,7 +27,8 @@ The run's event log records the result as `summary_written` or `summary_failed`.
 `finish` and `abort` also report it in `data.telemetry`. `gc` reports a list there.
 
 A telemetry failure never fails the command.
-The CLI does not roll back the run, and it reports the error in the event and in `data.telemetry`.
+The CLI does not roll back the run. It records the error in the `summary_failed` or `summary_written` event.
+`finish`, `abort`, and `gc` also report it in `data.telemetry`. The `start` envelope does not, so read the event log of the run that `start` ended.
 
 ## Where the mirror is
 
@@ -67,7 +69,7 @@ An unknown value is `null`. It is never `0`. Older run records do not have many 
 | `fix_commits`, `validation_restarts` | The number of repair commits, and the number of returns to review. |
 | `event_counts` | The number of events of each name. The `finished`, `aborted`, and `orphaned` markers repeat `state`, and the summary events describe the summary itself. These are not counted. |
 | `terminal` | `aborted_forced` for an `abort`, and `orphaned_reason`. |
-| `hosted` | `last_ci_outcome`, from the last recorded hosted check, and `pr_url_recorded`. |
+| `hosted` | `last_ci_outcome`, from the last recorded hosted check, and `pr_url_recorded`. Only older records contain hosted checks or pull-request URLs. Current versions record neither, so a new run always has `null` and `false`. Do not use these fields to count pull requests. |
 | `worktree_mode`, `pr_mode`, `config_digest` | From the run's configuration snapshot. |
 
 ## What a summary does not contain

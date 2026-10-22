@@ -831,3 +831,11 @@ def test_rebuild_leaves_an_undecodable_mirror_unchanged(tmp_repo):
 
     assert "UnicodeDecodeError" in failed["data"]["mirror"]["error"]
     assert mirror.read_bytes() == original
+
+
+def test_a_delegation_block_on_an_unknown_state_is_not_retired():
+    record = {**_schema_2_record(), "state": "FUTURE_STATE", "test_delegation": {}}
+
+    row = telemetry.summarize(record, None, [], _identity()).model_dump()
+
+    assert row["state"] == "FUTURE_STATE"

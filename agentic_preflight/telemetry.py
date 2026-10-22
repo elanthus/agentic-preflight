@@ -36,7 +36,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from . import filelock, gitx
 from .config import Config, ConfigError, load_config
 from .digests import sha256_text
-from .machine import TERMINAL_STATES
+from .machine import TERMINAL_STATES, State
 from .models import Finding, RunDoc, Stage
 from .store import RunReadError, Store, _atomic_write
 
@@ -53,6 +53,7 @@ TELEMETRY_EVENTS = frozenset({"summary_written", "summary_failed"})
 TERMINAL_MARKER_EVENTS = frozenset({"finished", "aborted", "orphaned"})
 
 _TERMINAL = frozenset(state.value for state in TERMINAL_STATES)
+_STATE_VALUES = frozenset(state.value for state in State)
 _STAGE_ORDER = [stage.value for stage in Stage]
 _RETIRED_DELEGATED_STATES = ("TEST_DELEGATED", "PUBLICATION_READY")
 _RETIRED_DELEGATION_REASON = "CI test delegation was removed; start a new local validation run"
@@ -235,7 +236,9 @@ def _effective_state(record: Mapping[str, Any]) -> tuple[str | None, str | None]
     """Return the state and orphan reason the tool reads, as ``RunDoc`` would load them."""
     state = _str(record.get("state"))
     retired = state in _RETIRED_DELEGATED_STATES or (
-        record.get("test_delegation") is not None and state not in ("PUSHED", *_TERMINAL)
+        record.get("test_delegation") is not None
+        and state in _STATE_VALUES
+        and state not in ("PUSHED", *_TERMINAL)
     )
     if retired:
         return "ORPHANED", _RETIRED_DELEGATION_REASON
