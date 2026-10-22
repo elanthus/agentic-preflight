@@ -767,11 +767,11 @@ def _merge_mirror(
 
     A row is this repository's when it has this root commit or the key of a
     fresh row. Another row also joins when its :func:`_run_key` matches one of
-    those rows and it has no root commit, or this clone has none to compare. Rows are deduplicated by :func:`_row_key`, then
-    by :func:`_run_key`, as ``report`` does. Rows of other repositories, and
-    lines that are not summary rows, keep their exact text. A row of this
-    repository whose run could not be summarized again stays, so an unreadable
-    record is never treated as absent.
+    those rows and it has no root commit, or this clone has none to compare.
+    Rows are deduplicated by :func:`_row_key`, then by :func:`_run_key`, as
+    ``report`` does. Rows of other repositories, and lines that are not summary
+    rows, keep their exact text. A row of this repository whose run could not be
+    summarized again stays, so an unreadable record is never treated as absent.
     """
     fresh_rows = [(summary.model_dump(mode="json"), _row(summary)) for summary in fresh]
     parsed: list[tuple[int, dict[str, Any] | None, str]] = []
