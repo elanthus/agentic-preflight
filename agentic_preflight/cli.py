@@ -10,6 +10,7 @@ import click
 from . import gitx
 from .cli_integrations import register as register_integrations
 from .cli_policy import register as register_policy
+from .cli_report import register as register_report
 from .cli_runs import register as register_runs
 from .cli_support import EnvelopeGroup, as_error, fail
 from .cli_telemetry import register as register_telemetry
@@ -67,6 +68,7 @@ register_runs(main)
 register_policy(main)
 register_integrations(main)
 register_telemetry(main)
+register_report(main)
 
 
 if __name__ == "__main__":

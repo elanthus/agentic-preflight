@@ -97,6 +97,59 @@ Its earlier summary and mirror row stay. The command does not treat that record 
 Runs that are not finished are counted as `skipped`.
 `summary.json` is derived data. You can delete it, and `rebuild` writes it again.
 
+## Read the report
+
+`agentic-preflight report` counts your finished runs from the summaries.
+It reads files only. It writes nothing, and it makes no network request.
+
+To see all your repositories as Markdown tables, run these commands in a clone:
+
+```bash
+agentic-preflight telemetry rebuild
+agentic-preflight report --all-repos --format markdown
+```
+
+Run `telemetry rebuild` first when the clone has runs from before mirroring.
+The output is one JSON envelope. The Markdown is in `data.markdown`, and the same statistics are in `data.overall`.
+To read only the Markdown, pipe the output to `jq -r .data.markdown`.
+
+The command selects rows as follows:
+
+- Without options, it reads the mirror rows of the current repository, from all clones of that repository on this machine.
+- When the mirror has no rows for the current repository, it summarizes the clone's finished run records in memory. `data.source.used` is then `clone_records`.
+- `--all-repos` reads every mirror row.
+- `--repo NAME_OR_REMOTE` reads every mirror row and keeps one repository, by name or remote.
+- `--since` and `--until` keep runs by their `finished_at` time. `--since` includes the time. `--until` does not.
+- `--state` keeps `DONE`, `ABORTED`, or `ORPHANED` runs.
+- `--rows` adds the selected summary rows to `data.rows`.
+
+For example, this command reports the runs of one repository that ended in October 2026:
+
+```bash
+agentic-preflight report --repo github.com/owner/widget --since 2026-10-01 --until 2026-11-01 --format markdown
+```
+
+The report gives the statistics for all runs, for each repository, for each client, and for each reported model.
+A run without a recorded client or model is in the group `unknown`.
+Each ratio names its denominator.
+A null value is left out of each statistic, and the report counts the runs that it left out.
+The median and p90 duration are not computed when fewer than 5 runs have a duration.
+
+The report tells you about every gap in its data:
+
+- `data.source.mirror.malformed` counts the mirror lines that are not readable summaries. `malformed_lines` lists them by line number.
+- `data.source.clone.unreadable_runs` lists the run records of the clone that could not be read.
+- `data.source.clone.unmirrored_terminal_runs` counts the finished runs of the clone that are not in the mirror. `telemetry rebuild` adds them.
+- `data.filtered_out` counts the rows that each filter left out.
+
+Some values need care:
+
+- A summary counts blocking findings and finding statuses separately. Thus, the number of fixed blocking findings is a range, from `min` to `max`.
+- A stage's `attempts` counts its failed attempts. "Failed attempts: more than one" counts runs where a stage failed more than one time.
+- Current versions record no hosted outcomes. The hosted counts include only older runs that observed an outcome. Do not use them to count pull requests.
+
+Every report ends with `data.limits`. The Markdown repeats them.
+
 ## Limits of the data
 
 The counts show how you use the tool and how findings were resolved.
