@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib
 import json
 import platform
+import shlex
 import sys
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as distribution_version
@@ -22,6 +23,7 @@ from agentic_preflight.attestation import NOTES_REF
 from agentic_preflight.config import config_digest
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.models import Attestation, Producer, RunDoc
+from agentic_preflight.runs._session import _start_command
 from agentic_preflight.runs.start import (
     build_producer,
     detect_client,
@@ -263,6 +265,143 @@ def test_status_reports_null_for_a_run_without_a_producer(agent, feature_repo):
     with store.transaction(started["run_id"]) as doc:
         doc.producer = None
     assert agent.run("status")["data"]["producer"] is None
+
+
+# -- recovery commands ------------------------------------------------------
+
+
+def _recovery_argv(producer: Producer | None) -> list[str]:
+    """The suggested restart, split the way a shell would."""
+    command = _start_command(
+        "same objective", base_ref="main", default_base_ref="main", producer=producer
+    )
+    return shlex.split(command)
+
+
+# Shell metacharacters and a quote: the command must round-trip the exact value.
+_AWKWARD_MODEL = "gpt-5 codex ($HOME; it's)"
+
+
+def test_recovery_commands_repeat_a_flag_sourced_client_and_model():
+    producer = build_producer(client="Codex", model=_AWKWARD_MODEL, environ={})
+    assert _recovery_argv(producer) == [
+        "agentic-preflight",
+        "start",
+        "--intent",
+        "same objective",
+        "--client",
+        "codex",
+        "--model",
+        _AWKWARD_MODEL,
+    ]
+
+
+def test_recovery_commands_leave_a_detected_client_to_the_next_detection():
+    producer = build_producer(environ={"CLAUDECODE": "1"})
+    assert producer.client_source == "environment"
+    assert _recovery_argv(producer) == ["agentic-preflight", "start", "--intent", "same objective"]
+
+
+def test_recovery_commands_repeat_a_flag_sourced_model_beside_a_detected_client():
+    producer = build_producer(model="claude-opus-4-5", environ={"CLAUDECODE": "1"})
+    assert _recovery_argv(producer) == [
+        "agentic-preflight",
+        "start",
+        "--intent",
+        "same objective",
+        "--model",
+        "claude-opus-4-5",
+    ]
+
+
+def test_recovery_commands_without_a_producer_are_unchanged():
+    assert _recovery_argv(None) == ["agentic-preflight", "start", "--intent", "same objective"]
+
+
+def test_a_refused_start_suggests_replacing_with_the_flags_just_given(agent):
+    first = agent.run("start", "--client", "codex", "--intent", "first objective")
+
+    refused = agent.run(
+        "start",
+        "--client",
+        "cursor",
+        "--model",
+        "cursor-model",
+        "--intent",
+        "second objective",
+        expect=ExitCode.PRECONDITION,
+    )
+    command = shlex.split(refused["next"]["command"])
+    # The replacement is produced by whoever is running now, not by the run it replaces.
+    assert command == [
+        "agentic-preflight",
+        "start",
+        "--replace",
+        "--intent",
+        "second objective",
+        "--client",
+        "cursor",
+        "--model",
+        "cursor-model",
+    ]
+
+    replaced = agent.run(*command[1:])
+    assert replaced["run_id"] != first["run_id"]
+    producer = replaced["data"]["producer"]
+    assert (producer["client"], producer["client_source"]) == ("cursor", "flag")
+    assert (producer["reported_model"], producer["reported_model_source"]) == (
+        "cursor-model",
+        "flag",
+    )
+
+
+def test_stale_and_abort_recovery_commands_repeat_the_recorded_flags(agent, feature_repo):
+    agent.run(
+        "start", "--client", "codex", "--model", _AWKWARD_MODEL, "--intent", "first objective"
+    )
+    expected = [
+        "agentic-preflight",
+        "start",
+        "--intent",
+        "first objective",
+        "--client",
+        "codex",
+        "--model",
+        _AWKWARD_MODEL,
+    ]
+
+    write(feature_repo, "src/extra.py", "value = 1\n")
+    commit_all(feature_repo, "advance the source branch")
+    stale = agent.run("status")
+    assert shlex.split(stale["next"]["command"]) == expected
+
+    restarted = agent.run(*expected[1:])
+    producer = restarted["data"]["producer"]
+    assert (producer["client"], producer["client_source"]) == ("codex", "flag")
+    assert (producer["reported_model"], producer["reported_model_source"]) == (
+        _AWKWARD_MODEL,
+        "flag",
+    )
+
+    aborted = agent.run("abort")
+    assert shlex.split(aborted["next"]["command"]) == expected
+
+
+def test_recovery_commands_do_not_turn_a_detected_client_into_a_flag(
+    agent, feature_repo, monkeypatch
+):
+    monkeypatch.setenv("CLAUDECODE", "1")
+    started = agent.run("start", "--intent", "first objective")
+    assert started["data"]["producer"]["client_source"] == "environment"
+
+    write(feature_repo, "src/extra.py", "value = 1\n")
+    commit_all(feature_repo, "advance the source branch")
+    command = shlex.split(agent.run("status")["next"]["command"])
+    assert command == ["agentic-preflight", "start", "--intent", "first objective"]
+
+    restarted = agent.run(*command[1:])
+    producer = restarted["data"]["producer"]
+    assert (producer["client"], producer["client_source"]) == ("claude-code", "environment")
 
 
 # -- never evidence -----------------------------------------------------------

@@ -121,8 +121,12 @@ records `claude-code` when `CLAUDECODE=1` is set. Otherwise `client` is `null`.
 model id. The command never infers a model, so `reported_model_source` is `flag` or
 `null`. These values are self-reports for the user's own telemetry. They are not
 evidence: the attestation, the fingerprints, and `config_digest` do not contain them. A
-resumed run keeps the producer that it recorded at creation. A malformed value exits 6
-with `usage_error` before a run is created.
+resumed run keeps the producer that it recorded at creation. A `start` command that
+`next.command` returns for a refused, stale, interrupted, or aborted run repeats the
+`--client` and `--model` values that were given as flags, so the next run records the
+same client and model. A client detected from the environment is not repeated: the
+next `start` detects it again. A malformed value exits 6 with `usage_error` before a run
+is created.
 
 Returns `data.worktree_path` — **absolute**. Use it; do not rely on `cd` persisting.
 See [isolated worktree locations](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git)

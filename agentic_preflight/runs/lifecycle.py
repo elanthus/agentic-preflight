@@ -91,6 +91,7 @@ def abort(session: Session, *, force: bool = False) -> Envelope:
             run.intent,
             base_ref=run.base_ref,
             default_base_ref=session.config.general.base_ref,
+            producer=run.producer,
         ),
     )
 
@@ -527,6 +528,7 @@ def _set_status_next(session: Session, run: RunDoc, envelope: Envelope, *, stale
             run.intent,
             base_ref=run.base_ref,
             default_base_ref=session.config.general.base_ref,
+            producer=run.producer,
         )
     elif run.setup_failure is not None and run.setup_failure.scope == "baseline":
         envelope.next_instruction = run.setup_failure.next_instruction
@@ -621,7 +623,10 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             next_command=None
             if stopped
             else _start_command(
-                run.intent, base_ref=run.base_ref, default_base_ref=session.config.general.base_ref
+                run.intent,
+                base_ref=run.base_ref,
+                default_base_ref=session.config.general.base_ref,
+                producer=run.producer,
             ),
         )
 

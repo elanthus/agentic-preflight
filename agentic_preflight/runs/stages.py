@@ -126,6 +126,7 @@ def _register_stage_fix_commits(
                     run.intent,
                     base_ref=run.base_ref,
                     default_base_ref=session.config.general.base_ref,
+                    producer=run.producer,
                 ),
             )
         commits = gitx.commits_between(wt, record_entry.head_sha, current_head)
