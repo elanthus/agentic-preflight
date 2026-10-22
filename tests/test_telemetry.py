@@ -839,3 +839,164 @@ def test_a_delegation_block_on_an_unknown_state_is_not_retired():
     row = telemetry.summarize(record, None, [], _identity()).model_dump()
 
     assert row["state"] == "FUTURE_STATE"
+
+
+# -- malformed records never crash a summary -----------------------------------
+
+
+def _odd_events() -> list:
+    return [
+        ["not", "an", "object"],
+        "a string line",
+        7,
+        None,
+        {"event": "state_transition", "to": ["ABORTED"], "at": "2026-10-11T20:01:00+00:00"},
+        {"event": ["unhashable"]},
+        {"event": "state_transition", "to": "ABORTED", "at": "2026-10-11T20:05:00+00:00"},
+        {"event": "aborted", "forced": False},
+        {"event": "ci_checked", "outcome": "failed"},
+    ]
+
+
+def test_event_lines_that_are_not_objects_are_skipped():
+    row = telemetry.summarize(_schema_2_record(), None, _odd_events(), _identity()).model_dump()
+
+    # Only objects with a text event name are counted.
+    assert row["event_counts"] == {"ci_checked": 1, "state_transition": 2}
+    assert row["finished_at"] == "2026-10-11T20:05:00+00:00"
+    assert row["terminal"]["aborted_forced"] is False
+    assert row["hosted"]["last_ci_outcome"] == "failed"
+
+
+def test_rebuild_summarizes_a_run_whose_event_log_has_non_object_lines(tmp_repo):
+    run_dir = _store_record(tmp_repo, _schema_2_record())
+    lines = "".join(json.dumps(event) + "\n" for event in _odd_events())
+    (run_dir / "events.jsonl").write_text(lines, encoding="utf-8")
+
+    result = ScriptedAgent(tmp_repo).run("telemetry", "rebuild")
+
+    assert (result["data"]["summarized"], result["data"]["unreadable"]) == (1, 0)
+    assert _summary(tmp_repo, "r_0000000002")["event_counts"]["state_transition"] == 2
+
+
+def test_a_non_text_severity_is_counted_as_unknown_and_never_blocks():
+    findings = _findings()
+    findings[1] = {**findings[1], "severity": ["critical"]}
+    findings[2] = {**findings[2], "severity": {"level": "medium"}}
+
+    counts = telemetry.summarize(_schema_2_record(), findings, [], _identity()).findings
+
+    assert counts["total"] == 4
+    assert counts["by_severity"] == {"high": 1, "low": 1, "unknown": 2}
+    assert counts["blocking"] == 0
+
+
+@pytest.mark.parametrize(
+    "findings",
+    [
+        pytest.param([1, {"severity": "high", "stage": "review"}], id="number-item"),
+        pytest.param(["text"], id="string-item"),
+        pytest.param({"severity": "high"}, id="object-file"),
+        pytest.param("text", id="string-file"),
+    ],
+)
+def test_a_findings_file_that_is_not_a_list_of_objects_gives_null_counts(findings):
+    counts = telemetry.summarize(_schema_2_record(), findings, [], _identity()).findings
+
+    assert counts == dict.fromkeys(
+        ("total", "by_stage", "by_severity", "by_status", "by_action", "blocking")
+    )
+
+
+def test_rebuild_gives_null_counts_for_a_findings_file_of_non_objects(tmp_repo):
+    _store_record(tmp_repo, _schema_2_record(), findings=[["F001"], "high"])
+
+    result = ScriptedAgent(tmp_repo).run("telemetry", "rebuild")
+
+    assert (result["data"]["summarized"], result["data"]["unreadable"]) == (1, 0)
+    assert _summary(tmp_repo, "r_0000000002")["findings"]["total"] is None
+
+
+def test_rebuild_reports_an_unexpected_summary_failure_and_continues(tmp_repo, monkeypatch):
+    _store_record(tmp_repo, _schema_1_record())
+    _store_record(tmp_repo, _schema_2_record())
+    original = telemetry.summarize
+
+    def flaky(record, *args, **kwargs):
+        if record["run_id"] == "r_0000000002":
+            raise TypeError("value DO_NOT_ECHO")
+        return original(record, *args, **kwargs)
+
+    monkeypatch.setattr(telemetry, "summarize", flaky)
+    result = ScriptedAgent(tmp_repo).run("telemetry", "rebuild")
+
+    assert (result["data"]["summarized"], result["data"]["unreadable"]) == (1, 1)
+    (failure,) = result["data"]["unreadable_runs"]
+    assert failure["run_id"] == "r_0000000002"
+    assert failure["diagnostic"] == "Run record could not be summarized (TypeError)."
+    assert "DO_NOT_ECHO" not in json.dumps(result)
+
+
+# -- one run under two identity keys -------------------------------------------
+
+
+def _mirrored(run_id: str, root: str | None, written_at: str, **extra) -> str:
+    repo = {"root_commit": root, "source_worktree_path": "/repos/widget-linked"}
+    row = {
+        "run_id": run_id,
+        "created_at": "2026-10-11T19:50:00+00:00",
+        "repo": repo,
+        "written_at": written_at,
+        **extra,
+    }
+    return json.dumps(row)
+
+
+def test_rebuild_keeps_one_row_for_a_run_mirrored_with_and_without_a_root_commit(tmp_repo):
+    root = git("rev-list", "--max-parents=0", "HEAD", cwd=tmp_repo)
+    _store_record(tmp_repo, _schema_2_record())
+    unreadable = {**_schema_2_record(), "run_id": "r_0000000009"}
+    (_store_record(tmp_repo, unreadable) / "run.json").write_text("[", encoding="utf-8")
+    other_repo = _mirrored("r_0000000002", "9" * 40, "2020-01-01T00:00:00+00:00")
+    mirror = telemetry.mirror_path()
+    mirror.parent.mkdir(parents=True)
+    mirror.write_text(
+        "\n".join(
+            [
+                # The same run, once without a root commit, once with it.
+                _mirrored("r_0000000002", None, "2020-01-01T00:00:00+00:00"),
+                _mirrored("r_0000000002", root, "2021-01-01T00:00:00+00:00"),
+                # An unreadable run of this repository, under both keys.
+                _mirrored("r_0000000009", root, "2020-01-01T00:00:00+00:00", copy="old"),
+                _mirrored("r_0000000009", None, "2021-01-01T00:00:00+00:00", copy="new"),
+                other_repo,
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = ScriptedAgent(tmp_repo).run("telemetry", "rebuild")
+
+    assert result["data"]["mirror"]["rows"] == 2
+    assert result["data"]["mirror"]["preserved_rows"] == 1
+    lines = mirror.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == other_repo
+    rows = [json.loads(line) for line in lines[1:]]
+    assert sorted(row["run_id"] for row in rows) == ["r_0000000002", "r_0000000009"]
+    by_run = {row["run_id"]: row for row in rows}
+    assert by_run["r_0000000002"]["kind"] == "agentic-preflight-run-summary"
+    assert by_run["r_0000000009"]["copy"] == "new"
+
+
+def test_a_clone_without_a_root_commit_still_joins_its_earlier_rows():
+    identity = _identity(root_commit=None).model_copy(
+        update={"source_worktree_path": "/repos/widget-linked"}
+    )
+    summary = telemetry.summarize(_schema_2_record(), None, [], identity, written_at="2026-10-12")
+    earlier = _mirrored("r_0000000002", "a" * 40, "2026-10-11T00:00:00+00:00")
+
+    lines, mine, preserved = telemetry._merge_mirror([earlier], [summary], None)
+
+    assert (mine, preserved) == (1, 0)
+    assert json.loads(lines[0])["written_at"] == "2026-10-12"

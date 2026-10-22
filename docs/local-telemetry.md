@@ -68,9 +68,9 @@ An unknown value is `null`. It is never `0`. Older run records do not have many 
 | `risk` | `level`, `verdict`, and `requires_human_review`. |
 | `review` | `total_units`, `cited_count`, `clean_count`, `excluded_count`, and `executor`. |
 | `stages` | For each stage: `status`, `attempts`, `finished_at`, `reused`, and `reason`. `reused` is true when the stage evidence was carried from an equivalent earlier run. `reason` is the recorded reason for a skipped stage only. |
-| `findings` | `total`, counts `by_stage`, `by_severity`, `by_status`, and `by_action`, and `blocking`. `blocking` counts the findings at a blocking severity for their stage, whatever their status. These values are `null` when the run has no findings file. |
+| `findings` | `total`, counts `by_stage`, `by_severity`, `by_status`, and `by_action`, and `blocking`. `blocking` counts the findings at a blocking severity for their stage, whatever their status. A severity that is not text counts as `unknown` in `by_severity` and never as blocking. These values are `null` when the run has no findings file, or when the file is not a list of objects. |
 | `fix_commits`, `validation_restarts` | The number of repair commits, and the number of returns to review. |
-| `event_counts` | The number of events of each name. The `finished`, `aborted`, and `orphaned` markers repeat `state`, and the summary events describe the summary itself. These are not counted. |
+| `event_counts` | The number of events of each name. An event line that is not an object with a text name is not counted. The `finished`, `aborted`, and `orphaned` markers repeat `state`, and the summary events describe the summary itself. These are not counted. |
 | `terminal` | `aborted_forced` for an `abort`, and `orphaned_reason`. |
 | `hosted` | `last_ci_outcome`, from the last recorded hosted check, and `pr_url_recorded`. Only older records contain hosted checks or pull-request URLs. Current versions record neither, so a new run always has `null` and `false`. Do not use these fields to count pull requests. |
 | `worktree_mode`, `pr_mode`, `config_digest` | From the run's configuration snapshot. |
@@ -89,6 +89,8 @@ The command writes a new `summary.json` for every finished run record in that cl
 It then replaces this repository's rows in the mirror.
 The mirror keeps one row for each repository and run ID: the row with the newest `written_at`.
 The repository is identified by `repo.root_commit`, or by `repo.source_worktree_path` when the root commit is unknown.
+A run can be mirrored once with a root commit and once without, for example when Git was not available.
+Rows with the same `run_id`, `created_at`, and `repo.source_worktree_path` are thus also kept as one row, the newest.
 Rows of other repositories keep their exact text.
 The command holds the mirror lock while it writes, and it replaces the file in one step.
 

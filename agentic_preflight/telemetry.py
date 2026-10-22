@@ -25,7 +25,7 @@ import os
 import re
 import subprocess
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -265,25 +265,42 @@ def _blocking_severities(snapshot: Mapping[str, Any], section: str) -> frozenset
     return frozenset(value)
 
 
+def _finding_items(findings: Any) -> list[dict[str, Any]] | None:
+    """The findings as objects, or ``None`` when the file is not a list of objects."""
+    if not isinstance(findings, (list, tuple)):
+        return None
+    items: list[dict[str, Any]] = []
+    for item in findings:
+        if isinstance(item, BaseModel):
+            items.append(item.model_dump(mode="json"))
+        elif isinstance(item, Mapping):
+            items.append(dict(item))
+        else:
+            return None
+    return items
+
+
+def _is_blocking(item: Mapping[str, Any], review: frozenset[str], docs: frozenset[str]) -> bool:
+    """Whether a finding's severity blocks its stage. A non-text severity never does."""
+    severity = item.get("severity")
+    if not isinstance(severity, str):
+        return False
+    return severity in (docs if item.get("stage") == "docs" else review)
+
+
 def _findings_summary(
     findings: Sequence[Finding | Mapping[str, Any]] | None, snapshot: Mapping[str, Any]
 ) -> dict[str, Any]:
+    """Finding counts. All are ``None`` without a findings file or with a malformed one."""
     keys = ("total", "by_stage", "by_severity", "by_status", "by_action", "blocking")
-    if findings is None:
+    items = _finding_items(findings)
+    if items is None:
         return dict.fromkeys(keys)
-    items = [
-        item.model_dump(mode="json") if isinstance(item, BaseModel) else dict(item)
-        for item in findings
-    ]
     review = _blocking_severities(snapshot, "review")
     docs = _blocking_severities(snapshot, "docs")
     blocking: int | None = None
     if review is not None and docs is not None:
-        blocking = sum(
-            1
-            for item in items
-            if item.get("severity") in (docs if item.get("stage") == "docs" else review)
-        )
+        blocking = sum(1 for item in items if _is_blocking(item, review, docs))
     return {
         "total": len(items),
         "by_stage": _tally(item.get("stage") for item in items),
@@ -347,10 +364,17 @@ def _review(record: Mapping[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _event_items(events: Iterable[Any] | None) -> Iterator[Mapping[str, Any]]:
+    """The event log's objects. A line that holds any other JSON value is skipped."""
+    for event in events or ():
+        if isinstance(event, Mapping):
+            yield event
+
+
 def _event_counts(events: Sequence[Mapping[str, Any]] | None) -> dict[str, int] | None:
     if events is None:
         return None
-    names = (event.get("event") for event in events if isinstance(event, Mapping))
+    names = (event.get("event") for event in _event_items(events))
     return _tally(
         name
         for name in names
@@ -368,8 +392,13 @@ def _finished_at(record: Mapping[str, Any], events: Sequence[Mapping[str, Any]] 
     its ``seq`` shows whether ``updated_at`` still belongs to that commit.
     """
     updated = _str(record.get("updated_at"))
-    for event in events or ():
-        if event.get("event") == "state_transition" and event.get("to") in _TERMINAL:
+    for event in _event_items(events):
+        target = event.get("to")
+        if (
+            event.get("event") == "state_transition"
+            and isinstance(target, str)
+            and (target in _TERMINAL)
+        ):
             if updated and event.get("seq") is not None and event.get("seq") == record.get("seq"):
                 return updated
             return _str(event.get("at")) or updated
@@ -390,7 +419,7 @@ def _terminal(
 ) -> dict[str, Any]:
     forced = None
     if state == "ABORTED":
-        for event in reversed(events or ()):
+        for event in reversed(list(_event_items(events))):
             if event.get("event") == "aborted":
                 forced = _bool(event.get("forced"))
                 break
@@ -402,7 +431,7 @@ def _hosted(
 ) -> dict[str, Any]:
     outcome = None
     pr_event = False
-    for event in events or ():
+    for event in _event_items(events):
         name = event.get("event")
         if name == "ci_checked":
             outcome = _str(event.get("outcome"))
@@ -665,14 +694,16 @@ def _read_record(store: Store, run_id: str) -> dict[str, Any]:
     return record
 
 
-def _read_findings(store: Store, run_id: str) -> list[dict[str, Any]] | None:
+def _read_findings(store: Store, run_id: str) -> Any:
+    """The parsed findings file, or ``None`` when there is none.
+
+    A file that is not valid JSON makes the record unreadable. Valid JSON that is
+    not a list of objects gives ``None`` finding counts in the summary.
+    """
     path = store.findings_path(run_id)
     if not path.exists():
         return None
-    findings = _read_json(path, "Findings file")
-    if not isinstance(findings, list) or not all(isinstance(item, dict) for item in findings):
-        raise _Unreadable(path, "invalid", "Findings file is not a list of objects.")
-    return findings
+    return _read_json(path, "Findings file")
 
 
 def _read_events(store: Store, run_id: str) -> list[dict[str, Any]]:
@@ -685,7 +716,7 @@ def _read_events(store: Store, run_id: str) -> list[dict[str, Any]]:
 
 
 def _row_key(row: Any) -> tuple[str, str] | None:
-    """The mirror deduplication key: repository identity and run id."""
+    """The first mirror deduplication key: repository identity and run id."""
     if not isinstance(row, dict) or not isinstance(row.get("run_id"), str):
         return None
     repo = row.get("repo")
@@ -695,49 +726,92 @@ def _row_key(row: Any) -> tuple[str, str] | None:
     return (identity, row["run_id"]) if isinstance(identity, str) and identity else None
 
 
+def _run_key(row: Any) -> tuple[str, str, str] | None:
+    """The second deduplication key, which ``report`` also joins on.
+
+    One run mirrored once with a root commit and once without, for example when
+    Git was unavailable at one write, has two :func:`_row_key` values. Its run
+    ID, start time, and source worktree are still the same.
+    """
+    if not isinstance(row, dict):
+        return None
+    repo = row.get("repo")
+    run_id = _str(row.get("run_id"))
+    created_at = _str(row.get("created_at"))
+    source = _str(repo.get("source_worktree_path")) if isinstance(repo, dict) else None
+    if not (run_id and created_at and source):
+        return None
+    return (run_id, created_at, source)
+
+
+def _root_of(row: Mapping[str, Any]) -> Any:
+    repo = row.get("repo")
+    return repo.get("root_commit") if isinstance(repo, dict) else None
+
+
+def _newest(entries: Iterable[tuple[int, dict[str, Any], str]], key: Any) -> list:
+    """One entry per key: the newest ``written_at``, the later entry on a tie."""
+    kept: dict[Any, tuple[int, dict[str, Any], str]] = {}
+    for entry in sorted(entries, key=lambda item: item[0]):
+        name = key(entry)
+        written = _str(entry[1].get("written_at")) or ""
+        if name not in kept or written >= (_str(kept[name][1].get("written_at")) or ""):
+            kept[name] = entry
+    return list(kept.values())
+
+
 def _merge_mirror(
     lines: list[str], fresh: list[RunSummary], root_commit: str | None
 ) -> tuple[list[str], int, int]:
-    """Replace this repository's rows, keeping the newest per key.
+    """Replace this repository's rows, keeping the newest per run.
 
-    Rows of other repositories, and lines that are not summary rows, keep their
-    exact text. A row of this repository whose run could not be summarized again
-    stays, so an unreadable record is never treated as absent.
+    A row is this repository's when it has this root commit or the key of a
+    fresh row. Another row also joins when its :func:`_run_key` matches one of
+    those rows and it has no root commit, or this clone has none to compare. Rows are deduplicated by :func:`_row_key`, then
+    by :func:`_run_key`, as ``report`` does. Rows of other repositories, and
+    lines that are not summary rows, keep their exact text. A row of this
+    repository whose run could not be summarized again stays, so an unreadable
+    record is never treated as absent.
     """
     fresh_rows = [(summary.model_dump(mode="json"), _row(summary)) for summary in fresh]
-    fresh_keys = {_row_key(row) for row, _ in fresh_rows}
-    preserved: list[str] = []
-    ours: dict[tuple[str, str], tuple[str, dict[str, Any], str]] = {}
-
-    def keep_newest(key: tuple[str, str], row: dict[str, Any], line: str) -> None:
-        written = _str(row.get("written_at")) or ""
-        if key not in ours or written >= ours[key][0]:
-            ours[key] = (written, row, line)
-
-    for line in lines:
+    parsed: list[tuple[int, dict[str, Any] | None, str]] = []
+    for index, line in enumerate(lines):
         if not line.strip():
             continue
         try:
             row = json.loads(line)
         except json.JSONDecodeError:
-            preserved.append(line)
-            continue
-        key = _row_key(row)
-        if key is None or (
-            key not in fresh_keys and (root_commit is None or key[0] != root_commit)
-        ):
-            preserved.append(line)
-            continue
-        keep_newest(key, row, line)
-    for row, line in fresh_rows:
-        key = _row_key(row)
-        if key is not None:
-            keep_newest(key, row, line)
-    mine = sorted(
-        ours.values(),
+            row = None
+        parsed.append((index, row if _row_key(row) is not None else None, line))
+    offset = len(lines)
+    candidates = [(offset + index, row, line) for index, (row, line) in enumerate(fresh_rows)]
+    fresh_keys = {_row_key(row) for _, row, _ in candidates}
+
+    def claimed(row: dict[str, Any]) -> bool:
+        return _row_key(row) in fresh_keys or (
+            root_commit is not None and _root_of(row) == root_commit
+        )
+
+    mine = [(i, row, line) for i, row, line in parsed if row is not None and claimed(row)]
+    runs = {_run_key(row) for _, row, _ in [*mine, *candidates]} - {None}
+    # A matching run key joins a row unless its root commit names another repository.
+    joined = [
+        (i, row, line)
+        for i, row, line in parsed
+        if row is not None
+        and not claimed(row)
+        and (_root_of(row) is None or root_commit is None)
+        and _run_key(row) in runs
+    ]
+    taken = {i for i, _, _ in [*mine, *joined]}
+    preserved = [line for i, _, line in parsed if i not in taken]
+    entries = _newest([*mine, *joined, *candidates], lambda item: _row_key(item[1]))
+    entries = _newest(entries, lambda item: _run_key(item[1]) or ("row", _row_key(item[1])))
+    kept = sorted(
+        entries,
         key=lambda item: (_str(item[1].get("finished_at")) or "", item[1]["run_id"]),
     )
-    return [*preserved, *(line for _, _, line in mine)], len(mine), len(preserved)
+    return [*preserved, *(line for _, _, line in kept)], len(kept), len(preserved)
 
 
 def _rewrite_mirror(
@@ -780,6 +854,23 @@ def _summarize_stored_run(
         ) from exc
 
 
+def _summarize_stored_run_safely(
+    store: Store, run_id: str, identity: RepoIdentity, written_at: str
+) -> RunSummary | None:
+    """:func:`_summarize_stored_run`, with any other failure reported as unreadable."""
+    try:
+        return _summarize_stored_run(store, run_id, identity, written_at)
+    except _Unreadable:
+        raise
+    except Exception as exc:  # one malformed record must not fail the clone
+        # Name only the exception type: its message can quote record values.
+        raise _Unreadable(
+            store.run_dir(run_id),
+            "invalid",
+            f"Run record could not be summarized ({type(exc).__name__}).",
+        ) from exc
+
+
 def rebuild(store: Store, repo_root: Path | str, config: Config) -> dict[str, Any]:
     """Regenerate every terminal run's summary in this clone and its mirror rows.
 
@@ -794,7 +885,7 @@ def rebuild(store: Store, repo_root: Path | str, config: Config) -> dict[str, An
     write_failures: list[dict[str, str]] = []
     for run_id in store.list_runs():
         try:
-            summary = _summarize_stored_run(store, run_id, identity, written_at)
+            summary = _summarize_stored_run_safely(store, run_id, identity, written_at)
         except _Unreadable as exc:
             unreadable.append(
                 {
