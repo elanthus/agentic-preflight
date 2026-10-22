@@ -9,7 +9,7 @@ from typing import Any
 
 import click
 
-from . import gitx, telemetry
+from . import gitx, hooklog, telemetry
 from . import report as reportmod
 from .cli_support import as_error, command, finish
 from .config import load_config
@@ -166,6 +166,13 @@ def report(
     source["mirror"]["enabled"] = config.telemetry.mirror
     filters = reportmod.Filters(since=since, until=until, repo=repo, states=tuple(states))
     kept, filtered_out = reportmod.apply_filters(rows, filters)
+    hooks = reportmod.hook_decisions(
+        reportmod.read_hook_log(hooklog.log_path(config)),
+        clone,
+        all_repos=all_repos,
+        filters=filters,
+        enabled=config.telemetry.hook_log,
+    )
     data = reportmod.build_report(
         kept,
         source=source,
@@ -173,9 +180,27 @@ def report(
         filtered_out=filtered_out,
         output_format=output_format,
         include_rows=include_rows,
+        hook_decisions=hooks,
     )
     instruction, next_command = _guidance(source, config.telemetry.mirror)
+    instruction = _hook_guidance(instruction, hooks["source"])
     finish(Envelope(data=data, next_instruction=instruction, next_command=next_command))
+
+
+def _hook_guidance(instruction: str | None, source: dict[str, Any]) -> str | None:
+    """Add the gaps in the hook decision log to the report's instruction."""
+    parts = [instruction] if instruction else []
+    if source["error"]:
+        parts.append(
+            "The hook decision log exists but cannot be read, so its counts are null. "
+            "Make `data.hook_decisions.source.path` readable, then run the report again."
+        )
+    if source["malformed"]:
+        parts.append(
+            "Some hook decision log lines are not readable decisions and are not counted. "
+            "`data.hook_decisions.source.malformed_lines` lists up to 20 of them by line number."
+        )
+    return " ".join(parts) or None
 
 
 COMMANDS = (report,)

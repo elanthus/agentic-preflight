@@ -31,7 +31,9 @@ recovery path from another worktree in the clone.
 ### `agentic-preflight init [--force] [--no-hook]`
 Installs the pre-push hook and writes `.agentic-preflight.toml` if absent. Refuses to
 replace a pre-push hook it did not write (exit 3, `hook_exists`) — `--force`
-overrides. Does not clobber an existing config. `data.hook_path` is the absolute path
+overrides. A hook that is byte for byte one an earlier version installed is replaced
+with the current script; a hook containing the command with other edits is left as it
+is. Does not clobber an existing config. `data.hook_path` is the absolute path
 Git will execute, `data.hook_installed` confirms that installation left that path
 containing `agentic-preflight hook-check`, and `data.hooks_path_overridden` reports
 whether the effective path is outside the common Git directory's `hooks/` directory.
@@ -530,6 +532,20 @@ The pre-push predicate. Reads git's stdin protocol, consults only the commit's
 `refs/notes/agentic-preflight` note, and exits 0 or 10. Not for you to call — git calls
 it.
 
+After it decides, it appends one JSON line to `hook-decisions.jsonl` in the user-level
+telemetry directory, unless `[telemetry] hook_log = false`: `at`, `repo` (the summary's
+repository identity), `remote` (the remote name from `AGENTIC_PREFLIGHT_PUSH_REMOTE`,
+which the installed hook sets from Git's first argument; a URL is reduced to host and
+path without credentials; `null` when unset), `allowed`, `reason`, and `updates`
+(`local_ref`, `remote_ref`, a seven-character `sha`, and `force`, which is `null` for an
+update the hook did not examine). `reason` is one of `attested`, `already_on_remote`,
+`deletion`, `exempt`, `no_updates`, and `config_unavailable` when allowed, or
+`force_push_refused` and `missing_attestation` when blocked. The write is best effort:
+it waits at most 2 seconds after the decision, ignores every failure, and never changes
+the exit code or the stderr message. `agentic-preflight report` counts these decisions
+in `data.hook_decisions`. See
+[Hook decisions](../../docs/local-telemetry.md#hook-decisions).
+
 ### `agentic-preflight telemetry rebuild`
 Regenerates `summary.json` for every terminal run record in this clone, of run schema 1
 or 2. When `[telemetry] mirror` is true, it also rewrites this repository's rows in the
@@ -619,6 +635,15 @@ recorded failed attempts. A summary does not cross finding status with severity,
 fixed count of blocking findings is a `min` and `max` range. Hosted
 outcomes are counts of recorded values only. Current versions record none, so do not use
 them to count pull requests.
+
+`data.hook_decisions` counts the pre-push hook decisions in `hook-decisions.jsonl`, in
+the same scope and with the same `--repo`, `--since`, and `--until` filters, applied to
+each decision's `at`; `--state` does not apply. It gives `source` (`path`, `enabled`,
+`exists`, `error`, `lines`, `rows`, `malformed`, `malformed_by_reason`,
+`malformed_lines`), `filtered_out`, and `overall` and `by_repo` counts of `decisions`,
+`allowed`, `blocked`, `blocked_share`, `allowed_by_reason`, and `blocked_by_reason`. A
+log that exists but cannot be read sets `source.error` and a null `overall`; it does not
+fail the report.
 
 `data.limits` lists what the counts do not measure. `--format markdown` also renders the
 report as compact Markdown tables in `data.markdown`, which ends with the limits. The

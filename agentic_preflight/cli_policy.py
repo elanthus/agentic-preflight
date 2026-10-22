@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Literal
@@ -156,34 +157,54 @@ def hook_check() -> None:
 
     Deliberately not wrapped in the envelope contract: its consumer is git, not
     the agent, and git judges it by exit code alone.
+
+    Every decision is also appended to the local hook decision log. That happens
+    after the exit code and message are decided, and it cannot change either.
     """
-    from . import gitx
+    from . import gitx, hooklog
     from . import hook as hookmod
     from .config import load_config
 
     raw = sys.stdin.read()
     updates = hookmod.parse_stdin(raw)
+    remote = os.environ.get(hookmod.REMOTE_ENV)
     if not updates:
+        settings = hooklog.load_settings()
+        hooklog.record(
+            hookmod.unevaluated([], hookmod.NO_UPDATES),
+            repo_root=settings[0],
+            config=settings[1],
+            remote=remote,
+        )
         sys.exit(int(ExitCode.OK))
 
+    repo_root: Path | None = None
     try:
         repo_root = gitx.repo_root(Path.cwd())
-        allow_force = load_config(repo_root).hook.allow_force_push
+        config = load_config(repo_root)
     except Exception as exc:  # noqa: BLE001 - an internal failure must not block every push
         sys.stderr.write(f"agentic-preflight: hook check unavailable ({exc}); allowing push\n")
+        hooklog.record(
+            hookmod.unevaluated(updates, hookmod.CONFIG_UNAVAILABLE),
+            repo_root=repo_root,
+            config=None,
+            remote=remote,
+        )
         sys.exit(int(ExitCode.OK))
 
+    # Resolving the repository identity for the log overlaps the evaluation.
+    pending = hooklog.begin(repo_root=repo_root, config=config)
+    root = repo_root
     decision = hookmod.evaluate(
         updates,
-        is_ancestor=lambda a, b: gitx.is_ancestor(repo_root, a, b),
-        has_attestation=lambda sha: _has_valid_attestation(repo_root, sha),
-        allow_force_push=allow_force,
+        is_ancestor=lambda a, b: gitx.is_ancestor(root, a, b),
+        has_attestation=lambda sha: _has_valid_attestation(root, sha),
+        allow_force_push=config.hook.allow_force_push,
     )
-    if decision.allowed:
-        sys.exit(int(ExitCode.OK))
-
-    sys.stderr.write(decision.message + "\n")
-    sys.exit(int(ExitCode.HOOK_BLOCK))
+    if not decision.allowed:
+        sys.stderr.write(decision.message + "\n")
+    pending.finish(decision, remote=remote)
+    sys.exit(int(ExitCode.OK if decision.allowed else ExitCode.HOOK_BLOCK))
 
 
 def _has_valid_attestation(repo_root: Path, sha: str) -> bool:

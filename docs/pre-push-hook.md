@@ -26,14 +26,31 @@ A push of an evidence object to a branch still requires valid publication eviden
 
 The hook never uses the network. It never changes the repository.
 If `agentic-preflight` is not on `PATH`, the hook permits the push and prints a warning.
+That push is not in the hook decision log.
 If the configuration cannot be loaded, the hook also permits the push and prints a warning.
+The log records that decision as `config_unavailable` when the `[telemetry]` preference is still known.
 A teammate who clones a repository without the tool can still push.
 A broken local tool does not block every push.
 
 `git push --no-verify` bypasses the hook.
+A bypassed push leaves no line in the hook decision log.
 This bypass is the documented escape hatch for people.
 The skill instructs agents never to use it.
 When the rule must be enforced, use the fail-closed remote attestation check in [attestations-and-ci.md](attestations-and-ci.md).
+
+## Hook decision log
+
+`hook-check` appends each decision to `hook-decisions.jsonl` in your local telemetry directory.
+The line records the time, the repository, the remote name, the reason code, and each ref update with a seven-character SHA.
+The hook writes the line after it decides. A log failure or a slow write does not change the exit code or the message.
+The file is outside the repository, so the hook still does not change the repository.
+Set `[telemetry] hook_log = false` to stop the log.
+See [Hook decisions](local-telemetry.md#hook-decisions) for the fields, the reason codes, and the report.
+
+The installed hook gives `hook-check` the remote name in the `AGENTIC_PREFLIGHT_PUSH_REMOTE` environment variable.
+Git gives the name to the hook as its first argument.
+An earlier version of `hook-check` ignores the variable, so a newer hook does not block a push with an older tool.
+A hook that an earlier version installed does not set the variable. Its log lines have `remote = null`.
 
 ## Existing hooks
 
@@ -41,9 +58,13 @@ When the rule must be enforced, use the fail-closed remote attestation check in 
 This honors `core.hooksPath`, including paths that tools such as Husky and lefthook configure.
 If no hook exists at the effective path, `init` creates the parent directory and installs the hook there.
 If a foreign hook is already present, `init` refuses to change it and reports its real path.
+If the hook is exactly a hook that an earlier version of `init` installed, `init` replaces it with the current hook.
+`init` does not change a hook that contains other changes.
 
 To compose with Husky or lefthook, add `agentic-preflight hook-check` to their pre-push script at the path that `init` reports.
 Let its nonzero exit stop the push.
+To record the remote name in the decision log, set the variable before the command:
+`AGENTIC_PREFLIGHT_PUSH_REMOTE="$1" agentic-preflight hook-check`.
 `status` reports `hook.path` and `hook.active`.
 `active` is true only when the effective hook contains that command.
 Thus, a `core.hooksPath` change that bypasses the hook is visible in `status`.
