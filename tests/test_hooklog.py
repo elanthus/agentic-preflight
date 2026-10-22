@@ -529,6 +529,32 @@ def test_an_interrupted_line_is_ended_before_the_next_one(tmp_repo, tmp_path):
     assert (read.lines, len(read.decisions), len(read.malformed)) == (2, 1, 1)
 
 
+def test_settings_for_an_up_to_date_push_use_a_bounded_git_call(tmp_repo, tmp_path, monkeypatch):
+    set_home(monkeypatch, tmp_path / "home")
+    write(tmp_repo, ".agentic-preflight.toml", "[telemetry]\nhook_log = false\n")
+    timeouts: list[float | None] = []
+    real_run = gitx.run
+
+    def recording_run(*args, **kwargs):
+        timeouts.append(kwargs.get("timeout"))
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(gitx, "run", recording_run)
+    monkeypatch.chdir(tmp_repo)
+    root, config = hooklog.load_settings()
+
+    assert root == gitx.repo_root(tmp_repo)
+    assert config is not None
+    assert config.telemetry.hook_log is False
+    assert timeouts[0] == hooklog.TIMEOUT_SECONDS
+
+    def hung_git(*args, **kwargs):
+        raise subprocess.TimeoutExpired(["git"], kwargs.get("timeout") or 0)
+
+    monkeypatch.setattr(gitx, "run", hung_git)
+    assert hooklog.load_settings() == (None, None)
+
+
 def test_no_logging_starts_when_it_is_off_or_unknown(tmp_repo, tmp_path, monkeypatch):
     set_home(monkeypatch, tmp_path / "home")
     off = Config(telemetry=TelemetrySection(hook_log=False, path=str(tmp_path / "t")))

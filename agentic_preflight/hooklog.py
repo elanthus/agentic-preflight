@@ -138,12 +138,14 @@ def load_settings() -> tuple[Path | None, Config | None]:
 
     For the path on which ``hook-check`` has not loaded them itself. It never raises,
     and it discards what the configuration loader prints, so ``hook-check``'s stderr
-    stays as it was.
+    stays as it was. The Git call has the log's own time bound, because this runs
+    before the bounded write starts.
     """
     repo_root: Path | None = None
     try:
         with contextlib.redirect_stderr(io.StringIO()):
-            repo_root = gitx.repo_root(Path.cwd())
+            top = gitx.run(Path.cwd(), "rev-parse", "--show-toplevel", timeout=TIMEOUT_SECONDS)
+            repo_root = Path(top.stdout.strip())
             return repo_root, load_config(repo_root)
     except Exception:  # noqa: BLE001 - a broken log must never block or alter a push
         return repo_root, None
