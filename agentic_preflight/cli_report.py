@@ -86,7 +86,7 @@ def _guidance(source: dict[str, Any], mirror_enabled: bool) -> tuple[str | None,
     if source["mirror"]["malformed"]:
         parts.append(
             "Some mirror lines are not readable summaries and are not in the report. "
-            "`data.source.mirror.malformed_lines` lists the first of them."
+            "`data.source.mirror.malformed_lines` lists up to 20 of them by line number."
         )
     return (" ".join(parts) or None), command_text
 
