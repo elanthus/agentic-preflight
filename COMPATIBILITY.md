@@ -304,3 +304,22 @@ It writes only `summary.json` files and the mirror.
 The run event log can contain the new `summary_written` and `summary_failed` events.
 The `aborted` event is now written together with the terminal transition. It carries the transition's `seq`.
 `finish`, `abort`, and `gc` envelopes add `data.telemetry`.
+
+## Hosted outcome records
+
+`agentic-preflight telemetry sync-hosted` writes `hosted.json` in the run directory of each pushed run that it reads.
+The file holds `fetched_at`, `sha`, `pr`, `checks`, `missing`, and `source`.
+It has no schema version. A reader must ignore keys that it does not know.
+The file is derived from GitHub. It never binds evidence.
+No fingerprint, evidence digest, configuration digest, or attestation contains it.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+The run summary stays at `schema_version = 1`.
+Its `hosted` object gets the keys `pr_number`, `pr_state`, `merged`, `checks_conclusion`, and `fetched_at`.
+They are `null` until a sync joins the run.
+Summaries from earlier versions do not have these keys. A reader must count a missing key as `null`.
+`telemetry rebuild` adds the keys to every summary of the clone.
+Earlier tool versions read the new summaries and ignore the new keys.
+They do not read `hosted.json`, so a rebuild with an earlier version writes summaries without the keys.
+
+`report` adds `hosted.synced` to the statistics of each group.

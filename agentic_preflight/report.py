@@ -59,16 +59,24 @@ LIMITS: tuple[str, ...] = (
     "Runs without a client or a model are grouped as `unknown`.",
     "A duration is the wall-clock time from run creation to the terminal commit. "
     "It includes the agent's own working time.",
-    "Hosted outcomes are recorded only when a run observed them. "
-    "Current versions do not record them, so these counts do not count pull requests.",
+    "Recorded hosted outcomes come only from older runs that observed them. "
+    "Current versions do not record them, so those counts do not count pull requests.",
     "An orphaned run can be a replaced attempt, not a failure.",
     "A null value is unknown, not zero. "
     "Each statistic leaves out null values and reports how many runs it left out.",
+    "A failed hosted check is not proof of an escaped defect. "
+    "The check can be flaky, or fail for a reason unrelated to the change.",
+    "Synced hosted outcomes count only the runs that `telemetry sync-hosted` fetched, "
+    "as GitHub reported them at the fetch time. Runs that were not synced are not in them.",
 )
 
 HOSTED_NOTE = (
     "Recorded only when a run observed a hosted outcome. Current versions record none. "
     "Do not use these counts as pull-request or CI counts."
+)
+SYNC_NOTE = (
+    "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. "
+    "A conclusion of `unknown` is a run whose commit GitHub did not know."
 )
 BLOCKING_NOTE = (
     "A summary counts blocking findings and finding statuses separately. "
@@ -579,6 +587,35 @@ def _hosted(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "pr_url_recorded": ratio(sum(urls), len(urls), "runs with a pull-request URL value"),
         "pr_url_excluded_runs": len(rows) - len(urls),
         "note": HOSTED_NOTE,
+        "synced": _hosted_synced(rows),
+    }
+
+
+def _hosted_synced(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Outcomes that ``telemetry sync-hosted`` joined. Every ratio counts synced runs only."""
+    synced = [
+        (row, row.get("hosted") or {})
+        for row in rows
+        if _str((row.get("hosted") or {}).get("fetched_at"))
+    ]
+    with_pr = [item for _, item in synced if _int(item.get("pr_number")) is not None]
+    green_failed = sum(
+        1
+        for row, item in synced
+        if row.get("state") == "DONE" and item.get("checks_conclusion") == "failure"
+    )
+    return {
+        "runs": ratio(len(synced), len(rows), "runs"),
+        "green_checks_failed": ratio(green_failed, len(synced), "synced runs"),
+        "pull_request_found": ratio(len(with_pr), len(synced), "synced runs"),
+        "merged": ratio(
+            sum(1 for item in with_pr if item.get("merged") is True),
+            len(with_pr),
+            "synced runs with a pull request",
+        ),
+        "pr_states": _tally(item.get("pr_state") for item in with_pr),
+        "checks_conclusions": _tally(item.get("checks_conclusion") for _, item in synced),
+        "note": SYNC_NOTE,
     }
 
 
@@ -846,6 +883,53 @@ def _runs_section(metrics: Mapping[str, Any]) -> list[str]:
     ]
 
 
+def _hosted_sync_section(
+    metrics: Mapping[str, Any], repositories: Sequence[Mapping[str, Any]]
+) -> list[str]:
+    synced = metrics["hosted"]["synced"]
+    rows = [
+        _rate_row("Runs synced", synced["runs"], None),
+        _rate_row("Preflight green, hosted checks failed", synced["green_checks_failed"], None),
+        _rate_row("Pull request found", synced["pull_request_found"], None),
+        _rate_row("Pull request merged", synced["merged"], None),
+    ]
+    per_repo = []
+    for group in repositories:
+        item = group["metrics"]["hosted"]["synced"]
+        if item["runs"]["numerator"]:
+            per_repo.append(
+                [
+                    group["label"],
+                    item["runs"]["numerator"],
+                    item["green_checks_failed"]["numerator"],
+                    _percent(item["green_checks_failed"]["value"]),
+                    _fraction(item["merged"]),
+                    _percent(item["merged"]["value"]),
+                ]
+            )
+    repo_headers = [
+        "Repository",
+        "Synced runs",
+        "Green, hosted checks failed",
+        "Share of synced runs",
+        "Merged of synced runs with a pull request",
+        "Merged share",
+    ]
+    return [
+        "### Hosted outcomes synced",
+        "",
+        synced["note"],
+        "",
+        *_table(["Measure", "Rate", "Count", "Denominator", "Excluded runs"], rows),
+        *(
+            _table(["Hosted check conclusion", "Synced runs"], synced["checks_conclusions"].items())
+            if synced["checks_conclusions"]
+            else []
+        ),
+        *(_table(repo_headers, per_repo) if per_repo else []),
+    ]
+
+
 def _findings_section(metrics: Mapping[str, Any]) -> list[str]:
     findings = metrics["findings"]
     blocking = findings["blocking"]
@@ -1026,6 +1110,7 @@ def render_markdown(data: Mapping[str, Any]) -> str:
         "",
         *_source_section(data),
         *_runs_section(overall),
+        *_hosted_sync_section(overall, repositories),
         *_findings_section(overall),
         *_stages_section(overall),
         *_duration_section(overall),

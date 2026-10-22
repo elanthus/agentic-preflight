@@ -581,6 +581,7 @@ def test_markdown_has_the_sections_in_order_and_ends_with_the_limits():
         "Source",
         "Runs",
         "Hosted outcomes recorded",
+        "Hosted outcomes synced",
         "Findings",
         "Stages",
         "Duration",

@@ -328,6 +328,10 @@ def _findings() -> list[dict]:
     ]
 
 
+#: The ``hosted`` keys that only ``telemetry sync-hosted`` fills in.
+NOT_SYNCED = dict.fromkeys(("pr_number", "pr_state", "merged", "checks_conclusion", "fetched_at"))
+
+
 def test_a_schema_1_record_summarizes_with_unknown_values_left_null():
     events = [
         {"event": "run_created", "intent": PRIVATE_INTENT, "at": "2026-07-29T03:54:13+00:00"},
@@ -366,7 +370,7 @@ def test_a_schema_1_record_summarizes_with_unknown_values_left_null():
         "reason": "changes are limited to documentation and CI configuration",
     }
     assert list(row["stages"]) == ["lint", "test"]
-    assert row["hosted"] == {"last_ci_outcome": "merged", "pr_url_recorded": True}
+    assert row["hosted"] == {"last_ci_outcome": "merged", "pr_url_recorded": True, **NOT_SYNCED}
     assert row["event_counts"] == {
         "ci_checked": 2,
         "lint_finished": 1,
@@ -418,7 +422,7 @@ def test_a_schema_2_record_summarizes_reuse_review_findings_and_terminal_facts()
     assert row["fix_commits"] == 2
     assert row["validation_restarts"] == 1
     assert row["terminal"] == {"aborted_forced": True, "orphaned_reason": None}
-    assert row["hosted"] == {"last_ci_outcome": None, "pr_url_recorded": False}
+    assert row["hosted"] == {"last_ci_outcome": None, "pr_url_recorded": False, **NOT_SYNCED}
     assert row["event_counts"] == {"stage_reused": 1, "state_transition": 2}
     assert row["worktree_mode"] == "reusable"
     assert row["pr_mode"] == "manual"
@@ -433,7 +437,7 @@ def test_unavailable_events_are_null_rather_than_zero():
 
     assert row["event_counts"] is None
     assert row["terminal"]["aborted_forced"] is None
-    assert row["hosted"] == {"last_ci_outcome": None, "pr_url_recorded": None}
+    assert row["hosted"] == {"last_ci_outcome": None, "pr_url_recorded": None, **NOT_SYNCED}
     assert row["findings"]["total"] == 0
     assert row["finished_at"] == "2026-10-11T20:10:00+00:00"
 
