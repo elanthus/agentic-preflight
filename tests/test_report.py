@@ -25,7 +25,7 @@ ROOT_A = "a" * 40
 ROOT_B = "b" * 40
 
 FINDINGS_NULL = dict.fromkeys(
-    ("total", "by_stage", "by_severity", "by_status", "by_action", "blocking")
+    ("total", "by_stage", "by_severity", "by_status", "by_action", "by_response_reason", "blocking")
 )
 
 
@@ -322,6 +322,203 @@ def test_an_empty_report_has_null_ratios_not_zero():
     assert metrics["findings"]["blocking"]["fixed_share"]["min"] is None
     assert metrics["findings"]["review_findings_per_100_units"]["value"] is None
     assert metrics["stages"] == {}
+    assert metrics["finding_responses"]["responses"] is None
+    assert metrics["finding_responses"]["perceived_false_positive_share"]["value"] is None
+    assert metrics["time_in_stages"]["total_seconds"] is None
+    assert metrics["time_in_stages"]["review_share"]["value"] is None
+    assert metrics["abort_reasons"] == {"runs": 0, "by_reason": {}, "by_state": {}}
+
+
+# -- reasons and timing -----------------------------------------------------------
+
+
+def _responded(statuses: dict[str, int], reasons: dict[str, int]) -> dict[str, Any]:
+    total = sum(statuses.values())
+    return {
+        "total": total,
+        "by_stage": {"review": total},
+        "by_severity": {"low": total},
+        "by_status": statuses,
+        "by_action": {"no_op": total},
+        "by_response_reason": reasons,
+        "blocking": 0,
+    }
+
+
+def _timed_stage(status: str, duration: float | None, reused: bool | None = False) -> dict:
+    return {
+        **_stage(status, reused=reused),
+        "started_at": None,
+        "duration_seconds": duration,
+    }
+
+
+def _timing(review: float, shell: float, other: float, complete: bool = True) -> dict:
+    return {
+        "complete": complete,
+        "states": {
+            "SYNC_RUNNING": {"visits": 1, "seconds": other},
+            "REVIEW_AWAITING_FINDINGS": {"visits": 1, "seconds": review},
+            "TEST_RUNNING": {"visits": 1, "seconds": shell},
+        },
+        "review_wall_seconds": review if complete else None,
+        "shell_wall_seconds": shell if complete else None,
+    }
+
+
+def _reason_rows() -> list[dict[str, Any]]:
+    return [
+        make_row(
+            "r_0000000001",
+            findings=_responded(
+                {"dismissed": 2, "accepted": 1, "fixed": 1, "open": 1},
+                {"false_positive": 1, "accepted_risk": 1, "unspecified": 1},
+            ),
+            timing=_timing(60.0, 120.0, 20.0),
+        ),
+        make_row(
+            "r_0000000002",
+            repo=OTHER_REPO,
+            findings=_responded({"dismissed": 2, "fixed": 2}, {"false_positive": 2}),
+            timing=_timing(30.0, 0.0, 10.0),
+        ),
+        make_row(
+            "r_0000000003",
+            state="ABORTED",
+            terminal={
+                "aborted_forced": False,
+                "abort_reason": "superseded",
+                "aborted_from_state": "LINT_RED",
+                "orphaned_reason": None,
+            },
+            timing=_timing(5.0, 5.0, 5.0, complete=False),
+        ),
+        # A summary from before reasons and timing existed.
+        make_row(
+            "r_0000000004",
+            state="ABORTED",
+            terminal={"aborted_forced": True, "orphaned_reason": None},
+        ),
+    ]
+
+
+def test_finding_responses_give_reasons_and_a_perceived_false_positive_share():
+    responses = report.aggregate(_reason_rows())["finding_responses"]
+
+    # Rows three and four have summaries from before reason counts.
+    assert (responses["runs_observed"], responses["excluded_runs"]) == (2, 2)
+    assert responses["by_reason"] == {"accepted_risk": 1, "false_positive": 3, "unspecified": 1}
+    assert responses["responses"] == 8
+    share = responses["perceived_false_positive_share"]
+    assert share["denominator_label"] == "findings with a recorded response"
+    assert (share["numerator"], share["denominator"], share["value"]) == (3, 8, 0.375)
+    # The unspecified dismissal could be a false positive too.
+    assert (share["numerator_max"], share["max"], share["exact"]) == (4, 0.5, False)
+    assert responses["unspecified"] == report.ratio(1, 5, "dismissed or accepted findings")
+
+
+def test_finding_responses_are_counted_for_each_repository():
+    widget, gadget = sorted(report.by_repo(_reason_rows()), key=lambda group: group["name"])[::-1]
+
+    gadget_share = gadget["metrics"]["finding_responses"]["perceived_false_positive_share"]
+    assert gadget["name"] == "gadget"
+    assert (gadget_share["value"], gadget_share["exact"]) == (0.5, True)
+    assert widget["metrics"]["finding_responses"]["by_reason"] == {
+        "accepted_risk": 1,
+        "false_positive": 1,
+        "unspecified": 1,
+    }
+
+
+def test_summaries_without_reason_counts_leave_the_share_unknown():
+    responses = report.aggregate(_mixed_rows())["finding_responses"]
+
+    assert responses["runs_observed"] == 0
+    assert responses["responses"] is None
+    assert responses["perceived_false_positive_share"]["value"] is None
+    assert responses["unspecified"]["value"] is None
+
+
+def test_aborts_are_counted_by_reason_and_by_the_state_they_left():
+    aborts = report.aggregate(_reason_rows())["abort_reasons"]
+
+    assert aborts == {
+        "runs": 2,
+        "by_reason": {"superseded": 1, "unspecified": 1},
+        "by_state": {"LINT_RED": 1, "unknown": 1},
+    }
+
+
+def test_stage_durations_have_a_median_and_p90_only_with_enough_observations():
+    durations = (10.0, 50.0, 20.0, 40.0, 30.0)
+    rows = [
+        make_row(
+            f"r_000000000{index}",
+            stages={
+                "review": _timed_stage("green", seconds),
+                "lint": _timed_stage("green", None if index > 2 else 4.0),
+            },
+        )
+        for index, seconds in enumerate(durations, start=1)
+    ]
+    rows.append(make_row("r_0000000006", stages={"review": _timed_stage("green", None, True)}))
+
+    stages = report.aggregate(rows)["stages"]
+
+    review = stages["review"]["duration_seconds"]
+    assert (review["observations"], review["excluded_runs"]) == (5, 1)
+    assert (review["median"], review["p90"]) == (30.0, 46.0)
+    lint = stages["lint"]["duration_seconds"]
+    assert (lint["observations"], lint["median"], lint["p90"]) == (2, None, None)
+    assert lint["note"].startswith("Fewer than 5 observations")
+    # Older summaries have no stage durations at all.
+    old = report.aggregate(_mixed_rows())["stages"]["lint"]["duration_seconds"]
+    assert (old["observations"], old["excluded_runs"]) == (0, 3)
+
+
+def test_time_in_stages_uses_only_runs_with_a_complete_transition_history():
+    split = report.aggregate(_reason_rows())["time_in_stages"]
+
+    assert (split["runs_observed"], split["excluded_runs"]) == (2, 2)
+    assert split["total_seconds"] == 240.0
+    label = "seconds in runs with a complete transition history"
+    assert split["review_share"] == {
+        "value": 0.375,
+        "numerator": 90.0,
+        "denominator": 240.0,
+        "denominator_label": label,
+    }
+    assert split["shell_share"]["value"] == 0.5
+
+
+def test_markdown_renders_reasons_aborts_and_stage_times():
+    text = _markdown(_reason_rows())
+
+    responses = text.split("### Finding responses\n\n", 1)[1].split("### Stages", 1)[0]
+    assert (
+        "| Perceived false-positive share | 37.5% to 50.0% | 3 to 4 "
+        "| findings with a recorded response: 8 | 2 |"
+    ) in responses
+    assert "| Dismissed or accepted without a reason | 20.0% | 1 |" in responses
+    assert "| false_positive | 3 |" in responses
+    assert "| gadget (gitlab.example/team/gadget) | false_positive | 2 |" in responses
+    assert "| gadget (gitlab.example/team/gadget) | 50.0% | 2 |" in responses
+    aborts = text.split("### Abort reasons\n\n", 1)[1].split("### By repository", 1)[0]
+    assert "| superseded | 1 |" in aborts
+    assert "| LINT_RED | 1 |" in aborts
+    duration = text.split("### Duration\n\n", 1)[1].split("### Selected events", 1)[0]
+    assert "| Review and docs states | 37.5% | 1m 30s |" in duration
+    assert "| Lint and test states | 50.0% | 2m 00s |" in duration
+    assert "| widget (github.com/owner/widget) | 1 | 30.0% | 60.0% |" in duration
+    stages = text.split("### Stages\n\n", 1)[1].split("### Duration", 1)[0]
+    assert "| Stage | Duration observations | Excluded runs | Median | p90 |" in stages
+
+
+def test_markdown_leaves_out_abort_reasons_without_aborted_runs():
+    text = _markdown([make_row("r_0000000001")])
+
+    assert "### Abort reasons" not in text
+    assert "### Finding responses" in text
 
 
 # -- filters --------------------------------------------------------------------
@@ -582,10 +779,12 @@ def test_markdown_has_the_sections_in_order_and_ends_with_the_limits():
         "Runs",
         "Hosted outcomes recorded",
         "Findings",
+        "Finding responses",
         "Stages",
         "Duration",
         "Selected events",
         "Orphaned reasons",
+        "Abort reasons",
         "By repository",
         "By client",
         "By reported model",

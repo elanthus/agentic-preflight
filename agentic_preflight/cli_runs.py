@@ -15,6 +15,7 @@ from .cli_support import (
     open_cli_session,
     read_json_file,
 )
+from .models import ABORT_REASONS, RESPONSE_REASONS, AbortReason, ResponseReason
 from .runs.start import normalize_client, normalize_model
 
 
@@ -154,8 +155,20 @@ def review_contracts(file_path: str) -> None:
     "--commit", default=None, help="Commit that fixes it (required for `fixed`, refused otherwise)."
 )
 @click.option("--note", default=None, help="Why it was dismissed or accepted.")
+@click.option(
+    "--reason",
+    default=None,
+    type=click.Choice(RESPONSE_REASONS),
+    help="The closest reason for a dismissal or acceptance (refused for `fixed`).",
+)
 @command
-def respond(finding_id: str, action: str, commit: str | None, note: str | None) -> None:
+def respond(
+    finding_id: str,
+    action: str,
+    commit: str | None,
+    note: str | None,
+    reason: ResponseReason | None,
+) -> None:
     """Resolve one finding. Claims about commits are verified, not trusted."""
     if commit is not None and action != "fixed":
         fail_usage(
@@ -164,9 +177,21 @@ def respond(finding_id: str, action: str, commit: str | None, note: str | None) 
                 ctx=click.get_current_context(),
             )
         )
+    if reason is not None and action == "fixed":
+        fail_usage(
+            click.UsageError(
+                "--reason is only valid with --action dismissed or accepted, not --action fixed",
+                ctx=click.get_current_context(),
+            )
+        )
     finish_locked(
         lambda session: runs.respond(
-            session, finding_id=finding_id, action=action, commit=commit, note=note
+            session,
+            finding_id=finding_id,
+            action=action,
+            commit=commit,
+            note=note,
+            reason=reason,
         )
     )
 
@@ -241,10 +266,16 @@ def logs(stage_name: str) -> None:
 
 @click.command()
 @click.option("--force", is_flag=True, help="Discard unmerged fix commits.")
+@click.option(
+    "--reason",
+    default=None,
+    type=click.Choice(ABORT_REASONS),
+    help="The closest reason the run is being ended.",
+)
 @command
-def abort(force: bool) -> None:
+def abort(force: bool, reason: AbortReason | None) -> None:
     """End the run and release its validation worktree."""
-    finish_locked(lambda session: runs.abort(session, force=force))
+    finish_locked(lambda session: runs.abort(session, force=force, reason=reason))
 
 
 @click.command()

@@ -66,6 +66,7 @@ def check_baseline(
                 attempts=previous.attempts + 1,
                 command=command,
                 reason=exc.reason,
+                started_at=previous.started_at,
                 finished_at=_now(),
                 head_sha=gitx.rev_parse(wt, "HEAD"),
             )

@@ -17,7 +17,7 @@ from agentic_preflight.cli import main
 from agentic_preflight.config import Config
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.machine import State
-from agentic_preflight.models import Attestation
+from agentic_preflight.models import ABORT_REASONS, RESPONSE_REASONS, Attestation
 
 SKILL_DIR = Path(__file__).parent.parent / "skill"
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -297,6 +297,42 @@ def test_the_skill_documents_the_findings_id_prohibition():
         text = doc.read_text(encoding="utf-8")
         assert "`id`" in text or '"id"' in text
         assert "stage" in text
+
+
+def _section(text: str, heading: str) -> str:
+    """The body under one Markdown heading, up to the next heading of any level."""
+    match = re.search(rf"^#+ {re.escape(heading)}.*?\n(.*?)(?=^#+ |\Z)", text, re.DOTALL | re.M)
+    assert match, f"missing section {heading!r}"
+    return match.group(1)
+
+
+@pytest.mark.parametrize(
+    ("command", "vocabulary"),
+    [("respond", RESPONSE_REASONS), ("abort", ABORT_REASONS)],
+)
+def test_reason_vocabularies_match_the_cli_and_every_reference(command, vocabulary):
+    option = next(param for param in main.commands[command].params if param.name == "reason")
+    assert tuple(option.type.choices) == vocabulary
+    commands = (REFERENCE / "commands.md").read_text(encoding="utf-8")
+    playbook = _section(
+        (REFERENCE / "playbooks.md").read_text(encoding="utf-8"),
+        "Record a dismissal, acceptance, or abort",
+    )
+    telemetry = _section(
+        (PROJECT_ROOT / "docs" / "local-telemetry.md").read_text(encoding="utf-8"),
+        "Reasons for responses and aborts",
+    )
+    reference = _section(commands, f"`agentic-preflight {command} ")
+    for reason in vocabulary:
+        for name, text in (("commands.md", reference), ("playbooks.md", playbook)):
+            assert f"`{reason}`" in text, f"{name} does not document {command} {reason}"
+        assert f"`{reason}`" in telemetry, f"local-telemetry.md does not document {reason}"
+
+
+def test_the_skill_tells_agents_to_always_pass_a_reason():
+    text = SKILL.read_text(encoding="utf-8")
+    assert "Always pass `--reason`" in text
+    assert "Record a dismissal, acceptance, or abort" in playbook_index()
 
 
 # -- the help text itself -------------------------------------------------

@@ -557,7 +557,11 @@ def test_interrupted_legacy_evidence_is_never_reused_after_retirement(feature_re
     assert fresh.state.value == "REVIEW_AWAITING_FINDINGS"
     assert fresh.evidence == {}
     assert fresh.reuse_candidates == {}
-    assert fresh.stages == {}
+    # Only the start of the fresh review is recorded; no stage result carried over.
+    assert list(fresh.stages) == [Stage.REVIEW]
+    review = fresh.stages[Stage.REVIEW]
+    assert (review.status, review.finished_at, review.fingerprint) == ("pending", None, None)
+    assert review.started_at is not None
     assert agent.run("status")["state"] == "REVIEW_AWAITING_FINDINGS"
 
     # With the journal gone, later discovery must still exclude the old green
@@ -570,7 +574,8 @@ def test_interrupted_legacy_evidence_is_never_reused_after_retirement(feature_re
     assert later.state.value == "REVIEW_AWAITING_FINDINGS"
     assert later.evidence == {}
     assert later.reuse_candidates == {}
-    assert later.stages == {}
+    assert list(later.stages) == [Stage.REVIEW]
+    assert later.stages[Stage.REVIEW].finished_at is None
 
 
 def _corrupt_origin(item, mutation):
