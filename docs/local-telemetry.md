@@ -348,3 +348,91 @@ Older records do not have some fields. Those values are `null`, so count them as
 Response and abort reasons are labels that the agent chose. They tell you what the agent judged, not what was true.
 The perceived false-positive share is not a measured false-positive rate.
 Stage and state times include the agent's working time and any wait for the user.
+
+## Hook decisions
+
+The pre-push hook runs `agentic-preflight hook-check`.
+For each decision, `hook-check` appends one JSON line, with sorted keys, to `hook-decisions.jsonl` in the telemetry directory.
+That file is in the same directory as `runs.jsonl`. See [Where the mirror is](#where-the-mirror-is).
+The log is local only. The hook makes no network request, and it writes nothing in the repository.
+
+`hook-check` decides its exit code and its message before it writes the line.
+The log cannot change either of them.
+
+### What a decision line contains
+
+| Field | Value |
+|---|---|
+| `at` | The time of the decision, in UTC, to the second. |
+| `repo` | The repository identity, with the same fields as `repo` in a summary. `source_worktree_path` is the worktree that ran the hook. |
+| `remote` | The remote name that Git gave the hook, for example `origin`. When a push names a URL instead of a remote, the URL is recorded as host and path, without credentials. The value is `null` when the hook did not get a name. |
+| `allowed` | `true` when the hook allowed the push, `false` when it blocked the push. |
+| `reason` | The reason code. The next table lists the codes. |
+| `updates` | One item for each ref update that Git sent: `local_ref`, `remote_ref`, `sha`, and `force`. `sha` is the first seven characters of the pushed commit. `force` is `true` when the update rewrites history that the remote has. `force` is `null` when the hook did not examine the update. |
+
+| Reason | Allowed | Meaning |
+|---|---|---|
+| `attested` | yes | Each update that needs an attestation has a valid one. |
+| `already_on_remote` | yes | No update needs an attestation. At least one update moves a ref to a commit that the remote already has. |
+| `deletion` | yes | Each update deletes a ref. |
+| `exempt` | yes | Each update is a tag, the attestation notes ref, an evidence ref, or a deletion. Not all of them are deletions. |
+| `no_updates` | yes | Git sent no update. Git runs the hook this way when the remote is already up to date. |
+| `config_unavailable` | yes | The hook could not load the repository or its configuration. It allowed the push without a check. |
+| `force_push_refused` | no | An update rewrites history that the remote has, and `[hook] allow_force_push` is false. |
+| `missing_attestation` | no | The new tip of an update has no valid attestation note for publication. |
+
+The first update that blocks the push sets the reason.
+The hook does not examine the updates after it, so their `force` is `null`.
+The hook also does not examine an exempt update, so its `force` is `null`.
+A line never contains the block message, a full commit SHA, credentials, or command output.
+
+### Turn the log off
+
+Set `[telemetry] hook_log = false` in your user file to stop the log.
+See [the configuration reference](configuration.md#local-run-telemetry-telemetry).
+`[telemetry] path` moves the log together with the mirror.
+
+When the configuration cannot be loaded, the hook reads only the `[telemetry]` section of each configuration file.
+A repository section replaces your section, as usual.
+If a configuration file is not valid TOML, or if the section is not valid, the hook does not know your preference.
+It then logs nothing.
+
+### When a line is not written
+
+The log is best effort.
+After the decision, the hook waits for the log for 2 seconds at most.
+That time includes the repository identity, the lock, and the write. A write that takes longer is abandoned.
+The hook ignores every log failure, for example a directory that it cannot write.
+The push then continues with the same exit code and the same message.
+Writers hold `hook-decisions.jsonl.lock` in the same directory while they append.
+
+These pushes leave no line:
+
+- A push with `git push --no-verify`, because Git does not run the hook.
+- A push that the installed hook allowed because `agentic-preflight` is not on `PATH`. The hook script stops before it runs `hook-check`.
+- A push whose line could not be written in time, or at all.
+
+A hook that an earlier version installed does not give `hook-check` the remote name, so its lines have `remote = null`.
+Run `agentic-preflight init` to replace that hook. See [the pre-push hook](pre-push-hook.md#hook-decision-log).
+
+### Count the decisions
+
+`agentic-preflight report` reads the log and counts the decisions in `data.hook_decisions`.
+The Markdown shows them in the "Hook decisions" section, before the limits.
+
+The report selects decisions as it selects runs:
+
+- Without options, it counts the decisions of the current repository. A decision belongs to the repository by its `repo.root_commit`, or by its worktree path when the root commit is unknown.
+- `--all-repos` counts the decisions of all repositories.
+- `--repo` keeps the repositories whose name or remote matches.
+- `--since` and `--until` use the `at` time of the decision.
+- `--state` does not apply to decisions.
+
+`data.hook_decisions` contains these items:
+
+- `source`: `path`, `enabled`, `exists`, `error`, `lines`, `rows`, `malformed`, `malformed_by_reason`, and `malformed_lines`. A malformed line is counted, and `malformed_lines` lists the first 20 by line number.
+- `filtered_out`: the decisions that `scope`, `repo`, `since`, `until`, and `time_unknown` left out, and their `total`.
+- `overall`, and `metrics` for each item of `by_repo`: `decisions`, `allowed`, `blocked`, `blocked_share`, `allowed_by_reason`, and `blocked_by_reason`. `blocked_share` names its denominator, "hook decisions".
+
+When the log exists but cannot be read, `source.error` gives the error, and `overall` is `null`. The report does not fail.
+A decision is not a push. Git can still fail a push that the hook allowed, and an agent often retries a blocked push.

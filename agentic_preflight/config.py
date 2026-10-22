@@ -190,7 +190,7 @@ class HookSection(_Section):
 
 
 class TelemetrySection(_Section):
-    """Where finished runs are summarized for the user, on this machine only.
+    """Where finished runs and hook decisions are recorded for the user, on this machine only.
 
     Telemetry is derived output. The section is excluded from configuration
     snapshots, so it never changes a configuration digest, never binds stage
@@ -199,6 +199,8 @@ class TelemetrySection(_Section):
     """
 
     mirror: bool = True
+    #: Append each pre-push hook decision to ``hook-decisions.jsonl``.
+    hook_log: bool = True
     path: str | None = None
 
     @field_validator("path")

@@ -27,7 +27,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from . import telemetry
+from . import hooklog, telemetry
 from .models import Stage
 from .store import Store
 
@@ -79,6 +79,9 @@ LIMITS: tuple[str, ...] = (
     "The check can be flaky, or fail for a reason unrelated to the change.",
     "Synced hosted outcomes count only the runs that `telemetry sync-hosted` fetched, "
     "as GitHub reported them at the fetch time. Runs that were not synced are not in them.",
+    "`git push --no-verify` skips the pre-push hook, so a bypassed push leaves no hook decision.",
+    "A push that the installed hook allowed because `agentic-preflight` was not on `PATH` "
+    "is not logged. Neither is a decision whose log write failed or did not finish in time.",
 )
 
 HOSTED_NOTE = (
@@ -871,8 +874,12 @@ def build_report(
     filtered_out: dict[str, int],
     output_format: str = "json",
     include_rows: bool = False,
+    hook_decisions: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """The report ``data``: source, filters, aggregates, limits, and optional rows."""
+    """The report ``data``: source, filters, aggregates, limits, and optional rows.
+
+    ``hook_decisions`` is the :func:`hook_decisions` section, or ``None`` to leave it out.
+    """
     data: dict[str, Any] = {
         "format": output_format,
         "source": source,
@@ -883,6 +890,7 @@ def build_report(
         "by_repo": by_repo(rows),
         "by_client": by_producer(rows, "client"),
         "by_model": by_producer(rows, "reported_model"),
+        "hook_decisions": hook_decisions,
         "limits": list(LIMITS),
         "markdown": None,
         "rows": list(rows) if include_rows else None,
@@ -890,6 +898,174 @@ def build_report(
     if output_format == "markdown":
         data["markdown"] = render_markdown(data)
     return data
+
+
+# -- hook decisions --------------------------------------------------------------
+
+HOOK_NOTE = (
+    "Each row is one pre-push hook decision, not one push. "
+    "Git can still fail an allowed push, and a blocked push is often retried. "
+    "The state filter does not apply to hook decisions."
+)
+#: The reasons a hook decision is left out, in the order they are checked.
+HOOK_FILTERS = ("scope", "repo", "since", "until", "time_unknown")
+
+
+@dataclass
+class HookLogRead:
+    """The decisions read from ``hook-decisions.jsonl``, and every line that could not be used."""
+
+    path: str
+    exists: bool
+    error: str | None = None
+    lines: int = 0
+    decisions: list[dict[str, Any]] = field(default_factory=list)
+    malformed: list[dict[str, Any]] = field(default_factory=list)
+
+    def describe(self) -> dict[str, Any]:
+        return {
+            "path": self.path,
+            "exists": self.exists,
+            "error": self.error,
+            "lines": self.lines,
+            "rows": len(self.decisions),
+            "malformed": len(self.malformed),
+            "malformed_by_reason": _tally(item["reason"] for item in self.malformed),
+            "malformed_lines": self.malformed[:MALFORMED_LINE_LIMIT],
+        }
+
+
+def _parse_decision(raw: bytes) -> tuple[dict[str, Any] | None, str | None]:
+    """Return a validated hook decision, or the reason the line is not one."""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None, "undecodable"
+    try:
+        row = json.loads(text)
+    except json.JSONDecodeError:
+        return None, "invalid_json"
+    if not isinstance(row, dict):
+        return None, "not_a_decision"
+    try:
+        line = hooklog.HookDecisionLine.model_validate(row)
+    except ValidationError:
+        return None, "invalid_decision"
+    return line.model_dump(mode="json"), None
+
+
+def parse_hook_log(payload: bytes, path: Path | str) -> HookLogRead:
+    """Read hook log bytes line by line. A bad line is counted, never skipped silently."""
+    result = HookLogRead(path=str(path), exists=True)
+    for number, raw in enumerate(payload.split(b"\n"), start=1):
+        if not raw.strip():
+            continue
+        result.lines += 1
+        row, reason = _parse_decision(raw)
+        if row is None:
+            result.malformed.append({"line": number, "reason": reason})
+        else:
+            result.decisions.append(row)
+    return result
+
+
+def read_hook_log(path: Path) -> HookLogRead:
+    """Read the hook log. A missing file has no decisions; another read error is recorded."""
+    try:
+        payload = path.read_bytes()
+    except FileNotFoundError:
+        return HookLogRead(path=str(path), exists=False)
+    except OSError as exc:
+        return HookLogRead(path=str(path), exists=True, error=telemetry._describe(exc))
+    return parse_hook_log(payload, path)
+
+
+def _hook_excluded_by(row: Mapping[str, Any], clone: Clone | None, filters: Filters) -> str | None:
+    if clone is not None and not belongs_to_clone(
+        row, clone.identity.root_commit, clone.worktree_paths
+    ):
+        return "scope"
+    if filters.repo is not None and not matches_repo(row, filters.repo):
+        return "repo"
+    if filters.since is None and filters.until is None:
+        return None
+    at = _timestamp(row.get("at"))
+    if at is None:
+        return "time_unknown"
+    if filters.since is not None and at < filters.since:
+        return "since"
+    if filters.until is not None and at >= filters.until:
+        return "until"
+    return None
+
+
+def _hook_counts(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    allowed = sum(1 for row in rows if row.get("allowed") is True)
+    blocked = len(rows) - allowed
+    return {
+        "decisions": len(rows),
+        "allowed": allowed,
+        "blocked": blocked,
+        "blocked_share": ratio(blocked, len(rows), "hook decisions"),
+        "allowed_by_reason": _tally(row.get("reason") for row in rows if row.get("allowed")),
+        "blocked_by_reason": _tally(row.get("reason") for row in rows if not row.get("allowed")),
+    }
+
+
+def _hook_order(row: Mapping[str, Any]) -> str:
+    return _str(row.get("at")) or ""
+
+
+def hook_decisions_by_repo(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """One group per repository, named by its latest decision."""
+    result = []
+    for key, members in _groups(rows, repo_key).items():
+        repo = max(members, key=_hook_order).get("repo") or {}
+        result.append(
+            {
+                "key": key,
+                "label": repo.get("name") or repo.get("remote") or key,
+                "name": repo.get("name"),
+                "remote": repo.get("remote"),
+                "root_commit": repo.get("root_commit"),
+                "metrics": _hook_counts(members),
+            }
+        )
+    return sorted(result, key=lambda item: (-item["metrics"]["decisions"], str(item["label"])))
+
+
+def hook_decisions(
+    log: HookLogRead,
+    clone: Clone | None,
+    *,
+    all_repos: bool,
+    filters: Filters,
+    enabled: bool | None = None,
+) -> dict[str, Any]:
+    """The "Hook decisions" section: allowed and blocked counts, overall and per repository.
+
+    The scope, ``--repo``, ``--since``, and ``--until`` select decisions as they
+    select runs, with the decision's ``at`` time in place of ``finished_at``.
+    ``--state`` does not apply. When the log cannot be read, the counts are null.
+    """
+    scoped = None if all_repos else clone
+    left_out = dict.fromkeys(HOOK_FILTERS, 0)
+    kept: list[dict[str, Any]] = []
+    for row in log.decisions:
+        reason = _hook_excluded_by(row, scoped, filters)
+        if reason is None:
+            kept.append(row)
+        else:
+            left_out[reason] += 1
+    readable = log.error is None
+    return {
+        "source": {**log.describe(), "enabled": enabled},
+        "scope": "clone" if scoped is not None else "all",
+        "filtered_out": {**left_out, "total": sum(left_out.values())},
+        "overall": _hook_counts(kept) if readable else None,
+        "by_repo": hook_decisions_by_repo(kept) if readable else [],
+        "note": HOOK_NOTE,
+    }
 
 
 # -- Markdown ------------------------------------------------------------------
@@ -1397,6 +1573,65 @@ def _group_section(title: str, header: str, groups: Sequence[Mapping[str, Any]])
     return [f"### {title}", "", *_table(headers, rows)]
 
 
+def _yes_no(value: Any) -> str:
+    return "n/a" if value is None else ("yes" if value else "no")
+
+
+def _hook_section(data: Mapping[str, Any]) -> list[str]:
+    hooks = data.get("hook_decisions")
+    if hooks is None:
+        return []
+    source = hooks["source"]
+    overall = hooks["overall"]
+    share = overall["blocked_share"] if overall else None
+    rows: list[list[Any]] = [
+        ["Hook log path", f"`{source['path']}`"],
+        ["Hook log enabled", _yes_no(source["enabled"])],
+        ["Hook log file exists", _yes_no(source["exists"])],
+        ["Hook log readable", _yes_no(source["error"] is None)],
+        ["Hook log lines read", source["lines"]],
+        ["Malformed hook log lines", source["malformed"]],
+        ["Decisions left out by scope and filters", hooks["filtered_out"]["total"]],
+        ["Decisions in this report", overall["decisions"] if overall else None],
+        ["Allowed", overall["allowed"] if overall else None],
+        ["Blocked", overall["blocked"] if overall else None],
+        [
+            "Blocked share",
+            f"{_percent(share['value'])} ({_fraction(share)} {share['denominator_label']})"
+            if share
+            else None,
+        ],
+    ]
+    reasons = [
+        [outcome, reason, count]
+        for outcome, key in (("allowed", "allowed_by_reason"), ("blocked", "blocked_by_reason"))
+        for reason, count in (overall[key] if overall else {}).items()
+    ]
+    repositories = [
+        [
+            f"{group['label']} ({group['remote']})" if group["remote"] else group["label"],
+            group["metrics"]["decisions"],
+            group["metrics"]["allowed"],
+            group["metrics"]["blocked"],
+            _percent(group["metrics"]["blocked_share"]["value"]),
+        ]
+        for group in hooks["by_repo"]
+    ]
+    return [
+        "### Hook decisions",
+        "",
+        hooks["note"],
+        "",
+        *_table(["Measure", "Value"], rows),
+        *(_table(["Decision", "Reason", "Decisions"], reasons) if reasons else []),
+        *(
+            _table(["Repository", "Decisions", "Allowed", "Blocked", "Blocked share"], repositories)
+            if repositories
+            else []
+        ),
+    ]
+
+
 def render_markdown(data: Mapping[str, Any]) -> str:
     """A compact report for a person. Numbers appear in tables only."""
     overall = data["overall"]
@@ -1422,6 +1657,7 @@ def render_markdown(data: Mapping[str, Any]) -> str:
         *_group_section("By repository", "Repository", repositories),
         *_group_section("By client", "Client", data["by_client"]),
         *_group_section("By reported model", "Reported model", data["by_model"]),
+        *_hook_section(data),
         "### Limits",
         "",
         *(f"- {limit}" for limit in data["limits"]),

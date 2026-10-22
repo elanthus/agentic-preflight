@@ -224,7 +224,7 @@ def test_evaluate_directly_blocks_a_non_fast_forward_green_tip():
 
     blocked = hook.evaluate([update], is_ancestor=lambda *_: False, has_attestation=lambda _: True)
     assert blocked.allowed is False
-    assert blocked.reason == "force push"
+    assert blocked.reason == hook.FORCE_PUSH_REFUSED
     assert "rewrites history" in blocked.message
 
 
@@ -554,4 +554,4 @@ def test_a_new_branch_commit_without_attestation_is_still_blocked():
         has_attestation=lambda _: False,
     )
     assert decision.allowed is False
-    assert decision.reason == "not green"
+    assert decision.reason == hook.MISSING_ATTESTATION

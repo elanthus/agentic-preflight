@@ -345,3 +345,26 @@ Earlier tool versions read the new summaries and ignore the new keys.
 They do not read `hosted.json`, so a rebuild with an earlier version writes summaries without the keys.
 
 `report` adds `hosted.synced` to the statistics of each group.
+
+## Hook decision log
+
+`hook-check` now appends each pre-push decision to `hook-decisions.jsonl` in the telemetry directory, beside `runs.jsonl`.
+The file is a new stored format: one JSON object on each line, with the keys `at`, `repo`, `remote`, `allowed`, `reason`, and `updates`.
+The lines have no schema version. A later version that changes the shape adds a `schema_version` key.
+This version counts a line with an unknown key as malformed. It never treats that line as absent.
+The reason codes are a closed set. See [Hook decisions](docs/local-telemetry.md#hook-decisions).
+The log never binds evidence. No fingerprint, evidence digest, configuration digest, or attestation contains a log field.
+Run schema 2, attestation schema 7, and the summary schema 1 are unchanged.
+
+`[telemetry] hook_log` is a new key, `true` by default.
+Older tool versions reject a configuration file that contains it, as an unknown key.
+Put it only in the user file of a machine that runs this version or a later one.
+
+The exit codes and the stderr messages of `hook-check` are unchanged.
+The installed hook script now sets `AGENTIC_PREFLIGHT_PUSH_REMOTE` to the remote name before it runs `hook-check`.
+An older `hook-check` ignores the variable, so a hook from this version works with an older tool.
+`init` replaces a hook that is exactly the script that an earlier version installed. It does not change any other hook.
+A hook from an earlier version still works. Its log lines have `remote = null`.
+
+In `agentic-preflight report`, `data.hook_decisions` is a new key, and the Markdown has a new "Hook decisions" section before the limits.
+`data.limits` has two more items.
