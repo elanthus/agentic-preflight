@@ -33,7 +33,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from . import filelock, gitx
+from . import filelock, gitx, timing
 from .config import Config, ConfigError, load_config
 from .digests import sha256_text
 from .machine import TERMINAL_STATES, State
@@ -58,6 +58,8 @@ _STAGE_ORDER = [stage.value for stage in Stage]
 _RETIRED_DELEGATED_STATES = ("TEST_DELEGATED", "PUBLICATION_READY")
 _RETIRED_DELEGATION_REASON = "CI test delegation was removed; start a new local validation run"
 _DEFAULT_BLOCKING = ("critical", "high")
+#: Finding statuses that ``respond`` records with an agent-chosen reason.
+_REASONED_STATUSES = frozenset({"dismissed", "accepted"})
 _GIT_TIMEOUT_SECONDS = 30
 _ERROR_LIMIT = 500
 _SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
@@ -99,6 +101,8 @@ class RunSummary(BaseModel):
     created_at: str
     finished_at: str
     duration_seconds: float | None
+    #: Wall-clock seconds per state from the transition events; ``None`` without them.
+    timing: dict[str, Any] | None = None
     producer: dict[str, Any] | None
     risk: dict[str, Any] | None
     review: dict[str, Any] | None
@@ -288,11 +292,27 @@ def _is_blocking(item: Mapping[str, Any], review: frozenset[str], docs: frozense
     return severity in (docs if item.get("stage") == "docs" else review)
 
 
+def _response_reasons(items: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    """The agent's reasons for dismissed and accepted findings. No reason is ``unspecified``."""
+    reasons = (
+        item.get("response_reason") for item in items if item.get("status") in _REASONED_STATUSES
+    )
+    return _tally("unspecified" if reason is None else reason for reason in reasons)
+
+
 def _findings_summary(
     findings: Sequence[Finding | Mapping[str, Any]] | None, snapshot: Mapping[str, Any]
 ) -> dict[str, Any]:
     """Finding counts. All are ``None`` without a findings file or with a malformed one."""
-    keys = ("total", "by_stage", "by_severity", "by_status", "by_action", "blocking")
+    keys = (
+        "total",
+        "by_stage",
+        "by_severity",
+        "by_status",
+        "by_action",
+        "by_response_reason",
+        "blocking",
+    )
     items = _finding_items(findings)
     if items is None:
         return dict.fromkeys(keys)
@@ -307,6 +327,7 @@ def _findings_summary(
         "by_severity": _tally(item.get("severity") for item in items),
         "by_status": _tally(item.get("status") for item in items),
         "by_action": _tally(item.get("action") for item in items),
+        "by_response_reason": _response_reasons(items),
         "blocking": blocking,
     }
 
@@ -326,10 +347,17 @@ def _stages(record: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
         if evidence is not None:
             item = _dict(evidence.get(name))
             reused = item is not None and item.get("derivation_reason") is not None
+        started_at = _str(stage.get("started_at"))
+        finished_at = _str(stage.get("finished_at"))
+        # Only a stage that ran here has a duration: a reused result started in
+        # another run, and a skipped stage never started.
+        ran = status != "skipped" and reused is False
         summary[name] = {
             "status": status,
             "attempts": _int(stage.get("attempts")),
-            "finished_at": _str(stage.get("finished_at")),
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "duration_seconds": _duration(started_at, finished_at) if ran else None,
             "reused": reused,
             # Skip reasons are code-assigned. Failure reasons can quote command
             # or reviewer output, which a summary never copies.
@@ -414,16 +442,36 @@ def _duration(start: str | None, end: str | None) -> float | None:
     return seconds if seconds >= 0 else None
 
 
+def _aborted_from_transition(events: Sequence[Mapping[str, Any]]) -> str | None:
+    """The ``from`` of the last transition into ``ABORTED``, for aborts without a marker."""
+    for event in reversed(events):
+        if event.get("event") == "state_transition" and event.get("to") == "ABORTED":
+            return _str(event.get("from"))
+    return None
+
+
 def _terminal(
     state: str | None, reason: str | None, events: Sequence[Mapping[str, Any]] | None
 ) -> dict[str, Any]:
-    forced = None
+    """How the run ended. ``abort_reason`` is the agent's label; the rest is code-derived."""
+    forced = abort_reason = aborted_from = None
     if state == "ABORTED":
-        for event in reversed(list(_event_items(events))):
+        items = list(_event_items(events))
+        for event in reversed(items):
             if event.get("event") == "aborted":
                 forced = _bool(event.get("forced"))
+                abort_reason = _str(event.get("reason"))
+                aborted_from = _str(event.get("aborted_from_state"))
                 break
-    return {"aborted_forced": forced, "orphaned_reason": reason}
+        # Older markers, and the aborts that ``start`` commits itself, carry no
+        # state; the transition event records the same fact.
+        aborted_from = aborted_from or _aborted_from_transition(items)
+    return {
+        "aborted_forced": forced,
+        "abort_reason": abort_reason,
+        "aborted_from_state": aborted_from,
+        "orphaned_reason": reason,
+    }
 
 
 def _hosted(
@@ -481,6 +529,7 @@ def summarize(
             "created_at": created_at,
             "finished_at": finished_at,
             "duration_seconds": _duration(created_at, _str(finished_at)),
+            "timing": timing.state_timing(events, state),
             "producer": _producer(run, record),
             "risk": _risk(record),
             "review": _review(record),

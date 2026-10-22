@@ -34,7 +34,7 @@ from ..machine import (
     next_state,
     recovery_hint,
 )
-from ..models import Finding, Producer, RiskAssessment, RunDoc, Stage
+from ..models import Finding, Producer, RiskAssessment, RunDoc, Stage, StageRecord
 from ..store import RunReadError, Store, UnknownRun
 
 STATE_DIR_NAME = "agentic-preflight"
@@ -176,11 +176,25 @@ def _check_restart_limit(run: RunDoc) -> None:
     )
 
 
+#: The stage each action begins. A restart back to review begins review again.
+_STAGE_BEGINS: dict[Action, Stage] = {
+    Action.BEGIN_REVIEW: Stage.REVIEW,
+    Action.INVALIDATE_REVIEW: Stage.REVIEW,
+    Action.LINT_FIX_RESTART: Stage.REVIEW,
+    Action.TEST_FIX_RESTART: Stage.REVIEW,
+    Action.BEGIN_DOCS: Stage.DOCS,
+    Action.RUN_LINT: Stage.LINT,
+    Action.RUN_TEST: Stage.TEST,
+}
+
+
 def _apply(run: RunDoc, action: Action) -> None:
     """Advance the run, converting an illegal move into a typed error.
 
     Restarts are counted here because every path back to review passes through
     this function. Once the limit is reached, only closing the run stays legal.
+    Stage start times are recorded here for the same reason, with the time of
+    the transition event.
     """
     if action not in CLOSING_ACTIONS:
         _check_restart_limit(run)
@@ -193,19 +207,29 @@ def _apply(run: RunDoc, action: Action) -> None:
             state=run.state.value,
             run_id=run.run_id,
         ) from exc
-    if run.state is not previous:
+    moved = run.state is not previous
+    at = _now()
+    if moved:
         run._state_events.append(
             {
                 "event": "state_transition",
                 "from": previous.value,
                 "to": run.state.value,
                 "action": action.value,
-                "at": _now(),
+                "at": at,
                 "monotonic_ns": time.monotonic_ns(),
             }
         )
+    stage = _STAGE_BEGINS.get(action)
+    if stage is not None:
+        record = run.stages.get(stage) or StageRecord()
+        # A reopen while review is already awaiting findings keeps its start,
+        # unless the caller has just discarded the review result with it.
+        if moved or record.started_at is None:
+            record.started_at = at
+            run.stages[stage] = record
     # A reopen while review is already awaiting findings discards no progress.
-    if action in RESTART_ACTIONS and run.state is not previous:
+    if action in RESTART_ACTIONS and moved:
         run.validation_restarts += 1
 
 

@@ -126,6 +126,12 @@ needs an explicit disposition before following the normal stage continuation. Us
 why the valid finding is not worth fixing. A green-stage repair changes the reviewed
 snapshot and returns the run to review; a note-only disposition leaves it green.
 
+Always pass `--reason` when you dismiss or accept a finding, and when you abort a run.
+Choose the closest term from the closed list, and `other` when none fits. Put the
+specifics in `--note`; `abort` has no note, so tell the user the specifics instead. Never
+pass `--reason` with `fixed`. See
+[recording reasons](reference/playbooks.md#record-a-dismissal-acceptance-or-abort).
+
 Be specific. "Consider improving error handling" is not a finding. "Line 42 swallows
 `ConnectionError`, so a network failure looks like an empty result" is.
 
@@ -179,7 +185,8 @@ For `approval-check` input errors, correct the reviews file and retry that comma
 ## Failure playbooks
 
 Recovery detail lives in `reference/playbooks.md`. Read the matching entry when a run
-stops — do not improvise a recovery from the symptom alone.
+stops — do not improvise a recovery from the symptom alone. The same file tells you how
+to summarize the user's run history.
 
 | Symptom | Playbook |
 |---|---|
@@ -196,10 +203,12 @@ stops — do not improvise a recovery from the symptom alone.
 | Diff too large (exit 2, `diff_too_large`) | Exclude generated globs; never review part of it |
 | No command configured (exit 2, `needs_command`) | Show candidates; require user selection and approval; distrust the first green |
 | Setup failed (exit 2, `setup_failed`) | Obey `status`: abort `SETUP_FAILED` initial setup or preserve the baseline retry |
+| Record a dismissal, acceptance, or abort | Always pass the closest `--reason`, `other` if none fits; specifics go in `--note` |
 | Stage far slower than normal | Check `[worktree] mode` before raising `max_attempts` |
 | Copy refused (exit 3) | `copy_files` entry is not gitignored; do not work around it |
 | Stage reports zero files to work on | Check whether `worktree_path` is under `.git/` |
 | Green in your shell, red in a stage | Compare the stage's non-interactive toolchain and `PATH` with your shell |
+| Summarize preflight history (the user asks how well the tool works) | Rebuild stale mirrors, run `report --all-repos --format markdown`, show it with its limits |
 
 ## Escalation etiquette
 

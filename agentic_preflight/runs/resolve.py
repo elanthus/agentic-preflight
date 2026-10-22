@@ -12,7 +12,7 @@ from ..errors import (
     UnknownFinding,
 )
 from ..machine import Action, State
-from ..models import FindingStatus, RunDoc, Stage
+from ..models import RESPONSE_REASONS, FindingStatus, ResponseReason, RunDoc, Stage
 from ._session import (
     Session,
     _apply,
@@ -42,8 +42,22 @@ def _validate_response(
     action: str,
     commit: str | None,
     note: str | None,
+    reason: str | None = None,
 ) -> str | None:
     """Validate action-specific evidence and normalize the fix commit."""
+    if reason is not None and action == "fixed":
+        raise InvalidResponse(
+            f"--reason is only valid when resolving {finding_id} as dismissed or accepted, "
+            "not fixed",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+    if reason is not None and reason not in RESPONSE_REASONS:
+        raise InvalidResponse(
+            f"--reason must be one of {', '.join(RESPONSE_REASONS)}, not {reason!r}",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
     if action == "fixed":
         if not commit:
             raise InvalidResponse(
@@ -76,6 +90,7 @@ def respond(
     action: str,
     commit: str | None = None,
     note: str | None = None,
+    reason: ResponseReason | None = None,
 ) -> Envelope:
     """Record the agent's resolution of one finding, verifying what it claims.
 
@@ -83,6 +98,9 @@ def respond(
     it: the commit may not exist, it may not touch the file the finding was
     about, or it may carry a copied environment file. All three are cheap to
     check and expensive to miss, so none of them are taken on trust.
+
+    ``reason`` is the agent's label for a dismissal or acceptance. It is kept
+    for telemetry only, so it is checked against the vocabulary and nothing more.
     """
     run = _load_current(session)
     accepting_in_place_fix = _is_in_place(run) and action == "fixed" and commit is not None
@@ -115,7 +133,7 @@ def respond(
             run_id=run.run_id,
         )
 
-    commit = _validate_response(session, run, target, finding_id, action, commit, note)
+    commit = _validate_response(session, run, target, finding_id, action, commit, note, reason)
 
     new_commits = (
         _in_place_fix_commits(session, run, commit)
@@ -126,6 +144,7 @@ def respond(
     target.status = FindingStatus(action)
     target.fix_commit = commit
     target.response_note = note
+    target.response_reason = reason
     changed_files = gitx.changed_files(
         _require_worktree(run),
         run.merge_base_sha,
@@ -154,6 +173,7 @@ def respond(
             "id": finding_id,
             "action": action,
             "commit": commit,
+            "reason": reason,
             "risk": assessment.model_dump(mode="json"),
         },
     )

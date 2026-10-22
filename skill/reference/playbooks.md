@@ -36,7 +36,7 @@ Stop retrying — you have already tried `max_attempts` times and the tool is te
 you the loop is not converging. For a stage failure, show the user
 `agentic-preflight logs --stage <name>` output and ask how to proceed. For a baseline
 setup failure, no stage log exists; show `data.setup_failure` and obey the returned
-`agentic-preflight abort --force` command.
+`agentic-preflight abort --force` command, with `--reason environment_failure`.
 
 ## Validation restarted too many times (exit 4, `max_restarts`)
 
@@ -148,6 +148,32 @@ red state and returns the exact lint or test retry, including the
 resolved command and `--baseline`. It does not have a stage log because the stage never
 ran, so do not replace that recovery with `logs --stage`.
 
+## Record a dismissal, acceptance, or abort
+
+This entry is not a failure recovery. Use it every time you dismiss or accept a finding,
+or abort a run, including when you follow a returned `abort --force` command.
+
+1. Always pass `--reason`. It is optional only so that older installed skills keep
+   working.
+2. Choose the closest term. If no term fits, pass `other`. Do not invent a term: an
+   unknown value exits 6 with `usage_error`.
+   - `respond --action dismissed|accepted`: `false_positive` (the finding is wrong),
+     `out_of_scope` (real, but outside the requested change), `duplicate` (another
+     finding covers it), `already_fixed` (the current diff already resolves it),
+     `accepted_risk` (real, and the risk is accepted), `deferred` (real, and left for
+     later work), `other`.
+   - `abort`: `user_cancelled` (the user asked to stop), `superseded` (a newer run or
+     change replaces this one), `wrong_base` (the run targets the wrong base or branch),
+     `environment_failure` (setup, toolchain, or network failure outside the change),
+     `tool_error` (Agentic Preflight itself failed), `no_longer_needed` (the change is
+     already upstream or was dropped), `other`.
+3. Put the specifics in `--note` for `respond`. `abort` has no note, so tell the user
+   the specifics in your reply.
+4. Never pass `--reason` with `--action fixed`. The verified commit is the record.
+
+A reason is a label for the local report. It does not change the run, the risk
+verdict, or the attestation, so never choose one to make a run look better.
+
 ## Stage far slower than normal
 
 Check `[worktree] mode` and follow the [worktree setup and cache guidance](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/worktree-modes.md#when-a-stage-is-much-slower-than-expected).
@@ -180,3 +206,26 @@ Compare `PATH` and the toolchain version *inside the stage* against the project'
 you debug the code — a native module built for another ABI fails as missing bindings,
 not as a version error. A repo with no `.nvmrc` (or equivalent) has nothing pinning it,
 so this bites fresh clones and CI too, not just stages.
+
+## Summarize preflight history
+
+Use this entry when the user asks how well Agentic Preflight works for them, or asks
+for a summary of their runs. It is not a failure recovery.
+
+1. Run `agentic-preflight telemetry rebuild` first when the mirror can be stale: the
+   clone has runs from before mirroring, or `report` returned
+   `agentic-preflight telemetry rebuild` in `next.command`. Run it in the current clone
+   and in each other clone that the user names. Rebuild writes only derived summaries.
+   It does not change run records or evidence. Run it one time for each clone. If
+   `report` names it again after that, do not run it again: tell the user about the gap.
+2. Run `agentic-preflight report --all-repos --format markdown`.
+3. Show the user `data.markdown` as it is, including its limits. Do not shorten the
+   limits, and do not add rates or conclusions that the report does not contain.
+4. Tell the user about every gap that the envelope reports: malformed mirror lines,
+   unreadable run records, finished runs missing from the mirror, and an instruction
+   in `next`.
+
+Never compute statistics by parsing `run.json`, `findings.json`, or `events.jsonl`
+files directly. The report reads every record schema and counts what it cannot read.
+Never send the report or the mirror anywhere. The data stays on this machine unless
+the user copies it.

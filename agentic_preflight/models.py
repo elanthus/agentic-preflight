@@ -11,7 +11,7 @@ fields only code may assign.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
 from pydantic import (
     AwareDatetime,
@@ -62,6 +62,32 @@ class FindingStatus(StrEnum):
     FIXED = "fixed"
     DISMISSED = "dismissed"
     ACCEPTED = "accepted"
+
+
+#: Why a finding was dismissed or accepted. The agent chooses the label; code
+#: only checks that it is one of these. It is telemetry, never evidence.
+ResponseReason = Literal[
+    "false_positive",
+    "out_of_scope",
+    "duplicate",
+    "already_fixed",
+    "accepted_risk",
+    "deferred",
+    "other",
+]
+RESPONSE_REASONS: tuple[str, ...] = get_args(ResponseReason)
+
+#: Why a run was aborted. The agent chooses the label, as for a response reason.
+AbortReason = Literal[
+    "user_cancelled",
+    "superseded",
+    "wrong_base",
+    "environment_failure",
+    "tool_error",
+    "no_longer_needed",
+    "other",
+]
+ABORT_REASONS: tuple[str, ...] = get_args(AbortReason)
 
 
 class RiskLevel(StrEnum):
@@ -126,6 +152,8 @@ class Finding(BaseModel):
     status: FindingStatus = FindingStatus.OPEN
     fix_commit: str | None = None
     response_note: str | None = Field(default=None, max_length=4000)
+    # Absent from findings that were never dismissed or accepted with a reason.
+    response_reason: ResponseReason | None = None
 
     path: str
     unit: str | None = None
@@ -139,6 +167,18 @@ class Finding(BaseModel):
     @classmethod
     def from_submission(cls, submission: FindingSubmission, *, id: str, stage: Stage) -> Finding:
         return cls(id=id, stage=stage, **submission.model_dump())
+
+    @model_serializer(mode="wrap")
+    def omit_absent_response_reason(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """Serialize a finding without a reason exactly as earlier versions did.
+
+        Stage evidence digests its findings, and older releases forbid unknown
+        keys, so a null reason must not appear in either.
+        """
+        data = handler(self)
+        if self.response_reason is None:
+            data.pop("response_reason", None)
+        return data
 
 
 class ReviewCoverageSubmission(BaseModel):
@@ -228,9 +268,23 @@ class StageRecord(BaseModel):
     exit_code: int | None = None
     output_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     log_path: str | None = None
+    # When the stage last began: its begin transition, or a restart for review.
+    # Informational only, like ``finished_at``; never attested or fingerprinted.
+    started_at: str | None = None
     finished_at: str | None = None
     head_sha: str | None = None
     fingerprint: StageFingerprint | None = None
+
+    @model_serializer(mode="wrap")
+    def omit_absent_start(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """Rewrite records that predate stage start times without adding the key.
+
+        Older releases forbid unknown keys, as for ``RunDoc.producer``.
+        """
+        data = handler(self)
+        if self.started_at is None:
+            data.pop("started_at", None)
+        return data
 
 
 class SetupFailure(BaseModel):
@@ -434,6 +488,14 @@ class OriginalExecution(BaseModel):
     result: AttestedStage
     fingerprint: StageFingerprint
     findings: list[Finding] = Field(default_factory=list, max_length=1000)
+
+    @field_validator("findings")
+    @classmethod
+    def findings_carry_no_response_reason(cls, value: list[Finding]) -> list[Finding]:
+        """Keep response reasons out of evidence, so notes stay readable by older verifiers."""
+        if any(finding.response_reason is not None for finding in value):
+            raise ValueError("stage evidence cannot carry finding response reasons")
+        return value
 
 
 class StageEvidence(BaseModel):
