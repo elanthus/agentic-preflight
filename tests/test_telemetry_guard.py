@@ -15,8 +15,8 @@ from tests import telemetry_guard as guard
 from tests.conftest import requires_symlinks
 
 
-def _row(source: str | None, run_id: str = "r_0000000001") -> bytes:
-    repo = {"root_commit": "a" * 40, "source_worktree_path": source}
+def _row(source: str | None, run_id: str = "r_0000000001", remote: str | None = None) -> bytes:
+    repo = {"root_commit": "a" * 40, "source_worktree_path": source, "remote": remote}
     return json.dumps({"run_id": run_id, "repo": repo}, sort_keys=True).encode()
 
 
@@ -54,6 +54,22 @@ def test_rows_are_classified_by_where_their_source_worktree_is(tmp_path):
     assert where(None) is None
     assert where("") is None
     assert where(42) is None
+
+
+def test_a_network_remote_clears_a_temporary_clone_but_not_this_session(tmp_path):
+    root, basetemp, _ = _layout(tmp_path)
+
+    def where(path: Path, remote: str | None) -> str | None:
+        return guard.classify(str(path), basetemp=basetemp, roots=[root], remote=remote)
+
+    hosted = "github.com/owner/widget"
+    assert where(root / "agentic-preflight-pr80", hosted) is None
+    assert where(root / "agentic-preflight-pr80", "github-work/owner/widget") is None
+    assert where(root / "fixture", str(root / "remote")) == "temporary"
+    assert where(root / "fixture", "localhost/owner/widget") == "temporary"
+    assert where(root / "fixture", "C:/repos/widget") == "temporary"
+    assert where(root / "fixture", "github.com") == "temporary"
+    assert where(basetemp / "test_x0" / "repo", hosted) == "basetemp"
 
 
 def test_a_base_directory_outside_the_temporary_roots_still_counts(tmp_path):
@@ -102,7 +118,10 @@ def test_only_lines_added_since_the_snapshot_are_read(tmp_path):
     before = guard.snapshot([directory])
     leaked = _row(str(basetemp / "test_x0" / "repo"), "r_0000000002")
     legitimate = _row(str(work / "repository"), "r_0000000003")
-    mirror.write_bytes(legitimate + b"\n" + earlier + b"\n" + leaked + b"\nnot json\n")
+    scratch = _row(str(root / "pr-clone"), "r_0000000004", remote="github.com/owner/widget")
+    mirror.write_bytes(
+        legitimate + b"\n" + earlier + b"\n" + leaked + b"\n" + scratch + b"\nnot json\n"
+    )
     log = directory / "hook-decisions.jsonl"
     log.write_bytes(_decision(str(root / "agentic-preflight-eval-1" / "review-1")) + b"\n")
 

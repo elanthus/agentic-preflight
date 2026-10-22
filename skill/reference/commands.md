@@ -550,7 +550,8 @@ it.
 
 After it decides, it appends one JSON line to `hook-decisions.jsonl` in the user-level
 telemetry directory, unless `[telemetry] hook_log = false`, or unless the repository is
-under the system temporary directory and `[telemetry] path` is not set (see
+temporary and `[telemetry] path` is not set: under the system temporary directory, with
+no network remote in `origin` or, without `origin`, in the push remote (see
 [Temporary repositories](../../docs/local-telemetry.md#temporary-repositories)). The
 line has `at`, `repo` (the summary's repository identity), `remote` (the remote name
 from `AGENTIC_PREFLIGHT_PUSH_REMOTE`,
@@ -577,12 +578,13 @@ exact text. Nonterminal runs count as `skipped`. An unreadable record is listed 
 `data.unreadable_runs` with its run ID, path, reason, and diagnostic; its earlier summary
 and mirror row are kept, never treated as absent. `data` reports `repo`, `summarized`,
 `skipped`, `unreadable`, `unreadable_runs`, `write_failures`, and `mirror` (`enabled`,
-`path`, `rows`, `preserved_rows`, `temporary_runs`, `reason`, `error`). Without an
-explicit `[telemetry] path`, a summary whose source worktree is under the system
-temporary directory is never mirrored, and `mirror.temporary_runs` counts those
-summaries. A clone that is itself under the system temporary directory does not change
-the mirror at all: `mirror.reason` is `temporary_repository`, and `path`, `rows`, and
-`preserved_rows` are `null`. `reason` is otherwise `null`; `temporary_runs` is `null`
+`path`, `rows`, `preserved_rows`, `temporary_runs`, `reason`, `error`). A repository
+is temporary when it is under the system temporary directory and has no network remote
+(no `origin`, a local path, or a loopback host). Without an explicit `[telemetry] path`,
+a summary of a temporary repository, judged by its `repo.source_worktree_path` and
+`repo.remote`, is never mirrored, and `mirror.temporary_runs` counts those summaries. A
+clone that is itself temporary does not change the mirror at all: `mirror.reason` is
+`temporary_repository`, and `path`, `rows`, and `preserved_rows` are `null`. `reason` is otherwise `null`; `temporary_runs` is `null`
 when the mirror is off. A failed write exits 1 with error code `telemetry_write_failed` and the same `data`.
 `telemetry rebuild` makes no network request.
 
@@ -591,8 +593,8 @@ from `finish`, `abort`, `gc`, or `start` when it orphans the previous run or abo
 run it was creating. The event log then gains `summary_written` (with `summary_path`,
 `mirrored`, `mirror_path`, `reason`, and `error`) or `summary_failed`. `reason` is
 `temporary_repository` when the run's source worktree is under the system temporary
-directory and `[telemetry] path` is not set, so no mirror row was written; otherwise it is
-`null`. `finish` and `abort` report the same outcome, with `run_id`, in
+directory, its remote is not a network remote, and `[telemetry] path` is not set, so no
+mirror row was written; otherwise it is `null`. `finish` and `abort` report the same outcome, with `run_id`, in
 `data.telemetry`; `gc` reports a list there, one item
 for each run it orphaned. A telemetry failure never changes a command's result or rolls
 back its transaction. The `aborted` event is now written with the terminal transition
@@ -703,8 +705,8 @@ source, it also gives `unmirrored_terminal_runs`: the finished runs of this clon
 the mirror does not have and that `telemetry rebuild` would add. After a fallback, it
 gives `summarized` and `skipped` instead. `temporary_runs` counts the finished runs that
 were not in the mirror and that a rebuild does not mirror, because the clone or the
-run's source worktree is under the system temporary directory and `[telemetry] path` is
-not set. When a rebuild can add missing runs, `next.command` is
+run's repository is temporary (under the system temporary directory, without a network
+remote) and `[telemetry] path` is not set. When a rebuild can add missing runs, `next.command` is
 `agentic-preflight telemetry rebuild`. `data.filters` and `data.filtered_out` tell you
 which filters were set and how many rows each filter left out.
 

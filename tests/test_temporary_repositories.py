@@ -1,9 +1,10 @@
-"""Repositories under the system temporary directory stay out of the default telemetry location.
+"""Temporary repositories stay out of the default telemetry location.
 
-Every fixture repository of this suite is under the system temporary directory, so this
-module does not use ``telemetry_opt_in``: the product's default applies to each test.
-Tests that need an exact set of temporary directories set them with
-:func:`_temporary_dirs`.
+A repository is temporary when it is under a system temporary directory and has no
+network remote. Every fixture repository of this suite is under the system temporary
+directory, so this module does not use ``telemetry_opt_in``: the product's default
+applies to each test. Tests that need an exact set of temporary directories set them
+with :func:`_temporary_dirs`.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from tests.test_telemetry import _schema_2_record, _state_root, _store_record, _
 
 TEMPORARY = telemetry.TEMPORARY_REPOSITORY
 ZERO = "0" * 40
+GITHUB = "https://github.com/owner/widget.git"
 
 
 def _temporary_dirs(monkeypatch, gettempdir: Path, *, tmpdir: Path | str | None = None) -> None:
@@ -38,9 +40,9 @@ def _temporary_dirs(monkeypatch, gettempdir: Path, *, tmpdir: Path | str | None 
     monkeypatch.setattr(telemetry, "_POSIX_TMP", str(gettempdir))
 
 
-def _summary_for(source: Path | str) -> telemetry.RunSummary:
+def _summary_for(source: Path | str, remote: str | None = None) -> telemetry.RunSummary:
     identity = telemetry.RepoIdentity(
-        root_commit="a" * 40, remote=None, name="widget", source_worktree_path=str(source)
+        root_commit="a" * 40, remote=remote, name="widget", source_worktree_path=str(source)
     )
     return telemetry.summarize(_schema_2_record(), None, None, identity)
 
@@ -131,18 +133,70 @@ def test_a_tmpdir_that_would_cover_every_repository_is_ignored(tmp_path, monkeyp
         assert not telemetry.is_temporary_repository(tmp_path / "work")
 
 
-def test_an_explicit_path_opts_a_temporary_repository_in(tmp_path):
+@pytest.mark.parametrize(
+    ("remote", "network"),
+    [
+        ("github.com/owner/widget", True),
+        ("git.example.com/group/sub/widget", True),
+        # An SSH host alias from ~/.ssh/config has no dot, and is still a host.
+        ("github-work/owner/widget", True),
+        ("10.0.0.5/srv/widget", True),
+        ("/srv/git/widget", False),
+        ("/scratch/pytest-of-dev/pytest-1/test0/remote", False),
+        ("C:/repos/widget", False),
+        ("C:\\repos\\widget", False),
+        ("../remote", False),
+        ("./remote", False),
+        ("~/repos/widget", False),
+        ("localhost/srv/widget", False),
+        ("127.0.0.1/owner/widget", False),
+        ("::1/owner/widget", False),
+        ("github.com", False),
+        ("remote", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_a_network_remote_names_a_host_and_a_path(remote, network):
+    assert telemetry.has_network_remote(remote) is network
+
+
+@pytest.mark.parametrize(
+    ("url", "network"),
+    [
+        (GITHUB, True),
+        ("git@github.com:owner/widget.git", True),
+        ("ssh://git@git.example.com:2222/owner/widget.git", True),
+        ("/srv/git/widget.git", False),
+        ("file:///srv/git/widget.git", False),
+        ("file://localhost/srv/git/widget.git", False),
+        ("http://127.0.0.1:8080/owner/widget.git", False),
+    ],
+)
+def test_normalized_remotes_are_classified_by_where_they_live(url, network):
+    assert telemetry.has_network_remote(telemetry.normalize_remote(url)) is network
+
+
+def test_the_rule_needs_a_temporary_path_and_no_network_remote(tmp_path):
     repository = tmp_path / "repository"
 
-    assert telemetry.exclusion_reason(Config(), repository) == TEMPORARY
-    assert telemetry.exclusion_reason(None, repository) == TEMPORARY
-    assert telemetry.exclusion_reason(Config(telemetry={"mirror": False}), repository) == TEMPORARY
+    assert telemetry.exclusion_reason(Config(), repository, None) == TEMPORARY
+    assert telemetry.exclusion_reason(None, repository, None) == TEMPORARY
+    assert telemetry.exclusion_reason(Config(), repository, str(tmp_path / "remote")) == TEMPORARY
+    assert telemetry.exclusion_reason(Config(), repository, "github.com/owner/widget") is None
+    assert telemetry.exclusion_reason(Config(), "/repos/widget", None) is None
+    mirror_off = Config(telemetry={"mirror": False})
+    assert telemetry.exclusion_reason(mirror_off, repository, None) == TEMPORARY
+
+
+def test_an_explicit_path_opts_a_temporary_repository_in(tmp_path):
+    repository = tmp_path / "repository"
     opted_in = Config(telemetry={"path": str(tmp_path / "telemetry")})
-    assert telemetry.exclusion_reason(opted_in, repository) is None
+
+    assert telemetry.exclusion_reason(opted_in, repository, None) is None
     # Even the default location, named explicitly, is an opt-in.
     named = Config(telemetry={"path": str(telemetry.telemetry_dir())})
-    assert telemetry.exclusion_reason(named, repository) is None
-    assert telemetry.exclusion_reason(Config(), "/repos/widget") is None
+    assert telemetry.exclusion_reason(named, repository, None) is None
 
 
 # -- run summaries ------------------------------------------------------------------
@@ -186,6 +240,46 @@ def test_write_summary_mirrors_an_opted_in_or_ordinary_repository(tmp_path):
     assert (off["mirrored"], off["reason"], off["mirror_path"]) == (False, None, None)
     assert (ordinary["mirrored"], ordinary["reason"]) == (True, None)
     assert ordinary["mirror_path"] == str(telemetry.mirror_path())
+
+
+def test_write_summary_mirrors_a_temporary_clone_with_a_network_remote(tmp_path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    hosted = telemetry.write_summary(
+        run_dir, _summary_for(tmp_path / "pr-clone", "github.com/owner/widget"), Config()
+    )
+    local = telemetry.write_summary(
+        run_dir, _summary_for(tmp_path / "fixture", str(tmp_path / "remote")), Config()
+    )
+
+    assert (hosted["mirrored"], hosted["reason"]) == (True, None)
+    assert (local["mirrored"], local["reason"]) == (False, TEMPORARY)
+    rows = telemetry.mirror_path().read_text(encoding="utf-8").splitlines()
+    assert [json.loads(row)["repo"]["remote"] for row in rows] == ["github.com/owner/widget"]
+
+
+def test_a_temporary_clone_with_a_github_remote_keeps_its_telemetry(agent, feature_repo):
+    run_id = agent.run("start")["run_id"]
+    # Added after start, which would otherwise fetch from GitHub. The summary reads
+    # the remote when the run ends.
+    git("remote", "add", "origin", GITHUB, cwd=feature_repo)
+
+    report = agent.run("abort", "--force")["data"]["telemetry"]
+
+    assert (report["mirrored"], report["reason"]) == (True, None)
+    (row,) = [json.loads(line) for line in telemetry.mirror_path().read_text().splitlines()]
+    assert (row["run_id"], row["repo"]["remote"]) == (run_id, "github.com/owner/widget")
+
+
+def test_a_temporary_clone_with_a_local_bare_remote_is_excluded(feature_repo, bare_remote):
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+
+    report = agent.run("abort", "--force")["data"]["telemetry"]
+
+    assert (report["mirrored"], report["reason"]) == (False, TEMPORARY)
+    assert not telemetry.telemetry_dir().exists()
 
 
 def test_a_run_that_ends_in_a_temporary_repository_reports_the_reason(agent, feature_repo):
@@ -279,6 +373,17 @@ def test_rebuild_in_another_clone_leaves_out_runs_of_a_temporary_worktree(
     assert _summary(tmp_repo, "r_0000000005")["state"] == "ABORTED"
 
 
+def test_rebuild_in_a_temporary_clone_with_a_network_remote_mirrors_it(tmp_repo):
+    git("remote", "add", "origin", GITHUB, cwd=tmp_repo)
+    _store_record(tmp_repo, {**_schema_2_record(), "source_worktree_path": str(tmp_repo)})
+
+    result = telemetry.rebuild(_store(tmp_repo), tmp_repo, Config())
+
+    mirror = result["mirror"]
+    assert (mirror["rows"], mirror["temporary_runs"], mirror["reason"]) == (1, 0, None)
+    assert mirror["path"] == str(telemetry.mirror_path())
+
+
 def test_rebuild_with_an_explicit_path_mirrors_a_temporary_clone(tmp_repo, tmp_path):
     _store_record(tmp_repo, {**_schema_2_record(), "source_worktree_path": str(tmp_repo)})
     target = tmp_path / "opted-in"
@@ -332,6 +437,57 @@ def test_hook_check_in_a_temporary_repository_logs_nothing(feature_repo):
     assert not hooklog.log_path().parent.exists()
 
 
+def test_hook_check_with_a_local_bare_remote_logs_nothing(feature_repo, bare_remote):
+    sha = git("rev-parse", "HEAD", cwd=feature_repo)
+
+    hook_check(
+        feature_repo,
+        f"refs/heads/feature/x {sha} refs/heads/feature/x {ZERO}\n",
+        {hook.REMOTE_ENV: "origin"},
+    )
+
+    assert not hooklog.log_path().parent.exists()
+
+
+def test_hook_check_in_a_temporary_clone_with_a_github_remote_logs(feature_repo):
+    git("remote", "add", "origin", GITHUB, cwd=feature_repo)
+    sha = git("rev-parse", "HEAD", cwd=feature_repo)
+
+    hook_check(
+        feature_repo,
+        f"refs/heads/feature/x {sha} refs/heads/feature/x {ZERO}\n",
+        {hook.REMOTE_ENV: "origin"},
+    )
+
+    (line,) = [json.loads(item) for item in hooklog.log_path().read_text().splitlines()]
+    assert (line["reason"], line["repo"]["remote"]) == (
+        hook.MISSING_ATTESTATION,
+        "github.com/owner/widget",
+    )
+
+
+@pytest.mark.parametrize("push_remote", ["upstream", GITHUB], ids=["name", "url"])
+def test_without_origin_the_push_remote_decides(tmp_repo, push_remote):
+    git("remote", "add", "upstream", GITHUB, cwd=tmp_repo)
+    decision = hook.unevaluated([], hook.NO_UPDATES)
+
+    outcome = hooklog.record(decision, repo_root=tmp_repo, config=Config(), remote=push_remote)
+
+    assert outcome == hooklog.WRITTEN
+    assert hooklog.log_path().exists()
+
+
+def test_without_origin_a_local_push_remote_logs_nothing(tmp_repo, tmp_path):
+    git("remote", "add", "upstream", str(tmp_path / "remote.git"), cwd=tmp_repo)
+    decision = hook.unevaluated([], hook.NO_UPDATES)
+
+    for push_remote in ("upstream", str(tmp_path / "remote.git"), "missing", None):
+        outcome = hooklog.record(decision, repo_root=tmp_repo, config=Config(), remote=push_remote)
+
+        assert outcome == hooklog.TEMPORARY
+    assert not hooklog.log_path().parent.exists()
+
+
 def test_an_explicit_path_logs_a_temporary_repositorys_decisions(feature_repo, telemetry_opt_in):
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
 
@@ -374,7 +530,7 @@ def test_the_report_in_a_temporary_clone_does_not_point_at_a_rebuild(tmp_repo):
     assert (clone["summarized"], clone["temporary_runs"]) == (1, 1)
     instruction = result["next"]["instruction"]
     assert result["next"]["command"] is None
-    assert "1 finished run(s) of this clone come from a repository under" in instruction
+    assert "under the system temporary directory without a network remote" in instruction
     assert "Run `agentic-preflight telemetry rebuild`" not in instruction
 
 
@@ -398,3 +554,14 @@ def test_the_report_counts_runs_of_a_temporary_worktree_apart(tmp_repo, tmp_path
     assert result["data"]["source"]["used"] == "mirror"
     assert (clone["unmirrored_terminal_runs"], clone["temporary_runs"]) == (0, 1)
     assert result["next"]["command"] is None
+
+
+def test_the_report_in_a_temporary_clone_with_a_network_remote_points_at_a_rebuild(tmp_repo):
+    git("remote", "add", "origin", GITHUB, cwd=tmp_repo)
+    _store_record(tmp_repo, {**_schema_2_record(), "source_worktree_path": str(tmp_repo)})
+
+    result = ScriptedAgent(tmp_repo).run("report")
+
+    clone = result["data"]["source"]["clone"]
+    assert (clone["summarized"], clone["temporary_runs"]) == (1, 0)
+    assert result["next"]["command"] == "agentic-preflight telemetry rebuild"

@@ -1,18 +1,19 @@
 """The test-session guard over the user's real telemetry files.
 
 The suite points ``XDG_DATA_HOME`` at a per-test directory, and the product keeps
-repositories under the system temporary directory out of the default telemetry
-location. Either can regress, and a CLI subprocess that a test or the eval runner
-spawns would then append rows to the developer's own ``runs.jsonl`` or
-``hook-decisions.jsonl``. The guard reads those files themselves, so it sees a row
-whichever process wrote it.
+repositories under the system temporary directory without a network remote out of
+the default telemetry location. Either can regress, and a CLI subprocess that a test
+or the eval runner spawns would then append rows to the developer's own
+``runs.jsonl`` or ``hook-decisions.jsonl``. The guard reads those files themselves,
+so it sees a row whichever process wrote it.
 
 At session start it records the lines each real file holds. At session end it reads
 the lines added since and reports each row whose ``repo.source_worktree_path`` lies
-under this session's pytest base directory or under a system temporary directory.
-Rows of other repositories are left alone: the developer may run preflight elsewhere
-while the tests run. So are rows under another pytest session's base directory,
-which that session wrote.
+under this session's pytest base directory, whatever its remote, or under a system
+temporary directory with no network ``repo.remote``. Rows of other repositories are
+left alone: the developer may run preflight elsewhere while the tests run, including
+in a scratch clone under the temporary directory that pushes to a host. So are rows
+under another pytest session's base directory, which that session wrote.
 
 This module computes everything itself, from the environment captured before any
 test changes it. It does not ask the product which directories are temporary,
@@ -35,6 +36,8 @@ TELEMETRY_FILES = ("runs.jsonl", "hook-decisions.jsonl")
 #: The subdirectory that each pytest session creates under ``pytest-of-<user>``.
 _SESSION_DIR = re.compile(r"pytest-\d+")
 _XDIST_WORKER_DIR = re.compile(r"popen-gw\d+")
+#: The first segment of a normalized remote that is a local path, or a loopback host.
+_NOT_A_HOST = re.compile(r"|\.\.?|~.*|[A-Za-z]:|.*\\.*|localhost|127(?:\.\d{1,3}){3}|::1")
 #: How many offending rows the failure message lists.
 MESSAGE_LIMIT = 20
 
@@ -42,8 +45,9 @@ ISOLATION_RULE = (
     "Tests and eval subprocesses must never write the user's telemetry. Run the CLI with "
     "XDG_DATA_HOME and XDG_CACHE_HOME pointing at a test directory (tests/conftest.py does "
     "this for every test, and evals/run.py for every CLI subprocess), and keep fixture "
-    "repositories under the system temporary directory, which the product never mirrors "
-    "or hook-logs by default. See docs/local-telemetry.md#temporary-repositories."
+    "repositories under the system temporary directory without a network remote, which "
+    "the product never mirrors or hook-logs by default. "
+    "See docs/local-telemetry.md#temporary-repositories."
 )
 
 
@@ -142,11 +146,22 @@ def _foreign_session(path: Path, roots: Sequence[Path]) -> bool:
     return False
 
 
-def classify(source: object, *, basetemp: Path, roots: Sequence[Path]) -> str | None:
+def network_remote(remote: object) -> bool:
+    """Whether a row's normalized ``repo.remote`` is ``host/path`` on another host."""
+    if not isinstance(remote, str):
+        return False
+    head, separator, rest = remote.partition("/")
+    return bool(separator and rest) and not _NOT_A_HOST.fullmatch(head.lower())
+
+
+def classify(
+    source: object, *, basetemp: Path, roots: Sequence[Path], remote: object = None
+) -> str | None:
     """Where a row's source worktree puts it: ``"basetemp"``, ``"temporary"``, or ``None``.
 
-    ``basetemp`` is this session's base directory (:func:`session_basetemp`). A path
-    under another pytest session's base directory, or outside every temporary root,
+    ``basetemp`` is this session's base directory (:func:`session_basetemp`); every row
+    under it is this session's. A path under another pytest session's base directory,
+    outside every temporary root, or in a temporary clone with a network ``remote``
     is ``None``: some other process wrote that row.
     """
     if not isinstance(source, str) or not source:
@@ -156,7 +171,7 @@ def classify(source: object, *, basetemp: Path, roots: Sequence[Path]) -> str | 
         return None
     if path.is_relative_to(basetemp):
         return "basetemp"
-    if _foreign_session(path, roots):
+    if _foreign_session(path, roots) or network_remote(remote):
         return None
     if any(path.is_relative_to(root) for root in roots):
         return "temporary"
@@ -208,8 +223,9 @@ def leaked_rows(
         except (UnicodeDecodeError, json.JSONDecodeError):
             continue
         repo = row.get("repo") if isinstance(row, dict) else None
-        source = repo.get("source_worktree_path") if isinstance(repo, dict) else None
-        where = classify(source, basetemp=basetemp, roots=roots)
+        repo = repo if isinstance(repo, dict) else {}
+        source = repo.get("source_worktree_path")
+        where = classify(source, basetemp=basetemp, roots=roots, remote=repo.get("remote"))
         if where is None:
             continue
         run_id = row.get("run_id")

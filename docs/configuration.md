@@ -152,7 +152,8 @@ When a run ends, the CLI writes `summary.json` in the run directory.
 `path` sets the telemetry directory. The value must be an absolute path or start with `~`.
 Without `path`, the directory is `$XDG_DATA_HOME/agentic-preflight/telemetry` when `XDG_DATA_HOME` is an absolute path.
 Otherwise, it is `~/.local/share/agentic-preflight/telemetry`.
-Without `path`, runs and hook decisions of repositories under the system temporary directory are not written to the telemetry directory.
+Without `path`, runs and hook decisions of temporary repositories are not written to the telemetry directory.
+A temporary repository is under the system temporary directory and has no network remote.
 A `path` is an opt-in: that directory also receives them, even when `path` names the default location.
 See [Temporary repositories](local-telemetry.md#temporary-repositories).
 

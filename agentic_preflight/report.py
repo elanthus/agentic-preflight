@@ -235,16 +235,22 @@ class Clone:
     def mirrors(self, summary: Mapping[str, Any]) -> bool:
         """Whether ``telemetry rebuild`` in this clone would mirror ``summary``.
 
-        It would not when the clone or the run's source worktree is temporary
+        It would not when the clone, or the run's repository, is temporary
         (:func:`agentic_preflight.telemetry.exclusion_reason`).
         """
         if self.config is None:
             return True
+        clone = self.identity
         repo = summary.get("repo")
-        source = repo.get("source_worktree_path") if isinstance(repo, Mapping) else None
+        repo = repo if isinstance(repo, Mapping) else {}
+        source, remote = repo.get("source_worktree_path"), repo.get("remote")
         return not (
-            telemetry.exclusion_reason(self.config, self.identity.source_worktree_path)
-            or telemetry.exclusion_reason(self.config, source)
+            telemetry.exclusion_reason(self.config, clone.source_worktree_path, clone.remote)
+            or telemetry.exclusion_reason(
+                self.config,
+                source if isinstance(source, str) else None,
+                remote if isinstance(remote, str) else None,
+            )
         )
 
 

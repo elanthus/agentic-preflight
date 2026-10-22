@@ -24,7 +24,7 @@ The summary goes to two places:
 
 - `summary.json` in the run directory, `$GIT_COMMON_DIR/agentic-preflight/runs/<run_id>/`.
 - One JSON line, with sorted keys, at the end of the user-level mirror, `runs.jsonl`.
-  A run in a repository under the system temporary directory gets no line.
+  A run in a temporary repository gets no line.
   See [Temporary repositories](#temporary-repositories).
 
 The run's event log records the result as `summary_written` or `summary_failed`.
@@ -56,17 +56,16 @@ You can delete them at any time. They are not evidence, and the next finished ru
 
 ## Temporary repositories
 
-A repository under the system temporary directory is usually a test fixture or a scratch clone.
-The CLI summarizes its runs, but by default it keeps them out of your telemetry directory:
+A test fixture is a repository under the system temporary directory that pushes nowhere.
+By default, the CLI keeps the runs and hook decisions of such a repository out of your telemetry directory.
 
-- `summary.json` is written in the run directory, the same as for every run.
-- No line is appended to `runs.jsonl`.
-  The `summary_written` event and `data.telemetry` have `mirrored: false` and `reason: "temporary_repository"`.
-- `telemetry rebuild` and `telemetry sync-hosted` in such a clone write the summaries, but they do not change the mirror.
-  Their `mirror` object has `reason: "temporary_repository"`.
-- In any other clone, these commands leave out each summary whose source worktree is temporary. `mirror.temporary_runs` counts them.
-- `report` counts these runs in `data.source.clone.temporary_runs`, and does not tell you to run `telemetry rebuild` for them.
-- `hook-check` writes no line to `hook-decisions.jsonl`.
+A repository is temporary when both of these are true:
+
+1. Its worktree is in a system temporary directory.
+2. It has no network remote. Its `origin` is missing, is a local path, for example a bare repository on this machine, or names a loopback host (`localhost`, `127.x.x.x`, or `::1`).
+
+A clone under the temporary directory whose `origin` is on a host, for example `github.com/owner/widget`, is not temporary.
+Its runs and hook decisions are recorded as usual. Thus, real work in a scratch clone keeps its telemetry.
 
 The system temporary directories are:
 
@@ -74,17 +73,31 @@ The system temporary directories are:
 - `$TMPDIR`, when it is set.
 - `/tmp`, except on Windows.
 
-A repository is temporary when its worktree is in one of these directories.
-For a run, the worktree is the source worktree of the run, `repo.source_worktree_path`.
-For `hook-check`, it is the worktree that runs the hook.
 The CLI compares real paths, with symbolic links resolved.
 Thus, on macOS, `/var/folders/...` and `/private/var/folders/...` are the same directory.
 A `$TMPDIR` that is a filesystem root or your home directory is ignored, because it would make every repository temporary.
 
+The CLI applies the rule as follows:
+
+- For a run, it uses the source worktree of the run and the remote of its summary, `repo.source_worktree_path` and `repo.remote`.
+- For `hook-check`, it uses the worktree that runs the hook and its `origin`. When the repository has no `origin`, the remote that Git gives the hook decides: a remote name is looked up, and a URL is used as it is.
+- The remote is a network remote when its normalized form starts with a host name, `host/path`.
+  A normalized remote that starts with `/`, `\`, `.`, `~`, or a drive letter is a local path.
+
+For a temporary repository, the CLI summarizes the runs, but it does not write to your telemetry directory:
+
+- `summary.json` is written in the run directory, the same as for every run.
+- No line is appended to `runs.jsonl`.
+  The `summary_written` event and `data.telemetry` have `mirrored: false` and `reason: "temporary_repository"`.
+- `telemetry rebuild` and `telemetry sync-hosted` in a temporary clone write the summaries, but they do not change the mirror.
+  Their `mirror` object has `reason: "temporary_repository"`.
+- In any other clone, these commands leave out each summary of a temporary repository. `mirror.temporary_runs` counts them.
+- `report` counts these runs in `data.source.clone.temporary_runs`, and does not tell you to run `telemetry rebuild` for them.
+- `hook-check` writes no line to `hook-decisions.jsonl`.
+
 An explicit `[telemetry] path` is an opt-in. It receives the rows of temporary repositories too.
 The rule protects only the default locations, `$XDG_DATA_HOME/agentic-preflight/telemetry` and `~/.local/share/agentic-preflight/telemetry`.
-If you work in clones under the temporary directory and want their runs in your mirror, set `path` in your user file.
-You can set it to the default location.
+To record a temporary repository, set `path` in your user file. You can set it to the default location.
 `mirror = false` and `hook_log = false` still turn off the files.
 
 Rows that are already in the mirror stay there. Delete them yourself if you do not want them.
@@ -92,7 +105,7 @@ Rows that are already in the mirror stay there. Delete them yourself if you do n
 ### Isolate a test harness
 
 A test or evaluation harness that runs `agentic-preflight` against fixture repositories must not write your telemetry.
-Keep the fixture repositories under the system temporary directory, and also do one of these:
+Keep the fixture repositories under the system temporary directory, without a network remote, and also do one of these:
 
 - Set `XDG_DATA_HOME` to a scratch directory in the environment of every CLI subprocess. Set `XDG_CACHE_HOME` too, because isolated worktrees go there.
 - Put a `[telemetry]` section with `mirror = false` and `hook_log = false` in the `.agentic-preflight.toml` of each fixture repository.
@@ -463,7 +476,7 @@ These pushes leave no line:
 - A push with `git push --no-verify`, because Git does not run the hook.
 - A push that the installed hook allowed because `agentic-preflight` is not on `PATH`. The hook script stops before it runs `hook-check`.
 - A push whose line could not be written in time, or at all.
-- A push from a repository under the system temporary directory, unless `[telemetry] path` is set. See [Temporary repositories](#temporary-repositories).
+- A push from a temporary repository, unless `[telemetry] path` is set. See [Temporary repositories](#temporary-repositories).
 
 A hook that an earlier version installed does not give `hook-check` the remote name, so its lines have `remote = null`.
 Run `agentic-preflight init` to replace that hook. See [the pre-push hook](pre-push-hook.md#hook-decision-log).

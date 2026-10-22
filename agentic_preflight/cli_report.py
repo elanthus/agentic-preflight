@@ -86,8 +86,9 @@ def _guidance(source: dict[str, Any], mirror_enabled: bool) -> tuple[str | None,
     if temporary and mirror_enabled:
         parts.append(
             f"{temporary} finished run(s) of this clone come from a repository under the "
-            "system temporary directory, so `telemetry rebuild` does not mirror them. An "
-            "explicit `[telemetry] path` in the user file mirrors them."
+            "system temporary directory without a network remote, so `telemetry rebuild` "
+            "does not mirror them. An explicit `[telemetry] path` in the user file mirrors "
+            "them."
         )
     if clone.get("unreadable"):
         parts.append(
