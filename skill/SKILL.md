@@ -179,7 +179,8 @@ For `approval-check` input errors, correct the reviews file and retry that comma
 ## Failure playbooks
 
 Recovery detail lives in `reference/playbooks.md`. Read the matching entry when a run
-stops — do not improvise a recovery from the symptom alone.
+stops — do not improvise a recovery from the symptom alone. The same file tells you how
+to summarize the user's run history.
 
 | Symptom | Playbook |
 |---|---|
@@ -200,6 +201,7 @@ stops — do not improvise a recovery from the symptom alone.
 | Copy refused (exit 3) | `copy_files` entry is not gitignored; do not work around it |
 | Stage reports zero files to work on | Check whether `worktree_path` is under `.git/` |
 | Green in your shell, red in a stage | Compare the stage's non-interactive toolchain and `PATH` with your shell |
+| Summarize preflight history (the user asks how well the tool works) | Rebuild stale mirrors, run `report --all-repos --format markdown`, show it with its limits |
 
 ## Escalation etiquette
 

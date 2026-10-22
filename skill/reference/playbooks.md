@@ -180,3 +180,26 @@ Compare `PATH` and the toolchain version *inside the stage* against the project'
 you debug the code — a native module built for another ABI fails as missing bindings,
 not as a version error. A repo with no `.nvmrc` (or equivalent) has nothing pinning it,
 so this bites fresh clones and CI too, not just stages.
+
+## Summarize preflight history
+
+Use this entry when the user asks how well Agentic Preflight works for them, or asks
+for a summary of their runs. It is not a failure recovery.
+
+1. Run `agentic-preflight telemetry rebuild` first when the mirror can be stale: the
+   clone has runs from before mirroring, or `report` returned
+   `agentic-preflight telemetry rebuild` in `next.command`. Run it in the current clone
+   and in each other clone that the user names. Rebuild writes only derived summaries.
+   It does not change run records or evidence. Run it one time for each clone. If
+   `report` names it again after that, do not run it again: tell the user about the gap.
+2. Run `agentic-preflight report --all-repos --format markdown`.
+3. Show the user `data.markdown` as it is, including its limits. Do not shorten the
+   limits, and do not add rates or conclusions that the report does not contain.
+4. Tell the user about every gap that the envelope reports: malformed mirror lines,
+   unreadable run records, finished runs missing from the mirror, and an instruction
+   in `next`.
+
+Never compute statistics by parsing `run.json`, `findings.json`, or `events.jsonl`
+files directly. The report reads every record schema and counts what it cannot read.
+Never send the report or the mirror anywhere. The data stays on this machine unless
+the user copies it.
