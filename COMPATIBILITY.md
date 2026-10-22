@@ -75,13 +75,11 @@ Ordinary review does not require Docker. The default disabled configuration and
 coverage wire shape remain unchanged. The worked wrappers support both planning
 and final review; update the shared helper together with either wrapper.
 
-New plans and enabled receipts use schema `"2"` in private run artifacts. Checked
-units require a behavioral inventory with input-class probe references or explicit
-gaps. Checks require structured oracle provenance. Update the worked wrappers and
-their shared helper together with the product. Schema-1 receipts remain readable
-without changing their digest-bound plan representation. They cannot satisfy a new
-findings submission: context preserves their reference under `previous_receipt` and
-requests a schema-2 plan. Existing completed evidence is not reinterpreted as schema 2.
+Plans and receipts use schema `"2"` in private run artifacts. Checked units require a
+behavioral inventory with input-class probe references or explicit gaps. Checks require
+structured oracle provenance. Update the worked wrappers and their shared helper
+together with the product. No release wrote a schema-1 receipt, so none is read: a
+receipt in that shape is reported as unreadable and left in place.
 
 Final context adds inventory, oracle provenance, and probe code within its summary
 budget. Check details are ordered failed first, and long output streams are shortened
@@ -190,13 +188,12 @@ Restart preflight to validate the current source. Do not resume from that interm
 
 New schema-v2 run records carry an optional `producer` object.
 It records the tool version, the Python version, the platform, the coding-agent client, and the model that the agent reported.
-Records that earlier versions wrote load with `producer` absent.
-A rewrite of such a record does not add the key.
+Records that earlier versions wrote load with `producer` absent, and a rewrite of such a record stores `producer` as `null`.
 Run schema 2, attestation schema 7, fingerprints, and configuration digests are unchanged. None of them contain the producer.
 
 Run models forbid unknown keys.
-Thus, an earlier tool version reports a new record that carries `producer` as unreadable.
-Do not delete the run history to recover. Use a compatible tool version, this version or later, to inspect or clean up those runs.
+Thus, an earlier tool version reports a record that carries `producer`, including a rewritten older record, as unreadable.
+Do not delete the run history to recover. Use this version or a later one to inspect or clean up those runs.
 
 ## Grounding and command candidates
 
@@ -296,7 +293,8 @@ Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 `[telemetry]` is a new configuration section.
 Older tool versions reject a configuration file that contains it, as an unknown section.
 Put it only in the user file of a machine that runs this version or a later one.
-Run snapshots never contain the section. Thus, older versions still read the run records and attestations that this version writes.
+Run snapshots never contain the section, so it changes no attestation and no configuration digest.
+Whether an older version reads a run record that this version writes is decided by the run-record sections above, not by this section.
 
 `agentic-preflight telemetry rebuild` reads run schema 1 and 2 records without changing them.
 It writes only `summary.json` files and the mirror.
@@ -307,10 +305,10 @@ The `aborted` event is now written together with the terminal transition. It car
 
 ## Reasons and timing on run records and summaries
 
-A stored finding can carry the new optional `response_reason`. A stage record can carry the new optional `started_at`.
-A key without a value is left out. A rewrite of an older record does not add either key.
+A stored finding can carry the new optional `response_reason`. A finding without a reason has no such key.
+A stage record carries `started_at`, which is `null` for a stage that never began and in a rewritten older record.
 Run models forbid unknown keys.
-Thus, an earlier tool version cannot read a findings file or a run record that carries either key, and it reports such a run record as unreadable.
+Thus, an earlier tool version cannot read a findings file that carries `response_reason`, or a run record written by this version, and it reports such a run record as unreadable.
 Do not delete the run history to recover. Use this version or a later one to inspect or clean up those runs.
 
 Stage evidence and attestations never contain `response_reason` or `started_at`.

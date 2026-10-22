@@ -275,17 +275,6 @@ class StageRecord(BaseModel):
     head_sha: str | None = None
     fingerprint: StageFingerprint | None = None
 
-    @model_serializer(mode="wrap")
-    def omit_absent_start(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
-        """Rewrite records that predate stage start times without adding the key.
-
-        Older releases forbid unknown keys, as for ``RunDoc.producer``.
-        """
-        data = handler(self)
-        if self.started_at is None:
-            data.pop("started_at", None)
-        return data
-
 
 class SetupFailure(BaseModel):
     """Durable recovery details for setup that failed before a stage could run."""
@@ -433,18 +422,6 @@ class RunDoc(BaseModel):
         if type(value) is not int or value != 2:
             raise ValueError("schema_version must be the JSON integer 2")
         return value
-
-    @model_serializer(mode="wrap")
-    def omit_absent_producer(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
-        """Rewrite records that predate producer identity without adding the key.
-
-        Older releases forbid unknown keys, so a null ``producer`` written into a
-        record they created would make that record unreadable to them.
-        """
-        data = handler(self)
-        if self.producer is None:
-            data.pop("producer", None)
-        return data
 
 
 class AttestedStage(BaseModel):

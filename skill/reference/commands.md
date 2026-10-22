@@ -228,8 +228,8 @@ full-artifact path. Details include the consumer, provenance, and exact assertio
 `plan_pointer` locates each check in the full receipt. Details are ordered failed,
 unverified, then passed; long output streams are shortened in the summary; and
 `claimed_classes` counts the input classes that rely on each probe. Unverified input classes keep
-the receipt unverified even when all probes pass. Schema-1 artifacts remain readable,
-but new submissions require a schema-2 plan. The accepted review binds the receipt as `contracts_sha256`.
+the receipt unverified even when all probes pass. A schema-1 receipt is unreadable; run
+`review contracts` again to replace it. The accepted review binds the receipt as `contracts_sha256`.
 Invalid, incomplete or stale plans fail with `invalid_findings` (exit 3).
 
 Checks supply evidence to the final review; failures are candidate counterexamples,

@@ -156,7 +156,8 @@ def test_behavioral_claims_require_provenance_and_resolvable_probe_references(mu
         ContractPlan.model_validate(data)
 
 
-def as_legacy_plan(data):
+def as_schema_1_plan(data):
+    """The pre-release plan shape: no inventory, no oracle provenance."""
     data = copy.deepcopy(data)
     data["schema_version"] = "1"
     for unit in data["units"]:
@@ -166,9 +167,9 @@ def as_legacy_plan(data):
     return data
 
 
-def test_new_plan_schema_refuses_legacy_claims():
+def test_plan_schema_refuses_schema_1_claims():
     with pytest.raises(ValidationError):
-        ContractPlan.model_validate(as_legacy_plan(plan_for()))
+        ContractPlan.model_validate(as_schema_1_plan(plan_for()))
 
 
 def test_unverified_input_class_is_visible_even_when_all_probes_pass(feature_repo, monkeypatch):
@@ -191,28 +192,6 @@ def test_unverified_input_class_is_visible_even_when_all_probes_pass(feature_rep
     )
     assert all(p.status == "passed" for c in receipt.checks for p in c.probes)
     assert receipt.status == "unverified"
-
-
-def test_legacy_receipt_is_readable_without_rewriting_its_digest_bound_plan(
-    feature_repo, monkeypatch
-):
-    monkeypatch.setattr(contract_runner, "resolve_on_path", lambda _: None)
-    receipt = execute_plan(
-        feature_repo,
-        gitx.rev_parse(feature_repo, "HEAD"),
-        ContractPlan.model_validate(plan_for()),
-        ReviewContractsSection(),
-    )
-    wire = receipt.model_dump(mode="json")
-    wire["schema_version"] = "1"
-    wire["plan"] = as_legacy_plan(wire["plan"])
-    wire["plan_sha256"] = json_digest(wire["plan"])
-    restored = ContractReceipt.model_validate(wire)
-    assert restored.model_dump(mode="json") == wire
-    assert json_digest(restored.plan.model_dump(mode="json")) == wire["plan_sha256"]
-    wire["schema_version"] = "2"
-    with pytest.raises(ValidationError, match="schema versions must match"):
-        ContractReceipt.model_validate(wire)
 
 
 @pytest.mark.parametrize("mutation", ["empty_probes", "wrong_kind", "missing_check", "wrong_id"])
@@ -690,7 +669,7 @@ def test_handoff_delivers_failed_checks_first_and_shortens_streams(
     assert claimed[("C002", "boundary")] == 1
 
 
-def test_old_receipt_is_preserved_but_requires_a_new_plan(feature_repo, tmp_path, monkeypatch):
+def test_schema_1_receipt_is_unreadable_and_preserved(feature_repo, tmp_path, monkeypatch):
     monkeypatch.setattr(contract_runner, "resolve_on_path", lambda _: None)
     enable(feature_repo)
     agent = ScriptedAgent(feature_repo)
@@ -700,22 +679,18 @@ def test_old_receipt_is_preserved_but_requires_a_new_plan(feature_repo, tmp_path
     path = Path(checked["data"]["contract_checks"]["receipt"]["path"])
     old = json.loads(path.read_text())
     old["schema_version"] = "1"
-    old["plan"] = as_legacy_plan(old["plan"])
+    old["plan"] = as_schema_1_plan(old["plan"])
     old["plan_sha256"] = json_digest(old["plan"])
     digest = json_digest(old)
     old_path = path.with_name(digest + ".json")
     old_bytes = json.dumps(old).encode()
     old_path.write_bytes(old_bytes)
     path.with_name("current.json").write_text(json.dumps({"sha256": digest}))
-    context = agent.run("context")["data"]["contract_checks"]
-    assert context["receipt"] is None
-    assert context["plan_schema"]["properties"]["schema_version"]["const"] == "2"
-    assert context["previous_receipt"]["sha256"] == digest
-    agent.run(
-        "submit-findings", "--file", findings_json(tmp_path, []), expect=ExitCode.PRECONDITION
-    )
+    refused = agent.run("context", expect=ExitCode.PRECONDITION)
+    assert "run review contracts again" in refused["error"]["message"]
     agent.run("review", "contracts", "--file", str(plan))
     assert old_path.read_bytes() == old_bytes
+    assert agent.run("context")["data"]["contract_checks"]["receipt"] is not None
 
 
 @pytest.mark.parametrize("mutation", ["missing_unit", "stale_manifest", "too_many_checks"])
