@@ -45,6 +45,8 @@ The line records the time, the repository, the remote name, the reason code, and
 The hook writes the line after it decides. A log failure or a slow write does not change the exit code or the message.
 The file is outside the repository, so the hook still does not change the repository.
 Set `[telemetry] hook_log = false` to stop the log.
+A repository under the system temporary directory logs nothing unless `[telemetry] path` is set.
+See [Temporary repositories](local-telemetry.md#temporary-repositories).
 See [Hook decisions](local-telemetry.md#hook-decisions) for the fields, the reason codes, and the report.
 
 The installed hook gives `hook-check` the remote name in the `AGENTIC_PREFLIGHT_PUSH_REMOTE` environment variable.

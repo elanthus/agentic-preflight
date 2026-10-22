@@ -15,6 +15,8 @@ The log follows the telemetry rules:
 * Writing never changes the push. ``hook-check`` decides its exit code and message
   before it writes. The write is bounded in time, every failure is swallowed, and
   nothing here writes to stdout or stderr.
+* A repository under a system temporary directory logs nothing, unless an explicit
+  ``[telemetry] path`` opts it in (:func:`agentic_preflight.telemetry.exclusion_reason`).
 """
 
 from __future__ import annotations
@@ -53,6 +55,7 @@ _REMOTE_LIMIT = 200
 #: What :func:`record` did. Only tests read it; ``hook-check`` ignores it.
 WRITTEN = "written"
 DISABLED = "disabled"
+TEMPORARY = telemetry.TEMPORARY_REPOSITORY
 UNRESOLVED = "unresolved"
 TIMED_OUT = "timed_out"
 FAILED = "failed"
@@ -280,8 +283,9 @@ def begin(
 
     ``config`` is the loaded configuration, or ``None`` when it could not be loaded,
     and then :func:`fallback_section` decides. ``repo_root`` defaults to the current
-    directory, where Git runs the hook. Nothing starts when logging is off or the
-    preference is unknown.
+    directory, where Git runs the hook. Nothing starts when logging is off, when the
+    preference is unknown, or when the repository is temporary and has not opted in
+    with an explicit ``[telemetry] path``.
     """
     try:
         root = repo_root or Path.cwd()
@@ -290,9 +294,10 @@ def begin(
             return Pending(UNRESOLVED)
         if not section.hook_log:
             return Pending(DISABLED)
-        directory = telemetry.telemetry_dir(
-            config if config is not None else Config(telemetry=section)
-        )
+        effective = config if config is not None else Config(telemetry=section)
+        if telemetry.exclusion_reason(effective, root) is not None:
+            return Pending(TEMPORARY)
+        directory = telemetry.telemetry_dir(effective)
         pending = Pending()
         pending._start(root, directory, timeout)
         return pending

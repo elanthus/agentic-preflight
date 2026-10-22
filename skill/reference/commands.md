@@ -549,8 +549,11 @@ The pre-push predicate. Reads git's stdin protocol, consults only the commit's
 it.
 
 After it decides, it appends one JSON line to `hook-decisions.jsonl` in the user-level
-telemetry directory, unless `[telemetry] hook_log = false`: `at`, `repo` (the summary's
-repository identity), `remote` (the remote name from `AGENTIC_PREFLIGHT_PUSH_REMOTE`,
+telemetry directory, unless `[telemetry] hook_log = false`, or unless the repository is
+under the system temporary directory and `[telemetry] path` is not set (see
+[Temporary repositories](../../docs/local-telemetry.md#temporary-repositories)). The
+line has `at`, `repo` (the summary's repository identity), `remote` (the remote name
+from `AGENTIC_PREFLIGHT_PUSH_REMOTE`,
 which the installed hook sets from Git's first argument; a URL is reduced to host and
 path without credentials; `null` when unset), `allowed`, `reason`, and `updates`
 (`local_ref`, `remote_ref`, a seven-character `sha`, and `force`, which is `null` for an
@@ -574,14 +577,23 @@ exact text. Nonterminal runs count as `skipped`. An unreadable record is listed 
 `data.unreadable_runs` with its run ID, path, reason, and diagnostic; its earlier summary
 and mirror row are kept, never treated as absent. `data` reports `repo`, `summarized`,
 `skipped`, `unreadable`, `unreadable_runs`, `write_failures`, and `mirror` (`enabled`,
-`path`, `rows`, `preserved_rows`, `error`). A failed write exits 1 with error code
-`telemetry_write_failed` and the same `data`. `telemetry rebuild` makes no network request.
+`path`, `rows`, `preserved_rows`, `temporary_runs`, `reason`, `error`). Without an
+explicit `[telemetry] path`, a summary whose source worktree is under the system
+temporary directory is never mirrored, and `mirror.temporary_runs` counts those
+summaries. A clone that is itself under the system temporary directory does not change
+the mirror at all: `mirror.reason` is `temporary_repository`, and `path`, `rows`, and
+`preserved_rows` are `null`. `reason` is otherwise `null`; `temporary_runs` is `null`
+when the mirror is off. A failed write exits 1 with error code `telemetry_write_failed` and the same `data`.
+`telemetry rebuild` makes no network request.
 
 The summary is first written when a transaction commits `DONE`, `ABORTED`, or `ORPHANED`:
 from `finish`, `abort`, `gc`, or `start` when it orphans the previous run or aborts the
 run it was creating. The event log then gains `summary_written` (with `summary_path`,
-`mirrored`, `mirror_path`, and `error`) or `summary_failed`. `finish` and `abort` report
-the same outcome, with `run_id`, in `data.telemetry`; `gc` reports a list there, one item
+`mirrored`, `mirror_path`, `reason`, and `error`) or `summary_failed`. `reason` is
+`temporary_repository` when the run's source worktree is under the system temporary
+directory and `[telemetry] path` is not set, so no mirror row was written; otherwise it is
+`null`. `finish` and `abort` report the same outcome, with `run_id`, in
+`data.telemetry`; `gc` reports a list there, one item
 for each run it orphaned. A telemetry failure never changes a command's result or rolls
 back its transaction. The `aborted` event is now written with the terminal transition
 and carries its `seq`. See [Local run telemetry](../../docs/local-telemetry.md).
@@ -627,7 +639,8 @@ regenerated too, without a request. Run records and event logs are not changed.
 `stale_summaries` (synced runs whose summary is regenerated without a request),
 `gh_found`, `runs` (`run_id`, `sha`, `outcome`, `pr_number`, `pr_state`, `merged`,
 `checks_conclusion`), `errors`, `stopped`, and `summaries` (`regenerated`,
-`unreadable_runs`, `write_failures`, `mirror`). After a sync that wrote outcomes or
+`unreadable_runs`, `write_failures`, and `mirror`, with the `telemetry rebuild` keys; the
+mirror is not rewritten when no summary is left to write). After a sync that wrote outcomes or
 summaries, `next.command` is `agentic-preflight report`. `next.command` never repeats the
 network call.
 
@@ -687,8 +700,11 @@ Inside a clone, `data.source.clone` gives the repository identity, `mirror_rows`
 `run_records`, `unreadable`, and `unreadable_runs`. A record that cannot be summarized is
 listed there with reason `invalid`. It does not fail the report. When the mirror is the
 source, it also gives `unmirrored_terminal_runs`: the finished runs of this clone that
-the mirror does not have. After a fallback, it gives `summarized` and `skipped` instead.
-When a rebuild can add missing runs, `next.command` is
+the mirror does not have and that `telemetry rebuild` would add. After a fallback, it
+gives `summarized` and `skipped` instead. `temporary_runs` counts the finished runs that
+were not in the mirror and that a rebuild does not mirror, because the clone or the
+run's source worktree is under the system temporary directory and `[telemetry] path` is
+not set. When a rebuild can add missing runs, `next.command` is
 `agentic-preflight telemetry rebuild`. `data.filters` and `data.filtered_out` tell you
 which filters were set and how many rows each filter left out.
 

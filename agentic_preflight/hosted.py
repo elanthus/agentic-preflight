@@ -458,28 +458,13 @@ def resummarize(
             _atomic_write(path, summary.model_dump_json(indent=2) + "\n")
         except OSError as exc:
             write_failures.append({"run_id": run_id, "error": telemetry._describe(exc)})
-    mirror: dict[str, Any] = {
-        "enabled": config.telemetry.mirror,
-        "path": None,
-        "rows": None,
-        "preserved_rows": None,
-        "error": None,
-    }
-    if config.telemetry.mirror and fresh:
-        target = telemetry.mirror_path(config)
-        mirror["path"] = str(target)
-        try:
-            mirror["rows"], mirror["preserved_rows"] = telemetry._rewrite_mirror(
-                target, fresh, identity.root_commit
-            )
-        except (OSError, UnicodeDecodeError) as exc:
-            # An unreadable mirror is left exactly as it was.
-            mirror["error"] = telemetry._describe(exc)
     return {
         "regenerated": len(fresh),
         "unreadable_runs": unreadable,
         "write_failures": write_failures,
-        "mirror": mirror,
+        "mirror": telemetry.replace_mirror_rows(
+            config, fresh, identity, rewrite_without_rows=False
+        ),
     }
 
 

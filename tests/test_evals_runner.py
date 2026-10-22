@@ -210,6 +210,43 @@ def test_gold_leakage_inside_snapshot_is_rejected(tmp_path):
     assert result["runtime_seconds"] > 0
 
 
+def test_every_cli_subprocess_gets_the_workspace_data_and_cache_directories(tmp_path, monkeypatch):
+    # Without the isolation, the CLI would inherit whatever the caller set: the
+    # user's own data directory outside pytest, this test's directory inside it.
+    inherited = Path(os.environ["XDG_DATA_HOME"])
+    calls: list[tuple[list[str], dict[str, str]]] = []
+    real_run = eval_run._run
+
+    def recording_run(argv, *, cwd, env):
+        calls.append((list(argv), dict(env)))
+        return real_run(argv, cwd=cwd, env=env)
+
+    monkeypatch.setattr(eval_run, "_run", recording_run)
+    workspace = tmp_path / "workspace"
+    case = eval_run.load_case(CASES / "unguarded-division")
+
+    result = eval_run.run_case_snapshot(
+        case,
+        snapshot="vulnerable",
+        mode="dry",
+        executor=None,
+        grounding="on",
+        workspace=workspace,
+    )
+
+    assert result["status"] == "resolved"
+    cli = [env for argv, env in calls if argv[1:3] == ["-m", "agentic_preflight"]]
+    assert len(cli) == 4
+    for env in cli:
+        assert env["XDG_DATA_HOME"] == str(workspace / "xdg-data")
+        assert env["XDG_CACHE_HOME"] == str(workspace / "xdg-cache")
+    assert eval_run.isolated_data_env(workspace) == {
+        "XDG_DATA_HOME": str(workspace / "xdg-data"),
+        "XDG_CACHE_HOME": str(workspace / "xdg-cache"),
+    }
+    assert not (inherited / "agentic-preflight").exists()
+
+
 def test_discover_cases_ignores_hidden_and_non_case_directories(tmp_path):
     cases_root = tmp_path / "cases"
     copied = cases_root / "unguarded-division"

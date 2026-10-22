@@ -21,6 +21,11 @@ from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 from tests.test_telemetry import _findings, _schema_1_record, _schema_2_record, _store_record
 
+#: Every fixture repository is under the system temporary directory, which the product
+#: keeps out of the default telemetry location. These tests are about what the files
+#: record, so they opt in with an explicit ``[telemetry] path``.
+pytestmark = pytest.mark.usefixtures("telemetry_opt_in")
+
 ROOT_A = "a" * 40
 ROOT_B = "b" * 40
 

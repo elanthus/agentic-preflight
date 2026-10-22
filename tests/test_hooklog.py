@@ -23,10 +23,15 @@ from agentic_preflight import filelock, gitx, hook, hooklog, report, telemetry
 from agentic_preflight.config import Config, TelemetrySection
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.initcmd import DEFAULT_CONFIG
-from tests.conftest import git, home_env, set_home, write
+from tests.conftest import git, home_env, opt_in_telemetry, set_home, write
 from tests.driver import ScriptedAgent, green_run
 from tests.test_hook import hook_check
 from tests.test_report import ROOT_A, ROOT_B
+
+#: Every fixture repository is under the system temporary directory, which the product
+#: keeps out of the default telemetry location. These tests are about what the files
+#: record, so they opt in with an explicit ``[telemetry] path``.
+pytestmark = pytest.mark.usefixtures("telemetry_opt_in")
 
 ZERO = "0" * 40
 GREEN = "a" * 40
@@ -328,8 +333,11 @@ def test_an_unwritable_log_leaves_the_exit_code_and_message_unchanged(
     assert not hooklog.log_path().exists()
 
 
-def test_an_unavailable_configuration_still_logs_config_unavailable(feature_repo, tmp_path):
+def test_an_unavailable_configuration_still_logs_config_unavailable(
+    feature_repo, tmp_path, telemetry_opt_in
+):
     write(feature_repo, ".agentic-preflight.toml", "[general]\nbogus = 1\n")
+    opt_in_telemetry(telemetry_opt_in, home=tmp_path / "home")
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
 
     result = hook_check(

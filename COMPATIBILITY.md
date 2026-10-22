@@ -368,3 +368,21 @@ A hook from an earlier version still works. Its log lines have `remote = null`.
 
 In `agentic-preflight report`, `data.hook_decisions` is a new key, and the Markdown has a new "Hook decisions" section before the limits.
 `data.limits` has two more items.
+
+## Temporary repositories and telemetry
+
+Without an explicit `[telemetry] path`, runs and hook decisions of repositories under the system temporary directory no longer reach the telemetry directory.
+The system temporary directories are `tempfile.gettempdir()`, `$TMPDIR` when it is set, and `/tmp` except on Windows, compared as resolved real paths.
+Such a run still writes `summary.json`. It appends no line to `runs.jsonl`, and `hook-check` appends no line to `hook-decisions.jsonl`.
+See [Temporary repositories](docs/local-telemetry.md#temporary-repositories).
+
+An explicit `[telemetry] path` is an opt-in, and keeps the earlier behavior for every repository.
+If you work in clones under the temporary directory and want their runs in your mirror, set `path` in your user file, even to the default location.
+`[telemetry] mirror` and `hook_log` are unchanged.
+Rows that the mirror already has are not removed.
+
+The `summary_written` event and `data.telemetry` add `reason`: `temporary_repository`, or `null`.
+The `mirror` object of `telemetry rebuild` and of `telemetry sync-hosted` adds `reason` and `temporary_runs`.
+In `agentic-preflight report`, `data.source.clone` adds `temporary_runs`, and `unmirrored_terminal_runs` no longer counts those runs.
+The summary schema 1, the hook decision lines, run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+No fingerprint, evidence digest, configuration digest, or attestation reads these keys.

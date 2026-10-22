@@ -28,6 +28,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from . import hooklog, telemetry
+from .config import Config
 from .models import Stage
 from .store import Store
 
@@ -227,6 +228,24 @@ class Clone:
     store: Store
     identity: telemetry.RepoIdentity
     worktree_paths: frozenset[str]
+    #: The ``[telemetry]`` preference that ``telemetry rebuild`` would apply. ``None``
+    #: counts every finished run as one the rebuild mirrors.
+    config: Config | None = None
+
+    def mirrors(self, summary: Mapping[str, Any]) -> bool:
+        """Whether ``telemetry rebuild`` in this clone would mirror ``summary``.
+
+        It would not when the clone or the run's source worktree is temporary
+        (:func:`agentic_preflight.telemetry.exclusion_reason`).
+        """
+        if self.config is None:
+            return True
+        repo = summary.get("repo")
+        source = repo.get("source_worktree_path") if isinstance(repo, Mapping) else None
+        return not (
+            telemetry.exclusion_reason(self.config, self.identity.source_worktree_path)
+            or telemetry.exclusion_reason(self.config, source)
+        )
 
 
 @dataclass
@@ -322,6 +341,7 @@ def collect(
         "summarized": None,
         "skipped": None,
         "unmirrored_terminal_runs": None,
+        "temporary_runs": None,
     }
     source["clone"] = detail
     if not all_repos and not mine:
@@ -332,8 +352,11 @@ def collect(
     else:
         mirrored = {row["run_id"] for row in mine}
         scan = summarize_clone(clone.store, identity, [r for r in run_ids if r not in mirrored])
-        detail["unmirrored_terminal_runs"] = len(scan.summaries)
         rows = list(mirror.rows) if all_repos else mine
+    addable = sum(1 for summary in scan.summaries if clone.mirrors(summary))
+    detail["temporary_runs"] = len(scan.summaries) - addable
+    if source["used"] == "mirror":
+        detail["unmirrored_terminal_runs"] = addable
     detail["unreadable"] = len(scan.unreadable_runs)
     detail["unreadable_runs"] = scan.unreadable_runs
     return rows, source
