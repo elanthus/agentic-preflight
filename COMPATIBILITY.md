@@ -293,7 +293,8 @@ Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 `[telemetry]` is a new configuration section.
 Older tool versions reject a configuration file that contains it, as an unknown section.
 Put it only in the user file of a machine that runs this version or a later one.
-Run snapshots never contain the section. Thus, older versions still read the run records and attestations that this version writes.
+Run snapshots never contain the section, so it changes no attestation and no configuration digest.
+Whether an older version reads a run record that this version writes is decided by the run-record sections above, not by this section.
 
 `agentic-preflight telemetry rebuild` reads run schema 1 and 2 records without changing them.
 It writes only `summary.json` files and the mirror.

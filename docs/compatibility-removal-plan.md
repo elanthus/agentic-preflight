@@ -26,7 +26,7 @@ Under this rule, 0.8.0 must read 0.7.0 records, notes, and snapshots. It need no
 | 7 | `discard_retired_null_fields` on attestations | 0.7.0 | 0.6.0 verified notes | 0.9.0 |
 | 8 | `REMOVED_CONFIG_KEYS` entries removed in 0.7.0 | 0.7.0 | 0.6.0 snapshots and config files | 0.9.0 |
 | 9 | `LEGACY_DIRNAME`, `legacy_worktrees`, runner reclamation at the old root | 0.7.0 | worktrees created before 0.7.0 | 0.9.0 |
-| 10 | `producer: Producer \| None` | after v0.7.0 | 0.7.0 records without a producer | 0.9.0 |
+| 10 | `record.get("producer")` raw fallback in `telemetry._producer` | after v0.7.0 | 0.7.0 records without the key | 0.9.0 |
 
 Run schema 2, attestation schema 7, and fingerprint version 2 do not change in any stage.
 No stage rewrites saved data or deletes user work. Rejected records keep the existing
@@ -34,8 +34,9 @@ No stage rewrites saved data or deletes user work. Rejected records keep the exi
 
 ## Stage 0: before 0.8.0, no compatibility note
 
-These guard data that no release ever wrote. They can go in the next PR, with a
-`docs/CHANGELOG.d/*.changed.md` fragment but no `COMPATIBILITY.md` entry.
+These guard data that no release ever wrote. Items 1 and 2 are removed in
+elanthus/agentic-preflight#301, with a `docs/CHANGELOG.d/*.removed.md` fragment and a
+`COMPATIBILITY.md` wording update but no new compatibility entry. Stage 0 is complete.
 
 ### 1. Schema-1 contract receipts
 
@@ -168,12 +169,16 @@ default moved is long enough for `gc` to have reported them. Delete `LEGACY_DIRN
 explicit root of that name stays valid. Note the envelope key removal in
 `COMPATIBILITY.md`, since `gc` consumers may read it.
 
-### 10. Producer becomes required
+### 10. Producer key becomes required, but stays nullable
 
-0.8.0 reads 0.7.0 records that have no `producer`. 0.9.0 reads 0.8.0 records, all of
-which have one. Change `producer: Producer | None = None` to `producer: Producer`, drop
-the `record.get("producer")` fallback in `telemetry._producer`, and make the summary
-field non-optional.
+`producer` itself is not a shim and never becomes required. A 0.7.0 record has no
+producer, and 0.8.0 rewrites it with `"producer": null` rather than inventing one, so
+0.9.0 still meets null producers inside its support window and must read them. Null is
+the honest value for "unknown", and the summary keeps reporting it as such.
+
+What does expire is the missing key. Every record 0.8.0 writes carries the key, so in
+0.9.0 the `record.get("producer")` fallback in `telemetry._producer`, which exists for
+raw records without it, can go. The model field stays `Producer | None`.
 
 ## Guardrail: keep this from growing back
 
