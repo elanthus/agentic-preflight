@@ -32,8 +32,9 @@ documentation
 
 lint and local tests
   DOCS_GREEN -> LINT_RUNNING -> LINT_GREEN -> TEST_RUNNING -> TEST_GREEN
-                  '-> LINT_RED       |           '-> TEST_RED -> TEST_RUNNING
-                        '-> LINT_RUNNING         '-> TEST_GREEN   (SKIP_TEST)
+                  |                |              '-> TEST_RED -> TEST_RUNNING
+                  |                '-> TEST_GREEN   (SKIP_TEST)
+                  '-> LINT_RED -> LINT_RUNNING
 
 merge-back and publication
   TEST_GREEN -> MERGEBACK_PENDING -> VERIFIED -> AWAITING_PUSH_CONFIRM -> PUSHED -> DONE

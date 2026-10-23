@@ -65,7 +65,7 @@ When you submit a contribution, you agree that it is licensed under the reposito
 ## Changelog fragments
 
 For each behavior or configuration change, add a unique file under `docs/CHANGELOG.d/`.
-Create the directory if the previous release consumed every fragment and removed it.
+Release assembly deletes the consumed fragments, and Git does not track an empty directory, so create it if your checkout lacks it.
 Name it `<issue-or-slug>.<category>.md`, for example `198.removed.md` or `changelog-fragments.changed.md`.
 The categories are `added`, `changed`, `deprecated`, `removed`, `fixed`, and `security`.
 Write Markdown bullets. Do not write headings or standalone prose.

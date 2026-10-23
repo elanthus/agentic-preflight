@@ -86,7 +86,8 @@ Update documentation in the same commit as the code it describes:
   (for example `198.removed.md`), with category `added`, `changed`, `deprecated`,
   `removed`, `fixed`, or `security`, and Markdown bullets without headings.
   Routine PRs do not edit `CHANGELOG.md`; release assembly consumes the fragments.
-  A release removes the directory once it is empty, so create it again when it is missing.
+  Release assembly deletes the consumed fragments, and Git does not track an empty
+  directory, so a fresh checkout after a release may lack it. Create it when it is missing.
   See [CONTRIBUTING.md](CONTRIBUTING.md#changelog-fragments).
 - Configuration keys are documented in `docs/configuration.md`.
 - CLI commands, flags, envelopes, and exit codes are documented in

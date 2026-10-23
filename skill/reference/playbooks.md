@@ -88,12 +88,14 @@ changed content and unknown shell inputs require fresh stages.
 ## Base synchronization failed at start (exit 4, `sync_conflict` or `sync_failed`)
 
 `start` fetched the fresh base and could not rebase or merge the branch onto it. Nothing
-is left in progress. With `sync_conflict`, show `data.conflicting_files` and
-`data.base_sha`; the user resolves the conflict on the source branch, or removes the
-untracked files that the base would overwrite. With `sync_failed`, show `data.detail`;
-the user fixes the remote, network, or base ref. In both cases run
-`agentic-preflight abort --force`, then `start` again with the same intent. Do not
-resolve a rebase on the user's behalf.
+is left in progress. Print the whole `data` object, as for every non-`ok` envelope; the
+report exists nowhere else afterwards. Then point out the relevant fields. With
+`sync_conflict`, `data.conflicting_files` names either paths that conflict on rebase or
+merge, which the user resolves on the source branch, or untracked and ignored local
+files that the base would overwrite, which the user moves or removes. With
+`sync_failed`, `data.detail` names the remote, network, or base-ref error the user
+fixes. In both cases run `agentic-preflight abort --force`, then `start` again with the
+same intent. Do not resolve a rebase on the user's behalf.
 
 ## Abandoned run
 

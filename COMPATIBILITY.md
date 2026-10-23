@@ -271,7 +271,7 @@ Committed protected policies can contain retired sections without blocking appro
 
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 Notes that 0.7.0 wrote stay verifiable, and run records that 0.7.0 wrote stay readable.
-0.8.0 removes no configuration keys, so no upgrade guide is needed.
+0.8.0 removes no configuration keys. The compatibility requirements for mixed versions are below.
 
 0.7.0 rejects the new configuration keys (`[telemetry]`, including `hook_log`, and `[review.contracts]`) and the new run record keys (`producer`, `started_at`, `response_reason`).
 Upgrade every machine that shares a clone before you enable the new configuration, and use 0.8.0 or later to inspect or clean up runs that 0.8.0 touched.
@@ -335,7 +335,8 @@ The `finding_resolved` event adds `reason`. The `aborted` event adds `reason` an
 
 Run summaries add `findings.by_response_reason`, `terminal.abort_reason`, `terminal.aborted_from_state`,
 `stages.<name>.started_at`, `stages.<name>.duration_seconds`, and the optional top-level `timing`.
-The summary keeps `schema_version = 1`. 0.8.0 is the first release that writes summaries, and `telemetry rebuild` regenerates every row.
+The summary keeps `schema_version = 1`. 0.8.0 is the first release that writes summaries, and `telemetry rebuild` regenerates the summary and mirror row of every readable terminal run.
+It skips runs that are not terminal and leaves the existing summary and mirror row of an unreadable record in place.
 A summary row without the new keys is still valid. The report counts the missing values as unknown.
 
 ## Hosted outcome records

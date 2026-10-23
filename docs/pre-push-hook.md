@@ -73,7 +73,7 @@ To record the remote name in the decision log, set the variable before the comma
 `active` is true only when the effective hook contains that command.
 Thus, a `core.hooksPath` change that bypasses the hook is visible in `status`.
 
-`init --no-hook` writes the configuration and skips the hook; `status` then reports `hook.active` as false.
+`init --no-hook` writes the configuration and does not install or change the hook. In a repository with no hook, `status` then reports `hook.active` as false; an existing agentic-preflight hook stays active.
 
 `init --force` is a replacement, not a composition.
 It overwrites the existing hook and removes the behavior that the hook provided.
