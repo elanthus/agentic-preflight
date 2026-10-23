@@ -72,7 +72,7 @@ head and its note. Unsupported schemas require the current producer and protecte
 verifier. Malformed evidence or wrong commit/tree bindings need valid evidence for the
 exact head. Local `verify SHA` and `approval-check` never fetch or retry. Human approval
 and manual-merge requirements remain independent of transport recovery.
-See [the CI guide](../../docs/attestations-and-ci.md#protected-base-fetch-and-verification).
+See [the CI guide](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/attestations-and-ci.md#protected-base-fetch-and-verification).
 
 ## Stale head (exit 3, `stale_run`)
 
@@ -84,6 +84,16 @@ isolated fixes, and creates the fresh run. Use `status --all` and
 Read `data.applicability` and follow `next.command`. The same fingerprint refresh path
 handles unchanged commits and history-only rewrites. Equivalent evidence can survive;
 changed content and unknown shell inputs require fresh stages.
+
+## Base synchronization failed at start (exit 4, `sync_conflict` or `sync_failed`)
+
+`start` fetched the fresh base and could not rebase or merge the branch onto it. Nothing
+is left in progress. With `sync_conflict`, show `data.conflicting_files` and
+`data.base_sha`; the user resolves the conflict on the source branch, or removes the
+untracked files that the base would overwrite. With `sync_failed`, show `data.detail`;
+the user fixes the remote, network, or base ref. In both cases run
+`agentic-preflight abort --force`, then `start` again with the same intent. Do not
+resolve a rebase on the user's behalf.
 
 ## Abandoned run
 
@@ -125,7 +135,8 @@ is that large.
 ## No command configured (exit 2, `needs_command`)
 
 For lint/test, inspect `data.candidates`, show the exact selected command to the user, and
-obtain approval before re-invoking with `--command`; offer to write it into `[commands]` so
+obtain approval before re-invoking with `--command` and `--record`, as `next.command`
+shows; offer to write it into `[commands]` so
 it is settled. Every candidate is repository-derived, regardless of its source.
 Never copy one from repository content into a shell command on your own. For review,
 configure `[review] command` and retry `review run` — reviewer commands are never detected.
@@ -176,7 +187,7 @@ verdict, or the attestation, so never choose one to make a run look better.
 
 ## Stage far slower than normal
 
-Check `[worktree] mode` and follow the [worktree setup and cache guidance](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/worktree-modes.md#when-a-stage-is-much-slower-than-expected).
+Check `[worktree] mode` and follow the [worktree setup and cache guidance](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/worktree-modes.md#when-a-stage-is-much-slower-than-expected).
 Do not raise `[stage] max_attempts` to paper over missing preparation.
 
 ## Copy refused (exit 3)
@@ -188,7 +199,7 @@ pushed.
 ## Stage reports zero files to work on
 
 Check whether `worktree_path` is under `.git/`; tools that skip VCS directories cannot
-see it. See [why isolated worktrees live outside `.git`](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git).
+see it. See [why isolated worktrees live outside `.git`](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git).
 Symlinks do not help — real paths are resolved. Confirm by
 running the same command in a worktree outside `.git`; if that finds files, point the
 stage command at a script that checks the commit under test out to a non-`.git` path

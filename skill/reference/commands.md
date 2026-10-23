@@ -18,6 +18,10 @@ envelope and is not an agent-facing command.
 `next` is `null` only when there is genuinely nothing left to do. `error` is `null`
 when `ok` is `true`.
 
+`agentic-preflight --version` prints the installed version and exits 0. Every other
+command first checks the Git version and exits 1 with `unsupported_git_version` when Git
+is older than 2.38.
+
 Place `--run RUN_ID` before any workflow command to select a stored run explicitly.
 A `RUN_ID` other than `r_` followed by 10 lowercase hex digits exits 6 with
 `invalid_run_id` before any run is opened.
@@ -51,7 +55,8 @@ Copies the bundled skill and all of its references into each selected agent's di
 directory. `AGENT` is `codex`, `claude`, `cursor`, `opencode`, or `amp`. User scope uses
 their documented global directories; project scope uses `.agents/skills`,
 `.claude/skills`, `.cursor/skills`, or `.opencode/skills` as appropriate. `--target`
-adds a custom skills root for another compatible agent.
+adds a custom skills root for another compatible agent. With no `AGENT` and no
+`--target`, `install` and `uninstall` exit 1 with `integration_target_required`.
 
 Existing unmanaged or locally modified copies are never overwritten unless `--force`
 is explicit. The operation preflights every destination, so a conflict cannot leave
@@ -74,7 +79,7 @@ preserved unless `--force` is explicit. At least one agent or custom target is r
 
 ### `agentic-preflight start --intent TEXT [--base-ref REF] [--replace] [--client NAME] [--model NAME]`
 Creates a run and prepares its validation worktree according to the configured
-[worktree mode](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/worktree-modes.md).
+[worktree mode](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/worktree-modes.md).
 The intent is persisted as the user's objective and acceptance criteria. The parser
 accepts `start` without `--intent`, but the command then fails with exit 3 and
 `intent_required`.
@@ -99,7 +104,12 @@ rebases the validation worktree onto that exact fresh base. In-place mode theref
 rebases the PR branch itself. When a rebase would change what merging the branch lands,
 for example by dropping an `-s ours` merge that reverts a branch already in the base, it
 merges the base in instead and reports `data.sync.merged: true`. A sync conflict is aborted
-cleanly and reported; no conflicted rebase or merge is left in progress. Synchronization also
+cleanly and reported; no conflicted rebase or merge is left in progress. It exits 4 with
+`sync_conflict`, `data.base_ref`, `data.base_sha`, `data.head_before`,
+`data.conflicting_files`, and `data.worktree_path`. A fetch, network, or Git failure during
+synchronization exits 4 with `sync_failed`, `data.error_type`, and `data.detail`. Both leave
+the run in `SYNC_CONFLICT`; `next.command` is `agentic-preflight abort --force`, after which
+`start` again with the same intent. Synchronization also
 refuses, before changing anything, when a path added by the base or by the branch's merge
 result already exists as an untracked or ignored local file, and lists those files in
 `data.conflicting_files`.
@@ -131,7 +141,7 @@ next `start` detects it again. A malformed value exits 6 with `usage_error` befo
 is created.
 
 Returns `data.worktree_path` — **absolute**. Use it; do not rely on `cd` persisting.
-See [isolated worktree locations](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git)
+See [isolated worktree locations](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git)
 for the default location and `[worktree] root` override.
 
 Returns `data.housekeeping`, a read-only inventory of this clone's validation
@@ -146,7 +156,7 @@ exists. A released reusable runner whose source remains is `retained` with reaso
 `data.housekeeping` is `{"error": "..."}` and `start` still succeeds.
 
 For dependency installation, ignored build inputs, caches, and `setup_command`,
-see [Preparing the validation worktree](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/worktree-modes.md#preparing-the-validation-worktree).
+see [Preparing the validation worktree](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/worktree-modes.md#preparing-the-validation-worktree).
 Use `copy_files` only for ignored files such as `.env`; directories are refused with a
 setup instruction.
 
@@ -236,7 +246,7 @@ Checks supply evidence to the final review; failures are candidate counterexampl
 not automatic findings or a replacement for lint/tests. Read omitted evidence and
 verify the oracle before reporting a defect. Challenge declared input coverage and
 unsupported consumer assumptions for passed checks as well. See
-[contract checks](../../docs/review-contracts.md) for execution restrictions and limits.
+[contract checks](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/review-contracts.md) for execution restrictions and limits.
 
 ### `agentic-preflight review compare [--file PATH]`
 Compares the run's accepted review submission with an independent second submission while
@@ -302,7 +312,7 @@ it does not execute stages or
 fetch evidence. The retained `--purpose` option accepts `local` or `publish`; both
 require complete local validation. Pending-test notes are rejected.
 
-### `agentic-preflight approval-check SHA --base SHA --reviews-file PATH --author LOGIN`
+### `agentic-preflight approval-check SHA --base SHA --reviews-file PATH --author LOGIN [--environment-approved] [--report-only]`
 CI-facing merge policy for an attested pull-request head. It recomputes path risk from
 the protected base configuration and uses attested finding-severity totals. Path risk
 covers the paths changed since the merge base and the paths that differ between the base
@@ -349,7 +359,10 @@ includes `.md`, `.rst`, `.adoc`, root extensionless README/CONTRIBUTING/CHANGELO
 keep tests mandatory even under documentation or CI globs; CI configuration is limited
 to recognized hosted-CI YAML paths.
 
-Command resolution: `--command` → `[commands].<name>` → detection. Detection never
+Command resolution: `--command` → `[commands].<name>` → detection. `--record` acknowledges
+that the user chose and approved the `--command` value; the `needs_command` recovery
+command includes it, and the CLI repeats it in the persisted retry command. It changes
+nothing else. Detection never
 guesses: it exits 2 with `data.mode = "needs_command"` and candidates from
 `pyproject.toml`, `package.json`, `Makefile`, and `justfile`. Every candidate
 has `command` and `source` fields. No detected candidate is copied into `next.command`;
@@ -426,7 +439,7 @@ Mints a confirmation token and summarises the remote, refspec, branch, and commi
 The summary also includes the configured PR mode, `automated_cleanup` setting, and
 deterministic risk classification and verdict. Whether the agent may push without
 asking follows
-[push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/configuration.md#push-and-pull-request-authorization).
+[push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/configuration.md#push-and-pull-request-authorization).
 Follow the skill's [PR lifecycle and cleanup](../SKILL.md#pull-request-lifecycle-and-cleanup)
 and [merge approval guidance](../SKILL.md#escalation-etiquette) for the returned policy.
 Only `[gate] mode = "manual"` exits 4 and puts the literal `git push` command in
@@ -552,7 +565,7 @@ After it decides, it appends one JSON line to `hook-decisions.jsonl` in the user
 telemetry directory, unless `[telemetry] hook_log = false`, or unless the repository is
 temporary and `[telemetry] path` is not set: under the system temporary directory, with
 no network remote in `origin` or, without `origin`, in the push remote (see
-[Temporary repositories](../../docs/local-telemetry.md#temporary-repositories)). The
+[Temporary repositories](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/local-telemetry.md#temporary-repositories)). The
 line has `at`, `repo` (the summary's repository identity), `remote` (the remote name
 from `AGENTIC_PREFLIGHT_PUSH_REMOTE`,
 which the installed hook sets from Git's first argument; a URL is reduced to host and
@@ -564,7 +577,7 @@ update the hook did not examine). `reason` is one of `attested`, `already_on_rem
 it waits at most 2 seconds after the decision, ignores every failure, and never changes
 the exit code or the stderr message. `agentic-preflight report` counts these decisions
 in `data.hook_decisions`. See
-[Hook decisions](../../docs/local-telemetry.md#hook-decisions).
+[Hook decisions](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/local-telemetry.md#hook-decisions).
 
 ### `agentic-preflight telemetry rebuild`
 Regenerates `summary.json` for every terminal run record in this clone, of run schema 1
@@ -598,7 +611,7 @@ mirror row was written; otherwise it is `null`. `finish` and `abort` report the 
 `data.telemetry`; `gc` reports a list there, one item
 for each run it orphaned. A telemetry failure never changes a command's result or rolls
 back its transaction. The `aborted` event is now written with the terminal transition
-and carries its `seq`. See [Local run telemetry](../../docs/local-telemetry.md).
+and carries its `seq`. See [Local run telemetry](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/local-telemetry.md).
 
 ### `agentic-preflight telemetry sync-hosted [--limit N] [--run RUN_ID] [--refresh] [--dry-run]`
 Joins GitHub pull-request and check outcomes onto this clone's pushed runs. This is the
@@ -667,7 +680,7 @@ their outcomes. Each entry of `errors` and `stopped` gives `reason`, `run_id`,
 
 A `--run` that names no stored run exits 3 with `no_run`. Messages never copy `gh` output
 or tokens, and remotes are shown without credentials. See
-[Join hosted outcomes](../../docs/local-telemetry.md#join-hosted-outcomes).
+[Join hosted outcomes](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/local-telemetry.md#join-hosted-outcomes).
 
 ### `agentic-preflight report [--since TIME] [--until TIME] [--repo NAME_OR_REMOTE] [--state STATE] [--all-repos] [--format json|markdown] [--rows]`
 Counts finished runs from the local run summaries. It reads files only and writes
@@ -765,7 +778,7 @@ report as compact Markdown tables in `data.markdown`, which ends with the limits
 output is still one JSON envelope. `--rows` includes the filtered summary rows in
 `data.rows`. Otherwise, `data.markdown` and `data.rows` are `null`. A mirror that exists
 but cannot be read exits 1 with error code `telemetry_mirror_unreadable` and its path in
-`data`. See [Read the report](../../docs/local-telemetry.md#read-the-report).
+`data`. See [Read the report](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/local-telemetry.md#read-the-report).
 
 ## Exit codes
 

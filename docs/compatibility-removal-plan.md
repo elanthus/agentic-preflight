@@ -21,8 +21,8 @@ Under this rule, 0.8.0 must read 0.7.0 records, notes, and snapshots. It need no
 
 | # | Shim | Introduced | Protects | Drop in |
 | --- | --- | --- | --- | --- |
-| 1 | `LegacyContractPlan`, `allow_legacy`, `previous_receipt` | after v0.7.0 | schema-1 receipts from unreleased dev builds | now |
-| 2 | `omit_absent_producer` serializer | after v0.7.0 | 0.7.0 reading records 0.8.0 rewrote (downgrade) | now |
+| 1 | `LegacyContractPlan`, `allow_legacy`, `previous_receipt` | after v0.7.0 | schema-1 receipts from unreleased dev builds | 0.8.0 (done) |
+| 2 | `omit_absent_producer` serializer | after v0.7.0 | 0.7.0 reading records 0.8.0 rewrote (downgrade) | 0.8.0 (done) |
 | 3 | `discard_legacy_rebased_tree` | 0.7.0 | 0.6.0 merge-back attempts | 0.9.0 |
 | 4 | `retire_ci_delegation` and `telemetry._effective_state` | 0.7.0 | 0.6.0 delegated runs | 0.9.0 |
 | 5 | `pending-update.json` handling (four sites) | 0.7.0 | 0.6.0 interrupted runs | 0.9.0, one line stays to 0.10.0 |
@@ -70,8 +70,8 @@ That is downgrade support, which the rule excludes.
 - `tests/test_producer.py`: drop the tests that assert the key is absent after a rewrite.
   Keep the tests that load a record without the key, since that is item 10.
 - `COMPATIBILITY.md`, "Producer identity on run records": remove the sentence "A rewrite of
-  such a record does not add the key" and the warning that earlier versions report the
-  record as unreadable, which is now the normal downgrade position.
+  such a record does not add the key". The warning that 0.7.0 reports the record as
+  unreadable stays, labelled as the normal downgrade position.
 
 ### Also removed in stage 0: `StageRecord.omit_absent_start`
 

@@ -70,7 +70,8 @@ The mode preserves ignored dependency and build caches.
 
 The runner belongs to the clone, not to the checkout.
 Runs started from the main checkout and from any linked worktree of the same clone lease the same runner.
-Its default directory name is the clone's repository directory name plus a hash of the Git common directory.
+Its parent directory is named after the clone's repository directory plus a hash of the Git common directory, and the runner is the `runner` entry inside it.
+Strict-mode worktrees are `<run-id>` entries in the same parent directory.
 Thus, clones with identical names stay separate.
 
 `agentic-preflight gc` removes a released runner and prunes its Git registration in two cases:

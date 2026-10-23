@@ -48,6 +48,7 @@ You need Git 2.38+, Python 3.11 through 3.13, and
    ```
 
    `init` writes a configuration file with comments and installs an advisory pre-push hook.
+   Pass `--no-hook` to write only the configuration file.
 
 3. Review the generated configuration before you start a run.
 

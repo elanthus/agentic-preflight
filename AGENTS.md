@@ -67,10 +67,14 @@ permits the operation; it does not replace the approval required by GitHub polic
   review, stages, merge-back, and the publish gate.
 - `agentic_preflight/stages/`: the docs, lint, and test stage implementations and change
   scope detection.
-- `agentic_preflight/templates/`: CI workflow templates written into user repositories.
+- There is no templates directory. `agentic_preflight/initcmd.py` writes the starter
+  configuration and the pre-push hook; `agentic_preflight/stages/docs.py` holds the
+  documentation surface and CI-configuration path rules.
 - `tests/`: pytest suite. `tests/driver.py` and `tests/conftest.py` hold shared fixtures.
 - `evals/`: the regression eval runner and its cases; see `evals/README.md`.
 - `docs/`: user and design documentation, including ADRs under `docs/adr/`.
+- `tools/`: release tooling such as `tools/changelog.py`, which assembles changelog fragments.
+- `scripts/`: CI helper scripts such as `scripts/smoke-wheel.sh`.
 - `skill/`: the agent skill (`SKILL.md`) and its reference files under `skill/reference/`.
 
 ## Docs that change with code
@@ -82,6 +86,7 @@ Update documentation in the same commit as the code it describes:
   (for example `198.removed.md`), with category `added`, `changed`, `deprecated`,
   `removed`, `fixed`, or `security`, and Markdown bullets without headings.
   Routine PRs do not edit `CHANGELOG.md`; release assembly consumes the fragments.
+  A release removes the directory once it is empty, so create it again when it is missing.
   See [CONTRIBUTING.md](CONTRIBUTING.md#changelog-fragments).
 - Configuration keys are documented in `docs/configuration.md`.
 - CLI commands, flags, envelopes, and exit codes are documented in

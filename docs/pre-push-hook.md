@@ -10,10 +10,12 @@ Fetch that exact commit, its notes, and `refs/agentic-preflight/evidence/*` from
 Then run `agentic-preflight verify SHA` offline.
 See the [protected-base workflow](attestations-and-ci.md#protected-base-fetch-and-verification).
 
-Two kinds of update need no attestation:
+Four kinds of update need no attestation:
 
 - A push to `refs/tags/*`. A release tag on a merge commit that GitHub created does not block.
 - An update whose new tip is already reachable from the remote tip that it replaces. The remote already has that commit.
+- A deletion of a remote ref.
+- A push of the attestation notes ref, `refs/notes/agentic-preflight`.
 
 The second kind of update is a rewind.
 It still needs `[hook] allow_force_push = true` unless the tip is unchanged.
@@ -70,6 +72,8 @@ To record the remote name in the decision log, set the variable before the comma
 `status` reports `hook.path` and `hook.active`.
 `active` is true only when the effective hook contains that command.
 Thus, a `core.hooksPath` change that bypasses the hook is visible in `status`.
+
+`init --no-hook` writes the configuration and skips the hook; `status` then reports `hook.active` as false.
 
 `init --force` is a replacement, not a composition.
 It overwrites the existing hook and removes the behavior that the hook provided.

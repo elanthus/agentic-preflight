@@ -184,17 +184,6 @@ Other unknown attempt fields stay invalid.
 A pending source rebase that has not reached the recorded verified tree now becomes stale.
 Restart preflight to validate the current source. Do not resume from that intermediate tree.
 
-## Producer identity on run records
-
-New schema-v2 run records carry an optional `producer` object.
-It records the tool version, the Python version, the platform, the coding-agent client, and the model that the agent reported.
-Records that earlier versions wrote load with `producer` absent, and a rewrite of such a record stores `producer` as `null`.
-Run schema 2, attestation schema 7, fingerprints, and configuration digests are unchanged. None of them contain the producer.
-
-Run models forbid unknown keys.
-Thus, an earlier tool version reports a record that carries `producer`, including a rewritten older record, as unreadable.
-Do not delete the run history to recover. Use this version or a later one to inspect or clean up those runs.
-
 ## Grounding and command candidates
 
 Context grounding no longer emits generated `codeowners` entries.
@@ -278,6 +267,30 @@ Follow the returned stage sequence. The existing restart limit still applies.
 Frozen policy stays authoritative for historical runs.
 Committed protected policies can contain retired sections without blocking approval checks.
 
+## Upgrading from 0.7.0 to 0.8.0
+
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+Notes that 0.7.0 wrote stay verifiable, and run records that 0.7.0 wrote stay readable.
+0.8.0 removes no configuration keys, so no upgrade guide is needed.
+
+0.7.0 rejects the new configuration keys (`[telemetry]`, including `hook_log`, and `[review.contracts]`) and the new run record keys (`producer`, `started_at`, `response_reason`).
+Upgrade every machine that shares a clone before you enable the new configuration, and use 0.8.0 or later to inspect or clean up runs that 0.8.0 touched.
+Pin the CI verifier to 0.8.0 as well; see [Attestations and CI](docs/attestations-and-ci.md).
+
+The sections from here to the end of this file describe the 0.8.0 changes.
+[Evaluation report compatibility](#evaluation-report-compatibility) and [Opt-in contract-check evidence](#opt-in-contract-check-evidence) above are also new in 0.8.0.
+
+## Producer identity on run records
+
+New schema-v2 run records carry an optional `producer` object.
+It records the tool version, the Python version, the platform, the coding-agent client, and the model that the agent reported.
+Records that earlier versions wrote load with `producer` absent, and a rewrite of such a record stores `producer` as `null`.
+Run schema 2, attestation schema 7, fingerprints, and configuration digests are unchanged. None of them contain the producer.
+
+Run models forbid unknown keys.
+Thus, 0.7.0 reports a record that carries `producer`, including a rewritten older record, as unreadable.
+This is the normal downgrade position. Do not delete the run history to recover. Use 0.8.0 or later to inspect or clean up those runs.
+
 ## Run summaries and the local telemetry mirror
 
 Finished runs now write `summary.json` in the run directory and append one line to the user-level `runs.jsonl` mirror.
@@ -322,7 +335,7 @@ The `finding_resolved` event adds `reason`. The `aborted` event adds `reason` an
 
 Run summaries add `findings.by_response_reason`, `terminal.abort_reason`, `terminal.aborted_from_state`,
 `stages.<name>.started_at`, `stages.<name>.duration_seconds`, and the optional top-level `timing`.
-The summary stays at `schema_version = 1`, because no release has written summaries yet, and `telemetry rebuild` regenerates every row.
+The summary keeps `schema_version = 1`. 0.8.0 is the first release that writes summaries, and `telemetry rebuild` regenerates every row.
 A summary row without the new keys is still valid. The report counts the missing values as unknown.
 
 ## Hosted outcome records
