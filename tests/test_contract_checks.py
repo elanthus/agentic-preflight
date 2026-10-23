@@ -473,7 +473,13 @@ def test_unavailable_listing_is_explicit_with_a_reason(feature_repo, monkeypatch
         assert [argv[1] for argv in calls] == ["run", "rm"]
 
 
-@pytest.mark.parametrize("damage", [b"not json", b"[" * 40_000, b'{"status": "available"}'])
+@pytest.mark.parametrize(
+    "damage",
+    [b"not json", b"[" * 40_000, b'{"status": "available"}'],
+    # Explicit ids: pytest publishes the node id through PYTEST_CURRENT_TEST, and
+    # Windows rejects an environment variable longer than 32767 characters.
+    ids=["not_json", "oversized", "wrong_shape"],
+)
 def test_unreadable_cache_entry_is_derived_again(feature_repo, monkeypatch, damage):
     calls = fake_docker(monkeypatch)
     enable(feature_repo, f'image="{PIN}"\n')
