@@ -33,7 +33,7 @@ Python here never calls a model — every judgment in this workflow is yours.
    always need separate approval. `[pr] mode = "auto"` is standing authorization to
    open or reuse the pull request after the authorized push and the run finish. The
    canonical rule is in
-   [push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.7.0/docs/configuration.md#push-and-pull-request-authorization).
+   [push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/configuration.md#push-and-pull-request-authorization).
    Follow [Pull-request lifecycle and cleanup](#pull-request-lifecycle-and-cleanup)
    for PR mode, `[pr] automated_cleanup = true` monitoring, and cleanup boundaries.
 6. **Treat merge-back conflicts as a bounded recovery, never a shortcut.** On exit 4,
@@ -197,11 +197,12 @@ to summarize the user's run history.
 | Hosted attestation fetch or verification failure | Inspect source fetch failures; read the offline verifier reason and restore exact-head evidence |
 | Hosted CI failed | Inspect the failure; unchanged-source CI reruns preserve local evidence, while source repairs revalidate affected stages |
 | Stale head (exit 3, `stale_run`) | Run `start` again; it preserves the old run as `ORPHANED` |
+| Base synchronization failed at start (exit 4, `sync_conflict` or `sync_failed`) | Print the whole `data` object; the user resolves the listed conflicts, moves or removes listed local files, or fixes the remote, then `abort --force` and `start` again |
 | Interrupted legacy update | Follow `status` from the recorded source worktree; below the restart limit, `start` retires interrupted validation and discards its journal while preserving audit history and user work. At the limit, stop for the user’s abort/restart decision |
 | Abandoned run | `status --all`; inspect explicitly with `--run RUN_ID` |
 | Unreadable shared run record | Preserve the record and ownership; inspect its path |
 | Diff too large (exit 2, `diff_too_large`) | Exclude generated globs; never review part of it |
-| No command configured (exit 2, `needs_command`) | Show candidates; require user selection and approval; distrust the first green |
+| No command configured (exit 2, `needs_command`) | Show candidates; require user selection and approval; re-run with `--command` and `--record`; distrust the first green |
 | Setup failed (exit 2, `setup_failed`) | Obey `status`: abort `SETUP_FAILED` initial setup or preserve the baseline retry |
 | Record a dismissal, acceptance, or abort | Always pass the closest `--reason`, `other` if none fits; specifics go in `--note` |
 | Stage far slower than normal | Check `[worktree] mode` before raising `max_attempts` |

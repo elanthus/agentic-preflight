@@ -23,6 +23,7 @@ Pass one or more agent names to limit the skill installation, for example `./ins
 The script refuses to overwrite a locally modified or unmanaged skill copy.
 
 Both installers do the same two things in the same order.
+The PowerShell installer also stops first when `git` is not installed.
 Matching test suites keep them in step.
 The uninstall step below also has a PowerShell counterpart.
 Everything else on this page is identical on all platforms.

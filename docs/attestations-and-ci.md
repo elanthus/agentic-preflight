@@ -53,7 +53,7 @@ The pinned package must be published before this example can run.
 - run: git fetch origin refs/notes/agentic-preflight:refs/notes/agentic-preflight
 - run: git fetch origin 'refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*'
 - name: Install the matching released verifier
-  run: pipx install 'agentic-preflight==0.7.0'
+  run: pipx install 'agentic-preflight==0.8.0'
 - name: Verify the attested commit
   env:
     ATTESTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

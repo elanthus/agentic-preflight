@@ -59,8 +59,8 @@ The store transaction boundaries within those phases are part of the durable cra
 
 - `cli.py` defines the root group and registers the command families.
 - `cli_support.py` is the single JSON emission and exception-mapping boundary.
-- `cli_runs.py`, `cli_policy.py`, and `cli_integrations.py` adapt their command families to application functions.
-  They contain no run-state policy.
+- `cli_runs.py`, `cli_policy.py`, `cli_integrations.py`, `cli_telemetry.py`, and `cli_report.py` adapt their
+  command families to application functions. They contain no run-state policy.
 
 ## Consequences
 

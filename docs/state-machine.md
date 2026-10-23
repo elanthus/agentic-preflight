@@ -32,8 +32,9 @@ documentation
 
 lint and local tests
   DOCS_GREEN -> LINT_RUNNING -> LINT_GREEN -> TEST_RUNNING -> TEST_GREEN
-                  '-> LINT_RED       |           '-> TEST_RED
-                                     '-> TEST_GREEN   (SKIP_TEST)
+                  |                |              '-> TEST_RED -> TEST_RUNNING
+                  |                '-> TEST_GREEN   (SKIP_TEST)
+                  '-> LINT_RED -> LINT_RUNNING
 
 merge-back and publication
   TEST_GREEN -> MERGEBACK_PENDING -> VERIFIED -> AWAITING_PUSH_CONFIRM -> PUSHED -> DONE
@@ -122,7 +123,7 @@ The table below lists every transition except the closing transitions.
 | Required stages occur in order | `machine.py` | Legal `(state, action)` pairs. Graph reachability tests include the explicit skips |
 | An action has sufficient evidence | `runs/review.py`, `runs/resolve.py`, `runs/stages.py` | Validated submissions, finding dispositions, command results, and coordinator preconditions |
 | Evidence applies to the current inputs | `runs/review_coverage.py`, `runs/evidence.py`, `refresh_validation.py` | Snapshot bindings, review and docs fingerprints, and conservative applicability decisions |
-| Concurrent commands do not overwrite a run | `cli_support.py`, `store.py` | Per-run operation locks, record locks, an events lock for appends, and optional sequence checks |
+| Concurrent commands do not overwrite a run | `cli_support.py`, `store.py` | Per-run operation locks, record locks, and an events lock for appends |
 | Each local record replacement is atomic | `store.py` | Findings are replaced before the run under the record lock. The pair is best-effort across an interruption |
 | Source content matches the completed validation | `runs/mergeback.py` | Recorded attempt inputs and Git tree equality. Changed resolutions reopen review |
 | Publication has the required evidence | `runs/publish.py`, `attestation.py` | Freshness and attestation checks before an atomic branch and notes push |

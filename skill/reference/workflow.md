@@ -24,7 +24,7 @@ much space preflight checkouts are holding (`reclaimable_bytes`) and that
 ```
 $ agentic-preflight start --intent "<the user's objective and acceptance criteria>" \
     --client codex --model <your exact model id>
-{"ok":true,"run_id":"r_4f2a","state":"REVIEW_AWAITING_FINDINGS",
+{"ok":true,"run_id":"r_4f2a9c1e7b","state":"REVIEW_AWAITING_FINDINGS",
  "data":{"worktree_path":"/repos/my-project","worktree_mode":"in_place","changed_files":["src/auth.py"],
          "producer":{"client":"codex","client_source":"flag",...}},
  "next":{"instruction":"Fetch the diff before judging it.","command":"agentic-preflight context"}}

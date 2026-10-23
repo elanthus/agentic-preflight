@@ -29,7 +29,7 @@ valid and is the most common correct answer. A findings-only review submission i
 
 | Field | Required | Notes |
 |---|---|---|
-| `unit` | when ambiguous | Review-unit ID returned by `context`; not used for docs |
+| `unit` | when ambiguous | Review-unit ID returned by `context`. A docs finding must omit it |
 | `path` | yes | Repo-relative. Must resolve inside the worktree |
 | `line` | no | 1-based. Must be within the file. Omit for file-level findings |
 | `severity` | yes | `critical` \| `high` \| `medium` \| `low` |
@@ -66,6 +66,7 @@ Rejected with exit 3 (`invalid_findings`), all-or-nothing for the batch:
 
 - review coverage missing or not matching the current diff snapshot
 - an unknown review unit, or a unit belonging to another path
+- a docs finding that cites a `unit`
 - `path` escaping the worktree — `../`, absolute paths, or symlinks pointing out
 - `path` outside the changed-file set (review) or documentation allowlist (docs)
 - `line` beyond the end of the file
