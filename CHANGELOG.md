@@ -5,6 +5,234 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-22
+
+### Upgrade highlights
+
+- Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged. Notes
+  that 0.7.0 wrote stay verifiable, and run records that 0.7.0 wrote stay readable.
+- New configuration keys (`[telemetry]`, `hook_log`, `[review.contracts]`) and new run
+  record keys (`producer`, `started_at`, `response_reason`) are rejected by 0.7.0.
+  Upgrade every machine that shares a clone before enabling the new configuration, and
+  use 0.8.0 or later to inspect or clean up runs that 0.8.0 touched.
+- Three compatibility paths for data no release wrote are removed; see "Removed" and
+  [the compatibility removal plan](docs/compatibility-removal-plan.md) for what follows
+  in 0.9.0.
+
+### Added
+
+- List the distributions installed in the pinned contract-check image in one bounded,
+  snapshot-free container per image digest and deliver them to the contract planner as
+  `contract_checks.execution.installed_packages`, cached under the run's
+  `contracts/images/` directory. Unavailable Docker, images, or listings are explicit
+  entries with a reason, never an empty list. The listing states availability only. The
+  worked planner prompt now prefers a listed real consumer over a substitute
+  implementation and records a limitation when the consumer is absent.
+
+- Record full evaluation and snapshot runtimes, accepted findings, workflow state visits
+  and durations, and Codex/Claude CLI token usage in public regression reports. Preserve
+  failed-run diagnostics, unknown counts, and partial observations separately from exact
+  totals; normalize provider cache accounting without double counting.
+- Append state-transition audit events for run creation and committed transitions,
+  including intermediate states within a transaction, without changing run schema 2.
+
+- Log each pre-push hook decision to `hook-decisions.jsonl` in the local telemetry
+  directory: the time, the repository identity, the remote name, whether the push was
+  allowed, a machine-readable reason (`attested`, `already_on_remote`, `deletion`,
+  `exempt`, `no_updates`, `config_unavailable`, `force_push_refused`, or
+  `missing_attestation`), and each ref update with a seven-character SHA and whether it
+  rewrites remote history. The write is best effort, bounded in time, and never changes
+  the hook's exit code or message. Nothing is sent over the network.
+
+- Add `[telemetry] hook_log` (default `true`) to turn the hook decision log off.
+
+- `agentic-preflight report` adds `data.hook_decisions` and a "Hook decisions" Markdown
+  section: allowed and blocked counts, blocked decisions by reason, and per-repository
+  counts, with the report's scope and its `--repo`, `--since`, and `--until` filters.
+  Malformed log lines are counted. The limits now state that `git push --no-verify`
+  bypasses and pushes allowed because the tool was missing from `PATH` are not logged.
+
+- Add `agentic-preflight telemetry sync-hosted`, which joins GitHub pull-request and
+  check outcomes onto the pushed `DONE` runs of the clone. It is the only telemetry
+  command that talks to a network service, and it only reads: `gh api` GET requests for
+  the pull requests and the check runs of each pushed commit. It writes `hosted.json` in
+  each run directory, then regenerates the summary and the mirror row of that run. The
+  summary's `hosted` object gets `pr_number`, `pr_state`, `merged`, `checks_conclusion`,
+  and `fetched_at`. `--limit` (default 50), `--run`, `--refresh`, and `--dry-run` select
+  the runs. A missing or logged-out `gh`, an `origin` that is not on github.com, a rate
+  limit, or a network failure stops the command with an error code in the envelope, and
+  the runs synced before it keep their outcomes. A failure that concerns one commit is
+  listed in `data.errors`, and the older runs are still read. No workflow command calls
+  it.
+
+- `agentic-preflight report` adds synced hosted outcomes, overall and for each
+  repository: synced runs, "preflight green, hosted checks failed" over synced runs with
+  settled checks, pull requests found, the merged share over synced runs with a pull
+  request, and the check conclusions. Two new limits say that a failed hosted check is
+  not proof of an escaped defect, and that only synced runs count.
+
+- Add a `telemetry sync-hosted` step to the "Summarize preflight history" playbook, for
+  when the user wants hosted outcomes.
+
+- Record producer identity on every new run: the Agentic Preflight version, the Python
+  version, the platform, the coding-agent client, and the model that the agent reports.
+  `start` accepts `--client NAME` and `--model NAME`. Flags win over detection, and
+  `CLAUDECODE=1` is the only detected client marker. Unknown values stay `null`, and the
+  model is never inferred. `start`, single-run `status`, and the `run_created` event
+  return the `producer` object. It is informational only and is not in the attestation,
+  fingerprints, or configuration digests.
+- Instruct the skill to pass `--client` and, when the agent knows its exact model id,
+  `--model` on `start`.
+
+- Publish the 2026-10-17 low-effort Opus 5.5 and GPT-6.1 Sol public smoke comparison,
+  including snapshot evidence, runtime, findings, workflow state timing, token usage,
+  provenance, and limitations; link it from the project README and eval documentation.
+
+- Add `agentic-preflight report`, which counts finished runs from the local run
+  summaries for this repository, or for every repository with `--all-repos`. It reports
+  run states, completion, findings, blocking findings fixed, repair commits, validation
+  restarts, stage retries and reuse, median and p90 duration, and selected events,
+  overall and for each repository, client, and reported model. Filters are `--since`,
+  `--until`, `--repo`, and `--state`. Each ratio names its denominator, null values are
+  counted as excluded, and malformed mirror lines and unreadable run records are
+  reported. When the mirror has no rows for the clone, the report summarizes the
+  clone's run records in memory. `--format markdown` adds compact tables in
+  `data.markdown`. Every report lists its limits. The command writes nothing and makes
+  no network request.
+
+- Add the "Summarize preflight history" playbook to the skill: rebuild stale mirrors,
+  run `report --all-repos --format markdown`, and show the result with its limits.
+
+- Add opt-in contract plans for every delivered review unit and bounded offline
+  execution of ordinary, boundary and composition probes in digest-pinned containers.
+  Retain head-bound execution receipts, surface failed and unverified checks to the
+  final reviewer, and bind the receipt digest to accepted review coverage.
+
+- Write a compact, versioned `summary.json` (summary schema 1) of code-derived facts
+  for each run when it reaches `DONE`, `ABORTED`, or `ORPHANED`, and append the same
+  summary as one line to a local, user-level `runs.jsonl` mirror under
+  `$XDG_DATA_HOME/agentic-preflight/telemetry` or
+  `~/.local/share/agentic-preflight/telemetry`. Summaries record states, counts, and
+  digests only: never the intent text, diffs, finding text, logs, or command output.
+  Nothing is sent over the network, and a telemetry failure never fails the command.
+
+- Add the `[telemetry]` configuration section (`mirror`, `path`), intended for the user
+  configuration file. It is excluded from run snapshots, so it never changes a
+  configuration digest, stage evidence, or an attestation.
+
+- Add `agentic-preflight telemetry rebuild`, which regenerates the summaries of every
+  terminal run record in a clone (run schema 1 and 2) and rewrites that repository's
+  mirror rows, keeping the newest row per run and leaving other repositories' rows
+  unchanged. `finish`, `abort`, and `gc` report the summary outcome in `data.telemetry`.
+
+- Add an optional `--reason` to `respond --action dismissed|accepted`, from the closed
+  list `false_positive`, `out_of_scope`, `duplicate`, `already_fixed`, `accepted_risk`,
+  `deferred`, and `other`, and refuse it with `--action fixed`. The finding stores it as
+  `response_reason`, and the `finding_resolved` event repeats it. It is telemetry only:
+  stage evidence and attestations never contain it.
+- Add an optional `--reason` to `abort`, from `user_cancelled`, `superseded`,
+  `wrong_base`, `environment_failure`, `tool_error`, `no_longer_needed`, and `other`.
+  The `aborted` event records it with `aborted_from_state`, the state that the abort left.
+- Record `started_at` on each stage record when the stage begins: review at
+  `BEGIN_REVIEW` and again at each return to review, docs at `BEGIN_DOCS`, lint at
+  `RUN_LINT`, and test at `RUN_TEST`. Stage evidence, fingerprints, and attestations do
+  not contain it.
+- Run summaries add `findings.by_response_reason`, `terminal.abort_reason`,
+  `terminal.aborted_from_state`, `stages.<name>.started_at` and `duration_seconds`, and
+  `timing`: visits and wall-clock seconds per state from the `state_transition` events,
+  with review and shell totals. An incomplete transition history is marked, and absent
+  values stay `null`.
+- `agentic-preflight report` adds "Finding responses" (reasons, and a perceived
+  false-positive share with its denominator), "Abort reasons" (by reason and by state),
+  the median and p90 duration of each stage, and the share of run time in the review and
+  shell stages, for all runs and for each repository.
+- The skill tells agents to always pass the closest `--reason` when they dismiss or
+  accept a finding or abort a run, and to put the specifics in `--note`.
+
+### Changed
+
+- Require behavioral input-class inventories and structured oracle provenance in schema-2 contract plans.
+  Probe references are validated, and explicit coverage gaps remain unverified even when assertions pass.
+- Include consumer evidence, oracle provenance, inventory, and probe code in the bounded final-review handoff.
+  Report inventory and check omissions separately and direct reviewers to the full receipt.
+- Deliver failed and unverified checks before passed ones in the handoff, cap the inventory's share of the budget,
+  shorten long probe output streams in the summary, and count the input classes that rely on each probe.
+- Refuse a receipt whose results do not match its plan's checks and probes instead of failing while building context.
+- Preserve schema-1 receipt files and their digest-bound representation.
+  Require a schema-2 plan before a new findings submission; ordinary disabled-contract review is unchanged.
+
+- Re-record the README workflow animation for 0.7.0 and publish it from the `badges`
+  branch instead of `main` history. The documentation frame now shows the `doc_surface`
+  fields that 0.7.0 reports.
+
+- Verified Dependabot updates, including major versions and GitHub Actions, no longer
+  require human approval. The protected-base hosted workflow verifies signed bot
+  contributions and clean base merges; required attestations, CI checks, and the
+  narrower auto-merge eligibility policy remain in place.
+
+- The installed pre-push hook passes the remote name to `hook-check` in the
+  `AGENTIC_PREFLIGHT_PUSH_REMOTE` environment variable, which older versions ignore.
+  `init` now replaces a pre-push hook that is exactly one an earlier version installed;
+  any other hook is still left unchanged.
+
+- Use ASD-STE100 style in the contract checks guide and in the contract checks section
+  of the configuration reference. Facts, headings, configuration keys, and examples are
+  unchanged.
+
+- Use ASD-STE100 style in the README, evaluation guides, and published reports.
+  Generated evaluation summaries explain location matches and partial token counts
+  with shorter sentences. Scoring rules and recorded measurements are unchanged.
+
+- Use ASD-STE100 style in the remaining user documentation: installation, configuration,
+  worktree modes, the pre-push hook, attestations and CI enforcement, limits, the 0.7
+  upgrade guide, the fingerprint contract, grounded context, change scope, the state
+  machine, prior art, both ADRs, and the support, security, compatibility, contributing,
+  and releasing guides. The state-machine guide now lists every declared transition, and
+  a test keeps that table equal to `machine.py`. The demo fixture warms the `uvx` caches
+  before a recording, and the tape waits longer after `mergeback`. Behavior and
+  configuration are unchanged.
+
+### Removed
+
+- Remove three compatibility paths that guarded data no release wrote: the schema-1
+  contract plan and receipt readers, and the serializers that kept `producer` and a
+  stage's `started_at` out of rewritten run records. A schema-1 receipt is now reported
+  as unreadable and left in place, and a rewritten record stores `producer` and
+  `started_at` as `null` when they are unknown.
+
+### Fixed
+
+- Preserve measured state visits and intervals when an eval audit log ends inside a
+  UTF-8 character, while retaining incomplete-history and unknown-tail timing markers.
+
+- Repeat `--client` and `--model` in the `start` command that `next.command` suggests
+  for a refused, stale, interrupted, or aborted run when those values were given as
+  flags, so a replaced or restarted run records the same client and model. A client
+  detected from the environment is not turned into a flag: the next `start` detects it
+  again.
+
+- Use a container-local monotonic deadline for contract probes so host/engine clock skew cannot shorten the execution budget.
+- Preserve review state and attempt counts when copied-file redaction prevents the contract planner from launching; report zero reviewer invocations and the contracts phase.
+- Include the host-run contract planner in the configuration trust warning.
+
+- Keep runs and hook decisions of temporary repositories out of the user-level telemetry
+  directory. A repository is temporary when it is under the system temporary directory
+  and has no network remote: no `origin`, a local path such as a bare repository, or a
+  loopback host. Test and evaluation harnesses that drove the CLI against fixture
+  repositories appended their runs to the real `runs.jsonl` mirror. A scratch clone under
+  the temporary directory that pushes to a host keeps its telemetry. A run of a temporary
+  repository still writes `summary.json` in its run directory, but appends no mirror row, and
+  `hook-check` appends no line to `hook-decisions.jsonl`. `data.telemetry` and the
+  `summary_written` event report `reason: "temporary_repository"`. `telemetry rebuild`
+  and `telemetry sync-hosted` in such a clone leave the mirror unchanged, and in other
+  clones they leave out runs of temporary repositories; their `mirror` object adds
+  `reason` and `temporary_runs`. `report` counts those runs in
+  `data.source.clone.temporary_runs` and no longer suggests a rebuild that cannot add
+  them. An explicit `[telemetry] path` is an opt-in and still receives every row.
+
+- The regression eval runner gives every CLI subprocess its own `XDG_DATA_HOME` and
+  `XDG_CACHE_HOME` in the eval workspace.
+
 ## [0.7.0] - 2026-10-13
 
 ### Upgrade highlights
