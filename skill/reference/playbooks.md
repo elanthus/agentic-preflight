@@ -88,8 +88,9 @@ changed content and unknown shell inputs require fresh stages.
 ## Base synchronization failed at start (exit 4, `sync_conflict` or `sync_failed`)
 
 `start` fetched the fresh base and could not rebase or merge the branch onto it. Nothing
-is left in progress. Print the whole `data` object, as for every non-`ok` envelope; the
-report exists nowhere else afterwards. Then point out the relevant fields. With
+is left in progress. Print the whole `data` object, as for every non-`ok` envelope, then
+point out the relevant fields. The same report is stored as a `sync_conflict` or
+`sync_failed` event. With
 `sync_conflict`, `data.conflicting_files` names either paths that conflict on rebase or
 merge, which the user resolves on the source branch, or untracked and ignored local
 files that the base would overwrite, which the user moves or removes. With
