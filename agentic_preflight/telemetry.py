@@ -16,19 +16,18 @@ Everything here is derived output:
   and ``summary.json`` is never read back as evidence.
 * Absent evidence is ``None``, never zero. Older records lack many fields.
 * Writing a summary never fails the command that ended the run.
-* A repository under a system temporary directory that has no network remote is
-  a test fixture. Its rows never reach the default telemetry directory; only an
-  explicit ``[telemetry] path`` receives them (:func:`exclusion_reason`).
+* A repository with no network remote cannot push, so it is a test fixture, not
+  work that preflight gates. Its rows never reach the default telemetry directory,
+  wherever it lives; only an explicit ``[telemetry] path`` receives them
+  (:func:`exclusion_reason`).
 """
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import re
 import subprocess
-import tempfile
 from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
@@ -49,17 +48,13 @@ SUMMARY_KIND = "agentic-preflight-run-summary"
 SUMMARY_NAME = "summary.json"
 MIRROR_NAME = "runs.jsonl"
 _MIRROR_LOCK_NAME = "runs.jsonl.lock"
-#: Why rows were kept out of the telemetry directory: the repository is under a
-#: system temporary directory, has no network remote, and no explicit
-#: ``[telemetry] path`` opted it in.
-TEMPORARY_REPOSITORY = "temporary_repository"
+#: Why rows were kept out of the telemetry directory: the repository has no network
+#: remote, and no explicit ``[telemetry] path`` opted it in.
+NO_NETWORK_REMOTE = "no_network_remote"
 #: A Windows drive, the first segment of a normalized local path such as ``C:/repos/x``.
 _DRIVE = re.compile(r"[A-Za-z]:")
 #: Loopback hosts. A remote on this machine is a test server, not a hosted repository.
 _LOOPBACK = re.compile(r"localhost|127(?:\.\d{1,3}){3}|::1")
-#: Compared against repository paths only; nothing is created there.
-_POSIX_TMP = "/tmp"  # noqa: S108
-
 #: Events this module appends. They are left out of ``event_counts`` so that a
 #: rebuilt summary counts the same events as the one written when the run ended.
 TELEMETRY_EVENTS = frozenset({"summary_written", "summary_failed"})
@@ -627,59 +622,6 @@ def mirror_path(config: Config | None = None) -> Path:
     return telemetry_dir(config) / MIRROR_NAME
 
 
-def _resolved(path: Path | str) -> Path | None:
-    try:
-        return Path(path).resolve()
-    except (OSError, RuntimeError, ValueError):
-        return None
-
-
-def temporary_roots() -> list[Path]:
-    """The system temporary directories, as resolved real paths.
-
-    ``tempfile.gettempdir()`` (``%TEMP%`` or ``%TMP%`` on Windows), ``$TMPDIR``
-    when it is set, and ``/tmp`` outside Windows. ``gettempdir`` keeps its first
-    answer for the process, so ``$TMPDIR`` is read again. Symlinks are resolved,
-    so ``/var/folders/...`` and ``/private/var/folders/...`` on macOS are one
-    directory. A filesystem root or the home directory itself is ignored: either
-    would mark every repository as temporary.
-    """
-    candidates: list[str] = []
-    with contextlib.suppress(OSError):  # no usable temporary directory
-        candidates.append(tempfile.gettempdir())
-    if tmpdir := os.environ.get("TMPDIR"):
-        candidates.append(tmpdir)
-    if os.name != "nt":
-        candidates.append(_POSIX_TMP)
-    try:
-        home = _resolved(Path.home())
-    except RuntimeError:  # no home directory can be determined
-        home = None
-    roots: list[Path] = []
-    for candidate in candidates:
-        if not Path(candidate).is_absolute():
-            continue
-        root = _resolved(candidate)
-        if root is None or root == Path(root.anchor) or root == home or root in roots:
-            continue
-        roots.append(root)
-    return roots
-
-
-def is_temporary_repository(path: Path | str | None) -> bool:
-    """Whether ``path`` lies under a system temporary directory.
-
-    Both sides are compared as resolved real paths. A path that cannot be
-    resolved is not temporary.
-    """
-    if not path:
-        return False
-    resolved = _resolved(path)
-    if resolved is None:
-        return False
-    return any(resolved.is_relative_to(root) for root in temporary_roots())
-
-
 def has_network_remote(remote: str | None) -> bool:
     """Whether a :func:`normalize_remote` value names a repository on another host.
 
@@ -702,20 +644,23 @@ def exclusion_reason(
 ) -> str | None:
     """Why rows of the repository at ``repo_path`` stay out of the telemetry directory.
 
-    Returns :data:`TEMPORARY_REPOSITORY` when both parts of the rule hold: the
-    repository is under a system temporary directory, and ``remote`` (its
-    normalized ``origin``) is not a network remote (:func:`has_network_remote`).
-    Test fixtures have no remote or a bare repository on this machine, while real
-    work in a scratch clone pushes to a host and keeps its rows. An explicit
-    ``[telemetry] path`` is an opt-in and receives every row. The default location,
-    which is the user's own record across repositories, is what the rule protects.
-    ``None`` otherwise.
+    Returns :data:`NO_NETWORK_REMOTE` when ``remote`` (the normalized ``origin``) is
+    not a network remote (:func:`has_network_remote`). A preflight run gates a push,
+    so a repository that cannot push is a test fixture: fixtures have no remote, or
+    a bare repository on this machine, wherever a harness puts them. Real work
+    pushes to a host and keeps its rows, even from a scratch clone under the
+    temporary directory. ``repo_path`` is the worktree the rule is judged for; it
+    is accepted for callers and diagnostics, and does not change the answer. An
+    explicit ``[telemetry] path`` is an opt-in and receives every row. The default
+    location, which is the user's own record across repositories, is what the rule
+    protects. ``None`` otherwise.
     """
+    del repo_path  # the rule no longer depends on where the repository lives
     if config is not None and config.telemetry.path:
         return None
-    if has_network_remote(remote) or not is_temporary_repository(repo_path):
+    if has_network_remote(remote):
         return None
-    return TEMPORARY_REPOSITORY
+    return NO_NETWORK_REMOTE
 
 
 def _describe(exc: BaseException) -> str:
@@ -755,8 +700,8 @@ def write_summary(
 
     ``config`` supplies ``[telemetry]``. ``None`` means the configuration could
     not be read, so the user's mirror preference is unknown and nothing is
-    mirrored. A run of a temporary repository is not mirrored either
-    (:func:`exclusion_reason`), and ``reason`` names the rule. The returned
+    mirrored. A run of a repository without a network remote is not mirrored
+    either (:func:`exclusion_reason`), and ``reason`` names the rule. The returned
     status names what was written and any error.
     """
     status: dict[str, Any] = {
@@ -1043,11 +988,11 @@ def replace_mirror_rows(
 ) -> dict[str, Any]:
     """Replace the mirror rows of the clone ``identity`` names; the envelope's ``mirror``.
 
-    Nothing is written when the mirror is off, or when the clone itself is
-    temporary (:func:`exclusion_reason`): ``reason`` then names the rule and the
-    mirror is not touched. Otherwise a summary of a temporary repository, judged by
-    its own source worktree and remote, is left out, and ``temporary_runs`` counts
-    it. ``rewrite_without_rows=False`` leaves the mirror alone when no summary
+    Nothing is written when the mirror is off, or when the clone itself has no
+    network remote (:func:`exclusion_reason`): ``reason`` then names the rule and
+    the mirror is not touched. Otherwise a summary of a repository without a
+    network remote, judged by its own ``repo.remote``, is left out, and
+    ``excluded_runs`` counts it. ``rewrite_without_rows=False`` leaves the mirror alone when no summary
     remains to write.
     """
     mirror: dict[str, Any] = {
@@ -1055,7 +1000,7 @@ def replace_mirror_rows(
         "path": None,
         "rows": None,
         "preserved_rows": None,
-        "temporary_runs": None,
+        "excluded_runs": None,
         "reason": None,
         "error": None,
     }
@@ -1066,7 +1011,7 @@ def replace_mirror_rows(
         for summary in fresh
         if exclusion_reason(config, summary.repo.source_worktree_path, summary.repo.remote) is None
     ]
-    mirror["temporary_runs"] = len(fresh) - len(kept)
+    mirror["excluded_runs"] = len(fresh) - len(kept)
     if reason := exclusion_reason(config, identity.source_worktree_path, identity.remote):
         mirror["reason"] = reason
         return mirror
@@ -1132,7 +1077,7 @@ def rebuild(store: Store, repo_root: Path | str, config: Config) -> dict[str, An
 
     Returns the counts and paths for the command envelope. Records that cannot
     be read are reported and keep any summary and mirror row they already had.
-    A temporary clone writes its summaries but no mirror rows
+    A clone without a network remote writes its summaries but no mirror rows
     (:func:`replace_mirror_rows`).
     """
     identity = repo_identity(repo_root)

@@ -9,7 +9,7 @@ The repositories and a data directory are in one temporary workspace, which the 
 Each CLI subprocess gets `XDG_DATA_HOME` and `XDG_CACHE_HOME` in that workspace.
 Thus, an eval run does not write to your default telemetry directory or to your worktree cache.
 An explicit `[telemetry] path` in your user file still applies.
-See [Temporary repositories](../docs/local-telemetry.md#temporary-repositories).
+See [Repositories without a network remote](../docs/local-telemetry.md#repositories-without-a-network-remote).
 
 This corpus does not contain private cases or gold artifacts from the private decision-quality evaluation.
 Do not use it as a replacement or comparison for that evaluation.

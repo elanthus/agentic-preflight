@@ -21,9 +21,9 @@ from agentic_preflight.store import Store
 from tests.conftest import commit_all, git, make_run, opt_in_telemetry, set_home, write
 from tests.driver import ScriptedAgent, findings_json, green_run
 
-#: Every fixture repository is under the system temporary directory, which the product
-#: keeps out of the default telemetry location. These tests are about what the files
-#: record, so they opt in with an explicit ``[telemetry] path``.
+#: No fixture repository has a network remote, so the product keeps every one out of
+#: the default telemetry location. These tests are about what the files record, so
+#: they opt in with an explicit ``[telemetry] path``.
 pytestmark = pytest.mark.usefixtures("telemetry_opt_in")
 
 PRIVATE_INTENT = "ship the widget; secret acceptance criteria 7f3a"
@@ -663,6 +663,30 @@ def test_gc_orphaning_writes_one_summary_and_lists_it(agent, feature_repo):
     assert len(_summary_events(feature_repo, run_id)) == 1
 
 
+@pytest.mark.parametrize(
+    ("remote", "mirrored"),
+    [(None, False), ("127.0.0.1/owner/widget", False), ("github.com/owner/widget", True)],
+    ids=["no_remote", "loopback", "github"],
+)
+def test_a_repository_outside_the_temporary_directory_is_judged_by_its_remote(
+    tmp_path, remote, mirrored
+):
+    # The suite's opt-in lives in the user file; this configuration has no ``path``.
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    identity = telemetry.RepoIdentity(
+        root_commit="a" * 40, remote=remote, name="widget", source_worktree_path="/home/dev/widget"
+    )
+    summary = telemetry.summarize(_schema_2_record(), None, None, identity)
+
+    status = telemetry.write_summary(run_dir, summary, Config())
+
+    assert (status["mirrored"], status["error"]) == (mirrored, None)
+    assert status["reason"] == (None if mirrored else telemetry.NO_NETWORK_REMOTE)
+    assert (run_dir / "summary.json").exists()
+    assert telemetry.mirror_path().exists() is mirrored
+
+
 def test_mirror_off_keeps_the_summary_in_the_run_directory(agent, feature_repo):
     write(feature_repo, ".agentic-preflight.toml", "[telemetry]\nmirror = false\n")
     commit_all(feature_repo, "keep summaries local")
@@ -778,7 +802,7 @@ def test_rebuild_regenerates_summaries_and_rewrites_only_this_repositorys_rows(t
         "path": str(mirror),
         "rows": 4,
         "preserved_rows": 2,
-        "temporary_runs": 0,
+        "excluded_runs": 0,
         "reason": None,
         "error": None,
     }

@@ -235,7 +235,7 @@ class Clone:
     def mirrors(self, summary: Mapping[str, Any]) -> bool:
         """Whether ``telemetry rebuild`` in this clone would mirror ``summary``.
 
-        It would not when the clone, or the run's repository, is temporary
+        It would not when the clone, or the run's repository, has no network remote
         (:func:`agentic_preflight.telemetry.exclusion_reason`).
         """
         if self.config is None:
@@ -347,7 +347,7 @@ def collect(
         "summarized": None,
         "skipped": None,
         "unmirrored_terminal_runs": None,
-        "temporary_runs": None,
+        "excluded_runs": None,
     }
     source["clone"] = detail
     if not all_repos and not mine:
@@ -360,7 +360,7 @@ def collect(
         scan = summarize_clone(clone.store, identity, [r for r in run_ids if r not in mirrored])
         rows = list(mirror.rows) if all_repos else mine
     addable = sum(1 for summary in scan.summaries if clone.mirrors(summary))
-    detail["temporary_runs"] = len(scan.summaries) - addable
+    detail["excluded_runs"] = len(scan.summaries) - addable
     if source["used"] == "mirror":
         detail["unmirrored_terminal_runs"] = addable
     detail["unreadable"] = len(scan.unreadable_runs)

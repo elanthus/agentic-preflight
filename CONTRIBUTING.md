@@ -34,7 +34,7 @@ To check it locally, run `uv run pytest --cov=agentic_preflight --cov-report=ter
 
 The test suite uses temporary real Git repositories.
 Each test gets its own home, data, and cache directories, so the suite never reads your user configuration or writes your telemetry.
-The suite fails if a test or an eval subprocess adds a row from a temporary repository to your real telemetry files.
+The suite fails if a test or an eval subprocess adds a row from a fixture repository to your real telemetry files.
 Tests that exercise pushes and worktrees can take longer than ordinary unit tests.
 They require a working Git binary.
 
