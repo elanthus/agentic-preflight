@@ -112,6 +112,37 @@ def test_removed_config_keys_are_unknown(tmp_repo, tmp_path, section, key, value
     assert key in str(exc.value)
 
 
+@pytest.mark.parametrize(
+    ("section", "key", "value"),
+    [(section, key, value) for (section, key), value in REMOVED_KEY_VALUES.items()],
+)
+@pytest.mark.parametrize("scope", ["user", "repo"])
+def test_removed_keys_are_tolerated_with_a_warning_on_request(
+    tmp_repo, tmp_path, capsys, section, key, value, scope
+):
+    user_dir = tmp_path / "userconf"
+    user_dir.mkdir()
+    target = user_dir / "config.toml" if scope == "user" else tmp_repo / ".agentic-preflight.toml"
+    target.write_text(f"[{section}]\n{key} = {value}\n[commands]\ntest = 'pytest'\n")
+
+    cfg = load_config(tmp_repo, user_config_dir=user_dir, tolerate_removed_keys=True)
+
+    assert cfg.commands.test == "pytest"
+    assert key not in getattr(cfg, section).model_dump()
+    warning = capsys.readouterr().err
+    assert f"ignoring removed [{section}] {key}" in warning
+    assert str(target) in warning
+
+
+def test_tolerating_removed_keys_still_rejects_other_unknown_keys(tmp_repo, tmp_path, capsys):
+    (tmp_repo / ".agentic-preflight.toml").write_text("[hook]\nenabled = true\nnonsense = 1\n")
+    with pytest.raises(ConfigError) as exc:
+        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere", tolerate_removed_keys=True)
+    assert "hook.nonsense" in str(exc.value)
+    assert "enabled" not in str(exc.value)
+    assert "ignoring removed [hook] enabled" in capsys.readouterr().err
+
+
 def test_an_unknown_section_is_an_error_naming_the_section(tmp_repo, tmp_path):
     (tmp_repo / ".agentic-preflight.toml").write_text("[nonsense]\nx = 1\n")
     with pytest.raises(ConfigError) as exc:

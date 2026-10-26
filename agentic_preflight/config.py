@@ -320,8 +320,16 @@ def load_config(
     repo_root: Path | str,
     *,
     user_config_dir: Path | str | None = None,
+    tolerate_removed_keys: bool = False,
 ) -> Config:
-    """Load and merge the user and repository configuration."""
+    """Load and merge the user and repository configuration.
+
+    ``tolerate_removed_keys`` makes an individual key in :data:`REMOVED_CONFIG_KEYS`
+    a warning on stderr instead of a :class:`ConfigError`. Commands that only read
+    derived data, such as ``telemetry rebuild`` and ``report``, use it so that a
+    stale key in a repository file does not keep the user from their own telemetry.
+    Workflow commands keep the strict default: an unknown key there is an error.
+    """
     repo_root = Path(repo_root)
     if user_config_dir is None:
         user_config_dir = Path.home() / ".config" / "agentic-preflight"
@@ -344,6 +352,8 @@ def load_config(
                     file=sys.stderr,
                 )
                 continue
+            if tolerate_removed_keys and isinstance(values, dict):
+                values = _drop_removed_keys(section, values, path)
             merged[section] = values
             sources[section] = path
 
@@ -353,6 +363,22 @@ def load_config(
         raise ConfigError(_describe(exc, sources, repo_file)) from exc
 
     return cfg
+
+
+def _drop_removed_keys(section: str, values: dict[str, Any], path: Path) -> dict[str, Any]:
+    """Return ``values`` without the removed keys of ``section``, warning for each."""
+    import sys
+
+    kept: dict[str, Any] = {}
+    for key, value in values.items():
+        if (section, key) in REMOVED_CONFIG_KEYS:
+            print(
+                f"agentic-preflight: ignoring removed [{section}] {key} configuration in {path}; this key is no longer used",
+                file=sys.stderr,
+            )
+            continue
+        kept[key] = value
+    return kept
 
 
 def committed_config(repo: Path | str, revision: str) -> Config:

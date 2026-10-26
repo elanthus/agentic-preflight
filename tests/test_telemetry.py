@@ -823,6 +823,27 @@ def test_rebuild_with_the_mirror_off_writes_summaries_only(tmp_repo):
     assert not telemetry.mirror_path().exists()
 
 
+def test_rebuild_tolerates_a_removed_config_key_in_the_repository_file(tmp_repo):
+    write(tmp_repo, ".agentic-preflight.toml", "[hook]\nenabled = true\n")
+    _store_record(tmp_repo, _schema_2_record())
+
+    result = ScriptedAgent(tmp_repo).run("telemetry", "rebuild")
+
+    assert result["data"]["summarized"] == 1
+    assert result["data"]["mirror"]["rows"] == 1
+    assert _summary(tmp_repo, "r_0000000002")["state"] == "ABORTED"
+
+
+def test_rebuild_still_rejects_an_unknown_config_key(tmp_repo):
+    write(tmp_repo, ".agentic-preflight.toml", "[hook]\nnonsense = true\n")
+    _store_record(tmp_repo, _schema_2_record())
+
+    failed = ScriptedAgent(tmp_repo).run("telemetry", "rebuild", expect=ExitCode.USAGE)
+
+    assert failed["error"]["code"] == "config_error"
+    assert "hook.nonsense" in failed["error"]["message"]
+
+
 def test_rebuild_reports_a_mirror_it_cannot_write(tmp_repo, tmp_path):
     blocker = tmp_path / "not-a-directory"
     blocker.write_text("occupied\n", encoding="utf-8")

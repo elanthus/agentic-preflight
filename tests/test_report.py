@@ -855,6 +855,16 @@ def test_json_reports_omit_markdown_and_rows_unless_asked():
 # -- the command ----------------------------------------------------------------
 
 
+def test_report_tolerates_a_removed_config_key_in_the_repository_file(tmp_repo):
+    write(tmp_repo, ".agentic-preflight.toml", "[hook]\nenabled = true\n")
+    _store_record(tmp_repo, _schema_2_record())
+
+    result = ScriptedAgent(tmp_repo).run("report")
+
+    assert result["ok"] is True
+    assert result["data"]["overall"]["runs"] == 1
+
+
 def test_report_in_a_clone_without_mirror_rows_falls_back_and_points_at_rebuild(tmp_repo):
     _store_record(tmp_repo, _schema_1_record())
     _store_record(tmp_repo, _schema_2_record(), findings=_findings())

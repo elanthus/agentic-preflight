@@ -524,6 +524,21 @@ def test_run_names_a_stored_run_in_the_expected_form(github_repo, monkeypatch):
     assert zero["error"]["code"] == "usage_error"
 
 
+def test_sync_hosted_tolerates_a_removed_config_key_in_the_repository_file(
+    github_repo, monkeypatch
+):
+    _use(monkeypatch, FakeGh(_commits()))
+    monkeypatch.setattr(hosted, "resolve_on_path", lambda name: None)
+    (github_repo / ".agentic-preflight.toml").write_text(
+        "[hook]\nenabled = true\n", encoding="utf-8"
+    )
+
+    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", "--dry-run")
+
+    assert result["ok"] is True
+    assert result["data"]["dry_run"] is True
+
+
 def test_dry_run_contacts_nothing_and_writes_nothing(github_repo, monkeypatch):
     fake = FakeGh(_commits())
     _use(monkeypatch, fake)

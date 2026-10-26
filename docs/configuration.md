@@ -12,6 +12,7 @@ A section that only the user file sets still applies.
 Unknown keys are errors that name the key. They are not ignored.
 The retired `[ci]` and `[reuse]` sections are the exception. File loading ignores them with a warning.
 Removed individual keys, including `[hook] enabled`, still fail file loading. Remove them from both files.
+`telemetry rebuild`, `telemetry sync-hosted`, and `report` are the exception. They only read derived data, so they ignore such a key with a warning that names the file and the key.
 Historical run and attestation snapshots tolerate known removed keys. Their original digest bindings do not change.
 See the [0.7 upgrade guide](upgrade-0.7.md).
 
