@@ -242,8 +242,10 @@ class Config(BaseModel):
 
 
 # Keys an earlier release accepted and a later one removed, as (section, key).
-# Individual keys remain invalid in user config and are ignored only in historical
-# snapshots. A wildcard retires an entire section, also ignored with a user warning.
+# Individual keys are ignored in historical snapshots, and in configuration files only
+# by the telemetry-reading commands (``load_config(tolerate_removed_keys=True)``), with
+# a user warning. Every other reader rejects them as unknown keys. A wildcard retires an
+# entire section, ignored everywhere with a user warning.
 REMOVED_CONFIG_KEYS: frozenset[tuple[str, str]] = frozenset(
     {
         ("review", "require_fix_commits"),
@@ -255,6 +257,29 @@ REMOVED_CONFIG_KEYS: frozenset[tuple[str, str]] = frozenset(
 )
 
 
+def _without_removed_keys(
+    section: str, values: dict[str, Any], *, warn_source: Path | None = None
+) -> dict[str, Any]:
+    """Return ``values`` without the individual removed keys of ``section``.
+
+    ``warn_source`` names the configuration file to print one stderr warning for each
+    dropped key. ``None`` drops silently, for historical snapshots.
+    """
+    kept: dict[str, Any] = {}
+    for key, value in values.items():
+        if (section, key) in REMOVED_CONFIG_KEYS:
+            if warn_source is not None:
+                import sys
+
+                print(
+                    f"agentic-preflight: ignoring removed [{section}] {key} configuration in {warn_source}; this key is no longer used",
+                    file=sys.stderr,
+                )
+            continue
+        kept[key] = value
+    return kept
+
+
 def snapshot_config(snapshot: dict[str, Any]) -> Config:
     """Validate an attested config snapshot, ignoring keys a later release removed."""
     cleaned: dict[str, Any] = {}
@@ -262,7 +287,7 @@ def snapshot_config(snapshot: dict[str, Any]) -> Config:
         if (section, "*") in REMOVED_CONFIG_KEYS:
             continue
         if isinstance(body, dict):
-            body = {key: v for key, v in body.items() if (section, key) not in REMOVED_CONFIG_KEYS}
+            body = _without_removed_keys(section, body)
         cleaned[section] = body
     return Config.model_validate(cleaned)
 
@@ -353,7 +378,7 @@ def load_config(
                 )
                 continue
             if tolerate_removed_keys and isinstance(values, dict):
-                values = _drop_removed_keys(section, values, path)
+                values = _without_removed_keys(section, values, warn_source=path)
             merged[section] = values
             sources[section] = path
 
@@ -363,22 +388,6 @@ def load_config(
         raise ConfigError(_describe(exc, sources, repo_file)) from exc
 
     return cfg
-
-
-def _drop_removed_keys(section: str, values: dict[str, Any], path: Path) -> dict[str, Any]:
-    """Return ``values`` without the removed keys of ``section``, warning for each."""
-    import sys
-
-    kept: dict[str, Any] = {}
-    for key, value in values.items():
-        if (section, key) in REMOVED_CONFIG_KEYS:
-            print(
-                f"agentic-preflight: ignoring removed [{section}] {key} configuration in {path}; this key is no longer used",
-                file=sys.stderr,
-            )
-            continue
-        kept[key] = value
-    return kept
 
 
 def committed_config(repo: Path | str, revision: str) -> Config:

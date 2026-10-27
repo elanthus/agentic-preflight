@@ -158,9 +158,17 @@ six lines and avoids forcing a re-run on an open PR. Delete it, and the matching
 `("reuse", "*")`, `("ci", "*")`, and `("hook", "enabled")` serve two readers: historical
 snapshots in notes, and user configuration files that still carry the sections. In 0.10.0
 both become plain unknown-key errors. Delete the entries, `discard_retired_sections`, the
-wildcard warning branch around `config.py` line 339, and `snapshot_config`'s filtering.
-At that point `REMOVED_CONFIG_KEYS` is empty and should be deleted rather than left as an
-invitation.
+wildcard warning branch in `load_config`, `_without_removed_keys` and its call in
+`snapshot_config`, and the `tolerate_removed_keys` parameter of `load_config` together
+with its three callers in `cli_telemetry.py` (`telemetry rebuild`, `telemetry
+sync-hosted`) and `cli_report.py` (`report`). Delete the tolerance tests too:
+`test_removed_keys_are_tolerated_with_a_warning_on_request` and
+`test_tolerating_removed_keys_still_rejects_other_unknown_keys` in
+`tests/test_config.py`, and the `tolerates_a_removed_config_key` cases in
+`tests/test_telemetry.py`, `tests/test_report.py`, and `tests/test_hosted.py`. Drop the
+exception sentences from `docs/configuration.md`, `docs/local-telemetry.md`,
+`skill/reference/commands.md`, and `COMPATIBILITY.md`. At that point
+`REMOVED_CONFIG_KEYS` is empty and should be deleted rather than left as an invitation.
 
 ### 9. Old sibling worktree directory
 

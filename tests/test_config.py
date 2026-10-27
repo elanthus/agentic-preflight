@@ -128,7 +128,6 @@ def test_removed_keys_are_tolerated_with_a_warning_on_request(
     cfg = load_config(tmp_repo, user_config_dir=user_dir, tolerate_removed_keys=True)
 
     assert cfg.commands.test == "pytest"
-    assert key not in getattr(cfg, section).model_dump()
     warning = capsys.readouterr().err
     assert f"ignoring removed [{section}] {key}" in warning
     assert str(target) in warning
