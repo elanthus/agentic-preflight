@@ -96,7 +96,8 @@ advertised, and direct `start` refuses the interrupted run until the user decide
 to abort it. Explicit `abort` remains available. Completed history and runs without
 a journal are unaffected.
 A moved source head orphans the stale run without deleting its evidence or fixes and then
-starts fresh. On an unchanged head, a different intent or configuration requires
+starts fresh. In `reusable` mode, an orphaned run with no fix commits releases its runner
+at once, so the fresh run can lease it. On an unchanged head, a different intent or configuration requires
 `--replace`, which preserves the replaced run as `ORPHANED`. Age alone never expires a
 run.
 Before review, the command fetches the configured base from `origin` when available and
@@ -119,7 +120,8 @@ command. Equal base/head trees and matching context
 can preserve review and docs across rewritten commits. Applicable lint and test stages
 rerun in every new run, including commits with identical trees. Read `data.applicability`;
 `invalid` and `unknown` require a fresh stage, and later-stage candidates remain available while earlier stages are pending.
-Refuses a dirty tree (exit 3, `dirty_tree`) and a branch with no changes over the base
+Refuses a detached HEAD or a branch with no commits yet (exit 3, `no_branch`), a dirty
+tree (exit 3, `dirty_tree`), and a branch with no changes over the base
 (exit 3, `empty_diff`). In-place mode protects `[worktree] copy_files` where they are;
 isolated modes copy them. Every mode refuses an entry git is not already ignoring.
 
@@ -278,7 +280,9 @@ All-or-nothing — one bad finding rejects the batch.
 ### `agentic-preflight respond --id F001 --action fixed|dismissed|accepted [--commit SHA] [--note TEXT] [--reason REASON]`
 - `fixed` requires `--commit`. The commit is verified four ways: it exists, it touches
   the finding's file, it contains no `copy_files` path, and in `reusable` or `strict`
-  mode it is reachable from the validation worktree's current `HEAD`.
+  mode it is reachable from the validation worktree's current `HEAD`, descends from the
+  reviewed head, and is not that head. Citing a commit that review already covered exits 3
+  with `invalid_response`.
 - `dismissed` and `accepted` require `--note` and refuse `--commit`: passing
   `--commit` with any action other than `fixed` exits 6 with `usage_error`, and the
   Python `respond` API raises `invalid_response`.
@@ -423,7 +427,8 @@ the intended result is unambiguous, recoverable, and directly supported by that 
 it must preserve unrelated edits and user-owned operations, and cannot make a
 content-sensitive choice or bypass protected merge policy. Otherwise a person must
 decide. After resolution, `mergeback` is legal again: an exact tree is attested without
-rerunning completed stages; a different tree becomes the validation worktree's new
+rerunning completed stages, unless the branch never moved while the run recorded fix
+commits, in which case the fixes are applied again; a different tree becomes the validation worktree's new
 snapshot and returns the active run to review before any stage can be trusted again.
 
 On success: compares the branch tree against the worktree tree. `tree_equivalent: true`
@@ -448,7 +453,7 @@ Only `[gate] mode = "manual"` exits 4 and puts the literal `git push` command in
 ### `agentic-preflight push --confirm TOKEN [--dry-run]`
 Requires the token from `gate`. It first publishes the original-commit refs required
 by attestation evidence under `refs/agentic-preflight/evidence/<SHA>`, then atomically pushes
-the branch and `refs/notes/agentic-preflight`. A dependency publication failure stops
+the attested head SHA to `refs/heads/<branch>` and `refs/notes/agentic-preflight`. A dependency publication failure stops
 before the branch push; retained evidence refs are safe to retry. Gate summaries, manual commands, and
 dry runs disclose the complete refspecs. These evidence refs survive ordinary
 run/worktree cleanup. **Require user authorization before running this**, as described

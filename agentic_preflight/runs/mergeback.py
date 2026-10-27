@@ -222,7 +222,10 @@ def _perform_merge(
     local_tree = gitx.tree_sha(repo)
     verified_tree = gitx.tree_sha(worktree_path)
     branch_moved = gitx.rev_parse(repo, "HEAD") != run.source_head_sha
-    if retrying_conflict and (local_tree == verified_tree or branch_moved):
+    # An unchanged branch whose tree already matches is only acceptable when no
+    # fix commits were recorded; otherwise the recorded fixes never landed.
+    tree_equal = local_tree == verified_tree and not run.fix_commits
+    if retrying_conflict and (tree_equal or branch_moved):
         return mergebackmod.MergebackResult(
             pre_sha=gitx.rev_parse(repo, "HEAD"),
             post_sha=gitx.rev_parse(repo, "HEAD"),

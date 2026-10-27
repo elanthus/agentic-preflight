@@ -17,8 +17,9 @@ from typing import Any, Literal
 from .. import gitx, housekeeping, worktree
 from .. import sync as syncmod
 from ..config import Config, config_digest, load_config
-from ..envelope import Envelope
+from ..envelope import Envelope, ExitCode
 from ..errors import (
+    AgenticError,
     DirtyTree,
     EmptyDiff,
     IntentRequired,
@@ -48,7 +49,9 @@ from ._session import (
     _new_run_id,
     _next_hint,
     _now,
+    _release_run_worktree,
     _start_command,
+    _worktree_mode,
     worktree_identity,
 )
 
@@ -143,6 +146,12 @@ def _orphan(session: Session, run: RunDoc, *, reason: str, discard_pending: bool
             doc.orphaned_reason = reason
         session.store.clear_run(run.run_id)
         session.store.append_event(run.run_id, {"event": "orphaned", "reason": reason})
+        if not run.fix_commits and _worktree_mode(run) == "reusable":
+            # Nothing unmerged lives on the runner, so free it now; otherwise
+            # the next reusable start finds it still leased.
+            _release_run_worktree(session, run)
+            with session.store.transaction(run.run_id) as doc:
+                doc.worktree_released = True
         if discard_pending:
             (session.store.run_dir(run.run_id) / "pending-update.json").unlink()
 
@@ -186,6 +195,28 @@ class _StartContext:
     producer: Producer
 
 
+class NoBranch(AgenticError):
+    """HEAD is detached or unborn, so there is no branch to validate and publish."""
+
+    code = "no_branch"
+    exit_code = ExitCode.PRECONDITION
+
+
+def _require_branch(repo: Path) -> None:
+    if gitx.run(repo, "symbolic-ref", "-q", "HEAD", check=False).returncode != 0:
+        raise NoBranch(
+            "HEAD is detached; start validates and publishes a named branch",
+            next_instruction="Check out the branch you want to ship, then start the run.",
+            next_command="git switch <branch>",
+        )
+    if gitx.run(repo, "rev-parse", "--verify", "-q", "HEAD", check=False).returncode != 0:
+        raise NoBranch(
+            "the current branch has no commits yet",
+            next_instruction="Commit your work on the branch, then start the run.",
+            next_command="git status",
+        )
+
+
 def _check_preconditions(
     session: Session, *, base_ref: str | None, intent: str | None, producer: Producer
 ) -> _StartContext:
@@ -219,6 +250,10 @@ def _check_preconditions(
         operation = gitx.operation_in_progress(operation_path)
         if operation is not None:
             raise OperationInProgressError(operation, str(operation_path.resolve()))
+
+    # After the operation check: a paused rebase also detaches HEAD, and that
+    # deserves the more specific error.
+    _require_branch(repo)
 
     if not gitx.is_clean(repo):
         raise DirtyTree(

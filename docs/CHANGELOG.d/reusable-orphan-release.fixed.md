@@ -1,0 +1,1 @@
+- In `reusable` worktree mode, a run orphaned by a restart with no fix commits releases its runner at once, so the next `start` no longer fails with `needs_human` because the runner is still leased.
