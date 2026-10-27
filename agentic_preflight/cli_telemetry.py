@@ -37,7 +37,9 @@ def telemetry_rebuild() -> None:
     cwd = Path.cwd()
     repo_root = gitx.repo_root(cwd)
     store = Store(gitx.git_common_dir(cwd) / STATE_DIR_NAME)
-    result = telemetrymod.rebuild(store, repo_root, load_config(repo_root))
+    result = telemetrymod.rebuild(
+        store, repo_root, load_config(repo_root, tolerate_removed_keys=True)
+    )
     if result["write_failures"] or result["mirror"]["error"]:
         error = AgenticError(
             "telemetry rebuild could not write every summary",
@@ -198,7 +200,7 @@ def telemetry_sync_hosted(limit: int, run_id: str | None, refresh: bool, dry_run
         data = hostedmod.sync_hosted(
             store,
             repo_root,
-            load_config(repo_root),
+            load_config(repo_root, tolerate_removed_keys=True),
             limit=limit,
             run_id=run_id,
             refresh=refresh,

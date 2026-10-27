@@ -160,7 +160,7 @@ def report(
             "Run the report inside a clone, or read every repository's mirror rows.",
             "agentic-preflight report --all-repos",
         )
-    config = load_config(repo_root or cwd)
+    config = load_config(repo_root or cwd, tolerate_removed_keys=True)
     if clone is not None:
         clone = dataclasses.replace(clone, config=config)
     path = telemetry.mirror_path(config)

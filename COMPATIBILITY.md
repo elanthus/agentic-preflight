@@ -155,7 +155,7 @@ It is left unchanged, together with the work and ownership information that it r
 
 Run reads and attestation verification ignore configuration keys that a later release removed, such as `[hook] enabled`, when they appear in a saved `config_snapshot`.
 Thus, a newer verifier accepts notes that an older release wrote.
-A configuration file that sets such a key is still rejected.
+A configuration file that sets such a key is still rejected, except by `telemetry rebuild`, `telemetry sync-hosted`, and `report`, which ignore it with a warning because they only read derived data.
 
 ## Owner review approval
 

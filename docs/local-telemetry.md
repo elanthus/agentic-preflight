@@ -220,6 +220,10 @@ Its earlier summary and mirror row stay. The command does not treat that record 
 Runs that are not finished are counted as `skipped`.
 `summary.json` is derived data. You can delete it, and `rebuild` writes it again.
 
+`telemetry rebuild`, `telemetry sync-hosted`, and `report` read only derived data.
+Thus, they ignore a configuration key that a later release removed, such as `[hook] enabled`, and print a warning that names the file and the key.
+Every other command still rejects the key. Remove it from the file.
+
 ## Join hosted outcomes
 
 `agentic-preflight telemetry sync-hosted` adds the GitHub outcome of each pushed run to its summary.

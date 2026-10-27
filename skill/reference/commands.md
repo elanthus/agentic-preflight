@@ -599,7 +599,10 @@ counts those summaries. A clone that itself has no network remote does not chang
 mirror at all: `mirror.reason` is `no_network_remote`, and `path`, `rows`, and
 `preserved_rows` are `null`. `reason` is otherwise `null`; `excluded_runs` is `null`
 when the mirror is off. A failed write exits 1 with error code `telemetry_write_failed` and the same `data`.
-`telemetry rebuild` makes no network request.
+`telemetry rebuild` makes no network request. `telemetry rebuild`, `telemetry sync-hosted`, and `report` load the
+configuration with one tolerance: an individual key that a later release removed, such as
+`[hook] enabled`, is ignored with a warning on stderr that names the file and the key. A key the
+tool never knew is still a `config_error`.
 
 The summary is first written when a transaction commits `DONE`, `ABORTED`, or `ORPHANED`:
 from `finish`, `abort`, `gc`, or `start` when it orphans the previous run or aborts the
