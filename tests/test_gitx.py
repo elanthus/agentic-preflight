@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -5,6 +7,7 @@ import subprocess
 import pytest
 from click.testing import CliRunner
 
+from agentic_preflight import diff as diff_module
 from agentic_preflight import gitx
 from agentic_preflight.cli import main
 from agentic_preflight.stages import command as command_plan
@@ -737,7 +740,8 @@ def test_diff_text_by_path_keeps_lone_cr_inside_one_patch(tmp_repo):
     assert files == ["weird.txt"]
     assert list(patches) == ["weird.txt"]
     assert patches["weird.txt"].count("diff --git ") == 2
-    assert "+hello\rdiff --git a/x b/x\rmore\n" in patches["weird.txt"]
+    # Same text main produced: a CR still reads as LF, only without the phantom split.
+    assert patches["weird.txt"].endswith("+hello\ndiff --git a/x b/x\nmore\n")
 
 
 def test_non_utf8_path_round_trips_to_git(tmp_repo):
@@ -760,8 +764,62 @@ def test_non_utf8_path_round_trips_to_git(tmp_repo):
     commit = git("commit-tree", tree, "-p", "main", "-m", "latin1 name", cwd=tmp_repo)
     git("reset", "-q", "main", cwd=tmp_repo)
 
-    files = gitx.changed_files(tmp_repo, "main", commit)
-    patches = gitx.diff_text_by_path(tmp_repo, "main", commit, files)
+    raw = gitx.changed_files_raw(tmp_repo, "main", commit)
+    patches = gitx.diff_text_by_path(tmp_repo, "main", commit, raw)
 
-    assert [os.fsencode(path) for path in files] == [name]
-    assert "+x\n" in patches[files[0]]
+    assert [os.fsencode(path) for path in raw] == [name]
+    assert "+x\n" in patches[raw[0]]
+    # Everything stored, hashed, or shown uses the historical escaped spelling.
+    assert gitx.changed_files(tmp_repo, "main", commit) == ["caf\\xe9.txt"]
+    assert gitx.classified_files(tmp_repo, "main", commit) == ["caf\\xe9.txt"]
+    bundle = diff_module.build_bundle(tmp_repo, "main", commit)
+    manifest = diff_module.build_review_manifest(tmp_repo, bundle)
+    assert bundle.files == ["caf\\xe9.txt"]
+    assert json.loads(json.dumps(manifest.as_dict()))["units"][0]["path"] == "caf\\xe9.txt"
+
+
+def test_non_utf8_path_context_envelope_is_valid_json(tmp_repo):
+    from tests.driver import ScriptedAgent
+
+    write(
+        tmp_repo,
+        ".agentic-preflight.toml",
+        "[review]\nexecutor = 'in_harness'\n[docs]\nenabled = false\n",
+    )
+    commit_all(tmp_repo, "configure in-harness review")
+    git("switch", "-c", "feature/latin1", cwd=tmp_repo)
+    try:
+        with open(os.path.join(os.fsencode(str(tmp_repo)), b"caf\xe9.txt"), "wb") as fh:
+            fh.write(b"x\n")
+    except OSError:
+        pytest.skip("filesystem rejects non-UTF-8 file names, so no worktree can check one out")
+    commit_all(tmp_repo, "latin1 name")
+    agent = ScriptedAgent(tmp_repo, transport="subprocess")
+    agent.run("start")
+
+    context = agent.run("context")
+
+    assert "caf\\xe9.txt" in json.dumps(context)
+
+
+def test_crlf_patch_text_and_digests_match_main(tmp_repo):
+    git("switch", "-c", "feat", cwd=tmp_repo)
+    (tmp_repo / "a.txt").write_bytes(b"one\r\ntwo\r\n")
+    commit_all(tmp_repo, "crlf base")
+    (tmp_repo / "a.txt").write_bytes(b"one\r\nTWO\r\nthree\r\n")
+    commit_all(tmp_repo, "crlf change")
+
+    bundle = diff_module.build_bundle(tmp_repo, "HEAD~1", "HEAD")
+    manifest = diff_module.build_review_manifest(tmp_repo, bundle)
+
+    # Values computed with main's text-mode decoding before the byte-split change.
+    assert hashlib.sha256(bundle.text.encode()).hexdigest() == (
+        "6e99453702fcbb1be74d16ea51a2fc0bc9bbee874879c4bb842eb791e3666f44"
+    )
+    assert manifest.diff_sha256 == (
+        "6e99453702fcbb1be74d16ea51a2fc0bc9bbee874879c4bb842eb791e3666f44"
+    )
+    assert [unit.digest for unit in manifest.units] == [
+        "260f79bfed5421811142664fbeec72c91df66872417ba092e9734645815f1790"
+    ]
+    assert "\r" not in bundle.per_file["a.txt"]

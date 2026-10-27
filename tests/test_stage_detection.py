@@ -66,11 +66,25 @@ def test_stage_detection_ignores_package_json_without_object_top_level(tmp_path)
 def test_stage_detection_matches_stage_as_whole_word(tmp_path):
     (tmp_path / "package.json").write_text(
         json.dumps(
-            {"scripts": {"latest": "x", "contest": "x", "test:unit": "x", "unit-tests": "x"}}
+            {
+                "scripts": {
+                    "latest": "x",
+                    "contest": "x",
+                    "test:unit": "x",
+                    "unit-tests": "x",
+                    "pytest": "x",
+                }
+            }
         )
     )
-    (tmp_path / "Makefile").write_text("latest:\n\ttrue\ntest:\n\ttrue\n")
+    (tmp_path / "Makefile").write_text("latest:\n\ttrue\ntest:\n\ttrue\nunittest:\n\ttrue\n")
 
     commands = [item.command for item in candidates_for(tmp_path, "test")]
 
-    assert commands == ["npm run test:unit", "npm run unit-tests", "make test"]
+    assert commands == [
+        "npm run test:unit",
+        "npm run unit-tests",
+        "npm run pytest",
+        "make test",
+        "make unittest",
+    ]

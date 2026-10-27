@@ -14,10 +14,15 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+# Tool names that end in a stage word but are still that stage, unlike "latest".
+_STAGE_TOOL_WORDS = {"test": ("pytest", "unittest")}
+
 
 def _names_stage(name: str, stage: str) -> bool:
-    """Whether ``stage`` appears in ``name`` as a whole word, so "latest" is not a test."""
-    return re.search(rf"(?<![a-z0-9]){re.escape(stage)}s?(?![a-z0-9])", name.lower()) is not None
+    """Whether a word of ``name`` is the stage (optionally plural) or a known stage tool."""
+    words = {re.escape(stage) + "s?", *map(re.escape, _STAGE_TOOL_WORDS.get(stage, ()))}
+    pattern = rf"(?<![a-z0-9])(?:{'|'.join(sorted(words))})(?![a-z0-9])"
+    return re.search(pattern, name.lower()) is not None
 
 
 def _read_text(path: Path) -> str | None:

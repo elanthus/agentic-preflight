@@ -368,8 +368,8 @@ command includes it, and the CLI repeats it in the persisted retry command. It c
 nothing else. Detection never
 guesses: it exits 2 with `data.mode = "needs_command"` and candidates from
 `pyproject.toml`, `package.json`, `Makefile`, and `justfile`. A script or target
-counts only when it names the stage as a whole word (`test:unit` and `unit-tests` do;
-`latest` does not), and an unreadable or malformed manifest is skipped. Every candidate
+counts only when it names the stage or a known tool for it as a whole word (`test:unit`,
+`unit-tests`, and `pytest` do; `latest` does not), and an unreadable or malformed manifest is skipped. Every candidate
 has `command` and `source` fields. No detected candidate is copied into `next.command`;
 show its exact command to the user and obtain approval before first use.
 

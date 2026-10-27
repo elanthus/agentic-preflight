@@ -126,6 +126,25 @@ def _decode_path(raw: bytes) -> str:
     return raw.decode("utf-8", errors=_PATH_ERRORS)
 
 
+def display_path(path: str) -> str:
+    """Convert a raw (surrogateescape) path to the text stored, hashed, and shown.
+
+    The result equals the historical ``backslashreplace`` decoding, so it is safe
+    for JSON and UTF-8 encoding. Only the raw form may be handed back to Git.
+    """
+    return path.encode("utf-8", errors=_PATH_ERRORS).decode("utf-8", errors=_DECODE_ERRORS)
+
+
+def _decode_patch(raw: bytes) -> str:
+    """Decode one patch exactly as text-mode ``run`` did, universal newlines included.
+
+    Evidence digests were computed over that text, so CRLF and lone CR still read
+    as LF here; only the split point moved to the raw bytes.
+    """
+    text = raw.decode("utf-8", errors=_DECODE_ERRORS)
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def out(cwd: Path | str, *args: str) -> str:
     """Run a git command and return its stripped stdout."""
     return run(cwd, *args).stdout.strip()
@@ -538,7 +557,12 @@ _NO_RENAMES = "--no-renames"
 
 
 def changed_files(cwd: Path | str, base: str, head: str = "HEAD") -> list[str]:
-    """Return paths changed between the merge base and head."""
+    """Return display paths changed between the merge base and head."""
+    return [display_path(path) for path in changed_files_raw(cwd, base, head)]
+
+
+def changed_files_raw(cwd: Path | str, base: str, head: str = "HEAD") -> list[str]:
+    """Return changed paths in raw form, suitable only for handing back to Git."""
     output = _run_bytes(
         cwd,
         "diff",
@@ -562,7 +586,7 @@ def merge_result_files(cwd: Path | str, base: str, head: str) -> list[str]:
     accounts for every merge base. Conflicted paths are reported too.
     """
     tree, _clean = merge_tree_result(cwd, base, head)
-    output = run(
+    output = _run_bytes(
         cwd,
         "diff",
         "--no-ext-diff",
@@ -572,8 +596,8 @@ def merge_result_files(cwd: Path | str, base: str, head: str) -> list[str]:
         _NO_RENAMES,
         base,
         tree,
-    ).stdout
-    return [path for path in output.split("\0") if path]
+    )
+    return [display_path(_decode_path(path)) for path in output.split(b"\0") if path]
 
 
 def non_merge_commit_files(cwd: Path | str, base: str, head: str) -> list[str]:
@@ -650,8 +674,7 @@ def _split_patches(data: bytes) -> list[str]:
     starts = [index for index, line in enumerate(lines) if line.startswith(b"diff --git ")]
     ends = [*starts[1:], len(lines)]
     return [
-        b"".join(lines[start:end]).decode("utf-8", errors=_DECODE_ERRORS)
-        for start, end in zip(starts, ends, strict=True)
+        _decode_patch(b"".join(lines[start:end])) for start, end in zip(starts, ends, strict=True)
     ]
 
 
@@ -705,7 +728,10 @@ def _parse_raw_patch_output(data: bytes) -> dict[str, str]:
 def diff_text_by_path(
     cwd: Path | str, base: str, head: str, paths: Sequence[str]
 ) -> dict[str, str]:
-    """Return complete per-file patches using one Git process per bounded batch."""
+    """Return complete per-file patches using one Git process per bounded batch.
+
+    ``paths`` and the returned keys are raw paths from :func:`changed_files_raw`.
+    """
     per_file: dict[str, str] = {}
     for batch in _path_batches(paths):
         output = _run_bytes(

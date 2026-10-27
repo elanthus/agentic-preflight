@@ -276,15 +276,17 @@ def build_bundle(
 ) -> DiffBundle:
     """Build the review diff bundle between two refs, applying excludes."""
     patterns = list(exclude) if exclude is not None else []
-    all_files = gitx.changed_files(repo, base, head)
-    kept = [p for p in all_files if not is_excluded(p, patterns)]
-    dropped = [p for p in all_files if is_excluded(p, patterns)]
-    per_file = gitx.diff_text_by_path(repo, base, head, kept)
+    # Raw paths go back to Git; everything stored, hashed, or shown uses display paths.
+    raw_files = gitx.changed_files_raw(repo, base, head)
+    display = {raw: gitx.display_path(raw) for raw in raw_files}
+    kept_raw = [p for p in raw_files if not is_excluded(display[p], patterns)]
+    dropped = [display[p] for p in raw_files if is_excluded(display[p], patterns)]
+    raw_patches = gitx.diff_text_by_path(repo, base, head, kept_raw)
     return DiffBundle(
         base=base,
         head=head,
-        files=kept,
-        per_file=per_file,
+        files=[display[p] for p in kept_raw],
+        per_file={display[p]: raw_patches[p] for p in kept_raw if p in raw_patches},
         excluded=dropped,
     )
 
