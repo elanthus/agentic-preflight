@@ -30,21 +30,21 @@ surface incomplete in a way a reader would trip on.
 | Renamed config key | Docs name the old key | `auto_fix` |
 | Changed default value | Docs state the old default | `auto_fix` |
 | Removed feature | Docs still describe it as available | `auto_fix` |
-| Changed behaviour under a documented contract | Documented guarantee is now ambiguous or wrong | `ask_user` |
+| Changed behavior under a documented contract | Documented guarantee is now ambiguous or wrong | `ask_user` |
 | New env var required to run | Setup instructions would leave a reader stuck | `auto_fix` |
 | Internal refactor, no surface change | **None** | no finding |
 | New private helper | **None** | no finding |
 | Test-only change | **None** | no finding |
-| Performance improvement, same behaviour | **None** | no finding |
+| Performance improvement, same behavior | **None** | no finding |
 
 ## Severity
 
-- **`high`** — following the docs now produces a wrong result or a failure. A
+- **`high`**: following the docs now produces a wrong result or a failure. A
   documented example that errors; a documented default that is no longer the default.
   Blocks.
-- **`medium`** — a real gap that will confuse, but does not make anyone wrong. A new
+- **`medium`**: a real gap that will confuse, but does not make anyone wrong. A new
   flag absent from an otherwise exhaustive list. Does not block by default.
-- **`low`** — a nit. Prefer no finding at all.
+- **`low`**: a nit. Prefer no finding at all.
 
 Docs findings below `high` do not block. The stage should improve
 documentation without becoming a reason to turn the stage off.

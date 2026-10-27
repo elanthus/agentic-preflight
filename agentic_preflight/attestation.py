@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from . import gitx
 from .digests import sha256_text
+from .fingerprints import intent_digest
 from .models import Attestation, AttestedStage, RunDoc, Stage
 
 NOTES_REF = "refs/notes/agentic-preflight"
@@ -47,11 +48,6 @@ def recovery(reason: str) -> str:
 def output_digest(output: str) -> str:
     """Return the SHA-256 hex digest of captured stage output."""
     return sha256_text(output)
-
-
-def intent_digest(intent: str) -> str:
-    """Return the SHA-256 hex digest of the run intent text."""
-    return sha256_text(intent)
 
 
 def build(

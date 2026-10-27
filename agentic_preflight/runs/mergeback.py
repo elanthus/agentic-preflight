@@ -6,8 +6,9 @@ from .. import attestation as attestationmod
 from .. import gitx, worktree
 from .. import mergeback as mergebackmod
 from .. import sync as syncmod
-from ..envelope import Envelope
+from ..envelope import Envelope, ExitCode
 from ..errors import (
+    AgenticError,
     DirtyTree,
     MergebackConflictError,
     NeedsHuman,
@@ -178,6 +179,13 @@ def _record_attempt(session: Session, run: RunDoc, *, retrying_conflict: bool) -
         return doc
 
 
+class FixesNotLanded(AgenticError):
+    """A conflict retry found recorded fix commits that never reached the branch."""
+
+    code = "fixes_not_landed"
+    exit_code = ExitCode.NEEDS_HUMAN
+
+
 def _perform_merge(
     session: Session,
     run: RunDoc,
@@ -222,7 +230,20 @@ def _perform_merge(
     local_tree = gitx.tree_sha(repo)
     verified_tree = gitx.tree_sha(worktree_path)
     branch_moved = gitx.rev_parse(repo, "HEAD") != run.source_head_sha
-    if retrying_conflict and (local_tree == verified_tree or branch_moved):
+    # An unchanged branch whose tree already matches is only acceptable when no
+    # fix commits were recorded; otherwise the recorded fixes never landed.
+    if retrying_conflict and local_tree == verified_tree and run.fix_commits and not branch_moved:
+        raise FixesNotLanded(
+            "the recorded fix commits never landed on the source branch, yet its tree "
+            "already matches the validation worktree; the fixes change nothing and the "
+            "findings they claim to fix were not repaired",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction=("Abort this run and start a new one so the branch is revalidated."),
+            next_command="agentic-preflight abort",
+        )
+    tree_equal = local_tree == verified_tree and not run.fix_commits
+    if retrying_conflict and (tree_equal or branch_moved):
         return mergebackmod.MergebackResult(
             pre_sha=gitx.rev_parse(repo, "HEAD"),
             post_sha=gitx.rev_parse(repo, "HEAD"),

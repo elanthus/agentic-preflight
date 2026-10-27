@@ -5,8 +5,8 @@ Open a [bug report](https://github.com/elanthus/agentic-preflight/issues/new/cho
 Open an issue for a feature proposal.
 The issue tracker keeps the scope and the tradeoffs of each proposal searchable.
 
-The community maintains this project.
-Response times are best effort.
+One person maintains this project on a best-effort basis.
+Response times vary.
 
 Include this information in a report:
 

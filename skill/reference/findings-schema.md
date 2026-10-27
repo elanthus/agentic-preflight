@@ -98,15 +98,15 @@ snapshot, so they return the run to review; note-only dispositions keep the stag
 
 ## Choosing an action
 
-**`auto_fix`** — mechanical, locally verifiable, and you can do it correctly right now
+**`auto_fix`**: mechanical, locally verifiable, and you can do it correctly right now
 without anyone's input. A missing null check, a wrong comparison operator, an unhandled
 exception. Most findings.
 
-**`ask_user`**: competing reasonable interpretations would change behaviour
+**`ask_user`**: competing reasonable interpretations would change behavior
 or scope, and the request, acceptance criteria, and established repository contract do
-not settle the choice. For example: is this API meant to be public, is a behaviour
+not settle the choice. For example: is this API meant to be public, is a behavior
 change deliberate, or is a trade-off acceptable? Routine decisions those sources already
 settle should proceed rather than becoming `ask_user` findings.
 
-**`no_op`** — worth recording so it is visible, not worth acting on. Use sparingly:
+**`no_op`**: worth recording so it is visible, not worth acting on. Use sparingly:
 findings nobody acts on are what makes people switch a stage off.

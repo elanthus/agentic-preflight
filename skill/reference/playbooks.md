@@ -30,6 +30,13 @@ applicable validation path, clearing snapshot-bound review, lint, and test evide
 Before concluding the conflict is real, check the user's tree was clean — see
 non-negotiable 7.
 
+## Recorded fixes never landed (exit 4, `fixes_not_landed`)
+
+A conflict retry found the branch unmoved and its tree already equal to the validation
+worktree while the run records fix commits. The fixes change nothing, so the findings
+they claim to fix were not repaired. Do not retry `mergeback`. Tell the user, run
+`agentic-preflight abort`, and start a new run so the branch is revalidated.
+
 ## Stage red after max attempts (exit 4)
 
 Stop retrying — you have already tried `max_attempts` times and the tool is telling
@@ -93,7 +100,11 @@ point out the relevant fields. The same report is stored as a `sync_conflict` or
 `sync_failed` event. With
 `sync_conflict`, `data.conflicting_files` names either paths that conflict on rebase or
 merge, which the user resolves on the source branch, or untracked and ignored local
-files that the base would overwrite, which the user moves or removes. With
+files that the base would overwrite, which the user moves or removes. With an empty
+`data.conflicting_files`, a message starting "rebasing onto ... failed without a conflict"
+carries Git's error, such as a rejecting hook or signer, which the user fixes; any other
+message means merging the base in failed without unmerged paths, so inspect `git status`
+in the worktree. With
 `sync_failed`, `data.detail` names the remote, network, or base-ref error the user
 fixes. In both cases run `agentic-preflight abort --force`, then `start` again with the
 same intent. Do not resolve a rebase on the user's behalf.

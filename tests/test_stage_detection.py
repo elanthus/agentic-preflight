@@ -46,3 +46,55 @@ def test_stage_detection_does_not_scrape_workflows(tmp_path):
     workflow.mkdir(parents=True)
     (workflow / "ci.yaml").write_text("steps:\n  run: pytest integration-tests\n")
     assert candidates_for(tmp_path, "test") == []
+
+
+def test_stage_detection_tolerates_non_utf8_sources(tmp_path):
+    (tmp_path / "Makefile").write_bytes(b"test:\n\techo caf\xe9\n")
+    (tmp_path / "pyproject.toml").write_bytes(b"# caf\xe9\n[tool.pytest]\n")
+
+    assert candidates_for(tmp_path, "test") == []
+
+
+def test_stage_detection_ignores_package_json_without_object_top_level(tmp_path):
+    (tmp_path / "package.json").write_text(json.dumps(["test"]))
+    assert candidates_for(tmp_path, "test") == []
+
+    (tmp_path / "package.json").write_text(json.dumps({"scripts": ["test"]}))
+    assert candidates_for(tmp_path, "test") == []
+
+
+def test_stage_detection_matches_stage_as_whole_word(tmp_path):
+    (tmp_path / "package.json").write_text(
+        json.dumps(
+            {
+                "scripts": {
+                    "latest": "x",
+                    "contest": "x",
+                    "test:unit": "x",
+                    "unit-tests": "x",
+                    "pytest": "x",
+                }
+            }
+        )
+    )
+    (tmp_path / "Makefile").write_text("latest:\n\ttrue\ntest:\n\ttrue\nunittest:\n\ttrue\n")
+
+    commands = [item.command for item in candidates_for(tmp_path, "test")]
+
+    assert commands == [
+        "npm run test:unit",
+        "npm run unit-tests",
+        "npm run pytest",
+        "make test",
+        "make unittest",
+    ]
+
+
+def test_stage_detection_offers_lint_tool_scripts(tmp_path):
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"eslint": "eslint .", "splint": "x"}})
+    )
+
+    commands = [item.command for item in candidates_for(tmp_path, "lint")]
+
+    assert commands == ["npm run eslint"]

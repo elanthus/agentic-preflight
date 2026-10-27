@@ -28,8 +28,8 @@ from ._session import (
 from .mergeback import _remote_for
 
 
-def _push_refspecs(branch: str) -> list[str]:
-    return [f"{branch}:{branch}", f"{NOTES_REF}:{NOTES_REF}"]
+def _push_refspecs(head_sha: str, branch: str) -> list[str]:
+    return [f"{head_sha}:refs/heads/{branch}", f"{NOTES_REF}:{NOTES_REF}"]
 
 
 def _push_commands(evidence_refspecs: list[str], refspecs: list[str]) -> list[str]:
@@ -64,7 +64,7 @@ def gate(session: Session) -> Envelope:
         portable = None
     if portable is not None:
         assessment = riskmod.include_attested_findings(assessment, portable.findings_summary)
-    refspecs = _push_refspecs(run.branch)
+    refspecs = _push_refspecs(run.head_sha, run.branch)
     evidence_refspecs = []
     if portable is not None:
         evidence_refspecs = evidence_transport.refspecs(portable)
@@ -191,7 +191,7 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
         portable = attestationmod.verify(session.repo_root, run.head_sha, purpose="publish")
     except (attestationmod.InvalidAttestation, gitx.GitError) as exc:
         raise AttestationFailed(str(exc), next_command="agentic-preflight status") from exc
-    refspecs = _push_refspecs(run.branch)
+    refspecs = _push_refspecs(run.head_sha, run.branch)
     evidence_refspecs = evidence_transport.refspecs(portable)
 
     if dry_run:
