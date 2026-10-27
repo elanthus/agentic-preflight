@@ -389,7 +389,7 @@ The system temporary directories are `tempfile.gettempdir()`, `$TMPDIR` when it 
 A network remote is an `origin` whose normalized form starts with a host name. A missing `origin`, a local path such as a bare repository, and a loopback host are not network remotes.
 Thus, a scratch clone under the temporary directory that pushes to GitHub keeps its telemetry.
 A run of a temporary repository still writes `summary.json`. It appends no line to `runs.jsonl`, and `hook-check` appends no line to `hook-decisions.jsonl`.
-See [Temporary repositories](docs/local-telemetry.md#temporary-repositories).
+See [Temporary repositories](docs/local-telemetry.md#repositories-without-a-network-remote).
 
 An explicit `[telemetry] path` is an opt-in, and keeps the earlier behavior for every repository.
 `[telemetry] mirror` and `hook_log` are unchanged.

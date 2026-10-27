@@ -215,7 +215,7 @@ def mergeback() -> None:
 @click.command()
 @command
 def gate() -> None:
-    """Summarise what would be pushed and mint a confirmation token."""
+    """Summarize what would be pushed and mint a confirmation token."""
     finish_locked(runs.gate)
 
 
