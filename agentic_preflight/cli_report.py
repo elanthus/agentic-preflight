@@ -66,7 +66,7 @@ def _guidance(source: dict[str, Any], mirror_enabled: bool) -> tuple[str | None,
     clone = source["clone"] or {}
     parts: list[str] = []
     command_text = None
-    temporary = clone.get("temporary_runs") or 0
+    excluded = clone.get("excluded_runs") or 0
     # Suggest a rebuild only when it adds rows; otherwise following `next` would loop.
     adds = False
     if source["used"] == "clone_records" and clone.get("summarized"):
@@ -74,7 +74,7 @@ def _guidance(source: dict[str, Any], mirror_enabled: bool) -> tuple[str | None,
             "The mirror has no rows for this repository, so the report summarized this "
             "clone's run records in memory."
         )
-        adds = clone["summarized"] > temporary
+        adds = clone["summarized"] > excluded
     elif clone.get("unmirrored_terminal_runs"):
         parts.append("Some finished runs in this clone are not in the mirror.")
         adds = True
@@ -83,12 +83,11 @@ def _guidance(source: dict[str, Any], mirror_enabled: bool) -> tuple[str | None,
         command_text = REBUILD_COMMAND
     elif parts and not mirror_enabled:
         parts.append("The mirror is off, so `telemetry rebuild` does not add them.")
-    if temporary and mirror_enabled:
+    if excluded and mirror_enabled:
         parts.append(
-            f"{temporary} finished run(s) of this clone come from a repository under the "
-            "system temporary directory without a network remote, so `telemetry rebuild` "
-            "does not mirror them. An explicit `[telemetry] path` in the user file mirrors "
-            "them."
+            f"{excluded} finished run(s) of this clone come from a repository without a "
+            "network remote, so `telemetry rebuild` does not mirror them. An explicit "
+            "`[telemetry] path` in the user file mirrors them."
         )
     if clone.get("unreadable"):
         parts.append(

@@ -72,7 +72,7 @@ def deterministic_git_env(monkeypatch, tmp_path_factory):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path_factory.mktemp("xdg-data")))
     # The user configuration lives under the home directory. A developer's
     # ``[telemetry] path`` there is an explicit opt-in that the product honours even
-    # for temporary repositories, so no test may read it.
+    # for repositories without a network remote, so no test may read it.
     set_home(monkeypatch, tmp_path_factory.mktemp("home"))
     # Real-push tests invoke the installed hook, which resolves
     # ``agentic-preflight`` through PATH. Pin that lookup to the same environment
@@ -86,9 +86,9 @@ def deterministic_git_env(monkeypatch, tmp_path_factory):
 def telemetry_opt_in(deterministic_git_env) -> Path:
     """Opt this test's fixture repositories in to telemetry, and return the directory.
 
-    Every fixture repository is under the system temporary directory, so by default the
-    product neither mirrors its runs nor logs its hook decisions. An explicit
-    ``[telemetry] path`` is an opt-in. This writes one into the test's own user
+    No fixture repository has a network remote, so by default the product neither
+    mirrors its runs nor logs its hook decisions. An explicit ``[telemetry] path`` is
+    an opt-in. This writes one into the test's own user
     configuration, naming the per-test directory that ``XDG_DATA_HOME`` already selects,
     so ``telemetry.mirror_path()`` and ``hooklog.log_path()`` still find the files.
     """

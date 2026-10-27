@@ -235,7 +235,7 @@ class Clone:
     def mirrors(self, summary: Mapping[str, Any]) -> bool:
         """Whether ``telemetry rebuild`` in this clone would mirror ``summary``.
 
-        It would not when the clone, or the run's repository, is temporary
+        It would not when the clone, or the run's repository, has no network remote
         (:func:`agentic_preflight.telemetry.exclusion_reason`).
         """
         if self.config is None:
@@ -347,7 +347,7 @@ def collect(
         "summarized": None,
         "skipped": None,
         "unmirrored_terminal_runs": None,
-        "temporary_runs": None,
+        "excluded_runs": None,
     }
     source["clone"] = detail
     if not all_repos and not mine:
@@ -360,7 +360,7 @@ def collect(
         scan = summarize_clone(clone.store, identity, [r for r in run_ids if r not in mirrored])
         rows = list(mirror.rows) if all_repos else mine
     addable = sum(1 for summary in scan.summaries if clone.mirrors(summary))
-    detail["temporary_runs"] = len(scan.summaries) - addable
+    detail["excluded_runs"] = len(scan.summaries) - addable
     if source["used"] == "mirror":
         detail["unmirrored_terminal_runs"] = addable
     detail["unreadable"] = len(scan.unreadable_runs)
@@ -408,6 +408,9 @@ def matches_repo(row: Mapping[str, Any], wanted: str) -> bool:
     normalized = telemetry.normalize_remote(wanted)
     if normalized:
         candidates.add(normalized.casefold())
+        # An already normalized ``host/path`` has no scheme, so it normalizes as a
+        # relative path. Match it as given, too.
+        candidates.add(normalized.removeprefix("./").casefold())
     repo = row.get("repo") or {}
     values = (repo.get("name"), repo.get("remote"))
     return any(isinstance(value, str) and value.casefold() in candidates for value in values)
