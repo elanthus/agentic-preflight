@@ -33,11 +33,14 @@ from agentic_preflight.cli import main
 from agentic_preflight.cli_contract import (
     COMMAND_MODELS,
     NO_ENVELOPE,
+    EnvelopeModel,
     RunDataBase,
     schema_filename,
     schemas,
 )
-from agentic_preflight.envelope import Envelope
+from agentic_preflight.envelope import Envelope, ExitCode
+from tests.conftest import commit_all, write
+from tests.driver import ScriptedAgent, findings_json
 
 ROOT = Path(__file__).parent.parent
 SCHEMA_DIR = ROOT / "skill" / "reference" / "schema"
@@ -416,3 +419,68 @@ def test_emitted_fields_are_documented(command: str) -> None:
     shared = set(RunDataBase.model_fields)
     undocumented = properties(command) - shared - mentioned_names(_sections()[command])
     assert undocumented == EMITTED_NOT_DOCUMENTED.get(command, set())
+
+
+class _RecordingAgent(ScriptedAgent):
+    """A scripted agent that keeps every envelope it receives."""
+
+    def __init__(self, repo: Path) -> None:
+        super().__init__(repo)
+        self.captured: list[tuple[str, dict]] = []
+
+    def run(self, *argv: str, expect: int = 0) -> dict:
+        payload = super().run(*argv, expect=expect)
+        words = [a for a in argv if not a.startswith("-")]
+        command = next(
+            c
+            for c in sorted(COMMAND_MODELS, key=len, reverse=True)
+            if words[: len(c.split())] == c.split()
+        )
+        self.captured.append((command, payload))
+        return payload
+
+
+def test_real_envelopes_match_the_models(feature_repo, bare_remote, tmp_path) -> None:
+    """Drive a real run and check every captured `data` against its command's model.
+
+    The models allow extra keys, so the top-level keys are checked explicitly. Nested
+    open-ended values are typed ``dict[str, Any]`` and are not inspected further.
+    """
+    agent = _RecordingAgent(feature_repo)
+    agent.run("status")  # no run yet
+    agent.run("finish", expect=ExitCode.PRECONDITION)  # error envelope
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+        "\n[worktree]\nmode = 'reusable'\n",
+    )
+    commit_all(feature_repo, "configure agentic-preflight")
+    agent.run("start")
+    agent.run("gate", expect=ExitCode.PRECONDITION)  # error envelope
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    agent.run("logs", "--stage", "lint")
+    agent.run("stage", "run", "test")
+    agent.run("mergeback")
+    agent.run("status")
+    agent.run("status", "--all")
+    agent.run("events")
+    token = agent.run("gate")["data"]["token"]
+    agent.run("push", "--confirm", token, "--dry-run")
+    agent.run("push", "--confirm", token)
+    agent.run("finish")
+    agent.run("status")
+    agent.run("gc")
+
+    seen = {command for command, _ in agent.captured}
+    assert seen >= {"status", "finish", "start", "gate", "context", "submit-findings"}
+    assert seen >= {"stage run", "logs", "mergeback", "events", "push", "gc"}
+    for command, payload in agent.captured:
+        model = COMMAND_MODELS[command]
+        data = payload["data"]
+        extra = set(data) - set(model.model_fields)
+        assert not extra, f"{command}: keys missing from {model.__name__}: {sorted(extra)}"
+        model.model_validate(data)
+        EnvelopeModel.model_validate(payload)
