@@ -451,3 +451,13 @@ def test_docs_surface_digest_keeps_canonical_json_bytes(feature_repo):
         json.dumps(surface, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     assert result.doc_surface_sha256 == expected
+
+
+def test_intent_digest_bytes_are_unchanged():
+    from agentic_preflight import attestation
+
+    intent = "Fix the parser\nso CR works \u2713"
+    expected = "064e59fa1ab1706de284c2cf72816cad7d38feb5bd4f4f8c6e257f5ecb5336ce"
+
+    assert fp.intent_digest(intent) == expected
+    assert attestation.intent_digest is fp.intent_digest

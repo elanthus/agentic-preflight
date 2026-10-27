@@ -46,6 +46,25 @@ class SyncObstructed(SyncConflict):
         )
 
 
+class SyncRebaseFailed(SyncConflict):
+    """The rebase failed for a reason other than a conflict, such as a hook or signer.
+
+    It subclasses :class:`SyncConflict` so existing handlers still stop the run, but it
+    reports no conflicting files and carries Git's own error output.
+    """
+
+    def __init__(self, *, base_ref: str, base_sha: str, head_before: str, stderr: str):
+        detail = stderr.strip() or "git reported no error output"
+        super().__init__(
+            base_ref=base_ref,
+            base_sha=base_sha,
+            head_before=head_before,
+            conflicting_files=[],
+            message=f"rebasing onto {base_ref} failed without a conflict: {detail}",
+        )
+        self.stderr = stderr
+
+
 @dataclass(frozen=True)
 class SyncResult:
     remote: str | None
@@ -231,6 +250,19 @@ def sync_onto(worktree_path: Path | str, base_ref: str) -> tuple[str, str, bool]
     )
     if started_here:
         gitx.run(worktree_path, "rebase", "--abort", check=False)
+    if not conflicts:
+        # Entry refused any operation in progress, so a rebase left now is this call's.
+        # A rebase that stops without a conflict may not write REBASE_HEAD.
+        if gitx.operation_in_progress(worktree_path) == "rebase":
+            gitx.run(worktree_path, "rebase", "--abort", check=False)
+        if gitx.rev_parse(worktree_path, "HEAD") != before:
+            gitx.run(worktree_path, "reset", "--hard", before)
+        raise SyncRebaseFailed(
+            base_ref=base_ref,
+            base_sha=base_sha,
+            head_before=before,
+            stderr=result.stderr,
+        )
     raise SyncConflict(
         base_ref=base_ref,
         base_sha=base_sha,

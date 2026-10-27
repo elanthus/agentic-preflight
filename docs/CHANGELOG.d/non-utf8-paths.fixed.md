@@ -1,0 +1,1 @@
+- A changed path that is not valid UTF-8 now round-trips to Git as the same bytes, so its patch is found instead of failing with a pathspec that matches nothing. Output, digests, and stored records still show the path with `\\xNN` escapes, as before.

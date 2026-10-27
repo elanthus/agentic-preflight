@@ -109,7 +109,12 @@ for example by dropping an `-s ours` merge that reverts a branch already in the 
 merges the base in instead and reports `data.sync.merged: true`. A sync conflict is aborted
 cleanly and reported; no conflicted rebase or merge is left in progress. It exits 4 with
 `sync_conflict`, `data.base_ref`, `data.base_sha`, `data.head_before`,
-`data.conflicting_files`, and `data.worktree_path`. A fetch, network, or Git failure during
+`data.conflicting_files`, and `data.worktree_path`. A rebase that fails for a reason
+other than a conflict, such as a rejecting hook or a failing commit signer, is restored to
+its original head and reported the same way with an empty `data.conflicting_files` and a
+message starting "rebasing onto ... failed without a conflict" followed by Git's error
+output. Any other `sync_conflict` with an empty list means merging the base in failed
+without unmerged paths; inspect `git status` in the worktree. A fetch, network, or Git failure during
 synchronization exits 4 with `sync_failed`, `data.error_type`, and `data.detail`. Both leave
 the run in `SYNC_CONFLICT`; `next.command` is `agentic-preflight abort --force`, after which
 `start` again with the same intent. Synchronization also
@@ -370,7 +375,9 @@ that the user chose and approved the `--command` value; the `needs_command` reco
 command includes it, and the CLI repeats it in the persisted retry command. It changes
 nothing else. Detection never
 guesses: it exits 2 with `data.mode = "needs_command"` and candidates from
-`pyproject.toml`, `package.json`, `Makefile`, and `justfile`. Every candidate
+`pyproject.toml`, `package.json`, `Makefile`, and `justfile`. A script or target
+counts only when it names the stage or a known tool for it as a whole word (`test:unit`,
+`unit-tests`, and `pytest` do; `latest` does not), and an unreadable or malformed manifest is skipped. Every candidate
 has `command` and `source` fields. No detected candidate is copied into `next.command`;
 show its exact command to the user and obtain approval before first use.
 
