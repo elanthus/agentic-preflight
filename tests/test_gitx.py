@@ -797,9 +797,11 @@ def test_non_utf8_path_context_envelope_is_valid_json(tmp_repo):
     agent = ScriptedAgent(tmp_repo, transport="subprocess")
     agent.run("start")
 
+    # The subprocess transport json-parses the envelope from stdout.
     context = agent.run("context")
 
-    assert "caf\\xe9.txt" in json.dumps(context)
+    assert "caf\\xe9.txt" in context["data"]["changed_files"]
+    assert json.loads(json.dumps(context)) == context
 
 
 def test_crlf_patch_text_and_digests_match_main(tmp_repo):
