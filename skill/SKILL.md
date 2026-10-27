@@ -106,19 +106,19 @@ quiet while code verifies that no delivered unit disappears.
 | Severity | Means | Example |
 |---|---|---|
 | `critical` | Data loss, security hole, corruption | Password compared with `==`; SQL built by string concatenation |
-| `high` | Wrong behaviour a user will hit | Off-by-one dropping the last record; error swallowed silently |
+| `high` | Wrong behavior a user will hit | Off-by-one dropping the last record; error swallowed silently |
 | `medium` | Real problem, not urgent | Duplicated logic that will drift; missing edge-case handling |
 | `low` | Style, naming, nits | Inconsistent naming; a stale comment |
 
 `critical` and `high` block by default. Choose the action:
 
-- **`auto_fix`** — mechanical and locally verifiable. You can fix it correctly
+- **`auto_fix`**: mechanical and locally verifiable. You can fix it correctly
   without asking anyone. Most findings should be this.
-- **`ask_user`** — a behavioural, API, or product judgment where competing reasonable
-  interpretations would change behaviour or scope. **Blocks at any severity**.
+- **`ask_user`**: a behavioral, API, or product judgment where competing reasonable
+  interpretations would change behavior or scope. **Blocks at any severity**.
   Routine decisions already fixed by the request, acceptance criteria, or an established
   repository contract should proceed without asking.
-- **`no_op`** — worth recording, not worth acting on.
+- **`no_op`**: worth recording, not worth acting on.
 
 A low- or medium-severity `auto_fix` finding does not make the stage red, but it still
 needs an explicit disposition before following the normal stage continuation. Use

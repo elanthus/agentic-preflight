@@ -82,6 +82,8 @@ See [Releasing](docs/RELEASING.md#cutting-a-release).
 
 ## Risk and human review
 
+The maintainer approval runbook is in [docs/maintainers/approval-readiness.md](docs/maintainers/approval-readiness.md).
+
 This repository classifies ordinary package code, tests, and skill documentation as medium risk.
 Those changes still receive the normal review, documentation, lint, test, and attestation checks.
 Another rule can still classify them as human review, for example a high or critical review finding, even after the finding is fixed.
