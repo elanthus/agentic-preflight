@@ -21,9 +21,9 @@ from agentic_preflight.store import Store
 from tests.conftest import commit_all, git, make_run, opt_in_telemetry, set_home, write
 from tests.driver import ScriptedAgent, findings_json, green_run
 
-#: Every fixture repository is under the system temporary directory, which the product
-#: keeps out of the default telemetry location. These tests are about what the files
-#: record, so they opt in with an explicit ``[telemetry] path``.
+#: No fixture repository has a network remote, so the product keeps every one out of
+#: the default telemetry location. These tests are about what the files record, so
+#: they opt in with an explicit ``[telemetry] path``.
 pytestmark = pytest.mark.usefixtures("telemetry_opt_in")
 
 PRIVATE_INTENT = "ship the widget; secret acceptance criteria 7f3a"
@@ -87,6 +87,14 @@ def _identity(root_commit: str | None = "a" * 40) -> telemetry.RepoIdentity:
         ("file:///srv/git/widget.git", "/srv/git/widget"),
         ("/srv/git/widget.git", "/srv/git/widget"),
         ("C:/repos/widget.git", "C:/repos/widget"),
+        ("C:\\repos\\widget.git", "C:\\repos\\widget"),
+        # Git reads a scheme-less value without ``host:`` as a path. A relative one is
+        # marked so that its first segment cannot pass for a host.
+        ("fixtures/bare.git", "./fixtures/bare"),
+        ("bare.git", "./bare"),
+        ("./fixtures/bare.git", "./fixtures/bare"),
+        ("../bare.git", "../bare"),
+        ("~/repos/widget.git", "~/repos/widget"),
         ("", None),
         ("   ", None),
         (None, None),
@@ -663,6 +671,30 @@ def test_gc_orphaning_writes_one_summary_and_lists_it(agent, feature_repo):
     assert len(_summary_events(feature_repo, run_id)) == 1
 
 
+@pytest.mark.parametrize(
+    ("remote", "mirrored"),
+    [(None, False), ("127.0.0.1/owner/widget", False), ("github.com/owner/widget", True)],
+    ids=["no_remote", "loopback", "github"],
+)
+def test_a_repository_outside_the_temporary_directory_is_judged_by_its_remote(
+    tmp_path, remote, mirrored
+):
+    # The suite's opt-in lives in the user file; this configuration has no ``path``.
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    identity = telemetry.RepoIdentity(
+        root_commit="a" * 40, remote=remote, name="widget", source_worktree_path="/home/dev/widget"
+    )
+    summary = telemetry.summarize(_schema_2_record(), None, None, identity)
+
+    status = telemetry.write_summary(run_dir, summary, Config())
+
+    assert (status["mirrored"], status["error"]) == (mirrored, None)
+    assert status["reason"] == (None if mirrored else telemetry.NO_NETWORK_REMOTE)
+    assert (run_dir / "summary.json").exists()
+    assert telemetry.mirror_path().exists() is mirrored
+
+
 def test_mirror_off_keeps_the_summary_in_the_run_directory(agent, feature_repo):
     write(feature_repo, ".agentic-preflight.toml", "[telemetry]\nmirror = false\n")
     commit_all(feature_repo, "keep summaries local")
@@ -778,7 +810,7 @@ def test_rebuild_regenerates_summaries_and_rewrites_only_this_repositorys_rows(t
         "path": str(mirror),
         "rows": 4,
         "preserved_rows": 2,
-        "temporary_runs": 0,
+        "excluded_runs": 0,
         "reason": None,
         "error": None,
     }
@@ -821,6 +853,27 @@ def test_rebuild_with_the_mirror_off_writes_summaries_only(tmp_repo):
     assert result["next"] is None
     assert _summary(tmp_repo, "r_0000000002")["state"] == "ABORTED"
     assert not telemetry.mirror_path().exists()
+
+
+def test_rebuild_tolerates_a_removed_config_key_in_the_repository_file(tmp_repo):
+    write(tmp_repo, ".agentic-preflight.toml", "[hook]\nenabled = true\n")
+    _store_record(tmp_repo, _schema_2_record())
+
+    result = ScriptedAgent(tmp_repo).run("telemetry", "rebuild")
+
+    assert result["data"]["summarized"] == 1
+    assert result["data"]["mirror"]["rows"] == 1
+    assert _summary(tmp_repo, "r_0000000002")["state"] == "ABORTED"
+
+
+def test_rebuild_still_rejects_an_unknown_config_key(tmp_repo):
+    write(tmp_repo, ".agentic-preflight.toml", "[hook]\nnonsense = true\n")
+    _store_record(tmp_repo, _schema_2_record())
+
+    failed = ScriptedAgent(tmp_repo).run("telemetry", "rebuild", expect=ExitCode.USAGE)
+
+    assert failed["error"]["code"] == "config_error"
+    assert "hook.nonsense" in failed["error"]["message"]
 
 
 def test_rebuild_reports_a_mirror_it_cannot_write(tmp_repo, tmp_path):

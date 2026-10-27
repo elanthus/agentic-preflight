@@ -155,7 +155,7 @@ It is left unchanged, together with the work and ownership information that it r
 
 Run reads and attestation verification ignore configuration keys that a later release removed, such as `[hook] enabled`, when they appear in a saved `config_snapshot`.
 Thus, a newer verifier accepts notes that an older release wrote.
-A configuration file that sets such a key is still rejected.
+A configuration file that sets such a key is still rejected, except by `telemetry rebuild`, `telemetry sync-hosted`, and `report`, which ignore it with a warning because they only read derived data.
 
 ## Owner review approval
 
@@ -398,5 +398,26 @@ Rows that the mirror already has are not removed.
 The `summary_written` event and `data.telemetry` add `reason`: `temporary_repository`, or `null`.
 The `mirror` object of `telemetry rebuild` and of `telemetry sync-hosted` adds `reason` and `temporary_runs`.
 In `agentic-preflight report`, `data.source.clone` adds `temporary_runs`, and `unmirrored_terminal_runs` no longer counts those runs.
+The summary schema 1, the hook decision lines, run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+No fingerprint, evidence digest, configuration digest, or attestation reads these keys.
+
+## Unreleased: repositories without a network remote and telemetry
+
+The exclusion from the default telemetry location no longer depends on where a repository lives.
+Without an explicit `[telemetry] path`, runs and hook decisions of every repository without a network remote stay out of the telemetry directory, under the system temporary directory or anywhere else.
+A network remote is an `origin` whose normalized form starts with a host name. A missing `origin`, a local path such as a bare repository, and a loopback host are not network remotes.
+A preflight run gates a push, so a repository that cannot push is a test fixture. Fixture repositories that a harness creates outside the temporary directory, for example under the home directory, no longer reach `runs.jsonl` or `hook-decisions.jsonl`, and no longer appear in a report that reads the default mirror.
+`agentic-preflight report` inside such a clone still summarizes the clone's own run records in memory, and counts them in `data.source.clone.excluded_runs`.
+A scratch clone under the temporary directory that pushes to GitHub keeps its telemetry, as before.
+See [Repositories without a network remote](docs/local-telemetry.md#repositories-without-a-network-remote).
+
+An explicit `[telemetry] path` is an opt-in, and keeps the earlier behavior for every repository.
+`[telemetry] mirror` and `hook_log` are unchanged.
+Rows that the mirror already has are not removed. Delete the rows of fixtures yourself.
+
+The reason code `temporary_repository` is replaced by `no_network_remote` in the `summary_written` event, in `data.telemetry` of `finish`, `abort`, and `gc`, and in the `mirror` object of `telemetry rebuild` and `telemetry sync-hosted`.
+`mirror.temporary_runs` is renamed `mirror.excluded_runs`, and `data.source.clone.temporary_runs` in `agentic-preflight report` is renamed `data.source.clone.excluded_runs`.
+A reader of these envelopes that matched the old names must use the new ones. No other key changes.
+The normalized form of a relative local remote, for example an `origin` of `fixtures/bare.git`, is now `./fixtures/bare` instead of `fixtures/bare`, in `repo.remote` of summaries and hook decision lines written from now on. Git reads such a value as a path, and the prefix keeps its first segment from passing for a host.
 The summary schema 1, the hook decision lines, run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 No fingerprint, evidence digest, configuration digest, or attestation reads these keys.

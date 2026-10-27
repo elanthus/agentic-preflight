@@ -15,15 +15,16 @@ from typing import Any
 import pytest
 
 from agentic_preflight import report, telemetry
+from agentic_preflight.config import Config
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.store import Store
 from tests.conftest import commit_all, git, write
 from tests.driver import ScriptedAgent
 from tests.test_telemetry import _findings, _schema_1_record, _schema_2_record, _store_record
 
-#: Every fixture repository is under the system temporary directory, which the product
-#: keeps out of the default telemetry location. These tests are about what the files
-#: record, so they opt in with an explicit ``[telemetry] path``.
+#: No fixture repository has a network remote, so the product keeps every one out of
+#: the default telemetry location. These tests are about what the files record, so
+#: they opt in with an explicit ``[telemetry] path``.
 pytestmark = pytest.mark.usefixtures("telemetry_opt_in")
 
 ROOT_A = "a" * 40
@@ -739,6 +740,34 @@ def test_with_no_mirror_rows_for_the_clone_its_records_are_summarized_in_memory(
     assert path.read_bytes() == before
 
 
+@pytest.mark.parametrize(
+    ("remote", "excluded"),
+    [(None, 1), ("127.0.0.1/owner/widget", 1), ("github.com/owner/widget", 0)],
+    ids=["no_remote", "loopback", "github"],
+)
+def test_a_clone_outside_the_temporary_directory_is_judged_by_its_remote(
+    tmp_repo, remote, excluded
+):
+    _store_record(tmp_repo, _schema_2_record())
+    identity = telemetry.RepoIdentity(
+        root_commit="a" * 40, remote=remote, name="widget", source_worktree_path="/home/dev/widget"
+    )
+    clone = report.Clone(
+        store=Store(_state_root(tmp_repo)),
+        identity=identity,
+        worktree_paths=frozenset({"/home/dev/widget"}),
+        config=Config(),  # the suite's opt-in is in the user file, not here
+    )
+    path = _write_mirror([])
+
+    rows, source = report.collect(report.read_mirror(path), clone, all_repos=False)
+
+    assert [row["run_id"] for row in rows] == ["r_0000000002"]
+    detail = source["clone"]
+    assert (detail["summarized"], detail["excluded_runs"]) == (1, excluded)
+    assert detail["unmirrored_terminal_runs"] is None
+
+
 def test_all_repos_reads_every_mirror_row_and_still_checks_this_clone(tmp_repo):
     _store_record(tmp_repo, _schema_2_record())
     path = _write_mirror([make_row("r_0000000001"), make_row("r_0000000002", repo=OTHER_REPO)])
@@ -853,6 +882,16 @@ def test_json_reports_omit_markdown_and_rows_unless_asked():
 
 
 # -- the command ----------------------------------------------------------------
+
+
+def test_report_tolerates_a_removed_config_key_in_the_repository_file(tmp_repo):
+    write(tmp_repo, ".agentic-preflight.toml", "[hook]\nenabled = true\n")
+    _store_record(tmp_repo, _schema_2_record())
+
+    result = ScriptedAgent(tmp_repo).run("report")
+
+    assert result["ok"] is True
+    assert result["data"]["overall"]["runs"] == 1
 
 
 def test_report_in_a_clone_without_mirror_rows_falls_back_and_points_at_rebuild(tmp_repo):

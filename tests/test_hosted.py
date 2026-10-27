@@ -25,9 +25,9 @@ from tests.driver import ScriptedAgent
 from tests.test_report import make_row
 from tests.test_telemetry import _schema_2_record, _state_root, _store_record
 
-#: Every fixture repository is under the system temporary directory, which the product
-#: keeps out of the default telemetry location. These tests are about what the files
-#: record, so they opt in with an explicit ``[telemetry] path``.
+#: No fixture repository has a network remote, so the product keeps every one out of
+#: the default telemetry location. These tests are about what the files record, so
+#: they opt in with an explicit ``[telemetry] path``.
 pytestmark = pytest.mark.usefixtures("telemetry_opt_in")
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -522,6 +522,21 @@ def test_run_names_a_stored_run_in_the_expected_form(github_repo, monkeypatch):
     assert missing["next"]["command"] == "agentic-preflight status --all"
     assert malformed["error"]["code"] == "usage_error"
     assert zero["error"]["code"] == "usage_error"
+
+
+def test_sync_hosted_tolerates_a_removed_config_key_in_the_repository_file(
+    github_repo, monkeypatch
+):
+    _use(monkeypatch, FakeGh(_commits()))
+    monkeypatch.setattr(hosted, "resolve_on_path", lambda name: None)
+    (github_repo / ".agentic-preflight.toml").write_text(
+        "[hook]\nenabled = true\n", encoding="utf-8"
+    )
+
+    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", "--dry-run")
+
+    assert result["ok"] is True
+    assert result["data"]["dry_run"] is True
 
 
 def test_dry_run_contacts_nothing_and_writes_nothing(github_repo, monkeypatch):

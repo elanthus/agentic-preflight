@@ -1,8 +1,7 @@
 """The test-session guard over the user's real telemetry files.
 
 The suite points ``XDG_DATA_HOME`` at a per-test directory, and the product keeps
-repositories under the system temporary directory without a network remote out of
-the default telemetry location. Either can regress, and a CLI subprocess that a test
+repositories without a network remote out of the default telemetry location. Either can regress, and a CLI subprocess that a test
 or the eval runner spawns would then append rows to the developer's own
 ``runs.jsonl`` or ``hook-decisions.jsonl``. The guard reads those files themselves,
 so it sees a row whichever process wrote it.
@@ -44,10 +43,9 @@ MESSAGE_LIMIT = 20
 ISOLATION_RULE = (
     "Tests and eval subprocesses must never write the user's telemetry. Run the CLI with "
     "XDG_DATA_HOME and XDG_CACHE_HOME pointing at a test directory (tests/conftest.py does "
-    "this for every test, and evals/run.py for every CLI subprocess), and keep fixture "
-    "repositories under the system temporary directory without a network remote, which "
-    "the product never mirrors or hook-logs by default. "
-    "See docs/local-telemetry.md#temporary-repositories."
+    "this for every test, and evals/run.py for every CLI subprocess), and give fixture "
+    "repositories no network remote, which the product never mirrors or hook-logs by "
+    "default. See docs/local-telemetry.md#repositories-without-a-network-remote."
 )
 
 
