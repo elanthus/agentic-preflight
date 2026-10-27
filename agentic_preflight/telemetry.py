@@ -53,6 +53,9 @@ _MIRROR_LOCK_NAME = "runs.jsonl.lock"
 NO_NETWORK_REMOTE = "no_network_remote"
 #: A Windows drive, the first segment of a normalized local path such as ``C:/repos/x``.
 _DRIVE = re.compile(r"[A-Za-z]:")
+#: How an absolute or explicitly relative local path starts: ``/``, ``\``, ``.``, ``~``,
+#: or a drive letter. Any other scheme-less value is a relative path to Git.
+_LOCAL_PATH_START = re.compile(r"[/\\.~]|[A-Za-z]:")
 #: Loopback hosts. A remote on this machine is a test server, not a hosted repository.
 _LOOPBACK = re.compile(r"localhost|127(?:\.\d{1,3}){3}|::1")
 #: Events this module appends. They are left out of ``event_counts`` so that a
@@ -135,7 +138,10 @@ def normalize_remote(url: str | None) -> str | None:
     """Return a remote URL as host and path, or a local path, with no ``.git``.
 
     The scheme, credentials, and port are removed, so SSH and HTTPS clones of one
-    repository share an identity. ``C:/repo`` is a Windows path, not a host.
+    repository share an identity. ``C:/repo`` is a Windows path, not a host. A
+    value without a scheme or an scp-style ``host:`` is a local path to Git; a
+    relative one, such as ``fixtures/bare.git``, gains a ``./`` prefix so that
+    :func:`has_network_remote` cannot mistake its first segment for a host.
     """
     url = (url or "").strip()
     if not url:
@@ -151,6 +157,8 @@ def normalize_remote(url: str | None) -> str | None:
         host, path = match["host"].lower(), match["path"]
     else:
         host, path = "", url
+        if not _LOCAL_PATH_START.match(path):
+            path = f"./{path}"
     path = path.rstrip("/\\").removesuffix(".git").rstrip("/\\")
     if host:
         path = path.lstrip("/")

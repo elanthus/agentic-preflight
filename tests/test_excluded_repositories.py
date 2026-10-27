@@ -88,6 +88,9 @@ def test_a_network_remote_names_a_host_and_a_path(remote, network):
         ("file:///srv/git/widget.git", False),
         ("file://localhost/srv/git/widget.git", False),
         ("http://127.0.0.1:8080/owner/widget.git", False),
+        ("fixtures/bare.git", False),
+        ("bare.git", False),
+        ("C:\\repos\\widget.git", False),
     ],
 )
 def test_normalized_remotes_are_classified_by_where_they_live(url, network):
@@ -277,8 +280,9 @@ def test_rebuild_in_a_hosted_clone_leaves_out_runs_recorded_without_a_remote(tmp
     git("remote", "add", "origin", GITHUB, cwd=tmp_repo)
     _store_record(tmp_repo, {**_schema_2_record(), "source_worktree_path": str(tmp_repo)})
     _store_record(tmp_repo, {**_schema_2_record(), "run_id": "r_0000000005"})
-    # Every summary names the clone's identity, so each run's own remote is stood in
-    # for here: the second run was recorded before the repository had a remote.
+    # A rebuilt summary carries the clone's current remote, so the rule cannot tell
+    # runs apart by remote on its own; this stands a different remote in for one
+    # run to show that each summary is judged by its own ``repo.remote``.
     original = telemetry.summarize
 
     def without_a_remote(record, *args, **kwargs):

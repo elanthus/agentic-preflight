@@ -408,6 +408,9 @@ def matches_repo(row: Mapping[str, Any], wanted: str) -> bool:
     normalized = telemetry.normalize_remote(wanted)
     if normalized:
         candidates.add(normalized.casefold())
+        # An already normalized ``host/path`` has no scheme, so it normalizes as a
+        # relative path. Match it as given, too.
+        candidates.add(normalized.removeprefix("./").casefold())
     repo = row.get("repo") or {}
     values = (repo.get("name"), repo.get("remote"))
     return any(isinstance(value, str) and value.casefold() in candidates for value in values)

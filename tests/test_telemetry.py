@@ -87,6 +87,14 @@ def _identity(root_commit: str | None = "a" * 40) -> telemetry.RepoIdentity:
         ("file:///srv/git/widget.git", "/srv/git/widget"),
         ("/srv/git/widget.git", "/srv/git/widget"),
         ("C:/repos/widget.git", "C:/repos/widget"),
+        ("C:\\repos\\widget.git", "C:\\repos\\widget"),
+        # Git reads a scheme-less value without ``host:`` as a path. A relative one is
+        # marked so that its first segment cannot pass for a host.
+        ("fixtures/bare.git", "./fixtures/bare"),
+        ("bare.git", "./bare"),
+        ("./fixtures/bare.git", "./fixtures/bare"),
+        ("../bare.git", "../bare"),
+        ("~/repos/widget.git", "~/repos/widget"),
         ("", None),
         ("   ", None),
         (None, None),

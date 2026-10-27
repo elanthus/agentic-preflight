@@ -62,6 +62,7 @@ By default, the CLI keeps the runs and hook decisions of such a repository out o
 A repository has no network remote when its `origin` is missing, is a local path, for example a bare repository on this machine, or names a loopback host (`localhost`, `127.x.x.x`, or `::1`).
 The remote is a network remote when its normalized form starts with a host name, `host/path`.
 A normalized remote that starts with `/`, `\`, `.`, `~`, or a drive letter is a local path.
+A relative path, for example `fixtures/bare.git`, is a local path to Git, and its normalized form is `./fixtures/bare`.
 
 The location of the worktree does not matter.
 A fixture under your home directory, for example one that an evaluation harness creates under `~/dev/my-evals/artifacts/`, is excluded the same as one under `/tmp`.
@@ -80,7 +81,8 @@ For a repository without a network remote, the CLI summarizes the runs, but it d
   The `summary_written` event and `data.telemetry` have `mirrored: false` and `reason: "no_network_remote"`.
 - `telemetry rebuild` and `telemetry sync-hosted` in such a clone write the summaries, but they do not change the mirror.
   Their `mirror` object has `reason: "no_network_remote"`.
-- In a clone with a network remote, these commands leave out each summary whose `repo.remote` is not a network remote, for example a run recorded before `origin` was added. `mirror.excluded_runs` counts them.
+- In a clone with a network remote, these commands judge each summary by its `repo.remote`. `mirror.excluded_runs` counts the summaries that are left out.
+  A rebuilt summary takes its remote from the clone's current `origin`, so adding a network remote to a repository mirrors its earlier runs at the next `telemetry rebuild`.
 - `report` counts these runs in `data.source.clone.excluded_runs`, and does not tell you to run `telemetry rebuild` for them.
 - `hook-check` writes no line to `hook-decisions.jsonl`.
 
