@@ -18,6 +18,12 @@ envelope and is not an agent-facing command.
 `next` is `null` only when there is genuinely nothing left to do. `error` is `null`
 when `ok` is `true`.
 
+The [`schema/`](schema/) directory holds a JSON Schema for the envelope
+(`envelope.json`) and for each command's `data` object (`<command>.json`, with spaces as
+hyphens, such as `stage-run.json`). The schemas are generated from the models in
+`agentic_preflight/cli_contract.py` by `tools/generate_schema.py`; do not edit them by
+hand. Every field is optional because `data` differs by outcome.
+
 `agentic-preflight --version` prints the installed version and exits 0. Every other
 command first checks the Git version and exits 1 with `unsupported_git_version` when Git
 is older than 2.38.

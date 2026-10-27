@@ -1,0 +1,152 @@
+{
+  "$defs": {
+    "ErrorBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "ErrorBlock",
+      "type": "object"
+    },
+    "NextBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Command"
+        },
+        "instruction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Instruction"
+        }
+      },
+      "required": [
+        "instruction",
+        "command"
+      ],
+      "title": "NextBlock",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The single JSON object every agent-facing command prints. Every key is present.",
+  "properties": {
+    "blocking": {
+      "items": {},
+      "title": "Blocking",
+      "type": "array"
+    },
+    "data": {
+      "additionalProperties": true,
+      "title": "Data",
+      "type": "object"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ErrorBlock"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "next": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NextBlock"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Run Id"
+    },
+    "stage": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Stage"
+    },
+    "state": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "State"
+    }
+  },
+  "required": [
+    "ok",
+    "run_id",
+    "state",
+    "stage",
+    "data",
+    "blocking",
+    "next",
+    "error"
+  ],
+  "title": "Envelope",
+  "type": "object"
+}
