@@ -49,13 +49,13 @@ COMMANDS_MD = ROOT / "skill" / "reference" / "commands.md"
 # Documented but not emitted: commands.md names `data.<field>` inside this command's
 # section, but this command never emits it. Each describes another command's data.
 DOCUMENTED_NOT_EMITTED: dict[str, set[str]] = {
-    # documented but not emitted: commands.md:97 describes `status`, not `start`.
+    # documented but not emitted: the start section describes `status`, not `start`.
     "start": {"interrupted_legacy_update"},
-    # documented but not emitted: commands.md:465 describes the gate envelope's `data.token`.
+    # documented but not emitted: the push section describes the gate envelope's `data.token`.
     "push": {"token"},
-    # documented but not emitted: commands.md:536 describes single-run `status`.
+    # documented but not emitted: the gc section describes single-run `status`.
     "gc": {"read_failure"},
-    # documented but not emitted: commands.md:619 describes `finish`, `abort`, and `gc`.
+    # documented but not emitted: the telemetry rebuild section describes `finish`, `abort`, and `gc`.
     "telemetry rebuild": {"telemetry"},
 }
 
