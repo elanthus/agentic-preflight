@@ -1,0 +1,1 @@
+- Command detection skips a non-UTF-8 `Makefile`, `justfile`, or `pyproject.toml` and a `package.json` whose top level is not an object instead of failing with `internal_error`. A script or target now matches a stage only as a whole word, so `latest` and `contest` are no longer offered as test commands.

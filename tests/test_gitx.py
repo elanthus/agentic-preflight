@@ -382,12 +382,20 @@ def test_diff_text_by_path_batches_many_files(tmp_repo, monkeypatch):
     calls = 0
     real_run = gitx.run
 
+    real_run_bytes = gitx._run_bytes
+
     def recording_run(cwd, *args, **kwargs):
         nonlocal calls
         calls += 1
         return real_run(cwd, *args, **kwargs)
 
+    def recording_run_bytes(cwd, *args):
+        nonlocal calls
+        calls += 1
+        return real_run_bytes(cwd, *args)
+
     monkeypatch.setattr(gitx, "run", recording_run)
+    monkeypatch.setattr(gitx, "_run_bytes", recording_run_bytes)
     paths = [f"many/{index:03d}.txt" for index in range(300)]
 
     assert len(gitx.diff_text_by_path(tmp_repo, base, "HEAD", paths)) == 300
@@ -716,3 +724,44 @@ def test_remote_redaction_preserves_endpoints_and_removes_credentials(source, ex
     assert (
         gitx.redact_remote_credentials(f"fatal: '{source}' failed") == f"fatal: '{expected}' failed"
     )
+
+
+def test_diff_text_by_path_keeps_lone_cr_inside_one_patch(tmp_repo):
+    git("switch", "-c", "feat", cwd=tmp_repo)
+    (tmp_repo / "weird.txt").write_bytes(b"hello\rdiff --git a/x b/x\rmore\n")
+    commit_all(tmp_repo, "cr file")
+
+    files = gitx.changed_files(tmp_repo, "main", "HEAD")
+    patches = gitx.diff_text_by_path(tmp_repo, "main", "HEAD", files)
+
+    assert files == ["weird.txt"]
+    assert list(patches) == ["weird.txt"]
+    assert patches["weird.txt"].count("diff --git ") == 2
+    assert "+hello\rdiff --git a/x b/x\rmore\n" in patches["weird.txt"]
+
+
+def test_non_utf8_path_round_trips_to_git(tmp_repo):
+    # Build the commit with plumbing so filesystems that reject the name still run it.
+    name = b"caf\xe9.txt"
+    blob = subprocess.run(
+        ["git", "hash-object", "-w", "--stdin"],
+        cwd=tmp_repo,
+        input=b"x\n",
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    subprocess.run(
+        ["git", "update-index", "--index-info"],
+        cwd=tmp_repo,
+        input=b"100644 " + blob + b"\t" + name + b"\n",
+        check=True,
+    )
+    tree = git("write-tree", cwd=tmp_repo)
+    commit = git("commit-tree", tree, "-p", "main", "-m", "latin1 name", cwd=tmp_repo)
+    git("reset", "-q", "main", cwd=tmp_repo)
+
+    files = gitx.changed_files(tmp_repo, "main", commit)
+    patches = gitx.diff_text_by_path(tmp_repo, "main", commit, files)
+
+    assert [os.fsencode(path) for path in files] == [name]
+    assert "+x\n" in patches[files[0]]

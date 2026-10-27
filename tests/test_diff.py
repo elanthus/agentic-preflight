@@ -31,12 +31,20 @@ def test_bundle_uses_a_single_batched_diff_for_an_ordinary_change(feature_repo, 
     calls = 0
     real_run = diff.gitx.run
 
+    real_run_bytes = diff.gitx._run_bytes
+
     def recording_run(cwd, *args, **kwargs):
         nonlocal calls
         calls += 1
         return real_run(cwd, *args, **kwargs)
 
+    def recording_run_bytes(cwd, *args):
+        nonlocal calls
+        calls += 1
+        return real_run_bytes(cwd, *args)
+
     monkeypatch.setattr(diff.gitx, "run", recording_run)
+    monkeypatch.setattr(diff.gitx, "_run_bytes", recording_run_bytes)
 
     bundle = diff.build_bundle(feature_repo, base, "HEAD")
 

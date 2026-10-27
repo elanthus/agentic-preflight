@@ -180,7 +180,11 @@ def _review_unit_parts(
     path: str, patch: str
 ) -> list[tuple[str, str, tuple[int, int, int, int] | None]]:
     """Split a per-file patch into hunks, with a file unit for non-hunk diffs."""
-    lines = patch.splitlines(keepends=True)
+    # Split on LF only: a lone CR or form feed in file content is not a Git line break.
+    lines = [line + "\n" for line in patch.split("\n")]
+    lines[-1] = lines[-1][:-1]
+    if not lines[-1]:
+        lines.pop()
     starts = [index for index, line in enumerate(lines) if line.startswith("@@ ")]
     if not starts:
         return [(patch, "file", None)] if patch else []

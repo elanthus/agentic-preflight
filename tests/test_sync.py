@@ -268,3 +268,31 @@ def test_sync_result_serialization_preserves_nullable_remote(remote):
     }
     serialized["remote"] = "changed"
     assert result.remote == remote
+
+
+def test_non_conflict_rebase_failure_is_reported_with_git_stderr(tmp_repo, tmp_path):
+    git("switch", "-c", "feat", cwd=tmp_repo)
+    write(tmp_repo, "feature.txt", "feature\n")
+    commit_all(tmp_repo, "feature")
+    git("switch", "main", cwd=tmp_repo)
+    write(tmp_repo, "upstream.txt", "upstream\n")
+    commit_all(tmp_repo, "upstream")
+    git("switch", "feat", cwd=tmp_repo)
+    before = gitx.rev_parse(tmp_repo, "HEAD")
+
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    hook = hooks / "pre-rebase"
+    hook.write_text("#!/bin/sh\necho 'pre-rebase hook refused' >&2\nexit 1\n")
+    hook.chmod(0o755)
+    git("config", "core.hooksPath", str(hooks), cwd=tmp_repo)
+
+    with pytest.raises(sync.SyncRebaseFailed) as caught:
+        sync.sync_onto(tmp_repo, "main")
+
+    assert caught.value.conflicting_files == []
+    assert "pre-rebase hook refused" in caught.value.stderr
+    assert "pre-rebase hook refused" in str(caught.value)
+    assert "without a conflict" in str(caught.value)
+    assert gitx.rev_parse(tmp_repo, "HEAD") == before
+    assert gitx.operation_in_progress(tmp_repo) is None

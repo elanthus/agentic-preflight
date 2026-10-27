@@ -1,0 +1,1 @@
+- A file containing a lone carriage return before a `diff --git` line no longer splits into a phantom patch that fails `context` with `internal_error`. Patch output is now split on line feeds only, byte for byte.

@@ -15,6 +15,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+def _names_stage(name: str, stage: str) -> bool:
+    """Whether ``stage`` appears in ``name`` as a whole word, so "latest" is not a test."""
+    return re.search(rf"(?<![a-z0-9]){re.escape(stage)}s?(?![a-z0-9])", name.lower()) is not None
+
+
+def _read_text(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
 @dataclass
 class Candidate:
     command: str
@@ -28,14 +40,20 @@ def _from_package_json(root: Path, stage: str) -> list[Candidate]:
     path = root / "package.json"
     if not path.exists():
         return []
+    text = _read_text(path)
+    if text is None:
+        return []
     try:
-        scripts = json.loads(path.read_text(encoding="utf-8")).get("scripts", {})
-    except (json.JSONDecodeError, OSError):
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+    scripts = data.get("scripts") if isinstance(data, dict) else None
+    if not isinstance(scripts, dict):
         return []
     return [
         Candidate(f"npm run {name}", "package.json scripts")
         for name in scripts
-        if stage in name.lower()
+        if _names_stage(name, stage)
     ]
 
 
@@ -43,8 +61,11 @@ def _from_makefile(root: Path, stage: str) -> list[Candidate]:
     path = root / "Makefile"
     if not path.exists():
         return []
-    targets = re.findall(r"^([a-zA-Z0-9_.-]+):", path.read_text(encoding="utf-8"), re.MULTILINE)
-    return [Candidate(f"make {t}", "Makefile") for t in targets if stage in t.lower()]
+    text = _read_text(path)
+    if text is None:
+        return []
+    targets = re.findall(r"^([a-zA-Z0-9_.-]+):", text, re.MULTILINE)
+    return [Candidate(f"make {t}", "Makefile") for t in targets if _names_stage(t, stage)]
 
 
 def _from_justfile(root: Path, stage: str) -> list[Candidate]:
@@ -53,21 +74,29 @@ def _from_justfile(root: Path, stage: str) -> list[Candidate]:
         path = root / "Justfile"
     if not path.exists():
         return []
-    targets = re.findall(r"^([a-zA-Z0-9_-]+):", path.read_text(encoding="utf-8"), re.MULTILINE)
-    return [Candidate(f"just {t}", "justfile") for t in targets if stage in t.lower()]
+    text = _read_text(path)
+    if text is None:
+        return []
+    targets = re.findall(r"^([a-zA-Z0-9_-]+):", text, re.MULTILINE)
+    return [Candidate(f"just {t}", "justfile") for t in targets if _names_stage(t, stage)]
 
 
 def _from_pyproject(root: Path, stage: str) -> list[Candidate]:
     path = root / "pyproject.toml"
     if not path.exists():
         return []
+    text = _read_text(path)
+    if text is None:
+        return []
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (tomllib.TOMLDecodeError, OSError):
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
         return []
 
     candidates: list[Candidate] = []
     tools = data.get("tool", {})
+    if not isinstance(tools, dict):
+        tools = {}
     if stage == "test" and ("pytest" in tools or (root / "tests").exists()):
         candidates.append(Candidate("pytest", "pyproject.toml"))
     if stage == "lint":
