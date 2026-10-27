@@ -97,7 +97,9 @@ to abort it. Explicit `abort` remains available. Completed history and runs with
 a journal are unaffected.
 A moved source head orphans the stale run without deleting its evidence or fixes and then
 starts fresh. In `reusable` mode, an orphaned run with no fix commits releases its runner
-at once, so the fresh run can lease it. On an unchanged head, a different intent or configuration requires
+at once, so the fresh run can lease it, but only when the runner is clean and still at
+the reviewed head. Otherwise, or if the release fails (recorded as a
+`runner_release_failed` event), the runner stays leased until `gc`. On an unchanged head, a different intent or configuration requires
 `--replace`, which preserves the replaced run as `ORPHANED`. Age alone never expires a
 run.
 Before review, the command fetches the configured base from `origin` when available and
@@ -428,7 +430,8 @@ it must preserve unrelated edits and user-owned operations, and cannot make a
 content-sensitive choice or bypass protected merge policy. Otherwise a person must
 decide. After resolution, `mergeback` is legal again: an exact tree is attested without
 rerunning completed stages, unless the branch never moved while the run recorded fix
-commits, in which case the fixes are applied again; a different tree becomes the validation worktree's new
+commits. That retry exits 4 with `fixes_not_landed`, because the recorded fixes never
+landed and the run needs revalidation; a different tree becomes the validation worktree's new
 snapshot and returns the active run to review before any stage can be trusted again.
 
 On success: compares the branch tree against the worktree tree. `tree_equivalent: true`

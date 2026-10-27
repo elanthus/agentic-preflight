@@ -1,5 +1,8 @@
 """Engine guards: fix-commit provenance, branch preconditions, runner release, hook exemption."""
 
+import json
+from pathlib import Path
+
 from agentic_preflight import hook
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.hook import NOTES_REF
@@ -113,3 +116,87 @@ def test_notes_ref_pushed_onto_a_branch_is_not_exempt():
 def test_notes_ref_pushed_to_the_notes_ref_is_exempt():
     update = hook.RefUpdate(NOTES_REF, "a" * 40, NOTES_REF, ZERO)
     assert update.is_attestation_note is True
+
+
+def _state_root(repo) -> Path:
+    common = git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=repo).strip()
+    return Path(common) / "agentic-preflight"
+
+
+def _reusable_run(feature_repo):
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'reusable'\n")
+    commit_all(feature_repo, "reusable")
+    agent = ScriptedAgent(feature_repo)
+    first = agent.run("start")
+    write(feature_repo, "src/extra.py", "v = 1\n")
+    commit_all(feature_repo, "advance")
+    return agent, Path(first["data"]["worktree_path"])
+
+
+def test_orphaned_run_with_a_dirty_runner_keeps_its_lease(feature_repo):
+    agent, runner = _reusable_run(feature_repo)
+    write(runner, "src/app.py", "uncommitted repair\n")
+
+    env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+
+    assert "still leased" in env["error"]["message"]
+    assert (runner / "src/app.py").read_text() == "uncommitted repair\n"
+
+
+def test_orphaned_run_with_an_advanced_runner_keeps_its_lease(feature_repo):
+    agent, runner = _reusable_run(feature_repo)
+    write(runner, "src/app.py", "unrecorded repair\n")
+    commit_all(runner, "unrecorded repair")
+    advanced = git("rev-parse", "HEAD", cwd=runner).strip()
+
+    env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+
+    assert "still leased" in env["error"]["message"]
+    assert git("rev-parse", "HEAD", cwd=runner).strip() == advanced
+
+
+def test_runner_release_failure_still_orphans_and_reports_the_lease(feature_repo, monkeypatch):
+    import importlib
+
+    startmod = importlib.import_module("agentic_preflight.runs.start")
+
+    agent, _runner = _reusable_run(feature_repo)
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("simulated release failure")
+
+    monkeypatch.setattr(startmod, "_release_run_worktree", boom)
+    env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+
+    assert "still leased" in env["error"]["message"]
+    events = "".join(
+        p.read_text() for p in (_state_root(feature_repo) / "runs").rglob("*") if p.is_file()
+    )
+    assert "runner_release_failed" in events
+
+
+def test_conflict_retry_refuses_fixes_that_never_landed(feature_repo, tmp_path):
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[worktree]\nmode = 'strict'\n\n[docs]\nenabled = false\n\n"
+        "[commands]\nlint = 'true'\ntest = 'true'\n",
+    )
+    commit_all(feature_repo, "configure")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    status = agent.run("stage", "run", "test")
+    run_path = _state_root(feature_repo) / "runs" / status["run_id"] / "run.json"
+    doc = json.loads(run_path.read_text())
+    doc["state"] = "MERGEBACK_CONFLICT"
+    doc["fix_commits"] = [doc["head_sha"]]
+    run_path.write_text(json.dumps(doc))
+
+    env = agent.run("mergeback", expect=ExitCode.NEEDS_HUMAN)
+
+    assert env["error"]["code"] == "fixes_not_landed"
+    notes = git("notes", "--ref=refs/notes/agentic-preflight", "list", cwd=feature_repo)
+    assert notes.strip() == ""

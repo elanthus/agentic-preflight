@@ -1,0 +1,1 @@
+- A `mergeback` conflict retry on an unchanged branch whose recorded fix commits never landed now exits 4 with `fixes_not_landed` instead of repeating the same conflict.

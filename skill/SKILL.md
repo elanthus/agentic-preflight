@@ -192,6 +192,7 @@ to summarize the user's run history.
 |---|---|
 | Git operation already in progress (exit 3, `operation_in_progress`) | Stop; the user must finish or abort it |
 | Merge-back conflict (exit 4, isolated modes only) | Inspect and show `data.resolution`; resolve only an unambiguous, recoverable result permitted by the merge-back contract, then re-run `mergeback`, or stop |
+| Recorded fixes never landed (exit 4, `fixes_not_landed`) | Do not retry `mergeback`; tell the user, `abort`, and start a new run to revalidate |
 | Stage red after max attempts (exit 4) | Stop retrying; show a stage log, or abort if baseline setup never produced one |
 | Validation restarted too many times (exit 4, `max_restarts`) | Stop repairing; show `status` and wait for the user. Never abort and restart on your own to reset the counter |
 | Hosted attestation fetch or verification failure | Inspect source fetch failures; read the offline verifier reason and restore exact-head evidence |

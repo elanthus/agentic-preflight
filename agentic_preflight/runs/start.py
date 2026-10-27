@@ -129,6 +129,31 @@ def build_producer(
     )
 
 
+def _release_idle_runner(session: Session, run: RunDoc) -> None:
+    """Free an orphaned run's reusable runner when it provably holds no work.
+
+    Releasing resets and cleans the checkout, so it happens only when no fix
+    commits were recorded, the runner is clean, and its HEAD is still the
+    reviewed head. Otherwise, or on any failure, the runner stays leased for
+    ``gc`` and a later start reports it as before.
+    """
+    if run.fix_commits or run.worktree_released or _worktree_mode(run) != "reusable":
+        return
+    path = run.worktree_path
+    if not path or not Path(path).exists():
+        return
+    try:
+        if not gitx.is_clean(path) or gitx.rev_parse(path, "HEAD") != run.head_sha:
+            return
+        _release_run_worktree(session, run)
+        with session.store.transaction(run.run_id) as doc:
+            doc.worktree_released = True
+    except Exception as exc:  # noqa: BLE001 - orphaning must complete regardless
+        session.store.append_event(
+            run.run_id, {"event": "runner_release_failed", "error": str(exc)[:500]}
+        )
+
+
 def _orphan(session: Session, run: RunDoc, *, reason: str, discard_pending: bool = False) -> None:
     """Detach an idle run without destroying its evidence or validation work."""
     with session.store.try_operation(run.run_id) as idle:
@@ -146,12 +171,7 @@ def _orphan(session: Session, run: RunDoc, *, reason: str, discard_pending: bool
             doc.orphaned_reason = reason
         session.store.clear_run(run.run_id)
         session.store.append_event(run.run_id, {"event": "orphaned", "reason": reason})
-        if not run.fix_commits and _worktree_mode(run) == "reusable":
-            # Nothing unmerged lives on the runner, so free it now; otherwise
-            # the next reusable start finds it still leased.
-            _release_run_worktree(session, run)
-            with session.store.transaction(run.run_id) as doc:
-                doc.worktree_released = True
+        _release_idle_runner(session, run)
         if discard_pending:
             (session.store.run_dir(run.run_id) / "pending-update.json").unlink()
 
