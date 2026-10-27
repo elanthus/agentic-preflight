@@ -16,7 +16,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
   Upgrade every machine that shares a clone before enabling the new configuration, and
   use 0.8.0 or later to inspect or clean up runs that 0.8.0 touched.
 - Three compatibility paths for data no release wrote are removed; see "Removed" and
-  [the compatibility removal plan](docs/compatibility-removal-plan.md) for what follows
+  [the compatibility removal plan](docs/maintainers/compatibility-removal-plan.md) for what follows
   in 0.9.0.
 
 ### Added

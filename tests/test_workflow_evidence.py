@@ -20,23 +20,26 @@ def _policy_script(filename):
     workflow = (ROOT / ".github/workflows" / filename).read_text()
     label = (
         "Fetch and verify the pull request attestation"
-        if filename == "ci.yml"
+        if filename == "attestation.yml"
         else "Evaluate approval policy for the exact head"
     )
-    end = "\n  test:" if filename == "ci.yml" else "\n  environment:"
-    block = workflow[workflow.index("      - name: " + label) : workflow.index(end)]
+    end = "\n  environment:"
+    stop = len(workflow) if filename == "attestation.yml" else workflow.index(end)
+    block = workflow[workflow.index("      - name: " + label) : stop]
     return textwrap.dedent(block.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0])
 
 
 @pytest.mark.parametrize(
     ("filename", "job", "head_variable"),
-    [("ci.yml", "attestation", "ATTESTED_SHA"), ("human-approval.yml", "policy", "HEAD_SHA")],
+    [
+        ("attestation.yml", "attestation", "ATTESTED_SHA"),
+        ("human-approval.yml", "policy", "HEAD_SHA"),
+    ],
 )
 def test_protected_workflow_configuration(filename, job, head_variable):
     workflow = (ROOT / ".github/workflows" / filename).read_text()
     # Bound assertions to the trusted job; normalize whitespace, not YAML structure.
-    end = "test" if filename == "ci.yml" else "environment"
-    trusted = workflow.split(f"\n  {job}:\n", 1)[1].split(f"\n  {end}:\n", 1)[0]
+    trusted = workflow.split(f"\n  {job}:\n", 1)[1].split("\n  environment:\n", 1)[0]
     trusted = " ".join(trusted.split())
     assert "with: ref: ${{ github.event.pull_request.base.sha }} fetch-depth: 0" in trusted
     assert (
@@ -53,11 +56,14 @@ def test_protected_workflow_configuration(filename, job, head_variable):
     permissions = workflow.split("\npermissions:\n", 1)[1].split("\njobs:\n", 1)[0]
     assert permissions.split() == (
         ["contents:", "read"]
-        if filename == "ci.yml"
+        if filename == "attestation.yml"
         else ["actions:", "read", "contents:", "read", "pull-requests:", "read"]
     )
-    if filename == "ci.yml":
-        assert "pull_request:" in workflow.split("\nconcurrency:", 1)[0]
+    if filename == "attestation.yml":
+        events = workflow.split("\non:\n", 1)[1].split("\nconcurrency:", 1)[0]
+        assert events.split() == ["pull_request_target:"]
+        ci = (ROOT / ".github/workflows/ci.yml").read_text()
+        assert "attestation:" not in ci.split("\njobs:\n", 1)[1]
         assert "needs.dependabot-policy.outputs.eligible != 'true'" in trusted
 
 
@@ -207,7 +213,7 @@ GITHUB_OUTPUT=output.txt
     return run
 
 
-@pytest.mark.parametrize("filename", ["ci.yml", "human-approval.yml"])
+@pytest.mark.parametrize("filename", ["attestation.yml", "human-approval.yml"])
 @pytest.mark.parametrize("code", [2, 4])
 def test_failures_print_json_keep_exit_and_never_publish_outputs(run_step, filename, code):
     result, path = run_step(filename, code=code)
@@ -219,14 +225,14 @@ def test_failures_print_json_keep_exit_and_never_publish_outputs(run_step, filen
     assert (path / "helper-calls.txt").read_text().splitlines() == ["call"]
 
 
-@pytest.mark.parametrize("filename", ["ci.yml", "human-approval.yml"])
+@pytest.mark.parametrize("filename", ["attestation.yml", "human-approval.yml"])
 @pytest.mark.parametrize("fork", [True, False])
 def test_success_passes_fixed_event_and_resolved_fork_remote(run_step, filename, fork):
     result, path = run_step(filename, fork=fork)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["ok"] is True
     args = (path / "helper-args.txt").read_text().splitlines()
-    assert args[:2] == ["verify" if filename == "ci.yml" else "approval-check", HEAD]
+    assert args[:2] == ["verify" if filename == "attestation.yml" else "approval-check", HEAD]
     assert not (path / "injected").exists()
     git_args = (path / "git-args.txt").read_text().splitlines()
     if fork:
@@ -258,7 +264,7 @@ def test_success_passes_fixed_event_and_resolved_fork_remote(run_step, filename,
         assert "--mode" not in args
 
 
-@pytest.mark.parametrize("filename", ["ci.yml", "human-approval.yml"])
+@pytest.mark.parametrize("filename", ["attestation.yml", "human-approval.yml"])
 @pytest.mark.parametrize("fork", [True, False])
 def test_fetch_failure_stops_before_verification_or_approval(run_step, filename, fork):
     result, path = run_step(filename, fork=fork, fetch_code=128)

@@ -105,7 +105,7 @@ not assert which consumer contracts the repository supports.
 
 The supported combinations receive different validation frequencies, so pull-request feedback stays fast:
 
-- Pull requests and pushes to `main` run on `ubuntu-latest` with Python 3.13. This conserves GitHub Actions minutes.
+- Pull requests and pushes to `main` run on `ubuntu-latest` and `macos-latest` with Python 3.13. This conserves GitHub Actions minutes while catching macOS regressions before merge.
 - A scheduled regression run covers the oldest supported boundary, macOS 15 with Python 3.11, every Monday and Thursday.
 - Manual CI runs and release tags cover Python 3.11, 3.12, and 3.13 on `ubuntu-latest`, `macos-latest`, and `windows-latest`.
 
@@ -389,7 +389,7 @@ The system temporary directories are `tempfile.gettempdir()`, `$TMPDIR` when it 
 A network remote is an `origin` whose normalized form starts with a host name. A missing `origin`, a local path such as a bare repository, and a loopback host are not network remotes.
 Thus, a scratch clone under the temporary directory that pushes to GitHub keeps its telemetry.
 A run of a temporary repository still writes `summary.json`. It appends no line to `runs.jsonl`, and `hook-check` appends no line to `hook-decisions.jsonl`.
-See [Temporary repositories](docs/local-telemetry.md#temporary-repositories).
+See [Temporary repositories](docs/local-telemetry.md#repositories-without-a-network-remote).
 
 An explicit `[telemetry] path` is an opt-in, and keeps the earlier behavior for every repository.
 `[telemetry] mirror` and `hook_log` are unchanged.

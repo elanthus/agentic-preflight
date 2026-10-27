@@ -17,12 +17,37 @@ The pre-push hook blocks a normal push if this evidence is missing or no longer 
 - **Inspect each stage.** The run record includes skipped stages, failures, findings, and approvals.
 - **Keep results with their inputs.** A changed commit, configuration, or intent cannot use unrelated evidence.
 
-The author merged 408 pull requests across four repositories from August 3 to September 6, 2026.
-Of these pull requests, 323 record an Agentic Preflight run.
-The [dogfooding case study](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/dogfooding-case-study.md)
-describes this evidence and its limits.
+The [dogfooding case study](docs/dogfooding-case-study.md) found the same failure in three
+independent codebases: a green result stayed valid after an input that shaped it changed.
+Green evidence must bind every decision-making input, including code, configuration,
+intent, model, and prompts. The study also describes the limits of its evidence.
 
 ![The hook blocks a push. Review finds an unguarded division. A verified fix passes the gate, which shows the publication target.](https://raw.githubusercontent.com/elanthus/agentic-preflight/daba4f3e7b9652ac9bf59c125f6e9ba9d2f50d91/demo.gif)
+
+## The problem
+
+A coding agent that reports "tests passed" may be describing a different revision, a different configuration, or a different intent from the commit it is about to push.
+Nothing in a normal push connects that claim to the exact inputs that produced it.
+Agentic Preflight records each result with a fingerprint of those inputs and refuses the push when they no longer match.
+
+## How it fits together
+
+```mermaid
+flowchart LR
+    A[Coding agent] --> S[Skill]
+    S --> C[JSON-envelope CLI<br/>and state machine]
+    C --> R[(Run store)]
+    R --> N[Git-note attestation]
+    N --> H[Pre-push hook]
+    H --> V[CI verifier]
+```
+
+## Design highlights
+
+- [Fingerprint contract](docs/fingerprint-contract.md): which inputs a result is bound to, and what invalidates it.
+- [Context grounding](docs/context-grounding.md): how review is tied to the repository's own facts.
+- [State machine](docs/state-machine.md): the stages, transitions, and when a run may publish.
+- [Regression eval](docs/regression-eval.md): the scripted cases that guard workflow behavior.
 
 ## Quickstart
 

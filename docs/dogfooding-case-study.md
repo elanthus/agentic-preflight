@@ -4,19 +4,23 @@ Two observation windows cover August 3–17 and August 18–September 6, 2026.
 They contain 408 merged PRs across the same four repositories, all operated by one owner.
 Of these PRs, 323 descriptions explicitly record Preflight use.
 Of the merged PR descriptions, 64 contain a concrete finding record.
+The three public repositories alone account for 305 merged PRs, 234 with recorded use, and 42 with a concrete finding record; anyone can verify those.
 These combined snapshot counts do not measure external adoption or distinct defects fixed.
 The original snapshot follows, with the later evidence and its limits.
 
-From August 3 through August 17, 2026, the owner used Agentic Preflight to publish work across four public repositories:
+From August 3 through August 17, 2026, the owner used Agentic Preflight to publish work across four repositories, three public and one private:
 
-- Agentic Preflight
-- A news pipeline that grounds its output in citations
-- An OSWorld evaluation and deployment project
-- An application that uses agents for job research
+- Agentic Preflight (public)
+- A news pipeline that grounds its output in citations (`news-briefing`, public)
+- An OSWorld evaluation and deployment project (`OSWorldTasks`, public)
+- An application that uses agents for job research (`jobwright`, private)
+
+Links into `jobwright` would return 404 to outside readers, so this study names its findings without linking them.
+Totals are given for all four repositories and, separately, for the three public ones.
 
 These repositories exercise different failure conditions.
 They cover Git and release policy, untrusted content, model evaluation, browser and deployment evidence, and long-running workflows with cached results.
-This observational case study describes evidence from public pull requests and its limits.
+This observational case study describes evidence from pull request records and its limits.
 It is not a controlled evaluation.
 
 ## Original snapshot: August 3–17
@@ -30,8 +34,9 @@ Pull requests count by creation time.
 | [`agentic-preflight`](https://github.com/elanthus/agentic-preflight/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 34 | 26 | 25 | 7 |
 | [`news-briefing`](https://github.com/elanthus/news-briefing/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 65 | 63 | 42 | 9 |
 | [`OSWorldTasks`](https://github.com/elanthus/OSWorldTasks/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 35 | 34 | 29 | 1 |
-| [`jobwright`](https://github.com/elanthus/jobwright/pulls?q=is%3Apr+created%3A2026-08-03..2026-08-17) | 33 | 30 | 26 | 7 |
+| `jobwright` (private) | 33 | 30 | 26 | 7 |
 | **Total** | **167** | **153** | **122** | **24** |
+| **Public repositories only** | **134** | **123** | **96** | **17** |
 
 The table's repository links are live browsing links with day-level date filters.
 They can include PRs created after the exact August 17 cutoff.
@@ -97,7 +102,7 @@ Public descriptions show clean runs with different review sizes:
 
 - [`agentic-preflight` #57](https://github.com/elanthus/agentic-preflight/pull/57): 9 delivered review units
 - [`OSWorldTasks` #8](https://github.com/elanthus/OSWorldTasks/pull/8): 55 changed units
-- [`jobwright` #63](https://github.com/elanthus/jobwright/pull/63): 698 delivered review units
+- `jobwright` #63 (private): 698 delivered review units
 
 These are review-manifest units, not lines of code.
 A clean receipt proves only that each delivered unit was cited or marked examined clean.
@@ -114,9 +119,11 @@ This is a retrospective reading of the public record. It is not a preserved Sept
 | `agentic-preflight` | 32 | 32 | 25 | 12 |
 | `news-briefing` | 91 | 91 | 67 | 7 |
 | `OSWorldTasks` | 59 | 59 | 46 | 6 |
-| `jobwright` | 75 | 73 | 63 | 15 |
+| `jobwright` (private) | 75 | 73 | 63 | 15 |
 | **Follow-up total** | **257** | **255** | **201** | **40** |
+| **Follow-up, public only** | **182** | **182** | **138** | **25** |
 | **Original + follow-up** | **424** | **408** | **323** | **64** |
+| **Original + follow-up, public only** | **316** | **305** | **234** | **42** |
 
 The [follow-up evidence ledger](https://github.com/elanthus/preflight-eval-results/blob/f784772cbbc17618ad05636c9ca37065affc194f/evidence/dogfooding/dogfooding-follow-up-2026-09-06-evidence.json)
 preserves all 257 PR identities and timestamps.
@@ -145,7 +152,7 @@ They do not reclassify the original ledger or update its merge states.
 They exclude the unsampled part of August 17 after 20:40:03 UTC.
 They also exclude later merges of PRs from the original window.
 
-For example, [`jobwright` #179](https://github.com/elanthus/jobwright/pull/179) opened on September 6 and merged on September 7.
+For example, `jobwright` #179 (private) opened on September 6 and merged on September 7.
 It contributes only to the follow-up's opened count.
 Counts include PRs merged into branches other than `main`.
 They do not count releases or independent deployments.
@@ -164,7 +171,7 @@ The windows differ in length and work mix. Their raw totals do not compare produ
   Commit `284c45d` prohibited provider calls outside `act` and counted retries toward the per-action request limit.
   This corrected a design contract. The PR did not run paid calls or demonstrate actual cost savings.
 - **Keep space for targeted evidence.**
-  [`jobwright` #164](https://github.com/elanthus/jobwright/pull/164) records a high-severity finding.
+  `jobwright` #164 (private) records a high-severity finding.
   Targeted topics could lose their slots within a retrieval category.
   Commit `010b444` interleaved topic groups.
   The PR describes regression tests in an isolated environment. It did not establish live model-quality gains.
@@ -207,7 +214,7 @@ The same failure pattern occurred independently in three codebases:
   Reused stage evidence was not bound to the user's intent.
   Further review found that evidence could also remain valid after an effective configuration change.
   The repair added portable intent and configuration digests, current-base ancestry checks, and regression tests.
-- [`jobwright` #37](https://github.com/elanthus/jobwright/pull/37) omitted automatic model selection from cache identity.
+- `jobwright` #37 (private) omitted automatic model selection from cache identity.
   A cached result could remain valid after a provider or model change.
   The repair fingerprints the resolved provider and model without recording credentials.
 - [`news-briefing` #46](https://github.com/elanthus/news-briefing/pull/46) had evaluator checkpoints that were not bound to the manifest and suite contents.
@@ -244,7 +251,7 @@ The record includes insufficient protection and protection applied too broadly:
 - [`news-briefing` #28](https://github.com/elanthus/news-briefing/pull/28) found a high-severity ambiguity in configured source identifiers.
   An identifier with the evaluator's error delimiter could bypass the intended corpus-health contract.
   The repair rejects ambiguous identifiers when configuration loads.
-- [`jobwright` #48](https://github.com/elanthus/jobwright/pull/48) found the opposite error.
+- `jobwright` #48 (private) found the opposite error.
   An injection scan for generated output also scanned the raw, untrusted research ledger.
   It would fail when a canary correctly stayed within its source.
   The repair excludes raw source material and tests that boundary.
@@ -259,7 +266,7 @@ Long-running and paid workflows produced another repeated group of findings:
 - [`news-briefing` #38](https://github.com/elanthus/news-briefing/pull/38) saved checkpoints for validated review batches but did not resume from them.
   A later malformed response could repeat calls that had already incurred cost.
   The fix binds resumable checkpoints to the suite hash, models, and batch size.
-- [`jobwright` #53](https://github.com/elanthus/jobwright/pull/53) found that rescoring a new benchmark case could create artifact directories inside the source run.
+- `jobwright` #53 (private) found that rescoring a new benchmark case could create artifact directories inside the source run.
   This violated the guarantee that the source run would not change.
   The repair returns a missing-artifact result without a run context that changes the source.
 - [`OSWorldTasks` #2](https://github.com/elanthus/OSWorldTasks/pull/2) found that a cached extracted guest image could bypass archive-member validation.
@@ -278,10 +285,10 @@ The following PR descriptions preserve findings, repair commits, final dispositi
 
 - [`agentic-preflight` #24](https://github.com/elanthus/agentic-preflight/pull/24)
 - [`news-briefing` #28](https://github.com/elanthus/news-briefing/pull/28)
-- [`jobwright` #53](https://github.com/elanthus/jobwright/pull/53)
 
 Across all 153 merged PRs, the median GitHub time from PR creation to merge was about 12.6 minutes.
 For the 122 PRs that explicitly recorded Preflight use, it was about 13.1 minutes.
+Both medians include the private repository; no separate public-only median was computed.
 These values show that the owner-operated workflow did not create a publication queue lasting several days.
 They do **not** measure additional time caused by Preflight.
 Most local review, repair, lint, and test work occurred before PR creation.
@@ -292,7 +299,7 @@ The evidence does not show that Preflight caused a speed change.
 - There was no randomized control group.
   The record cannot estimate defect escape rate, reviewer recall, false-negative rate, or productivity improvement.
 - Authors maintain PR bodies as audit records. These bodies are not independent measurements.
-  The representative findings were checked against linked public descriptions, but descriptions can change.
+  The representative findings were checked against their PR descriptions; the `jobwright` ones are not publicly verifiable, but descriptions can change.
   The preserved classification rules can miss undocumented use or misclassify prose. They cannot grade review quality.
 - One owner operates all four repositories.
   The sample shows repeated use across different codebases. It does not establish organization-wide adoption or peer-review effectiveness.

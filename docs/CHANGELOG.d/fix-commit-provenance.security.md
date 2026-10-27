@@ -1,0 +1,1 @@
+- In `strict` and `reusable` worktree modes, `respond --action fixed --commit` now requires a new commit on top of the reviewed head, and a `mergeback` conflict retry no longer attests an unchanged branch whose recorded fix commits never landed. A blocking finding can no longer be closed by citing a commit that review already covered.

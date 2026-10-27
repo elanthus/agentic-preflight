@@ -68,9 +68,12 @@ The local hook stays fail-open and bypassable, so a missing tool never blocks ev
 The required remote check is what rejects a branch tip without an attestation.
 
 This repository uses that check on itself.
-It installs the verifier from the protected pull-request base commit.
-Then it fetches the proposed commit and its note from the contributor's remote.
-The pull request cannot change the verifier that judges it.
+It runs in `.github/workflows/attestation.yml` on `pull_request_target`, so GitHub takes the workflow definition from the base branch, not from the pull request.
+The job checks out the base commit and installs the verifier from it.
+Then it fetches the proposed commit and its note from the contributor's remote as data, without checking them out or running anything from them.
+A pull request can still change the workflow, the verifier, or its scripts, but those changes take effect only after merge; they never judge the pull request that proposes them.
+The workflow token is read-only.
+A `pull_request` trigger would not give this guarantee: it runs the workflow file from the pull request's merge ref, so the pull request could rewrite the job itself.
 Governance paths are also listed in `.github/CODEOWNERS`.
 That file requests reviewers.
 GitHub enforces Code Owner approval only when an administrator enables **Require review from Code Owners** in a branch ruleset.

@@ -15,7 +15,7 @@ Four kinds of update need no attestation:
 - A push to `refs/tags/*`. A release tag on a merge commit that GitHub created does not block.
 - An update whose new tip is already reachable from the remote tip that it replaces. The remote already has that commit.
 - A deletion of a remote ref.
-- A push of the attestation notes ref, `refs/notes/agentic-preflight`.
+- A push to the remote attestation notes ref, `refs/notes/agentic-preflight`. The remote destination decides this, so pushing the notes ref onto a branch is checked like any other branch update.
 
 The second kind of update is a rewind.
 It still needs `[hook] allow_force_push = true` unless the tip is unchanged.

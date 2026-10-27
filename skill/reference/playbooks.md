@@ -30,6 +30,13 @@ applicable validation path, clearing snapshot-bound review, lint, and test evide
 Before concluding the conflict is real, check the user's tree was clean — see
 non-negotiable 7.
 
+## Recorded fixes never landed (exit 4, `fixes_not_landed`)
+
+A conflict retry found the branch unmoved and its tree already equal to the validation
+worktree while the run records fix commits. The fixes change nothing, so the findings
+they claim to fix were not repaired. Do not retry `mergeback`. Tell the user, run
+`agentic-preflight abort`, and start a new run so the branch is revalidated.
+
 ## Stage red after max attempts (exit 4)
 
 Stop retrying — you have already tried `max_attempts` times and the tool is telling
