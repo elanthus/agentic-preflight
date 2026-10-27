@@ -125,7 +125,7 @@ class RefUpdate:
 
     @property
     def is_attestation_note(self) -> bool:
-        return self.local_ref == NOTES_REF
+        return self.remote_ref == NOTES_REF
 
     @property
     def is_tag(self) -> bool:

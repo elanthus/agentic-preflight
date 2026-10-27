@@ -245,6 +245,17 @@ def _verify_fix_commit(session: Session, run: RunDoc, target, commit: str) -> st
             run_id=run.run_id,
         )
 
+    if not _is_in_place(run) and (
+        full_sha == run.head_sha or not gitx.is_ancestor(wt, run.head_sha, full_sha)
+    ):
+        raise InvalidResponse(
+            f"commit {commit[:8]} is not a new commit on top of the reviewed head "
+            f"{run.head_sha[:8]}; commit the repair in the validation worktree and cite "
+            "that commit",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
+
     if not gitx.commit_touches(wt, full_sha, target.path):
         raise InvalidResponse(
             f"commit {commit[:8]} does not touch {target.path}, the file {target.id} "
