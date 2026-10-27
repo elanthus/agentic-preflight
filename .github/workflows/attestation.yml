@@ -1,0 +1,68 @@
+name: Attestation
+
+# Split out of ci.yml because that workflow runs on pull_request, where the
+# workflow file comes from the pull request's merge ref and the pull request
+# could rewrite the job that judges it. pull_request_target always runs the
+# definition from the base branch. It also grants a token with write scopes
+# unless they are restricted, so permissions stay read-only and no file from
+# the pull request is ever executed.
+
+on:
+  pull_request_target:
+
+concurrency:
+  group: attestation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dependabot-policy:
+    uses: ./.github/workflows/dependabot-policy.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
+  attestation:
+    name: trusted preflight attestation
+    needs: dependabot-policy
+    if: always() && needs.dependabot-policy.outputs.eligible != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # pull_request_target runs this file from the base branch, and this
+      # checkout is the base commit, so the workflow, the verifier, and every
+      # script come from the protected base. The proposed commit and its note
+      # are fetched below only as inert objects and are never checked out or run.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
+      - name: Install the trusted verifier
+        run: uv tool install --python 3.11 .
+
+      - name: Fetch and verify the pull request attestation
+        env:
+          ATTESTED_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REPOSITORY_URL: ${{ github.event.pull_request.head.repo.clone_url }}
+        run: |
+          source_remote=origin
+          if [ "$HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ]; then
+            git remote add preflight-contributor "$HEAD_REPOSITORY_URL"
+            source_remote=preflight-contributor
+          fi
+          git fetch --no-tags -- "$source_remote" "$ATTESTED_SHA" \
+            '+refs/notes/agentic-preflight:refs/notes/agentic-preflight' \
+            '+refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*'
+          result_file="$RUNNER_TEMP/attestation-result.json"
+          verify_exit=0
+          agentic-preflight verify "$ATTESTED_SHA" \
+            > "$result_file" || verify_exit=$?
+          cat "$result_file"
+          exit "$verify_exit"
