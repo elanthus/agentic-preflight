@@ -20,61 +20,16 @@ permissions:
   contents: read
 
 jobs:
-  dependabot-policy:
-    if: github.event_name == 'pull_request'
-    uses: ./.github/workflows/dependabot-policy.yml
-    permissions:
-      contents: read
-      pull-requests: read
-
-  attestation:
-    name: trusted preflight attestation
-    needs: dependabot-policy
-    if: >-
-      always() && github.event_name == 'pull_request' &&
-      needs.dependabot-policy.outputs.eligible != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      # Check out the protected base commit, not the pull request, so a change
-      # cannot weaken the verifier that judges its own attestation.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          fetch-depth: 0
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-
-      - name: Install the trusted verifier
-        run: uv tool install --python 3.11 .
-
-      - name: Fetch and verify the pull request attestation
-        env:
-          ATTESTED_SHA: ${{ github.event.pull_request.head.sha }}
-          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          HEAD_REPOSITORY_URL: ${{ github.event.pull_request.head.repo.clone_url }}
-        run: |
-          source_remote=origin
-          if [ "$HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ]; then
-            git remote add preflight-contributor "$HEAD_REPOSITORY_URL"
-            source_remote=preflight-contributor
-          fi
-          git fetch --no-tags -- "$source_remote" "$ATTESTED_SHA" \
-            '+refs/notes/agentic-preflight:refs/notes/agentic-preflight' \
-            '+refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*'
-          result_file="$RUNNER_TEMP/attestation-result.json"
-          verify_exit=0
-          agentic-preflight verify "$ATTESTED_SHA" \
-            > "$result_file" || verify_exit=$?
-          cat "$result_file"
-          exit "$verify_exit"
+  # The trusted preflight attestation job lives in attestation.yml. It runs on
+  # pull_request_target so the workflow definition itself comes from the
+  # protected base branch; a pull_request trigger here would let the pull
+  # request rewrite the job that judges it.
 
   test:
     # Validation tiers and release requirements: COMPATIBILITY.md#validation-tiers.
     uses: ./.github/workflows/test.yml
     with:
-      os: ${{ github.event_name == 'workflow_dispatch' && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]' }}
+      os: ${{ github.event_name == 'workflow_dispatch' && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest", "macos-latest"]' }}
       python-versions: ${{ github.event_name == 'workflow_dispatch' && '["3.11", "3.12", "3.13"]' || '["3.13"]' }}
       coverage: true
 
