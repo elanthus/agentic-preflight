@@ -296,3 +296,26 @@ def test_non_conflict_rebase_failure_is_reported_with_git_stderr(tmp_repo, tmp_p
     assert "without a conflict" in str(caught.value)
     assert gitx.rev_parse(tmp_repo, "HEAD") == before
     assert gitx.operation_in_progress(tmp_repo) is None
+    assert git("symbolic-ref", "HEAD", cwd=tmp_repo) == "refs/heads/feat"
+
+
+def test_signing_failure_during_rebase_leaves_no_rebase_in_progress(tmp_repo):
+    git("switch", "-c", "feat", cwd=tmp_repo)
+    write(tmp_repo, "feature.txt", "feature\n")
+    commit_all(tmp_repo, "feature")
+    git("switch", "main", cwd=tmp_repo)
+    write(tmp_repo, "upstream.txt", "upstream\n")
+    commit_all(tmp_repo, "upstream")
+    git("switch", "feat", cwd=tmp_repo)
+    before = gitx.rev_parse(tmp_repo, "HEAD")
+    git("config", "commit.gpgsign", "true", cwd=tmp_repo)
+    git("config", "gpg.program", "false", cwd=tmp_repo)
+
+    with pytest.raises(sync.SyncRebaseFailed) as caught:
+        sync.sync_onto(tmp_repo, "main")
+
+    assert caught.value.conflicting_files == []
+    assert caught.value.stderr.strip()
+    assert gitx.operation_in_progress(tmp_repo) is None
+    assert gitx.rev_parse(tmp_repo, "HEAD") == before
+    assert git("symbolic-ref", "HEAD", cwd=tmp_repo) == "refs/heads/feat"

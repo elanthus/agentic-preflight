@@ -251,6 +251,10 @@ def sync_onto(worktree_path: Path | str, base_ref: str) -> tuple[str, str, bool]
     if started_here:
         gitx.run(worktree_path, "rebase", "--abort", check=False)
     if not conflicts:
+        # Entry refused any operation in progress, so a rebase left now is this call's.
+        # A rebase that stops without a conflict may not write REBASE_HEAD.
+        if gitx.operation_in_progress(worktree_path) == "rebase":
+            gitx.run(worktree_path, "rebase", "--abort", check=False)
         if gitx.rev_parse(worktree_path, "HEAD") != before:
             gitx.run(worktree_path, "reset", "--hard", before)
         raise SyncRebaseFailed(

@@ -88,3 +88,13 @@ def test_stage_detection_matches_stage_as_whole_word(tmp_path):
         "make test",
         "make unittest",
     ]
+
+
+def test_stage_detection_offers_lint_tool_scripts(tmp_path):
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"eslint": "eslint .", "splint": "x"}})
+    )
+
+    commands = [item.command for item in candidates_for(tmp_path, "lint")]
+
+    assert commands == ["npm run eslint"]

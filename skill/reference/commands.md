@@ -108,8 +108,10 @@ cleanly and reported; no conflicted rebase or merge is left in progress. It exit
 `sync_conflict`, `data.base_ref`, `data.base_sha`, `data.head_before`,
 `data.conflicting_files`, and `data.worktree_path`. A rebase that fails for a reason
 other than a conflict, such as a rejecting hook or a failing commit signer, is restored to
-its original head and reported the same way with an empty `data.conflicting_files` and
-Git's error output in the message. A fetch, network, or Git failure during
+its original head and reported the same way with an empty `data.conflicting_files` and a
+message starting "rebasing onto ... failed without a conflict" followed by Git's error
+output. Any other `sync_conflict` with an empty list means merging the base in failed
+without unmerged paths; inspect `git status` in the worktree. A fetch, network, or Git failure during
 synchronization exits 4 with `sync_failed`, `data.error_type`, and `data.detail`. Both leave
 the run in `SYNC_CONFLICT`; `next.command` is `agentic-preflight abort --force`, after which
 `start` again with the same intent. Synchronization also

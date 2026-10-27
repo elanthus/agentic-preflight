@@ -15,7 +15,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # Tool names that end in a stage word but are still that stage, unlike "latest".
-_STAGE_TOOL_WORDS = {"test": ("pytest", "unittest")}
+_STAGE_TOOL_WORDS = {
+    "test": ("pytest", "unittest"),
+    "lint": ("eslint", "ruff", "flake8", "pylint", "biome"),
+}
 
 
 def _names_stage(name: str, stage: str) -> bool:
