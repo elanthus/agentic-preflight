@@ -11,9 +11,11 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-from collections.abc import Iterator, Sequence
+import tempfile
+from collections.abc import Iterable, Iterator, Sequence
 from functools import cache
 from pathlib import Path
+from typing import IO
 from urllib.parse import urlsplit, urlunsplit
 
 from agentic_preflight.stages.command import resolve_on_path
@@ -31,6 +33,7 @@ _DECODE_ERRORS = "backslashreplace"
 # as a pathspec, so it must round-trip to the same bytes. ``surrogateescape``
 # does, and ``subprocess`` encodes arguments with the same handler on POSIX.
 _PATH_ERRORS = "surrogateescape"
+_WINDOWS_PATH_ARGUMENTS = os.name == "nt"
 
 # Resolved once per process. Handed a bare name, Windows' ``CreateProcess``
 # searches the parent's current directory before PATH (for this tool, the
@@ -678,18 +681,7 @@ def _split_patches(data: bytes) -> list[str]:
     ]
 
 
-def _parse_raw_patch_output(data: bytes) -> dict[str, str]:
-    """Map patches to paths using Git's NUL-delimited raw prelude.
-
-    Git represents a file-type change as one raw record but emits the content
-    change as a deletion patch followed by an addition patch. Keep both blocks
-    together so the result remains byte-for-byte equivalent to a per-path diff.
-    """
-    try:
-        raw, patch_data = data.split(b"\0\0", 1)
-    except ValueError as exc:
-        raise ValueError("git diff did not separate its raw inventory from patch output") from exc
-
+def _raw_patch_entries(raw: bytes) -> list[tuple[str, str]]:
     fields = [_decode_path(field) for field in raw.split(b"\0")]
     entries: list[tuple[str, str]] = []
     position = 0
@@ -705,6 +697,23 @@ def _parse_raw_patch_output(data: bytes) -> dict[str, str]:
             raise ValueError("git diff raw metadata omitted a path")
         entries.append((fields[position], status))
         position += 1
+
+    return entries
+
+
+def _parse_raw_patch_output(data: bytes) -> dict[str, str]:
+    """Map patches to paths using Git's NUL-delimited raw prelude.
+
+    Git represents a file-type change as one raw record but emits the content
+    change as a deletion patch followed by an addition patch. Keep both blocks
+    together so the result remains byte-for-byte equivalent to a per-path diff.
+    """
+    try:
+        raw, patch_data = data.split(b"\0\0", 1)
+    except ValueError as exc:
+        raise ValueError("git diff did not separate its raw inventory from patch output") from exc
+
+    entries = _raw_patch_entries(raw)
 
     patches = _split_patches(patch_data)
     per_file: dict[str, str] = {}
@@ -725,17 +734,133 @@ def _parse_raw_patch_output(data: bytes) -> dict[str, str]:
     return per_file
 
 
+_DIFF_STREAM_BYTES = 64 * 1024
+_PATCH_HEADER = b"diff --git "
+
+
+def _read_raw_inventory(stream: IO[bytes]) -> tuple[bytes | None, bytes]:
+    inventory = bytearray()
+    while True:
+        start = max(0, len(inventory) - 1)
+        chunk = stream.read(_DIFF_STREAM_BYTES)
+        if not chunk:
+            return None, b""
+        inventory.extend(chunk)
+        boundary = inventory.find(b"\0\0", start)
+        if boundary >= 0:
+            return bytes(inventory[:boundary]), bytes(inventory[boundary + 2 :])
+
+
+def _diff_chunks(stream: IO[bytes], initial: bytes) -> Iterator[bytes]:
+    if initial:
+        yield initial
+    while chunk := stream.read(_DIFF_STREAM_BYTES):
+        yield chunk
+
+
+def _patch_stream_chunks(chunks: Iterable[bytes]) -> Iterator[tuple[bool, bytes]]:
+    """Recognize LF-delimited patch headers without buffering whole lines."""
+    prefix = b""
+    line_start = True
+    for chunk in chunks:
+        position = 0
+        while position < len(chunk):
+            end = chunk.find(b"\n", position)
+            end = len(chunk) if end < 0 else end + 1
+            piece = chunk[position:end]
+            position = end
+            ends_line = piece.endswith(b"\n")
+            if line_start:
+                take = min(len(_PATCH_HEADER) - len(prefix), len(piece))
+                prefix += piece[:take]
+                piece = piece[take:]
+                if len(prefix) < len(_PATCH_HEADER) and not ends_line:
+                    continue
+                yield prefix.startswith(_PATCH_HEADER), prefix
+                prefix = b""
+            if piece:
+                yield False, piece
+            line_start = ends_line
+    if prefix:
+        yield False, prefix
+
+
+def _select_streamed_patches(
+    entries: list[tuple[str, str]], chunks: Iterable[bytes], requested: set[str]
+) -> tuple[dict[str, bytearray], int, int]:
+    owners = [path for path, status in entries for _ in range(2 if status == "T" else 1)]
+    buffers: dict[str, bytearray] = {}
+    target: bytearray | None = None
+    count = 0
+    for header, chunk in _patch_stream_chunks(chunks):
+        if header:
+            path = owners[count] if count < len(owners) else None
+            target = buffers.setdefault(path, bytearray()) if path in requested else None
+            count += 1
+        if target is not None:
+            target.extend(chunk)
+    return buffers, count, len(owners)
+
+
+def _finish_streamed_diff(
+    process: subprocess.Popen[bytes], args: tuple[str, ...], errors: IO[bytes]
+) -> None:
+    returncode = process.wait()
+    if returncode:
+        errors.seek(0)
+        raise GitError(list(args), returncode, errors.read().decode("utf-8", errors=_DECODE_ERRORS))
+
+
+def _streamed_diff_text_by_path(
+    cwd: Path | str, args: tuple[str, ...], requested: set[str]
+) -> dict[str, str]:
+    with tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(
+            [_git_executable(), *args], cwd=str(cwd), stdout=subprocess.PIPE, stderr=errors
+        )
+        stream = process.stdout
+        if stream is None:
+            process.kill()
+            process.wait()
+            raise RuntimeError("git diff stdout stream is unavailable")
+        try:
+            raw, initial = _read_raw_inventory(stream)
+            if raw is None:
+                _finish_streamed_diff(process, args, errors)
+                raise ValueError("git diff did not separate its raw inventory from patch output")
+            entries = _raw_patch_entries(raw)
+            buffers, count, expected = _select_streamed_patches(
+                entries, _diff_chunks(stream, initial), requested
+            )
+            _finish_streamed_diff(process, args, errors)
+            if count != expected:
+                raise ValueError(
+                    f"git diff returned {expected} expected patch blocks but {count} patches"
+                )
+            return {path: _decode_patch(bytes(data)) for path, data in buffers.items()}
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            stream.close()
+
+
 def diff_text_by_path(
     cwd: Path | str, base: str, head: str, paths: Sequence[str]
 ) -> dict[str, str]:
     """Return complete per-file patches using one Git process per bounded batch.
 
     ``paths`` and the returned keys are raw paths from :func:`changed_files_raw`.
+    Windows arguments cannot carry surrogateescaped Git names. For those names,
+    stream the full diff once and retain only requested raw inventory entries.
     """
+    unfiltered = _WINDOWS_PATH_ARGUMENTS and any(
+        "\udc80" <= char <= "\udcff" for path in paths for char in path
+    )
+    batches = [list(paths)] if unfiltered else _path_batches(paths)
     per_file: dict[str, str] = {}
-    for batch in _path_batches(paths):
-        output = _run_bytes(
-            cwd,
+    for batch in batches:
+        args = (
             "diff",
             "--no-ext-diff",
             "--no-textconv",
@@ -746,9 +871,12 @@ def diff_text_by_path(
             _NO_RENAMES,
             f"{base}...{head}",
             "--",
-            *(f":(literal){path}" for path in batch),
+            *(f":(literal){path}" for path in batch if not unfiltered),
         )
-        parsed = _parse_raw_patch_output(output)
+        if unfiltered:
+            parsed = _streamed_diff_text_by_path(cwd, args, set(batch))
+        else:
+            parsed = _parse_raw_patch_output(_run_bytes(cwd, *args))
         missing = [path for path in batch if path not in parsed]
         if missing:
             raise ValueError("git diff omitted requested changed paths: " + ", ".join(missing))

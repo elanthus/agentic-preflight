@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import subprocess
+import tracemalloc
 
 import pytest
 from click.testing import CliRunner
@@ -18,6 +19,11 @@ from tests.conftest import (
     requires_git_symlinks,
     write,
 )
+
+_NON_ASCII_PATH_CASES = [
+    pytest.param(b"snow-\xe9\x9b\xaa.txt", "snow-\u96ea.txt", id="unicode"),
+    pytest.param(b"caf\xe9.txt", "caf\\xe9.txt", id="raw-git-bytes"),
+]
 
 
 def _diff_text(cwd, base: str, head: str = "HEAD") -> str:
@@ -744,41 +750,46 @@ def test_diff_text_by_path_keeps_lone_cr_inside_one_patch(tmp_repo):
     assert patches["weird.txt"].endswith("+hello\ndiff --git a/x b/x\nmore\n")
 
 
-def test_non_utf8_path_round_trips_to_git(tmp_repo):
-    # Build the commit with plumbing so filesystems that reject the name still run it.
-    name = b"caf\xe9.txt"
+def _commit_raw_paths(repo, names):
     blob = subprocess.run(
         ["git", "hash-object", "-w", "--stdin"],
-        cwd=tmp_repo,
+        cwd=repo,
         input=b"x\n",
         capture_output=True,
         check=True,
     ).stdout.strip()
     subprocess.run(
         ["git", "update-index", "--index-info"],
-        cwd=tmp_repo,
-        input=b"100644 " + blob + b"\t" + name + b"\n",
+        cwd=repo,
+        input=b"".join(b"100644 " + blob + b"\t" + name + b"\n" for name in names),
         check=True,
     )
-    tree = git("write-tree", cwd=tmp_repo)
-    commit = git("commit-tree", tree, "-p", "main", "-m", "latin1 name", cwd=tmp_repo)
-    git("reset", "-q", "main", cwd=tmp_repo)
+    tree = git("write-tree", cwd=repo)
+    commit = git("commit-tree", tree, "-p", "main", "-m", "non-ASCII name", cwd=repo)
+    git("reset", "-q", "main", cwd=repo)
+    return commit
+
+
+@pytest.mark.parametrize(("name", "display_name"), _NON_ASCII_PATH_CASES)
+def test_non_ascii_path_round_trips_to_git(tmp_repo, name, display_name):
+    commit = _commit_raw_paths(tmp_repo, [name])
 
     raw = gitx.changed_files_raw(tmp_repo, "main", commit)
     patches = gitx.diff_text_by_path(tmp_repo, "main", commit, raw)
 
-    assert [os.fsencode(path) for path in raw] == [name]
+    assert [path.encode("utf-8", errors="surrogateescape") for path in raw] == [name]
     assert "+x\n" in patches[raw[0]]
     # Everything stored, hashed, or shown uses the historical escaped spelling.
-    assert gitx.changed_files(tmp_repo, "main", commit) == ["caf\\xe9.txt"]
-    assert gitx.classified_files(tmp_repo, "main", commit) == ["caf\\xe9.txt"]
+    assert gitx.changed_files(tmp_repo, "main", commit) == [display_name]
+    assert gitx.classified_files(tmp_repo, "main", commit) == [display_name]
     bundle = diff_module.build_bundle(tmp_repo, "main", commit)
     manifest = diff_module.build_review_manifest(tmp_repo, bundle)
-    assert bundle.files == ["caf\\xe9.txt"]
-    assert json.loads(json.dumps(manifest.as_dict()))["units"][0]["path"] == "caf\\xe9.txt"
+    assert bundle.files == [display_name]
+    assert json.loads(json.dumps(manifest.as_dict()))["units"][0]["path"] == display_name
 
 
-def test_non_utf8_path_context_envelope_is_valid_json(tmp_repo):
+@pytest.mark.parametrize(("name", "display_name"), _NON_ASCII_PATH_CASES)
+def test_non_ascii_path_context_envelope_is_valid_json(tmp_repo, name, display_name):
     from tests.driver import ScriptedAgent
 
     write(
@@ -787,21 +798,109 @@ def test_non_utf8_path_context_envelope_is_valid_json(tmp_repo):
         "[review]\nexecutor = 'in_harness'\n[docs]\nenabled = false\n",
     )
     commit_all(tmp_repo, "configure in-harness review")
-    git("switch", "-c", "feature/latin1", cwd=tmp_repo)
+    git("switch", "-c", "feature/non-ascii", cwd=tmp_repo)
     try:
-        with open(os.path.join(os.fsencode(str(tmp_repo)), b"caf\xe9.txt"), "wb") as fh:
+        with open(os.path.join(os.fsencode(str(tmp_repo)), name), "wb") as fh:
             fh.write(b"x\n")
-    except OSError:
-        pytest.skip("filesystem rejects non-UTF-8 file names, so no worktree can check one out")
-    commit_all(tmp_repo, "latin1 name")
+    except (OSError, UnicodeError):
+        pytest.skip("filesystem rejects this non-ASCII file name")
+    commit_all(tmp_repo, "non-ASCII name")
     agent = ScriptedAgent(tmp_repo, transport="subprocess")
     agent.run("start")
 
     # The subprocess transport json-parses the envelope from stdout.
     context = agent.run("context")
 
-    assert "caf\\xe9.txt" in context["data"]["changed_files"]
+    assert display_name in context["data"]["changed_files"]
     assert json.loads(json.dumps(context)) == context
+
+
+def test_windows_raw_git_path_diff_selects_inventory_once(tmp_repo, monkeypatch):
+    raw_name = b"caf\xe9.txt"
+    commit = _commit_raw_paths(tmp_repo, [raw_name, b"plain.txt", b"omitted.txt"])
+    requested = [raw_name.decode("utf-8", errors="surrogateescape"), "plain.txt"]
+    monkeypatch.setattr(gitx, "_WINDOWS_PATH_ARGUMENTS", True)
+    monkeypatch.setattr(gitx, "_DIFF_PATH_BATCH_FILES", 1)
+    original = subprocess.Popen
+    calls = []
+
+    def popen(args, **kwargs):
+        calls.append(args)
+        assert args[-1] == "--"
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+
+    patches = gitx.diff_text_by_path(tmp_repo, "main", commit, requested)
+
+    assert list(patches) == requested
+    assert all("+x\n" in patch for patch in patches.values())
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("chunk_size", [1, 2, 7, 11, 64 * 1024])
+def test_patch_stream_headers_follow_lf_and_preserve_bytes(chunk_size):
+    first = b"diff --git a/one b/one\n+hello\rdiff --git a/fake b/fake\rmore\n"
+    second = b"diff --git a/two b/two\n+two\r\n"
+    data = first + second
+    chunks = (data[start : start + chunk_size] for start in range(0, len(data), chunk_size))
+
+    pieces = list(gitx._patch_stream_chunks(chunks))
+
+    assert b"".join(piece for _, piece in pieces) == data
+    assert sum(header for header, _ in pieces) == 2
+
+
+def test_streamed_patch_inventory_keeps_both_type_change_blocks():
+    deleted = b"diff --git a/kind b/kind\ndeleted file mode 100644\n-old\n"
+    added = b"diff --git a/kind b/kind\nnew file mode 120000\n+target\n"
+    kept = b"diff --git a/kept b/kept\n+kept\n"
+    omitted = b"diff --git a/omitted b/omitted\n+omitted\n"
+
+    buffers, count, expected = gitx._select_streamed_patches(
+        [("kind", "T"), ("kept", "M"), ("omitted", "A")],
+        [deleted, added, kept, omitted],
+        {"kind", "kept"},
+    )
+
+    assert buffers == {"kind": deleted + added, "kept": kept}
+    assert count == expected == 4
+
+
+def test_windows_raw_path_diff_does_not_buffer_large_excluded_line(tmp_repo, monkeypatch):
+    with (tmp_repo / "excluded.txt").open("wb") as stream:
+        for _ in range(128):
+            stream.write(b"z" * (64 * 1024))
+    git("add", "excluded.txt", cwd=tmp_repo)
+    name = b"caf\xe9.txt"
+    commit = _commit_raw_paths(tmp_repo, [name])
+    raw = name.decode("utf-8", errors="surrogateescape")
+    monkeypatch.setattr(gitx, "_WINDOWS_PATH_ARGUMENTS", True)
+    tracing = tracemalloc.is_tracing()
+    if not tracing:
+        tracemalloc.start()
+    baseline = tracemalloc.get_traced_memory()[0]
+    tracemalloc.reset_peak()
+    try:
+        patches = gitx.diff_text_by_path(tmp_repo, "main", commit, [raw])
+        peak = tracemalloc.get_traced_memory()[1] - baseline
+    finally:
+        if not tracing:
+            tracemalloc.stop()
+
+    assert list(patches) == [raw]
+    assert "+x\n" in patches[raw]
+    assert peak < 4 * 1024 * 1024
+
+
+def test_windows_streamed_diff_reports_git_failure(tmp_repo, monkeypatch):
+    monkeypatch.setattr(gitx, "_WINDOWS_PATH_ARGUMENTS", True)
+
+    with pytest.raises(gitx.GitError) as error:
+        gitx.diff_text_by_path(tmp_repo, "nonexistent-ref", "HEAD", ["caf\udce9.txt"])
+
+    assert error.value.returncode != 0
+    assert "nonexistent-ref" in error.value.stderr
 
 
 def test_crlf_patch_text_and_digests_match_main(tmp_repo):
