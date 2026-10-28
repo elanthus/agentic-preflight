@@ -46,3 +46,8 @@ automated_cleanup = true
 [approval]
 mode = "owner_review"
 reviewer = "elanthus"
+
+[hook]
+# Pull-request branches are rebased onto the fresh base at start, so updating an open
+# pull request is a history rewrite. Allow it; the hook still requires an attestation.
+allow_force_push = true
