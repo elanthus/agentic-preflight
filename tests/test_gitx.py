@@ -19,6 +19,19 @@ from tests.conftest import (
     write,
 )
 
+_NON_ASCII_PATH_CASES = [
+    pytest.param(b"snow-\xe9\x9b\xaa.txt", "snow-\u96ea.txt", id="unicode"),
+    pytest.param(
+        b"caf\xe9.txt",
+        "caf\\xe9.txt",
+        marks=pytest.mark.skipif(
+            os.name == "nt",
+            reason="Windows paths and command-line arguments use Unicode, not arbitrary bytes",
+        ),
+        id="posix-bytes",
+    ),
+]
+
 
 def _diff_text(cwd, base: str, head: str = "HEAD") -> str:
     """Return the diff between the merge base and head."""
@@ -744,9 +757,9 @@ def test_diff_text_by_path_keeps_lone_cr_inside_one_patch(tmp_repo):
     assert patches["weird.txt"].endswith("+hello\ndiff --git a/x b/x\nmore\n")
 
 
-def test_non_utf8_path_round_trips_to_git(tmp_repo):
-    # Build the commit with plumbing so filesystems that reject the name still run it.
-    name = b"caf\xe9.txt"
+@pytest.mark.parametrize(("name", "display_name"), _NON_ASCII_PATH_CASES)
+def test_non_ascii_path_round_trips_to_git(tmp_repo, name, display_name):
+    # Plumbing preserves the raw Git name; invalid UTF-8 arguments are POSIX-only.
     blob = subprocess.run(
         ["git", "hash-object", "-w", "--stdin"],
         cwd=tmp_repo,
@@ -761,7 +774,7 @@ def test_non_utf8_path_round_trips_to_git(tmp_repo):
         check=True,
     )
     tree = git("write-tree", cwd=tmp_repo)
-    commit = git("commit-tree", tree, "-p", "main", "-m", "latin1 name", cwd=tmp_repo)
+    commit = git("commit-tree", tree, "-p", "main", "-m", "non-ASCII name", cwd=tmp_repo)
     git("reset", "-q", "main", cwd=tmp_repo)
 
     raw = gitx.changed_files_raw(tmp_repo, "main", commit)
@@ -770,15 +783,16 @@ def test_non_utf8_path_round_trips_to_git(tmp_repo):
     assert [os.fsencode(path) for path in raw] == [name]
     assert "+x\n" in patches[raw[0]]
     # Everything stored, hashed, or shown uses the historical escaped spelling.
-    assert gitx.changed_files(tmp_repo, "main", commit) == ["caf\\xe9.txt"]
-    assert gitx.classified_files(tmp_repo, "main", commit) == ["caf\\xe9.txt"]
+    assert gitx.changed_files(tmp_repo, "main", commit) == [display_name]
+    assert gitx.classified_files(tmp_repo, "main", commit) == [display_name]
     bundle = diff_module.build_bundle(tmp_repo, "main", commit)
     manifest = diff_module.build_review_manifest(tmp_repo, bundle)
-    assert bundle.files == ["caf\\xe9.txt"]
-    assert json.loads(json.dumps(manifest.as_dict()))["units"][0]["path"] == "caf\\xe9.txt"
+    assert bundle.files == [display_name]
+    assert json.loads(json.dumps(manifest.as_dict()))["units"][0]["path"] == display_name
 
 
-def test_non_utf8_path_context_envelope_is_valid_json(tmp_repo):
+@pytest.mark.parametrize(("name", "display_name"), _NON_ASCII_PATH_CASES)
+def test_non_ascii_path_context_envelope_is_valid_json(tmp_repo, name, display_name):
     from tests.driver import ScriptedAgent
 
     write(
@@ -787,20 +801,20 @@ def test_non_utf8_path_context_envelope_is_valid_json(tmp_repo):
         "[review]\nexecutor = 'in_harness'\n[docs]\nenabled = false\n",
     )
     commit_all(tmp_repo, "configure in-harness review")
-    git("switch", "-c", "feature/latin1", cwd=tmp_repo)
+    git("switch", "-c", "feature/non-ascii", cwd=tmp_repo)
     try:
-        with open(os.path.join(os.fsencode(str(tmp_repo)), b"caf\xe9.txt"), "wb") as fh:
+        with open(os.path.join(os.fsencode(str(tmp_repo)), name), "wb") as fh:
             fh.write(b"x\n")
     except OSError:
-        pytest.skip("filesystem rejects non-UTF-8 file names, so no worktree can check one out")
-    commit_all(tmp_repo, "latin1 name")
+        pytest.skip("filesystem rejects this non-ASCII file name")
+    commit_all(tmp_repo, "non-ASCII name")
     agent = ScriptedAgent(tmp_repo, transport="subprocess")
     agent.run("start")
 
     # The subprocess transport json-parses the envelope from stdout.
     context = agent.run("context")
 
-    assert "caf\\xe9.txt" in context["data"]["changed_files"]
+    assert display_name in context["data"]["changed_files"]
     assert json.loads(json.dumps(context)) == context
 
 
