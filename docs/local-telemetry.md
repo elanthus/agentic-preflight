@@ -130,7 +130,7 @@ An unknown value is `null`. It is never `0`. Older run records do not have many 
 | `fix_commits`, `validation_restarts` | The number of repair commits, and the number of returns to review. |
 | `event_counts` | The number of events of each name. An event line that is not an object with a text name is not counted. The `finished`, `aborted`, and `orphaned` markers repeat `state`, and the summary events describe the summary itself. These are not counted. |
 | `terminal` | For an aborted run: `aborted_forced`, `abort_reason`, and `aborted_from_state`, the state that the run left. For an orphaned run: `orphaned_reason`. |
-| `hosted` | `last_ci_outcome`, from the last recorded hosted check, and `pr_url_recorded`. Only older records contain hosted checks or pull-request URLs. Current versions record neither, so a new run always has `null` and `false`. Do not use these fields to count pull requests. `pr_number`, `pr_state`, `merged`, `checks_conclusion`, and `fetched_at` come from `telemetry sync-hosted`. They are `null` until a sync joins the run. See [Join hosted outcomes](#join-hosted-outcomes). |
+| `hosted` | `pr_number`, `pr_state`, `merged`, `checks_conclusion`, and `fetched_at`, from `telemetry sync-hosted`. All are `null` until a sync joins the run. See [Join hosted outcomes](#join-hosted-outcomes). |
 | `worktree_mode`, `pr_mode`, `config_digest` | From the run's configuration snapshot. |
 
 ## Reasons for responses and aborts
@@ -383,19 +383,20 @@ Some values need care:
 - "Finding responses" counts the reasons of dismissed and accepted findings, for all runs and for each repository.
   The perceived false-positive share is the findings dismissed or accepted as `false_positive`, over the findings with a recorded response: `fixed`, `dismissed`, or `accepted`.
   A response without a reason can be either, so the share is a range from `value` to `max` while any response is `unspecified`.
-  Summaries written before this version have no reason counts and are left out.
+  A summary without reason counts is left out.
 - "Abort reasons" counts aborted runs by reason and by `aborted_from_state`.
 - The stages table gives the median and p90 duration of each stage. They are not computed when fewer than 5 runs have a duration for that stage.
 - The duration section gives the share of run time in the review and docs states, and in the lint and test states, for all runs and for each repository.
   The denominator is the time in every state of the runs with `complete` timing. Other runs are left out.
-- Recorded hosted outcomes come only from older runs that observed an outcome. Do not use them to count pull requests.
 - Synced hosted outcomes come from `telemetry sync-hosted`. Each of their shares counts synced runs only.
+  The Markdown section appears only when at least one run in the report was synced. `data.overall.hosted.synced` is always present.
   "Preflight green, hosted checks failed" counts the synced `DONE` runs whose checks concluded `failure`, over the synced runs with settled checks.
   A run whose checks were pending, or whose commit GitHub did not know, is left out and counted as excluded.
   The merged share counts the synced runs that have a pull request.
 - A failed hosted check is not proof of an escaped defect. The check can be flaky, or fail for a reason that is not related to the change.
 
 Every report ends with `data.limits`. The Markdown repeats them.
+The two limits about hosted checks are listed only when at least one run in the report was synced.
 
 ## Limits of the data
 
