@@ -31,6 +31,7 @@ _DECODE_ERRORS = "backslashreplace"
 # as a pathspec, so it must round-trip to the same bytes. ``surrogateescape``
 # does, and ``subprocess`` encodes arguments with the same handler on POSIX.
 _PATH_ERRORS = "surrogateescape"
+_WINDOWS_PATH_ARGUMENTS = os.name == "nt"
 
 # Resolved once per process. Handed a bare name, Windows' ``CreateProcess``
 # searches the parent's current directory before PATH (for this tool, the
@@ -731,9 +732,15 @@ def diff_text_by_path(
     """Return complete per-file patches using one Git process per bounded batch.
 
     ``paths`` and the returned keys are raw paths from :func:`changed_files_raw`.
+    Windows arguments cannot carry surrogateescaped Git names. For those names,
+    read the full diff once and select the requested raw inventory entries.
     """
+    unfiltered = _WINDOWS_PATH_ARGUMENTS and any(
+        "\udc80" <= char <= "\udcff" for path in paths for char in path
+    )
+    batches = [list(paths)] if unfiltered else _path_batches(paths)
     per_file: dict[str, str] = {}
-    for batch in _path_batches(paths):
+    for batch in batches:
         output = _run_bytes(
             cwd,
             "diff",
@@ -746,7 +753,7 @@ def diff_text_by_path(
             _NO_RENAMES,
             f"{base}...{head}",
             "--",
-            *(f":(literal){path}" for path in batch),
+            *(f":(literal){path}" for path in batch if not unfiltered),
         )
         parsed = _parse_raw_patch_output(output)
         missing = [path for path in batch if path not in parsed]

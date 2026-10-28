@@ -21,15 +21,7 @@ from tests.conftest import (
 
 _NON_ASCII_PATH_CASES = [
     pytest.param(b"snow-\xe9\x9b\xaa.txt", "snow-\u96ea.txt", id="unicode"),
-    pytest.param(
-        b"caf\xe9.txt",
-        "caf\\xe9.txt",
-        marks=pytest.mark.skipif(
-            os.name == "nt",
-            reason="Windows paths and command-line arguments use Unicode, not arbitrary bytes",
-        ),
-        id="posix-bytes",
-    ),
+    pytest.param(b"caf\xe9.txt", "caf\\xe9.txt", id="raw-git-bytes"),
 ]
 
 
@@ -757,30 +749,34 @@ def test_diff_text_by_path_keeps_lone_cr_inside_one_patch(tmp_repo):
     assert patches["weird.txt"].endswith("+hello\ndiff --git a/x b/x\nmore\n")
 
 
-@pytest.mark.parametrize(("name", "display_name"), _NON_ASCII_PATH_CASES)
-def test_non_ascii_path_round_trips_to_git(tmp_repo, name, display_name):
-    # Plumbing preserves the raw Git name; invalid UTF-8 arguments are POSIX-only.
+def _commit_raw_paths(repo, names):
     blob = subprocess.run(
         ["git", "hash-object", "-w", "--stdin"],
-        cwd=tmp_repo,
+        cwd=repo,
         input=b"x\n",
         capture_output=True,
         check=True,
     ).stdout.strip()
     subprocess.run(
         ["git", "update-index", "--index-info"],
-        cwd=tmp_repo,
-        input=b"100644 " + blob + b"\t" + name + b"\n",
+        cwd=repo,
+        input=b"".join(b"100644 " + blob + b"\t" + name + b"\n" for name in names),
         check=True,
     )
-    tree = git("write-tree", cwd=tmp_repo)
-    commit = git("commit-tree", tree, "-p", "main", "-m", "non-ASCII name", cwd=tmp_repo)
-    git("reset", "-q", "main", cwd=tmp_repo)
+    tree = git("write-tree", cwd=repo)
+    commit = git("commit-tree", tree, "-p", "main", "-m", "non-ASCII name", cwd=repo)
+    git("reset", "-q", "main", cwd=repo)
+    return commit
+
+
+@pytest.mark.parametrize(("name", "display_name"), _NON_ASCII_PATH_CASES)
+def test_non_ascii_path_round_trips_to_git(tmp_repo, name, display_name):
+    commit = _commit_raw_paths(tmp_repo, [name])
 
     raw = gitx.changed_files_raw(tmp_repo, "main", commit)
     patches = gitx.diff_text_by_path(tmp_repo, "main", commit, raw)
 
-    assert [os.fsencode(path) for path in raw] == [name]
+    assert [path.encode("utf-8", errors="surrogateescape") for path in raw] == [name]
     assert "+x\n" in patches[raw[0]]
     # Everything stored, hashed, or shown uses the historical escaped spelling.
     assert gitx.changed_files(tmp_repo, "main", commit) == [display_name]
@@ -805,7 +801,7 @@ def test_non_ascii_path_context_envelope_is_valid_json(tmp_repo, name, display_n
     try:
         with open(os.path.join(os.fsencode(str(tmp_repo)), name), "wb") as fh:
             fh.write(b"x\n")
-    except OSError:
+    except (OSError, UnicodeError):
         pytest.skip("filesystem rejects this non-ASCII file name")
     commit_all(tmp_repo, "non-ASCII name")
     agent = ScriptedAgent(tmp_repo, transport="subprocess")
@@ -816,6 +812,29 @@ def test_non_ascii_path_context_envelope_is_valid_json(tmp_repo, name, display_n
 
     assert display_name in context["data"]["changed_files"]
     assert json.loads(json.dumps(context)) == context
+
+
+def test_windows_raw_git_path_diff_selects_inventory_once(tmp_repo, monkeypatch):
+    raw_name = b"caf\xe9.txt"
+    commit = _commit_raw_paths(tmp_repo, [raw_name, b"plain.txt", b"omitted.txt"])
+    requested = [raw_name.decode("utf-8", errors="surrogateescape"), "plain.txt"]
+    monkeypatch.setattr(gitx, "_WINDOWS_PATH_ARGUMENTS", True)
+    monkeypatch.setattr(gitx, "_DIFF_PATH_BATCH_FILES", 1)
+    original = gitx._run_bytes
+    calls = []
+
+    def run_bytes(cwd, *args):
+        calls.append(args)
+        assert args[-1] == "--"
+        return original(cwd, *args)
+
+    monkeypatch.setattr(gitx, "_run_bytes", run_bytes)
+
+    patches = gitx.diff_text_by_path(tmp_repo, "main", commit, requested)
+
+    assert list(patches) == requested
+    assert all("+x\n" in patch for patch in patches.values())
+    assert len(calls) == 1
 
 
 def test_crlf_patch_text_and_digests_match_main(tmp_repo):
