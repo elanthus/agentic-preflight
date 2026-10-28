@@ -764,21 +764,21 @@ the group `unknown`. The statistics are:
 - the share of run time in the review and docs states and in the lint and test
   states, over runs with complete `timing`;
 - aborted runs by reason and by `aborted_from_state`;
-- hosted outcomes recorded, hosted outcomes synced, and orphaned reasons;
+- hosted outcomes synced by `telemetry sync-hosted`, under `hosted.synced`, and orphaned
+  reasons. The Markdown "Hosted outcomes synced" section and the two limits about hosted
+  checks appear only when at least one run was synced;
 - the counts of `review_coverage_invalidated`, `test_interrupted`, `sync_conflict`, and
   `stage_reused` events.
 
 Each ratio gives its `numerator`, `denominator`, and `denominator_label`.
 `findings.blocking.fixed_share` gives `numerator_min` and `numerator_max` instead. A null
 value is left out of a statistic. The statistic reports the runs that it left out as
-`excluded_runs`, or for each stage as `attempts_excluded_runs` and `reused_excluded_runs`,
-and for hosted values as `pr_url_excluded_runs`. A total is null, not 0, when no run in
+`excluded_runs`, or for each stage as `attempts_excluded_runs` and `reused_excluded_runs`.
+A total is null, not 0, when no run in
 the group has the value. The Markdown shows a null value as `n/a`. The median and p90
 are null when there are fewer than 5 observations. A stage's `attempts` counts its
 recorded failed attempts. A summary does not cross finding status with severity, so the
-fixed count of blocking findings is a `min` and `max` range. Recorded hosted
-outcomes are counts of values that older runs observed. Current versions record none, so do
-not use them to count pull requests. `hosted.synced` counts the outcomes that
+fixed count of blocking findings is a `min` and `max` range. `hosted.synced` counts the outcomes that
 `telemetry sync-hosted` joined: `runs` (over all runs); `green_checks_failed`, the synced
 `DONE` runs whose checks concluded `failure`, over synced runs with settled checks, with
 `checks_excluded_runs` for the pending runs and the runs whose commit GitHub did not know;

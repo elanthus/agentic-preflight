@@ -530,23 +530,9 @@ def _synced(record: Mapping[str, Any], hosted: Mapping[str, Any] | None) -> dict
     }
 
 
-def _hosted(
-    record: Mapping[str, Any],
-    events: Sequence[Mapping[str, Any]] | None,
-    hosted: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    outcome = None
-    pr_event = False
-    for event in _event_items(events):
-        name = event.get("event")
-        if name == "ci_checked":
-            outcome = _str(event.get("outcome"))
-        elif name in ("pr_opened", "pr_updated") and event.get("url"):
-            pr_event = True
-    recorded: bool | None = bool(record.get("pr_url")) or pr_event
-    if events is None and not recorded:
-        recorded = None
-    return {"last_ci_outcome": outcome, "pr_url_recorded": recorded, **_synced(record, hosted)}
+def _hosted(record: Mapping[str, Any], hosted: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """The GitHub outcome that ``telemetry sync-hosted`` joined, or nulls before a sync."""
+    return _synced(record, hosted)
 
 
 def summarize(
@@ -599,7 +585,7 @@ def summarize(
             "validation_restarts": _int(record.get("validation_restarts")),
             "event_counts": _event_counts(events),
             "terminal": _terminal(state, orphaned_reason, events),
-            "hosted": _hosted(record, events, hosted),
+            "hosted": _hosted(record, hosted),
             "worktree_mode": _str((_dict(snapshot.get("worktree")) or {}).get("mode")),
             "pr_mode": _str((_dict(snapshot.get("pr")) or {}).get("mode")),
             "config_digest": record.get("config_digest"),

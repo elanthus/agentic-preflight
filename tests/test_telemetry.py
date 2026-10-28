@@ -400,7 +400,7 @@ def test_a_schema_1_record_summarizes_with_unknown_values_left_null():
         "orphaned_reason": None,
     }
     assert list(row["stages"]) == ["lint", "test"]
-    assert row["hosted"] == {"last_ci_outcome": "merged", "pr_url_recorded": True, **NOT_SYNCED}
+    assert row["hosted"] == NOT_SYNCED
     assert row["event_counts"] == {
         "ci_checked": 2,
         "lint_finished": 1,
@@ -469,7 +469,7 @@ def test_a_schema_2_record_summarizes_reuse_review_findings_and_terminal_facts()
     }
     assert row["stages"]["lint"]["started_at"] is None
     assert row["stages"]["lint"]["duration_seconds"] is None
-    assert row["hosted"] == {"last_ci_outcome": None, "pr_url_recorded": False, **NOT_SYNCED}
+    assert row["hosted"] == NOT_SYNCED
     assert row["event_counts"] == {"stage_reused": 1, "state_transition": 2}
     assert row["worktree_mode"] == "reusable"
     assert row["pr_mode"] == "manual"
@@ -484,7 +484,7 @@ def test_unavailable_events_are_null_rather_than_zero():
 
     assert row["event_counts"] is None
     assert row["terminal"]["aborted_forced"] is None
-    assert row["hosted"] == {"last_ci_outcome": None, "pr_url_recorded": None, **NOT_SYNCED}
+    assert row["hosted"] == NOT_SYNCED
     assert row["findings"]["total"] == 0
     assert row["finished_at"] == "2026-10-11T20:10:00+00:00"
 
@@ -963,7 +963,7 @@ def test_event_lines_that_are_not_objects_are_skipped():
     assert row["event_counts"] == {"ci_checked": 1, "state_transition": 2}
     assert row["finished_at"] == "2026-10-11T20:05:00+00:00"
     assert row["terminal"]["aborted_forced"] is False
-    assert row["hosted"]["last_ci_outcome"] == "failed"
+    assert row["hosted"]["fetched_at"] is None
 
 
 def test_rebuild_summarizes_a_run_whose_event_log_has_non_object_lines(tmp_repo):

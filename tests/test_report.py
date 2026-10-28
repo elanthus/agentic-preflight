@@ -99,7 +99,7 @@ def make_row(run_id: str, **overrides: Any) -> dict[str, Any]:
         "validation_restarts": 0,
         "event_counts": {"state_transition": 4},
         "terminal": {"aborted_forced": None, "orphaned_reason": None},
-        "hosted": {"last_ci_outcome": None, "pr_url_recorded": False},
+        "hosted": {"fetched_at": None},
         "worktree_mode": "in_place",
         "pr_mode": "auto",
         "config_digest": "f" * 64,
@@ -158,7 +158,6 @@ def _mixed_rows() -> list[dict[str, Any]]:
             event_counts=None,
             duration_seconds=None,
             review=None,
-            hosted={"last_ci_outcome": "merged", "pr_url_recorded": True},
             stages={"test": _stage("skipped", attempts=None, reused=None)},
         ),
         make_row(
@@ -166,7 +165,6 @@ def _mixed_rows() -> list[dict[str, Any]]:
             repo=OTHER_REPO,
             producer=_producer("claude-code"),
             duration_seconds=400.0,
-            hosted={"last_ci_outcome": None, "pr_url_recorded": None},
         ),
     ]
 
@@ -271,15 +269,11 @@ def test_five_durations_give_a_median_and_an_interpolated_p90():
     assert duration["note"] is None
 
 
-def test_hosted_outcomes_are_recorded_counts_with_the_caveat():
+def test_recorded_hosted_outcomes_are_not_reported():
     hosted = report.aggregate(_mixed_rows())["hosted"]
 
-    assert hosted["outcomes"] == {"merged": 1}
-    assert hosted["outcome_recorded"] == report.ratio(1, 4, "runs")
-    assert hosted["pr_url_recorded"]["numerator"] == 1
-    assert hosted["pr_url_recorded"]["denominator"] == 3
-    assert hosted["pr_url_excluded_runs"] == 1
-    assert "pull-request" in hosted["note"]
+    assert set(hosted) == {"synced"}
+    assert hosted["synced"]["runs"] == report.ratio(0, 4, "runs")
 
 
 def test_orphaned_reasons_and_selected_events_are_counted():
@@ -803,6 +797,26 @@ def _markdown(rows: list[dict[str, Any]]) -> str:
     return data["markdown"]
 
 
+def test_markdown_shows_hosted_outcomes_only_when_a_run_was_synced():
+    rows = _mixed_rows()
+    assert "Hosted outcomes synced" not in _markdown(rows)
+
+    rows[0]["hosted"] = {
+        **rows[0]["hosted"],
+        "fetched_at": "2026-10-21T09:30:00+00:00",
+        "pr_number": 7,
+        "pr_state": "closed",
+        "merged": True,
+        "checks_conclusion": "success",
+    }
+    text = _markdown(rows)
+
+    assert "### Hosted outcomes synced" in text
+    assert "| Runs synced | 25.0% | 1 | runs: 4 | n/a |" in text
+    limits = text.split("### Limits\n\n", 1)[1]
+    assert limits == "".join(f"- {limit}\n" for limit in (*report.LIMITS, *report.HOSTED_LIMITS))
+
+
 def test_markdown_has_the_sections_in_order_and_ends_with_the_limits():
     text = _markdown(_mixed_rows())
 
@@ -811,8 +825,6 @@ def test_markdown_has_the_sections_in_order_and_ends_with_the_limits():
         "Agentic Preflight report",
         "Source",
         "Runs",
-        "Hosted outcomes recorded",
-        "Hosted outcomes synced",
         "Findings",
         "Finding responses",
         "Stages",
