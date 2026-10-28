@@ -971,7 +971,7 @@ def test_report_limits_name_what_a_hosted_failure_does_not_prove():
 
     assert "not proof of an escaped defect" in limits
     assert "only the runs that `telemetry sync-hosted` fetched" in limits
-    assert not any("hosted" in limit for limit in report.LIMITS)
+    assert not any(limit in report.LIMITS for limit in report.HOSTED_LIMITS)
 
 
 # -- boundaries and docs ------------------------------------------------------------
