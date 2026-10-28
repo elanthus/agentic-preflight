@@ -874,7 +874,7 @@ def diff_text_by_path(
             *(f":(literal){path}" for path in batch if not unfiltered),
         )
         if unfiltered:
-            parsed = _parse_raw_patch_output(_run_bytes(cwd, *args))
+            parsed = _streamed_diff_text_by_path(cwd, args, set(batch))
         else:
             parsed = _parse_raw_patch_output(_run_bytes(cwd, *args))
         missing = [path for path in batch if path not in parsed]

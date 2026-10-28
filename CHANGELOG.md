@@ -49,6 +49,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 - On Windows, Git history containing non-UTF-8 path bytes now produces patches without sending those bytes through Unicode command-line arguments. A single unfiltered diff is matched to the requested raw inventory entries; path display and evidence-digest encoding are unchanged.
 
+- Windows raw-path diffs now stream patch output and discard excluded patch bodies, so large excluded generated files do not inflate Python memory use before the requested review patches are returned.
+
 ### Security
 
 - In `strict` and `reusable` worktree modes, `respond --action fixed --commit` now requires a new commit on top of the reviewed head, and a `mergeback` conflict retry no longer attests an unchanged branch whose recorded fix commits never landed. A blocking finding can no longer be closed by citing a commit that review already covered.

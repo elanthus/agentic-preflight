@@ -1,1 +1,0 @@
-- Windows raw-path diffs now stream patch output and discard excluded patch bodies, so large excluded generated files do not inflate Python memory use before the requested review patches are returned.
