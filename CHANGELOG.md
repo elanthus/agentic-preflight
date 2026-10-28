@@ -5,6 +5,54 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-28
+
+### Added
+
+- A `mergeback` conflict retry on an unchanged branch whose recorded fix commits never landed now exits 4 with `fixes_not_landed` instead of repeating the same conflict.
+
+- Added a JSON Schema for the stdout envelope and for each command's `data` object under
+  `skill/reference/schema/`, generated from typed models by `tools/generate_schema.py`.
+  Payloads are unchanged; tests keep the schemas and the command reference in step.
+
+### Changed
+
+- The trusted preflight attestation check now runs in its own `pull_request_target` workflow, so a pull request can no longer rewrite the job that verifies it. Pull request CI also gains a macOS Python 3.13 test leg.
+
+- The default telemetry mirror and hook decision log now leave out every repository without a network remote, wherever it lives, not only one under the system temporary directory. A preflight run gates a push, so a repository that cannot push is a test fixture; fixtures that a harness creates under the home directory no longer bury real repositories in `agentic-preflight report`. An explicit `[telemetry] path` still records them. The reason code `temporary_repository` is now `no_network_remote`, and `mirror.temporary_runs` and `data.source.clone.temporary_runs` are now `excluded_runs`.
+
+- `telemetry rebuild`, `telemetry sync-hosted`, and `report` now ignore an individual
+  configuration key that a later release removed, such as `[hook] enabled`, with a
+  warning on stderr that names the file and the key. These commands only read derived
+  data, so a stale key in a repository file no longer keeps the user from their own
+  telemetry. Every other command still rejects the key, and every command still rejects
+  a key the tool never knew.
+
+- The `publish` command help now uses US spelling ("Summarize"). The README states the
+  problem, shows a component diagram, and links the design documents; the dogfooding case
+  study labels its one private repository and reports public-only totals. The approval
+  runbook and the compatibility removal plan moved to `docs/maintainers/`.
+
+### Fixed
+
+- A file containing a lone carriage return before a `diff --git` line no longer splits into a phantom patch that fails `context` with `internal_error`. Patch output is now split on raw line feeds; the patch text, review-unit digests, and `diff_sha256` are unchanged, so existing evidence stays valid.
+
+- Command detection skips a non-UTF-8 `Makefile`, `justfile`, or `pyproject.toml` and a `package.json` whose top level is not an object instead of failing with `internal_error`. A script or target now matches a stage only when one of its words, split at any character other than a letter or digit, is the stage name or its plural (`test:unit`, `unit-tests`) or a known tool for that stage (`pytest` and `unittest` for test; `eslint`, `ruff`, `flake8`, `pylint`, and `biome` for lint), so `latest` and `contest` are no longer offered as test commands.
+
+- A changed path that is not valid UTF-8 now round-trips to Git as the same bytes, so its patch is found instead of failing with a pathspec that matches nothing. Output, digests, and stored records still show the path with `\\xNN` escapes, as before.
+
+- A rebase that fails during base synchronization for a reason other than a conflict, such as a rejecting `pre-rebase` hook or a failing commit signer, is now reported as a non-conflict failure that includes Git's error output, and the checkout is restored to its original head. Previously it was reported as a conflict with no paths and no detail.
+
+- In `reusable` worktree mode, a run orphaned by a restart releases its runner at once only when it has no fix commits, the runner is clean, and the runner is still at the reviewed head, so the next `start` no longer fails with `needs_human` because the runner is still leased. Uncommitted or unrecorded work keeps the runner leased, and a failed release is recorded as a `runner_release_failed` event.
+
+- `start` refuses a detached HEAD or a branch with no commits with exit 3 and `no_branch`, and `push` now sends the attested head SHA to `refs/heads/<branch>` instead of `<branch>:<branch>`.
+
+### Security
+
+- In `strict` and `reusable` worktree modes, `respond --action fixed --commit` now requires a new commit on top of the reviewed head, and a `mergeback` conflict retry no longer attests an unchanged branch whose recorded fix commits never landed. A blocking finding can no longer be closed by citing a commit that review already covered.
+
+- The pre-push hook exempts only pushes whose remote destination is `refs/notes/agentic-preflight`. Pushing the notes ref onto a branch is now checked like any other branch update.
+
 ## [0.8.0] - 2026-10-22
 
 ### Upgrade highlights
