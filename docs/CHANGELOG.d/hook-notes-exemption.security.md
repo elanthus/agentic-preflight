@@ -1,1 +1,0 @@
-- The pre-push hook exempts only pushes whose remote destination is `refs/notes/agentic-preflight`. Pushing the notes ref onto a branch is now checked like any other branch update.

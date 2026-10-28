@@ -1,1 +1,0 @@
-The trusted preflight attestation check now runs in its own `pull_request_target` workflow, so a pull request can no longer rewrite the job that verifies it. Pull request CI also gains a macOS Python 3.13 test leg.

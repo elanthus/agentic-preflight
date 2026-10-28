@@ -1,1 +1,0 @@
-- A rebase that fails during base synchronization for a reason other than a conflict, such as a rejecting `pre-rebase` hook or a failing commit signer, is now reported as a non-conflict failure that includes Git's error output, and the checkout is restored to its original head. Previously it was reported as a conflict with no paths and no detail.

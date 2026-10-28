@@ -1,1 +1,0 @@
-- `start` refuses a detached HEAD or a branch with no commits with exit 3 and `no_branch`, and `push` now sends the attested head SHA to `refs/heads/<branch>` instead of `<branch>:<branch>`.
