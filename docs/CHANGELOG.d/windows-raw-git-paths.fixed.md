@@ -1,1 +1,0 @@
-- On Windows, Git history containing non-UTF-8 path bytes now produces patches without sending those bytes through Unicode command-line arguments. A single unfiltered diff is matched to the requested raw inventory entries; path display and evidence-digest encoding are unchanged.
