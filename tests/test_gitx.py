@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import subprocess
+import tracemalloc
 
 import pytest
 from click.testing import CliRunner
@@ -820,21 +821,86 @@ def test_windows_raw_git_path_diff_selects_inventory_once(tmp_repo, monkeypatch)
     requested = [raw_name.decode("utf-8", errors="surrogateescape"), "plain.txt"]
     monkeypatch.setattr(gitx, "_WINDOWS_PATH_ARGUMENTS", True)
     monkeypatch.setattr(gitx, "_DIFF_PATH_BATCH_FILES", 1)
-    original = gitx._run_bytes
+    original = subprocess.Popen
     calls = []
 
-    def run_bytes(cwd, *args):
+    def popen(args, **kwargs):
         calls.append(args)
         assert args[-1] == "--"
-        return original(cwd, *args)
+        return original(args, **kwargs)
 
-    monkeypatch.setattr(gitx, "_run_bytes", run_bytes)
+    monkeypatch.setattr(subprocess, "Popen", popen)
 
     patches = gitx.diff_text_by_path(tmp_repo, "main", commit, requested)
 
     assert list(patches) == requested
     assert all("+x\n" in patch for patch in patches.values())
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("chunk_size", [1, 2, 7, 11, 64 * 1024])
+def test_patch_stream_headers_follow_lf_and_preserve_bytes(chunk_size):
+    first = b"diff --git a/one b/one\n+hello\rdiff --git a/fake b/fake\rmore\n"
+    second = b"diff --git a/two b/two\n+two\r\n"
+    data = first + second
+    chunks = (data[start : start + chunk_size] for start in range(0, len(data), chunk_size))
+
+    pieces = list(gitx._patch_stream_chunks(chunks))
+
+    assert b"".join(piece for _, piece in pieces) == data
+    assert sum(header for header, _ in pieces) == 2
+
+
+def test_streamed_patch_inventory_keeps_both_type_change_blocks():
+    deleted = b"diff --git a/kind b/kind\ndeleted file mode 100644\n-old\n"
+    added = b"diff --git a/kind b/kind\nnew file mode 120000\n+target\n"
+    kept = b"diff --git a/kept b/kept\n+kept\n"
+    omitted = b"diff --git a/omitted b/omitted\n+omitted\n"
+
+    buffers, count, expected = gitx._select_streamed_patches(
+        [("kind", "T"), ("kept", "M"), ("omitted", "A")],
+        [deleted, added, kept, omitted],
+        {"kind", "kept"},
+    )
+
+    assert buffers == {"kind": deleted + added, "kept": kept}
+    assert count == expected == 4
+
+
+def test_windows_raw_path_diff_does_not_buffer_large_excluded_line(tmp_repo, monkeypatch):
+    with (tmp_repo / "excluded.txt").open("wb") as stream:
+        for _ in range(128):
+            stream.write(b"z" * (64 * 1024))
+    git("add", "excluded.txt", cwd=tmp_repo)
+    name = b"caf\xe9.txt"
+    commit = _commit_raw_paths(tmp_repo, [name])
+    raw = name.decode("utf-8", errors="surrogateescape")
+    monkeypatch.setattr(gitx, "_WINDOWS_PATH_ARGUMENTS", True)
+    tracing = tracemalloc.is_tracing()
+    if not tracing:
+        tracemalloc.start()
+    baseline = tracemalloc.get_traced_memory()[0]
+    tracemalloc.reset_peak()
+    try:
+        patches = gitx.diff_text_by_path(tmp_repo, "main", commit, [raw])
+        peak = tracemalloc.get_traced_memory()[1] - baseline
+    finally:
+        if not tracing:
+            tracemalloc.stop()
+
+    assert list(patches) == [raw]
+    assert "+x\n" in patches[raw]
+    assert peak < 4 * 1024 * 1024
+
+
+def test_windows_streamed_diff_reports_git_failure(tmp_repo, monkeypatch):
+    monkeypatch.setattr(gitx, "_WINDOWS_PATH_ARGUMENTS", True)
+
+    with pytest.raises(gitx.GitError) as error:
+        gitx.diff_text_by_path(tmp_repo, "nonexistent-ref", "HEAD", ["caf\udce9.txt"])
+
+    assert error.value.returncode != 0
+    assert "nonexistent-ref" in error.value.stderr
 
 
 def test_crlf_patch_text_and_digests_match_main(tmp_repo):
