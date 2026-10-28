@@ -415,8 +415,6 @@ def test_sync_writes_hosted_json_and_regenerates_summaries_and_mirror_rows(
     assert _hosted_file(github_repo, "r_0000000001")["pr"]["number"] == 4
 
     assert _summary_hosted(github_repo, "r_0000000003") == {
-        "last_ci_outcome": None,
-        "pr_url_recorded": False,
         "pr_number": 9,
         "pr_state": "open",
         "merged": False,
@@ -859,7 +857,7 @@ def _hosted_row(run_id: str, *, repo=None, state="DONE", **hosted_keys: Any) -> 
     return make_row(
         run_id,
         state=state,
-        hosted={"last_ci_outcome": None, "pr_url_recorded": False, **keys},
+        hosted=dict(keys),
         **extra,
     )
 
@@ -969,11 +967,11 @@ def test_report_markdown_shows_synced_outcomes_overall_and_per_repository():
 
 
 def test_report_limits_name_what_a_hosted_failure_does_not_prove():
-    limits = " ".join(report.LIMITS)
+    limits = " ".join(report.HOSTED_LIMITS)
 
     assert "not proof of an escaped defect" in limits
     assert "only the runs that `telemetry sync-hosted` fetched" in limits
-    assert "Recorded hosted outcomes come only from older runs" in limits
+    assert not any(limit in report.LIMITS for limit in report.HOSTED_LIMITS)
 
 
 # -- boundaries and docs ------------------------------------------------------------

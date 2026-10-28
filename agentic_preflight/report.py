@@ -64,8 +64,6 @@ LIMITS: tuple[str, ...] = (
     "Runs without a client or a model are grouped as `unknown`.",
     "A duration is the wall-clock time from run creation to the terminal commit. "
     "It includes the agent's own working time.",
-    "Recorded hosted outcomes come only from older runs that observed them. "
-    "Current versions do not record them, so those counts do not count pull requests.",
     "An orphaned run can be a replaced attempt, not a failure.",
     "A null value is unknown, not zero. "
     "Each statistic leaves out null values and reports how many runs it left out.",
@@ -76,18 +74,17 @@ LIMITS: tuple[str, ...] = (
     "with one-second granularity. They include the agent's working time and any wait for "
     "the user. "
     "Reused and skipped stages, and runs without a complete transition history, have no time.",
-    "A failed hosted check is not proof of an escaped defect. "
-    "The check can be flaky, or fail for a reason unrelated to the change.",
-    "Synced hosted outcomes count only the runs that `telemetry sync-hosted` fetched, "
-    "as GitHub reported them at the fetch time. Runs that were not synced are not in them.",
     "`git push --no-verify` skips the pre-push hook, so a bypassed push leaves no hook decision.",
     "A push that the installed hook allowed because `agentic-preflight` was not on `PATH` "
     "is not logged. Neither is a decision whose log write failed or did not finish in time.",
 )
 
-HOSTED_NOTE = (
-    "Recorded only when a run observed a hosted outcome. Current versions record none. "
-    "Do not use these counts as pull-request or CI counts."
+#: Added to the limits only when at least one run in the report was synced.
+HOSTED_LIMITS: tuple[str, ...] = (
+    "A failed hosted check is not proof of an escaped defect. "
+    "The check can be flaky, or fail for a reason unrelated to the change.",
+    "Synced hosted outcomes count only the runs that `telemetry sync-hosted` fetched, "
+    "as GitHub reported them at the fetch time. Runs that were not synced are not in them.",
 )
 SYNC_NOTE = (
     "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. "
@@ -575,7 +572,7 @@ def _finding_responses(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     response (``fixed``, ``dismissed``, or ``accepted``). A dismissal or acceptance
     without a reason could be either, so ``max`` also counts the unspecified ones,
     as the blocking-fix range does. Only runs whose summary tallies reasons are
-    counted; older summaries are excluded runs.
+    counted; the rest are excluded runs.
     """
     findings = (row.get("findings") or {} for row in rows)
     known = [
@@ -736,19 +733,8 @@ def _time_split(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 
 def _hosted(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    hosted = [row.get("hosted") or {} for row in rows]
-    outcomes = [item["last_ci_outcome"] for item in hosted if _str(item.get("last_ci_outcome"))]
-    urls = [
-        item["pr_url_recorded"] for item in hosted if isinstance(item.get("pr_url_recorded"), bool)
-    ]
-    return {
-        "outcome_recorded": ratio(len(outcomes), len(rows), "runs"),
-        "outcomes": _tally(outcomes),
-        "pr_url_recorded": ratio(sum(urls), len(urls), "runs with a pull-request URL value"),
-        "pr_url_excluded_runs": len(rows) - len(urls),
-        "note": HOSTED_NOTE,
-        "synced": _hosted_synced(rows),
-    }
+    """Hosted outcomes that ``telemetry sync-hosted`` joined."""
+    return {"synced": _hosted_synced(rows)}
 
 
 def _hosted_synced(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -912,18 +898,22 @@ def build_report(
 
     ``hook_decisions`` is the :func:`hook_decisions` section, or ``None`` to leave it out.
     """
+    overall = aggregate(rows)
     data: dict[str, Any] = {
         "format": output_format,
         "source": source,
         "filters": filters.describe(),
         "filtered_out": filtered_out,
         "rows_reported": len(rows),
-        "overall": aggregate(rows),
+        "overall": overall,
         "by_repo": by_repo(rows),
         "by_client": by_producer(rows, "client"),
         "by_model": by_producer(rows, "reported_model"),
         "hook_decisions": hook_decisions,
-        "limits": list(LIMITS),
+        "limits": [
+            *LIMITS,
+            *(HOSTED_LIMITS if overall["hosted"]["synced"]["runs"]["numerator"] else ()),
+        ],
         "markdown": None,
         "rows": list(rows) if include_rows else None,
     }
@@ -1201,7 +1191,6 @@ def _source_section(data: Mapping[str, Any]) -> list[str]:
 
 def _runs_section(metrics: Mapping[str, Any]) -> list[str]:
     states = _table(["State", "Runs"], metrics["states"].items())
-    hosted = metrics["hosted"]
     rates = [
         _rate_row("Completed (`DONE`)", metrics["completion_rate"], None),
         _rate_row(
@@ -1216,34 +1205,16 @@ def _runs_section(metrics: Mapping[str, Any]) -> list[str]:
         ),
     ]
     rate_table = _table(["Measure", "Rate", "Count", "Denominator", "Excluded runs"], rates)
-    hosted_rows = [
-        _rate_row("Hosted outcome recorded", hosted["outcome_recorded"], None),
-        _rate_row(
-            "Pull-request URL recorded", hosted["pr_url_recorded"], hosted["pr_url_excluded_runs"]
-        ),
-    ]
-    return [
-        "### Runs",
-        "",
-        *states,
-        *rate_table,
-        "### Hosted outcomes recorded",
-        "",
-        hosted["note"],
-        "",
-        *_table(["Measure", "Rate", "Count", "Denominator", "Excluded runs"], hosted_rows),
-        *(
-            _table(["Hosted outcome", "Runs"], hosted["outcomes"].items())
-            if hosted["outcomes"]
-            else []
-        ),
-    ]
+    return ["### Runs", "", *states, *rate_table]
 
 
 def _hosted_sync_section(
     metrics: Mapping[str, Any], repositories: Sequence[Mapping[str, Any]]
 ) -> list[str]:
     synced = metrics["hosted"]["synced"]
+    if not synced["runs"]["numerator"]:
+        # Nothing was synced, so every share would be n/a. The data keeps the zeros.
+        return []
     rows = [
         _rate_row("Runs synced", synced["runs"], None),
         _rate_row(
