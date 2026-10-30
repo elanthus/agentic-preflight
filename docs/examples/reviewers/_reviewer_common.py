@@ -202,7 +202,8 @@ def run_cli(argv: list[str], prompt: str) -> subprocess.CompletedProcess[str]:
     return result
 
 
-def _last_json_object(text: str) -> dict[str, Any] | None:
+def _json_objects(text: str) -> list[dict[str, Any]]:
+    """Every JSON object in ``text``, ordered by where it ends, outermost last on ties."""
     decoder = json.JSONDecoder()
     candidates: list[tuple[int, int, dict[str, Any]]] = []
     for index, char in enumerate(text):
@@ -214,23 +215,26 @@ def _last_json_object(text: str) -> dict[str, Any] | None:
             continue
         if isinstance(value, dict):
             candidates.append((index + length, -index, value))
-    return max(candidates, default=(0, 0, None))[2]
+    return [value for _, _, value in sorted(candidates, key=lambda item: item[:2])]
+
+
+def _last_json_object(text: str) -> dict[str, Any] | None:
+    objects = _json_objects(text)
+    return objects[-1] if objects else None
 
 
 def extract_findings(*outputs: str) -> list[Any]:
-    """Use the last model object, including one wrapped by Claude's JSON envelope."""
-    candidate = next(
-        (
-            parsed
-            for output in reversed(outputs)
-            if (parsed := _last_json_object(output)) is not None
-        ),
-        None,
-    )
-    if candidate is not None and isinstance(candidate.get("result"), str):
-        candidate = _last_json_object(candidate["result"])
-    if candidate is not None and isinstance(candidate.get("findings"), list):
-        return candidate["findings"]
+    """Use the last model object, including one wrapped by Claude's JSON envelope.
+
+    Streamed CLI output can end with events after the model's answer, such as Claude
+    Code's ``task_summary``, so walk back to the last object that carries findings.
+    """
+    for output in reversed(outputs):
+        for candidate in reversed(_json_objects(output)):
+            if isinstance(candidate.get("result"), str):
+                candidate = _last_json_object(candidate["result"]) or {}
+            if isinstance(candidate.get("findings"), list):
+                return candidate["findings"]
     raise ReviewerError("reviewer CLI returned no JSON object containing findings")
 
 

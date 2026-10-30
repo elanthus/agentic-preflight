@@ -119,6 +119,24 @@ def test_shared_reviewer_contract_values_match_the_product_protocol():
     assert contract["ACTIONS"] == tuple(member.value for member in FindingAction)
 
 
+def test_findings_are_extracted_before_trailing_stream_events():
+    # Claude Code 2.1.292 emits system events after the `result` event in stream-json.
+    common = runpy.run_path(EXAMPLES / "reviewers" / "_reviewer_common.py")
+    stream = "\n".join(
+        json.dumps(event)
+        for event in [
+            {"type": "system", "subtype": "init"},
+            {"type": "result", "subtype": "success", "result": '{"findings":[{"title":"x"}]}'},
+            {"type": "system", "subtype": "post_turn_summary"},
+            {"type": "system", "subtype": "task_summary", "detail": None},
+        ]
+    )
+
+    assert common["extract_findings"](stream) == [{"title": "x"}]
+    with pytest.raises(common["ReviewerError"]):
+        common["extract_findings"](json.dumps({"type": "system", "subtype": "task_summary"}))
+
+
 @pytest.mark.parametrize("reviewer", ["codex", "claude"])
 def test_native_wrapper_returns_a_code_bound_contract_plan(tmp_path, monkeypatch, reviewer):
     fake = install_fake(tmp_path / "bin" / reviewer)
