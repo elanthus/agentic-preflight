@@ -137,6 +137,28 @@ def test_findings_are_extracted_before_trailing_stream_events():
         common["extract_findings"](json.dumps({"type": "system", "subtype": "task_summary"}))
 
 
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"type": "result", "subtype": "error_max_turns", "is_error": True, "result": ""},
+        {"type": "result", "subtype": "success", "result": "no structured answer"},
+    ],
+)
+def test_a_failed_result_envelope_never_falls_back_to_an_earlier_findings_object(result):
+    common = runpy.run_path(EXAMPLES / "reviewers" / "_reviewer_common.py")
+    stream = "\n".join(
+        json.dumps(event)
+        for event in [
+            {"type": "user", "echo": {"findings": []}},
+            result,
+            {"type": "system", "subtype": "task_summary", "detail": None},
+        ]
+    )
+
+    with pytest.raises(common["ReviewerError"]):
+        common["extract_findings"](stream)
+
+
 @pytest.mark.parametrize("reviewer", ["codex", "claude"])
 def test_native_wrapper_returns_a_code_bound_contract_plan(tmp_path, monkeypatch, reviewer):
     fake = install_fake(tmp_path / "bin" / reviewer)

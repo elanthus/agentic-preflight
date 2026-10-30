@@ -226,15 +226,19 @@ def _last_json_object(text: str) -> dict[str, Any] | None:
 def extract_findings(*outputs: str) -> list[Any]:
     """Use the last model object, including one wrapped by Claude's JSON envelope.
 
-    Streamed CLI output can end with events after the model's answer, such as Claude
-    Code's ``task_summary``, so walk back to the last object that carries findings.
+    Claude Code's stream can end with system events such as ``task_summary`` after the
+    ``result`` envelope, so the last ``result`` envelope wins over any later object. It is
+    the only candidate: an error result fails rather than falling back to an earlier one.
     """
-    for output in reversed(outputs):
-        for candidate in reversed(_json_objects(output)):
-            if isinstance(candidate.get("result"), str):
-                candidate = _last_json_object(candidate["result"]) or {}
-            if isinstance(candidate.get("findings"), list):
-                return candidate["findings"]
+    objects = next((found for output in reversed(outputs) if (found := _json_objects(output))), [])
+    envelopes = [found for found in objects if found.get("type") == "result"]
+    candidate = envelopes[-1] if envelopes else (objects[-1] if objects else None)
+    if candidate is not None and candidate.get("type") == "result" and candidate.get("is_error"):
+        raise ReviewerError(f"reviewer CLI reported an error result: {candidate.get('subtype')}")
+    if candidate is not None and isinstance(candidate.get("result"), str):
+        candidate = _last_json_object(candidate["result"])
+    if candidate is not None and isinstance(candidate.get("findings"), list):
+        return candidate["findings"]
     raise ReviewerError("reviewer CLI returned no JSON object containing findings")
 
 
