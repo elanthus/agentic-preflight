@@ -44,6 +44,11 @@ This repository uses Agentic Preflight on its own changes.
 Install it as described in [docs/installation.md](docs/installation.md).
 Run `agentic-preflight init` in your clone to install the pre-push hook. The command keeps the committed configuration.
 Complete a run before you push.
+The committed configuration reviews every run with an independent Claude Code reviewer.
+`agentic-preflight review run` starts the example wrapper with `uv run`, and the wrapper calls the `claude` CLI with `claude-opus-5-5` at low effort.
+Install [Claude Code](https://docs.claude.com/en/docs/claude-code/setup) and sign in to an account that can use that model.
+Each review uses that account's quota: a Claude subscription's usage limits, or API billing when `ANTHROPIC_API_KEY` is set.
+See [Independent review and agreement](docs/independent-review.md) for the wrapper and its environment variables.
 The push publishes the attestation with your branch.
 The `trusted preflight attestation` CI job verifies the attestation on the pull-request head.
 See [Portable attestations and CI enforcement](docs/attestations-and-ci.md#required-github-check).

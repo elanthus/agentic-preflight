@@ -14,7 +14,7 @@ timeout_seconds = 660
 # Every run is reviewed by a separate Claude Code CLI session, not the coding agent's own
 # in-harness review. Each `review run` is one paid model invocation.
 executor = "command"
-command = "env AP_REVIEWER_MODEL=claude-opus-5-5 AP_REVIEWER_EFFORT=low python3 -B docs/examples/reviewers/claude_review.py"
+command = "env AP_REVIEWER_MODEL=claude-opus-5-5 AP_REVIEWER_EFFORT=low uv run python -B docs/examples/reviewers/claude_review.py"
 
 [docs]
 enabled = true
