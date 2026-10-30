@@ -202,7 +202,8 @@ def run_cli(argv: list[str], prompt: str) -> subprocess.CompletedProcess[str]:
     return result
 
 
-def _last_json_object(text: str) -> dict[str, Any] | None:
+def _json_objects(text: str) -> list[dict[str, Any]]:
+    """Every JSON object in ``text``, ordered by where it ends, outermost last on ties."""
     decoder = json.JSONDecoder()
     candidates: list[tuple[int, int, dict[str, Any]]] = []
     for index, char in enumerate(text):
@@ -214,19 +215,26 @@ def _last_json_object(text: str) -> dict[str, Any] | None:
             continue
         if isinstance(value, dict):
             candidates.append((index + length, -index, value))
-    return max(candidates, default=(0, 0, None))[2]
+    return [value for _, _, value in sorted(candidates, key=lambda item: item[:2])]
+
+
+def _last_json_object(text: str) -> dict[str, Any] | None:
+    objects = _json_objects(text)
+    return objects[-1] if objects else None
 
 
 def extract_findings(*outputs: str) -> list[Any]:
-    """Use the last model object, including one wrapped by Claude's JSON envelope."""
-    candidate = next(
-        (
-            parsed
-            for output in reversed(outputs)
-            if (parsed := _last_json_object(output)) is not None
-        ),
-        None,
-    )
+    """Use the last model object, including one wrapped by Claude's JSON envelope.
+
+    Claude Code's stream can end with system events such as ``task_summary`` after the
+    ``result`` envelope, so the last ``result`` envelope wins over any later object. It is
+    the only candidate: an error result fails rather than falling back to an earlier one.
+    """
+    objects = next((found for output in reversed(outputs) if (found := _json_objects(output))), [])
+    envelopes = [found for found in objects if found.get("type") == "result"]
+    candidate = envelopes[-1] if envelopes else (objects[-1] if objects else None)
+    if candidate is not None and candidate.get("type") == "result" and candidate.get("is_error"):
+        raise ReviewerError(f"reviewer CLI reported an error result: {candidate.get('subtype')}")
     if candidate is not None and isinstance(candidate.get("result"), str):
         candidate = _last_json_object(candidate["result"])
     if candidate is not None and isinstance(candidate.get("findings"), list):

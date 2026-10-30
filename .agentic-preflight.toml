@@ -5,6 +5,17 @@ base_ref = "main"
 test = "uv run pytest"
 lint = "uv run ruff check . && uv run mypy agentic_preflight"
 
+[stage]
+# The Claude reviewer wrapper times out after 600 seconds; leave it time to report its own
+# timeout cleanly. This limit also bounds the lint and test stages.
+timeout_seconds = 660
+
+[review]
+# Every run is reviewed by a separate Claude Code CLI session, not the coding agent's own
+# in-harness review. Each `review run` is one paid model invocation.
+executor = "command"
+command = "env AP_REVIEWER_MODEL=claude-opus-5-5 AP_REVIEWER_EFFORT=low uv run python -B docs/examples/reviewers/claude_review.py"
+
 [docs]
 enabled = true
 
