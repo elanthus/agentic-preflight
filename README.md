@@ -22,6 +22,10 @@ independent codebases: a green result stayed valid after an input that shaped it
 Green evidence must bind every decision-making input, including code, configuration,
 intent, model, and prompts. The study also describes the limits of its evidence.
 
+As of 10/30/26, across three public repositories, [442 of 665 merged pull requests
+record Preflight use, with 110 containing concrete finding records](docs/dogfooding-case-study.md#public-snapshot-as-of-103026).
+These are one owner's PR records, not a measure of external adoption or distinct defects fixed.
+
 ![The hook blocks a push. Review finds an unguarded division. A verified fix passes the gate, which shows the publication target.](https://raw.githubusercontent.com/elanthus/agentic-preflight/daba4f3e7b9652ac9bf59c125f6e9ba9d2f50d91/demo.gif)
 
 ## The problem

@@ -1,12 +1,52 @@
 # Case study: sustained dogfooding across four repositories
 
-Two observation windows cover August 3–17 and August 18–September 6, 2026.
-They contain 408 merged PRs across the same four repositories, all operated by one owner.
-Of these PRs, 323 descriptions explicitly record Preflight use.
-Of the merged PR descriptions, 64 contain a concrete finding record.
-The three public repositories alone account for 305 merged PRs, 234 with recorded use, and 42 with a concrete finding record; anyone can verify those.
-These combined snapshot counts do not measure external adoption or distinct defects fixed.
-The original snapshot follows, with the later evidence and its limits.
+As of 10/30/26, across three public repositories, **442 of 665 merged pull requests**
+record Preflight use, and **110** contain concrete finding records.
+This fresh snapshot covers PRs created from August 3, 2026, through collection on October 30.
+All three repositories are operated by one owner; these counts do not measure external adoption or distinct defects fixed.
+The [dated public evidence ledger](evals/2026-10-30-dogfooding-public.json) preserves PR identities, timestamps, description hashes, classifications, and selected excerpts.
+
+## Public snapshot as of 10/30/26
+
+| Repository | PRs opened | PRs merged | Merged PRs recording use | Merged PRs with a concrete finding record |
+|---|---:|---:|---:|---:|
+| [`agentic-preflight`](https://github.com/elanthus/agentic-preflight/pulls) | 225 | 211 | 180 | 51 |
+| [`news-briefing`](https://github.com/elanthus/news-briefing/pulls) | 252 | 251 | 137 | 30 |
+| [`OSWorldTasks`](https://github.com/elanthus/OSWorldTasks/pulls) | 204 | 203 | 125 | 29 |
+| **Public total** | **681** | **665** | **442** | **110** |
+
+The continuous interval is `2026-08-03T00:00:00Z` through `2026-10-30T22:58:34Z` (3:58 p.m. Pacific), inclusive.
+PRs count by creation time and count as merged only when `mergedAt` is no later than the cutoff.
+Collection used the date-bounded command below; every response contained fewer than 1,000 records.
+
+```bash
+gh pr list --repo OWNER/REPOSITORY --state all \
+  --search 'created:2026-08-03..2026-10-30' --limit 1000 \
+  --json number,title,createdAt,mergedAt,closedAt,body,url
+```
+
+Classification follows the positive-evidence criteria described below, with contextual review of candidate excerpts.
+A detailed finding identifier and severity, a Preflight heading, an explicit review/stage outcome, or a run-specific attestation reference records use.
+Adjacent command/result lines and validation-list entries are read together.
+Concrete finding records require a detailed finding record or an issue explicitly attributed to Preflight.
+Feature and configuration descriptions, hypothetical examples, and evidence attributed only to another PR are excluded.
+For example, [`news-briefing` #26](https://github.com/elanthus/news-briefing/pull/26) only describes ignoring configuration, and
+[`OSWorldTasks` #127](https://github.com/elanthus/OSWorldTasks/pull/127) attributes its review to source PRs; neither counts as recorded use.
+[`OSWorldTasks` #209](https://github.com/elanthus/OSWorldTasks/pull/209) explicitly attributes two high-severity issues to Preflight and counts as one PR with a finding record.
+
+This is a fresh reading of descriptions available at collection, not an addition to the older totals.
+It includes the previously unsampled portion of August 17 and PRs from earlier windows that merged later.
+Descriptions can change, and the three queries ran sequentially rather than as an atomic GitHub snapshot.
+Missing description evidence does not establish non-use; recorded use does not establish that every workflow stage finished.
+Finding records include documentation observations and intentional no-op dispositions, and can repeat the same issue across PRs.
+They do not establish review quality, independent discovery, distinct defects fixed, or prevented incidents.
+The private repository was not recollected. The historical four-repository tables and ledgers below remain unchanged.
+
+## Historical scope
+
+Two earlier observation windows cover August 3–17 and August 18–September 6, 2026.
+Together they contain 408 merged PRs across four repositories, with 323 descriptions recording use and 64 containing concrete finding records.
+Their public-only totals were 305 merged PRs, 234 with recorded use, and 42 with concrete finding records.
 
 From August 3 through August 17, 2026, the owner used Agentic Preflight to publish work across four repositories, three public and one private:
 
