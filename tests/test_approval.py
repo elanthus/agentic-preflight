@@ -707,7 +707,7 @@ def test_approval_check_carries_across_a_rebase_with_fetched_evidence(
 ):
     from agentic_preflight import refresh_validation
 
-    monkeypatch.setattr(refresh_validation, "verify_evidence", lambda *_: None)
+    monkeypatch.setattr(refresh_validation, "verify_evidence", lambda *_, **__: None)
     approved, base = _approved_branch(tmp_repo)
     git("rebase", "main", cwd=tmp_repo)
     head = git("rev-parse", "HEAD", cwd=tmp_repo)

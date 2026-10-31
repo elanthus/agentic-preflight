@@ -421,3 +421,18 @@ A reader of these envelopes that matched the old names must use the new ones. No
 The normalized form of a relative local remote, for example an `origin` of `fixtures/bare.git`, is now `./fixtures/bare` instead of `fixtures/bare`, in `repo.remote` of summaries and hook decision lines written from now on. Git reads such a value as a path, and the prefix keeps its first segment from passing for a host.
 The summary schema 1, the hook decision lines, run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 No fingerprint, evidence digest, configuration digest, or attestation reads these keys.
+
+## Unreleased: attestation verification reads the protected base
+
+`verify SHA`, `approval-check`, `push`, and the pre-push hook no longer take policy or the merge base from the note.
+They recompute the merge base against the trusted base, which is `--base` when given and otherwise the note's `base_ref` resolved to `refs/remotes/origin/<branch>` or `refs/heads/<branch>`.
+The note's `merge_base_sha` must be the only merge base of that base and the head. A mismatch fails with the new `data.reason` `base_mismatch`.
+Policy comes from the `.agentic-preflight.toml` committed at the trusted base. The user configuration and the branch's own edits no longer relax it.
+A note that skips docs the base enables, or whose lint, test, or command-review command differs from one the base configures, is now rejected.
+So is a note that excludes review files the base does not exclude.
+A branch that changes those settings fails verification until a human merges it.
+A docs stage that is green while the base disables docs now passes. Earlier verifiers rejected it.
+
+`verify` gains the optional `--base REV`. The hosted workflows pass the pull request's base SHA.
+Attestation schema 7, fingerprint version 2, and the evidence and configuration digests are unchanged.
+Notes that an earlier release wrote stay readable, and they verify when they satisfy the protected base policy.

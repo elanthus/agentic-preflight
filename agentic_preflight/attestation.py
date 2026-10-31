@@ -10,6 +10,7 @@ from typing import Literal
 from pydantic import ValidationError
 
 from . import gitx
+from .config import committed_config, snapshot_config
 from .digests import sha256_text
 from .fingerprints import intent_digest
 from .models import Attestation, AttestedStage, RunDoc, Stage
@@ -33,6 +34,11 @@ def recovery(reason: str) -> str:
         )
     if reason == "verifier_mismatch":
         return "Install and run the helper from the original protected event-base checkout."
+    if reason == "base_mismatch":
+        return (
+            "Synchronize the branch with its protected base and rerun validation, or pass "
+            "the protected base the change will merge into with --base."
+        )
     if reason == "stale_candidate":
         return "Run the check for the current PR event; never substitute its head into this event."
     if reason in {"git_failure", "git_timeout", "io_failure"}:
@@ -127,7 +133,9 @@ def build(
     )
     for item in value.evidence.values():
         item.verify_origin()
-    verify_evidence(run.worktree_path, value)
+    # Building checks the evidence is internally consistent. The protected base
+    # policy applies when a verifier reads the note (see ``verify_value``).
+    verify_evidence(run.worktree_path, value, policy=snapshot_config(run.config_snapshot))
     return value
 
 
@@ -148,9 +156,17 @@ def read(repo: Path | str, sha: str) -> Attestation | None:
 
 
 def verify(
-    repo: Path | str, sha: str, *, purpose: Literal["local", "publish"] = "local"
+    repo: Path | str,
+    sha: str,
+    *,
+    purpose: Literal["local", "publish"] = "local",
+    base: str | None = None,
 ) -> Attestation:
-    """Verify the attestation noted on a commit for local or publish use."""
+    """Verify the attestation noted on a commit for local or publish use.
+
+    ``base`` is the protected revision the change merges into. Without it, the
+    verifier resolves the note's ``base_ref`` to a local branch.
+    """
     if purpose not in {"local", "publish"}:
         raise InvalidAttestation("unknown verification purpose")
     resolved = gitx.rev_parse(repo, sha)
@@ -160,13 +176,55 @@ def verify(
             f"commit {resolved} has no agentic-preflight attestation in {NOTES_REF}",
             reason="missing_note",
         )
-    return verify_value(repo, value, resolved, purpose=purpose)
+    return verify_value(repo, value, resolved, purpose=purpose, base=base)
+
+
+def _base_candidates(base_ref: str) -> list[str]:
+    """Full ref names a note's ``base_ref`` may name, preferring the synchronized remote."""
+    if base_ref.startswith("refs/"):
+        return [base_ref]
+    branch = base_ref.removeprefix("origin/")
+    return [f"refs/remotes/origin/{branch}", f"refs/heads/{branch}"]
+
+
+def trusted_base(repo: Path | str, value: Attestation, base: str | None) -> str:
+    """Resolve the commit that the merge base and the policy are taken from."""
+    if base is not None:
+        return gitx.rev_parse(repo, base)
+    for ref in _base_candidates(value.base_ref):
+        # A full ref name that passes check-ref-format cannot carry revision
+        # syntax such as ``~1``, so the note can only name a real branch.
+        if gitx.run(repo, "check-ref-format", ref, check=False).returncode:
+            continue
+        found = gitx.run(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", check=False)
+        if found.returncode == 0:
+            return found.stdout.strip()
+    raise InvalidAttestation(
+        f"attestation base {value.base_ref!r} does not name a local branch",
+        reason="base_mismatch",
+    )
+
+
+def verify_merge_base(repo: Path | str, value: Attestation, base_sha: str) -> None:
+    """Require the note's merge base to be the unique merge base of ``base_sha`` and the head."""
+    found = gitx.out(repo, "merge-base", "--all", base_sha, value.sha).split()
+    if found != [value.merge_base_sha]:
+        raise InvalidAttestation(
+            f"attestation merge base {value.merge_base_sha} is not the unique merge base "
+            f"of {base_sha} and {value.sha}",
+            reason="base_mismatch",
+        )
 
 
 def verify_value(
-    repo: Path | str, value: Attestation, resolved: str, *, purpose: Literal["local", "publish"]
+    repo: Path | str,
+    value: Attestation,
+    resolved: str,
+    *,
+    purpose: Literal["local", "publish"],
+    base: str | None = None,
 ) -> Attestation:
-    """Validate an already decoded note, including notes retrieved through GitHub."""
+    """Validate an already decoded note against the policy of a trusted base."""
     if purpose not in {"local", "publish"}:
         raise InvalidAttestation("unknown verification purpose")
     if value.outcome != "verified":
@@ -182,12 +240,18 @@ def verify_value(
             f"attestation tree {value.tree_sha} does not match commit tree {actual_tree}",
             reason="tree_mismatch",
         )
-    from .refresh_validation import verify_evidence
+    from .refresh_validation import verify_evidence, verify_policy_bindings
 
     try:
+        base_sha = trusted_base(repo, value, base)
+        verify_merge_base(repo, value, base_sha)
+        policy = committed_config(repo, base_sha)
         for item in value.evidence.values():
             item.verify_origin()
-        verify_evidence(repo, value)
+        verify_evidence(repo, value, policy=policy)
+        verify_policy_bindings(value, policy)
+    except InvalidAttestation:
+        raise
     except gitx.GitError as exc:
         raise InvalidAttestation(
             f"Git evidence validation failed with exit {exc.returncode}", reason="git_failure"

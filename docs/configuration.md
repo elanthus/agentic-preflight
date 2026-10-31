@@ -20,6 +20,13 @@ The configuration models enforce the same mode, severity, risk-level, approval-e
 Python callers can use `Config(...)` or `Config.model_validate(...)` without a separate validation step.
 A file-loading error identifies the affected section and key and the file that supplied it, after section-wise layering.
 
+Runs use the layered configuration, but attestation verification does not.
+`verify`, `approval-check`, `push`, and the pre-push hook read the `.agentic-preflight.toml` committed at the protected base.
+They ignore the user file and the branch's own edits.
+A base commit with no such file uses the defaults.
+Thus, a user setting or a branch edit that relaxes `[docs]`, `[commands]`, `[review]`, `[policy]`, or `[diff] exclude` produces a note that verification rejects.
+See [what verification trusts](limits.md#attestations-are-not-signatures).
+
 > **Warning: the configuration executes committed code.**
 > During a run, `[worktree] setup_command` runs at `start`.
 > Every `[commands]` entry runs at its lint or test stage.

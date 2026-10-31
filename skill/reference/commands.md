@@ -312,7 +312,7 @@ All-or-nothing — one bad finding rejects the batch.
   note-only disposition preserves the green state. A fix that changes the reviewed
   snapshot records the repair commit and returns the run to review before lint or test.
 
-### `agentic-preflight verify [SHA] [--purpose local|publish]`
+### `agentic-preflight verify [SHA] [--purpose local|publish] [--base REV]`
 Without an argument, confirms nothing blocks the active review/docs stage and advances
 it to green. Exits 2 listing the outstanding blocking set if anything remains.
 
@@ -323,8 +323,19 @@ a fresh clone, together with the head and `refs/agentic-preflight/evidence/*`
 from the contributor remote. Schema v7 requires an explicit `verified` outcome,
 complete local stage evidence, and the full configuration snapshot. It
 verifies original execution digests, Git and configuration bindings, stage applicability,
-finding dispositions, and original/current review-unit accounting. A missing note, a
-note with any other schema, or invalid evidence exits 2. This remains an offline check;
+finding dispositions, and original/current review-unit accounting.
+
+`--base REV` names the protected revision the change merges into; hosted callers pass
+the pull request's base SHA. Without it, the verifier resolves the note's `base_ref` to
+`refs/remotes/origin/<branch>`, then `refs/heads/<branch>`. The note's `merge_base_sha`
+must be the only merge base of that base and the head, or verification fails with
+`data.reason` `base_mismatch`. Policy comes from the `.agentic-preflight.toml` committed
+at that base, not from the note's configuration snapshot: docs must be green when the
+base enables them, green lint and test commands and a command review must match the
+commands the base configures, review exclusions must be excluded by the base's
+`[diff] exclude`, and the review executor must meet the base's executor policy. A
+missing note, a note with any other schema, or invalid evidence exits 2. This remains an
+offline check;
 it does not execute stages or
 fetch evidence. The retained `--purpose` option accepts `local` or `publish`; both
 require complete local validation. Pending-test notes are rejected.

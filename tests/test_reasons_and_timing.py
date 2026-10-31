@@ -19,8 +19,8 @@ from agentic_preflight.envelope import ExitCode
 from agentic_preflight.errors import InvalidResponse
 from agentic_preflight.models import ABORT_REASONS, RESPONSE_REASONS, Finding, StageRecord
 from agentic_preflight.runs import _session
-from tests.conftest import commit_all, git, write
-from tests.driver import ScriptedAgent, findings_json, green_run
+from tests.conftest import configure_base, git
+from tests.driver import PROTECTED_CONFIG, ScriptedAgent, findings_json, green_run
 from tests.test_telemetry import _findings, _identity, _schema_2_record
 
 BLOCKING = [
@@ -342,12 +342,7 @@ def test_response_reasons_never_reach_stage_evidence_or_the_note(
 ):
     from agentic_preflight.models import OriginalExecution
 
-    write(
-        feature_repo,
-        ".agentic-preflight.toml",
-        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n",
-    )
-    commit_all(feature_repo, "configure agentic-preflight")
+    configure_base(feature_repo, PROTECTED_CONFIG)
     agent = ScriptedAgent(feature_repo)
     run_id = agent.run("start")["run_id"]
     agent.run("context")
