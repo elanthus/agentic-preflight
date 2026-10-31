@@ -190,7 +190,14 @@ def _base_candidates(base_ref: str) -> list[str]:
 def trusted_base(repo: Path | str, value: Attestation, base: str | None) -> str:
     """Resolve the commit that the merge base and the policy are taken from."""
     if base is not None:
-        return gitx.rev_parse(repo, base)
+        given = gitx.run(
+            repo, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}", check=False
+        )
+        if given.returncode:
+            raise InvalidAttestation(
+                f"protected base {base!r} does not name a commit", reason="base_mismatch"
+            )
+        return given.stdout.strip()
     for ref in _base_candidates(value.base_ref):
         # A full ref name that passes check-ref-format cannot carry revision
         # syntax such as ``~1``, so the note can only name a real branch.
@@ -207,7 +214,13 @@ def trusted_base(repo: Path | str, value: Attestation, base: str | None) -> str:
 
 def verify_merge_base(repo: Path | str, value: Attestation, base_sha: str) -> None:
     """Require the note's merge base to be the unique merge base of ``base_sha`` and the head."""
-    found = gitx.out(repo, "merge-base", "--all", base_sha, value.sha).split()
+    # Exit 1 with no output means unrelated histories, which is a mismatch, not a Git failure.
+    result = gitx.run(repo, "merge-base", "--all", base_sha, value.sha, check=False)
+    if result.returncode not in (0, 1):
+        raise gitx.GitError(
+            ["merge-base", "--all", base_sha, value.sha], result.returncode, result.stderr
+        )
+    found = result.stdout.split()
     if found != [value.merge_base_sha]:
         raise InvalidAttestation(
             f"attestation merge base {value.merge_base_sha} is not the unique merge base "

@@ -106,3 +106,22 @@ def test_without_base_the_note_names_the_branch_that_judges_it(feature_repo, tmp
     assert attestation.trusted_base(feature_repo, value, "main") == git(
         "rev-parse", "main", cwd=feature_repo
     )
+
+
+@pytest.mark.parametrize("kind", ["unrelated", "tree", "missing"])
+def test_a_protected_base_that_cannot_hold_the_head_is_a_base_mismatch(
+    feature_repo, tmp_path, kind
+):
+    green_run(feature_repo, tmp_path)
+    sha = git("rev-parse", "HEAD", cwd=feature_repo)
+    if kind == "unrelated":
+        tree = git("rev-parse", "HEAD^{tree}", cwd=feature_repo)
+        base = git("commit-tree", tree, "-m", "unrelated root", cwd=feature_repo)
+    elif kind == "tree":
+        base = git("rev-parse", "main^{tree}", cwd=feature_repo)
+    else:
+        base = "no-such-branch"
+
+    with pytest.raises(attestation.InvalidAttestation) as caught:
+        attestation.verify(feature_repo, sha, base=base)
+    assert caught.value.reason == "base_mismatch"
