@@ -94,3 +94,15 @@ def test_verify_accepts_a_protected_base_that_advanced_past_the_merge_base(featu
     env = ScriptedAgent(feature_repo).run("verify", sha, "--base", base)
 
     assert env["data"]["verified"] is True
+
+
+def test_without_base_the_note_names_the_branch_that_judges_it(feature_repo, tmp_path):
+    # Documented limit: push and the hook pass no --base, so the note picks the branch.
+    green_run(feature_repo, tmp_path)
+    sha = git("rev-parse", "HEAD", cwd=feature_repo)
+    value = attestation.read(feature_repo, sha).model_copy(update={"base_ref": "feature/x"})
+
+    assert attestation.trusted_base(feature_repo, value, None) == sha
+    assert attestation.trusted_base(feature_repo, value, "main") == git(
+        "rev-parse", "main", cwd=feature_repo
+    )

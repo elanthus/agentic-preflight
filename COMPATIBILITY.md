@@ -426,6 +426,7 @@ No fingerprint, evidence digest, configuration digest, or attestation reads thes
 
 `verify SHA`, `approval-check`, `push`, and the pre-push hook no longer take policy or the merge base from the note.
 They recompute the merge base against the trusted base, which is `--base` when given and otherwise the note's `base_ref` resolved to `refs/remotes/origin/<branch>` or `refs/heads/<branch>`.
+Only `--base` makes that base independent of the note. `push` and the pre-push hook pass none, so a forged note there can name a branch whose policy is weaker.
 The note's `merge_base_sha` must be the only merge base of that base and the head. A mismatch fails with the new `data.reason` `base_mismatch`.
 Policy comes from the `.agentic-preflight.toml` committed at the trusted base. The user configuration and the branch's own edits no longer relax it.
 A note that skips docs the base enables, or whose lint, test, or command-review command differs from one the base configures, is now rejected.

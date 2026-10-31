@@ -108,7 +108,7 @@ The note's `merge_base_sha` must be the only merge base of that base and the hea
 Policy comes from the `.agentic-preflight.toml` committed at the trusted base.
 The note's configuration snapshot records what ran. It does not decide what was required.
 
-Thus, a branch cannot relax the policy that judges it.
+Thus, with a trusted base, a branch cannot relax the policy that judges it.
 It cannot skip docs that the base enables, or replace a configured lint, test, or review command.
 It cannot exclude review files that the base includes, or avoid a command review that the base requires.
 A run can do more than the base requires. For example, it can run docs that the base disables.
@@ -116,6 +116,8 @@ A run can do more than the base requires. For example, it can run docs that the 
 These checks narrow what a forged note can claim. They do not authenticate the note.
 A writer of the notes ref can still record stage results that never ran, if those results satisfy the base policy.
 Without `--base`, the note also chooses which existing branch it names as its base.
+`push` and the pre-push hook verify without `--base`, so a forged note can name the pushed branch itself, or any branch it can create, and be judged by that branch's policy.
+Only a caller that passes the protected base, as the hosted workflows do, closes that gap.
 
 ## A branch that changes the policy fails verification until it merges
 
