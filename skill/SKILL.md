@@ -283,8 +283,10 @@ Publish the gaps in the same breath: a bypassed hook, a stage that could not run
 SHA with no green run. An attestation that can only report success is marketing, and a
 partial record that reads as complete is worse than none.
 
-State the limit plainly when you show it: this proves what the stages *reported*, including
-that every delivered unit was cited or marked examined clean; it does not prove the agent
+State the limit plainly when you show it: this is an unsigned record of what the stages
+*reported*, including that every delivered unit was cited or marked examined clean. `verify`
+checks it against the commit, a recomputed merge base, and the protected base policy, but
+anyone who can write the notes ref can forge it. It does not prove the agent
 understood those units or that the review was good. The same diff reviewed twice can
 yield different findings. It is an audit trail, not a quality proof, and it substitutes
 for neither CI nor a human reviewer.

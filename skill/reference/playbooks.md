@@ -94,8 +94,9 @@ Do not edit the base, rerun to get a different note, or push with `--no-verify`.
 branch changes `.agentic-preflight.toml` on purpose, tell the user that a human must push
 and merge that change; later branches are verified under the new policy. Otherwise,
 revert the branch's policy change or drop the override, and start a new run. A
-`base_mismatch` reason means the branch is not synchronized with its base: run `start`
-again.
+`base_mismatch` reason means the protected base cannot judge the head. Check that any
+`--base` names the branch the change merges into; otherwise the branch is not
+synchronized with its base, so run `start` again.
 
 ## Stale head (exit 3, `stale_run`)
 

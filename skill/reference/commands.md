@@ -329,7 +329,8 @@ finding dispositions, and original/current review-unit accounting.
 the pull request's base SHA. Without it, the verifier resolves the note's `base_ref` to
 `refs/remotes/origin/<branch>`, then `refs/heads/<branch>`. The note's `merge_base_sha`
 must be the only merge base of that base and the head, or verification fails with
-`data.reason` `base_mismatch`. Policy comes from the `.agentic-preflight.toml` committed
+`data.reason` `base_mismatch`. A `--base` that does not name a commit, or that shares no
+history with the head, fails the same way. Policy comes from the `.agentic-preflight.toml` committed
 at that base, not from the note's configuration snapshot: docs must be green when the
 base enables them, green lint and test commands and a command review must match the
 commands the base configures, review exclusions must be excluded by the base's

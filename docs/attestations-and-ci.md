@@ -161,7 +161,7 @@ Evidence failures keep exit code 2, `attestation_failed`, a structured `data.rea
 A missing note requires publication to the selected remote.
 An unsupported schema requires a matching producer and verifier.
 Invalid evidence or wrong commit or tree bindings require valid evidence for the exact commit.
-A `base_mismatch` requires a branch synchronized with its protected base and a fresh run.
+A `base_mismatch` means the protected base cannot judge the head. Check that `--base` names the branch the change merges into; otherwise synchronize the branch with its protected base and start a fresh run.
 Investigate transport failures as Git access or permission problems.
 Print the verification envelope and preserve its exit status before you read the approval outputs.
 Run the workflow again after you correct the cause.
