@@ -22,6 +22,9 @@ def test_attestation_uses_dedicated_intent_and_config_bindings(feature_repo, tmp
 def test_start_rechecks_refresh_evidence_when_attested_head_contains_fresh_base(
     feature_repo, tmp_path
 ):
+    # A second branch commit lets the base advance onto part of the attested head.
+    write(feature_repo, "src/extra.py", "EXTRA = 1\n")
+    commit_all(feature_repo, "add extra")
     agent = green_run(feature_repo, tmp_path)
     head = git("rev-parse", "HEAD", cwd=feature_repo)
     agent.run("abort", "--force")

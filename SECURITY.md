@@ -30,5 +30,8 @@ You will receive an acknowledgement within seven days.
 After validation, the maintainer coordinates remediation and disclosure with you.
 
 Agentic Preflight is an advisory pre-push check. It is not a security boundary.
-The documented limits are the `--no-verify` bypass, the fail-open behavior when the tool is missing or its configuration cannot be loaded, and manual mode.
+The documented limits are the `--no-verify` bypass, the fail-open behavior when the tool is missing or its configuration cannot be loaded, manual mode, and unsigned attestations.
+Attestations are unsigned Git notes. Anyone with permission to update `refs/notes/agentic-preflight` can write a note that claims stages passed.
+`verify` takes its merge base and its policy from the protected base, not from the note, so such a note must still satisfy the committed base policy.
+See [the limits guide](docs/limits.md#attestations-are-not-signatures).
 A report that demonstrates a bypass beyond these limits is especially useful.

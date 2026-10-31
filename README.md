@@ -254,8 +254,9 @@ describes local development.
 - The push-confirmation token is not a secret.
   It prevents an accidental tool-driven push.
   It does not stop an agent with shell access from a direct Git invocation.
-- An attestation proves what the configured stages reported.
-  It does not prove that the reviewer understood the change.
+- An attestation is an unsigned record of what the stages reported.
+  `verify` checks it against the commit, a recomputed merge base, and the policy committed on the protected base.
+  It cannot prove that a stage ran, that the reviewer understood the change, or who wrote the note.
   It does not replace hosted CI or human review.
 - Git notes can change.
   Anyone with permission to update the notes ref can replace an attestation.

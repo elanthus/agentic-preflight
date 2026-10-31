@@ -101,6 +101,32 @@ Protect the notes ref on the remote if the forge supports ref-level policy.
 Treat `verify` as enforcement that a structurally valid, commit-bound record exists.
 It is not proof that the agent's review judgment was good.
 
+`verify` does not take its merge base or its policy from the note.
+The trusted base is the `--base` revision when the caller passes one, as both hosted workflows do.
+Otherwise it is the note's `base_ref`, resolved to `refs/remotes/origin/<branch>` or `refs/heads/<branch>`.
+The note's `merge_base_sha` must be the only merge base of that base and the head.
+Policy comes from the `.agentic-preflight.toml` committed at the trusted base.
+The note's configuration snapshot records what ran. It does not decide what was required.
+
+Thus, with a trusted base, a branch cannot relax the policy that judges it.
+It cannot skip docs that the base enables, or replace a configured lint, test, or review command.
+It cannot exclude review files that the base includes, or avoid a command review that the base requires.
+A run can do more than the base requires. For example, it can run docs that the base disables.
+
+These checks narrow what a forged note can claim. They do not authenticate the note.
+A writer of the notes ref can still record stage results that never ran, if those results satisfy the base policy.
+Without `--base`, the note also chooses which existing branch it names as its base.
+`push` and the pre-push hook verify without `--base`, so a forged note can name the pushed branch itself, or any branch it can create, and be judged by that branch's policy.
+Only a caller that passes the protected base, as the hosted workflows do, closes that gap.
+
+## A branch that changes the policy fails verification until it merges
+
+A branch can change a configured command, turn off docs, or widen `[diff] exclude` in `.agentic-preflight.toml`.
+Its run then attests results that the protected base policy rejects.
+The local hook blocks the push, and the hosted attestation check fails.
+A human pushes such a change and merges it after review.
+Later branches are verified under the new policy.
+
 Cryptographic unforgeability requires a signing authority whose key and execution path the evaluated agent cannot reach.
 An agent-accessible key around the current note would add steps without a security boundary.
 [Issue #25](https://github.com/elanthus/agentic-preflight/issues/25) proposed a signed ledger.

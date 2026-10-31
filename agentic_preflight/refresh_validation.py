@@ -217,28 +217,58 @@ def _verify_current_stage(
 
 
 def _verify_executor_policy(value: Attestation, cfg: Config, assessment) -> None:
-    """Require the review executor selected by the current policy."""
-    executor = (
+    """Require the review executor and command that the protected policy selects.
+
+    A command review satisfies a policy that would accept an in-harness review,
+    but a configured command must match the attested one exactly.
+    """
+    required = (
         "command"
         if assessment.level.value in cfg.review.require_command_for
         else cfg.review.executor
     )
-    if value.stages[Stage.REVIEW].executor != executor:
-        raise ValueError("review execution does not meet current executor policy")
-    if executor == "command" and value.stages[Stage.REVIEW].command != cfg.review.command:
-        raise ValueError("review command does not meet current executor policy")
+    review = value.stages[Stage.REVIEW]
+    if required == "command" and review.executor != "command":
+        raise ValueError("review execution does not meet the protected executor policy")
+    if review.executor == "command" and cfg.review.command and review.command != cfg.review.command:
+        raise ValueError("review command does not match the protected policy")
 
 
-def verify_evidence(repo: Path | str, value: Attestation) -> None:
-    """Verify a refresh attestation's per-stage evidence."""
+def verify_policy_bindings(value: Attestation, cfg: Config) -> None:
+    """Require shell commands and review exclusions permitted by the protected policy.
+
+    Building a note skips this check, so an explicit ``--command`` override still
+    produces a note. A verifier then rejects that note when the protected policy
+    configures a different command.
+    """
+    for stage in (Stage.LINT, Stage.TEST):
+        configured = getattr(cfg.commands, stage.value)
+        result = value.stages[stage]
+        if configured and result.status == "green" and result.command != configured:
+            raise ValueError(f"{stage.value} command does not match the protected policy")
+    coverage = value.stages[Stage.REVIEW].coverage
+    excluded = coverage.excluded_files if coverage is not None else []
+    if any(not diff.is_excluded(path, cfg.diff.exclude) for path in excluded):
+        raise ValueError("review excluded files that the protected policy does not exclude")
+
+
+def verify_evidence(repo: Path | str, value: Attestation, *, policy: Config) -> None:
+    """Verify a refresh attestation's per-stage evidence against ``policy``.
+
+    The note's own ``config_snapshot`` records what ran, and the fingerprint
+    checks bind to it. ``policy`` decides what was required. A verifier passes
+    the committed configuration of a trusted base, so a branch cannot relax the
+    policy that judges it.
+    """
     if value.evidence is None or value.config_snapshot is None:
         raise ValueError("refresh attestation lacks per-stage evidence or configuration")
-    cfg = snapshot_config(value.config_snapshot)
+    snapshot_config(value.config_snapshot)
+    cfg = policy
     if value.stages[Stage.LINT].status != "green":
         raise ValueError("lint evidence must be green")
-    if (value.stages[Stage.DOCS].status == "skipped") == cfg.docs.enabled:
-        raise ValueError("docs outcome does not match the enabled policy")
-    # The attestation supplies its base, so nothing guarantees a single merge base.
+    if cfg.docs.enabled and value.stages[Stage.DOCS].status == "skipped":
+        raise ValueError("docs stage was skipped, but the protected policy enables it")
+    # The caller recomputed merge_base_sha from a trusted base before this point.
     changed_files = gitx.classified_files(repo, value.merge_base_sha, value.sha)
     if value.stages[Stage.TEST].status == "skipped":
         from .stages import docs as docsstage

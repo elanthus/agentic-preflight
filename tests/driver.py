@@ -115,16 +115,18 @@ def findings_json(tmp_path: Path, items: list) -> str:
     return str(path)
 
 
-def green_run(repo: Path, tmp_path: Path) -> ScriptedAgent:
-    """Drive a full run to a green attestation note."""
-    from tests.conftest import commit_all, write
+PROTECTED_CONFIG = "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
 
-    write(
-        repo,
-        ".agentic-preflight.toml",
-        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n",
-    )
-    commit_all(repo, "configure agentic-preflight")
+
+def green_run(repo: Path, tmp_path: Path) -> ScriptedAgent:
+    """Drive a full run to a green attestation note.
+
+    The configuration is committed on ``main`` because verification reads policy
+    from the protected base, not from the branch under test.
+    """
+    from tests.conftest import configure_base
+
+    configure_base(repo, PROTECTED_CONFIG)
     agent = ScriptedAgent(repo)
     agent.run("start")
     agent.run("context")

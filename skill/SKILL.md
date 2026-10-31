@@ -196,6 +196,7 @@ to summarize the user's run history.
 | Stage red after max attempts (exit 4) | Stop retrying; show a stage log, or abort if baseline setup never produced one |
 | Validation restarted too many times (exit 4, `max_restarts`) | Stop repairing; show `status` and wait for the user. Never abort and restart on your own to reset the counter |
 | Hosted attestation fetch or verification failure | Inspect source fetch failures; read the offline verifier reason and restore exact-head evidence |
+| Push rejects the note against the protected base policy (exit 2, `attestation_failed`) | Stop; a branch cannot relax or replace the base's commands, docs, or exclusions. Tell the user a human must push and merge that policy change |
 | Hosted CI failed | Inspect the failure; unchanged-source CI reruns preserve local evidence, while source repairs revalidate affected stages |
 | Stale head (exit 3, `stale_run`) | Run `start` again; it preserves the old run as `ORPHANED` |
 | Base synchronization failed at start (exit 4, `sync_conflict` or `sync_failed`) | Print the whole `data` object; the user resolves the listed conflicts, moves or removes listed local files, or fixes the remote, then `abort --force` and `start` again |
@@ -282,8 +283,10 @@ Publish the gaps in the same breath: a bypassed hook, a stage that could not run
 SHA with no green run. An attestation that can only report success is marketing, and a
 partial record that reads as complete is worse than none.
 
-State the limit plainly when you show it: this proves what the stages *reported*, including
-that every delivered unit was cited or marked examined clean; it does not prove the agent
+State the limit plainly when you show it: this is an unsigned record of what the stages
+*reported*, including that every delivered unit was cited or marked examined clean. `verify`
+checks it against the commit, a recomputed merge base, and the protected base policy, but
+anyone who can write the notes ref can forge it. It does not prove the agent
 understood those units or that the review was good. The same diff reviewed twice can
 yield different findings. It is an audit trail, not a quality proof, and it substitutes
 for neither CI nor a human reviewer.
