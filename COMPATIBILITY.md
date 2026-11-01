@@ -421,3 +421,12 @@ A reader of these envelopes that matched the old names must use the new ones. No
 The normalized form of a relative local remote, for example an `origin` of `fixtures/bare.git`, is now `./fixtures/bare` instead of `fixtures/bare`, in `repo.remote` of summaries and hook decision lines written from now on. Git reads such a value as a path, and the prefix keeps its first segment from passing for a host.
 The summary schema 1, the hook decision lines, run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 No fingerprint, evidence digest, configuration digest, or attestation reads these keys.
+
+## Unreleased: documentation inventory lists committed files
+
+The documentation inventory now lists only files committed at the head commit.
+Ignored, generated, and untracked files that match a documentation pattern, such as a Sphinx `docs/_build/` tree or a nested worktree under `.claude/worktrees/`, no longer appear in `doc_surface`, in the docs allowlist, or in the docs fingerprint.
+A docs finding against such a file is now rejected as outside the allowlist.
+In a repository with such files, `doc_surface_sha256` changes, so docs evidence recorded before the upgrade does not carry to a new head and the docs stage runs again.
+In a repository without them, the inventory and its digest are unchanged.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.

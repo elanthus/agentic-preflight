@@ -265,6 +265,12 @@ A dismissal or a later changes-requested review on any head revokes the approval
 An edit or replacement of a self-review with other text also removes its approval.
 Bots and other reviewers cannot satisfy this mode.
 
+The self-approval proves only that the reviewer's account posted it.
+An agent that runs with the reviewer's `gh` login or token can post the `approved` Comment review itself.
+Only the agent instructions keep it from doing so.
+If the approval must come from a person the agent cannot impersonate, use `peer_review`, or use `environment` with **Prevent self-review** enabled.
+See [Approval checks cannot tell a person from an agent](limits.md#approval-checks-cannot-tell-a-person-from-an-agent).
+
 In both review modes, an approval of an earlier head carries to a new head only when the branch content is unchanged.
 The trusted checker decides this from Git objects, not from attestation notes.
 Both heads must change the same paths against the base, with the same `git patch-id --stable` identity.
@@ -288,6 +294,8 @@ The new mode applies to subsequent pull requests after the merge.
 
 The docs stage inspects `README*`, `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING*`, `CHANGELOG*`, and `docs/**`.
 It also inspects agent instructions under `.claude/rules/**` and `.github/instructions/**`, plus `PRODUCT.md` and `DESIGN.md`.
+It lists only files committed at the head commit.
+Ignored, generated, and untracked files are not on the surface, even when they match a pattern.
 
 Use `[docs] paths` for repository-specific documentation surfaces.
 The surface is an allowlist.
@@ -451,7 +459,9 @@ Require Code Owner reviews for the protected paths.
 The job evaluates trusted base code.
 Its behavior depends on `[approval] mode`.
 It records the manual-merge requirement, waits for the configured Environment, or requires an eligible approval.
-An eligible approval comes from a non-bot, non-author reviewer of the current head or of an earlier head with identical branch content.
+An eligible approval comes from a non-bot reviewer of the current head or of an earlier head with identical branch content.
+In `peer_review`, that reviewer is not the pull-request author.
+In `owner_review`, it is the configured `reviewer`, who can be the author.
 
 ## Removed CI test authority
 

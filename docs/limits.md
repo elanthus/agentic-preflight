@@ -105,3 +105,24 @@ Cryptographic unforgeability requires a signing authority whose key and executio
 An agent-accessible key around the current note would add steps without a security boundary.
 [Issue #25](https://github.com/elanthus/agentic-preflight/issues/25) proposed a signed ledger.
 It was closed as not planned on 2026-09-07. Attestations stay unsigned.
+
+## Approval checks cannot tell a person from an agent
+
+The hosted approval check counts a GitHub review or an Environment approval by the account that submitted it.
+GitHub cannot tell whether a person or a program with their credentials submitted it.
+An agent that runs with the approving account's `gh` login or token can satisfy the check itself.
+
+`[approval] mode = "owner_review"` is the most exposed mode.
+On their own pull request, the configured reviewer approves with a Comment review whose body is exactly `approved`.
+An agent often runs with the owner's credentials and opens the pull request as the owner.
+That agent can post the `approved` Comment review, and the check counts it as the owner's approval.
+The only control is the instruction in the skill and in the repository's agent instructions that tells the agent never to submit it.
+An `environment` approval by the same account has the same limit.
+
+If the approval must come from a person the agent cannot impersonate, keep the approving account's credentials away from the agent:
+
+- Use `mode = "peer_review"`. A person other than the pull-request author must approve.
+- Use `mode = "environment"` with **Prevent self-review** enabled on the Environment. The account that triggered the run cannot approve it.
+- Run the agent under its own GitHub account, so that it opens pull requests as that account and never holds the reviewer's token. The reviewer then submits an **Approve** review on another author's pull request.
+
+Each choice protects the approval only while the agent cannot reach the approving account's credentials.

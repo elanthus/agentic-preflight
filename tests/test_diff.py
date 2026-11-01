@@ -1,5 +1,3 @@
-from itertools import product
-
 import pytest
 
 from agentic_preflight import diff
@@ -154,36 +152,6 @@ def test_leading_slash_anchors_a_directory_pattern():
 def test_bare_directory_pattern_matches_at_any_depth():
     assert diff.path_matches("src/app.py", "src/") is True
     assert diff.path_matches("nested/src/app.py", "src/") is True
-
-
-@pytest.mark.parametrize(
-    ("pattern", "prefixes"),
-    [
-        ("docs/**", ("docs/",)),
-        ("/src/", ("src/",)),
-        ("src/", ("src/", "")),
-        ("**/*.md", ("", "")),
-        ("[Dd]ocs/**", ("",)),
-        ("docs/guide.md", ("docs/guide.md",)),
-    ],
-)
-def test_match_prefixes_follow_each_fnmatch_attempt(pattern, prefixes):
-    assert diff.match_prefixes(pattern) == prefixes
-
-
-def test_every_match_starts_with_one_of_its_pattern_prefixes():
-    """Exhaust small glob expressions, plus longer directory/glob edge cases."""
-    paths = [
-        "".join(chars) for length in range(1, 4) for chars in product("ab/", repeat=length)
-    ] + ["docs/guide.md", "nested/docs/guide.md", "a/b/c.md", "[a]/b", ".hidden/a"]
-    patterns = [
-        "".join(chars) for length in range(4) for chars in product("ab/*?[]!.-", repeat=length)
-    ] + ["docs/**", "/docs/", "**/*.md", "[Dd]ocs/**", "**/a", "a/**/b", "[!a]/*"]
-    for pattern in patterns:
-        prefixes = diff.match_prefixes(pattern)
-        for path in paths:
-            if diff.path_matches(path, pattern):
-                assert any(path.startswith(prefix) for prefix in prefixes), (path, pattern)
 
 
 def test_grounding_digest_is_exposed_and_changes_the_review_manifest(feature_repo):

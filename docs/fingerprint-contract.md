@@ -48,7 +48,7 @@ Configuration and documentation-surface digests hash JSON with sorted keys and c
 
 Docs binds the base and head trees, the intent, the grounding, the documentation content, and the `[general]`, `[docs]`, `[diff]`, `[context]`, and `[policy]` sections.
 Its digest includes every inventory entry's complete bytes, path, existence, size, and whether the diff touches it.
-A same-length edit to an ignored document invalidates the evidence.
+The inventory lists only files committed at the head commit, so an ignored or untracked document does not enter the digest.
 Changed docs between context and submission require fresh context.
 
 An unrelated user-level test-command change leaves the review configuration unchanged.
