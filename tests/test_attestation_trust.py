@@ -96,6 +96,21 @@ def test_verify_accepts_a_protected_base_that_advanced_past_the_merge_base(featu
     assert env["data"]["verified"] is True
 
 
+@pytest.mark.parametrize("ref", ["refs/tags/old-policy", "refs/notes/old-policy"])
+def test_a_note_base_ref_cannot_name_a_ref_outside_the_branches(feature_repo, tmp_path, ref):
+    green_run(feature_repo, tmp_path)
+    sha = git("rev-parse", "HEAD", cwd=feature_repo)
+    git("update-ref", ref, "main", cwd=feature_repo)
+    value = attestation.read(feature_repo, sha)
+
+    with pytest.raises(attestation.InvalidAttestation) as caught:
+        attestation.trusted_base(feature_repo, value.model_copy(update={"base_ref": ref}), None)
+    assert caught.value.reason == "base_mismatch"
+    main = git("rev-parse", "main", cwd=feature_repo)
+    branch = value.model_copy(update={"base_ref": "refs/heads/main"})
+    assert attestation.trusted_base(feature_repo, branch, None) == main
+
+
 def test_without_base_the_note_names_the_branch_that_judges_it(feature_repo, tmp_path):
     # Documented limit: push and the hook pass no --base, so the note picks the branch.
     green_run(feature_repo, tmp_path)

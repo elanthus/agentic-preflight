@@ -24,7 +24,9 @@ Runs use the layered configuration, but attestation verification does not.
 `verify`, `approval-check`, `push`, and the pre-push hook read the `.agentic-preflight.toml` committed at the protected base.
 They ignore the user file and the branch's own edits.
 A base commit with no such file uses the defaults.
-Thus, a user setting or a branch edit that relaxes `[docs]`, `[commands]`, `[review]`, `[policy]`, or `[diff] exclude` produces a note that verification rejects.
+Thus, the base policy decides what verification and the hosted approval check require, whatever the user file or the branch sets.
+A relaxed setting fails verification only when the run's evidence falls short of the base policy.
+For example, verification rejects a note whose run skipped docs that the base enables, ran a lint, test, or review command other than the one the base configures, or excluded review files that the base does not exclude.
 See [what verification trusts](limits.md#attestations-are-not-signatures).
 
 > **Warning: the configuration executes committed code.**

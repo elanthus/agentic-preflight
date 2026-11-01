@@ -104,6 +104,7 @@ It is not proof that the agent's review judgment was good.
 `verify` does not take its merge base or its policy from the note.
 The trusted base is the `--base` revision when the caller passes one, as both hosted workflows do.
 Otherwise it is the note's `base_ref`, resolved to `refs/remotes/origin/<branch>` or `refs/heads/<branch>`.
+A fully qualified `base_ref` must already be under one of those namespaces. A tag fails with `base_mismatch`.
 The note's `merge_base_sha` must be the only merge base of that base and the head.
 Policy comes from the `.agentic-preflight.toml` committed at the trusted base.
 The note's configuration snapshot records what ran. It does not decide what was required.

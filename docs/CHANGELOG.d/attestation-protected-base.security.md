@@ -5,6 +5,9 @@
   configured lint, test, or review command, widen review exclusions, or lower the review
   executor for itself. `push` and the pre-push hook have no `--base`, so they trust the
   branch the note names; a forged note can still name a branch with a weaker policy there.
+- Without `--base`, a note's fully qualified `base_ref` must name a branch under
+  `refs/heads/` or `refs/remotes/origin/`. A tag or another ref namespace fails with
+  `base_mismatch`, so a note cannot pin the policy of an old tag.
 - Verification recomputes the merge base against the trusted base instead of trusting the
   note's `merge_base_sha`, and rejects a mismatch or an ambiguous merge base with the new
   `base_mismatch` reason. `verify` gains `--base REV`, and the hosted attestation workflow

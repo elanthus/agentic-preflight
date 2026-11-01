@@ -182,7 +182,11 @@ def verify(
 def _base_candidates(base_ref: str) -> list[str]:
     """Full ref names a note's ``base_ref`` may name, preferring the synchronized remote."""
     if base_ref.startswith("refs/"):
-        return [base_ref]
+        # A tag or another namespace could pin an older, weaker policy, so a full
+        # ref name must name a branch.
+        if base_ref.startswith(("refs/heads/", "refs/remotes/origin/")):
+            return [base_ref]
+        return []
     branch = base_ref.removeprefix("origin/")
     return [f"refs/remotes/origin/{branch}", f"refs/heads/{branch}"]
 

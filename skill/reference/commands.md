@@ -327,7 +327,8 @@ finding dispositions, and original/current review-unit accounting.
 
 `--base REV` names the protected revision the change merges into; hosted callers pass
 the pull request's base SHA. Without it, the verifier resolves the note's `base_ref` to
-`refs/remotes/origin/<branch>`, then `refs/heads/<branch>`. The note's `merge_base_sha`
+`refs/remotes/origin/<branch>`, then `refs/heads/<branch>`; a fully qualified `base_ref`
+must already be under one of those namespaces. The note's `merge_base_sha`
 must be the only merge base of that base and the head, or verification fails with
 `data.reason` `base_mismatch`. A `--base` that does not name a commit, or that shares no
 history with the head, fails the same way. Policy comes from the `.agentic-preflight.toml` committed
