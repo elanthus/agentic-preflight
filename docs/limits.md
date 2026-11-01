@@ -34,6 +34,15 @@ They do not sandbox repository commands.
 They do not stop a shell-capable agent that ignores its installed skill, reads repository content as instructions, or invokes Git directly.
 Agentic Preflight stays advisory. It is not a security boundary.
 
+### Committed symlinks on the documentation surface
+
+The documentation inventory follows a committed symlink that matches a documentation pattern.
+The symlink is on the surface when its target is a file, even a file outside the repository.
+Its `size` and the docs fingerprint come from the target's bytes.
+A docs finding can name the symlink, and an agent that edits that path writes to the target.
+Grounding, by contrast, reads only regular files from the head commit and skips symlinks.
+Review a committed symlink under a documentation path before you run the docs stage on it.
+
 ## History rewrites require evidence refresh
 
 The attestation note is bound to an exact SHA.

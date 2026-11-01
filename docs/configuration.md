@@ -296,6 +296,7 @@ The docs stage inspects `README*`, `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING*`, `C
 It also inspects agent instructions under `.claude/rules/**` and `.github/instructions/**`, plus `PRODUCT.md` and `DESIGN.md`.
 It lists only files committed at the head commit.
 Ignored, generated, and untracked files are not on the surface, even when they match a pattern.
+A committed symlink is on the surface when its target is a file, even outside the repository. See [Committed symlinks on the documentation surface](limits.md#committed-symlinks-on-the-documentation-surface).
 
 Use `[docs] paths` for repository-specific documentation surfaces.
 The surface is an allowlist.
