@@ -5,6 +5,7 @@ import json
 import pytest
 
 from agentic_preflight import attestation
+from agentic_preflight.envelope import ExitCode
 from tests.conftest import commit_all, configure_base, git, write
 from tests.driver import PROTECTED_CONFIG, ScriptedAgent, findings_json, green_run
 
@@ -109,6 +110,18 @@ def test_a_note_base_ref_cannot_name_a_ref_outside_the_branches(feature_repo, tm
     main = git("rev-parse", "main", cwd=feature_repo)
     branch = value.model_copy(update={"base_ref": "refs/heads/main"})
     assert attestation.trusted_base(feature_repo, branch, None) == main
+
+
+@pytest.mark.parametrize("base_ref", ["refs/tags/v1", "refs/remotes/upstream/main", "main~1"])
+def test_start_refuses_a_base_that_verification_cannot_resolve(feature_repo, base_ref):
+    # Each ref names a real commit, so only its form makes start refuse it.
+    git("update-ref", "refs/tags/v1", "main", cwd=feature_repo)
+    git("update-ref", "refs/remotes/upstream/main", "main", cwd=feature_repo)
+    agent = ScriptedAgent(feature_repo)
+
+    env = agent.run("start", "--base-ref", base_ref, expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "unsupported_base_ref"
+    assert agent.run("status")["data"]["has_run"] is False
 
 
 def test_without_base_the_note_names_the_branch_that_judges_it(feature_repo, tmp_path):

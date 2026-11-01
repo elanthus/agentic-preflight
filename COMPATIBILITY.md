@@ -435,5 +435,6 @@ A branch that changes those settings fails verification until a human merges it.
 A docs stage that is green while the base disables docs now passes. Earlier verifiers rejected it.
 
 `verify` gains the optional `--base REV`. The hosted workflows pass the pull request's base SHA.
+`start` now refuses, with exit 3 and the new error code `unsupported_base_ref`, a `--base-ref` or `[general] base_ref` that is not a branch name, `origin/<branch>`, `refs/heads/<branch>`, or `refs/remotes/origin/<branch>`. Earlier releases started such a run. `push` and the pre-push hook now could not verify its note, so `start` stops it before any stage runs.
 Attestation schema 7, fingerprint version 2, and the evidence and configuration digests are unchanged.
 Notes that an earlier release wrote stay readable, and they verify when they satisfy the protected base policy.

@@ -8,6 +8,10 @@
 - Without `--base`, a note's fully qualified `base_ref` must name a branch under
   `refs/heads/` or `refs/remotes/origin/`. A tag or another ref namespace fails with
   `base_mismatch`, so a note cannot pin the policy of an old tag.
+- `start` refuses a base that verification without `--base` cannot resolve to a branch,
+  such as a tag, `refs/remotes/upstream/main`, or `main~1`, with exit 3 and
+  `unsupported_base_ref` before any stage runs, because `push` and the pre-push hook
+  could not verify a note that names it.
 - Verification recomputes the merge base against the trusted base instead of trusting the
   note's `merge_base_sha`, and rejects a mismatch or an ambiguous merge base with the new
   `base_mismatch` reason. `verify` gains `--base REV`, and the hosted attestation workflow
