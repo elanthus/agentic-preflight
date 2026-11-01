@@ -410,6 +410,9 @@ The submission must include the current coverage manifest and `examined = "all"`
 Direct `submit-findings` is refused for those runs.
 If command review is in effect but `command` is unset, the CLI stops with `data.mode = "needs_command"`.
 It never guesses a reviewer.
+Verification compares the attested review command only with a `command` committed at the protected base.
+When the base requires command review but sets no `command`, a note from any review command passes, as lint and test commands do when the base sets none.
+Commit `command` to control which reviewer satisfies the requirement.
 
 Command review uses `[stage] timeout_seconds` and `max_attempts`.
 Attempts persist across process restarts.

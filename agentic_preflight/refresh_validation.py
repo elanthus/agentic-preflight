@@ -220,7 +220,8 @@ def _verify_executor_policy(value: Attestation, cfg: Config, assessment) -> None
     """Require the review executor and command that the protected policy selects.
 
     A command review satisfies a policy that would accept an in-harness review,
-    but a configured command must match the attested one exactly.
+    but a configured command must match the attested one exactly. A base that
+    requires command review without naming a command accepts any command.
     """
     required = (
         "command"

@@ -1,11 +1,15 @@
 """Verification takes its merge base and policy from a trusted base, not from the note."""
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
 from agentic_preflight import attestation
+from agentic_preflight.config import Config
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.models import Stage
+from agentic_preflight.refresh_validation import _verify_executor_policy
 from tests.conftest import commit_all, configure_base, git, write
 from tests.driver import PROTECTED_CONFIG, ScriptedAgent, findings_json, green_run
 
@@ -84,6 +88,28 @@ def test_attested_commands_must_match_the_protected_policy(feature_repo, tmp_pat
 
     with pytest.raises(attestation.InvalidAttestation, match="lint command does not match"):
         attestation.verify(feature_repo, sha)
+
+
+@pytest.mark.parametrize(("configured", "accepted"), [(None, True), ("base-reviewer", False)])
+def test_a_required_command_review_checks_the_command_only_when_the_base_names_one(
+    feature_repo, tmp_path, configured, accepted
+):
+    green_run(feature_repo, tmp_path)
+    value = attestation.read(feature_repo, git("rev-parse", "HEAD", cwd=feature_repo))
+    review = value.stages[Stage.REVIEW].model_copy(
+        update={"executor": "command", "command": "branch-reviewer"}
+    )
+    value = value.model_copy(update={"stages": {**value.stages, Stage.REVIEW: review}})
+    policy = Config.model_validate(
+        {"review": {"require_command_for": ["high"], "command": configured}}
+    )
+    high = SimpleNamespace(level=SimpleNamespace(value="high"))
+
+    if accepted:
+        _verify_executor_policy(value, policy, high)
+    else:
+        with pytest.raises(ValueError, match="review command does not match"):
+            _verify_executor_policy(value, policy, high)
 
 
 def test_verify_accepts_a_protected_base_that_advanced_past_the_merge_base(feature_repo, tmp_path):
