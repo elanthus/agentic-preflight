@@ -191,20 +191,17 @@ def _base_candidates(base_ref: str) -> list[str]:
     return [f"refs/remotes/origin/{branch}", f"refs/heads/{branch}"]
 
 
-def _base_refs(repo: Path | str, base_ref: str) -> list[str]:
-    """Well-formed branch refs that ``base_ref`` may resolve to without ``--base``."""
-    # A full ref name that passes check-ref-format cannot carry revision
-    # syntax such as ``~1``, so the note can only name a real branch.
-    return [
-        ref
-        for ref in _base_candidates(base_ref)
-        if gitx.run(repo, "check-ref-format", ref, check=False).returncode == 0
-    ]
-
-
-def supports_base_ref(repo: Path | str, base_ref: str) -> bool:
-    """Whether verification without ``--base`` can resolve ``base_ref`` to a branch."""
-    return bool(_base_refs(repo, base_ref))
+def resolve_base_ref(repo: Path | str, base_ref: str) -> str | None:
+    """Return the branch commit ``base_ref`` names without ``--base``, or None."""
+    for ref in _base_candidates(base_ref):
+        # A full ref name that passes check-ref-format cannot carry revision
+        # syntax such as ``~1``, so the note can only name a real branch.
+        if gitx.run(repo, "check-ref-format", ref, check=False).returncode:
+            continue
+        found = gitx.run(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", check=False)
+        if found.returncode == 0:
+            return found.stdout.strip()
+    return None
 
 
 def trusted_base(repo: Path | str, value: Attestation, base: str | None) -> str:
@@ -218,10 +215,9 @@ def trusted_base(repo: Path | str, value: Attestation, base: str | None) -> str:
                 f"protected base {base!r} does not name a commit", reason="base_mismatch"
             )
         return given.stdout.strip()
-    for ref in _base_refs(repo, value.base_ref):
-        found = gitx.run(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", check=False)
-        if found.returncode == 0:
-            return found.stdout.strip()
+    found = resolve_base_ref(repo, value.base_ref)
+    if found is not None:
+        return found
     raise InvalidAttestation(
         f"attestation base {value.base_ref!r} does not name a local branch",
         reason="base_mismatch",

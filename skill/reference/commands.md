@@ -137,9 +137,10 @@ Refuses a detached HEAD or a branch with no commits yet (exit 3, `no_branch`), a
 tree (exit 3, `dirty_tree`), and a branch with no changes over the base
 (exit 3, `empty_diff`). It also refuses, before any stage runs, a base that verification
 without `--base` cannot resolve to a branch (exit 3, `unsupported_base_ref`): the
-`--base-ref` or `[general] base_ref` value must be a branch name, `origin/<branch>`,
-`refs/heads/<branch>`, or `refs/remotes/origin/<branch>`, not a tag, another remote,
-or revision syntax such as `main~1`. In-place mode protects `[worktree] copy_files` where they are;
+`--base-ref` or `[general] base_ref` value must name an existing
+`refs/remotes/origin/<branch>` or `refs/heads/<branch>`, written as `<branch>`,
+`origin/<branch>`, or the full ref. A tag, another remote such as `upstream/main`, a
+commit SHA, revision syntax such as `main~1`, or a branch not yet fetched is refused. In-place mode protects `[worktree] copy_files` where they are;
 isolated modes copy them. Every mode refuses an entry git is not already ignoring.
 
 The new run records its producer. `data.producer` and the `run_created` event contain

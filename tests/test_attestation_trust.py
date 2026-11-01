@@ -112,7 +112,9 @@ def test_a_note_base_ref_cannot_name_a_ref_outside_the_branches(feature_repo, tm
     assert attestation.trusted_base(feature_repo, branch, None) == main
 
 
-@pytest.mark.parametrize("base_ref", ["refs/tags/v1", "refs/remotes/upstream/main", "main~1"])
+@pytest.mark.parametrize(
+    "base_ref", ["refs/tags/v1", "refs/remotes/upstream/main", "upstream/main", "main~1"]
+)
 def test_start_refuses_a_base_that_verification_cannot_resolve(feature_repo, base_ref):
     # Each ref names a real commit, so only its form makes start refuse it.
     git("update-ref", "refs/tags/v1", "main", cwd=feature_repo)

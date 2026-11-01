@@ -292,11 +292,14 @@ def _check_preconditions(
     base_ref = base_ref or cfg.general.base_ref
     # Fail before any stage runs rather than at push, where the hook verifies
     # without --base and resolves the note's base_ref to a branch.
-    if not attestation.supports_base_ref(repo, base_ref):
+    if attestation.resolve_base_ref(repo, base_ref) is None:
         raise UnsupportedBaseRef(
-            f"base {base_ref!r} is not a branch name, origin/<branch>, refs/heads/<branch>, "
-            "or refs/remotes/origin/<branch>",
-            next_instruction="Name the branch this change merges into, then start the run.",
+            f"base {base_ref!r} does not name an existing branch as <branch>, origin/<branch>, "
+            "refs/heads/<branch>, or refs/remotes/origin/<branch>",
+            next_instruction=(
+                "Name the branch this change merges into. Fetch it from origin first "
+                "if it exists only there, then start the run."
+            ),
             next_command='agentic-preflight start --base-ref <branch> --intent "<objective>"',
         )
     branch = gitx.current_branch(repo)
