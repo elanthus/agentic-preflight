@@ -113,6 +113,19 @@ jobs:
           echo "environment=$approval_environment" >> "$GITHUB_OUTPUT"
           echo "requires_approval=$requires_approval" >> "$GITHUB_OUTPUT"
 
+      # human-approval-rerun.yml reads the evaluated approval mode from this
+      # artifact. A re-run replays this run's event and base, so this record is
+      # the policy a re-run applies.
+      - name: Record the evaluated policy for the re-run companion
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: human-approval-policy
+          path: ${{ runner.temp }}/approval-policy.json
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30
+
       - name: Verify Dependabot contributions for the exact head
         id: dependabot
         if: >-

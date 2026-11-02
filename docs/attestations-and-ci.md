@@ -191,7 +191,7 @@ Three workflows cooperate so that it does, and only one of them is trusted:
 
 - `human-approval.yml` runs only on `pull_request_target`, from the protected base. Its `high-risk human approval` job is the required check.
 - `human-approval-review.yml` runs on `pull_request_review`. A review event executes the workflow file from the pull request's merge ref, with a read-only token for forks, so this workflow has no permissions and does nothing but record the reviewed pull request number in an artifact.
-- `human-approval-rerun.yml` runs on `workflow_run`, always from the default branch, with `actions: write` and no checkout. It reads the number, requires the pull request to be open with the reviewed head and repository, reads `[approval] mode` from the base commit's `.agentic-preflight.toml`, and in `peer_review` and `owner_review` modes re-runs the latest `pull_request_target` policy run for that head.
+- `human-approval-rerun.yml` runs on `workflow_run`, always from the default branch, with `actions: write` and no checkout. It reads the number, requires the pull request to be open with the reviewed head and repository, selects the latest `pull_request_target` policy run for that head, waits for it to finish, reads the approval mode that run recorded in its `human-approval-policy` artifact, and in `peer_review` and `owner_review` modes re-runs it.
 
 The re-run replaces the earlier `high-risk human approval` result inside the same run.
 That matters because GitHub counts every run of a required check name on a head: a new run that passed beside an old run that failed would still block merge.
@@ -199,6 +199,7 @@ The check is deliberately not a commit status.
 Any workflow with the repository's Actions token can write a commit status, and a ruleset cannot tell one workflow from another, so a branch workflow could mark a high-risk pull request approved.
 A job of the protected-base run cannot be satisfied that way.
 `manual_merge` and `environment` modes do not read reviews, and a re-run in `environment` mode would discard a granted Environment approval, so the companion leaves those runs alone.
+The recorded mode, not the current base's configuration, decides, because a re-run replays the original event and base; a run from before the artifact existed is not re-run automatically.
 GitHub permits a re-run for 30 days after the original run; after that, push the branch again to start a new one.
 A pull request with merge conflicts has no merge ref, so a review of it runs no relay and re-runs nothing; the check stays failed until the conflicts are resolved and pushed, which starts a new policy run.
 

@@ -65,34 +65,6 @@ jobs:
             exit 0
           fi
           head_sha=$(jq -r '.head.sha' "$pr_file")
-          base_sha=$(jq -r '.base.sha' "$pr_file")
-          # Only the review modes read reviews. A re-run in environment mode would
-          # discard a granted Environment approval, and manual_merge ignores reviews.
-          config_file="$RUNNER_TEMP/base-config.toml"
-          error_file="$RUNNER_TEMP/base-config-error.txt"
-          mode=manual_merge
-          if gh api -H "Accept: application/vnd.github.raw+json" \
-              "/repos/$GITHUB_REPOSITORY/contents/.agentic-preflight.toml?ref=$base_sha" \
-              > "$config_file" 2> "$error_file"; then
-            mode=$(python3 -c '
-          import sys, tomllib
-          with open(sys.argv[1], "rb") as handle:
-              config = tomllib.load(handle)
-          print(config.get("approval", {}).get("mode", "manual_merge"))
-          ' "$config_file")
-          elif grep -q "HTTP 404" "$error_file"; then
-            echo "The base commit has no .agentic-preflight.toml; the default approval mode applies."
-          else
-            cat "$error_file" >&2
-            exit 1
-          fi
-          case "$mode" in
-            peer_review | owner_review) ;;
-            *)
-              echo "Approval mode $mode does not read reviews. Nothing to re-run."
-              exit 0
-              ;;
-          esac
           runs_file="$RUNNER_TEMP/policy-runs.json"
           gh api --paginate --slurp \
             "/repos/$GITHUB_REPOSITORY/actions/workflows/human-approval.yml/runs?event=pull_request_target&head_sha=$head_sha&per_page=100" \
@@ -122,9 +94,34 @@ jobs:
               exit 1
             fi
           fi
+          # The run recorded the policy it evaluated, and a re-run replays that run's
+          # event and base, so that record is the mode a re-run applies. Only the
+          # review modes read reviews: a re-run in environment mode would discard a
+          # granted Environment approval, and manual_merge ignores reviews.
+          policy_dir="$RUNNER_TEMP/human-approval-policy"
+          if ! gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+              --name human-approval-policy --dir "$policy_dir"; then
+            echo "Run $run_id recorded no policy evaluation, so it is not re-run automatically."
+            echo "Re-run it by hand if a review should be counted."
+            exit 0
+          fi
+          mode=$(jq -r '.data.approval_mode // empty' "$policy_dir/approval-policy.json")
+          case "$mode" in
+            peer_review | owner_review) ;;
+            '')
+              echo "Run $run_id recorded no approval mode. Nothing to re-run."
+              exit 0
+              ;;
+            *)
+              echo "Approval mode $mode does not read reviews. Nothing to re-run."
+              exit 0
+              ;;
+          esac
           echo "Re-running Human approval policy run $run_id for head $head_sha of pull request $pr_number."
-          gh run rerun "$run_id" --repo "$GITHUB_REPOSITORY" || {
-            echo "::error::Could not re-run run $run_id. GitHub allows a re-run for 30 days;" \
-              "after that, push the branch again to start a new run." >&2
+          if ! gh run rerun "$run_id" --repo "$GITHUB_REPOSITORY" 2> "$RUNNER_TEMP/rerun-error.txt"; then
+            cat "$RUNNER_TEMP/rerun-error.txt" >&2
+            echo "::error::Could not re-run run $run_id; see the message above." \
+              "GitHub refuses a re-run of a run older than 30 days and of a run that is" \
+              "already queued or in progress. Push the branch again or re-run it by hand." >&2
             exit 1
-          }
+          fi
