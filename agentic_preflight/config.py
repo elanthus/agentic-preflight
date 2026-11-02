@@ -354,9 +354,13 @@ def merge_telemetry(user: Any, repo: Any, *, warn_source: Path | None = None) ->
     on logging the user turned off. So the repository's ``path`` is dropped, and a
     ``mirror`` or ``hook_log`` of ``true`` keeps the user's value. Any other value,
     ``false`` or one that is invalid, applies, so validation still names a bad value
-    or an unknown key. ``warn_source`` names the repository file to print a stderr
-    warning for a dropped ``path``. ``None`` drops it silently.
+    or an unknown key. A user section that is not a table is returned unchanged, so
+    validation reports it instead of the repository hiding it. ``warn_source`` names
+    the repository file to print a stderr warning for a dropped ``path``. ``None``
+    drops it silently.
     """
+    if user is not None and not isinstance(user, dict):
+        return user
     if not isinstance(repo, dict):
         return repo
     merged: dict[str, Any] = dict(user) if isinstance(user, dict) else {}
@@ -417,6 +421,8 @@ def load_config(
             if section == "telemetry" and path == repo_file:
                 user_values = merged.get(section)
                 values = merge_telemetry(user_values, values, warn_source=path)
+                if user_values is not None and values is user_values:
+                    continue  # the user's malformed section stands, and names its file
                 if isinstance(user_values, dict) and isinstance(values, dict):
                     # A value the repository did not override is still the user
                     # file's, so a validation error must name that file.

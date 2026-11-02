@@ -408,6 +408,8 @@ def test_the_fallback_reads_each_telemetry_section_and_the_repository_only_turns
     assert hooklog.fallback_section(repo, user_config_dir=user_dir) == TelemetrySection(
         mirror=False, hook_log=False
     )
+    write(user_dir, "config.toml", "telemetry = 5\n")
+    assert hooklog.fallback_section(repo, user_config_dir=user_dir) is None
     write(user_dir, "config.toml", "[[broken")
     assert hooklog.fallback_section(repo, user_config_dir=user_dir) is None
     assert hooklog.fallback_section(repo, user_config_dir=tmp_path / "none") == TelemetrySection(
