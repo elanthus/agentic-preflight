@@ -452,6 +452,10 @@ def committed_config(repo: Path | str, revision: str) -> Config:
         return Config()
     try:
         policy = tomllib.loads(gitx.out(repo, "show", f"{revision}:{REPO_CONFIG_NAME}"))
+        if "telemetry" in policy:
+            # The same repository rule load_config applies, so a protected base
+            # that load_config accepts also verifies.
+            policy["telemetry"] = merge_telemetry(None, policy["telemetry"])
         return Config.model_validate(policy)
     except ValueError as exc:
         raise ValueError(f"invalid protected policy: {exc}") from exc

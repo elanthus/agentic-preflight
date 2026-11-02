@@ -7,3 +7,6 @@
 - `[telemetry] mirror` and `hook_log` accept only `true` and `false`. Before, values
   such as `1` or `"yes"` were read as `true`, so a repository could use them to turn on a
   file that the user turned off.
+- Attestation verification applies the same rule to the protected base's configuration,
+  so a `[telemetry] path` there no longer fails verification of a configuration that
+  normal loading accepts.

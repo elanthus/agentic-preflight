@@ -515,6 +515,23 @@ def test_committed_config_ignores_ci_but_rejects_other_removed_keys(tmp_repo):
         committed_config(tmp_repo, "HEAD")
 
 
+def test_committed_policy_ignores_a_repository_telemetry_path(tmp_repo):
+    from agentic_preflight.config import committed_config
+    from tests.conftest import commit_all
+
+    (tmp_repo / ".agentic-preflight.toml").write_text(
+        "[telemetry]\npath = 'relative/telemetry'\nhook_log = false\n"
+        "[approval]\nmode = 'owner_review'\nreviewer = 'maintainer'\n"
+    )
+    head = commit_all(tmp_repo, "protected policy with a repository telemetry path")
+
+    cfg = committed_config(tmp_repo, head)
+
+    assert cfg.approval.reviewer == "maintainer"
+    assert cfg.telemetry.path is None
+    assert cfg.telemetry.hook_log is False
+
+
 @pytest.mark.parametrize("scope", ["user", "repository"])
 def test_removed_reuse_table_is_ignored_with_warning(tmp_repo, tmp_path, capsys, scope):
     user = tmp_path / "settings"
