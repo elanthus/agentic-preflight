@@ -6,6 +6,10 @@ deep: a section present in the repo file replaces the user's section wholesale
 rather than merging key-by-key, so a reader of the committed file can tell what
 is in force without knowing the reader's home directory.
 
+``[telemetry]`` is the exception. It describes the user's machine, not the
+project, so a repository section can only turn telemetry off
+(:func:`merge_telemetry`).
+
 Unknown keys are errors that name the key, because a silently ignored typo in
 a config that governs a safety gate would weaken the gate without any signal.
 """
@@ -194,8 +198,9 @@ class TelemetrySection(_Section):
 
     Telemetry is derived output. The section is excluded from configuration
     snapshots, so it never changes a configuration digest, never binds stage
-    evidence, and never reaches a published attestation. It is meant for the
-    user configuration file; a repository section replaces it like any other.
+    evidence, and never reaches a published attestation. It belongs in the
+    user configuration file. A repository section can only turn ``mirror`` and
+    ``hook_log`` off, and its ``path`` is ignored (:func:`merge_telemetry`).
     """
 
     mirror: bool = True
@@ -341,6 +346,35 @@ def _describe(exc: ValidationError, sources: dict[str, Path], default_source: Pa
     )
 
 
+def merge_telemetry(user: Any, repo: Any, *, warn_source: Path | None = None) -> Any:
+    """Layer a repository ``[telemetry]`` section over the user's, before validation.
+
+    A cloned repository must not choose where this machine writes files, or turn
+    on logging the user turned off. So the repository's ``path`` is dropped, and a
+    ``mirror`` or ``hook_log`` of ``true`` keeps the user's value. Any other value,
+    ``false`` or one that is invalid, applies, so validation still names a bad value
+    or an unknown key. ``warn_source`` names the repository file to print a stderr
+    warning for a dropped ``path``. ``None`` drops it silently.
+    """
+    if not isinstance(repo, dict):
+        return repo
+    merged: dict[str, Any] = dict(user) if isinstance(user, dict) else {}
+    for key, value in repo.items():
+        if key == "path":
+            if warn_source is not None:
+                import sys
+
+                print(
+                    f"agentic-preflight: ignoring [telemetry] path in {warn_source}; set it in your user configuration file",
+                    file=sys.stderr,
+                )
+            continue
+        if key in {"mirror", "hook_log"} and value is True:
+            continue
+        merged[key] = value
+    return merged
+
+
 def load_config(
     repo_root: Path | str,
     *,
@@ -379,6 +413,8 @@ def load_config(
                 continue
             if tolerate_removed_keys and isinstance(values, dict):
                 values = _without_removed_keys(section, values, warn_source=path)
+            if section == "telemetry" and path == repo_file:
+                values = merge_telemetry(merged.get(section), values, warn_source=path)
             merged[section] = values
             sources[section] = path
 

@@ -38,7 +38,14 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, StrictBool, ValidationError
 
 from . import filelock, gitx, telemetry
-from .config import REPO_CONFIG_NAME, USER_CONFIG_NAME, Config, TelemetrySection, load_config
+from .config import (
+    REPO_CONFIG_NAME,
+    USER_CONFIG_NAME,
+    Config,
+    TelemetrySection,
+    load_config,
+    merge_telemetry,
+)
 from .hook import Decision
 
 LOG_NAME = "hook-decisions.jsonl"
@@ -161,14 +168,16 @@ def fallback_section(
     """The ``[telemetry]`` preference when the full configuration cannot be loaded.
 
     Each file's ``[telemetry]`` section is read on its own, and a repository section
-    replaces the user section, as in :func:`~agentic_preflight.config.load_config`.
+    is layered over the user section by :func:`~agentic_preflight.config.merge_telemetry`,
+    as in :func:`~agentic_preflight.config.load_config`: it can only turn logging off.
     ``None`` when a file that exists cannot be read as TOML, or when the section
     that applies is invalid. The preference is then unknown, so nothing is logged.
     """
     if user_config_dir is None:
         user_config_dir = Path.home() / ".config" / "agentic-preflight"
     section: Any = {}
-    for path in (Path(user_config_dir) / USER_CONFIG_NAME, repo_root / REPO_CONFIG_NAME):
+    repo_file = repo_root / REPO_CONFIG_NAME
+    for path in (Path(user_config_dir) / USER_CONFIG_NAME, repo_file):
         try:
             with open(path, "rb") as handle:
                 data = tomllib.load(handle)
@@ -177,7 +186,10 @@ def fallback_section(
         except (OSError, ValueError):
             return None
         if "telemetry" in data:
-            section = data["telemetry"]
+            if path == repo_file:
+                section = merge_telemetry(section, data["telemetry"])
+            else:
+                section = data["telemetry"]
     try:
         return TelemetrySection.model_validate(section)
     except ValidationError:

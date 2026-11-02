@@ -44,7 +44,7 @@ The mirror directory is the first of these locations that applies:
 
 Set `[telemetry] mirror = false` to keep summaries in the run directories only.
 Put the `[telemetry]` section in your user file, `~/.config/agentic-preflight/config.toml`.
-A `[telemetry]` section in the repository file replaces your section, the same as every other section.
+A `[telemetry]` section in the repository file can only turn `mirror` and `hook_log` off. Its `path` is ignored.
 See [the configuration reference](configuration.md#local-run-telemetry-telemetry).
 
 Run snapshots do not contain `[telemetry]`.
@@ -103,7 +103,7 @@ Give the fixture repositories no network remote, and also do one of these:
 
 - Set `XDG_DATA_HOME` to a scratch directory in the environment of every CLI subprocess. Set `XDG_CACHE_HOME` too, because isolated worktrees go there.
 - Put a `[telemetry]` section with `mirror = false` and `hook_log = false` in the `.agentic-preflight.toml` of each fixture repository.
-  A repository section replaces the user section, so this also overrides a `[telemetry] path` in the user file of the person who runs the harness.
+  A repository section can always turn the files off, so this also overrides a `[telemetry] path` in the user file of the person who runs the harness.
 
 A `[telemetry] path` in the user file is an opt-in, so the first option alone does not override it.
 Use the second option, or give the harness its own home directory, when the harness must not depend on the user file.
@@ -457,7 +457,7 @@ See [the configuration reference](configuration.md#local-run-telemetry-telemetry
 `[telemetry] path` moves the log together with the mirror.
 
 When the configuration cannot be loaded, the hook reads only the `[telemetry]` section of each configuration file.
-A repository section replaces your section, as usual.
+A repository section can only turn the log off, as usual. Its `path` is ignored.
 If a configuration file is not valid TOML, or if the section is not valid, the hook does not know your preference.
 It then logs nothing.
 

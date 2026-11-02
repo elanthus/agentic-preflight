@@ -7,6 +7,7 @@ The example below includes every supported section.
 `.agentic-preflight.toml` is in the repository root. Commit it.
 The CLI combines it with `~/.config/agentic-preflight/config.toml` one section at a time.
 A section in the repository file replaces the whole matching user section.
+`[telemetry]` is the exception. A repository section can only turn telemetry off. See [Local run telemetry](#local-run-telemetry-telemetry).
 Keys are not merged across the two files.
 A section that only the user file sets still applies.
 Unknown keys are errors that name the key. They are not ignored.
@@ -124,7 +125,7 @@ reviewer = ""                     # required GitHub login for owner_review
 [hook]
 allow_force_push = false
 
-# Set [telemetry] in the user file. A repository section replaces it.
+# Set [telemetry] in the user file. A repository section can only turn it off.
 [telemetry]
 mirror = true                     # append each finished run's summary to runs.jsonl
 hook_log = true                   # append each pre-push hook decision to hook-decisions.jsonl
@@ -151,8 +152,15 @@ See [`docs/fingerprint-contract.md`](fingerprint-contract.md) for automatic refr
 ## Local run telemetry (`[telemetry]`)
 
 Set this section in the user file, `~/.config/agentic-preflight/config.toml`.
-A `[telemetry]` section in the repository file replaces the user section, the same as every other section.
-Thus, a committed section sets the preference for every contributor. Do not commit it without a reason.
+This section describes your machine, not the project, so it does not layer like the other sections.
+A `[telemetry]` section in the repository file can only turn telemetry off:
+
+- `mirror = false` or `hook_log = false` there turns that file off, whatever the user file sets.
+- `mirror = true` or `hook_log = true` there keeps the user file's value. A repository cannot turn on a file that you turned off.
+- `path` there is ignored, and commands that load the configuration print a warning that names the file. The pre-push hook prints nothing, so the output of `git push` does not change.
+
+Thus, a cloned repository cannot choose where your machine writes telemetry, or opt its runs in to the telemetry directory.
+An invalid value or an unknown key in the repository section is still an error.
 
 When a run ends, the CLI writes `summary.json` in the run directory.
 `mirror = true` is the default. The CLI then also appends the summary as one line to `runs.jsonl` in the telemetry directory.

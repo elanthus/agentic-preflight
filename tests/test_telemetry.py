@@ -13,7 +13,7 @@ import pytest
 from pydantic import BaseModel
 
 from agentic_preflight import telemetry
-from agentic_preflight.config import Config, config_digest, load_config
+from agentic_preflight.config import Config, ConfigError, config_digest, load_config
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.machine import State
 from agentic_preflight.models import RunDoc
@@ -185,6 +185,46 @@ def test_telemetry_settings_never_reach_the_snapshot_or_its_digest(tmp_path):
     assert "telemetry" not in cfg.model_dump(mode="json")
     default = Config().model_dump(mode="json")
     assert config_digest(cfg.model_dump(mode="json")) == config_digest(default)
+
+
+def test_a_repository_telemetry_path_is_ignored_with_a_warning(tmp_path, capsys):
+    user_dir = tmp_path / "user"
+    write(user_dir, "config.toml", "[telemetry]\npath = '~/mine'\n")
+    write(tmp_path, ".agentic-preflight.toml", "[telemetry]\npath = '//attacker/share'\n")
+
+    cfg = load_config(tmp_path, user_config_dir=user_dir)
+
+    assert cfg.telemetry.path == "~/mine"
+    assert "ignoring [telemetry] path" in capsys.readouterr().err
+    assert load_config(tmp_path, user_config_dir=tmp_path / "none").telemetry.path is None
+
+
+@pytest.mark.parametrize(
+    ("user", "repo", "expected"),
+    [
+        ("", "mirror = false\n", (False, True)),
+        ("hook_log = false\n", "mirror = false\n", (False, False)),
+        ("mirror = false\nhook_log = false\n", "mirror = true\nhook_log = true\n", (False, False)),
+        ("", "mirror = true\n", (True, True)),
+    ],
+    ids=["repository-off", "both-off", "repository-cannot-turn-on", "true-is-the-default"],
+)
+def test_a_repository_telemetry_section_can_only_turn_files_off(tmp_path, user, repo, expected):
+    user_dir = tmp_path / "user"
+    write(user_dir, "config.toml", "[telemetry]\n" + user)
+    write(tmp_path, ".agentic-preflight.toml", "[telemetry]\n" + repo)
+
+    cfg = load_config(tmp_path, user_config_dir=user_dir)
+
+    assert (cfg.telemetry.mirror, cfg.telemetry.hook_log) == expected
+
+
+@pytest.mark.parametrize("repo", ["hook_log = 3\n", "bogus = false\n"])
+def test_an_invalid_repository_telemetry_section_is_still_an_error(tmp_path, repo):
+    write(tmp_path, ".agentic-preflight.toml", "[telemetry]\n" + repo)
+
+    with pytest.raises(ConfigError, match=r"\.agentic-preflight\.toml"):
+        load_config(tmp_path, user_config_dir=tmp_path / "none")
 
 
 # -- summarize ---------------------------------------------------------------
