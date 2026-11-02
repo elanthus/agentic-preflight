@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 
+from .cli_contract import IntegrationsData
 from .cli_support import as_error, command, fail, finish
 from .envelope import Envelope, ExitCode
 from .integrations import SUPPORTED_INTEGRATIONS
@@ -46,7 +47,7 @@ def _integration_envelope(scope: str, results: list[dict]) -> Envelope:
     if any(item.get("action") in {"installed", "updated", "replaced"} for item in results):
         lines.append("Restart a running agent if the skill does not appear automatically.")
     return Envelope(
-        data={"scope": scope, "integrations": results},
+        data=IntegrationsData(scope=scope, integrations=results),
         human="\n".join(lines),
     )
 

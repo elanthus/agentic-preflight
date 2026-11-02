@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from .. import diff as diffmod
 from .. import findings as findingsmod
 from .. import gitx
+from ..cli_contract import ReviewCompareData
 from ..envelope import Envelope
 from ..errors import InvalidFindings, StageFailed
 from ..machine import State
@@ -398,4 +399,6 @@ def compare_reviews(session: Session, payload: Any | None = None) -> Envelope:
     summary_path = session.store.run_dir(run.run_id) / "review-compare.json"
     summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8", newline="\n")
     session.store.append_event(run.run_id, {"event": "review_compared", **summary})
-    return _envelope_for(run, stage=Stage.REVIEW.value, data=summary)
+    return _envelope_for(
+        run, stage=Stage.REVIEW.value, data=ReviewCompareData.model_validate(summary)
+    )

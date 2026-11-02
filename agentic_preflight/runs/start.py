@@ -16,6 +16,7 @@ from typing import Any, Literal
 
 from .. import attestation, gitx, housekeeping, worktree
 from .. import sync as syncmod
+from ..cli_contract import StartData
 from ..config import Config, config_digest, load_config
 from ..envelope import Envelope, ExitCode
 from ..errors import (
@@ -180,8 +181,10 @@ def _resume_existing(session: Session, run: RunDoc) -> Envelope:
     from .lifecycle import status
 
     envelope = status(session)
-    envelope.data["resumed"] = True
-    envelope.data["resume_reason"] = "matching active run"
+    data = StartData.model_validate(envelope.data.model_dump(exclude_unset=True))
+    data.resumed = True
+    data.resume_reason = "matching active run"
+    envelope.data = data
     return envelope
 
 
@@ -787,29 +790,29 @@ def _prime_review(
         next_command="agentic-preflight context"
         if run.state is State.REVIEW_AWAITING_FINDINGS
         else _next_hint(run.state)[1],
-        data={
-            "worktree_path": str(wt_path),
-            "worktree_branch": wt_branch,
-            "worktree_mode": ctx.cfg.worktree.mode,
-            "branch": ctx.branch,
-            "base_ref": ctx.base_ref,
-            "head_sha": sync_result.head_after,
-            "source_head_sha": ctx.head_sha,
-            "merge_base_sha": sync_result.base_sha,
-            "intent": ctx.intent,
-            "intent_source": "user",
-            "producer": ctx.producer.model_dump(mode="json"),
-            "sync": sync_result.as_dict(),
-            "changed_files": changed,
-            "risk": assessment.model_dump(mode="json"),
+        data=StartData(
+            worktree_path=str(wt_path),
+            worktree_branch=wt_branch,
+            worktree_mode=ctx.cfg.worktree.mode,
+            branch=ctx.branch,
+            base_ref=ctx.base_ref,
+            head_sha=sync_result.head_after,
+            source_head_sha=ctx.head_sha,
+            merge_base_sha=sync_result.base_sha,
+            intent=ctx.intent,
+            intent_source="user",
+            producer=ctx.producer,
+            sync=sync_result.as_dict(),
+            changed_files=changed,
+            risk=assessment.model_dump(mode="json"),
             # Names only. Contents are never read, logged, or echoed.
-            "copied_files": copied,
-            "setup": setup_result,
-            "applicability": {
+            copied_files=copied,
+            setup=setup_result,
+            applicability={
                 stage.value: value.model_dump(mode="json")
                 for stage, value in run.applicability.items()
             },
-        },
+        ),
     )
 
 
@@ -829,8 +832,9 @@ def start(
     """
     producer = build_producer(client=client, model=model)
     envelope = _start(session, base_ref=base_ref, intent=intent, replace=replace, producer=producer)
-    if envelope.ok:
-        envelope.data["housekeeping"] = housekeeping.report(session.store, session.repo_root)
+    # Both successful outcomes, a new run and a resumed one, carry StartData.
+    if envelope.ok and isinstance(envelope.data, StartData):
+        envelope.data.housekeeping = housekeeping.report(session.store, session.repo_root)
     return envelope
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .. import findings as findingsmod
 from .. import gitx, worktree
+from ..cli_contract import RespondData
 from ..envelope import Envelope
 from ..errors import (
     DirtyTree,
@@ -184,11 +185,11 @@ def respond(
             return _envelope_for(
                 run,
                 stage=Stage.REVIEW.value,
-                data={
-                    "finding": target.model_dump(mode="json"),
-                    "coverage_invalidated": True,
-                    "risk": assessment.model_dump(mode="json"),
-                },
+                data=RespondData(
+                    finding=target.model_dump(mode="json"),
+                    coverage_invalidated=True,
+                    risk=assessment.model_dump(mode="json"),
+                ),
                 next_instruction=(
                     "The repair changed the reviewed snapshot. Review the complete "
                     "current diff and rerun every applicable stage."
@@ -207,11 +208,11 @@ def respond(
     envelope = _envelope_for(
         run,
         stage=stage.value,
-        data={
-            "finding": target.model_dump(mode="json"),
-            "remaining_blocking": len(remaining),
-            "risk": assessment.model_dump(mode="json"),
-        },
+        data=RespondData(
+            finding=target.model_dump(mode="json"),
+            remaining_blocking=len(remaining),
+            risk=assessment.model_dump(mode="json"),
+        ),
         blocking=[f.model_dump(mode="json") for f in remaining],
     )
     _findings_next_hint(

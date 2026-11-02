@@ -10,6 +10,7 @@ from .. import attestation as attestationmod
 from .. import evidence_transport, gitx
 from .. import risk as riskmod
 from ..attestation import NOTES_REF
+from ..cli_contract import FinishData, GateData, PushData
 from ..envelope import Envelope
 from ..errors import AttestationFailed, ManualGate, NeedsConfirm
 from ..machine import Action, State
@@ -153,10 +154,12 @@ def gate(session: Session) -> Envelope:
         cleanup_instruction = ""
     return _envelope_for(
         run,
-        data={
-            **summary.as_dict(),
-            "push_commands": _push_commands(evidence_refspecs, refspecs),
-        },
+        data=GateData.model_validate(
+            {
+                **summary.as_dict(),
+                "push_commands": _push_commands(evidence_refspecs, refspecs),
+            }
+        ),
         next_instruction=(
             "Apply https://github.com/elanthus/agentic-preflight/blob/main/skill/SKILL.md#escalation-etiquette and its authorization rule to this "
             "gate summary; the agent substitutes data.token for <token> only after authorization."
@@ -197,15 +200,15 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
     if dry_run:
         return _envelope_for(
             run,
-            data={
-                "dry_run": True,
-                "would_push": " && ".join(_push_commands(evidence_refspecs, refspecs)),
-                "branch": run.branch,
-                "base_ref": run.base_ref,
-                "pr_mode": session.config.pr.mode,
-                "automated_cleanup": session.config.pr.automated_cleanup,
-                "pushed": False,
-            },
+            data=PushData(
+                dry_run=True,
+                would_push=" && ".join(_push_commands(evidence_refspecs, refspecs)),
+                branch=run.branch,
+                base_ref=run.base_ref,
+                pr_mode=session.config.pr.mode,
+                automated_cleanup=session.config.pr.automated_cleanup,
+                pushed=False,
+            ),
             next_instruction="Dry run only; nothing was pushed.",
             next_command="agentic-preflight push --confirm <token>",
         )
@@ -245,16 +248,16 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
     session.store.append_event(run.run_id, {"event": "pushed", "sha": run.head_sha})
     return _envelope_for(
         run,
-        data={
-            "pushed": True,
-            "sha": run.head_sha,
-            "remote": "origin",
-            "branch": run.branch,
-            "base_ref": run.base_ref,
-            "pr_mode": session.config.pr.mode,
-            "automated_cleanup": session.config.pr.automated_cleanup,
-            "dry_run": False,
-        },
+        data=PushData(
+            pushed=True,
+            sha=run.head_sha,
+            remote="origin",
+            branch=run.branch,
+            base_ref=run.base_ref,
+            pr_mode=session.config.pr.mode,
+            automated_cleanup=session.config.pr.automated_cleanup,
+            dry_run=False,
+        ),
     )
 
 
@@ -289,13 +292,13 @@ def finish(session: Session) -> Envelope:
         )
     return _envelope_for(
         run,
-        data={
-            "pushed_sha": run.pushed_sha,
-            "branch": run.branch,
-            "base_ref": run.base_ref,
-            "pr_mode": session.config.pr.mode,
-            "automated_cleanup": session.config.pr.automated_cleanup,
-        },
+        data=FinishData(
+            pushed_sha=run.pushed_sha,
+            branch=run.branch,
+            base_ref=run.base_ref,
+            pr_mode=session.config.pr.mode,
+            automated_cleanup=session.config.pr.automated_cleanup,
+        ),
         next_instruction=(_worktree_completion(_worktree_mode(run)) + pr_instruction),
         next_command="agentic-preflight gc",
     )

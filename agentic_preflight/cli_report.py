@@ -12,6 +12,7 @@ import click
 
 from . import gitx, hooklog, telemetry
 from . import report as reportmod
+from .cli_contract import ReportData
 from .cli_support import as_error, command, finish
 from .config import load_config
 from .envelope import Envelope, ExitCode
@@ -197,7 +198,13 @@ def report(
     )
     instruction, next_command = _guidance(source, config.telemetry.mirror)
     instruction = _hook_guidance(instruction, hooks["source"])
-    finish(Envelope(data=data, next_instruction=instruction, next_command=next_command))
+    finish(
+        Envelope(
+            data=ReportData.model_validate(data),
+            next_instruction=instruction,
+            next_command=next_command,
+        )
+    )
 
 
 def _hook_guidance(instruction: str | None, source: dict[str, Any]) -> str | None:

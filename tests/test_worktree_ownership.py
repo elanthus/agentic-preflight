@@ -203,8 +203,9 @@ def test_gc_does_not_orphan_a_run_while_start_claims_its_source_lease(feature_re
         try:
             assert claim_started.wait(timeout=5)
             collected = runs.gc(runs.open_session(feature_repo))
-            assert collected.data["removed"] == []
-            assert collected.data["retained"] == [
+            data = collected.to_payload()["data"]
+            assert data["removed"] == []
+            assert data["retained"] == [
                 {
                     "run_id": next(iter(session.store.list_runs())),
                     "reason": "run command is still executing",

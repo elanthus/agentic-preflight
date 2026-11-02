@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from . import gitx, hook, worktree
+from .cli_contract import InitData
 from .config import REPO_CONFIG_NAME, load_config
 from .envelope import Envelope
 
@@ -117,20 +118,20 @@ def init(repo_root: Path | str, *, force: bool = False, install_hook: bool = Tru
     )
 
     return Envelope(
-        data={
-            "repo_root": str(repo_root),
-            "config_path": str(config_path),
-            "config_written": config_written,
-            "hook_path": hook_path,
-            "hook_installed": hook_installed,
-            "hooks_path_overridden": hooks_path_overridden,
-            "worktree_root": (
+        data=InitData(
+            repo_root=str(repo_root),
+            config_path=str(config_path),
+            config_written=config_written,
+            hook_path=hook_path,
+            hook_installed=hook_installed,
+            hooks_path_overridden=hooks_path_overridden,
+            worktree_root=(
                 None
                 if cfg.worktree.mode == "in_place"
                 else str(worktree.resolve_root(repo_root, cfg.worktree.root))
             ),
-            "worktree_mode": cfg.worktree.mode,
-        },
+            worktree_mode=cfg.worktree.mode,
+        ),
         next_instruction=instruction,
         next_command='agentic-preflight start --intent "<objective and acceptance criteria>"',
     )

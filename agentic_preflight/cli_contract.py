@@ -1,7 +1,10 @@
 """Typed description of the stdout contract, one ``data`` model per command.
 
-These models document what each command puts in ``Envelope.data``; they are not
-applied at runtime and never change a payload. ``tools/generate_schema.py`` renders
+``Envelope.data`` holds one of these models, so each command builds its ``data`` through
+its own model: a misspelled key or a wrong type at a construction site fails type
+checking, and a builder's dictionary is validated against the model. The envelope dumps
+only the keys that were set, so the payload is exactly what the command supplied.
+``tools/generate_schema.py`` renders
 them with ``model_json_schema()`` into ``skill/reference/schema/``, and the tests keep
 the checked-in files and ``skill/reference/commands.md`` in step with them.
 
@@ -23,22 +26,22 @@ from .models import Producer
 Obj = dict[str, Any]
 
 
-class _Data(BaseModel):
+class CommandData(BaseModel):
     """Base for a command's ``data`` object."""
 
     model_config = ConfigDict(extra="allow")
 
 
-class RunDataBase(_Data):
+class RunDataBase(CommandData):
     """Keys any run command may add through the shared envelope builder."""
 
     needs_human: bool | None = Field(
-        None, description="True once the run hit the restart limit and needs a person."
+        default=None, description="True once the run hit the restart limit and needs a person."
     )
     validation_restarts: int | None = None
     max_restarts: int | None = None
     telemetry: Obj | list[Obj] | None = Field(
-        None, description="Summary outcome written when this command ended a run."
+        default=None, description="Summary outcome written when this command ended a run."
     )
     source_worktree_path: str | None = None
 
@@ -79,7 +82,7 @@ class EnvelopeModel(BaseModel):
 # ---------------------------------------------------------------- setup
 
 
-class InitData(_Data):
+class InitData(CommandData):
     repo_root: str | None = None
     config_path: str | None = None
     config_written: bool | None = None
@@ -90,7 +93,7 @@ class InitData(_Data):
     worktree_mode: str | None = None
 
 
-class IntegrationsData(_Data):
+class IntegrationsData(CommandData):
     scope: str | None = None
     integrations: list[Obj] | None = None
 
@@ -225,7 +228,7 @@ class VerifyData(RunDataBase):
     reason: str | None = None
 
 
-class ApprovalCheckData(_Data):
+class ApprovalCheckData(CommandData):
     approved: bool | None = None
     requires_human_approval: bool | None = None
     approval_mode: str | None = None
@@ -421,7 +424,7 @@ class GcData(RunDataBase):
     active: Any = None
 
 
-class TelemetryRebuildData(_Data):
+class TelemetryRebuildData(CommandData):
     repo: Obj | None = None
     summarized: int | None = None
     skipped: int | None = None
@@ -431,7 +434,7 @@ class TelemetryRebuildData(_Data):
     mirror: Obj | None = None
 
 
-class TelemetrySyncHostedData(_Data):
+class TelemetrySyncHostedData(CommandData):
     repo: Obj | None = None
     dry_run: bool | None = None
     refresh: bool | None = None
@@ -454,7 +457,7 @@ class TelemetrySyncHostedData(_Data):
     summaries: Obj | None = None
 
 
-class ReportData(_Data):
+class ReportData(CommandData):
     format: str | None = None
     source: Obj | None = None
     filters: Obj | None = None
