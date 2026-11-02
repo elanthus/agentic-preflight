@@ -219,6 +219,18 @@ def test_a_repository_telemetry_section_can_only_turn_files_off(tmp_path, user, 
     assert (cfg.telemetry.mirror, cfg.telemetry.hook_log) == expected
 
 
+def test_an_invalid_user_telemetry_value_names_the_user_file(tmp_path):
+    user_dir = tmp_path / "user"
+    write(user_dir, "config.toml", "[telemetry]\nhook_log = 3\n")
+    write(tmp_path, ".agentic-preflight.toml", "[telemetry]\nmirror = false\n")
+
+    with pytest.raises(ConfigError) as caught:
+        load_config(tmp_path, user_config_dir=user_dir)
+
+    assert str(caught.value).startswith(f"invalid configuration in {user_dir / 'config.toml'}:")
+    assert ".agentic-preflight.toml" not in str(caught.value)
+
+
 @pytest.mark.parametrize("repo", ["hook_log = 3\n", "bogus = false\n"])
 def test_an_invalid_repository_telemetry_section_is_still_an_error(tmp_path, repo):
     write(tmp_path, ".agentic-preflight.toml", "[telemetry]\n" + repo)

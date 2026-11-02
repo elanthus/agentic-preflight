@@ -327,7 +327,8 @@ def _describe(exc: ValidationError, sources: dict[str, Path], default_source: Pa
     by_source: dict[Path, list[str]] = {}
     for error in exc.errors():
         top = str(error["loc"][0]) if error["loc"] else ""
-        parts = by_source.setdefault(sources.get(top, default_source), [])
+        key = f"{top}.{error['loc'][1]}" if len(error["loc"]) > 1 else top
+        parts = by_source.setdefault(sources.get(key, sources.get(top, default_source)), [])
         location = ".".join(str(item) for item in error["loc"])
         if error["type"] == "extra_forbidden":
             parts.append(f"unknown key {location!r}")
@@ -414,7 +415,14 @@ def load_config(
             if tolerate_removed_keys and isinstance(values, dict):
                 values = _without_removed_keys(section, values, warn_source=path)
             if section == "telemetry" and path == repo_file:
-                values = merge_telemetry(merged.get(section), values, warn_source=path)
+                user_values = merged.get(section)
+                values = merge_telemetry(user_values, values, warn_source=path)
+                if isinstance(user_values, dict) and isinstance(values, dict):
+                    # A value the repository did not override is still the user
+                    # file's, so a validation error must name that file.
+                    for name, value in values.items():
+                        if name in user_values and value is user_values[name]:
+                            sources[f"{section}.{name}"] = user_file
             merged[section] = values
             sources[section] = path
 
