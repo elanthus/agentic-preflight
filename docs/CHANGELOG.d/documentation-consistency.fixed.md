@@ -1,0 +1,2 @@
+- Correct the owner-review and telemetry documentation, clarify configured command review, and align the skill severity examples.
+- Add 0.7-to-0.8 upgrade steps, refresh bundled skill links to 0.8.1, and document the Claude Code 2.1.292 stream-result handling.

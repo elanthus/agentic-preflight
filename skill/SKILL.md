@@ -5,8 +5,12 @@ description: "Use when shipping a branch: reviewing, documenting, linting, testi
 
 # agentic-preflight
 
-You review, judge, and fix. The CLI holds all state and tells you what to do next.
-Python here never calls a model — every judgment in this workflow is yours.
+You follow the configured review workflow and fix findings. The CLI holds all state
+and tells you what to do next. With `executor = "in_harness"`, you review the diff.
+With `executor = "command"`, `review run` launches the configured reviewer, which may
+call a model. Follow `next.command`; do not replace a required command review with
+your own findings. Agentic Preflight's own repository configures command review
+for every run.
 
 ## Non-negotiables
 
@@ -33,7 +37,7 @@ Python here never calls a model — every judgment in this workflow is yours.
    always need separate approval. `[pr] mode = "auto"` is standing authorization to
    open or reuse the pull request after the authorized push and the run finish. The
    canonical rule is in
-   [push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/configuration.md#push-and-pull-request-authorization).
+   [push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/configuration.md#push-and-pull-request-authorization).
    Follow [Pull-request lifecycle and cleanup](#pull-request-lifecycle-and-cleanup)
    for PR mode, `[pr] automated_cleanup = true` monitoring, and cleanup boundaries.
 6. **Treat merge-back conflicts as a bounded recovery, never a shortcut.** On exit 4,
@@ -105,7 +109,7 @@ quiet while code verifies that no delivered unit disappears.
 
 | Severity | Means | Example |
 |---|---|---|
-| `critical` | Data loss, security hole, corruption | Password compared with `==`; SQL built by string concatenation |
+| `critical` | Data loss, security hole, corruption | Unauthenticated access to private records; exploitable SQL injection |
 | `high` | Wrong behavior a user will hit | Off-by-one dropping the last record; error swallowed silently |
 | `medium` | Real problem, not urgent | Duplicated logic that will drift; missing edge-case handling |
 | `low` | Style, naming, nits | Inconsistent naming; a stale comment |

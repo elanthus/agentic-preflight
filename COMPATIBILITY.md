@@ -406,7 +406,7 @@ No fingerprint, evidence digest, configuration digest, or attestation reads thes
 The exclusion from the default telemetry location no longer depends on where a repository lives.
 Without an explicit `[telemetry] path`, runs and hook decisions of every repository without a network remote stay out of the telemetry directory, under the system temporary directory or anywhere else.
 A network remote is an `origin` whose normalized form starts with a host name. A missing `origin`, a local path such as a bare repository, and a loopback host are not network remotes.
-A preflight run gates a push, so a repository that cannot push is a test fixture. Fixture repositories that a harness creates outside the temporary directory, for example under the home directory, no longer reach `runs.jsonl` or `hook-decisions.jsonl`, and no longer appear in a report that reads the default mirror.
+This remote-based rule reduces fixture noise; it does not identify whether a repository contains real work or can push. Legitimate local-only repositories and repositories that push to local or loopback remotes are also excluded by default. Fixture repositories that a harness creates outside the temporary directory, for example under the home directory, no longer reach `runs.jsonl` or `hook-decisions.jsonl`, and no longer appear in a report that reads the default mirror.
 `agentic-preflight report` inside such a clone still summarizes the clone's own run records in memory, and counts them in `data.source.clone.excluded_runs`.
 A scratch clone under the temporary directory that pushes to GitHub keeps its telemetry, as before.
 See [Repositories without a network remote](docs/local-telemetry.md#repositories-without-a-network-remote).
