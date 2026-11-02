@@ -6,6 +6,7 @@ from .. import attestation as attestationmod
 from .. import gitx, worktree
 from .. import mergeback as mergebackmod
 from .. import sync as syncmod
+from ..cli_contract import MergebackData
 from ..envelope import Envelope, ExitCode
 from ..errors import (
     AgenticError,
@@ -284,13 +285,13 @@ def mergeback(session: Session) -> Envelope:
     if run.state is State.TEST_GREEN:
         run = evidence.advance(session, run)
         if run.state is not State.TEST_GREEN:
-            return _envelope_for(run, data={"inputs_invalidated": True})
+            return _envelope_for(run, data=MergebackData(inputs_invalidated=True))
         run, reopened = reopen_if_stale(session, run)
         if reopened:
             return _envelope_for(
                 run,
                 stage="review",
-                data={"coverage_invalidated": True},
+                data=MergebackData(coverage_invalidated=True),
                 next_command="agentic-preflight context",
             )
     _require_state(
@@ -364,11 +365,13 @@ def mergeback(session: Session) -> Envelope:
         return _envelope_for(
             run,
             stage="review",
-            data={
-                **result.as_dict(),
-                "worktree_mode": _worktree_mode(run),
-                "validation_restarted": True,
-            },
+            data=MergebackData.model_validate(
+                {
+                    **result.as_dict(),
+                    "worktree_mode": _worktree_mode(run),
+                    "validation_restarted": True,
+                }
+            ),
             next_instruction=(
                 "The human-resolved merge tree differs from the verified tree. The "
                 "validation checkout now matches that resolution; review the complete "
@@ -402,7 +405,12 @@ def mergeback(session: Session) -> Envelope:
         },
     )
 
-    return _envelope_for(run, data={**result.as_dict(), "worktree_mode": _worktree_mode(run)})
+    return _envelope_for(
+        run,
+        data=MergebackData.model_validate(
+            {**result.as_dict(), "worktree_mode": _worktree_mode(run)}
+        ),
+    )
 
 
 def _remote_for(session: Session, run: RunDoc) -> str:

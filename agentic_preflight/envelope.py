@@ -6,6 +6,11 @@ whether the run went well, so every key is always present; an envelope with
 nothing to say still carries ``data: {}`` and ``blocking: []`` rather than
 omitting them and forcing defensive parsing on the other side.
 
+``data`` is a :class:`~agentic_preflight.cli_contract.CommandData`, normally the
+command's own model from ``cli_contract``, so a misspelled or mistyped key at the
+construction site fails type checking. It is dumped with only the keys that were set,
+so the payload carries exactly what the command supplied.
+
 ``next`` keeps the agent on the protocol: after any command the agent is told
 the single next legal command. It is ``null`` only when there is genuinely nothing
 left to do.
@@ -15,9 +20,12 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
+
+from .cli_contract import CommandData
 
 
 class ExitCode(IntEnum):
@@ -37,7 +45,7 @@ class Envelope:
     run_id: str | None = None
     state: str | None = None
     stage: str | None = None
-    data: dict[str, Any] = field(default_factory=dict)
+    data: CommandData = field(default_factory=CommandData)
     blocking: list[Any] = field(default_factory=list)
     next_instruction: str | None = None
     next_command: str | None = None
@@ -71,7 +79,7 @@ class Envelope:
             "run_id": self.run_id,
             "state": self.state,
             "stage": self.stage,
-            "data": self.data,
+            "data": self.data.model_dump(mode="json", exclude_unset=True),
             "blocking": self.blocking,
             "next": next_block,
             "error": error_block,
@@ -91,7 +99,7 @@ def error_envelope(
     detail: dict[str, Any] | None = None,
     next_instruction: str | None = None,
     next_command: str | None = None,
-    data: dict[str, Any] | None = None,
+    data: CommandData | Mapping[str, Any] | None = None,
     blocking: list[Any] | None = None,
 ) -> Envelope:
     """Build a failed envelope carrying an error code and recovery."""
@@ -100,7 +108,7 @@ def error_envelope(
         run_id=run_id,
         state=state,
         stage=stage,
-        data=data or {},
+        data=data if isinstance(data, CommandData) else CommandData.model_validate(data or {}),
         blocking=blocking or [],
         error_code=code,
         error_message=message,

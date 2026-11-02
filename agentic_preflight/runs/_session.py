@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from .. import findings as findingsmod
 from .. import gitx, risk, telemetry, worktree
+from ..cli_contract import RunDataBase
 from ..config import Config, load_config, snapshot_run_settings
 from ..envelope import Envelope
 from ..errors import (
@@ -317,7 +318,8 @@ def _start_command(
     return shlex.join(args)
 
 
-def _envelope_for(run: RunDoc, **overrides) -> Envelope:
+def _envelope_for(run: RunDoc, *, data: RunDataBase | None = None, **overrides) -> Envelope:
+    """The envelope for ``run``, with the shared run keys added to ``data``."""
     instruction, command = _next_hint(run.state)
     stopped = run.state not in TERMINAL_STATES and _restart_limit_reached(run)
     if stopped:
@@ -330,14 +332,15 @@ def _envelope_for(run: RunDoc, **overrides) -> Envelope:
         "next_command": command,
     }
     fields.update(overrides)
+    data = data if data is not None else RunDataBase()
     report = telemetry.take_report(run.run_id) if run.state in TERMINAL_STATES else None
     if report is not None:
         # The summary written when this command ended the run.
-        fields["data"] = {**fields.get("data", {}), "telemetry": report}
+        data.telemetry = report
     if stopped:
         # Machine-readable on every envelope, not only in the wording.
-        fields["data"] = {**fields.get("data", {}), "needs_human": True}
-    return Envelope(**fields)
+        data.needs_human = True
+    return Envelope(data=data, **fields)
 
 
 def _interrupted_legacy_update(session: Session, run: RunDoc) -> bool:

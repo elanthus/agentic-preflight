@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from .. import gitx
+from ..cli_contract import ReviewContractsData
 from ..contract_models import ContractPlan, ContractReceipt, ImageInventory, ProbeKind
 from ..contract_runner import execute_plan, list_image_packages
 from ..diff import DiffBundle, ReviewManifest
@@ -355,6 +356,6 @@ def check_contracts(session: Session, payload: Any) -> Envelope:
     return _envelope_for(
         run,
         stage="review",
-        data={"contract_checks": contract_context(session, run, manifest)},
+        data=ReviewContractsData(contract_checks=contract_context(session, run, manifest)),
         next_command="agentic-preflight context",
     )

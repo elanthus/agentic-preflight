@@ -5,6 +5,7 @@ from __future__ import annotations
 from .. import diff as diffmod
 from .. import findings as findingsmod
 from .. import gitx
+from ..cli_contract import ContextData, SubmitFindingsData, VerifyData
 from ..digests import json_digest
 from ..envelope import Envelope
 from ..errors import (
@@ -162,7 +163,7 @@ def context(session: Session, *, section: str = "review") -> Envelope:
             doc.stages[Stage.DOCS] = record
             run = doc
 
-    envelope = _envelope_for(run, stage=section, data=data)
+    envelope = _envelope_for(run, stage=section, data=ContextData.model_validate(data))
     if section == "docs":
         envelope.next_instruction = (
             "Ask one question of the diff: would a reader following the current "
@@ -350,12 +351,12 @@ def submit_findings(
     envelope = _envelope_for(
         run,
         stage=stage.value,
-        data={
-            "accepted": [f.model_dump(mode="json") for f in accepted],
-            "total": len(combined),
-            "coverage": coverage.summary() if coverage is not None else None,
-            "risk": assessment.model_dump(mode="json"),
-        },
+        data=SubmitFindingsData(
+            accepted=[f.model_dump(mode="json") for f in accepted],
+            total=len(combined),
+            coverage=coverage.summary() if coverage is not None else None,
+            risk=assessment.model_dump(mode="json"),
+        ),
         blocking=[f.model_dump(mode="json") for f in blocking],
     )
     _findings_next_hint(envelope, blocking, actionable)
@@ -397,7 +398,7 @@ def verify(session: Session) -> Envelope:
         return _envelope_for(
             run,
             stage=Stage.REVIEW.value,
-            data={"coverage_invalidated": True},
+            data=VerifyData(coverage_invalidated=True),
             next_instruction=(
                 "The reviewed snapshot changed. Fetch the current diff and account "
                 "for every review unit before continuing."
@@ -415,5 +416,5 @@ def verify(session: Session) -> Envelope:
     return _envelope_for(
         run,
         stage=stage.value,
-        data={"stage": stage.value, "blocking_count": 0},
+        data=VerifyData(stage=stage.value, blocking_count=0),
     )

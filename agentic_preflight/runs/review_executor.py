@@ -8,6 +8,7 @@ from typing import Any
 from .. import diff as diffmod
 from .. import gitx
 from ..attestation import output_digest
+from ..cli_contract import ReviewRunData
 from ..envelope import Envelope
 from ..errors import DiffTooLarge, InvalidFindings, MaxAttempts, StageFailed
 from ..machine import Action, State
@@ -209,8 +210,9 @@ def run_review_command(session: Session) -> Envelope:
             },
             next_command="agentic-preflight review run",
         ) from exc
-    envelope.data.update(
+    envelope.data = ReviewRunData.model_validate(
         {
+            **envelope.data.model_dump(exclude_unset=True),
             "executor": "command",
             "command": command,
             "exit_code": 0,

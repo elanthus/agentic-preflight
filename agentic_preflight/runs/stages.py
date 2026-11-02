@@ -7,6 +7,7 @@ from typing import NoReturn, TypedDict
 
 from .. import gitx, worktree
 from ..attestation import output_digest
+from ..cli_contract import LogsData, StageRunData
 from ..envelope import Envelope
 from ..errors import (
     DirtyTree,
@@ -352,7 +353,7 @@ def run_stage(
             return _envelope_for(
                 run,
                 stage=Stage.REVIEW.value,
-                data={"coverage_invalidated": True},
+                data=StageRunData(coverage_invalidated=True),
                 next_command="agentic-preflight context",
             )
     _require_state(run, *_STAGE_READY_STATES[stage_name], command=f"stage run {stage_name}")
@@ -375,7 +376,7 @@ def run_stage(
         return _envelope_for(
             run,
             stage=stage_name,
-            data={"stage": stage_name, "validation_restarted": True},
+            data=StageRunData(stage=stage_name, validation_restarted=True),
             next_instruction=(
                 f"The {stage_name} repair changed the verified tree. Re-run every applicable "
                 "stage so each result describes the repaired commit."
@@ -466,7 +467,7 @@ def run_stage(
         if stage is Stage.LINT:
             run = _skip_test_if_not_applicable(session, run)
         run = evidence.advance(session, run, clean=clean_after)
-        return _envelope_for(run, stage=stage_name, data=data)
+        return _envelope_for(run, stage=stage_name, data=StageRunData.model_validate(data))
 
     _stage_failure(
         run,
@@ -499,9 +500,9 @@ def logs(session: Session, *, stage_name: str) -> Envelope:
     return _envelope_for(
         run,
         stage=stage_name,
-        data={
-            "stage": stage_name,
-            "log_path": str(log_path),
-            "output": log_path.read_text(encoding="utf-8"),
-        },
+        data=LogsData(
+            stage=stage_name,
+            log_path=str(log_path),
+            output=log_path.read_text(encoding="utf-8"),
+        ),
     )

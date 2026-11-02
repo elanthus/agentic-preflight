@@ -11,6 +11,7 @@ from typing import Literal
 import click
 
 from . import runs
+from .cli_contract import ApprovalCheckData, VerifyData
 from .cli_support import command, finish, finish_locked, read_json_file
 from .envelope import Envelope, ExitCode
 from .errors import AttestationFailed, NeedsHuman
@@ -42,16 +43,16 @@ def verify(sha: str | None, purpose: Literal["local", "publish"], base_sha: str 
             ) from exc
         finish(
             Envelope(
-                data={
-                    "verified": True,
-                    "purpose": purpose,
-                    "test_status": value.stages[Stage.TEST].status,
-                    "merge_requirements_satisfied": False,
-                    "sha": value.sha,
-                    "tree_sha": value.tree_sha,
-                    "notes_ref": attestationmod.NOTES_REF,
-                    "attestation": value.model_dump(mode="json"),
-                }
+                data=VerifyData(
+                    verified=True,
+                    purpose=purpose,
+                    test_status=value.stages[Stage.TEST].status,
+                    merge_requirements_satisfied=False,
+                    sha=value.sha,
+                    tree_sha=value.tree_sha,
+                    notes_ref=attestationmod.NOTES_REF,
+                    attestation=value.model_dump(mode="json"),
+                )
             )
         )
         return
@@ -153,7 +154,7 @@ def _finish_approval(result: dict, *, report_only: bool) -> None:
                 "approve the current head, then rerun this check."
             )
         raise NeedsHuman(message, data=result, next_instruction=instruction)
-    finish(Envelope(data=result))
+    finish(Envelope(data=ApprovalCheckData.model_validate(result)))
 
 
 @click.command("hook-check")

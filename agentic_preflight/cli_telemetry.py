@@ -11,6 +11,7 @@ import click
 from . import gitx
 from . import hosted as hostedmod
 from . import telemetry as telemetrymod
+from .cli_contract import TelemetryRebuildData, TelemetrySyncHostedData
 from .cli_support import as_error, command, finish, selected_run_id
 from .config import load_config
 from .envelope import Envelope, ExitCode
@@ -55,7 +56,7 @@ def telemetry_rebuild() -> None:
         raise error
     finish(
         Envelope(
-            data=result,
+            data=TelemetryRebuildData.model_validate(result),
             next_instruction=UNREADABLE_INSTRUCTION if result["unreadable"] else None,
         )
     )
@@ -218,7 +219,13 @@ def telemetry_sync_hosted(limit: int, run_id: str | None, refresh: bool, dry_run
     if error is not None:
         raise error
     instruction, next_command = _sync_next(data)
-    finish(Envelope(data=data, next_instruction=instruction, next_command=next_command))
+    finish(
+        Envelope(
+            data=TelemetrySyncHostedData.model_validate(data),
+            next_instruction=instruction,
+            next_command=next_command,
+        )
+    )
 
 
 COMMANDS = (telemetry,)

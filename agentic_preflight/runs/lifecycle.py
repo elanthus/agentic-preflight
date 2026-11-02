@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .. import gitx, hook, telemetry, worktree
+from ..cli_contract import AbortData, EventsData, GcData, HookStatus, StatusData
 from ..envelope import Envelope
 from ..errors import (
     START_COMMAND,
@@ -40,7 +41,7 @@ def events(session: Session, *, limit: int | None = None) -> Envelope:
     history = session.store.load_events(run.run_id)
     if limit:
         history = history[-limit:]
-    return _envelope_for(run, data={"events": history, "count": len(history)})
+    return _envelope_for(run, data=EventsData(events=history, count=len(history)))
 
 
 def abort(session: Session, *, force: bool = False, reason: AbortReason | None = None) -> Envelope:
@@ -88,10 +89,10 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
 
     return _envelope_for(
         run,
-        data={
-            "discarded_fix_commits": run.fix_commits if isolated and force else [],
-            "preserved_in_place_commits": run.fix_commits if not isolated else [],
-        },
+        data=AbortData(
+            discarded_fix_commits=run.fix_commits if isolated and force else [],
+            preserved_in_place_commits=run.fix_commits if not isolated else [],
+        ),
         next_instruction="Run aborted. Start a fresh one when ready.",
         next_command=_start_command(
             run.intent,
@@ -271,21 +272,21 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
     legacy = worktree.legacy_worktrees(session.repo_root, session.config.worktree.root)
 
     return Envelope(
-        data={
-            "removed": removed,
-            "retained": retained,
-            "orphans": orphans,
-            "reclaimed_runners": reclaimed_runners,
-            "legacy_worktrees": legacy,
-            "runs_known": sorted(known_runs),
-            "active": store.list_active(),
+        data=GcData(
+            removed=removed,
+            retained=retained,
+            orphans=orphans,
+            reclaimed_runners=reclaimed_runners,
+            legacy_worktrees=legacy,
+            runs_known=sorted(known_runs),
+            active=store.list_active(),
             # Summaries written for the runs this collection orphaned.
-            "telemetry": [
+            telemetry=[
                 report
                 for run_id in sorted(known_runs)
                 if (report := telemetry.take_report(run_id)) is not None
             ],
-        },
+        ),
         next_instruction=(
             RUN_READ_RECOVERY
             if unreadable_retained
@@ -413,20 +414,20 @@ def _unlanded_fix_commits(repo: Path, run: RunDoc) -> list[str]:
         return list(run.fix_commits)
 
 
-def _hook_status(repo: Path) -> dict[str, str | bool | None]:
+def _hook_status(repo: Path) -> HookStatus:
     """Inspect the effective hook without compromising status as the recovery path."""
     path: Path | None = None
     try:
         path = gitx.hook_path(repo, "pre-push")
-        return {"path": str(path), "active": hook.contains_hook_check(path)}
+        return HookStatus(path=str(path), active=hook.contains_hook_check(path))
     except Exception as exc:  # noqa: BLE001 - status must survive every hook-path failure
         message = str(exc).strip()
         reason = message.splitlines()[0][:200] if message else type(exc).__name__
-        return {
-            "path": str(path) if path is not None else None,
-            "active": False,
-            "error": reason,
-        }
+        return HookStatus(
+            path=str(path) if path is not None else None,
+            active=False,
+            error=reason,
+        )
 
 
 def _status_all(session: Session) -> Envelope:
@@ -467,7 +468,7 @@ def _status_all(session: Session) -> Envelope:
             }
         )
     return Envelope(
-        data={"active": active, "runs": summaries, "count": len(summaries)},
+        data=StatusData(active=active, runs=summaries, count=len(summaries)),
         next_instruction=RUN_READ_RECOVERY
         if any(item.get("readable") is False and item["reason"] != "missing" for item in summaries)
         else None,
@@ -511,8 +512,10 @@ def _try_advance_evidence(session: Session, run: RunDoc, findings):
     return run, findings, reuse_error
 
 
-def _set_status_next(session: Session, run: RunDoc, envelope: Envelope, *, stale: bool) -> None:
-    """Choose the recovery instruction for the current run state."""
+def _set_status_next(
+    session: Session, run: RunDoc, envelope: Envelope, data: StatusData, *, stale: bool
+) -> None:
+    """Choose the recovery instruction for the current run state; ``data`` is the envelope's."""
     if not session.source_worktree_available:
         envelope.next_instruction = (
             "The recorded source worktree no longer exists. Inspection remains available; "
@@ -548,7 +551,7 @@ def _set_status_next(session: Session, run: RunDoc, envelope: Envelope, *, stale
             ),
             None,
         )
-        envelope.data["mergeback_conflict"] = conflict
+        data.mergeback_conflict = conflict
         envelope.next_instruction = (
             "Use the durable conflict report below, resolve the affected paths, "
             "then retry mergeback; completed verification stages are retained."
@@ -569,7 +572,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
     run_id = session.active_run_id()
     if not run_id:
         return Envelope(
-            data={"has_run": False, "hook": hook_status},
+            data=StatusData(has_run=False, hook=hook_status),
             next_instruction="No run is active. Start one.",
             next_command=START_COMMAND,
         )
@@ -580,31 +583,31 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
         if session.selected_run_id is None:
             session.store.clear_active_if(session.owner_id, run_id)
         return Envelope(
-            data={"has_run": False, "dangling_run_id": run_id, "hook": hook_status},
+            data=StatusData(has_run=False, dangling_run_id=run_id, hook=hook_status),
             next_instruction="The recorded run is missing. Start a fresh one.",
             next_command=START_COMMAND,
         )
     except RunReadError as exc:
         return Envelope(
             run_id=run_id,
-            data={
-                "has_run": True,
-                "readable": False,
-                "read_failure": exc.details(),
-                "hook": hook_status,
-            },
+            data=StatusData(
+                has_run=True,
+                readable=False,
+                read_failure=exc.details(),
+                hook=hook_status,
+            ),
             next_instruction=RUN_READ_RECOVERY,
         )
 
     if run.state in (State.ABORTED, State.DONE, State.ORPHANED) and session.selected_run_id is None:
         session.store.clear_run(run.run_id)
         return Envelope(
-            data={
-                "has_run": False,
-                "previous_run_id": run.run_id,
-                "previous_state": run.state.value,
-                "hook": hook_status,
-            },
+            data=StatusData(
+                has_run=False,
+                previous_run_id=run.run_id,
+                previous_state=run.state.value,
+                hook=hook_status,
+            ),
             next_instruction="The previous run is terminal. Start a new one.",
             next_command=START_COMMAND,
         )
@@ -613,12 +616,12 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
         stopped = _restart_limit_reached(run)
         return _envelope_for(
             run,
-            data={
-                "has_run": True,
-                "interrupted_legacy_update": True,
-                "hook": hook_status,
-                "source_worktree_path": run.source_worktree_path,
-            },
+            data=StatusData(
+                has_run=True,
+                interrupted_legacy_update=True,
+                hook=hook_status,
+                source_worktree_path=run.source_worktree_path,
+            ),
             next_instruction=(
                 RESTART_LIMIT_INSTRUCTION
                 if stopped
@@ -642,20 +645,21 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
         try:
             evidence.verify_origins(session, run, run.evidence)
         except StageEvidenceInvalid as exc:
+            data = StatusData(
+                has_run=True,
+                readable=True,
+                evidence_valid=False,
+                evidence_failure={"code": exc.code, **exc.data},
+                hook=hook_status,
+            )
             envelope = _envelope_for(
                 run,
-                data={
-                    "has_run": True,
-                    "readable": True,
-                    "evidence_valid": False,
-                    "evidence_failure": {"code": exc.code, **exc.data},
-                    "hook": hook_status,
-                },
+                data=data,
                 next_instruction=exc.next_instruction,
                 next_command=exc.next_command,
             )
             if not session.source_worktree_available:
-                _set_status_next(session, run, envelope, stale=False)
+                _set_status_next(session, run, envelope, data, stale=False)
             return envelope
 
     findings = session.store.load_findings(run_id)
@@ -671,68 +675,65 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
         run.stale or (not pending_mergeback and tip is not None)
     )
 
-    envelope = _envelope_for(
-        run,
-        data={
-            "has_run": True,
-            "hook": hook_status,
-            "seq": run.seq,
-            "branch": run.branch,
-            "base_ref": run.base_ref,
-            "head_sha": run.head_sha,
-            "source_head_sha": run.source_head_sha,
-            "intent": run.intent,
-            "intent_source": run.intent_source,
-            "producer": run.producer.model_dump(mode="json") if run.producer else None,
-            "sync": {
-                "remote": run.sync_remote,
-                "base_ref": run.sync_base_ref,
-                "base_sha": run.sync_base_sha,
-            },
-            "current_tip": tip or run.head_sha,
-            "stale": stale,
-            "worktree_path": run.worktree_path,
-            "source_worktree_id": run.source_worktree_id,
-            "source_worktree_path": run.source_worktree_path,
-            "source_worktree_available": session.source_worktree_available,
-            "owner_ids": run.owner_ids,
-            "worktree_branch": run.worktree_branch,
-            "worktree_mode": _worktree_mode(run),
-            "worktree_released": run.worktree_released,
-            "config_digest": run.config_digest,
-            "pr_mode": session.config.pr.mode,
-            "automated_cleanup": session.config.pr.automated_cleanup,
-            "approval_mode": session.config.approval.mode,
-            "gate_token": run.gate_token,
-            "pushed_sha": run.pushed_sha,
-            "fix_commits": run.fix_commits,
-            "validation_restarts": run.validation_restarts,
-            "max_restarts": _max_restarts(run),
-            "needs_human": _restart_limit_reached(run),
-            "mergeback_attempt": (
-                run.mergeback_attempt.model_dump(mode="json") if run.mergeback_attempt else None
-            ),
-            "review_coverage": (
-                run.review_coverage.summary() if run.review_coverage is not None else None
-            ),
-            "stages": {
-                stage.value: record.model_dump(mode="json") for stage, record in run.stages.items()
-            },
-            "setup_failure": (
-                run.setup_failure.model_dump(mode="json") if run.setup_failure is not None else None
-            ),
-            # Names only: contents are never read, logged, or echoed anywhere.
-            "copied_files": run.copied_files,
-            "findings": [f.model_dump(mode="json") for f in findings],
-            "findings_summary": summary,
-            "applicability": {
-                stage.value: value.model_dump(mode="json")
-                for stage, value in run.applicability.items()
-            },
-            "risk": assessment.model_dump(mode="json"),
+    status_data = StatusData(
+        has_run=True,
+        hook=hook_status,
+        seq=run.seq,
+        branch=run.branch,
+        base_ref=run.base_ref,
+        head_sha=run.head_sha,
+        source_head_sha=run.source_head_sha,
+        intent=run.intent,
+        intent_source=run.intent_source,
+        producer=run.producer.model_dump(mode="json") if run.producer else None,
+        sync={
+            "remote": run.sync_remote,
+            "base_ref": run.sync_base_ref,
+            "base_sha": run.sync_base_sha,
         },
+        current_tip=tip or run.head_sha,
+        stale=stale,
+        worktree_path=run.worktree_path,
+        source_worktree_id=run.source_worktree_id,
+        source_worktree_path=run.source_worktree_path,
+        source_worktree_available=session.source_worktree_available,
+        owner_ids=run.owner_ids,
+        worktree_branch=run.worktree_branch,
+        worktree_mode=_worktree_mode(run),
+        worktree_released=run.worktree_released,
+        config_digest=run.config_digest,
+        pr_mode=session.config.pr.mode,
+        automated_cleanup=session.config.pr.automated_cleanup,
+        approval_mode=session.config.approval.mode,
+        gate_token=run.gate_token,
+        pushed_sha=run.pushed_sha,
+        fix_commits=run.fix_commits,
+        validation_restarts=run.validation_restarts,
+        max_restarts=_max_restarts(run),
+        needs_human=_restart_limit_reached(run),
+        mergeback_attempt=(
+            run.mergeback_attempt.model_dump(mode="json") if run.mergeback_attempt else None
+        ),
+        review_coverage=(
+            run.review_coverage.summary() if run.review_coverage is not None else None
+        ),
+        stages={
+            stage.value: record.model_dump(mode="json") for stage, record in run.stages.items()
+        },
+        setup_failure=(
+            run.setup_failure.model_dump(mode="json") if run.setup_failure is not None else None
+        ),
+        # Names only: contents are never read, logged, or echoed anywhere.
+        copied_files=run.copied_files,
+        findings=[f.model_dump(mode="json") for f in findings],
+        findings_summary=summary,
+        applicability={
+            stage.value: value.model_dump(mode="json") for stage, value in run.applicability.items()
+        },
+        risk=assessment.model_dump(mode="json"),
     )
     if reuse_error is not None:
-        envelope.data["reuse_error"] = reuse_error
-    _set_status_next(session, run, envelope, stale=stale)
+        status_data.reuse_error = reuse_error
+    envelope = _envelope_for(run, data=status_data)
+    _set_status_next(session, run, envelope, status_data, stale=stale)
     return envelope

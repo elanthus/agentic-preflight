@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from agentic_preflight.cli_contract import CommandData, EventsData
 from agentic_preflight.cli_support import command
 from agentic_preflight.envelope import Envelope, ExitCode, emit, error_envelope
 from agentic_preflight.errors import WrongState
@@ -39,6 +40,25 @@ def test_next_carries_instruction_and_command():
     payload = json.loads(env.to_json())
     assert payload["next"]["instruction"].startswith("Review the diff")
     assert payload["next"]["command"].endswith("findings.json")
+
+
+def test_data_carries_exactly_the_keys_the_command_set():
+    data = EventsData(count=0, events=None)
+    data.needs_human = True
+    extra = CommandData.model_validate({"detail": {"path": "a"}})
+
+    assert Envelope(data=data).to_payload()["data"] == {
+        "count": 0,
+        "events": None,
+        "needs_human": True,
+    }
+    assert Envelope(data=extra).to_payload()["data"] == {"detail": {"path": "a"}}
+    assert Envelope().to_payload()["data"] == {}
+
+
+def test_error_envelope_keeps_an_untyped_detail_mapping():
+    envelope = error_envelope(code="x", message="y", data={"conflicting_files": ["a"]})
+    assert envelope.to_payload()["data"] == {"conflicting_files": ["a"]}
 
 
 def test_next_is_null_when_there_is_no_legal_move():
