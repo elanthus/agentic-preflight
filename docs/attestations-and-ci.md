@@ -200,6 +200,7 @@ Any workflow with the repository's Actions token can write a commit status, and 
 A job of the protected-base run cannot be satisfied that way.
 `manual_merge` and `environment` modes do not read reviews, and a re-run in `environment` mode would discard a granted Environment approval, so the companion leaves those runs alone.
 GitHub permits a re-run for 30 days after the original run; after that, push the branch again to start a new one.
+A pull request with merge conflicts has no merge ref, so a review of it runs no relay and re-runs nothing; the check stays failed until the conflicts are resolved and pushed, which starts a new policy run.
 
 This repository configures `owner_review` with `reviewer = "elanthus"`.
 Thus, the approval check can report a review status for the current content.
