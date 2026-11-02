@@ -72,14 +72,17 @@ jobs:
             > "$runs_file"
           # Several events can start a policy run for one head, for example opening a
           # draft and then marking it ready. Each of those runs reports the required
-          # check, so every one that reads reviews is re-run, oldest first. Runs from a
-          # fork list no pull requests, so the fallback matches the reviewed repository.
+          # check, so every one that reads reviews is re-run, oldest first. A run that
+          # lists no pull requests, such as one from a fork, counts when it comes from
+          # the reviewed head repository; a run that lists another pull request does not.
           candidates_file="$RUNNER_TEMP/policy-run-candidates.txt"
           jq -r --arg head "$head_sha" --arg repository "$RUN_HEAD_REPOSITORY" \
             --argjson number "$pr_number" '
-            [.[].workflow_runs[] | select(.head_sha == $head)]
-            | (map(select(any(.pull_requests[]?; .number == $number))) | select(length > 0))
-              // map(select(.head_repository.full_name == $repository))
+            [.[].workflow_runs[]
+              | select(.head_sha == $head)
+              | select(
+                  any(.pull_requests[]?; .number == $number) or
+                  ((.pull_requests // []) == [] and .head_repository.full_name == $repository))]
             | sort_by(.run_number) | .[] | "\(.id):\(.status)"
           ' "$runs_file" > "$candidates_file"
           if [ ! -s "$candidates_file" ]; then

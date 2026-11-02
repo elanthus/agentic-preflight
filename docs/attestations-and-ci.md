@@ -196,7 +196,7 @@ Three workflows cooperate so that it does, and only one of them is trusted:
 Each re-run replaces the earlier `high-risk human approval` result inside the same run.
 That matters because GitHub counts every run of a required check name on a head: a new run that passed beside an old run that failed would still block merge.
 One head can have several policy runs, for example after a draft is marked ready for review, so the companion re-runs all of them rather than only the newest.
-Runs from a fork list no pull requests, so for those the companion matches runs by the reviewed head repository.
+A run that lists no pull requests, such as one from a fork, counts when it comes from the reviewed head repository; a run that lists another pull request does not.
 All waits share one twenty-minute budget, so the job stays inside its timeout however many runs a head has.
 The check is deliberately not a commit status.
 Any workflow with the repository's Actions token can write a commit status, and a ruleset cannot tell one workflow from another, so a branch workflow could mark a high-risk pull request approved.

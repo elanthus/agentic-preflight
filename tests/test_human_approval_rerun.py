@@ -227,10 +227,15 @@ def test_companion_shares_one_wait_budget_across_runs(rerun):
     assert _reruns(calls) == []
 
 
-def test_companion_prefers_the_run_that_belongs_to_the_pull_request(rerun):
-    result, calls = rerun(runs=_runs(_run(1, 9), _run(2, 7, numbers=(17,))))
+def test_companion_skips_runs_that_belong_to_another_pull_request(rerun):
+    result, calls = rerun(
+        runs=_runs(_run(1, 9, numbers=(18,)), _run(2, 7, numbers=(17,)), _run(3, 8))
+    )
     assert result.returncode == 0, result.stderr
-    assert _reruns(calls) == ["run rerun 2 --repo owner/project"]
+    assert _reruns(calls) == [
+        "run rerun 2 --repo owner/project",
+        "run rerun 3 --repo owner/project",
+    ]
 
 
 @pytest.mark.parametrize("relay", ["", "abc\n", "0\n", "017\n", "1 2\n", "17;id\n", "-1\n"])
