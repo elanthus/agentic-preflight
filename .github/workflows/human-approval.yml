@@ -207,7 +207,9 @@ jobs:
                 "only while the branch content is unchanged."
               exit 1
             fi
-            echo "Eligible review approval recorded for head $APPROVED_HEAD."
+            # approval-check reports approved_head whenever a review approves; the fallback
+            # keeps the message useful if a future result leaves it out.
+            echo "Eligible review approval recorded for head ${APPROVED_HEAD:-$HEAD_SHA}."
           else
             echo "Unknown approval mode: $APPROVAL_MODE" >&2
             exit 1

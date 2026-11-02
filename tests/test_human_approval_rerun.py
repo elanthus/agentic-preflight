@@ -428,6 +428,12 @@ def test_recorded_approval_names_the_approved_head(enforce):
     assert f"recorded for head {'d' * 40}" in result.stdout
 
 
+def test_recorded_approval_without_an_approved_head_names_the_current_head(enforce):
+    result = enforce(APPROVED="true", APPROVED_HEAD="")
+    assert result.returncode == 0, result.stderr
+    assert f"recorded for head {HEAD}." in result.stdout
+
+
 def test_policy_workflow_runs_only_on_the_protected_base_event():
     policy = _read("human-approval.yml")
     events = " ".join(policy.split("\non:\n", 1)[1].split("\npermissions:", 1)[0].split())
