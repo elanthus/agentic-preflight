@@ -163,7 +163,7 @@ When a run ends, the CLI writes `summary.json` in the run directory.
 Without `path`, the directory is `$XDG_DATA_HOME/agentic-preflight/telemetry` when `XDG_DATA_HOME` is an absolute path.
 Otherwise, it is `~/.local/share/agentic-preflight/telemetry`.
 Without `path`, runs and hook decisions of repositories without a network remote are not written to the telemetry directory, wherever the repository lives.
-Such a repository cannot push, so it is a test fixture.
+This rule reduces fixture noise, but also excludes legitimate local-only work and repositories that push to a local or loopback remote. It classifies the remote, not whether the repository can push or contains real work.
 A `path` is an opt-in: that directory also receives them, even when `path` names the default location.
 See [Repositories without a network remote](local-telemetry.md#repositories-without-a-network-remote).
 
@@ -463,7 +463,10 @@ Require Code Owner reviews for the protected paths.
 The job evaluates trusted base code.
 Its behavior depends on `[approval] mode`.
 It records the manual-merge requirement, waits for the configured Environment, or requires an eligible approval.
-An eligible approval comes from a non-bot, non-author reviewer of the current head or of an earlier head with identical branch content.
+In `peer_review` mode, an eligible approval comes from a non-bot, repository-associated reviewer other than the PR author.
+In `owner_review` mode, it comes from the configured human reviewer: an Approve review on another author's PR, or a Comment review whose trimmed body is exactly `approved` on their own PR.
+An ordinary conversation comment does not count.
+Both modes accept a review of the current head, or an earlier head only when the hosted check proves unchanged branch content and reports `approval_carried: true`.
 
 ## Removed CI test authority
 

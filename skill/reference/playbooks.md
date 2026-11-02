@@ -79,7 +79,7 @@ head and its note. Unsupported schemas require the current producer and protecte
 verifier. Malformed evidence or wrong commit/tree bindings need valid evidence for the
 exact head. Local `verify SHA` and `approval-check` never fetch or retry. Human approval
 and manual-merge requirements remain independent of transport recovery.
-See [the CI guide](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/attestations-and-ci.md#protected-base-fetch-and-verification).
+See [the CI guide](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/attestations-and-ci.md#protected-base-fetch-and-verification).
 
 ## Push rejects the note against the protected base policy (exit 2, `attestation_failed`)
 
@@ -218,7 +218,7 @@ verdict, or the attestation, so never choose one to make a run look better.
 
 ## Stage far slower than normal
 
-Check `[worktree] mode` and follow the [worktree setup and cache guidance](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/worktree-modes.md#when-a-stage-is-much-slower-than-expected).
+Check `[worktree] mode` and follow the [worktree setup and cache guidance](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/worktree-modes.md#when-a-stage-is-much-slower-than-expected).
 Do not raise `[stage] max_attempts` to paper over missing preparation.
 
 ## Copy refused (exit 3)
@@ -230,7 +230,7 @@ pushed.
 ## Stage reports zero files to work on
 
 Check whether `worktree_path` is under `.git/`; tools that skip VCS directories cannot
-see it. See [why isolated worktrees live outside `.git`](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git).
+see it. See [why isolated worktrees live outside `.git`](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git).
 Symlinks do not help — real paths are resolved. Confirm by
 running the same command in a worktree outside `.git`; if that finds files, point the
 stage command at a script that checks the commit under test out to a non-`.git` path

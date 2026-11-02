@@ -25,10 +25,22 @@ Set `AP_REVIEWER_EFFORT` to an effort that the model and CLI support.
 Set `AP_REVIEWER_TIMEOUT` to change the wrapper's 600-second timeout.
 
 The example Codex wrapper defaults to `gpt-5.3-codex` with `medium` effort.
-It uses the verified Codex CLI 0.153.0 interface `-c model_reasoning_effort="medium"`.
+It passes `--config 'model_reasoning_effort="medium"'`.
 The example Claude wrapper defaults to `claude-sonnet-5` with `high` effort.
-It uses Claude Code 2.1.236's verified `--effort` option.
+It passes `--effort high`.
 These defaults do not claim comparative quality.
+
+The wrapper flags were checked against the local help output of Codex CLI 0.163.0 and Claude Code 2.1.292 on 2026-11-01.
+This confirms flag availability, not a minimum-version requirement or an end-to-end model evaluation.
+Claude Code 2.1.292 can emit system events after its `result` event in `stream-json`.
+The shared parser reads findings from the last `result` envelope, rather than assuming the final event contains the answer.
+A failed or malformed result fails review instead of falling back to an earlier findings object.
+The [wrapper regression tests](../tests/test_reviewer_examples.py) cover these cases.
+Record the actual CLI version when evaluating or diagnosing a reviewer.
+
+This repository's committed `.agentic-preflight.toml` overrides the Claude example defaults:
+it requires command review for every run, using `claude-opus-5-5` at `low` effort.
+Each `review run` invokes that reviewer; see [Contributing](../CONTRIBUTING.md#pull-requests) for setup.
 
 Without environment overrides, the wrappers set these efforts explicitly.
 They do not inherit CLI effort defaults.

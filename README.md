@@ -100,6 +100,8 @@ Set `[gate] mode = "manual"` if only a person must run the final Git command.
 
 The [installation guide](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/installation.md)
 includes source installations, upgrades, project skills, other Agent Skills clients, and removal.
+Upgrading from 0.7? Follow the [0.7 to 0.8 upgrade steps](docs/installation.md#upgrading-from-07-to-08)
+to align shared-clone machines, copied skills, and the protected CI verifier before enabling new settings.
 
 ## What Agentic Preflight adds
 
