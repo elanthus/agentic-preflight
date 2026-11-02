@@ -1,0 +1,124 @@
+name: Human approval re-run
+
+# A finished check does not change when a review arrives, and a review event
+# cannot be trusted to evaluate one, because it runs the pull request's workflow
+# file. GitHub counts every run of a required check name on a head, so a fresh
+# run beside the old failed one would not clear it either. This workflow always
+# runs from the default branch. It takes a pull request number from the relay
+# run, resolves everything else from the repository API, and re-runs the
+# protected-base "Human approval policy" run for the pull request's current head,
+# which replaces that run's `high-risk human approval` result in place.
+#
+# The check stays a job of the protected-base run rather than a commit status:
+# any workflow with this repository's Actions token could write a status, and a
+# ruleset cannot tell workflows apart.
+on:
+  workflow_run:
+    workflows: [Human approval review]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: agentic-preflight-human-approval-rerun-${{ github.event.workflow_run.head_sha }}
+
+jobs:
+  rerun:
+    name: re-run the approval policy for the reviewed head
+    if: >-
+      github.event.workflow_run.event == 'pull_request_review' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # No checkout. The relay artifact supplies only a pull request number.
+      - name: Re-run the trusted policy run for the reviewed head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELAY_RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+        run: |
+          relay_dir="$RUNNER_TEMP/human-approval-review"
+          gh run download "$RELAY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name human-approval-review --dir "$relay_dir"
+          pr_number=$(head -c 20 "$relay_dir/pr-number" | tr -d '\n')
+          case "$pr_number" in
+            '' | 0* | *[!0-9]*)
+              echo "The review relay did not name a pull request number." >&2
+              exit 1
+              ;;
+          esac
+          pr_file="$RUNNER_TEMP/pull-request.json"
+          gh api "/repos/$GITHUB_REPOSITORY/pulls/$pr_number" > "$pr_file"
+          if ! jq -e --arg head "$RUN_HEAD_SHA" --arg repository "$RUN_HEAD_REPOSITORY" '
+            .state == "open" and
+            .head.sha == $head and
+            .head.repo.full_name == $repository and
+            (.base.sha | test("^[0-9a-f]{40}$"))
+          ' "$pr_file" > /dev/null; then
+            echo "Pull request $pr_number is closed or no longer has the reviewed head."
+            echo "The run for its current head reports the check."
+            exit 0
+          fi
+          head_sha=$(jq -r '.head.sha' "$pr_file")
+          base_sha=$(jq -r '.base.sha' "$pr_file")
+          # Only the review modes read reviews. A re-run in environment mode would
+          # discard a granted Environment approval, and manual_merge ignores reviews.
+          config_file="$RUNNER_TEMP/base-config.toml"
+          error_file="$RUNNER_TEMP/base-config-error.txt"
+          mode=manual_merge
+          if gh api -H "Accept: application/vnd.github.raw+json" \
+              "/repos/$GITHUB_REPOSITORY/contents/.agentic-preflight.toml?ref=$base_sha" \
+              > "$config_file" 2> "$error_file"; then
+            mode=$(python3 -c '
+          import sys, tomllib
+          with open(sys.argv[1], "rb") as handle:
+              config = tomllib.load(handle)
+          print(config.get("approval", {}).get("mode", "manual_merge"))
+          ' "$config_file")
+          elif grep -q "HTTP 404" "$error_file"; then
+            echo "The base commit has no .agentic-preflight.toml; the default approval mode applies."
+          else
+            cat "$error_file" >&2
+            exit 1
+          fi
+          case "$mode" in
+            peer_review | owner_review) ;;
+            *)
+              echo "Approval mode $mode does not read reviews. Nothing to re-run."
+              exit 0
+              ;;
+          esac
+          runs_file="$RUNNER_TEMP/policy-runs.json"
+          gh api --paginate --slurp \
+            "/repos/$GITHUB_REPOSITORY/actions/workflows/human-approval.yml/runs?event=pull_request_target&head_sha=$head_sha&per_page=100" \
+            > "$runs_file"
+          run_file="$RUNNER_TEMP/policy-run.json"
+          jq --arg head "$head_sha" --argjson number "$pr_number" '
+            [.[].workflow_runs[] | select(.head_sha == $head)]
+            | (map(select(any(.pull_requests[]?; .number == $number))) | select(length > 0)) // .
+            | sort_by(.run_number) | last // empty
+          ' "$runs_file" > "$run_file"
+          if [ ! -s "$run_file" ]; then
+            echo "No Human approval policy run exists for head $head_sha. A push starts one."
+            exit 0
+          fi
+          run_id=$(jq -r '.id' "$run_file")
+          if [ "$(jq -r '.status' "$run_file")" != "completed" ]; then
+            echo "Run $run_id is still in progress. Waiting for it before re-running."
+            for _ in $(seq 1 60); do
+              status=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.status')
+              [ "$status" = "completed" ] && break
+              sleep 10
+            done
+          fi
+          echo "Re-running Human approval policy run $run_id for head $head_sha of pull request $pr_number."
+          gh run rerun "$run_id" --repo "$GITHUB_REPOSITORY" || {
+            echo "::error::Could not re-run run $run_id. GitHub allows a re-run for 30 days;" \
+              "after that, push the branch again to start a new run." >&2
+            exit 1
+          }
