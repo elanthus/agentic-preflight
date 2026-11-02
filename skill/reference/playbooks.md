@@ -79,7 +79,24 @@ head and its note. Unsupported schemas require the current producer and protecte
 verifier. Malformed evidence or wrong commit/tree bindings need valid evidence for the
 exact head. Local `verify SHA` and `approval-check` never fetch or retry. Human approval
 and manual-merge requirements remain independent of transport recovery.
-See [the CI guide](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/attestations-and-ci.md#protected-base-fetch-and-verification).
+See [the CI guide](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/attestations-and-ci.md#protected-base-fetch-and-verification).
+
+## Push rejects the note against the protected base policy (exit 2, `attestation_failed`)
+
+`push`, the hook, and hosted `verify` read policy from the `.agentic-preflight.toml`
+committed on the protected base, not from the run's configuration. The error names the
+binding: docs skipped while the base enables them, a lint, test, or review command that
+differs from the one the base configures, a review exclusion the base does not exclude,
+or a review executor below the base's executor policy. A `--command` override of a
+command the base configures fails the same way.
+
+Do not edit the base, rerun to get a different note, or push with `--no-verify`. If the
+branch changes `.agentic-preflight.toml` on purpose, tell the user that a human must push
+and merge that change; later branches are verified under the new policy. Otherwise,
+revert the branch's policy change or drop the override, and start a new run. A
+`base_mismatch` reason means the protected base cannot judge the head. Check that any
+`--base` names the branch the change merges into; otherwise the branch is not
+synchronized with its base, so run `start` again.
 
 ## Stale head (exit 3, `stale_run`)
 
@@ -201,7 +218,7 @@ verdict, or the attestation, so never choose one to make a run look better.
 
 ## Stage far slower than normal
 
-Check `[worktree] mode` and follow the [worktree setup and cache guidance](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/worktree-modes.md#when-a-stage-is-much-slower-than-expected).
+Check `[worktree] mode` and follow the [worktree setup and cache guidance](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/worktree-modes.md#when-a-stage-is-much-slower-than-expected).
 Do not raise `[stage] max_attempts` to paper over missing preparation.
 
 ## Copy refused (exit 3)
@@ -213,7 +230,7 @@ pushed.
 ## Stage reports zero files to work on
 
 Check whether `worktree_path` is under `.git/`; tools that skip VCS directories cannot
-see it. See [why isolated worktrees live outside `.git`](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git).
+see it. See [why isolated worktrees live outside `.git`](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git).
 Symlinks do not help — real paths are resolved. Confirm by
 running the same command in a worktree outside `.git`; if that finds files, point the
 stage command at a script that checks the commit under test out to a non-`.git` path

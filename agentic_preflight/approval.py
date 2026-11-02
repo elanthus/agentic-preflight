@@ -240,7 +240,7 @@ def evaluate(
 ) -> dict[str, Any]:
     """Evaluate whether the exact PR head satisfies its merge-review policy."""
     repo = Path(repo)
-    value = attestation.verify(repo, head_sha)
+    value = attestation.verify(repo, head_sha, base=base_sha)
     cfg = committed_config(repo, base_sha)
     return evaluate_value(
         repo,

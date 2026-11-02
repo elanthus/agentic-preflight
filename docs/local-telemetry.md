@@ -56,8 +56,10 @@ You can delete them at any time. They are not evidence, and the next finished ru
 
 ## Repositories without a network remote
 
-A preflight run gates a push. A repository that cannot push is a test fixture, not work.
-By default, the CLI keeps the runs and hook decisions of such a repository out of your telemetry directory, wherever the repository lives.
+By default, the CLI keeps the runs and hook decisions of a repository without a network remote out of your telemetry directory, wherever the repository lives.
+This rule reduces test-fixture noise. It also excludes legitimate local-only work and repositories that push to local or loopback remotes.
+The rule classifies the remote; it does not determine whether the repository can push or contains real work.
+Set an explicit `[telemetry] path` to record these repositories too.
 
 A repository has no network remote when its `origin` is missing, is a local path, for example a bare repository on this machine, or names a loopback host (`localhost`, `127.x.x.x`, or `::1`).
 The remote is a network remote when its normalized form starts with a host name, `host/path`.
@@ -67,7 +69,7 @@ A relative path, for example `fixtures/bare.git`, is a local path to Git, and it
 The location of the worktree does not matter.
 A fixture under your home directory, for example one that an evaluation harness creates under `~/dev/my-evals/artifacts/`, is excluded the same as one under `/tmp`.
 A clone whose `origin` is on a host, for example `github.com/owner/widget`, is recorded as usual, even under the system temporary directory.
-Thus, real work in a scratch clone keeps its telemetry, and hundreds of one-run fixtures cannot bury your real repositories in `report`.
+Thus, a scratch clone with a network `origin` keeps its telemetry, while one-run fixtures without a network remote stay out of the default mirror.
 
 The CLI applies the rule as follows:
 

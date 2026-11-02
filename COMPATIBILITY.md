@@ -406,7 +406,7 @@ No fingerprint, evidence digest, configuration digest, or attestation reads thes
 The exclusion from the default telemetry location no longer depends on where a repository lives.
 Without an explicit `[telemetry] path`, runs and hook decisions of every repository without a network remote stay out of the telemetry directory, under the system temporary directory or anywhere else.
 A network remote is an `origin` whose normalized form starts with a host name. A missing `origin`, a local path such as a bare repository, and a loopback host are not network remotes.
-A preflight run gates a push, so a repository that cannot push is a test fixture. Fixture repositories that a harness creates outside the temporary directory, for example under the home directory, no longer reach `runs.jsonl` or `hook-decisions.jsonl`, and no longer appear in a report that reads the default mirror.
+This remote-based rule reduces fixture noise; it does not identify whether a repository contains real work or can push. Legitimate local-only repositories and repositories that push to local or loopback remotes are also excluded by default. Fixture repositories that a harness creates outside the temporary directory, for example under the home directory, no longer reach `runs.jsonl` or `hook-decisions.jsonl`, and no longer appear in a report that reads the default mirror.
 `agentic-preflight report` inside such a clone still summarizes the clone's own run records in memory, and counts them in `data.source.clone.excluded_runs`.
 A scratch clone under the temporary directory that pushes to GitHub keeps its telemetry, as before.
 See [Repositories without a network remote](docs/local-telemetry.md#repositories-without-a-network-remote).
@@ -422,10 +422,27 @@ The normalized form of a relative local remote, for example an `origin` of `fixt
 The summary schema 1, the hook decision lines, run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 No fingerprint, evidence digest, configuration digest, or attestation reads these keys.
 
+## Unreleased: attestation verification reads the protected base
+
+`verify SHA`, `approval-check`, `push`, and the pre-push hook no longer take policy or the merge base from the note.
+They recompute the merge base against the trusted base, which is `--base` when given and otherwise the note's `base_ref` resolved to `refs/remotes/origin/<branch>` or `refs/heads/<branch>`.
+Only `--base` makes that base independent of the note. `push` and the pre-push hook pass none, so a forged note there can name a branch whose policy is weaker.
+The note's `merge_base_sha` must be the only merge base of that base and the head. A mismatch fails with the new `data.reason` `base_mismatch`.
+Policy comes from the `.agentic-preflight.toml` committed at the trusted base. The user configuration and the branch's own edits no longer relax it.
+A note that skips docs the base enables, or whose lint, test, or command-review command differs from one the base configures, is now rejected.
+So is a note that excludes review files the base does not exclude.
+A branch that changes those settings fails verification until a human merges it.
+A docs stage that is green while the base disables docs now passes. Earlier verifiers rejected it.
+
+`verify` gains the optional `--base REV`. The hosted workflows pass the pull request's base SHA.
+`start` now refuses, with exit 3 and the new error code `unsupported_base_ref`, a `--base-ref` or `[general] base_ref` that does not name an existing `refs/remotes/origin/<branch>` or `refs/heads/<branch>`, such as a tag, another remote, a commit SHA, or revision syntax. Earlier releases started such a run. `push` and the pre-push hook now could not verify its note, so `start` stops it before any stage runs.
+Attestation schema 7, fingerprint version 2, and the evidence and configuration digests are unchanged.
+Notes that an earlier release wrote stay readable, and they verify when they satisfy the protected base policy.
+
 ## Unreleased: documentation inventory lists committed files
 
 The documentation inventory now lists only files committed at the head commit.
-Ignored, generated, and untracked files that match a documentation pattern, such as a Sphinx `docs/_build/` tree or a nested worktree under `.claude/worktrees/`, no longer appear in `doc_surface`, in the docs allowlist, or in the docs fingerprint.
+Ignored and generated files that match a documentation pattern, such as a Sphinx `docs/_build/` tree or a nested worktree under `.claude/worktrees/`, no longer appear in `doc_surface`, in the docs allowlist, or in the docs fingerprint.
 A docs finding against such a file is now rejected as outside the allowlist.
 In a repository with such files, `doc_surface_sha256` changes, so docs evidence recorded before the upgrade does not carry to a new head and the docs stage runs again.
 In a repository without them, the inventory and its digest are unchanged.

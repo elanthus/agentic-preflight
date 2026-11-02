@@ -96,6 +96,48 @@ Audit history and user work stay available for normal safe cleanup.
 Package installation does not scan or delete repository runs.
 See [compatibility](../COMPATIBILITY.md#saved-pending-run-updates).
 
+### Upgrading from 0.7 to 0.8
+
+Upgrade the CLI, copied skills, and protected CI verifier together. Use the same reviewed
+0.8 release for producers and verifiers; the commands below select the published 0.8.1 release.
+
+1. Before upgrading, run `agentic-preflight status --all` in each clone.
+   Preserve unmerged fixes and local skill customizations, and record the current verifier pin.
+2. Prepare the protected-base CI verifier to use the selected release before publishing new evidence.
+   For a package-based verifier, pin `agentic-preflight==0.8.1`.
+   For a source-based verifier, use the matching reviewed source revision.
+   See [protected-base fetch and verification](attestations-and-ci.md#protected-base-fetch-and-verification).
+3. Upgrade every machine that shares a clone before enabling new configuration or letting
+   the new CLI write shared run records:
+
+   ```bash
+   uv tool install --force 'agentic-preflight==0.8.1'
+   agentic-preflight --version
+   agentic-preflight integrations status
+   agentic-preflight integrations update
+   agentic-preflight integrations status
+   ```
+
+   Expect version 0.8.1 and `current` for each managed installed integration.
+   From a reviewed 0.8.1 source checkout, use `./install.sh` or `.\install.ps1` instead.
+   Update project copies with `integrations update --scope project` and custom targets with `--target PATH`.
+   Preserve modified or unmanaged skill copies before an intentional `--force` replacement.
+   Restart running agents so they read the refreshed skills.
+4. Commit any repository configuration changes before starting the affected run.
+   Version 0.8 removes no 0.7 configuration keys, but 0.7 rejects `[telemetry]`
+   (including `hook_log`) and `[review.contracts]`.
+   Version 0.7 also rejects new run fields such as `producer`, `started_at`, and `response_reason`.
+   Use 0.8 or later to inspect and clean up runs written by 0.8; downgrading the executable
+   does not make those records readable by 0.7. Preserve history rather than editing records or digests.
+5. In each source worktree, run `status` and follow its returned command.
+   Validate an ordinary branch through the local stages and the protected hosted checks before
+   expanding the rollout. Applicable lint and tests still run locally in every new run.
+
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+Notes and run records written by 0.7 remain readable by 0.8.
+Schema numbers alone do not establish compatibility with an older reader.
+See [0.8 compatibility changes](../COMPATIBILITY.md#upgrading-from-070-to-080) for details.
+
 ## Scopes and other clients
 
 User scope is the default.

@@ -5,8 +5,12 @@ description: "Use when shipping a branch: reviewing, documenting, linting, testi
 
 # agentic-preflight
 
-You review, judge, and fix. The CLI holds all state and tells you what to do next.
-Python here never calls a model — every judgment in this workflow is yours.
+You follow the configured review workflow and fix findings. The CLI holds all state
+and tells you what to do next. With `executor = "in_harness"`, you review the diff.
+With `executor = "command"`, `review run` launches the configured reviewer, which may
+call a model. Follow `next.command`; do not replace a required command review with
+your own findings. Agentic Preflight's own repository configures command review
+for every run.
 
 ## Non-negotiables
 
@@ -33,7 +37,7 @@ Python here never calls a model — every judgment in this workflow is yours.
    always need separate approval. `[pr] mode = "auto"` is standing authorization to
    open or reuse the pull request after the authorized push and the run finish. The
    canonical rule is in
-   [push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/configuration.md#push-and-pull-request-authorization).
+   [push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/configuration.md#push-and-pull-request-authorization).
    Follow [Pull-request lifecycle and cleanup](#pull-request-lifecycle-and-cleanup)
    for PR mode, `[pr] automated_cleanup = true` monitoring, and cleanup boundaries.
 6. **Treat merge-back conflicts as a bounded recovery, never a shortcut.** On exit 4,
@@ -105,7 +109,7 @@ quiet while code verifies that no delivered unit disappears.
 
 | Severity | Means | Example |
 |---|---|---|
-| `critical` | Data loss, security hole, corruption | Password compared with `==`; SQL built by string concatenation |
+| `critical` | Data loss, security hole, corruption | Unauthenticated access to private records; exploitable SQL injection |
 | `high` | Wrong behavior a user will hit | Off-by-one dropping the last record; error swallowed silently |
 | `medium` | Real problem, not urgent | Duplicated logic that will drift; missing edge-case handling |
 | `low` | Style, naming, nits | Inconsistent naming; a stale comment |
@@ -196,6 +200,7 @@ to summarize the user's run history.
 | Stage red after max attempts (exit 4) | Stop retrying; show a stage log, or abort if baseline setup never produced one |
 | Validation restarted too many times (exit 4, `max_restarts`) | Stop repairing; show `status` and wait for the user. Never abort and restart on your own to reset the counter |
 | Hosted attestation fetch or verification failure | Inspect source fetch failures; read the offline verifier reason and restore exact-head evidence |
+| Push rejects the note against the protected base policy (exit 2, `attestation_failed`) | Stop; a branch cannot relax or replace the base's commands, docs, or exclusions. Tell the user a human must push and merge that policy change |
 | Hosted CI failed | Inspect the failure; unchanged-source CI reruns preserve local evidence, while source repairs revalidate affected stages |
 | Stale head (exit 3, `stale_run`) | Run `start` again; it preserves the old run as `ORPHANED` |
 | Base synchronization failed at start (exit 4, `sync_conflict` or `sync_failed`) | Print the whole `data` object; the user resolves the listed conflicts, moves or removes listed local files, or fixes the remote, then `abort --force` and `start` again |
@@ -284,8 +289,10 @@ Publish the gaps in the same breath: a bypassed hook, a stage that could not run
 SHA with no green run. An attestation that can only report success is marketing, and a
 partial record that reads as complete is worse than none.
 
-State the limit plainly when you show it: this proves what the stages *reported*, including
-that every delivered unit was cited or marked examined clean; it does not prove the agent
+State the limit plainly when you show it: this is an unsigned record of what the stages
+*reported*, including that every delivered unit was cited or marked examined clean. `verify`
+checks it against the commit, a recomputed merge base, and the protected base policy, but
+anyone who can write the notes ref can forge it. It does not prove the agent
 understood those units or that the review was good. The same diff reviewed twice can
 yield different findings. It is an audit trail, not a quality proof, and it substitutes
 for neither CI nor a human reviewer.

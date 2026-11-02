@@ -39,7 +39,7 @@ from agentic_preflight.cli_contract import (
     schemas,
 )
 from agentic_preflight.envelope import Envelope, ExitCode
-from tests.conftest import commit_all, write
+from tests.conftest import configure_base
 from tests.driver import ScriptedAgent, findings_json
 
 ROOT = Path(__file__).parent.parent
@@ -295,7 +295,6 @@ EMITTED_NOT_DOCUMENTED: dict[str, set[str]] = {
         "merge_requirements_satisfied",
         "notes_ref",
         "purpose",
-        "reason",
         "sha",
         "stage",
         "test_status",
@@ -449,13 +448,11 @@ def test_real_envelopes_match_the_models(feature_repo, bare_remote, tmp_path) ->
     agent = _RecordingAgent(feature_repo)
     agent.run("status")  # no run yet
     agent.run("finish", expect=ExitCode.PRECONDITION)  # error envelope
-    write(
+    configure_base(
         feature_repo,
-        ".agentic-preflight.toml",
         "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
         "\n[worktree]\nmode = 'reusable'\n",
     )
-    commit_all(feature_repo, "configure agentic-preflight")
     agent.run("start")
     agent.run("gate", expect=ExitCode.PRECONDITION)  # error envelope
     agent.run("context")

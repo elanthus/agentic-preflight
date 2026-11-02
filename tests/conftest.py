@@ -334,6 +334,23 @@ def commit_all(repo: Path, message: str) -> str:
     return git("rev-parse", "HEAD", cwd=repo)
 
 
+def configure_base(repo: Path, config: str) -> None:
+    """Commit ``config`` on ``main`` and rebase the current branch onto it.
+
+    Verification reads policy from the protected base, so a fixture whose policy
+    should govern the run must land it there, and on ``origin`` when one exists.
+    """
+    branch = git("branch", "--show-current", cwd=repo)
+    git("switch", "main", cwd=repo)
+    write(repo, ".agentic-preflight.toml", config)
+    commit_all(repo, "configure agentic-preflight")
+    if "origin" in git("remote", cwd=repo).split():
+        git("push", "origin", "main", cwd=repo)
+    if branch != "main":
+        git("switch", branch, cwd=repo)
+        git("rebase", "main", cwd=repo)
+
+
 @pytest.fixture
 def tmp_repo(tmp_path: Path) -> Path:
     """A repo on ``main`` with one base commit and no working-tree changes."""

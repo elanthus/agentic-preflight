@@ -85,7 +85,7 @@ preserved unless `--force` is explicit. At least one agent or custom target is r
 
 ### `agentic-preflight start --intent TEXT [--base-ref REF] [--replace] [--client NAME] [--model NAME]`
 Creates a run and prepares its validation worktree according to the configured
-[worktree mode](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/worktree-modes.md).
+[worktree mode](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/worktree-modes.md).
 The intent is persisted as the user's objective and acceptance criteria. The parser
 accepts `start` without `--intent`, but the command then fails with exit 3 and
 `intent_required`.
@@ -135,7 +135,12 @@ rerun in every new run, including commits with identical trees. Read `data.appli
 `invalid` and `unknown` require a fresh stage, and later-stage candidates remain available while earlier stages are pending.
 Refuses a detached HEAD or a branch with no commits yet (exit 3, `no_branch`), a dirty
 tree (exit 3, `dirty_tree`), and a branch with no changes over the base
-(exit 3, `empty_diff`). In-place mode protects `[worktree] copy_files` where they are;
+(exit 3, `empty_diff`). It also refuses, before any stage runs, a base that verification
+without `--base` cannot resolve to a branch (exit 3, `unsupported_base_ref`): the
+`--base-ref` or `[general] base_ref` value must name an existing
+`refs/remotes/origin/<branch>` or `refs/heads/<branch>`, written as `<branch>`,
+`origin/<branch>`, or the full ref. A tag, another remote such as `upstream/main`, a
+commit SHA, revision syntax such as `main~1`, or a branch not yet fetched is refused. In-place mode protects `[worktree] copy_files` where they are;
 isolated modes copy them. Every mode refuses an entry git is not already ignoring.
 
 The new run records its producer. `data.producer` and the `run_created` event contain
@@ -156,7 +161,7 @@ next `start` detects it again. A malformed value exits 6 with `usage_error` befo
 is created.
 
 Returns `data.worktree_path` — **absolute**. Use it; do not rely on `cd` persisting.
-See [isolated worktree locations](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git)
+See [isolated worktree locations](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git)
 for the default location and `[worktree] root` override.
 
 Returns `data.housekeeping`, a read-only inventory of this clone's validation
@@ -171,7 +176,7 @@ exists. A released reusable runner whose source remains is `retained` with reaso
 `data.housekeeping` is `{"error": "..."}` and `start` still succeeds.
 
 For dependency installation, ignored build inputs, caches, and `setup_command`,
-see [Preparing the validation worktree](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/worktree-modes.md#preparing-the-validation-worktree).
+see [Preparing the validation worktree](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/worktree-modes.md#preparing-the-validation-worktree).
 Use `copy_files` only for ignored files such as `.env`; directories are refused with a
 setup instruction.
 
@@ -262,7 +267,7 @@ Checks supply evidence to the final review; failures are candidate counterexampl
 not automatic findings or a replacement for lint/tests. Read omitted evidence and
 verify the oracle before reporting a defect. Challenge declared input coverage and
 unsupported consumer assumptions for passed checks as well. See
-[contract checks](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/review-contracts.md) for execution restrictions and limits.
+[contract checks](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/review-contracts.md) for execution restrictions and limits.
 
 ### `agentic-preflight review compare [--file PATH]`
 Compares the run's accepted review submission with an independent second submission while
@@ -313,7 +318,7 @@ All-or-nothing — one bad finding rejects the batch.
   note-only disposition preserves the green state. A fix that changes the reviewed
   snapshot records the repair commit and returns the run to review before lint or test.
 
-### `agentic-preflight verify [SHA] [--purpose local|publish]`
+### `agentic-preflight verify [SHA] [--purpose local|publish] [--base REV]`
 Without an argument, confirms nothing blocks the active review/docs stage and advances
 it to green. Exits 2 listing the outstanding blocking set if anything remains.
 
@@ -324,8 +329,21 @@ a fresh clone, together with the head and `refs/agentic-preflight/evidence/*`
 from the contributor remote. Schema v7 requires an explicit `verified` outcome,
 complete local stage evidence, and the full configuration snapshot. It
 verifies original execution digests, Git and configuration bindings, stage applicability,
-finding dispositions, and original/current review-unit accounting. A missing note, a
-note with any other schema, or invalid evidence exits 2. This remains an offline check;
+finding dispositions, and original/current review-unit accounting.
+
+`--base REV` names the protected revision the change merges into; hosted callers pass
+the pull request's base SHA. Without it, the verifier resolves the note's `base_ref` to
+`refs/remotes/origin/<branch>`, then `refs/heads/<branch>`; a fully qualified `base_ref`
+must already be under one of those namespaces. The note's `merge_base_sha`
+must be the only merge base of that base and the head, or verification fails with
+`data.reason` `base_mismatch`. A `--base` that does not name a commit, or that shares no
+history with the head, fails the same way. Policy comes from the `.agentic-preflight.toml` committed
+at that base, not from the note's configuration snapshot: docs must be green when the
+base enables them, green lint and test commands and a command review must match the
+commands the base configures, review exclusions must be excluded by the base's
+`[diff] exclude`, and the review executor must meet the base's executor policy. A
+missing note, a note with any other schema, or invalid evidence exits 2. This remains an
+offline check;
 it does not execute stages or
 fetch evidence. The retained `--purpose` option accepts `local` or `publish`; both
 require complete local validation. Pending-test notes are rejected.
@@ -462,7 +480,7 @@ Mints a confirmation token and summarises the remote, refspec, branch, and commi
 The summary also includes the configured PR mode, `automated_cleanup` setting, and
 deterministic risk classification and verdict. Whether the agent may push without
 asking follows
-[push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/configuration.md#push-and-pull-request-authorization).
+[push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/configuration.md#push-and-pull-request-authorization).
 Follow the skill's [PR lifecycle and cleanup](../SKILL.md#pull-request-lifecycle-and-cleanup)
 and [merge approval guidance](../SKILL.md#escalation-etiquette) for the returned policy.
 Only `[gate] mode = "manual"` exits 4 and puts the literal `git push` command in
@@ -600,7 +618,7 @@ update the hook did not examine). `reason` is one of `attested`, `already_on_rem
 it waits at most 2 seconds after the decision, ignores every failure, and never changes
 the exit code or the stderr message. `agentic-preflight report` counts these decisions
 in `data.hook_decisions`. See
-[Hook decisions](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/local-telemetry.md#hook-decisions).
+[Hook decisions](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md#hook-decisions).
 
 ### `agentic-preflight telemetry rebuild`
 Regenerates `summary.json` for every terminal run record in this clone, of run schema 1
@@ -636,7 +654,7 @@ run it was creating. The event log then gains `summary_written` (with `summary_p
 `data.telemetry`; `gc` reports a list there, one item
 for each run it orphaned. A telemetry failure never changes a command's result or rolls
 back its transaction. The `aborted` event is now written with the terminal transition
-and carries its `seq`. See [Local run telemetry](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/local-telemetry.md).
+and carries its `seq`. See [Local run telemetry](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md).
 
 ### `agentic-preflight telemetry sync-hosted [--limit N] [--run RUN_ID] [--refresh] [--dry-run]`
 Joins GitHub pull-request and check outcomes onto this clone's pushed runs. This is the
@@ -705,7 +723,7 @@ their outcomes. Each entry of `errors` and `stopped` gives `reason`, `run_id`,
 
 A `--run` that names no stored run exits 3 with `no_run`. Messages never copy `gh` output
 or tokens, and remotes are shown without credentials. See
-[Join hosted outcomes](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/local-telemetry.md#join-hosted-outcomes).
+[Join hosted outcomes](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md#join-hosted-outcomes).
 
 ### `agentic-preflight report [--since TIME] [--until TIME] [--repo NAME_OR_REMOTE] [--state STATE] [--all-repos] [--format json|markdown] [--rows]`
 Counts finished runs from the local run summaries. It reads files only and writes
@@ -802,7 +820,7 @@ report as compact Markdown tables in `data.markdown`, which ends with the limits
 output is still one JSON envelope. `--rows` includes the filtered summary rows in
 `data.rows`. Otherwise, `data.markdown` and `data.rows` are `null`. A mirror that exists
 but cannot be read exits 1 with error code `telemetry_mirror_unreadable` and its path in
-`data`. See [Read the report](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/local-telemetry.md#read-the-report).
+`data`. See [Read the report](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md#read-the-report).
 
 ## Exit codes
 
