@@ -49,17 +49,6 @@ def path_matches(path: str, pattern: str) -> bool:
     return any(fnmatch.fnmatchcase(path, attempt) for attempt in _fnmatch_attempts(pattern))
 
 
-def match_prefixes(pattern: str) -> tuple[str, ...]:
-    """Strings that every path accepted by ``path_matches(path, pattern)`` starts with.
-
-    Each fnmatch attempt contributes the literal text before its first ``*``,
-    ``?``, or ``[``, since no match can begin any other way. A directory walk
-    uses these to skip subtrees a pattern cannot reach. An empty prefix means
-    the pattern can match anywhere.
-    """
-    return tuple(_literal_prefix(attempt) for attempt in _fnmatch_attempts(pattern))
-
-
 def _fnmatch_attempts(pattern: str) -> tuple[str, ...]:
     """The ``fnmatchcase`` patterns ``path_matches`` tries, in order."""
     anchored = pattern.startswith("/")
@@ -73,13 +62,6 @@ def _fnmatch_attempts(pattern: str) -> tuple[str, ...]:
     if not anchored and pattern.startswith("**/"):
         return (pattern, pattern[3:])
     return (pattern,)
-
-
-def _literal_prefix(pattern: str) -> str:
-    for index, char in enumerate(pattern):
-        if char in "*?[":
-            return pattern[:index]
-    return pattern
 
 
 def is_excluded(path: str, patterns: list[str] | tuple[str, ...]) -> bool:

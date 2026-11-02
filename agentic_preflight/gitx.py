@@ -211,6 +211,22 @@ def tree_sha(cwd: Path | str, ref: str = "HEAD") -> str:
     return out(cwd, "rev-parse", f"{ref}^{{tree}}")
 
 
+def tree_files(cwd: Path | str, ref: str = "HEAD") -> list[str]:
+    """Return the raw path of every blob in a commit's tree, in Git's order.
+
+    Submodule entries are commits, not blobs, so they are left out. Paths come
+    back undecoded as filesystem names do, so they can be joined to a worktree.
+    """
+    paths: list[str] = []
+    for record in _run_bytes(cwd, "ls-tree", "-r", "-z", "--full-tree", ref).split(b"\0"):
+        if not record:
+            continue
+        metadata, path = record.split(b"\t", 1)
+        if metadata.split()[1] == b"blob":
+            paths.append(_decode_path(path))
+    return paths
+
+
 def git_common_dir(cwd: Path | str) -> Path:
     """The *common* dir, not ``GIT_DIR``.
 

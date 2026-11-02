@@ -348,7 +348,8 @@ def test_an_upstream_content_change_invalidates_review_even_with_the_same_patch(
     assert result.reasons == (fp.ReasonCode.BASE_TREE_CHANGED,)
 
 
-def test_docs_detects_same_length_ignored_content_change(feature_repo, tmp_path):
+def test_docs_evidence_ignores_an_ignored_document(feature_repo, tmp_path):
+    """The inventory lists committed files only, so ignored docs bind nothing."""
     write(feature_repo, ".gitignore", "docs/local.md\n")
     commit_all(feature_repo, "ignore local documentation")
     write(feature_repo, "docs/local.md", "before\n")
@@ -358,7 +359,8 @@ def test_docs_detects_same_length_ignored_content_change(feature_repo, tmp_path)
     write(feature_repo, "docs/local.md", "after!\n")
     after = _docs_fingerprint(feature_repo, tmp_path, base, head)
     assert git("status", "--porcelain", cwd=feature_repo) == ""
-    assert fp.classify_docs(before, after).reasons == (fp.ReasonCode.DOC_SURFACE_CHANGED,)
+    assert before.doc_surface_sha256 == after.doc_surface_sha256
+    assert fp.classify_docs(before, after).disposition == fp.Disposition.REUSABLE
 
 
 @pytest.mark.parametrize("kind", ["review", "docs"])
@@ -422,7 +424,9 @@ def test_docs_invalidates_changed_delivered_context(field, reason):
 def test_doc_surface_preserves_historical_fingerprint_fields(tmp_path, content):
     from agentic_preflight.stages.docs import build_inventory
 
+    git("init", "-q", cwd=tmp_path)
     (tmp_path / "README.md").write_bytes(content)
+    commit_all(tmp_path, "readme")
     inventory = build_inventory(tmp_path, [], [])
     assert "exists" not in inventory[0].as_dict()
     assert fp.doc_surface(tmp_path, inventory) == [

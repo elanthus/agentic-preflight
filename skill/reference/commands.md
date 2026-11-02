@@ -207,7 +207,8 @@ review coverage is stale, it reopens review instead.
   `unavailable` entry with a `reason`. The listing states availability only, not which
   consumers the repository supports.
 - `--section docs` adds `doc_surface`: every file in the configured documentation
-  allowlist, with `path`, `size`, and `touched_by_diff`. Entries describe existing files. From `REVIEW_GREEN` this
+  allowlist, with `path`, `size`, and `touched_by_diff`. Entries describe files committed at
+  the head commit; ignored and untracked files are left out. From `REVIEW_GREEN` this
   opens the docs stage.
 
 Both sections also include `data.grounding`, a deterministic, bounded retrieval of
@@ -379,7 +380,8 @@ approve the current head or an equivalent earlier head. An Approve review counts
 another author's PR; on their own PR, a Comment review with trimmed body exactly
 `approved` counts. Conversation comments, reviews of heads with different content, bots,
 and other users do not count. Dismissal, changes requested on any head, or editing a
-self-review to other text revokes approval.
+self-review to other text revokes approval. The check counts the account, not the person:
+a review posted with the reviewer's credentials counts as theirs, whoever posted it.
 
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
 Stages run in the fixed order docs → lint → test after review becomes green. Running lint

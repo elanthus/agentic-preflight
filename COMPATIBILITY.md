@@ -451,6 +451,15 @@ It re-runs only runs whose record shows a review mode and a required human appro
 GitHub allows a re-run for 30 days after the original run. An older pull request needs a new push before approval can land.
 The `approval-check` command, its outputs, and the attestation schema are unchanged.
 
+## Unreleased: documentation inventory lists committed files
+
+The documentation inventory now lists only files committed at the head commit.
+Files not committed at the head commit that match a documentation pattern, such as a Sphinx `docs/_build/` tree or a nested worktree under `.claude/worktrees/`, no longer appear in `doc_surface`, in the docs allowlist, or in the docs fingerprint.
+A docs finding against such a file is now rejected as outside the allowlist.
+In a repository with such files, `doc_surface_sha256` changes, so docs evidence recorded before the upgrade does not carry to a new head and the docs stage runs again.
+In a repository without them, the inventory and its digest are unchanged.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
 ## Unreleased: repository telemetry settings can only turn telemetry off
 
 A `[telemetry]` section in `.agentic-preflight.toml` no longer replaces the user's section.
