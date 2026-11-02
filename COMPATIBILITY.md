@@ -442,10 +442,11 @@ Notes that an earlier release wrote stay readable, and they verify when they sat
 ## Unreleased: reviews re-run the hosted approval check
 
 `human-approval.yml` no longer listens to `pull_request_review`.
-Two new workflow files handle reviews: `human-approval-review.yml` records the reviewed pull request number, and `human-approval-rerun.yml` re-runs the protected-base policy run for the head.
+Two new workflow files handle reviews: `human-approval-review.yml` records the reviewed pull request number, and `human-approval-rerun.yml` re-runs each protected-base policy run for the head.
 A project that copied the hosted workflow must add both files, or a review will not update the `high-risk human approval` check until someone re-runs the failed run by hand.
 The required check keeps its name. No ruleset change is needed.
 The re-run companion needs `actions: write`; it runs from the default branch and never checks out pull request code.
 The policy run now uploads its evaluation as the `human-approval-policy` artifact, kept for 30 days; the companion reads the approval mode from it and leaves a run without one alone.
+It re-runs only runs whose record shows a review mode and a required human approval.
 GitHub allows a re-run for 30 days after the original run. An older pull request needs a new push before approval can land.
 The `approval-check` command, its outputs, and the attestation schema are unchanged.

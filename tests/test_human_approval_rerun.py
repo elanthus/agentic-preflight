@@ -34,18 +34,29 @@ def _step_script(workflow, label):
     return textwrap.dedent("\n".join(lines))
 
 
-OWNER_REVIEW = {"data": {"approval_mode": "owner_review", "base_sha": BASE}}
+OWNER_REVIEW = {
+    "data": {"approval_mode": "owner_review", "requires_human_approval": True, "base_sha": BASE}
+}
 
 
 def _runs(*runs):
     return [{"workflow_runs": list(runs)}]
 
 
-def _run(run_id, run_number, *, head_sha=HEAD, status="completed", numbers=()):
+def _run(
+    run_id,
+    run_number,
+    *,
+    head_sha=HEAD,
+    status="completed",
+    numbers=(),
+    head_repository="contributor/project",
+):
     return {
         "id": run_id,
         "run_number": run_number,
         "head_sha": head_sha,
+        "head_repository": {"full_name": head_repository} if head_repository else None,
         "status": status,
         "pull_requests": [{"number": number} for number in numbers],
     }
@@ -118,7 +129,7 @@ gh() {
       ;;
   esac
 }
-sleep() { :; }
+sleep() { echo slept >> sleeps.txt; }
 RUNNER_TEMP=.
 """
         result = subprocess.run(
@@ -143,6 +154,8 @@ RUNNER_TEMP=.
         )
         calls_file = tmp_path / "gh-calls.txt"
         calls = calls_file.read_text().splitlines() if calls_file.exists() else []
+        sleeps_file = tmp_path / "sleeps.txt"
+        run.sleeps = len(sleeps_file.read_text().splitlines()) if sleeps_file.exists() else 0
         return result, calls
 
     return run
@@ -152,8 +165,8 @@ def _reruns(calls):
     return [call for call in calls if call.startswith("run rerun ")]
 
 
-def test_companion_reruns_the_newest_policy_run_for_the_reviewed_head(rerun):
-    result, calls = rerun(runs=_runs(_run(1, 5), _run(2, 7), _run(3, 9, head_sha="c" * 40)))
+def test_companion_reruns_every_policy_run_for_the_reviewed_head_oldest_first(rerun):
+    result, calls = rerun(runs=_runs(_run(2, 7), _run(1, 5), _run(3, 9, head_sha="c" * 40)))
     assert result.returncode == 0, result.stderr
     assert calls[0] == (
         "run download 41 --repo owner/project --name human-approval-review "
@@ -165,8 +178,53 @@ def test_companion_reruns_the_newest_policy_run_for_the_reviewed_head(rerun):
         "run download 2 --repo owner/project --name human-approval-policy "
         "--dir ./human-approval-policy"
     ) in calls
-    assert _reruns(calls) == ["run rerun 2 --repo owner/project"]
+    assert _reruns(calls) == [
+        "run rerun 1 --repo owner/project",
+        "run rerun 2 --repo owner/project",
+    ]
     assert "Re-running Human approval policy run 2" in result.stdout
+
+
+def test_companion_matches_fork_runs_by_the_reviewed_head_repository(rerun):
+    result, calls = rerun(
+        runs=_runs(
+            _run(1, 5), _run(2, 7, head_repository="someone/else"), _run(3, 8, head_repository=None)
+        )
+    )
+    assert result.returncode == 0, result.stderr
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+@pytest.mark.parametrize("requires", [False, None])
+def test_companion_leaves_runs_that_need_no_human_approval_alone(rerun, requires):
+    policy = {"data": {"approval_mode": "owner_review", "requires_human_approval": requires}}
+    result, calls = rerun(policy=policy, runs=_runs(_run(1, 5)))
+    assert result.returncode == 0, result.stderr
+    assert "Run 1 does not require human approval" in result.stdout
+    assert _reruns(calls) == []
+
+
+def test_companion_reports_a_refused_rerun_after_trying_every_run(rerun):
+    result, calls = rerun(runs=_runs(_run(1, 5), _run(2, 7)), rerun_exit=1)
+    assert result.returncode == 1
+    assert _reruns(calls) == [
+        "run rerun 1 --repo owner/project",
+        "run rerun 2 --repo owner/project",
+    ]
+
+
+def test_companion_shares_one_wait_budget_across_runs(rerun):
+    result, calls = rerun(
+        runs=_runs(*(_run(n, n, status="in_progress") for n in (1, 2, 3))),
+        policy_fail_first=1000,
+        run_status="in_progress",
+    )
+    assert result.returncode == 0, result.stderr
+    assert rerun.sleeps == 120
+    assert len([call for call in calls if "--name human-approval-policy" in call]) == 61 + 61 + 1
+    for run_id in (1, 2, 3):
+        assert f"::notice::Run {run_id} is still evaluating after the wait" in result.stdout
+    assert _reruns(calls) == []
 
 
 def test_companion_prefers_the_run_that_belongs_to_the_pull_request(rerun):
@@ -231,7 +289,10 @@ def test_companion_leaves_a_run_without_a_policy_artifact_alone(rerun):
 
 
 def test_companion_reruns_in_peer_review_mode(rerun):
-    result, calls = rerun(policy={"data": {"approval_mode": "peer_review"}}, runs=_runs(_run(1, 5)))
+    result, calls = rerun(
+        policy={"data": {"approval_mode": "peer_review", "requires_human_approval": True}},
+        runs=_runs(_run(1, 5)),
+    )
     assert result.returncode == 0, result.stderr
     assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
 
@@ -280,7 +341,7 @@ def test_companion_notes_a_run_that_never_records_its_policy_without_failing(rer
         run_status="in_progress",
     )
     assert result.returncode == 0, result.stderr
-    assert "::notice::Run 1 is still evaluating after 10 minutes" in result.stdout
+    assert "::notice::Run 1 is still evaluating after the wait" in result.stdout
     assert len([call for call in calls if "--name human-approval-policy" in call]) == 61
     assert _reruns(calls) == []
 
@@ -288,7 +349,7 @@ def test_companion_notes_a_run_that_never_records_its_policy_without_failing(rer
 def test_companion_gives_up_on_a_review_mode_run_that_never_finishes(rerun):
     result, calls = rerun(runs=_runs(_run(1, 5, status="in_progress")), run_status="in_progress")
     assert result.returncode == 1
-    assert "did not finish within 10 minutes" in result.stderr
+    assert "did not finish within the wait" in result.stderr
     assert "30 days" not in result.stderr
     assert len([call for call in calls if call.endswith("--jq .status")]) == 60
     assert _reruns(calls) == []

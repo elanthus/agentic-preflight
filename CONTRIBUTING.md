@@ -92,7 +92,7 @@ The maintainer approval runbook is in [docs/maintainers/approval-readiness.md](d
 This repository classifies ordinary package code, tests, and skill documentation as medium risk.
 Those changes still receive the normal review, documentation, lint, test, and attestation checks.
 Another rule can still classify them as human review, for example a high or critical review finding, even after the finding is fixed.
-The current branch rules make `high-risk human approval` a required check, so a high-risk pull request cannot merge without a ruleset bypass before the configured owner approves its exact content.
+The current branch rules make `high-risk human approval` a required check, so a high-risk pull request cannot merge until the configured owner approves its exact content, unless someone uses the ruleset bypass.
 
 The explicit `human_review_paths` in `.agentic-preflight.toml` cover the decision points:
 policy and ownership, CI workflows, merge approval, attestation verification, the pre-push hook, publication gates, and security guidance.
