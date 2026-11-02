@@ -4,8 +4,9 @@ name: Human approval review
 # read-only token when the pull request comes from a fork. Nothing here is
 # trusted: this job only records which pull request was reviewed. The companion
 # human-approval-rerun.yml always runs from the default branch; it verifies the
-# number against the repository API and re-runs the protected-base
-# "Human approval policy" run for the pull request's current head.
+# number against the repository API and re-runs each protected-base
+# "Human approval policy" run for the pull request's current head whose recorded
+# evaluation reads reviews.
 on:
   pull_request_review:
     types: [submitted, edited, dismissed]
