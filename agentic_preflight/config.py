@@ -6,6 +6,10 @@ deep: a section present in the repo file replaces the user's section wholesale
 rather than merging key-by-key, so a reader of the committed file can tell what
 is in force without knowing the reader's home directory.
 
+``[telemetry]`` is the exception. It describes the user's machine, not the
+project, so a repository section can only turn telemetry off
+(:func:`merge_telemetry`).
+
 Unknown keys are errors that name the key, because a silently ignored typo in
 a config that governs a safety gate would weaken the gate without any signal.
 """
@@ -14,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import tomllib
 from functools import lru_cache
 from pathlib import Path, PureWindowsPath
@@ -25,6 +30,7 @@ from pydantic import (
     ConfigDict,
     Field,
     SerializerFunctionWrapHandler,
+    StrictBool,
     ValidationError,
     field_validator,
     model_serializer,
@@ -194,13 +200,16 @@ class TelemetrySection(_Section):
 
     Telemetry is derived output. The section is excluded from configuration
     snapshots, so it never changes a configuration digest, never binds stage
-    evidence, and never reaches a published attestation. It is meant for the
-    user configuration file; a repository section replaces it like any other.
+    evidence, and never reaches a published attestation. It belongs in the
+    user configuration file. A repository section can only turn ``mirror`` and
+    ``hook_log`` off, and its ``path`` is ignored (:func:`merge_telemetry`).
     """
 
-    mirror: bool = True
+    # Strict, so a repository's ``1`` or ``"yes"`` cannot pass as something other
+    # than ``true`` and turn on a file the user turned off (:func:`merge_telemetry`).
+    mirror: StrictBool = True
     #: Append each pre-push hook decision to ``hook-decisions.jsonl``.
-    hook_log: bool = True
+    hook_log: StrictBool = True
     path: str | None = None
 
     @field_validator("path")
@@ -269,8 +278,6 @@ def _without_removed_keys(
     for key, value in values.items():
         if (section, key) in REMOVED_CONFIG_KEYS:
             if warn_source is not None:
-                import sys
-
                 print(
                     f"agentic-preflight: ignoring removed [{section}] {key} configuration in {warn_source}; this key is no longer used",
                     file=sys.stderr,
@@ -322,7 +329,8 @@ def _describe(exc: ValidationError, sources: dict[str, Path], default_source: Pa
     by_source: dict[Path, list[str]] = {}
     for error in exc.errors():
         top = str(error["loc"][0]) if error["loc"] else ""
-        parts = by_source.setdefault(sources.get(top, default_source), [])
+        key = f"{top}.{error['loc'][1]}" if len(error["loc"]) > 1 else top
+        parts = by_source.setdefault(sources.get(key, sources.get(top, default_source)), [])
         location = ".".join(str(item) for item in error["loc"])
         if error["type"] == "extra_forbidden":
             parts.append(f"unknown key {location!r}")
@@ -339,6 +347,41 @@ def _describe(exc: ValidationError, sources: dict[str, Path], default_source: Pa
         f"invalid configuration in {source}: " + "; ".join(parts)
         for source, parts in by_source.items()
     )
+
+
+def _repo_telemetry_applies(key: str, value: Any) -> bool:
+    """Whether a repository ``[telemetry]`` value replaces the user's (:func:`merge_telemetry`)."""
+    return key != "path" and not (key in {"mirror", "hook_log"} and value is True)
+
+
+def merge_telemetry(user: Any, repo: Any, *, warn_source: Path | None = None) -> Any:
+    """Layer a repository ``[telemetry]`` section over the user's, before validation.
+
+    A cloned repository must not choose where this machine writes files, or turn
+    on logging the user turned off. So the repository's ``path`` is dropped whatever
+    its value, and a ``mirror`` or ``hook_log`` of ``true`` keeps the user's value.
+    Any other value, ``false`` or one that is invalid, applies, so validation still
+    names a bad ``mirror`` or ``hook_log`` value or an unknown key. A user section
+    that is not a table is returned unchanged, so validation reports it instead of
+    the repository hiding it. ``warn_source`` names the repository file to print a
+    stderr warning for a dropped ``path``. ``None`` drops it silently.
+    """
+    if user is not None and not isinstance(user, dict):
+        return user
+    if not isinstance(repo, dict):
+        return repo
+    merged: dict[str, Any] = dict(user) if isinstance(user, dict) else {}
+    for key, value in repo.items():
+        if key == "path":
+            if warn_source is not None:
+                print(
+                    f"agentic-preflight: ignoring [telemetry] path in {warn_source}; set it in your user configuration file",
+                    file=sys.stderr,
+                )
+            continue
+        if _repo_telemetry_applies(key, value):
+            merged[key] = value
+    return merged
 
 
 def load_config(
@@ -370,8 +413,6 @@ def load_config(
             continue
         for section, values in _read_toml(path).items():
             if (section, "*") in REMOVED_CONFIG_KEYS:
-                import sys
-
                 print(
                     f"agentic-preflight: ignoring removed [{section}] configuration in {path}; this section is no longer used",
                     file=sys.stderr,
@@ -379,6 +420,19 @@ def load_config(
                 continue
             if tolerate_removed_keys and isinstance(values, dict):
                 values = _without_removed_keys(section, values, warn_source=path)
+            if section == "telemetry" and path == repo_file:
+                user_values, repo_values = merged.get(section), values
+                values = merge_telemetry(user_values, repo_values, warn_source=path)
+                if user_values is not None and values is user_values:
+                    continue  # the user's malformed section stands, and names its file
+                if isinstance(user_values, dict) and isinstance(repo_values, dict):
+                    # A value the repository did not override is still the user
+                    # file's, so a validation error must name that file.
+                    for name in user_values:
+                        if name not in repo_values or not _repo_telemetry_applies(
+                            name, repo_values[name]
+                        ):
+                            sources[f"{section}.{name}"] = user_file
             merged[section] = values
             sources[section] = path
 
@@ -398,6 +452,10 @@ def committed_config(repo: Path | str, revision: str) -> Config:
         return Config()
     try:
         policy = tomllib.loads(gitx.out(repo, "show", f"{revision}:{REPO_CONFIG_NAME}"))
+        if "telemetry" in policy:
+            # The same repository rule load_config applies, so a protected base
+            # that load_config accepts also verifies.
+            policy["telemetry"] = merge_telemetry(None, policy["telemetry"])
         return Config.model_validate(policy)
     except ValueError as exc:
         raise ValueError(f"invalid protected policy: {exc}") from exc

@@ -84,10 +84,11 @@ allow_force_push = false
 # Each finished run writes a local summary, and each pre-push hook decision is
 # logged locally. Nothing is sent over the network.
 # Set this section in ~/.config/agentic-preflight/config.toml instead of here:
-# a section in this file replaces every contributor's own preference.
+# a section in this file can only turn mirror and hook_log off for every
+# contributor, and its path is ignored.
 # mirror = true    # also append summaries to the user-level runs.jsonl
 # hook_log = true  # append each pre-push hook decision to hook-decisions.jsonl
-# path = "~/.local/share/agentic-preflight/telemetry"
+# path = "~/.local/share/agentic-preflight/telemetry"  # user file only
 """
 
 

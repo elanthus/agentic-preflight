@@ -284,13 +284,25 @@ def test_hook_log_false_writes_nothing(feature_repo):
 
 
 def test_a_configured_path_moves_the_log(feature_repo, tmp_path):
-    elsewhere = tmp_path / "elsewhere"
-    _set_telemetry(feature_repo, f"path = {json.dumps(str(elsewhere))}\n")
+    elsewhere = opt_in_telemetry(tmp_path / "elsewhere")
 
     hook_check(feature_repo, "")
 
     assert len(_log_lines(elsewhere / hooklog.LOG_NAME)) == 1
     assert not hooklog.log_path().exists()
+
+
+def test_a_repository_cannot_choose_where_the_log_goes(feature_repo, tmp_path):
+    mine = opt_in_telemetry(tmp_path / "mine")
+    theirs = tmp_path / "theirs"
+    _set_telemetry(feature_repo, f"path = {json.dumps(str(theirs))}\nhook_log = true\n")
+
+    result = hook_check(feature_repo, "")
+
+    # The hook discards the loader's warning, so a push's output stays unchanged.
+    assert (result.returncode, result.stderr) == (0, "")
+    assert len(_log_lines(mine / hooklog.LOG_NAME)) == 1
+    assert not theirs.exists()
 
 
 @pytest.mark.parametrize(
@@ -319,7 +331,7 @@ def test_an_unwritable_log_leaves_the_exit_code_and_message_unchanged(
     blocker = tmp_path / "not-a-directory"
     blocker.write_text("", encoding="utf-8")
     config.write_text(original, encoding="utf-8")
-    _set_telemetry(feature_repo, f"path = {json.dumps(str(blocker / 'telemetry'))}\n")
+    opt_in_telemetry(blocker / "telemetry")
     broken = hook_check(feature_repo, stdin)
 
     assert baseline.returncode == expected, baseline.stderr
@@ -379,7 +391,7 @@ def test_an_unknown_or_opted_out_preference_stays_silent(feature_repo, tmp_path,
     assert not hooklog.log_path().exists()
 
 
-def test_the_fallback_reads_each_telemetry_section_and_the_repository_wins(tmp_path):
+def test_the_fallback_reads_each_telemetry_section_and_the_repository_only_turns_off(tmp_path):
     user_dir = tmp_path / "user"
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -388,15 +400,24 @@ def test_the_fallback_reads_each_telemetry_section_and_the_repository_wins(tmp_p
     assert hooklog.fallback_section(repo, user_config_dir=user_dir) == TelemetrySection(
         hook_log=False
     )
-    write(repo, ".agentic-preflight.toml", "[general]\nbogus = 1\n\n[telemetry]\nmirror = false\n")
-    assert hooklog.fallback_section(repo, user_config_dir=user_dir) == TelemetrySection(
-        mirror=False
+    write(
+        repo,
+        ".agentic-preflight.toml",
+        "[general]\nbogus = 1\n\n[telemetry]\nmirror = false\nhook_log = true\npath = '/x'\n",
     )
+    assert hooklog.fallback_section(repo, user_config_dir=user_dir) == TelemetrySection(
+        mirror=False, hook_log=False
+    )
+    write(user_dir, "config.toml", "telemetry = 5\n")
+    assert hooklog.fallback_section(repo, user_config_dir=user_dir) is None
     write(user_dir, "config.toml", "[[broken")
     assert hooklog.fallback_section(repo, user_config_dir=user_dir) is None
     assert hooklog.fallback_section(repo, user_config_dir=tmp_path / "none") == TelemetrySection(
         mirror=False
     )
+    # A truthy value that is not ``true`` cannot turn the log on: it is invalid.
+    write(repo, ".agentic-preflight.toml", "[telemetry]\nhook_log = 1\n")
+    assert hooklog.fallback_section(repo, user_config_dir=tmp_path / "none") is None
 
 
 def test_the_installed_hook_passes_the_remote_name_on_a_real_push(feature_repo, bare_remote):

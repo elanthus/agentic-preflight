@@ -459,3 +459,15 @@ A docs finding against such a file is now rejected as outside the allowlist.
 In a repository with such files, `doc_surface_sha256` changes, so docs evidence recorded before the upgrade does not carry to a new head and the docs stage runs again.
 In a repository without them, the inventory and its digest are unchanged.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Unreleased: repository telemetry settings can only turn telemetry off
+
+A `[telemetry]` section in `.agentic-preflight.toml` no longer replaces the user's section.
+Its `path` is ignored, and every command that loads the configuration prints a warning that names the file. The pre-push hook stays silent.
+Its `mirror = true` and `hook_log = true` keep the user's value. Its `mirror = false` and `hook_log = false` still apply.
+A repository that set `path` to collect its contributors' telemetry no longer does so. Each contributor who wants it must set `path` in their own user file.
+A test harness that turns telemetry off with a repository section, as [Isolate a test harness](docs/local-telemetry.md#isolate-a-test-harness) describes, is unaffected.
+Invalid `mirror` and `hook_log` values and unknown keys in the repository section are still errors. Its `path` is ignored whatever its value.
+`mirror` and `hook_log` now accept only `true` and `false`, in either file. Earlier releases also accepted values such as `1`, `"yes"`, and `"on"`. Such a value is now an error that names the file.
+Attestation verification reads the protected base's `[telemetry]` section by the same rule, so a `path` there no longer fails verification.
+No configuration digest, snapshot, fingerprint, or attestation changes, because none of them contains `[telemetry]`.

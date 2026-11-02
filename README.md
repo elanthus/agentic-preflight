@@ -173,6 +173,7 @@ Use `agentic-preflight status --all` to list runs across linked worktrees.
 
 Commit `.agentic-preflight.toml` at the repository root.
 Each section replaces the complete matching section in the user configuration, `~/.config/agentic-preflight/config.toml`.
+`[telemetry]` is the exception: a repository section can only turn telemetry off. See [Local run telemetry](docs/configuration.md#local-run-telemetry-telemetry).
 Use the file to set these options:
 
 - Protected base branch and lint/test commands
