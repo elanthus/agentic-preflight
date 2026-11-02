@@ -231,6 +231,17 @@ def test_an_invalid_user_telemetry_value_names_the_user_file(tmp_path):
     assert ".agentic-preflight.toml" not in str(caught.value)
 
 
+def test_a_malformed_user_telemetry_section_is_not_hidden_by_the_repository(tmp_path):
+    user_dir = tmp_path / "user"
+    write(user_dir, "config.toml", "telemetry = 5\n")
+    write(tmp_path, ".agentic-preflight.toml", "[telemetry]\nmirror = false\n")
+
+    with pytest.raises(ConfigError) as caught:
+        load_config(tmp_path, user_config_dir=user_dir)
+
+    assert str(caught.value).startswith(f"invalid configuration in {user_dir / 'config.toml'}:")
+
+
 @pytest.mark.parametrize("repo", ["hook_log = 3\n", "bogus = false\n"])
 def test_an_invalid_repository_telemetry_section_is_still_an_error(tmp_path, repo):
     write(tmp_path, ".agentic-preflight.toml", "[telemetry]\n" + repo)
