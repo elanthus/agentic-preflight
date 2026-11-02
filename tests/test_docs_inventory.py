@@ -143,6 +143,19 @@ def test_an_ignored_build_leaves_the_surface_digest_unchanged(tmp_path):
     assert config_digest(doc_surface(root, docs.build_inventory(root, CHANGED))) == before
 
 
+def test_staged_changes_do_not_change_the_committed_inventory(tmp_path):
+    """The inventory reads ``HEAD``, not the index."""
+    root = _repo(tmp_path)
+    write(root, "docs/staged.md", "staged, not committed\n")
+    git("add", "docs/staged.md", cwd=root)
+    git("rm", "--cached", "-q", "docs/a.md", cwd=root)
+
+    paths = _paths(root, ["**/*.md"])
+
+    assert "docs/staged.md" not in paths
+    assert "docs/a.md" in paths
+
+
 def test_submodule_contents_stay_out(tmp_path):
     (tmp_path / "outer").mkdir()
     root = _repo(tmp_path / "outer")

@@ -304,7 +304,8 @@ The new mode applies to subsequent pull requests after the merge.
 The docs stage inspects `README*`, `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING*`, `CHANGELOG*`, and `docs/**`.
 It also inspects agent instructions under `.claude/rules/**` and `.github/instructions/**`, plus `PRODUCT.md` and `DESIGN.md`.
 It lists only files committed at the head commit.
-Ignored, generated, and untracked files are not on the surface, even when they match a pattern.
+Files not committed at the head commit, including ignored, untracked, and uncommitted generated files, are not on the surface, even when they match a pattern.
+A generated file that is committed counts like any other committed file.
 A committed symlink is on the surface when its target is a file, even outside the repository. See [Committed symlinks on the documentation surface](limits.md#committed-symlinks-on-the-documentation-surface).
 
 Use `[docs] paths` for repository-specific documentation surfaces.
