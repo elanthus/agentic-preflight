@@ -76,6 +76,7 @@ def rerun(tmp_path):
         relay="17\n",
         policy=OWNER_REVIEW,
         policy_exit=0,
+        policy_fail_first=0,
         runs=None,
         download_exit=0,
         rerun_exit=0,
@@ -96,6 +97,9 @@ gh() {
         mkdir -p "$9"
         cp relay.txt "$9/pr-number"
       else
+        attempts=$(( $(cat policy-attempts.txt 2>/dev/null || echo 0) + 1 ))
+        echo "$attempts" > policy-attempts.txt
+        [ "$attempts" -gt "$TEST_POLICY_FAIL_FIRST" ] || return 1
         [ "$TEST_POLICY_EXIT" = 0 ] || return "$TEST_POLICY_EXIT"
         mkdir -p "$9"
         cp policy-fixture.json "$9/approval-policy.json"
@@ -128,6 +132,7 @@ RUNNER_TEMP=.
                 "RUN_HEAD_REPOSITORY": "contributor/project",
                 "TEST_DOWNLOAD_EXIT": str(download_exit),
                 "TEST_POLICY_EXIT": str(policy_exit),
+                "TEST_POLICY_FAIL_FIRST": str(policy_fail_first),
                 "TEST_RERUN_EXIT": str(rerun_exit),
                 "TEST_RERUN_ERROR": rerun_error,
                 "TEST_RUN_STATUS": run_status,
@@ -238,23 +243,54 @@ def test_companion_does_nothing_without_a_policy_run_for_the_head(rerun):
     assert _reruns(calls) == []
 
 
-def test_companion_waits_for_a_running_policy_run_before_reading_its_record(rerun):
+def test_companion_reads_the_record_before_waiting_for_a_review_mode_run(rerun):
     result, calls = rerun(runs=_runs(_run(1, 5, status="in_progress")))
     assert result.returncode == 0, result.stderr
     assert "still in progress" in result.stdout
-    status_call = calls.index("api /repos/owner/project/actions/runs/1 --jq .status")
     policy_call = next(i for i, call in enumerate(calls) if "--name human-approval-policy" in call)
-    assert status_call < policy_call
+    status_call = calls.index("api /repos/owner/project/actions/runs/1 --jq .status")
+    assert policy_call < status_call
     assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
 
 
-def test_companion_gives_up_on_a_run_that_never_finishes_without_rerunning(rerun):
+def test_companion_waits_for_the_record_of_a_run_that_is_still_evaluating(rerun):
+    result, calls = rerun(runs=_runs(_run(1, 5, status="in_progress")), policy_fail_first=2)
+    assert result.returncode == 0, result.stderr
+    assert "has not recorded its policy yet" in result.stdout
+    assert len([call for call in calls if "--name human-approval-policy" in call]) == 3
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_never_waits_on_an_environment_run_that_is_pending_approval(rerun):
+    result, calls = rerun(
+        runs=_runs(_run(1, 5, status="in_progress")),
+        policy={"data": {"approval_mode": "environment"}},
+        run_status="in_progress",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Approval mode environment does not read reviews" in result.stdout
+    assert not any(call.endswith("--jq .status") for call in calls)
+    assert _reruns(calls) == []
+
+
+def test_companion_notes_a_run_that_never_records_its_policy_without_failing(rerun):
+    result, calls = rerun(
+        runs=_runs(_run(1, 5, status="in_progress")),
+        policy_fail_first=1000,
+        run_status="in_progress",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "::notice::Run 1 is still evaluating after 10 minutes" in result.stdout
+    assert len([call for call in calls if "--name human-approval-policy" in call]) == 61
+    assert _reruns(calls) == []
+
+
+def test_companion_gives_up_on_a_review_mode_run_that_never_finishes(rerun):
     result, calls = rerun(runs=_runs(_run(1, 5, status="in_progress")), run_status="in_progress")
     assert result.returncode == 1
     assert "did not finish within 10 minutes" in result.stderr
     assert "30 days" not in result.stderr
     assert len([call for call in calls if call.endswith("--jq .status")]) == 60
-    assert not any("--name human-approval-policy" in call for call in calls)
     assert _reruns(calls) == []
 
 

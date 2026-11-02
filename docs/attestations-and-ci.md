@@ -191,7 +191,7 @@ Three workflows cooperate so that it does, and only one of them is trusted:
 
 - `human-approval.yml` runs only on `pull_request_target`, from the protected base. Its `high-risk human approval` job is the required check.
 - `human-approval-review.yml` runs on `pull_request_review`. A review event executes the workflow file from the pull request's merge ref, with a read-only token for forks, so this workflow has no permissions and does nothing but record the reviewed pull request number in an artifact.
-- `human-approval-rerun.yml` runs on `workflow_run`, always from the default branch, with `actions: write` and no checkout. It reads the number, requires the pull request to be open with the reviewed head and repository, selects the latest `pull_request_target` policy run for that head, waits for it to finish, reads the approval mode that run recorded in its `human-approval-policy` artifact, and in `peer_review` and `owner_review` modes re-runs it.
+- `human-approval-rerun.yml` runs on `workflow_run`, always from the default branch, with `actions: write` and no checkout. It reads the number, requires the pull request to be open with the reviewed head and repository, selects the latest `pull_request_target` policy run for that head, reads the approval mode that run recorded in its `human-approval-policy` artifact once its policy job has written it, and in `peer_review` and `owner_review` modes waits for the run to finish and re-runs it.
 
 The re-run replaces the earlier `high-risk human approval` result inside the same run.
 That matters because GitHub counts every run of a required check name on a head: a new run that passed beside an old run that failed would still block merge.
