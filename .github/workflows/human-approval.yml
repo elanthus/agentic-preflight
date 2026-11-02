@@ -2,7 +2,7 @@ name: Human approval policy
 
 # This workflow runs only on pull_request_target, so GitHub takes it from the
 # protected base. Reviews reach it through human-approval-review.yml and
-# human-approval-rerun.yml, which re-run this workflow's latest run for the head.
+# human-approval-rerun.yml, which re-run this workflow's runs for the head.
 on:
   pull_request_target:
     types:
@@ -199,7 +199,7 @@ jobs:
             echo "GitHub Environment approval recorded for the exact workflow run."
           elif [ "$APPROVAL_MODE" = "peer_review" ] || [ "$APPROVAL_MODE" = "owner_review" ]; then
             if [ "$APPROVED" != "true" ]; then
-              # Not an error: the job fails until an eligible review covers this head.
+              # Expected while waiting: the job fails until an eligible review covers this head.
               # A review re-runs this run through human-approval-rerun.yml, so the failed
               # result is replaced in place rather than left beside a passing one.
               echo "::error::Waiting for an eligible $APPROVAL_MODE review of head $HEAD_SHA." \
@@ -207,7 +207,9 @@ jobs:
                 "only while the branch content is unchanged."
               exit 1
             fi
-            echo "Eligible review approval recorded for head $APPROVED_HEAD."
+            # approval-check reports approved_head whenever a review approves; the fallback
+            # keeps the message useful if a future result leaves it out.
+            echo "Eligible review approval recorded for head ${APPROVED_HEAD:-$HEAD_SHA}."
           else
             echo "Unknown approval mode: $APPROVAL_MODE" >&2
             exit 1
