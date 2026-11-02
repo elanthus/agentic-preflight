@@ -44,6 +44,13 @@ class Stage(StrEnum):
     TEST = "test"
 
 
+class StageStatus(StrEnum):
+    PENDING = "pending"
+    GREEN = "green"
+    RED = "red"
+    SKIPPED = "skipped"
+
+
 class Severity(StrEnum):
     CRITICAL = "critical"
     HIGH = "high"
@@ -260,7 +267,7 @@ class StageRecord(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    status: str = "pending"
+    status: StageStatus = StageStatus.PENDING
     attempts: int = 0
     executor: Literal["in_harness", "command"] | None = None
     command: str | None = None

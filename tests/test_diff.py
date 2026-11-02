@@ -1,6 +1,8 @@
 from itertools import product
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from agentic_preflight import diff
 from tests.conftest import commit_all, git, write
@@ -184,6 +186,17 @@ def test_every_match_starts_with_one_of_its_pattern_prefixes():
         for path in paths:
             if diff.path_matches(path, pattern):
                 assert any(path.startswith(prefix) for prefix in prefixes), (path, pattern)
+
+
+@settings(max_examples=2000)
+@given(
+    path=st.text(alphabet="ab/.-*?[]", min_size=1, max_size=12),
+    pattern=st.text(alphabet="ab/*?[]!.-", max_size=10),
+)
+def test_a_generated_match_starts_with_one_of_its_pattern_prefixes(path, pattern):
+    """The docs walk skips subtrees no prefix reaches; that must never drop a match."""
+    if diff.path_matches(path, pattern):
+        assert any(path.startswith(prefix) for prefix in diff.match_prefixes(pattern))
 
 
 def test_grounding_digest_is_exposed_and_changes_the_review_manifest(feature_repo):

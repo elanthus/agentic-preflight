@@ -72,14 +72,19 @@ def test_approval_events_outputs_and_dependencies():
     events = " ".join(workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0].split())
     assert events == (
         "pull_request_target: types: [opened, reopened, synchronize, ready_for_review, "
-        "auto_merge_enabled, auto_merge_disabled] pull_request_review: "
-        "types: [submitted, edited, dismissed]"
+        "auto_merge_enabled, auto_merge_disabled]"
     )
     policy = workflow.split("\n  policy:\n", 1)[1].split("\n  environment:\n", 1)[0]
     outputs = policy.split("    outputs:\n", 1)[1].split("    steps:\n", 1)[0]
     assert [line.strip() for line in outputs.splitlines() if line.strip()] == [
         f"{key}: ${{{{ steps.policy.outputs.{key} }}}}"
-        for key in ("approved", "approval_mode", "environment", "requires_approval")
+        for key in (
+            "approved",
+            "approved_head",
+            "approval_mode",
+            "environment",
+            "requires_approval",
+        )
     ] + ["dependabot_exempt: ${{ steps.dependabot.outputs.verified }}"]
     environment = " ".join(
         workflow.split("\n  environment:\n", 1)[1].split("\n  approval:\n", 1)[0].split()
@@ -256,6 +261,7 @@ def test_success_passes_fixed_event_and_resolved_fork_remote(run_step, filename,
         assert "--report-only" in args
         assert (path / "output.txt").read_text().splitlines() == [
             "approved=true",
+            "approved_head=",
             "approval_mode=manual_merge",
             "environment=high-risk-review",
             "requires_approval=true",

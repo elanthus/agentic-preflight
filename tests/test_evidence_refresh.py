@@ -8,7 +8,7 @@ import pytest
 
 from agentic_preflight import attestation, runs
 from agentic_preflight.machine import State
-from agentic_preflight.models import Stage
+from agentic_preflight.models import Stage, StageStatus
 from agentic_preflight.runs import evidence
 from agentic_preflight.stages import shellstage
 from agentic_preflight.store import Store
@@ -402,7 +402,7 @@ def test_attestation_builder_rejects_skipped_lint(feature_repo, tmp_path):
     _finish(agent, tmp_path)
     store = Store(feature_repo / ".git" / "agentic-preflight")
     run = store.load_run(started["run_id"])
-    run.stages[Stage.LINT].status = "skipped"
+    run.stages[Stage.LINT].status = StageStatus.SKIPPED
     with pytest.raises(attestation.InvalidAttestation, match="lint stage is not green"):
         attestation.build(
             run,

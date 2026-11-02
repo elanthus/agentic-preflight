@@ -1,0 +1,179 @@
+name: Human approval re-run
+
+# A finished check does not change when a review arrives, and a review event
+# cannot be trusted to evaluate one, because it runs the pull request's workflow
+# file. GitHub counts every run of a required check name on a head, so a fresh
+# run beside the old failed one would not clear it either. This workflow always
+# runs from the default branch. It takes a pull request number from the relay
+# run, resolves everything else from the repository API, and re-runs each
+# protected-base "Human approval policy" run for the pull request's current head,
+# which replaces that run's `high-risk human approval` result in place.
+#
+# The check stays a job of the protected-base run rather than a commit status:
+# any workflow with this repository's Actions token could write a status, and a
+# ruleset cannot tell workflows apart.
+on:
+  workflow_run:
+    workflows: [Human approval review]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: agentic-preflight-human-approval-rerun-${{ github.event.workflow_run.head_sha }}
+
+jobs:
+  rerun:
+    name: re-run the approval policy for the reviewed head
+    if: >-
+      github.event.workflow_run.event == 'pull_request_review' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    # The waits share a twenty-minute budget; leave time to explain why.
+    timeout-minutes: 30
+    steps:
+      # No checkout. The relay artifact supplies only a pull request number.
+      - name: Re-run the trusted policy run for the reviewed head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELAY_RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+        run: |
+          relay_dir="$RUNNER_TEMP/human-approval-review"
+          gh run download "$RELAY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name human-approval-review --dir "$relay_dir"
+          pr_number=$(head -c 20 "$relay_dir/pr-number" | tr -d '\n')
+          case "$pr_number" in
+            '' | 0* | *[!0-9]*)
+              echo "The review relay did not name a pull request number." >&2
+              exit 1
+              ;;
+          esac
+          pr_file="$RUNNER_TEMP/pull-request.json"
+          gh api "/repos/$GITHUB_REPOSITORY/pulls/$pr_number" > "$pr_file"
+          if ! jq -e --arg head "$RUN_HEAD_SHA" --arg repository "$RUN_HEAD_REPOSITORY" '
+            .state == "open" and
+            .head.sha == $head and
+            .head.repo.full_name == $repository and
+            (.base.sha | test("^[0-9a-f]{40}$"))
+          ' "$pr_file" > /dev/null; then
+            echo "Pull request $pr_number is closed or no longer has the reviewed head."
+            echo "The run for its current head reports the check."
+            exit 0
+          fi
+          head_sha=$(jq -r '.head.sha' "$pr_file")
+          runs_file="$RUNNER_TEMP/policy-runs.json"
+          gh api --paginate --slurp \
+            "/repos/$GITHUB_REPOSITORY/actions/workflows/human-approval.yml/runs?event=pull_request_target&head_sha=$head_sha&per_page=100" \
+            > "$runs_file"
+          # Several events can start a policy run for one head, for example opening a
+          # draft and then marking it ready. Each of those runs reports the required
+          # check, so every one that reads reviews is re-run, oldest first. A run that
+          # lists no pull requests, such as one from a fork, counts when it comes from
+          # the reviewed head repository; a run that lists another pull request does not.
+          candidates_file="$RUNNER_TEMP/policy-run-candidates.txt"
+          jq -r --arg head "$head_sha" --arg repository "$RUN_HEAD_REPOSITORY" \
+            --argjson number "$pr_number" '
+            [.[].workflow_runs[]
+              | select(.head_sha == $head)
+              | select(
+                  any(.pull_requests[]?; .number == $number) or
+                  ((.pull_requests // []) == [] and .head_repository.full_name == $repository))]
+            | sort_by(.run_number) | .[] | "\(.id):\(.status)"
+          ' "$runs_file" > "$candidates_file"
+          if [ ! -s "$candidates_file" ]; then
+            echo "No Human approval policy run exists for head $head_sha. A push starts one."
+            exit 0
+          fi
+          # Every wait below spends ten seconds from one shared twenty-minute budget,
+          # so several runs still finish inside the job timeout.
+          waits_left=120
+          wait_tick() {
+            [ "$waits_left" -gt 0 ] || return 1
+            waits_left=$((waits_left - 1))
+            sleep 10
+          }
+          # A run records the policy it evaluated as soon as its policy job ends,
+          # before any Environment wait. A re-run replays that run's event and base,
+          # so that record is the mode a re-run applies. Only the review modes read
+          # reviews: a re-run in environment mode would discard a granted Environment
+          # approval, and manual_merge ignores reviews.
+          policy_dir="$RUNNER_TEMP/human-approval-policy"
+          policy_error="$RUNNER_TEMP/policy-download-error.txt"
+          download_policy() {
+            rm -rf "$policy_dir"
+            gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+              --name human-approval-policy --dir "$policy_dir" 2> "$policy_error"
+          }
+          failed=0
+          for candidate in $(cat "$candidates_file"); do
+            run_id=${candidate%%:*}
+            status=${candidate#*:}
+            if ! download_policy && [ "$status" != "completed" ]; then
+              echo "Run $run_id has not recorded its policy yet. Waiting for it."
+              for _ in $(seq 1 60); do
+                wait_tick || break
+                download_policy && break
+              done
+            fi
+            if [ ! -f "$policy_dir/approval-policy.json" ]; then
+              run_state=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.status') ||
+                run_state=unknown
+              if [ "$run_state" != "completed" ]; then
+                echo "::notice::Run $run_id is still evaluating after the wait, so it was not re-run." \
+                  "If it fails for a missing review once it finishes, re-run it by hand."
+              else
+                cat "$policy_error" >&2
+                echo "Run $run_id recorded no policy evaluation, so it is not re-run automatically."
+                echo "Re-run it by hand if a review should be counted."
+              fi
+              continue
+            fi
+            policy_file="$policy_dir/approval-policy.json"
+            mode=$(jq -r '.data.approval_mode // empty' "$policy_file")
+            case "$mode" in
+              peer_review | owner_review) ;;
+              '')
+                echo "Run $run_id recorded no approval mode. Nothing to re-run."
+                continue
+                ;;
+              *)
+                echo "Approval mode $mode does not read reviews. Nothing to re-run in run $run_id."
+                continue
+                ;;
+            esac
+            if [ "$(jq -r '.data.requires_human_approval' "$policy_file")" != "true" ]; then
+              echo "Run $run_id does not require human approval. Nothing to re-run."
+              continue
+            fi
+            # In the review modes only the short approval job can still be running.
+            if [ "$status" != "completed" ]; then
+              echo "Run $run_id is still in progress. Waiting for it before re-running."
+              for _ in $(seq 1 60); do
+                # A failed lookup counts as unfinished, so one API error does not stop the loop.
+                status=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.status') ||
+                  status=unknown
+                [ "$status" = "completed" ] && break
+                wait_tick || break
+              done
+              if [ "$status" != "completed" ]; then
+                echo "::error::Run $run_id did not finish within the wait, so it was not re-run." \
+                  "Re-run it after it completes so the review is counted." >&2
+                failed=1
+                continue
+              fi
+            fi
+            echo "Re-running Human approval policy run $run_id for head $head_sha of pull request $pr_number."
+            if ! gh run rerun "$run_id" --repo "$GITHUB_REPOSITORY" 2> "$RUNNER_TEMP/rerun-error.txt"; then
+              cat "$RUNNER_TEMP/rerun-error.txt" >&2
+              echo "::error::Could not re-run run $run_id; see the message above." \
+                "GitHub refuses a re-run of a run older than 30 days and of a run that is" \
+                "already queued or in progress. Push the branch again or re-run it by hand." >&2
+              failed=1
+            fi
+          done
+          exit "$failed"

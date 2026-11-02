@@ -7,10 +7,13 @@ would run something other than what the repository configured.
 
 import json
 import os
+import shlex
 import sys
 from pathlib import Path
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from agentic_preflight.stages import command as command_plan
 from agentic_preflight.stages import shellstage
@@ -380,3 +383,18 @@ def test_an_unrunnable_setup_command_is_reported_as_a_failed_result(tmp_path, mo
 
     assert result.exit_code == shellstage.EXIT_UNRUNNABLE
     assert "requires a POSIX shell" in result.output
+
+
+@given(st.lists(st.text(), min_size=1, max_size=6))
+def test_a_shell_quoted_argv_splits_back_to_itself_with_no_shell_grammar(argv):
+    """Quoting makes every character literal, so the splitter must agree with a shell."""
+    command = shlex.join(argv)
+    assert command_plan.first_metacharacter(command) is None
+    assert command_plan.split(command) == argv
+
+
+@given(st.text())
+def test_any_text_splits_or_reports_unbalanced_quoting_without_raising(command):
+    argv = command_plan.split(command)
+    assert argv is None or all(isinstance(word, str) for word in argv)
+    command_plan.first_metacharacter(command)

@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.stages import command as command_plan
@@ -443,6 +445,53 @@ def test_dotenv_values_are_parsed_including_quotes_multiline_and_short_values(tm
     assert "quoted value" in secrets
     assert "it's private" in secrets
     assert "first line\nsecond line" in secrets
+
+
+_DOTENV_NAMES = st.from_regex(r"[A-Za-z_][A-Za-z0-9_]{0,8}", fullmatch=True)
+# Unquoted values end at a newline or an inline comment and lose surrounding blanks.
+_UNQUOTED = st.text(
+    st.characters(min_codepoint=0x21, max_codepoint=0x7E, exclude_characters="#'\"\\"),
+    min_size=1,
+).flatmap(lambda head: st.just(head) | st.just(head + " " + head))
+# Quoted values may hold anything. Half are drawn only from characters the parser treats
+# specially, so quotes, escapes, and line breaks inside a value are common, not rare.
+_QUOTED = st.text(st.sampled_from("\"'\\\n\t #=$ab"), min_size=1, max_size=12) | st.text(
+    min_size=1, max_size=20
+)
+
+
+def _quoted(value: str, quote: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace(quote, "\\" + quote)
+    return f"{quote}{escaped}{quote}"
+
+
+@st.composite
+def _dotenv_file(draw):
+    """A dotenv file in every supported form, with the values a program would load."""
+    lines, values = [], []
+    for name in draw(st.lists(_DOTENV_NAMES, min_size=1, max_size=5)):
+        form = draw(st.sampled_from(["unquoted", "'", '"']))
+        value = draw(_UNQUOTED if form == "unquoted" else _QUOTED)
+        rendered = value if form == "unquoted" else _quoted(value, form)
+        export = draw(st.sampled_from(["", "export "]))
+        lines.append(f"{export}{name}={rendered}")
+        values.append(value)
+    return "\n".join(lines) + "\n", values
+
+
+@settings(max_examples=500)
+@given(_dotenv_file())
+def test_every_generated_dotenv_value_is_extracted_for_redaction(file):
+    """A value the parser misses would reach stage output unredacted."""
+    content, values = file
+    extracted = shellstage._dotenv_values(content)
+    for value in values:
+        assert value in extracted
+
+
+@given(st.text())
+def test_any_text_parses_as_dotenv_without_raising(content):
+    assert all(value for value in shellstage._dotenv_values(content))
 
 
 def test_exported_dotenv_values_never_reach_stage_stdout_or_stderr(feature_repo, tmp_path):

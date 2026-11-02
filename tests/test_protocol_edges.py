@@ -34,7 +34,7 @@ def blocked(agent, tmp_path):
 def test_usage_exit_code_is_distinct_from_every_other_code():
     values = [int(code) for code in ExitCode]
     assert len(values) == len(set(values))
-    assert ExitCode.USAGE_ERROR not in (ExitCode.STAGE_FAILED, ExitCode.USAGE)
+    assert ExitCode.USAGE_ERROR not in (ExitCode.STAGE_FAILED, ExitCode.ERROR)
 
 
 @pytest.mark.parametrize(

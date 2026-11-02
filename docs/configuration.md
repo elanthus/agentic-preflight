@@ -468,6 +468,7 @@ Ordinary code derives the verdict from the committed policy and the stored findi
 The reviewing model cannot submit or override it.
 Protect the policy file with your forge's ownership rules, so a change cannot quietly remove its own human-review rule.
 On GitHub, make the repository's `high-risk human approval` job a required status check.
+Copy `human-approval-review.yml` and `human-approval-rerun.yml` along with `human-approval.yml`, so a submitted review re-runs the check; see [how a review reaches the check](attestations-and-ci.md#how-a-review-reaches-the-check).
 Require Code Owner reviews for the protected paths.
 The job evaluates trusted base code.
 Its behavior depends on `[approval] mode`.
