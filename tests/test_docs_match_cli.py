@@ -118,10 +118,29 @@ def test_json_envelope_contract_names_the_hook_exception():
 # -- exit codes -----------------------------------------------------------
 
 
+def documented_exit_codes(text: str) -> list[int]:
+    """The first-column codes of the table under ``## Exit codes``, in order."""
+    section = re.search(r"^## Exit codes\n(.*?)(?=^## |\Z)", text, re.DOTALL | re.MULTILINE)
+    assert section, "commands.md has no '## Exit codes' section"
+    return [int(code) for code in re.findall(r"^\| (\d+) \|", section.group(1), re.MULTILINE)]
+
+
 def test_documented_exit_codes_match_the_enum():
-    text = (REFERENCE / "commands.md").read_text(encoding="utf-8")
-    for code in ExitCode:
-        assert str(int(code)) in text, f"exit code {code.name}={int(code)} is undocumented"
+    documented = documented_exit_codes((REFERENCE / "commands.md").read_text(encoding="utf-8"))
+    assert len(documented) == len(set(documented)), f"duplicate exit-code rows: {documented}"
+    assert set(documented) == {int(code) for code in ExitCode}
+
+
+@pytest.mark.parametrize(
+    ("table", "codes"),
+    [
+        ("## Exit codes\n\n| Code | Meaning |\n|---|---|\n| 0 | OK |\n| 10 | Hook |\n", [0, 10]),
+        # A digit elsewhere in the file, or in another column, is not a documented code.
+        ("Exit 2 on failure.\n\n## Exit codes\n\n| 0 | OK, not 3 |\n\n## Next\n| 4 | x |\n", [0]),
+    ],
+)
+def test_exit_code_rows_are_read_only_from_the_table(table, codes):
+    assert documented_exit_codes(table) == codes
 
 
 def test_skill_documents_the_universal_recovery_rule():
