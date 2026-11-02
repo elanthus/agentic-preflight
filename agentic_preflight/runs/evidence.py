@@ -31,6 +31,7 @@ from ..models import (
     StageEvidence,
     StageFingerprint,
     StageRecord,
+    StageStatus,
 )
 from ..refresh_validation import verify_stage
 from ..store import RunReadError, UnknownRun
@@ -142,12 +143,12 @@ def archive(session: Session, run: RunDoc) -> RunDoc:
             record is None
             or record.fingerprint is None
             or record.finished_at is None
-            or record.status not in {"green", "skipped"}
+            or record.status not in {StageStatus.GREEN, StageStatus.SKIPPED}
         ):
             continue
         coverage = run.review_coverage if stage is Stage.REVIEW else None
         result = AttestedStage(
-            status="green" if record.status == "green" else "skipped",
+            status="green" if record.status is StageStatus.GREEN else "skipped",
             executor=record.executor,
             command=record.command,
             exit_code=record.exit_code,
@@ -323,7 +324,10 @@ def reopen_changed_inputs(session: Session, run: RunDoc, *, clean: bool | None =
         return run
     changed = False
     for stage, record in run.stages.items():
-        if record.status not in {"green", "skipped"} or record.fingerprint is None:
+        if (
+            record.status not in {StageStatus.GREEN, StageStatus.SKIPPED}
+            or record.fingerprint is None
+        ):
             continue
         current = fingerprint(
             session,
@@ -481,7 +485,7 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
 def stage_record(result: AttestedStage, *, finished_at: str | None, head_sha: str) -> StageRecord:
     """Reconstruct result fields from fingerprint-reused evidence."""
     return StageRecord(
-        status=result.status,
+        status=StageStatus(result.status),
         command=result.command,
         reason=result.reason,
         exit_code=result.exit_code,
@@ -500,7 +504,7 @@ def install_stage(doc: RunDoc, stage: Stage, record: StageRecord) -> None:
     if stage is Stage.REVIEW:
         _apply(doc, Action.SUBMIT_CLEAN)
     elif stage is Stage.DOCS:
-        if record.status == "skipped":
+        if record.status is StageStatus.SKIPPED:
             _apply(doc, Action.SKIP_DOCS)
         else:
             if doc.state is State.REVIEW_GREEN:
@@ -509,7 +513,7 @@ def install_stage(doc: RunDoc, stage: Stage, record: StageRecord) -> None:
     elif stage is Stage.LINT:
         _apply(doc, Action.RUN_LINT)
         _apply(doc, Action.LINT_PASSED)
-    elif record.status == "skipped":
+    elif record.status is StageStatus.SKIPPED:
         _apply(doc, Action.SKIP_TEST)
     else:
         _apply(doc, Action.RUN_TEST)

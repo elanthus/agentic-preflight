@@ -13,7 +13,7 @@ from . import gitx
 from .config import committed_config, snapshot_config
 from .digests import sha256_text
 from .fingerprints import intent_digest
-from .models import Attestation, AttestedStage, RunDoc, Stage
+from .models import Attestation, AttestedStage, RunDoc, Stage, StageStatus
 
 NOTES_REF = "refs/notes/agentic-preflight"
 
@@ -68,7 +68,11 @@ def build(
     if run.review_coverage is None:
         raise InvalidAttestation("review stage has no coverage evidence")
     review_record = run.stages.get(Stage.REVIEW)
-    if review_record is None or review_record.status != "green" or review_record.executor is None:
+    if (
+        review_record is None
+        or review_record.status is not StageStatus.GREEN
+        or review_record.executor is None
+    ):
         raise InvalidAttestation("review stage has no executor evidence")
     stages: dict[Stage, AttestedStage] = {
         Stage.REVIEW: AttestedStage(
@@ -88,12 +92,12 @@ def build(
         record = run.stages.get(stage)
         if record is None:
             raise InvalidAttestation(f"{stage.value} stage has no recorded result")
-        if record.status == "skipped":
+        if record.status is StageStatus.SKIPPED:
             if stage is Stage.LINT:
                 raise InvalidAttestation("lint stage is not green")
             stages[stage] = AttestedStage(status="skipped", reason=record.reason)
             continue
-        if record.status != "green":
+        if record.status is not StageStatus.GREEN:
             raise InvalidAttestation(f"{stage.value} stage is not green")
         stages[stage] = AttestedStage(
             status="green",

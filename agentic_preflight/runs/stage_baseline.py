@@ -10,7 +10,7 @@ from pathlib import Path
 from .. import gitx, worktree
 from ..errors import SetupFailed
 from ..machine import Action
-from ..models import RunDoc, SetupFailure, Stage, StageRecord
+from ..models import RunDoc, SetupFailure, Stage, StageRecord, StageStatus
 from ..stages import shellstage
 from ._session import Session, _apply, _now, _require_worktree
 
@@ -62,7 +62,7 @@ def check_baseline(
         with session.store.transaction(run.run_id) as doc:
             previous = doc.stages.get(stage) or StageRecord()
             entry = StageRecord(
-                status="red",
+                status=StageStatus.RED,
                 attempts=previous.attempts + 1,
                 command=command,
                 reason=exc.reason,
