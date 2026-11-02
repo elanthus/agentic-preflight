@@ -988,7 +988,7 @@ def test_report_outside_a_clone_needs_all_repos(tmp_path):
     outside.mkdir()
     _write_mirror(_mixed_rows())
 
-    refused = ScriptedAgent(outside).run("report", expect=ExitCode.USAGE)
+    refused = ScriptedAgent(outside).run("report", expect=ExitCode.ERROR)
     result = ScriptedAgent(outside).run("report", "--all-repos")
 
     assert refused["error"]["code"] == "not_a_repository"
@@ -1009,7 +1009,7 @@ def test_report_rejects_a_time_that_is_not_iso_8601(tmp_repo):
 def test_report_fails_visibly_when_the_mirror_cannot_be_read(tmp_repo):
     telemetry.mirror_path().mkdir(parents=True)
 
-    failed = ScriptedAgent(tmp_repo).run("report", expect=ExitCode.USAGE)
+    failed = ScriptedAgent(tmp_repo).run("report", expect=ExitCode.ERROR)
 
     assert failed["error"]["code"] == "telemetry_mirror_unreadable"
     assert failed["data"]["path"] == str(telemetry.mirror_path())

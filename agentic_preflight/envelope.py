@@ -22,7 +22,9 @@ from typing import Any
 
 class ExitCode(IntEnum):
     OK = 0
-    USAGE = 1
+    # Invalid input or an internal, Git, configuration, or telemetry failure. A
+    # malformed command line is USAGE_ERROR instead.
+    ERROR = 1
     STAGE_FAILED = 2
     PRECONDITION = 3
     NEEDS_HUMAN = 4

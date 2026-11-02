@@ -156,7 +156,7 @@ def report(
         raise as_error(
             "not_a_repository",
             "report without --all-repos or --repo must run inside a Git working tree",
-            ExitCode.USAGE,
+            ExitCode.ERROR,
             "Run the report inside a clone, or read every repository's mirror rows.",
             "agentic-preflight report --all-repos",
         )
@@ -170,7 +170,7 @@ def report(
         error = as_error(
             "telemetry_mirror_unreadable",
             "the telemetry mirror exists but cannot be read",
-            ExitCode.USAGE,
+            ExitCode.ERROR,
             "Make the mirror file readable, then run the report again.",
         )
         error.data = {"path": str(path), "error": telemetry._describe(exc)}

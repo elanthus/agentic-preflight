@@ -182,16 +182,16 @@ def command(fn):
                 )
             )
         except (WorktreeError, GitError) as exc:
-            fail(as_error("git_error", str(exc), ExitCode.USAGE))
+            fail(as_error("git_error", str(exc), ExitCode.ERROR))
         except ConfigError as exc:
-            fail(as_error("config_error", str(exc), ExitCode.USAGE))
+            fail(as_error("config_error", str(exc), ExitCode.ERROR))
         except Exception:  # noqa: BLE001 - the JSON stdout contract is the boundary
             traceback.print_exc(file=sys.stderr)
             fail(
                 as_error(
                     "internal_error",
                     "an unexpected internal error occurred",
-                    ExitCode.USAGE,
+                    ExitCode.ERROR,
                 )
             )
 
