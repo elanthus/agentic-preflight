@@ -22,8 +22,9 @@ from typing import Any
 
 class ExitCode(IntEnum):
     OK = 0
-    # Invalid input or an internal, Git, configuration, or telemetry failure. A
-    # malformed command line is USAGE_ERROR instead.
+    # Input that Click parsed but the command rejects, such as an integrations
+    # call that names no target, or an internal, Git, configuration, or telemetry
+    # failure. Click usage errors and a malformed --run value are USAGE_ERROR.
     ERROR = 1
     STAGE_FAILED = 2
     PRECONDITION = 3
