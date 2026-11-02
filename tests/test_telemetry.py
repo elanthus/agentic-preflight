@@ -870,7 +870,7 @@ def test_rebuild_still_rejects_an_unknown_config_key(tmp_repo):
     write(tmp_repo, ".agentic-preflight.toml", "[hook]\nnonsense = true\n")
     _store_record(tmp_repo, _schema_2_record())
 
-    failed = ScriptedAgent(tmp_repo).run("telemetry", "rebuild", expect=ExitCode.USAGE)
+    failed = ScriptedAgent(tmp_repo).run("telemetry", "rebuild", expect=ExitCode.ERROR)
 
     assert failed["error"]["code"] == "config_error"
     assert "hook.nonsense" in failed["error"]["message"]
@@ -882,7 +882,7 @@ def test_rebuild_reports_a_mirror_it_cannot_write(tmp_repo, tmp_path):
     opt_in_telemetry(blocker)
     _store_record(tmp_repo, _schema_2_record())
 
-    failed = ScriptedAgent(tmp_repo).run("telemetry", "rebuild", expect=ExitCode.USAGE)
+    failed = ScriptedAgent(tmp_repo).run("telemetry", "rebuild", expect=ExitCode.ERROR)
 
     assert failed["error"]["code"] == "telemetry_write_failed"
     assert failed["data"]["summarized"] == 1
@@ -925,7 +925,7 @@ def test_rebuild_leaves_an_undecodable_mirror_unchanged(tmp_repo):
     original = b'{"run_id": "r_0000000002"}\n\xff\xfe not text\n'
     mirror.write_bytes(original)
 
-    failed = ScriptedAgent(tmp_repo).run("telemetry", "rebuild", expect=ExitCode.USAGE)
+    failed = ScriptedAgent(tmp_repo).run("telemetry", "rebuild", expect=ExitCode.ERROR)
 
     assert "UnicodeDecodeError" in failed["data"]["mirror"]["error"]
     assert mirror.read_bytes() == original

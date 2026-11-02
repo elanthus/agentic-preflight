@@ -51,7 +51,7 @@ def main(ctx: click.Context, run_id: str | None) -> None:
     try:
         gitx.require_minimum_version()
     except gitx.GitVersionError as exc:
-        fail(as_error("unsupported_git_version", str(exc), ExitCode.USAGE))
+        fail(as_error("unsupported_git_version", str(exc), ExitCode.ERROR))
     if run_id is not None and RUN_ID_PATTERN.fullmatch(run_id) is None:
         fail(
             as_error(
