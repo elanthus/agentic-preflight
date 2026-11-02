@@ -446,5 +446,5 @@ Its `path` is ignored, and every command that loads the configuration prints a w
 Its `mirror = true` and `hook_log = true` keep the user's value. Its `mirror = false` and `hook_log = false` still apply.
 A repository that set `path` to collect its contributors' telemetry no longer does so. Each contributor who wants it must set `path` in their own user file.
 A test harness that turns telemetry off with a repository section, as [Isolate a test harness](docs/local-telemetry.md#isolate-a-test-harness) describes, is unaffected.
-Invalid values and unknown keys in the repository section are still errors.
+Invalid `mirror` and `hook_log` values and unknown keys in the repository section are still errors. Its `path` is ignored whatever its value.
 No configuration digest, snapshot, fingerprint, or attestation changes, because none of them contains `[telemetry]`.
