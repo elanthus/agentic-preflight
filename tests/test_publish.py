@@ -7,21 +7,19 @@ from pathlib import Path
 import pytest
 
 from agentic_preflight.envelope import ExitCode
-from tests.conftest import commit_all, git, write
+from tests.conftest import commit_all, configure_base, git, write
 from tests.driver import ScriptedAgent, findings_json
 
 
 @pytest.fixture
 def verified(feature_repo, bare_remote, tmp_path):
     """A run driven all the way to VERIFIED with a real remote configured."""
-    write(
+    configure_base(
         feature_repo,
-        ".agentic-preflight.toml",
         "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
         "\n[worktree]\nmode = 'reusable'\n"
         "\n[pr]\nautomated_cleanup = true\n",
     )
-    commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     agent.run("context")
@@ -36,13 +34,11 @@ def verified(feature_repo, bare_remote, tmp_path):
 @pytest.fixture
 def verified_with_cherry_picked_fix(feature_repo, bare_remote, tmp_path, monkeypatch):
     """A verified fix whose cherry-picked SHA deliberately differs."""
-    write(
+    configure_base(
         feature_repo,
-        ".agentic-preflight.toml",
         "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
         "\n[worktree]\nmode = 'reusable'\n",
     )
-    commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
     start = agent.run("start")
     run_id = start["run_id"]
@@ -228,13 +224,11 @@ def test_gate_is_illegal_before_everything_is_verified(feature_repo):
 
 
 def test_manual_gate_mode_refuses_to_proceed_at_all(feature_repo, bare_remote, tmp_path):
-    write(
+    configure_base(
         feature_repo,
-        ".agentic-preflight.toml",
         "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
         "\n[gate]\nmode = 'manual'\n",
     )
-    commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     agent.run("context")
@@ -257,13 +251,11 @@ def test_manual_gate_mode_refuses_to_proceed_at_all(feature_repo, bare_remote, t
 def test_manual_pr_mode_pushes_but_hands_pr_creation_to_the_user(
     feature_repo, bare_remote, tmp_path
 ):
-    write(
+    configure_base(
         feature_repo,
-        ".agentic-preflight.toml",
         "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
         "\n[pr]\nmode = 'manual'\n",
     )
-    commit_all(feature_repo, "configure manual PR publication")
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     agent.run("context")
@@ -294,13 +286,11 @@ def test_manual_pr_mode_pushes_but_hands_pr_creation_to_the_user(
 def test_automatic_cleanup_is_disabled_by_default_without_disabling_automatic_pr_creation(
     feature_repo, bare_remote, tmp_path
 ):
-    write(
+    configure_base(
         feature_repo,
-        ".agentic-preflight.toml",
         "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
         "\n[pr]\nmode = 'auto'\n",
     )
-    commit_all(feature_repo, "configure automatic PR publication")
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     agent.run("context")
@@ -329,13 +319,11 @@ def test_automatic_cleanup_is_disabled_by_default_without_disabling_automatic_pr
 def test_human_review_path_allows_push_gate_and_marks_merge_review_requirement(
     feature_repo, bare_remote, tmp_path
 ):
-    write(
+    configure_base(
         feature_repo,
-        ".agentic-preflight.toml",
         "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
         "\n[policy]\nhuman_review_paths = ['src/app.py']\n",
     )
-    commit_all(feature_repo, "configure human review policy")
     agent = ScriptedAgent(feature_repo)
     start = agent.run("start")
     assert start["data"]["risk"]["verdict"] == "needs_human"

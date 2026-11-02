@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from agentic_preflight.envelope import ExitCode
-from tests.conftest import commit_all, git, write
+from tests.conftest import commit_all, configure_base, git, write
 from tests.driver import ScriptedAgent, findings_json
 
 BLOCKING = [
@@ -56,13 +56,11 @@ def ready(feature_repo, tmp_path):
     """Drive a run to TEST_GREEN, optionally with a fix commit in the worktree."""
 
     def build(*, with_fix=True, fix_content=None, fresh_base=False):
-        write(
+        configure_base(
             feature_repo,
-            ".agentic-preflight.toml",
             "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
             "\n[worktree]\nmode = 'reusable'\n",
         )
-        commit_all(feature_repo, "configure agentic-preflight")
         if fresh_base:
             git("switch", "main", cwd=feature_repo)
             write(feature_repo, "upstream.txt", "new upstream content\n")
@@ -241,12 +239,9 @@ def test_pending_mergeback_rejects_changes_outside_recorded_attempt(
 def test_default_in_place_mode_records_repairs_and_attests_without_cherry_pick(
     feature_repo, tmp_path
 ):
-    write(
-        feature_repo,
-        ".agentic-preflight.toml",
-        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n",
+    configure_base(
+        feature_repo, "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
     )
-    commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
     started = agent.run("start")
     assert started["data"]["worktree_mode"] == "in_place"
@@ -348,13 +343,11 @@ def test_conflict_aborts_and_restores_the_branch_exactly(
     feature_repo, tmp_path, monkeypatch, interrupted_retry
 ):
     """Construct a guaranteed conflict and assert the full abort contract."""
-    write(
+    configure_base(
         feature_repo,
-        ".agentic-preflight.toml",
         "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
         "\n[worktree]\nmode = 'reusable'\n",
     )
-    commit_all(feature_repo, "configure agentic-preflight")
 
     agent = ScriptedAgent(feature_repo)
     env = agent.run("start")
@@ -439,13 +432,11 @@ def test_conflict_aborts_and_restores_the_branch_exactly(
 def test_different_human_conflict_resolution_restarts_review(
     feature_repo, tmp_path, monkeypatch, interrupted_retry
 ):
-    write(
+    configure_base(
         feature_repo,
-        ".agentic-preflight.toml",
         "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
         "\n[worktree]\nmode = 'reusable'\n",
     )
-    commit_all(feature_repo, "configure agentic-preflight")
 
     agent = ScriptedAgent(feature_repo)
     started = agent.run("start")
@@ -504,13 +495,11 @@ def test_different_human_conflict_resolution_restarts_review(
 
 def test_human_conflict_resolution_cannot_adopt_a_copied_file(feature_repo, tmp_path):
     write(feature_repo, ".env", "SECRET=original-secret\n")
-    write(
+    configure_base(
         feature_repo,
-        ".agentic-preflight.toml",
         "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
         "\n[worktree]\nmode = 'reusable'\n",
     )
-    commit_all(feature_repo, "configure agentic-preflight")
 
     agent = ScriptedAgent(feature_repo)
     started = agent.run("start")

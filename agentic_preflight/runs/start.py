@@ -14,7 +14,7 @@ from importlib.metadata import version as distribution_version
 from pathlib import Path
 from typing import Any, Literal
 
-from .. import gitx, housekeeping, worktree
+from .. import attestation, gitx, housekeeping, worktree
 from .. import sync as syncmod
 from ..config import Config, config_digest, load_config
 from ..envelope import Envelope, ExitCode
@@ -222,6 +222,13 @@ class NoBranch(AgenticError):
     exit_code = ExitCode.PRECONDITION
 
 
+class UnsupportedBaseRef(AgenticError):
+    """The base is not a branch that verification can resolve from the note."""
+
+    code = "unsupported_base_ref"
+    exit_code = ExitCode.PRECONDITION
+
+
 def _require_branch(repo: Path) -> None:
     if gitx.run(repo, "symbolic-ref", "-q", "HEAD", check=False).returncode != 0:
         raise NoBranch(
@@ -283,6 +290,18 @@ def _check_preconditions(
         )
 
     base_ref = base_ref or cfg.general.base_ref
+    # Fail before any stage runs rather than at push, where the hook verifies
+    # without --base and resolves the note's base_ref to a branch.
+    if attestation.resolve_base_ref(repo, base_ref) is None:
+        raise UnsupportedBaseRef(
+            f"base {base_ref!r} does not name an existing branch as <branch>, origin/<branch>, "
+            "refs/heads/<branch>, or refs/remotes/origin/<branch>",
+            next_instruction=(
+                "Name the branch this change merges into. Fetch it from origin first "
+                "if it exists only there, then start the run."
+            ),
+            next_command='agentic-preflight start --base-ref <branch> --intent "<objective>"',
+        )
     branch = gitx.current_branch(repo)
     head_sha = gitx.rev_parse(repo, "HEAD")
     snapshot = cfg.model_dump(mode="json")

@@ -30,7 +30,7 @@ from agentic_preflight.runs.start import (
     normalize_client,
     normalize_model,
 )
-from tests.conftest import commit_all, git, make_run, write
+from tests.conftest import commit_all, configure_base, git, make_run, write
 from tests.driver import ScriptedAgent, findings_json
 
 # `agentic_preflight.runs` re-exports the `start` function under the module's name.
@@ -398,12 +398,9 @@ def test_recovery_commands_do_not_turn_a_detected_client_into_a_flag(
 
 def test_the_producer_never_reaches_the_attestation_or_digests(feature_repo, tmp_path):
     assert "producer" not in Attestation.model_fields
-    write(
-        feature_repo,
-        ".agentic-preflight.toml",
-        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n",
+    configure_base(
+        feature_repo, "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
     )
-    commit_all(feature_repo, "configure agentic-preflight")
     agent = ScriptedAgent(feature_repo)
 
     started = agent.run("start", "--client", "producer-probe-client", "--model", "probe-model-x")

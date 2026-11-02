@@ -81,6 +81,23 @@ exact head. Local `verify SHA` and `approval-check` never fetch or retry. Human 
 and manual-merge requirements remain independent of transport recovery.
 See [the CI guide](https://github.com/elanthus/agentic-preflight/blob/v0.8.0/docs/attestations-and-ci.md#protected-base-fetch-and-verification).
 
+## Push rejects the note against the protected base policy (exit 2, `attestation_failed`)
+
+`push`, the hook, and hosted `verify` read policy from the `.agentic-preflight.toml`
+committed on the protected base, not from the run's configuration. The error names the
+binding: docs skipped while the base enables them, a lint, test, or review command that
+differs from the one the base configures, a review exclusion the base does not exclude,
+or a review executor below the base's executor policy. A `--command` override of a
+command the base configures fails the same way.
+
+Do not edit the base, rerun to get a different note, or push with `--no-verify`. If the
+branch changes `.agentic-preflight.toml` on purpose, tell the user that a human must push
+and merge that change; later branches are verified under the new policy. Otherwise,
+revert the branch's policy change or drop the override, and start a new run. A
+`base_mismatch` reason means the protected base cannot judge the head. Check that any
+`--base` names the branch the change merges into; otherwise the branch is not
+synchronized with its base, so run `start` again.
+
 ## Stale head (exit 3, `stale_run`)
 
 The branch moved after review began. Run `agentic-preflight start` again with the original intent from

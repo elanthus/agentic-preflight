@@ -20,6 +20,15 @@ The configuration models enforce the same mode, severity, risk-level, approval-e
 Python callers can use `Config(...)` or `Config.model_validate(...)` without a separate validation step.
 A file-loading error identifies the affected section and key and the file that supplied it, after section-wise layering.
 
+Runs use the layered configuration, but attestation verification does not.
+`verify`, `approval-check`, `push`, and the pre-push hook read the `.agentic-preflight.toml` committed at the protected base.
+They ignore the user file and the branch's own edits.
+A base commit with no such file uses the defaults.
+Thus, the base policy decides what verification and the hosted approval check require, whatever the user file or the branch sets.
+A relaxed setting fails verification only when the run's evidence falls short of the base policy.
+For example, verification rejects a note whose run skipped docs that the base enables, ran a lint, test, or review command other than the one the base configures, or excluded review files that the base does not exclude.
+See [what verification trusts](limits.md#attestations-are-not-signatures).
+
 > **Warning: the configuration executes committed code.**
 > During a run, `[worktree] setup_command` runs at `start`.
 > Every `[commands]` entry runs at its lint or test stage.
@@ -401,6 +410,9 @@ The submission must include the current coverage manifest and `examined = "all"`
 Direct `submit-findings` is refused for those runs.
 If command review is in effect but `command` is unset, the CLI stops with `data.mode = "needs_command"`.
 It never guesses a reviewer.
+Verification compares the attested review command only with a `command` committed at the protected base.
+When the base requires command review but sets no `command`, a note from any review command passes, as lint and test commands do when the base sets none.
+Commit `command` to control which reviewer satisfies the requirement.
 
 Command review uses `[stage] timeout_seconds` and `max_attempts`.
 Attempts persist across process restarts.

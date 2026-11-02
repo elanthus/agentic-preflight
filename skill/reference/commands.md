@@ -135,7 +135,12 @@ rerun in every new run, including commits with identical trees. Read `data.appli
 `invalid` and `unknown` require a fresh stage, and later-stage candidates remain available while earlier stages are pending.
 Refuses a detached HEAD or a branch with no commits yet (exit 3, `no_branch`), a dirty
 tree (exit 3, `dirty_tree`), and a branch with no changes over the base
-(exit 3, `empty_diff`). In-place mode protects `[worktree] copy_files` where they are;
+(exit 3, `empty_diff`). It also refuses, before any stage runs, a base that verification
+without `--base` cannot resolve to a branch (exit 3, `unsupported_base_ref`): the
+`--base-ref` or `[general] base_ref` value must name an existing
+`refs/remotes/origin/<branch>` or `refs/heads/<branch>`, written as `<branch>`,
+`origin/<branch>`, or the full ref. A tag, another remote such as `upstream/main`, a
+commit SHA, revision syntax such as `main~1`, or a branch not yet fetched is refused. In-place mode protects `[worktree] copy_files` where they are;
 isolated modes copy them. Every mode refuses an entry git is not already ignoring.
 
 The new run records its producer. `data.producer` and the `run_created` event contain
@@ -312,7 +317,7 @@ All-or-nothing — one bad finding rejects the batch.
   note-only disposition preserves the green state. A fix that changes the reviewed
   snapshot records the repair commit and returns the run to review before lint or test.
 
-### `agentic-preflight verify [SHA] [--purpose local|publish]`
+### `agentic-preflight verify [SHA] [--purpose local|publish] [--base REV]`
 Without an argument, confirms nothing blocks the active review/docs stage and advances
 it to green. Exits 2 listing the outstanding blocking set if anything remains.
 
@@ -323,8 +328,21 @@ a fresh clone, together with the head and `refs/agentic-preflight/evidence/*`
 from the contributor remote. Schema v7 requires an explicit `verified` outcome,
 complete local stage evidence, and the full configuration snapshot. It
 verifies original execution digests, Git and configuration bindings, stage applicability,
-finding dispositions, and original/current review-unit accounting. A missing note, a
-note with any other schema, or invalid evidence exits 2. This remains an offline check;
+finding dispositions, and original/current review-unit accounting.
+
+`--base REV` names the protected revision the change merges into; hosted callers pass
+the pull request's base SHA. Without it, the verifier resolves the note's `base_ref` to
+`refs/remotes/origin/<branch>`, then `refs/heads/<branch>`; a fully qualified `base_ref`
+must already be under one of those namespaces. The note's `merge_base_sha`
+must be the only merge base of that base and the head, or verification fails with
+`data.reason` `base_mismatch`. A `--base` that does not name a commit, or that shares no
+history with the head, fails the same way. Policy comes from the `.agentic-preflight.toml` committed
+at that base, not from the note's configuration snapshot: docs must be green when the
+base enables them, green lint and test commands and a command review must match the
+commands the base configures, review exclusions must be excluded by the base's
+`[diff] exclude`, and the review executor must meet the base's executor policy. A
+missing note, a note with any other schema, or invalid evidence exits 2. This remains an
+offline check;
 it does not execute stages or
 fetch evidence. The retained `--purpose` option accepts `local` or `publish`; both
 require complete local validation. Pending-test notes are rejected.

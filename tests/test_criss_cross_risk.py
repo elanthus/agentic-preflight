@@ -16,6 +16,7 @@ import pytest
 
 from agentic_preflight import gitx, refresh_validation, sync
 from agentic_preflight.approval import evaluate
+from agentic_preflight.config import Config
 from agentic_preflight.models import AttestedStage, ReviewCoverage, Stage
 from agentic_preflight.store import Store
 from tests.attestation_helpers import make_attestation
@@ -283,7 +284,7 @@ def test_refresh_verification_classifies_the_merge_result_for_a_test_skip(tmp_re
     )
 
     with pytest.raises(ValueError, match="test skip is not applicable"):
-        refresh_validation.verify_evidence(tmp_repo, value)
+        refresh_validation.verify_evidence(tmp_repo, value, policy=Config())
 
 
 @pytest.mark.parametrize("mode", ["in_place", "strict"])

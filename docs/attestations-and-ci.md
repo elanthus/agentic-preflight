@@ -29,6 +29,12 @@ agentic-preflight verify HEAD
 - The note names another commit or describes another tree.
 - The note omits a stage.
 - The note claims a green shell stage without its command, zero exit code, and output hash.
+- The note's merge base is not the only merge base of the head and the trusted base.
+- The evidence does not satisfy the policy committed at the trusted base.
+
+The trusted base is the `--base` revision, or else the note's base branch.
+Verification reads policy from the `.agentic-preflight.toml` committed there, not from the note.
+See [what verification trusts](limits.md#attestations-are-not-signatures).
 
 ## Required GitHub check
 
@@ -59,6 +65,9 @@ The pinned package must be published before this example can run.
     ATTESTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   run: agentic-preflight verify "$ATTESTED_SHA"
 ```
+
+Pass `--base` with the pull request's base SHA when the job runs for a pull request.
+Without it, the note names its own base branch.
 
 This minimal example assumes public fetch access and immediate note availability.
 For protected policy enforcement and for private repositories, use the protected-base fetch and verification flow below.
@@ -122,8 +131,10 @@ Then they fetch the exact event head, the notes, and the retained evidence:
 git fetch --no-tags -- "$source_remote" "$HEAD_SHA" \
   '+refs/notes/agentic-preflight:refs/notes/agentic-preflight' \
   '+refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*'
-agentic-preflight verify "$HEAD_SHA"
+agentic-preflight verify "$HEAD_SHA" --base "$BASE_SHA"
 ```
+
+`--base` makes the protected pull-request base, not the note, decide the merge base and the policy.
 
 For approval evaluation, call `approval-check "$HEAD_SHA" --base "$BASE_SHA"` with `--reviews-file "$reviews_file" --author "$PR_AUTHOR"`.
 Add `--report-only` or `--environment-approved` when applicable.
@@ -150,6 +161,7 @@ Evidence failures keep exit code 2, `attestation_failed`, a structured `data.rea
 A missing note requires publication to the selected remote.
 An unsupported schema requires a matching producer and verifier.
 Invalid evidence or wrong commit or tree bindings require valid evidence for the exact commit.
+A `base_mismatch` means the protected base cannot judge the head. Check that `--base` names the branch the change merges into; otherwise synchronize the branch with its protected base and start a fresh run.
 Investigate transport failures as Git access or permission problems.
 Print the verification envelope and preserve its exit status before you read the approval outputs.
 Run the workflow again after you correct the cause.

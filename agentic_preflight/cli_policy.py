@@ -21,8 +21,13 @@ from .models import Stage
 @click.command()
 @click.argument("sha", required=False)
 @click.option("--purpose", type=click.Choice(["local", "publish"]), default="local")
+@click.option(
+    "--base",
+    "base_sha",
+    help="Protected base the change merges into. Defaults to the note's base branch.",
+)
 @command
-def verify(sha: str | None, purpose: Literal["local", "publish"]) -> None:
+def verify(sha: str | None, purpose: Literal["local", "publish"], base_sha: str | None) -> None:
     """Confirm an active review stage, or validate SHA's Git-note attestation."""
     if sha is not None:
         from . import attestation as attestationmod
@@ -30,7 +35,7 @@ def verify(sha: str | None, purpose: Literal["local", "publish"]) -> None:
 
         repo_root = gitx.repo_root(Path.cwd())
         try:
-            value = attestationmod.verify(repo_root, sha, purpose=purpose)
+            value = attestationmod.verify(repo_root, sha, purpose=purpose, base=base_sha)
         except (attestationmod.InvalidAttestation, GitError) as exc:
             raise _evidence_failure(
                 exc, {"sha": sha, "notes_ref": attestationmod.NOTES_REF}
