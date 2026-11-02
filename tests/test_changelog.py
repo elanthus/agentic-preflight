@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from agentic_preflight.stages.docs import build_inventory, changelog_finding
+from tests.conftest import commit_all, git
 from tools.changelog import assemble
 
 
@@ -69,6 +70,8 @@ def test_noncanonical_date_leaves_all_inputs_untouched(tmp_path, date):
 def test_fragment_satisfies_existing_docs_changelog_check(tmp_path):
     fragments = fixture(tmp_path)
     (fragments / "42.changed.md").write_text("- Behavior change.\n")
+    git("init", "-q", cwd=tmp_path)
+    commit_all(tmp_path, "fragment")
     changed = ["docs/CHANGELOG.d/42.changed.md"]
     inventory = build_inventory(tmp_path, changed)
     assert changelog_finding(inventory, changed, finding_id="F001") is None

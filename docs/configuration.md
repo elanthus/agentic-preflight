@@ -274,6 +274,12 @@ A dismissal or a later changes-requested review on any head revokes the approval
 An edit or replacement of a self-review with other text also removes its approval.
 Bots and other reviewers cannot satisfy this mode.
 
+The self-approval proves only that the reviewer's account posted it.
+An agent that runs with the reviewer's `gh` login or token can post the `approved` Comment review itself.
+Only the agent instructions keep it from doing so.
+If the approval must come from a person the agent cannot impersonate, use `peer_review`, or use `environment` with **Prevent self-review** enabled.
+See [Approval checks cannot tell a person from an agent](limits.md#approval-checks-cannot-tell-a-person-from-an-agent).
+
 In both review modes, an approval of an earlier head carries to a new head only when the branch content is unchanged.
 The trusted checker decides this from Git objects, not from attestation notes.
 Both heads must change the same paths against the base, with the same `git patch-id --stable` identity.
@@ -297,6 +303,10 @@ The new mode applies to subsequent pull requests after the merge.
 
 The docs stage inspects `README*`, `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING*`, `CHANGELOG*`, and `docs/**`.
 It also inspects agent instructions under `.claude/rules/**` and `.github/instructions/**`, plus `PRODUCT.md` and `DESIGN.md`.
+It lists only files committed at the head commit.
+Files not committed at the head commit, including ignored, untracked, and uncommitted generated files, are not on the surface, even when they match a pattern.
+A generated file that is committed counts like any other committed file.
+A committed symlink is on the surface when its target is a file, even outside the repository. See [Committed symlinks on the documentation surface](limits.md#committed-symlinks-on-the-documentation-surface).
 
 Use `[docs] paths` for repository-specific documentation surfaces.
 The surface is an allowlist.

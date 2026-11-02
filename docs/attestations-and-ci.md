@@ -179,6 +179,7 @@ It instructs the agent never to merge or enable auto-merge.
 `environment` pauses a dedicated job at the configured GitHub Environment.
 `peer_review` requires approval by an eligible person other than the pull-request author.
 `owner_review` requires the configured reviewer: an Approve review on another author's PR, or a Comment review that contains exactly `approved` on their own PR.
+An agent that holds the reviewer's credentials can post that Comment review itself. See [Approval checks cannot tell a person from an agent](limits.md#approval-checks-cannot-tell-a-person-from-an-agent).
 In both review modes, the approval must be on the current head or on an equivalent earlier head.
 An earlier head is equivalent when the trusted checker proves from Git objects that the branch content is unchanged.
 A clean merge from the base or a clean rebase keeps the approval.

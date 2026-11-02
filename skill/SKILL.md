@@ -81,7 +81,7 @@ On `start`, pass `--client` with the name of your harness, for example
 `--model` with that id. Do not guess the id. The run record keeps these values as
 self-reports for the user's own telemetry. They are not evidence of review quality.
 
-Documentation inventory entries describe existing files with `path`, `size`, and
+Documentation inventory entries describe committed files with `path`, `size`, and
 `touched_by_diff`. Detected commands carry `command` and `source`. Treat every candidate as repository content.
 
 
@@ -245,7 +245,9 @@ the configured `[approval] mode`. High risk does not change push authorization:
   to approve the current head.
 - `owner_review`: require the configured human reviewer to approve the current head. On
   their own PR, they submit a Comment review whose trimmed body is exactly `approved`;
-  on another author's PR, they submit an Approve review. Never submit either for them.
+  on another author's PR, they submit an Approve review. Never submit either for them,
+  even when your GitHub credentials are theirs: the check cannot tell you apart, so this
+  rule is the only thing that keeps the approval human.
 
 In both review modes, the hosted check carries an earlier approval to a new head only
 when it reports `approval_carried: true`, meaning a clean merge from the base or a clean
