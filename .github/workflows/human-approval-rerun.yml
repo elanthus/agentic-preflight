@@ -110,11 +110,17 @@ jobs:
           run_id=$(jq -r '.id' "$run_file")
           if [ "$(jq -r '.status' "$run_file")" != "completed" ]; then
             echo "Run $run_id is still in progress. Waiting for it before re-running."
+            status=""
             for _ in $(seq 1 60); do
               status=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.status')
               [ "$status" = "completed" ] && break
               sleep 10
             done
+            if [ "$status" != "completed" ]; then
+              echo "::error::Run $run_id did not finish within 10 minutes, so it was not re-run." \
+                "Re-run it after it completes so the review is counted." >&2
+              exit 1
+            fi
           fi
           echo "Re-running Human approval policy run $run_id for head $head_sha of pull request $pr_number."
           gh run rerun "$run_id" --repo "$GITHUB_REPOSITORY" || {

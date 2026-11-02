@@ -253,6 +253,15 @@ def test_companion_waits_for_a_running_policy_run_before_rerunning(rerun):
     assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
 
 
+def test_companion_gives_up_on_a_run_that_never_finishes_without_rerunning(rerun):
+    result, calls = rerun(runs=_runs(_run(1, 5, status="in_progress")), run_status="in_progress")
+    assert result.returncode == 1
+    assert "did not finish within 10 minutes" in result.stderr
+    assert "30 days" not in result.stderr
+    assert len([call for call in calls if call.endswith("--jq .status")]) == 60
+    assert _reruns(calls) == []
+
+
 def test_companion_explains_a_rerun_that_github_refuses(rerun):
     result, calls = rerun(runs=_runs(_run(1, 5)), rerun_exit=1)
     assert result.returncode == 1
