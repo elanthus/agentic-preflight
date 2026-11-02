@@ -30,6 +30,7 @@ from pydantic import (
     ConfigDict,
     Field,
     SerializerFunctionWrapHandler,
+    StrictBool,
     ValidationError,
     field_validator,
     model_serializer,
@@ -204,9 +205,11 @@ class TelemetrySection(_Section):
     ``hook_log`` off, and its ``path`` is ignored (:func:`merge_telemetry`).
     """
 
-    mirror: bool = True
+    # Strict, so a repository's ``1`` or ``"yes"`` cannot pass as something other
+    # than ``true`` and turn on a file the user turned off (:func:`merge_telemetry`).
+    mirror: StrictBool = True
     #: Append each pre-push hook decision to ``hook-decisions.jsonl``.
-    hook_log: bool = True
+    hook_log: StrictBool = True
     path: str | None = None
 
     @field_validator("path")

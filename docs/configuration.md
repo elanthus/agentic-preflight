@@ -160,6 +160,7 @@ A `[telemetry]` section in the repository file can only turn telemetry off:
 - `path` there is ignored, and commands that load the configuration print a warning that names the file. The pre-push hook prints nothing, so the output of `git push` does not change.
 
 Thus, a cloned repository cannot choose where your machine writes telemetry, or opt its runs in to the telemetry directory.
+`mirror` and `hook_log` accept only `true` and `false`, in either file. Any other value, such as `1` or `"yes"`, is an error, so it cannot turn a file on.
 An invalid `mirror` or `hook_log` value or an unknown key in the repository section is still an error. A `path` there is ignored whatever its value.
 
 When a run ends, the CLI writes `summary.json` in the run directory.

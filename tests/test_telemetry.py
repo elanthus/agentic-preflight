@@ -262,7 +262,9 @@ def test_an_invalid_repository_path_is_ignored_like_a_valid_one(tmp_path, capsys
     assert "ignoring [telemetry] path" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("repo", ["hook_log = 3\n", "bogus = false\n"])
+@pytest.mark.parametrize(
+    "repo", ["hook_log = 3\n", "bogus = false\n", "mirror = 1\n", "hook_log = 'yes'\n"]
+)
 def test_an_invalid_repository_telemetry_section_is_still_an_error(tmp_path, repo):
     write(tmp_path, ".agentic-preflight.toml", "[telemetry]\n" + repo)
 

@@ -415,6 +415,9 @@ def test_the_fallback_reads_each_telemetry_section_and_the_repository_only_turns
     assert hooklog.fallback_section(repo, user_config_dir=tmp_path / "none") == TelemetrySection(
         mirror=False
     )
+    # A truthy value that is not ``true`` cannot turn the log on: it is invalid.
+    write(repo, ".agentic-preflight.toml", "[telemetry]\nhook_log = 1\n")
+    assert hooklog.fallback_section(repo, user_config_dir=tmp_path / "none") is None
 
 
 def test_the_installed_hook_passes_the_remote_name_on_a_real_push(feature_repo, bare_remote):
