@@ -92,7 +92,7 @@ The maintainer approval runbook is in [docs/maintainers/approval-readiness.md](d
 This repository classifies ordinary package code, tests, and skill documentation as medium risk.
 Those changes still receive the normal review, documentation, lint, test, and attestation checks.
 Another rule can still classify them as human review, for example a high or critical review finding, even after the finding is fixed.
-The current branch rules do not make human approval a merge requirement.
+The current branch rules make `high-risk human approval` a required check, so a high-risk pull request cannot merge without a ruleset bypass before the configured owner approves its exact content.
 
 The explicit `human_review_paths` in `.agentic-preflight.toml` cover the decision points:
 policy and ownership, CI workflows, merge approval, attestation verification, the pre-push hook, publication gates, and security guidance.
@@ -134,4 +134,5 @@ The hosted approval check reads the policy from the protected base.
 A PR that changes this policy is evaluated with the configured review policy.
 The narrower rules take effect for subsequent PRs after the change merges.
 CODEOWNERS routes review requests.
-The current branch rules require automated CI and audits. They do not require human approval.
+The current branch rules require automated CI, audits, and the `high-risk human approval` check.
+A submitted review re-runs that check for the current head.

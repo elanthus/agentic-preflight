@@ -438,3 +438,14 @@ A docs stage that is green while the base disables docs now passes. Earlier veri
 `start` now refuses, with exit 3 and the new error code `unsupported_base_ref`, a `--base-ref` or `[general] base_ref` that does not name an existing `refs/remotes/origin/<branch>` or `refs/heads/<branch>`, such as a tag, another remote, a commit SHA, or revision syntax. Earlier releases started such a run. `push` and the pre-push hook now could not verify its note, so `start` stops it before any stage runs.
 Attestation schema 7, fingerprint version 2, and the evidence and configuration digests are unchanged.
 Notes that an earlier release wrote stay readable, and they verify when they satisfy the protected base policy.
+
+## Unreleased: reviews re-run the hosted approval check
+
+`human-approval.yml` no longer listens to `pull_request_review`.
+Two new workflow files handle reviews: `human-approval-review.yml` records the reviewed pull request number, and `human-approval-rerun.yml` re-runs the protected-base policy run for the head.
+A project that copied the hosted workflow must add both files, or a review will not update the `high-risk human approval` check until someone re-runs the failed run by hand.
+The required check keeps its name. No ruleset change is needed.
+The re-run companion needs `actions: write`; it runs from the default branch and never checks out pull request code.
+The policy run now uploads its evaluation as the `human-approval-policy` artifact, kept for 30 days; the companion reads the approval mode from it and leaves a run without one alone.
+GitHub allows a re-run for 30 days after the original run. An older pull request needs a new push before approval can land.
+The `approval-check` command, its outputs, and the attestation schema are unchanged.
