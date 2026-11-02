@@ -16,7 +16,7 @@ from ..errors import (
     StaleRun,
 )
 from ..machine import Action, State
-from ..models import RunDoc, Stage, StageRecord
+from ..models import RunDoc, Stage, StageRecord, StageStatus
 from ..stages import detect, shellstage
 from . import evidence
 from ._session import (
@@ -81,7 +81,7 @@ def _recover_interrupted_stage(
         return run
     with session.store.transaction(run.run_id) as doc:
         entry = doc.stages.get(stage) or StageRecord()
-        entry.status = "red"
+        entry.status = StageStatus.RED
         entry.attempts += 1
         entry.command = None
         entry.exit_code = 125
@@ -278,7 +278,7 @@ def _persist_stage_result(
         entry.exit_code = result.exit_code
         entry.output_sha256 = output_digest(clean_output)
         entry.log_path = str(log_path)
-        entry.status = "green" if result.passed else "red"
+        entry.status = StageStatus.GREEN if result.passed else StageStatus.RED
         entry.finished_at = _now()
         entry.head_sha = gitx.rev_parse(wt, "HEAD")
         entry.fingerprint = input_fingerprint

@@ -104,12 +104,13 @@ Configure required reviewers for any approval Environment.
 Review the ruleset bypass actors as part of that setup.
 Installation of the package or a commit of its configuration changes none of these GitHub settings.
 
-A read-only GitHub API inspection on 2026-10-13 found this repository's active [PR first ruleset](https://github.com/elanthus/agentic-preflight/rules/19934690):
+A read-only GitHub API inspection on 2026-11-01 found this repository's active [PR first ruleset](https://github.com/elanthus/agentic-preflight/rules/19934690):
 
 - Pull requests and protection against branch deletion are required on `main`.
-- The required checks are `test / test (ubuntu-latest, py3.13)`, `built wheel smoke test`, `trusted preflight attestation`, `CodeQL (Python)`, and `dependency vulnerability audit`.
+- The required checks are `test / test (ubuntu-latest, py3.13)`, `built wheel smoke test`, `trusted preflight attestation`, `CodeQL (Python)`, `dependency vulnerability audit`, and `high-risk human approval`.
 - Zero approving reviews are required. Code Owner review, last-push approval, review-thread resolution, and strict up-to-date checks are disabled.
-- The workflow reports `high-risk human approval`, but it is not a required check.
+- `high-risk human approval` became a required check on 2026-11-01. Until then the workflow reported it without blocking merge.
+  The job fails until an eligible review covers the current head. A review re-runs the head's policy runs, which replaces each failed result in place; see [how a review reaches the check](#how-a-review-reaches-the-check).
   Contributor instructions still require owner approval for substantive authorization, approval-enforcement, or bypass-rule changes.
 - `elanthus` has a pull-request-only ruleset bypass.
   Repository auto-merge is disabled. The merge, squash, and rebase merge methods are enabled.
@@ -170,7 +171,8 @@ Run the workflow again after you correct the cause.
 
 A separate `pull_request_target` workflow enforces high-risk merge handling.
 It also installs its policy checker from the protected base. It never executes proposed branch content.
-It runs again when the head changes or when a review is submitted, edited, or dismissed.
+It runs again when the head changes.
+In the review modes, a submitted, edited, or dismissed review re-runs it; see [how a review reaches the check](#how-a-review-reaches-the-check).
 
 The default `manual_merge` mode reports success only while GitHub auto-merge is disabled.
 It instructs the agent never to merge or enable auto-merge.
@@ -184,11 +186,33 @@ A clean merge from the base or a clean rebase keeps the approval.
 Any content change needs a new review.
 See [approval configuration](configuration.md#high-risk-merge-handling-approval).
 
+### How a review reaches the check
+
+A finished check does not change when a review arrives.
+Three workflows cooperate so that it does, and only one of them is trusted:
+
+- `human-approval.yml` runs only on `pull_request_target`, from the protected base. Its `high-risk human approval` job is the required check.
+- `human-approval-review.yml` runs on `pull_request_review`. A review event executes the workflow file from the pull request's merge ref, with a read-only token for forks, so this workflow has no permissions and does nothing but record the reviewed pull request number in an artifact.
+- `human-approval-rerun.yml` runs on `workflow_run`, always from the default branch, with `actions: write` and no checkout. It reads the number, requires the pull request to be open with the reviewed head and repository, and selects every `pull_request_target` policy run for that head. For each run, oldest first, it reads the evaluation that run recorded in its `human-approval-policy` artifact once its policy job has written it. When that record shows `peer_review` or `owner_review` mode and a required human approval, it waits for the run to finish and re-runs it.
+
+Each re-run replaces the earlier `high-risk human approval` result inside the same run.
+That matters because GitHub counts every run of a required check name on a head: a new run that passed beside an old run that failed would still block merge.
+One head can have several policy runs, for example after a draft is marked ready for review, so the companion re-runs all of them rather than only the newest.
+A run that lists no pull requests, such as one from a fork, counts when it comes from the reviewed head repository; a run that lists another pull request does not.
+All waits share one twenty-minute budget, so the job stays inside its timeout however many runs a head has.
+The check is deliberately not a commit status.
+Any workflow with the repository's Actions token can write a commit status, and a ruleset cannot tell one workflow from another, so a branch workflow could mark a high-risk pull request approved.
+A job of the protected-base run cannot be satisfied that way.
+`manual_merge` and `environment` modes do not read reviews, and a re-run in `environment` mode would discard a granted Environment approval, so the companion leaves those runs alone.
+The recorded mode, not the current base's configuration, decides, because a re-run replays the original event and base; a run from before the artifact existed is not re-run automatically.
+GitHub permits a re-run for 30 days after the original run; after that, push the branch again to start a new one.
+A pull request with merge conflicts has no merge ref, so a review of it runs no relay and re-runs nothing; the check stays failed until the conflicts are resolved and pushed, which starts a new policy run.
+
 This repository configures `owner_review` with `reviewer = "elanthus"`.
 Thus, the approval check can report a review status for the current content.
 The review is an Approve review on another author's PR, or a Comment review that contains only `approved` on your own PR.
-Its current branch rules require automated CI and dependency audits.
-Human approval, Code Owner review, and resolved review threads are not mandatory GitHub merge requirements.
+Its current branch rules require automated CI, dependency audits, and the `high-risk human approval` check.
+Code Owner review and resolved review threads are not mandatory GitHub merge requirements.
 Contributors must still follow this repository's approval and review instructions.
 Changes only to `pyproject.toml` or `uv.lock` no longer trigger high-risk review or CODEOWNERS requests.
 Dependabot automation settings stay protected policy.

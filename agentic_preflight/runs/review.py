@@ -17,6 +17,7 @@ from ..models import (
     RunDoc,
     Stage,
     StageRecord,
+    StageStatus,
 )
 from ..stages import docs as docsstage
 from . import evidence, review_compare, review_coverage, review_protocol
@@ -59,7 +60,7 @@ def _skip_docs_if_disabled(session: Session, run: RunDoc) -> RunDoc:
     fingerprint = evidence.fingerprint(session, run, Stage.DOCS)
     with session.store.transaction(run.run_id) as doc:
         doc.stages[Stage.DOCS] = StageRecord(
-            status="skipped",
+            status=StageStatus.SKIPPED,
             reason="disabled by configuration",
             finished_at=_now(),
             head_sha=gitx.rev_parse(_require_worktree(run), "HEAD"),
@@ -83,7 +84,7 @@ def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
     fingerprint = evidence.fingerprint(session, run, Stage.TEST, command="")
     with session.store.transaction(run.run_id) as doc:
         doc.stages[Stage.TEST] = StageRecord(
-            status="skipped",
+            status=StageStatus.SKIPPED,
             reason=reason,
             finished_at=_now(),
             head_sha=gitx.rev_parse(doc.worktree_path or session.repo_root, "HEAD"),
@@ -300,7 +301,7 @@ def submit_findings(
         if coverage is not None:
             doc.review_coverage = coverage
             entry = doc.stages.get(Stage.REVIEW) or StageRecord()
-            entry.status = "green"
+            entry.status = StageStatus.GREEN
             entry.executor = _executor
             entry.finished_at = _now()
             entry.head_sha = coverage.head_sha
@@ -312,7 +313,7 @@ def submit_findings(
             doc.stages[Stage.REVIEW] = entry
         else:
             entry = doc.stages.get(Stage.DOCS) or StageRecord()
-            entry.status = "green"
+            entry.status = StageStatus.GREEN
             entry.finished_at = _now()
             entry.head_sha = gitx.rev_parse(worktree_path, "HEAD")
             doc.stages[Stage.DOCS] = entry

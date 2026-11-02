@@ -11,7 +11,7 @@ from ..attestation import output_digest
 from ..envelope import Envelope
 from ..errors import DiffTooLarge, InvalidFindings, MaxAttempts, StageFailed
 from ..machine import Action, State
-from ..models import RunDoc, Stage, StageRecord
+from ..models import RunDoc, Stage, StageRecord, StageStatus
 from ..stages import shellstage
 from . import contracts, review_protocol
 from ._session import (
@@ -364,7 +364,7 @@ def _record_review_command(
         if failed and doc.state is State.REVIEW_AWAITING_FINDINGS:
             _apply(doc, Action.RUN_REVIEW_COMMAND)
         entry = doc.stages.get(Stage.REVIEW) or StageRecord()
-        entry.status = "red" if failed else "green"
+        entry.status = StageStatus.RED if failed else StageStatus.GREEN
         if failed:
             entry.attempts += 1
         entry.executor = "command"
