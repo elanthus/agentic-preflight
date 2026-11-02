@@ -121,7 +121,9 @@ jobs:
               done
             fi
             if [ ! -f "$policy_dir/approval-policy.json" ]; then
-              if [ "$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.status')" != "completed" ]; then
+              run_state=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.status') ||
+                run_state=unknown
+              if [ "$run_state" != "completed" ]; then
                 echo "::notice::Run $run_id is still evaluating after the wait, so it was not re-run." \
                   "If it fails for a missing review once it finishes, re-run it by hand."
               else
@@ -152,7 +154,9 @@ jobs:
             if [ "$status" != "completed" ]; then
               echo "Run $run_id is still in progress. Waiting for it before re-running."
               for _ in $(seq 1 60); do
-                status=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.status')
+                # A failed lookup counts as unfinished, so one API error does not stop the loop.
+                status=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq '.status') ||
+                  status=unknown
                 [ "$status" = "completed" ] && break
                 wait_tick || break
               done

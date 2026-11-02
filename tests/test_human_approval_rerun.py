@@ -93,6 +93,7 @@ def rerun(tmp_path):
         rerun_exit=0,
         rerun_error="HTTP 403: boom",
         run_status="completed",
+        status_exit=0,
     ):
         (tmp_path / "pr-fixture.json").write_text(json.dumps(pull_request or _pull_request()))
         (tmp_path / "relay.txt").write_text(relay)
@@ -124,7 +125,10 @@ gh() {
     api*)
       case "$2" in
         */pulls/*) cat pr-fixture.json ;;
-        */actions/runs/*) echo "$TEST_RUN_STATUS" ;;
+        */actions/runs/*)
+          [ "$TEST_STATUS_EXIT" = 0 ] || return "$TEST_STATUS_EXIT"
+          echo "$TEST_RUN_STATUS"
+          ;;
       esac
       ;;
   esac
@@ -147,6 +151,7 @@ RUNNER_TEMP=.
                 "TEST_RERUN_EXIT": str(rerun_exit),
                 "TEST_RERUN_ERROR": rerun_error,
                 "TEST_RUN_STATUS": run_status,
+                "TEST_STATUS_EXIT": str(status_exit),
             },
             capture_output=True,
             text=True,
@@ -358,6 +363,16 @@ def test_companion_gives_up_on_a_review_mode_run_that_never_finishes(rerun):
     assert "30 days" not in result.stderr
     assert len([call for call in calls if call.endswith("--jq .status")]) == 60
     assert _reruns(calls) == []
+
+
+def test_companion_keeps_going_when_status_lookups_fail(rerun):
+    result, calls = rerun(
+        runs=_runs(_run(1, 5, status="in_progress"), _run(2, 7)),
+        status_exit=1,
+    )
+    assert result.returncode == 1
+    assert "Run 1 did not finish within the wait" in result.stderr
+    assert _reruns(calls) == ["run rerun 2 --repo owner/project"]
 
 
 def test_companion_shows_github_reason_when_a_rerun_is_refused(rerun):
