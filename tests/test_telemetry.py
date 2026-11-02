@@ -242,6 +242,26 @@ def test_a_malformed_user_telemetry_section_is_not_hidden_by_the_repository(tmp_
     assert str(caught.value).startswith(f"invalid configuration in {user_dir / 'config.toml'}:")
 
 
+def test_an_invalid_value_in_both_files_names_the_repository_file(tmp_path):
+    user_dir = tmp_path / "user"
+    write(user_dir, "config.toml", "[telemetry]\nhook_log = 3\n")
+    write(tmp_path, ".agentic-preflight.toml", "[telemetry]\nhook_log = 3\n")
+
+    with pytest.raises(ConfigError) as caught:
+        load_config(tmp_path, user_config_dir=user_dir)
+
+    assert str(caught.value).startswith(
+        f"invalid configuration in {tmp_path / '.agentic-preflight.toml'}:"
+    )
+
+
+def test_an_invalid_repository_path_is_ignored_like_a_valid_one(tmp_path, capsys):
+    write(tmp_path, ".agentic-preflight.toml", "[telemetry]\npath = 5\n")
+
+    assert load_config(tmp_path, user_config_dir=tmp_path / "none").telemetry.path is None
+    assert "ignoring [telemetry] path" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("repo", ["hook_log = 3\n", "bogus = false\n"])
 def test_an_invalid_repository_telemetry_section_is_still_an_error(tmp_path, repo):
     write(tmp_path, ".agentic-preflight.toml", "[telemetry]\n" + repo)

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import tomllib
 from functools import lru_cache
 from pathlib import Path, PureWindowsPath
@@ -274,8 +275,6 @@ def _without_removed_keys(
     for key, value in values.items():
         if (section, key) in REMOVED_CONFIG_KEYS:
             if warn_source is not None:
-                import sys
-
                 print(
                     f"agentic-preflight: ignoring removed [{section}] {key} configuration in {warn_source}; this key is no longer used",
                     file=sys.stderr,
@@ -347,17 +346,22 @@ def _describe(exc: ValidationError, sources: dict[str, Path], default_source: Pa
     )
 
 
+def _repo_telemetry_applies(key: str, value: Any) -> bool:
+    """Whether a repository ``[telemetry]`` value replaces the user's (:func:`merge_telemetry`)."""
+    return key != "path" and not (key in {"mirror", "hook_log"} and value is True)
+
+
 def merge_telemetry(user: Any, repo: Any, *, warn_source: Path | None = None) -> Any:
     """Layer a repository ``[telemetry]`` section over the user's, before validation.
 
     A cloned repository must not choose where this machine writes files, or turn
-    on logging the user turned off. So the repository's ``path`` is dropped, and a
-    ``mirror`` or ``hook_log`` of ``true`` keeps the user's value. Any other value,
-    ``false`` or one that is invalid, applies, so validation still names a bad value
-    or an unknown key. A user section that is not a table is returned unchanged, so
-    validation reports it instead of the repository hiding it. ``warn_source`` names
-    the repository file to print a stderr warning for a dropped ``path``. ``None``
-    drops it silently.
+    on logging the user turned off. So the repository's ``path`` is dropped whatever
+    its value, and a ``mirror`` or ``hook_log`` of ``true`` keeps the user's value.
+    Any other value, ``false`` or one that is invalid, applies, so validation still
+    names a bad ``mirror`` or ``hook_log`` value or an unknown key. A user section
+    that is not a table is returned unchanged, so validation reports it instead of
+    the repository hiding it. ``warn_source`` names the repository file to print a
+    stderr warning for a dropped ``path``. ``None`` drops it silently.
     """
     if user is not None and not isinstance(user, dict):
         return user
@@ -367,16 +371,13 @@ def merge_telemetry(user: Any, repo: Any, *, warn_source: Path | None = None) ->
     for key, value in repo.items():
         if key == "path":
             if warn_source is not None:
-                import sys
-
                 print(
                     f"agentic-preflight: ignoring [telemetry] path in {warn_source}; set it in your user configuration file",
                     file=sys.stderr,
                 )
             continue
-        if key in {"mirror", "hook_log"} and value is True:
-            continue
-        merged[key] = value
+        if _repo_telemetry_applies(key, value):
+            merged[key] = value
     return merged
 
 
@@ -409,8 +410,6 @@ def load_config(
             continue
         for section, values in _read_toml(path).items():
             if (section, "*") in REMOVED_CONFIG_KEYS:
-                import sys
-
                 print(
                     f"agentic-preflight: ignoring removed [{section}] configuration in {path}; this section is no longer used",
                     file=sys.stderr,
@@ -419,15 +418,17 @@ def load_config(
             if tolerate_removed_keys and isinstance(values, dict):
                 values = _without_removed_keys(section, values, warn_source=path)
             if section == "telemetry" and path == repo_file:
-                user_values = merged.get(section)
-                values = merge_telemetry(user_values, values, warn_source=path)
+                user_values, repo_values = merged.get(section), values
+                values = merge_telemetry(user_values, repo_values, warn_source=path)
                 if user_values is not None and values is user_values:
                     continue  # the user's malformed section stands, and names its file
-                if isinstance(user_values, dict) and isinstance(values, dict):
+                if isinstance(user_values, dict) and isinstance(repo_values, dict):
                     # A value the repository did not override is still the user
                     # file's, so a validation error must name that file.
-                    for name, value in values.items():
-                        if name in user_values and value is user_values[name]:
+                    for name in user_values:
+                        if name not in repo_values or not _repo_telemetry_applies(
+                            name, repo_values[name]
+                        ):
                             sources[f"{section}.{name}"] = user_file
             merged[section] = values
             sources[section] = path
