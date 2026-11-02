@@ -19,6 +19,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from hypothesis import settings
 
 from agentic_preflight.machine import State
 from agentic_preflight.models import RunDoc
@@ -28,6 +29,11 @@ from tests import telemetry_guard
 #: guard reads the user's real files from these, not from a test's override.
 _REAL_ENVIRON = dict(os.environ)
 _REAL_HOME = Path.home()
+
+# Property tests explore a fixed, derived set of examples so that every run, local or CI,
+# checks the same inputs and no failing example is replayed from a local database.
+settings.register_profile("deterministic", derandomize=True, database=None, deadline=None)
+settings.load_profile("deterministic")
 
 DETERMINISTIC_ENV = {
     "GIT_AUTHOR_NAME": "Test Author",

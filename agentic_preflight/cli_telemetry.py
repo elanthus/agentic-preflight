@@ -51,7 +51,7 @@ def telemetry_rebuild() -> None:
             next_command="agentic-preflight telemetry rebuild",
         )
         error.code = "telemetry_write_failed"
-        error.exit_code = ExitCode.USAGE
+        error.exit_code = ExitCode.ERROR
         raise error
     finish(
         Envelope(
@@ -110,14 +110,14 @@ def _sync_error(data: dict[str, Any]) -> AgenticError | None:
     stopped = data["stopped"]
     if stopped is not None:
         code, instruction = _STOPS.get(stopped["reason"], _REQUEST_FAILED)
-        error = as_error(code, stopped["message"], ExitCode.USAGE, instruction)
+        error = as_error(code, stopped["message"], ExitCode.ERROR, instruction)
         error.data = data
         return error
     if data["errors"]:
         error = as_error(
             "hosted_request_failed",
             "GitHub's answer for some commits could not be used; the other runs were synced",
-            ExitCode.USAGE,
+            ExitCode.ERROR,
             "Each failed commit is in `data.errors`. Run the sync again later. It skips the "
             "runs that it already synced.",
         )
@@ -128,7 +128,7 @@ def _sync_error(data: dict[str, Any]) -> AgenticError | None:
         error = as_error(
             "telemetry_write_failed",
             "hosted.json was written, but not every summary or mirror row",
-            ExitCode.USAGE,
+            ExitCode.ERROR,
             "Make the run directories and the telemetry directory writable, then run the rebuild.",
             "agentic-preflight telemetry rebuild",
         )

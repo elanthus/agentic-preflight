@@ -80,7 +80,7 @@ def test_emit_never_writes_prose_to_the_json_stream(capsys):
 
 def test_exit_codes_match_the_published_contract():
     assert ExitCode.OK == 0
-    assert ExitCode.USAGE == 1
+    assert ExitCode.ERROR == 1
     assert ExitCode.STAGE_FAILED == 2
     assert ExitCode.PRECONDITION == 3
     assert ExitCode.NEEDS_HUMAN == 4
@@ -98,7 +98,7 @@ def test_unexpected_internal_error_keeps_the_json_stdout_contract(capsys):
 
     captured = capsys.readouterr()
     lines = captured.out.strip().splitlines()
-    assert stopped.value.code == ExitCode.USAGE
+    assert stopped.value.code == ExitCode.ERROR
     assert len(lines) == 1
     payload = json.loads(lines[0])
     assert payload["ok"] is False
