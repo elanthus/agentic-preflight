@@ -158,7 +158,7 @@ An `environment` approval by the same account has the same limit.
 If the approval must come from a person the agent cannot impersonate, keep the approving account's credentials away from the agent:
 
 - Use `mode = "peer_review"`. A person other than the pull-request author must approve.
-- Use `mode = "environment"` with **Prevent self-review** enabled on the Environment. The account that triggered the run cannot approve it.
+- Use `mode = "environment"` with **Prevent self-review** enabled on the Environment. The account that triggered the run cannot approve it. When the agent pushes with the owner's credentials, the owner cannot approve either, so the Environment needs a required reviewer other than the account the agent uses.
 - Run the agent under its own GitHub account, so that it opens pull requests as that account and never holds the reviewer's token. The reviewer then submits an **Approve** review on another author's pull request.
 
 Each choice protects the approval only while the agent cannot reach the approving account's credentials.

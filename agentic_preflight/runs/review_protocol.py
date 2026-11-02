@@ -107,10 +107,11 @@ def grounded_manifest(
 def docs_inventory(
     session: Session, run: RunDoc, changed_files: list[str], *, head: str | None = None
 ) -> list[docsstage.DocEntry]:
-    """Walk the documentation surface of the validation worktree once per command.
+    """List the documentation surface of the validation worktree once per command.
 
-    The walk reads the worktree rather than a commit, so code that changes the
-    worktree inside a command (a stage command) must clear the session memo.
+    The file list comes from the ``HEAD`` commit, which the memo key pins, but
+    each entry's size comes from the worktree, so code that changes the worktree
+    inside a command (a stage command) must clear the session memo.
     """
     worktree_path = _require_worktree(run)
     _, head = _snapshot(session, run, head)
