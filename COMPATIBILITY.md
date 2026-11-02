@@ -438,3 +438,13 @@ A docs stage that is green while the base disables docs now passes. Earlier veri
 `start` now refuses, with exit 3 and the new error code `unsupported_base_ref`, a `--base-ref` or `[general] base_ref` that does not name an existing `refs/remotes/origin/<branch>` or `refs/heads/<branch>`, such as a tag, another remote, a commit SHA, or revision syntax. Earlier releases started such a run. `push` and the pre-push hook now could not verify its note, so `start` stops it before any stage runs.
 Attestation schema 7, fingerprint version 2, and the evidence and configuration digests are unchanged.
 Notes that an earlier release wrote stay readable, and they verify when they satisfy the protected base policy.
+
+## Unreleased: repository telemetry settings can only turn telemetry off
+
+A `[telemetry]` section in `.agentic-preflight.toml` no longer replaces the user's section.
+Its `path` is ignored, and every command that loads the configuration prints a warning that names the file. The pre-push hook stays silent.
+Its `mirror = true` and `hook_log = true` keep the user's value. Its `mirror = false` and `hook_log = false` still apply.
+A repository that set `path` to collect its contributors' telemetry no longer does so. Each contributor who wants it must set `path` in their own user file.
+A test harness that turns telemetry off with a repository section, as [Isolate a test harness](docs/local-telemetry.md#isolate-a-test-harness) describes, is unaffected.
+Invalid values and unknown keys in the repository section are still errors.
+No configuration digest, snapshot, fingerprint, or attestation changes, because none of them contains `[telemetry]`.
