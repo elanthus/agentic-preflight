@@ -18,7 +18,7 @@ START_COMMAND = 'agentic-preflight start --intent "<objective and acceptance cri
 
 class AgenticError(Exception):
     code = "internal"
-    exit_code = ExitCode.USAGE
+    exit_code = ExitCode.ERROR
 
     def __init__(
         self,

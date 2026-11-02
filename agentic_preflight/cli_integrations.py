@@ -33,7 +33,7 @@ def _require_integration_targets(agents: tuple[str, ...], targets: tuple[Path, .
         as_error(
             "integration_target_required",
             "name at least one integration, or pass --target with a skills directory",
-            ExitCode.USAGE,
+            ExitCode.ERROR,
         )
     )
 

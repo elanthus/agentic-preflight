@@ -583,7 +583,7 @@ def test_a_rate_limit_stops_the_sync_and_keeps_what_was_synced(github_repo, monk
     limited = _http_error(403, "API rate limit exceeded for user ID 1.")
     _use(monkeypatch, FakeGh(_commits(), overrides={SHA_MID: limited}))
 
-    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.USAGE)
+    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.ERROR)
 
     assert result["ok"] is False
     assert result["error"]["code"] == "hosted_rate_limited"
@@ -626,7 +626,7 @@ def test_gh_failures_stop_the_sync_as_envelope_data(
 ):
     _use(monkeypatch, FakeGh(_commits(), overrides={SHA_NEW: override}))
 
-    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.USAGE)
+    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.ERROR)
 
     assert result["error"]["code"] == code
     assert result["data"]["stopped"]["reason"] == reason
@@ -639,7 +639,7 @@ def test_gh_failures_stop_the_sync_as_envelope_data(
 def test_a_missing_gh_is_reported_before_any_request(github_repo, monkeypatch):
     monkeypatch.setattr(hosted, "gh_runner", lambda *args, **kwargs: None)
 
-    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.USAGE)
+    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.ERROR)
 
     assert result["error"]["code"] == "gh_unavailable"
     assert result["error"]["message"] == "gh was not found on PATH."
@@ -655,7 +655,7 @@ def test_a_clone_without_a_github_origin_is_unsupported(tmp_repo, monkeypatch, r
     fake = FakeGh(_commits())
     _use(monkeypatch, fake)
 
-    result = ScriptedAgent(tmp_repo).run("telemetry", "sync-hosted", expect=ExitCode.USAGE)
+    result = ScriptedAgent(tmp_repo).run("telemetry", "sync-hosted", expect=ExitCode.ERROR)
 
     assert result["error"]["code"] == "unsupported_remote"
     assert result["data"]["stopped"]["reason"] == "unsupported_remote"
@@ -671,7 +671,7 @@ def test_an_unreadable_mirror_is_reported_after_hosted_json_is_written(github_re
 
     monkeypatch.setattr(telemetry, "_rewrite_mirror", broken)
 
-    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.USAGE)
+    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.ERROR)
 
     assert result["error"]["code"] == "telemetry_write_failed"
     assert result["next"]["command"] == "agentic-preflight telemetry rebuild"
@@ -704,7 +704,7 @@ def test_a_hosted_json_that_cannot_be_written_stops_the_sync(github_repo, monkey
 
     monkeypatch.setattr(hosted, "_atomic_write", refuse)
 
-    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.USAGE)
+    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.ERROR)
 
     assert result["error"]["code"] == "telemetry_write_failed"
     assert result["data"]["stopped"]["reason"] == "write_failed"
@@ -733,7 +733,7 @@ def test_a_commit_that_fails_alone_does_not_block_older_runs(github_repo, monkey
     broken = _http_error(502, "Server Error")
     _use(monkeypatch, FakeGh(_commits(), overrides={SHA_MID: broken}))
 
-    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.USAGE)
+    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.ERROR)
 
     assert result["error"]["code"] == "hosted_request_failed"
     data = result["data"]
@@ -770,7 +770,7 @@ def test_an_answer_of_an_unexpected_shape_is_an_error_for_that_commit(github_rep
         ),
     )
 
-    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.USAGE)
+    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.ERROR)
 
     # A conclusion that is not text is not a failure, and never crashes the reduction.
     assert _hosted_file(github_repo, "r_0000000003")["checks"]["conclusion"] == "success"
