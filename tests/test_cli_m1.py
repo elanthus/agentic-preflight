@@ -2,6 +2,7 @@
 
 import json
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -507,6 +508,55 @@ def test_gc_reclaims_an_aborted_runs_leftovers(blocked):
     agent.run("abort")
     env = agent.run("gc")
     assert env["ok"] is True
+
+
+def _run_dir(repo, run_id):
+    common = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=repo))
+    return common / "agentic-preflight" / "runs" / run_id
+
+
+def _last_changed_days_ago(repo, run_id, days):
+    path = _run_dir(repo, run_id) / "run.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    stamp = datetime.now(UTC) - timedelta(days=days)
+    raw["updated_at"] = stamp.isoformat(timespec="seconds")
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+
+def test_gc_prunes_a_reclaimed_record_past_the_retention_window(blocked, feature_repo):
+    agent, _ = blocked
+    run_id = agent.run("abort")["run_id"]
+    agent.run("gc")
+    _last_changed_days_ago(feature_repo, run_id, 91)
+
+    env = agent.run("gc")
+
+    assert env["data"]["pruned"] == [run_id]
+    assert run_id not in env["data"]["runs_known"]
+    assert not _run_dir(feature_repo, run_id).exists()
+
+
+def test_gc_keeps_records_inside_the_window_or_when_retention_is_off(blocked, feature_repo):
+    agent, _ = blocked
+    run_id = agent.run("abort")["run_id"]
+    agent.run("gc")
+    _last_changed_days_ago(feature_repo, run_id, 89)
+    assert agent.run("gc")["data"]["pruned"] == []
+
+    write(feature_repo, ".agentic-preflight.toml", "[retention]\nrun_days = 0\n")
+    _last_changed_days_ago(feature_repo, run_id, 3650)
+    assert agent.run("gc")["data"]["pruned"] == []
+    assert _run_dir(feature_repo, run_id).exists()
+
+
+def test_gc_never_prunes_a_run_that_is_still_active(agent, feature_repo):
+    run_id = agent.run("start")["run_id"]
+    _last_changed_days_ago(feature_repo, run_id, 3650)
+
+    env = agent.run("gc")
+
+    assert env["data"]["pruned"] == []
+    assert _run_dir(feature_repo, run_id).exists()
 
 
 def test_gc_never_deletes_unmerged_work_without_force(blocked, feature_repo):

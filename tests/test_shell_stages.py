@@ -532,7 +532,11 @@ def test_timeout_uses_the_known_process_group_when_lookup_is_denied(tmp_path, mo
     class TimedOutProcess:
         pid = 4242
         returncode = -signal.SIGKILL
+        stdin = None
         calls = 0
+
+        def wait(self, timeout=None):
+            return self.returncode
 
         def communicate(self, **_kwargs):
             self.calls += 1
@@ -571,7 +575,11 @@ def test_timeout_uses_the_known_process_group_when_the_leader_is_gone(tmp_path, 
     class TimedOutProcess:
         pid = 4242
         returncode = -signal.SIGKILL
+        stdin = None
         calls = 0
+
+        def wait(self, timeout=None):
+            return self.returncode
 
         def communicate(self, **_kwargs):
             self.calls += 1
@@ -895,6 +903,31 @@ def test_a_failed_baseline_setup_is_not_reported_as_a_red_base(docs_green):
     assert "--baseline" in status["next"]["command"]
 
 
+def test_an_in_place_baseline_worktree_is_not_created_beside_the_checkout(docs_green, feature_repo):
+    agent = docs_green(
+        "[docs]\nenabled = false\n\n"
+        "[worktree]\n"
+        "mode = 'in_place'\n"
+        "setup_command = 'case \"$PWD\" in *-baseline) exit 9;; *) exit 0;; esac'\n"
+    )
+
+    env = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "exit 1",
+        "--record",
+        "--baseline",
+        expect=ExitCode.STAGE_FAILED,
+    )
+
+    scratch = Path(env["data"]["worktree_path"])
+    assert scratch.name.endswith("-baseline")
+    assert scratch.parent != feature_repo.resolve().parent
+    assert not scratch.exists()
+
+
 def test_a_baseline_worktree_that_cannot_be_prepared_is_not_reported_as_a_passing_base(
     docs_green, feature_repo
 ):
@@ -1026,9 +1059,32 @@ def test_a_timed_out_stage_does_not_wait_on_a_descendant_holding_stdout(tmp_path
             with contextlib.suppress(ProcessLookupError):
                 os.kill(int(escaped.read_text(encoding="utf-8")), signal.SIGKILL)
 
-    assert elapsed < shellstage._POST_KILL_DRAIN_SECONDS + 4
+    assert elapsed < shellstage._POST_KILL_WAIT_SECONDS + 4
     assert result.exit_code == 124
-    assert result.output.endswith(f"[timed out after 1s]\n{shellstage.OUTPUT_TRUNCATED_MARKER}")
+    assert "before timeout" in result.output
+    assert result.output.endswith("[timed out after 1s]")
+
+
+def test_captured_output_keeps_only_the_head_and_tail_beyond_the_cap(tmp_path, monkeypatch):
+    monkeypatch.setattr(shellstage, "MAX_CAPTURED_BYTES", 1000)
+    script = tmp_path / "loud.py"
+    script.write_text(
+        "import sys\n"
+        "sys.stdout.write('HEAD\\n' + 'x' * 100_000 + '\\nTAIL\\n')\n"
+        "sys.stderr.write('ERR' * 1000)\n",
+        encoding="utf-8",
+    )
+
+    result = shellstage.run_stage(tmp_path, f"{sys.executable} {script.name}", separate_stderr=True)
+
+    assert result.exit_code == 0
+    assert result.stdout is not None
+    assert result.stderr is not None
+    assert result.stdout.startswith("HEAD\n")
+    assert result.stdout.endswith("\nTAIL\n")
+    assert "[output truncated: 99011 bytes omitted]" in result.stdout
+    assert len(result.stdout) < 1100
+    assert "[output truncated: 2000 bytes omitted]" in result.stderr
 
 
 @posix_only

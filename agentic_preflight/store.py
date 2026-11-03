@@ -26,7 +26,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from . import filelock
+from . import filelock, fileperms
 from .config import snapshot_run_settings
 from .machine import TERMINAL_STATES, State
 from .models import Finding, RunDoc
@@ -189,6 +189,7 @@ class Store:
 
     def create_run(self, run: RunDoc) -> RunDoc:
         run.updated_at = run.created_at
+        fileperms.private_directory(self.root)
         self.run_dir(run.run_id).mkdir(parents=True, exist_ok=True)
         _atomic_write(self.run_path(run.run_id), run.model_dump_json(indent=2))
         self.append_event(

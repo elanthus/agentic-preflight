@@ -992,14 +992,22 @@ def parse_hook_log(payload: bytes, path: Path | str) -> HookLogRead:
 
 
 def read_hook_log(path: Path) -> HookLogRead:
-    """Read the hook log. A missing file has no decisions; another read error is recorded."""
-    try:
-        payload = path.read_bytes()
-    except FileNotFoundError:
+    """Read the hook log after its rotated generation, oldest first.
+
+    A missing file has no decisions; another read error is recorded.
+    """
+    payloads: list[bytes] = []
+    for candidate in (path.with_name(hooklog.ROTATED_NAME), path):
+        try:
+            payload = candidate.read_bytes()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            return HookLogRead(path=str(path), exists=True, error=telemetry._describe(exc))
+        payloads.append(payload if payload.endswith(b"\n") else payload + b"\n")
+    if not payloads:
         return HookLogRead(path=str(path), exists=False)
-    except OSError as exc:
-        return HookLogRead(path=str(path), exists=True, error=telemetry._describe(exc))
-    return parse_hook_log(payload, path)
+    return parse_hook_log(b"".join(payloads), path)
 
 
 def _hook_excluded_by(row: Mapping[str, Any], clone: Clone | None, filters: Filters) -> str | None:

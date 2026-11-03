@@ -15,7 +15,12 @@ import sys
 import pytest
 
 from agentic_preflight import fileperms
-from tests.conftest import access_entries, assert_owner_only, requires_windows
+from tests.conftest import (
+    access_entries,
+    assert_owner_only,
+    requires_posix_permissions,
+    requires_windows,
+)
 
 DOTENV_CONTENTS = "SECRET=hunter2\n"
 
@@ -110,3 +115,21 @@ def test_an_unusable_tool_is_reported_with_its_reason(secret_file, monkeypatch):
         fileperms.restrict_to_owner(secret_file)
 
     assert "could not be run" in str(caught.value)
+
+
+@requires_posix_permissions
+def test_a_private_directory_is_created_owner_only(tmp_path):
+    path = fileperms.private_directory(tmp_path / "a" / "store")
+
+    assert stat.S_IMODE(path.stat().st_mode) == fileperms.PRIVATE_DIRECTORY_MODE
+
+
+@requires_posix_permissions
+def test_an_existing_directory_is_tightened_to_owner_only(tmp_path):
+    path = tmp_path / "store"
+    path.mkdir(mode=0o755)
+    path.chmod(0o755)
+
+    fileperms.private_directory(path)
+
+    assert stat.S_IMODE(path.stat().st_mode) == fileperms.PRIVATE_DIRECTORY_MODE

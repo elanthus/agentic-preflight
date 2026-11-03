@@ -58,6 +58,21 @@
       "default": null,
       "title": "Orphans"
     },
+    "pruned": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pruned"
+    },
     "reclaimed_runners": {
       "anyOf": [
         {

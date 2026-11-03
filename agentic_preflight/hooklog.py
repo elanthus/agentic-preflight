@@ -1,7 +1,9 @@
 """The local log of pre-push hook decisions.
 
 ``hook-check`` appends one JSON line for each decision to ``hook-decisions.jsonl``
-in the user-level telemetry directory, beside the run-summary mirror::
+in the user-level telemetry directory, beside the run-summary mirror. At
+:data:`ROTATE_BYTES` the log moves to ``hook-decisions.jsonl.1``, keeping one
+previous generation::
 
     {"allowed": false, "at": "...", "reason": "missing_attestation", "remote": "origin",
      "repo": {"name", "remote", "root_commit", "source_worktree_path"},
@@ -37,7 +39,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, StrictBool, ValidationError
 
-from . import filelock, gitx, telemetry
+from . import filelock, fileperms, gitx, telemetry
 from .config import (
     REPO_CONFIG_NAME,
     USER_CONFIG_NAME,
@@ -49,7 +51,13 @@ from .config import (
 from .hook import Decision
 
 LOG_NAME = "hook-decisions.jsonl"
+#: The previous generation. ``report`` reads it before :data:`LOG_NAME`.
+ROTATED_NAME = "hook-decisions.jsonl.1"
 _LOCK_NAME = "hook-decisions.jsonl.lock"
+#: A log at or above this size becomes :data:`ROTATED_NAME` before the next append,
+#: replacing the older generation. A line is about 400 bytes, so the two files hold
+#: roughly the last 10,000 to 20,000 decisions.
+ROTATE_BYTES = 4 << 20
 #: How long ``hook-check`` waits for the log after the decision: for the repository
 #: identity, the lock, and the append.
 TIMEOUT_SECONDS = 2.0
@@ -217,11 +225,20 @@ def _locked(path: Path, deadline: float) -> Iterator[None]:
 
 
 def append(directory: Path, line: HookDecisionLine, *, deadline: float) -> Path:
-    """Append one line under the log lock, ending any interrupted line first."""
-    directory.mkdir(parents=True, exist_ok=True)
+    """Append one line under the log lock, rotating a full log and ending any interrupted line."""
+    fileperms.private_directory(directory)
     target = directory / LOG_NAME
     payload = json.dumps(line.model_dump(mode="json"), sort_keys=True).encode("utf-8")
-    with _locked(directory / _LOCK_NAME, deadline), open(target, "ab+") as handle:
+    with _locked(directory / _LOCK_NAME, deadline):
+        with contextlib.suppress(FileNotFoundError):
+            if target.stat().st_size >= ROTATE_BYTES:
+                os.replace(target, directory / ROTATED_NAME)
+        _append_line(target, payload)
+    return target
+
+
+def _append_line(target: Path, payload: bytes) -> None:
+    with open(target, "ab+") as handle:
         handle.seek(0, os.SEEK_END)
         prefix = b""
         if handle.tell():
@@ -230,7 +247,6 @@ def append(directory: Path, line: HookDecisionLine, *, deadline: float) -> Path:
                 prefix = b"\n"
         handle.write(prefix + payload + b"\n")
         handle.flush()
-    return target
 
 
 class Pending:

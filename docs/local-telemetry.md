@@ -469,6 +469,8 @@ That time includes the repository identity, the lock, and the write. A write tha
 The hook ignores every log failure, for example a directory that it cannot write.
 The push then continues with the same exit code and the same message.
 Writers hold `hook-decisions.jsonl.lock` in the same directory while they append.
+When the log reaches 4 MiB, the next writer first renames it to `hook-decisions.jsonl.1`, replacing the older generation.
+`report` reads `hook-decisions.jsonl.1` before `hook-decisions.jsonl`, so it covers both generations.
 
 These pushes leave no line:
 

@@ -26,6 +26,7 @@ from pathlib import Path
 from .stages import command as command_plan
 
 OWNER_ONLY_MODE = 0o600
+PRIVATE_DIRECTORY_MODE = 0o700
 
 _ACL_TIMEOUT_SECONDS = 30
 _cached_sid: str | None = None
@@ -141,3 +142,21 @@ def restrict_to_owner(path: Path | str) -> None:
         _restrict_via_acl(path)
     else:
         _restrict_via_mode(path)
+
+
+def private_directory(path: Path | str) -> Path:
+    """Create ``path`` if needed and, on POSIX, close it to everyone but its owner.
+
+    Run records, stage logs, and telemetry rows live below such a directory and
+    keep the umask's file mode; the directory is what keeps other local users
+    out. An existing directory is tightened only when the caller owns it, so a
+    clone shared between accounts keeps working. Windows applies the parent's
+    inherited ACL, as it does to the Git directory itself.
+    """
+    path = Path(path)
+    path.mkdir(mode=PRIVATE_DIRECTORY_MODE, parents=True, exist_ok=True)
+    if sys.platform != "win32":
+        info = path.stat()
+        if info.st_uid == os.getuid() and info.st_mode & 0o777 != PRIVATE_DIRECTORY_MODE:
+            os.chmod(path, PRIVATE_DIRECTORY_MODE)
+    return path

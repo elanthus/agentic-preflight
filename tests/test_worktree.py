@@ -1,9 +1,16 @@
+import stat
 from pathlib import Path
 
 import pytest
 
 from agentic_preflight import fileperms, gitx, worktree
-from tests.conftest import assert_owner_only, git, set_home, write
+from tests.conftest import (
+    assert_owner_only,
+    git,
+    requires_posix_permissions,
+    set_home,
+    write,
+)
 
 
 @pytest.fixture
@@ -143,6 +150,35 @@ def test_copies_are_written_owner_only(feature_repo, wt):
     worktree.copy_files(feature_repo, wt, [".env"])
 
     assert_owner_only(wt / ".env")
+
+
+@requires_posix_permissions
+def test_a_copy_is_owner_only_before_it_is_restricted(feature_repo, wt, monkeypatch):
+    write(feature_repo, ".env", "SECRET=hunter2\n")
+    modes: list[int] = []
+    monkeypatch.setattr(
+        worktree.fileperms,
+        "restrict_to_owner",
+        lambda path: modes.append(stat.S_IMODE(Path(path).stat().st_mode)),
+    )
+
+    worktree.copy_files(feature_repo, wt, [".env"])
+
+    assert modes == [fileperms.OWNER_ONLY_MODE]
+
+
+@requires_posix_permissions
+def test_a_symlink_at_the_copy_destination_is_replaced_not_followed(feature_repo, wt, tmp_path):
+    write(feature_repo, ".env", "SECRET=hunter2\n")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("untouched\n", encoding="utf-8")
+    (wt / ".env").symlink_to(outside)
+
+    worktree.copy_files(feature_repo, wt, [".env"])
+
+    assert outside.read_text(encoding="utf-8") == "untouched\n"
+    assert not (wt / ".env").is_symlink()
+    assert (wt / ".env").read_text(encoding="utf-8") == "SECRET=hunter2\n"
 
 
 def test_a_copy_that_cannot_be_restricted_is_refused_and_removed(feature_repo, wt, monkeypatch):

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import shutil
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .. import gitx, hook, telemetry, worktree
 from ..cli_contract import AbortData, EventsData, GcData, HookStatus, StatusData
+from ..config import ConfigError, load_config
 from ..envelope import Envelope
 from ..errors import (
     START_COMMAND,
@@ -14,7 +17,7 @@ from ..errors import (
     UnmergedWork,
     WrongState,
 )
-from ..machine import Action, State
+from ..machine import TERMINAL_STATES, Action, State
 from ..models import ABORT_REASONS, AbortReason, FindingStatus, RunDoc
 from ..store import RUN_READ_RECOVERY, RunReadError, StoreError, UnknownRun
 from ._session import (
@@ -268,12 +271,17 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
     reclaimed_runners = _reclaim_released_runners(
         session, known_runs, {item["run_id"] for item in retained if "run_id" in item}
     )
+    # After runner reclamation, which reads the records that name each runner.
+    pruned, prune_failures = _prune_expired_records(session, removed)
+    retained.extend(prune_failures)
+    known_runs.difference_update(pruned)
 
     legacy = worktree.legacy_worktrees(session.repo_root, session.config.worktree.root)
 
     return Envelope(
         data=GcData(
             removed=removed,
+            pruned=pruned,
             retained=retained,
             orphans=orphans,
             reclaimed_runners=reclaimed_runners,
@@ -303,6 +311,61 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
             else None
         ),
     )
+
+
+def _retention_days(session: Session) -> int:
+    """Read ``[retention] run_days`` from the files; snapshots never carry it.
+
+    Configuration that cannot be read deletes nothing.
+    """
+    try:
+        return load_config(session.repo_root, tolerate_removed_keys=True).retention.run_days
+    except ConfigError:
+        return 0
+
+
+def _prune_expired_records(
+    session: Session, reclaimed: list[str]
+) -> tuple[list[str], list[dict[str, str]]]:
+    """Delete reclaimed run records that last changed before the retention window.
+
+    Only runs this collection just reclaimed are candidates: terminal, with no
+    unlanded fix commits and a released worktree. A run whose command is still
+    executing is left for the next collection.
+    """
+    days = _retention_days(session)
+    if days == 0:
+        return [], []
+    store = session.store
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    pruned: list[str] = []
+    failures: list[dict[str, str]] = []
+    for run_id in reclaimed:
+        try:
+            run = store.load_run(run_id)
+        except StoreError:
+            continue
+        if run.state not in TERMINAL_STATES or run.updated_at is None:
+            continue
+        updated = datetime.fromisoformat(run.updated_at)
+        if (updated if updated.tzinfo else updated.replace(tzinfo=UTC)) >= cutoff:
+            continue
+        with store.try_operation(run_id) as idle:
+            if not idle:
+                continue
+        try:
+            shutil.rmtree(store.run_dir(run_id))
+        except OSError as exc:
+            failures.append(
+                {
+                    "run_id": run_id,
+                    "reason": "expired run record could not be deleted",
+                    "error": str(exc)[:500],
+                }
+            )
+            continue
+        pruned.append(run_id)
+    return pruned, failures
 
 
 def _reclaim_released_runners(

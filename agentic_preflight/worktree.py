@@ -209,6 +209,23 @@ def remove(repo: Path | str, path: Path | str, *, branch: str | None = None) -> 
     gitx.run(repo, "worktree", "prune", check=False)
 
 
+def _copy_owner_only(source: Path, destination: Path) -> None:
+    """Copy bytes and timestamps into a new file that is owner-only from creation.
+
+    A copy left by an earlier run, or a symlink planted in its place, is removed
+    rather than written through, and ``O_EXCL`` refuses anything that reappears.
+    Creating the file at ``0o600`` leaves no window in which a secret is readable
+    under the umask's mode before :func:`fileperms.restrict_to_owner` runs.
+    """
+    destination.unlink(missing_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    fd = os.open(destination, flags, fileperms.OWNER_ONLY_MODE)
+    with os.fdopen(fd, "wb") as target, open(source, "rb") as origin:
+        shutil.copyfileobj(origin, target)
+    info = source.stat()
+    os.utime(destination, ns=(info.st_atime_ns, info.st_mtime_ns))
+
+
 def copy_files(
     repo: Path | str,
     worktree_path: Path | str,
@@ -247,7 +264,7 @@ def copy_files(
 
         destination = worktree_path / entry
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, destination)
+        _copy_owner_only(source, destination)
         try:
             fileperms.restrict_to_owner(destination)
         except fileperms.PermissionRestrictionError as exc:

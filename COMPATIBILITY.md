@@ -5,7 +5,7 @@ Git 2.38 or newer is required.
 
 Windows support is native.
 It does not use WSL. It does not require a POSIX shell for ordinary use.
-Know these two Windows-specific points before you adopt it:
+Know these three Windows-specific points before you adopt it:
 
 - **A stage command that contains shell grammar needs Git Bash.**
   Commands execute directly as a program and its arguments where possible.
@@ -17,6 +17,13 @@ Know these two Windows-specific points before you adopt it:
 - **Symlink-related behavior requires Developer Mode.**
   Symlink creation is a privileged operation on Windows by default.
   This affects repositories that contain symlinks. Nothing else in the tool creates one.
+- **State directories inherit their parent's access list.**
+  On macOS and Linux the run store and the telemetry directory are owner-only (`0700`).
+  On Windows the tool does not change their access list, so they get whatever the folder above them allows.
+  A repository under your user profile (`C:\Users\<you>`) is private that way.
+  A repository under a folder such as `C:\dev` usually inherits read access for every signed-in user, and so do run records, stage logs, and telemetry rows.
+  Keep such a repository under your profile, or restrict the folder yourself.
+  Files that `copy_files` copies are owner-only on every platform.
 
 ## Stage commands and your shell profile
 
@@ -315,6 +322,15 @@ It writes only `summary.json` files and the mirror.
 The run event log can contain the new `summary_written` and `summary_failed` events.
 The `aborted` event is now written together with the terminal transition. It carries the transition's `seq`.
 `finish`, `abort`, and `gc` envelopes add `data.telemetry`.
+
+## Run record retention
+
+`[retention]` is a new configuration section with one key, `run_days`.
+Older tool versions reject a configuration file that contains it, as an unknown section.
+Run snapshots never contain the section, so it changes no attestation and no configuration digest.
+`gc` now deletes reclaimed run directories older than `run_days` (default 90).
+A reader that expects every finished run's directory to remain, such as `telemetry rebuild`, sees only the runs that `gc` kept.
+The `gc` envelope adds `data.pruned`.
 
 ## Reasons and timing on run records and summaries
 

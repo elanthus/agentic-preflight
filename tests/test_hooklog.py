@@ -558,6 +558,49 @@ def test_an_interrupted_line_is_ended_before_the_next_one(tmp_repo, tmp_path):
     assert (read.lines, len(read.decisions), len(read.malformed)) == (2, 1, 1)
 
 
+def test_a_full_log_rotates_and_report_reads_both_generations(tmp_repo, tmp_path, monkeypatch):
+    directory = tmp_path / "telemetry"
+    monkeypatch.setattr(hooklog, "ROTATE_BYTES", 1)
+    decision = hook.evaluate([], is_ancestor=None, has_attestation=None)
+
+    for _ in range(3):
+        status = hooklog.record(
+            decision, repo_root=tmp_repo, config=_config(directory), remote=None, timeout=30
+        )
+        assert status == hooklog.WRITTEN
+
+    assert len(_log_lines(directory / hooklog.LOG_NAME)) == 1
+    assert len(_log_lines(directory / hooklog.ROTATED_NAME)) == 1
+    read = report.read_hook_log(directory / hooklog.LOG_NAME)
+    assert (read.lines, len(read.decisions), len(read.malformed)) == (2, 2, 0)
+
+
+def test_report_reads_a_rotated_log_whose_last_line_was_interrupted(tmp_path):
+    directory = tmp_path / "telemetry"
+    directory.mkdir()
+    first, second = _hook_lines()[:2]
+    (directory / hooklog.ROTATED_NAME).write_bytes(_payload([first]) + b'{"truncated": ')
+    (directory / hooklog.LOG_NAME).write_bytes(_payload([second]))
+
+    read = report.read_hook_log(directory / hooklog.LOG_NAME)
+
+    assert (read.lines, len(read.decisions), len(read.malformed)) == (3, 2, 1)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="mode bits do not restrict access on Windows")
+def test_the_telemetry_directory_is_owner_only(tmp_repo, tmp_path):
+    directory = tmp_path / "telemetry"
+    hooklog.record(
+        hook.evaluate([], is_ancestor=None, has_attestation=None),
+        repo_root=tmp_repo,
+        config=_config(directory),
+        remote=None,
+        timeout=30,
+    )
+
+    assert directory.stat().st_mode & 0o777 == 0o700
+
+
 def test_settings_for_an_up_to_date_push_use_a_bounded_git_call(tmp_repo, tmp_path, monkeypatch):
     set_home(monkeypatch, tmp_path / "home")
     write(tmp_repo, ".agentic-preflight.toml", "[telemetry]\nhook_log = false\n")
