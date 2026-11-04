@@ -549,6 +549,33 @@ def test_gc_keeps_records_inside_the_window_or_when_retention_is_off(blocked, fe
     assert _run_dir(feature_repo, run_id).exists()
 
 
+def test_gc_never_prunes_a_run_whose_command_holds_the_lock(blocked, feature_repo):
+    agent, _ = blocked
+    run_id = agent.run("abort")["run_id"]
+    agent.run("gc")
+    _last_changed_days_ago(feature_repo, run_id, 91)
+    store = Store(_run_dir(feature_repo, run_id).parent.parent)
+
+    with store.operation(run_id):
+        assert agent.run("gc")["data"]["pruned"] == []
+    assert (_run_dir(feature_repo, run_id) / "run.json").exists()
+
+
+def test_gc_skips_a_record_with_an_unreadable_timestamp(blocked, feature_repo):
+    agent, _ = blocked
+    run_id = agent.run("abort")["run_id"]
+    agent.run("gc")
+    path = _run_dir(feature_repo, run_id) / "run.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["updated_at"] = "not a timestamp"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    env = agent.run("gc")
+
+    assert env["ok"] is True
+    assert env["data"]["pruned"] == []
+
+
 def test_gc_never_prunes_a_run_that_is_still_active(agent, feature_repo):
     run_id = agent.run("start")["run_id"]
     _last_changed_days_ago(feature_repo, run_id, 3650)

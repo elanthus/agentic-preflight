@@ -157,6 +157,9 @@ class Store:
     def run_dir(self, run_id: str) -> Path:
         return self.root / "runs" / run_id
 
+    def operation_lock_path(self, run_id: str) -> Path:
+        return self.run_dir(run_id) / ".operation.lock"
+
     def run_path(self, run_id: str) -> Path:
         return self.run_dir(run_id) / "run.json"
 
@@ -447,13 +450,13 @@ class Store:
     @contextmanager
     def operation(self, run_id: str) -> Iterator[None]:
         """Serialize a complete mutating command for one run."""
-        with filelock.exclusive(self.run_dir(run_id) / ".operation.lock"):
+        with filelock.exclusive(self.operation_lock_path(run_id)):
             yield
 
     @contextmanager
     def try_operation(self, run_id: str) -> Iterator[bool]:
         """Probe whether a run is between commands without waiting for it."""
-        with filelock.try_exclusive(self.run_dir(run_id) / ".operation.lock") as acquired:
+        with filelock.try_exclusive(self.operation_lock_path(run_id)) as acquired:
             yield acquired
 
     @contextmanager

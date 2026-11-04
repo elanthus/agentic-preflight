@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -19,7 +20,7 @@ from ..errors import (
 )
 from ..machine import TERMINAL_STATES, Action, State
 from ..models import ABORT_REASONS, AbortReason, FindingStatus, RunDoc
-from ..store import RUN_READ_RECOVERY, RunReadError, StoreError, UnknownRun
+from ..store import RUN_READ_RECOVERY, RunReadError, Store, StoreError, UnknownRun
 from ._session import (
     RESTART_LIMIT_INSTRUCTION,
     Session,
@@ -347,25 +348,53 @@ def _prune_expired_records(
             continue
         if run.state not in TERMINAL_STATES or run.updated_at is None:
             continue
-        updated = datetime.fromisoformat(run.updated_at)
+        try:
+            updated = datetime.fromisoformat(run.updated_at)
+        except ValueError:
+            continue
         if (updated if updated.tzinfo else updated.replace(tzinfo=UTC)) >= cutoff:
             continue
         with store.try_operation(run_id) as idle:
             if not idle:
                 continue
-        try:
-            shutil.rmtree(store.run_dir(run_id))
-        except OSError as exc:
+            error = _delete_run_contents(store, run_id)
+        if error is not None:
             failures.append(
                 {
                     "run_id": run_id,
                     "reason": "expired run record could not be deleted",
-                    "error": str(exc)[:500],
+                    "error": error[:500],
                 }
             )
             continue
+        # The lock file goes after release: Windows cannot delete an open file. A
+        # command that took the lock in between finds no record and leaves it.
+        with suppress(OSError):
+            store.operation_lock_path(run_id).unlink()
+            store.run_dir(run_id).rmdir()
         pruned.append(run_id)
     return pruned, failures
+
+
+def _delete_run_contents(store: Store, run_id: str) -> str | None:
+    """Delete everything in a run's directory but its operation lock, record first.
+
+    Called under the run's operation lock, so no command can start on the run
+    while its files disappear; once ``run.json`` is gone, the run is unknown.
+    """
+    lock = store.operation_lock_path(run_id)
+    try:
+        store.run_path(run_id).unlink(missing_ok=True)
+        for entry in store.run_dir(run_id).iterdir():
+            if entry == lock:
+                continue
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry)
+            else:
+                entry.unlink()
+    except OSError as exc:
+        return str(exc)
+    return None
 
 
 def _reclaim_released_runners(
