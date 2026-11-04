@@ -204,6 +204,16 @@ def fallback_section(
         return None
 
 
+@contextlib.contextmanager
+def reading(directory: Path) -> Iterator[None]:
+    """Hold the log lock while a reader takes both generations.
+
+    Waits for a writer, which holds the lock only for one rotation and append.
+    """
+    with filelock.exclusive(directory / _LOCK_NAME):
+        yield
+
+
 # -- writing --------------------------------------------------------------------
 
 

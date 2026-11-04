@@ -587,6 +587,28 @@ def test_report_reads_a_rotated_log_whose_last_line_was_interrupted(tmp_path):
     assert (read.lines, len(read.decisions), len(read.malformed)) == (3, 2, 1)
 
 
+def test_report_waits_for_a_rotation_in_progress(tmp_path):
+    directory = tmp_path / "telemetry"
+    directory.mkdir()
+    first, second, third = _hook_lines()[:3]
+    (directory / hooklog.ROTATED_NAME).write_bytes(_payload([first]))
+    (directory / hooklog.LOG_NAME).write_bytes(_payload([second]))
+    reads: list[report.HookLogRead] = []
+
+    with filelock.exclusive(directory / "hook-decisions.jsonl.lock"):
+        reader = threading.Thread(
+            target=lambda: reads.append(report.read_hook_log(directory / hooklog.LOG_NAME))
+        )
+        reader.start()
+        reader.join(timeout=0.5)
+        assert not reads
+        (directory / hooklog.LOG_NAME).replace(directory / hooklog.ROTATED_NAME)
+        (directory / hooklog.LOG_NAME).write_bytes(_payload([third]))
+    reader.join(timeout=30)
+
+    assert [len(read.decisions) for read in reads] == [2]
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="mode bits do not restrict access on Windows")
 def test_the_telemetry_directory_is_owner_only(tmp_repo, tmp_path):
     directory = tmp_path / "telemetry"

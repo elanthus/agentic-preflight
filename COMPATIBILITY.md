@@ -19,6 +19,7 @@ Know these three Windows-specific points before you adopt it:
   This affects repositories that contain symlinks. Nothing else in the tool creates one.
 - **State directories inherit their parent's access list.**
   On macOS and Linux the run store and the telemetry directory are owner-only (`0700`).
+  An existing directory that another account owns keeps its permissions.
   On Windows the tool does not change their access list, so they get whatever the folder above them allows.
   A repository under your user profile (`C:\Users\<you>`) is private that way.
   A repository under a folder such as `C:\dev` usually inherits read access for every signed-in user, and so do run records, stage logs, and telemetry rows.
