@@ -317,7 +317,9 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
 def _retention_days(session: Session) -> int:
     """Read ``[retention] run_days`` from the files; snapshots never carry it.
 
-    Configuration that cannot be read deletes nothing.
+    A repository section overrides the user's, including with a shorter window:
+    unlike ``[telemetry]``, retention is deliberately not restricted to the user
+    file. Configuration that cannot be read deletes nothing.
     """
     try:
         return load_config(session.repo_root, tolerate_removed_keys=True).retention.run_days

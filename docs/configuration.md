@@ -206,6 +206,7 @@ A run of a repository without a network remote has no such row unless your user 
 Set a larger `run_days`, or 0, if you need those summaries.
 
 `gc` reads this section from the configuration files. Run snapshots do not contain it.
+Unlike `[telemetry]`, a repository section may set `run_days` to any value, including a shorter window than your user file.
 Configuration that cannot be read deletes nothing.
 The run store directory is owner-only (mode `0700`) on POSIX.
 On Windows it inherits the access list of the folder above it; see [Compatibility](../COMPATIBILITY.md).
