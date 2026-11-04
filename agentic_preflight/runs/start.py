@@ -412,8 +412,8 @@ def _require_changes(ctx: _StartContext) -> str:
     return merge_base
 
 
-def _create_run_record(ctx: _StartContext, merge_base: str) -> tuple[str, Path, str]:
-    run_id = _new_run_id()
+def _create_run_record(ctx: _StartContext, run_id: str, merge_base: str) -> tuple[Path, str]:
+    """Persist the new run and claim its lease. The caller holds the run's operation lock."""
     run = RunDoc(
         schema_version=2,
         run_id=run_id,
@@ -435,20 +435,19 @@ def _create_run_record(ctx: _StartContext, merge_base: str) -> tuple[str, Path, 
     )
     # Persist the intent *before* the git call, so a crash mid-create leaves a
     # record for `gc` to reconcile rather than an orphan nobody knows about.
-    with ctx.session.store.operation(run_id):
-        ctx.session.store.create_run(run)
-        try:
-            ctx.session.store.claim_active(ctx.session.owner_id, run_id)
-        except CurrentRunExists as exc:
-            with ctx.session.store.transaction(run_id) as doc:
-                _apply(doc, Action.ABORT)
-                doc.worktree_released = True
-            raise WrongState(
-                f"run {exc.run_id} is already active in this worktree",
-                run_id=exc.run_id,
-                next_instruction="Finish, clean up, or abort the active run before starting another.",
-                next_command="agentic-preflight status",
-            ) from exc
+    ctx.session.store.create_run(run)
+    try:
+        ctx.session.store.claim_active(ctx.session.owner_id, run_id)
+    except CurrentRunExists as exc:
+        with ctx.session.store.transaction(run_id) as doc:
+            _apply(doc, Action.ABORT)
+            doc.worktree_released = True
+        raise WrongState(
+            f"run {exc.run_id} is already active in this worktree",
+            run_id=exc.run_id,
+            next_instruction="Finish, clean up, or abort the active run before starting another.",
+            next_command="agentic-preflight status",
+        ) from exc
     ctx.session.store.append_event(
         run_id,
         {
@@ -470,7 +469,7 @@ def _create_run_record(ctx: _StartContext, merge_base: str) -> tuple[str, Path, 
         else ctx.session.store.worktrees_dir / ("runner" if reusable else run_id)
     )
     wt_branch = ctx.branch if in_place else f"ap/{run_id}"
-    return run_id, wt_path, wt_branch
+    return wt_path, wt_branch
 
 
 def _provision_validation_checkout(
@@ -851,10 +850,16 @@ def _start(
     if existing is not None:
         return existing
     merge_base = _require_changes(ctx)
-    run_id, wt_path, wt_branch = _create_run_record(ctx, merge_base)
-    _provision_validation_checkout(ctx, run_id, wt_path, wt_branch)
-    sync_result, changed = _synchronize(ctx, run_id, wt_path, wt_branch)
-    copied, assessment, setup_result = _run_setup_command(ctx, run_id, wt_path, changed)
-    return _prime_review(
-        ctx, run_id, wt_path, wt_branch, sync_result, changed, copied, assessment, setup_result
-    )
+    run_id = _new_run_id()
+    # Hold the new run's operation lock until the run is ready for review, as
+    # every other mutating command does. Released earlier, a concurrent
+    # `start --replace`, `gc`, or `abort` sees an idle run and can orphan it
+    # while its checkout is still being provisioned.
+    with session.store.operation(run_id):
+        wt_path, wt_branch = _create_run_record(ctx, run_id, merge_base)
+        _provision_validation_checkout(ctx, run_id, wt_path, wt_branch)
+        sync_result, changed = _synchronize(ctx, run_id, wt_path, wt_branch)
+        copied, assessment, setup_result = _run_setup_command(ctx, run_id, wt_path, changed)
+        return _prime_review(
+            ctx, run_id, wt_path, wt_branch, sync_result, changed, copied, assessment, setup_result
+        )

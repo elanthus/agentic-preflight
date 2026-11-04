@@ -1,7 +1,10 @@
 """M1 resolution loop: respond, fix-commit verification, abort, gc, events."""
 
 import json
+import os
+import sys
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -507,6 +510,105 @@ def test_gc_reclaims_an_aborted_runs_leftovers(blocked):
     agent.run("abort")
     env = agent.run("gc")
     assert env["ok"] is True
+
+
+def _run_dir(repo, run_id):
+    common = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=repo))
+    return common / "agentic-preflight" / "runs" / run_id
+
+
+def _last_changed_days_ago(repo, run_id, days):
+    path = _run_dir(repo, run_id) / "run.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    stamp = datetime.now(UTC) - timedelta(days=days)
+    raw["updated_at"] = stamp.isoformat(timespec="seconds")
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+
+def test_gc_prunes_a_reclaimed_record_past_the_retention_window(blocked, feature_repo):
+    agent, _ = blocked
+    run_id = agent.run("abort")["run_id"]
+    agent.run("gc")
+    _last_changed_days_ago(feature_repo, run_id, 91)
+
+    env = agent.run("gc")
+
+    assert env["data"]["pruned"] == [run_id]
+    assert run_id not in env["data"]["runs_known"]
+    assert not _run_dir(feature_repo, run_id).exists()
+
+
+def test_gc_keeps_records_inside_the_window_or_when_retention_is_off(blocked, feature_repo):
+    agent, _ = blocked
+    run_id = agent.run("abort")["run_id"]
+    agent.run("gc")
+    _last_changed_days_ago(feature_repo, run_id, 89)
+    assert agent.run("gc")["data"]["pruned"] == []
+
+    write(feature_repo, ".agentic-preflight.toml", "[retention]\nrun_days = 0\n")
+    _last_changed_days_ago(feature_repo, run_id, 3650)
+    assert agent.run("gc")["data"]["pruned"] == []
+    assert _run_dir(feature_repo, run_id).exists()
+
+
+def test_gc_never_prunes_a_run_whose_command_holds_the_lock(blocked, feature_repo):
+    agent, _ = blocked
+    run_id = agent.run("abort")["run_id"]
+    agent.run("gc")
+    _last_changed_days_ago(feature_repo, run_id, 91)
+    store = Store(_run_dir(feature_repo, run_id).parent.parent)
+
+    with store.operation(run_id):
+        assert agent.run("gc")["data"]["pruned"] == []
+    assert (_run_dir(feature_repo, run_id) / "run.json").exists()
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0, reason="needs POSIX directory permissions"
+)
+def test_gc_retries_a_prune_that_failed_partway(blocked, feature_repo):
+    agent, _ = blocked
+    run_id = agent.run("abort")["run_id"]
+    agent.run("gc")
+    _last_changed_days_ago(feature_repo, run_id, 91)
+    stuck = _run_dir(feature_repo, run_id) / "stuck"
+    stuck.mkdir()
+    (stuck / "file").write_text("x", encoding="utf-8")
+    stuck.chmod(0o500)
+    try:
+        env = agent.run("gc")
+    finally:
+        stuck.chmod(0o700)
+
+    assert env["data"]["pruned"] == []
+    assert [item["run_id"] for item in env["data"]["retained"]] == [run_id]
+    assert (_run_dir(feature_repo, run_id) / "run.json").exists()
+    assert agent.run("gc")["data"]["pruned"] == [run_id]
+
+
+def test_gc_skips_a_record_with_an_unreadable_timestamp(blocked, feature_repo):
+    agent, _ = blocked
+    run_id = agent.run("abort")["run_id"]
+    agent.run("gc")
+    path = _run_dir(feature_repo, run_id) / "run.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["updated_at"] = "not a timestamp"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    env = agent.run("gc")
+
+    assert env["ok"] is True
+    assert env["data"]["pruned"] == []
+
+
+def test_gc_never_prunes_a_run_that_is_still_active(agent, feature_repo):
+    run_id = agent.run("start")["run_id"]
+    _last_changed_days_ago(feature_repo, run_id, 3650)
+
+    env = agent.run("gc")
+
+    assert env["data"]["pruned"] == []
+    assert _run_dir(feature_repo, run_id).exists()
 
 
 def test_gc_never_deletes_unmerged_work_without_force(blocked, feature_repo):

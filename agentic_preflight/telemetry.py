@@ -37,7 +37,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from . import filelock, gitx, timing
+from . import filelock, fileperms, gitx, timing
 from .config import Config, ConfigError, load_config
 from .digests import sha256_text
 from .machine import TERMINAL_STATES, State
@@ -668,7 +668,7 @@ def _row(summary: RunSummary) -> str:
 
 def _append_row(target: Path, summary: RunSummary) -> None:
     """Append one line under the mirror lock, ending any interrupted line first."""
-    target.parent.mkdir(parents=True, exist_ok=True)
+    fileperms.private_directory(target.parent)
     with (
         filelock.exclusive(target.parent / _MIRROR_LOCK_NAME),
         open(target, "ab+") as handle,
@@ -961,7 +961,7 @@ def _merge_mirror(
 def _rewrite_mirror(
     target: Path, fresh: list[RunSummary], root_commit: str | None
 ) -> tuple[int, int]:
-    target.parent.mkdir(parents=True, exist_ok=True)
+    fileperms.private_directory(target.parent)
     with filelock.exclusive(target.parent / _MIRROR_LOCK_NAME):
         try:
             text = target.read_text(encoding="utf-8")

@@ -16,6 +16,7 @@ The report follows the summary's rules:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import statistics
 from collections import Counter
@@ -992,14 +993,30 @@ def parse_hook_log(payload: bytes, path: Path | str) -> HookLogRead:
 
 
 def read_hook_log(path: Path) -> HookLogRead:
-    """Read the hook log. A missing file has no decisions; another read error is recorded."""
-    try:
-        payload = path.read_bytes()
-    except FileNotFoundError:
+    """Read the hook log after its rotated generation, oldest first.
+
+    Both files are read under the writers' lock, so a rotation cannot fall
+    between the two reads. A log directory that cannot hold the lock is read
+    without it. A missing file has no decisions; another read error is recorded.
+    """
+    candidates = (path.with_name(hooklog.ROTATED_NAME), path)
+    if not any(candidate.exists() for candidate in candidates):
         return HookLogRead(path=str(path), exists=False)
-    except OSError as exc:
-        return HookLogRead(path=str(path), exists=True, error=telemetry._describe(exc))
-    return parse_hook_log(payload, path)
+    payloads: list[bytes] = []
+    with contextlib.ExitStack() as stack:
+        with contextlib.suppress(OSError):
+            stack.enter_context(hooklog.reading(path.parent))
+        for candidate in candidates:
+            try:
+                payload = candidate.read_bytes()
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                return HookLogRead(path=str(candidate), exists=True, error=telemetry._describe(exc))
+            payloads.append(payload if payload.endswith(b"\n") else payload + b"\n")
+    if not payloads:
+        return HookLogRead(path=str(path), exists=False)
+    return parse_hook_log(b"".join(payloads), path)
 
 
 def _hook_excluded_by(row: Mapping[str, Any], clone: Clone | None, filters: Filters) -> str | None:

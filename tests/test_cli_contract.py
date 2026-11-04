@@ -117,7 +117,7 @@ EMITTED_NOT_DOCUMENTED: dict[str, set[str]] = {
         "token",
     },
     # emitted but undocumented
-    "gc": {"active", "runs_known"},
+    "gc": {"active"},
     # emitted but undocumented
     "init": {"config_path", "config_written", "repo_root", "worktree_mode"},
     # emitted but undocumented

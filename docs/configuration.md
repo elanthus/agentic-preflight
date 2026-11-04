@@ -130,6 +130,9 @@ allow_force_push = false
 mirror = true                     # append each finished run's summary to runs.jsonl
 hook_log = true                   # append each pre-push hook decision to hook-decisions.jsonl
 # path = "~/agentic-preflight-telemetry"  # directory override; absolute or ~; also opts in repositories without a network remote
+
+[retention]
+run_days = 90                     # gc deletes reclaimed run records older than this; 0 keeps them all
 ```
 
 ## Configuration is snapshotted per run
@@ -137,7 +140,7 @@ hook_log = true                   # append each pre-push hook decision to hook-d
 `start` snapshots the resolved configuration when it creates a run.
 A later edit of `.agentic-preflight.toml` does not change that run.
 The snapshot and its digest are recorded with the run events.
-The snapshot does not contain `[telemetry]`.
+The snapshot does not contain `[telemetry]` or `[retention]`.
 
 Commit configuration changes **before** you start the run that they must affect.
 For the same reason, the file must be committed before `start`. Do not edit it during a run.
@@ -181,6 +184,32 @@ Run snapshots do not contain it.
 Thus, a telemetry setting does not change the configuration digest, stage evidence, or an attestation.
 See [Local run telemetry](local-telemetry.md) for the recorded fields and the `telemetry rebuild` command.
 See [Hook decisions](local-telemetry.md#hook-decisions) for the hook decision log.
+
+The telemetry directory is created owner-only (mode `0700`) on POSIX.
+On Windows it inherits the access list of the folder above it; see [Compatibility](../COMPATIBILITY.md).
+An existing directory that you own is narrowed to that mode on the next write.
+When `hook-decisions.jsonl` reaches 4 MiB, the next decision first renames it to `hook-decisions.jsonl.1`.
+That replaces the older generation. `report` reads both files.
+
+## Run record retention (`[retention]`)
+
+Each run keeps a directory under `$GIT_COMMON_DIR/agentic-preflight/runs/`.
+That directory holds its record, events, findings, stage logs, and `summary.json`.
+`gc` deletes a run's directory when the run has been reclaimed and its record last changed more than `run_days` days ago.
+A run is reclaimed when it is finished, has no unlanded fix commits, and its validation worktree is released.
+The default is 90. `run_days = 0` keeps every record.
+A run whose command is still executing is left for the next `gc`.
+The deleted run IDs are listed in `data.pruned`.
+
+`report` and `telemetry rebuild` summarize run records, so a deleted run remains only as its `runs.jsonl` row.
+A run of a repository without a network remote has no such row unless your user configuration sets `[telemetry] path`.
+Set a larger `run_days`, or 0, if you need those summaries.
+
+`gc` reads this section from the configuration files. Run snapshots do not contain it.
+Unlike `[telemetry]`, a repository section may set `run_days` to any value, including a shorter window than your user file.
+Configuration that cannot be read deletes nothing.
+The run store directory is owner-only (mode `0700`) on POSIX.
+On Windows it inherits the access list of the folder above it; see [Compatibility](../COMPATIBILITY.md).
 
 ## Contract checks
 
@@ -380,10 +409,12 @@ When a stage is still red after `max_attempts`, the run stops and asks for human
 It does not retry indefinitely.
 
 When `timeout_seconds` expires, the stage's whole process group is killed and the stage exits 124.
-Output is collected for at most a few more seconds.
-Thus, a descendant process that left the process group and still holds the output pipe cannot keep the stage open.
-In that case, the captured output is discarded.
-The stage output ends with an `[output truncated: ...]` line after the timeout marker.
+The output captured before the timeout is kept, and it ends with a `[timed out after ...]` line.
+A descendant process that left the process group cannot keep the stage open.
+
+Each captured stream keeps at most 8 MiB.
+Longer output keeps its first and last 4 MiB around an `[output truncated: N bytes omitted]` line.
+The stage log and the envelope's head and tail come from that capped text.
 On POSIX, a SIGTERM or SIGINT delivered to the CLI while a stage runs also kills that stage's process group.
 On Windows, Ctrl+C kills the stage's process tree before cancellation propagates.
 
