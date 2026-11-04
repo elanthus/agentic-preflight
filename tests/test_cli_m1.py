@@ -1,6 +1,8 @@
 """M1 resolution loop: respond, fix-commit verification, abort, gc, events."""
 
 import json
+import os
+import sys
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -559,6 +561,29 @@ def test_gc_never_prunes_a_run_whose_command_holds_the_lock(blocked, feature_rep
     with store.operation(run_id):
         assert agent.run("gc")["data"]["pruned"] == []
     assert (_run_dir(feature_repo, run_id) / "run.json").exists()
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0, reason="needs POSIX directory permissions"
+)
+def test_gc_retries_a_prune_that_failed_partway(blocked, feature_repo):
+    agent, _ = blocked
+    run_id = agent.run("abort")["run_id"]
+    agent.run("gc")
+    _last_changed_days_ago(feature_repo, run_id, 91)
+    stuck = _run_dir(feature_repo, run_id) / "stuck"
+    stuck.mkdir()
+    (stuck / "file").write_text("x", encoding="utf-8")
+    stuck.chmod(0o500)
+    try:
+        env = agent.run("gc")
+    finally:
+        stuck.chmod(0o700)
+
+    assert env["data"]["pruned"] == []
+    assert [item["run_id"] for item in env["data"]["retained"]] == [run_id]
+    assert (_run_dir(feature_repo, run_id) / "run.json").exists()
+    assert agent.run("gc")["data"]["pruned"] == [run_id]
 
 
 def test_gc_skips_a_record_with_an_unreadable_timestamp(blocked, feature_repo):

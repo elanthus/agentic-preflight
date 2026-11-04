@@ -377,21 +377,23 @@ def _prune_expired_records(
 
 
 def _delete_run_contents(store: Store, run_id: str) -> str | None:
-    """Delete everything in a run's directory but its operation lock, record first.
+    """Delete everything in a run's directory but its operation lock, record last.
 
     Called under the run's operation lock, so no command can start on the run
-    while its files disappear; once ``run.json`` is gone, the run is unknown.
+    while its files disappear. Keeping ``run.json`` until the end means a deletion
+    that fails partway leaves a record the next collection prunes again.
     """
     lock = store.operation_lock_path(run_id)
+    record = store.run_path(run_id)
     try:
-        store.run_path(run_id).unlink(missing_ok=True)
         for entry in store.run_dir(run_id).iterdir():
-            if entry == lock:
+            if entry in (lock, record):
                 continue
             if entry.is_dir() and not entry.is_symlink():
                 shutil.rmtree(entry)
             else:
                 entry.unlink()
+        record.unlink(missing_ok=True)
     except OSError as exc:
         return str(exc)
     return None
