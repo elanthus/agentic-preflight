@@ -220,6 +220,17 @@ class TelemetrySection(_Section):
         return value
 
 
+class RetentionSection(_Section):
+    """How long ``gc`` keeps finished run records in the clone's run store.
+
+    Housekeeping, like telemetry: excluded from configuration snapshots, so it
+    never changes a configuration digest or binds stage evidence.
+    """
+
+    #: Days since a reclaimed run record last changed before ``gc`` deletes it. 0 keeps all.
+    run_days: int = Field(default=90, ge=0)
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -246,8 +257,10 @@ class Config(BaseModel):
     pr: PRSection = Field(default_factory=PRSection)
     approval: ApprovalSection = Field(default_factory=ApprovalSection)
     hook: HookSection = Field(default_factory=HookSection)
-    # Excluded from model dumps: snapshots and their digests stay telemetry-free.
+    # Excluded from model dumps: snapshots and their digests stay free of telemetry
+    # and housekeeping settings.
     telemetry: TelemetrySection = Field(default_factory=TelemetrySection, exclude=True)
+    retention: RetentionSection = Field(default_factory=RetentionSection, exclude=True)
 
 
 # Keys an earlier release accepted and a later one removed, as (section, key).

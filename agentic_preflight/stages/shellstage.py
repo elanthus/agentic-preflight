@@ -19,11 +19,12 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from . import command as command_plan
 
@@ -35,12 +36,12 @@ EXIT_UNRUNNABLE = 127
 # Generous for a process-tree kill, and short enough that a wedged taskkill
 # cannot hold a stage open indefinitely after its own timeout has fired.
 _TASKKILL_TIMEOUT_SECONDS = 30
-# How long to keep draining output after the process tree has been killed. A
-# descendant that escaped the kill can hold the pipe open forever.
-_POST_KILL_DRAIN_SECONDS = 3
-OUTPUT_TRUNCATED_MARKER = (
-    "[output truncated: a process outside the stage's group kept its pipe open]"
-)
+# How long to wait for the killed process to be reaped after a timeout.
+_POST_KILL_WAIT_SECONDS = 3
+# Each captured stream keeps at most this many bytes: half from its start and
+# half from its end. A test run that prints gigabytes must not be held in
+# memory, written to the run's log, or redacted in full.
+MAX_CAPTURED_BYTES = 8 * 1024 * 1024
 REDACTION_FAILURE_OUTPUT = (
     "[agentic-preflight] command output withheld because copied-file secret "
     "redaction became unavailable"
@@ -262,19 +263,21 @@ else:
             restore()
 
 
-def _drain_after_kill(process: subprocess.Popen) -> tuple[str | None, str | None, bool]:
-    """Collect a killed process's output, giving up if an escaped descendant holds the pipe."""
-    try:
-        stdout, stderr = process.communicate(timeout=_POST_KILL_DRAIN_SECONDS)
-    except subprocess.TimeoutExpired:
-        for stream in (process.stdin, process.stdout, process.stderr):
-            if stream is not None:
-                with suppress(OSError):
-                    stream.close()
-        with suppress(subprocess.TimeoutExpired):
-            process.wait(timeout=_POST_KILL_DRAIN_SECONDS)
-        return None, None, True
-    return stdout, stderr, False
+def read_capped(handle: IO[bytes], limit: int) -> str:
+    """Decode a captured stream, keeping only its head and tail beyond ``limit`` bytes."""
+    size = handle.seek(0, os.SEEK_END)
+    handle.seek(0)
+    if size <= limit:
+        data = handle.read()
+    else:
+        half = limit // 2
+        head = handle.read(half)
+        handle.seek(size - half)
+        omitted = f"\n[output truncated: {size - 2 * half} bytes omitted]\n"
+        data = head + omitted.encode("ascii") + handle.read(half)
+    # The same universal-newline translation that text-mode pipes apply.
+    text = data.decode("utf-8", errors="replace")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def run_stage(
@@ -306,58 +309,61 @@ def run_stage(
 
     guard = _CopiedFileMutationGuard(worktree_path, guarded_files)
     try:
-        try:
-            process = subprocess.Popen(
-                argv,
-                cwd=str(worktree_path),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE if separate_stderr else subprocess.STDOUT,
-                stdin=subprocess.PIPE if stdin_text is not None else None,
-                text=True,
-                # Captured output is a *report*, not structured data: a linter
-                # that emits one stray byte must not crash the gate, and the
-                # exit code (which is what decides the stage) is unaffected
-                # either way.
-                encoding="utf-8",
-                errors="replace",
-                **_process_group_kwargs(),
-            )
-        except OSError as exc:
-            # The program resolved when the command was planned, but the OS
-            # refused to execute it: a script with no shebang, a file whose
-            # format or extension is not executable, or a program deleted
-            # since planning. The same contract as a missing shell, a red
-            # stage the agent can report, not a crash.
-            return StageResult(
-                command=command,
-                exit_code=EXIT_UNRUNNABLE,
-                output=f"cannot run {command!r}: {exc}",
-            )
-        try:
-            with _kill_on_termination(process):
-                stdout, stderr = process.communicate(input=stdin_text, timeout=timeout_seconds)
-            output = (stdout or "") + (stderr or "")
-            result = StageResult(
-                command=command,
-                exit_code=process.returncode,
-                output=output,
-                stdout=stdout if separate_stderr else None,
-                stderr=stderr if separate_stderr else None,
-            )
-        except subprocess.TimeoutExpired:
-            _kill_process_tree(process)
-            stdout, stderr, truncated = _drain_after_kill(process)
-            output = (stdout or "") + (stderr or "") + f"\n[timed out after {timeout_seconds}s]"
-            if truncated:
-                output += f"\n{OUTPUT_TRUNCATED_MARKER}"
-            result = StageResult(
-                command=command,
-                exit_code=124,
-                output=output,
-                timed_out=True,
-                stdout=stdout if separate_stderr else None,
-                stderr=stderr if separate_stderr else None,
-            )
+        # Output goes to anonymous temporary files rather than pipes: reading
+        # them back is capped, and a descendant that escapes a timeout kill
+        # cannot hold a pipe open and cost the output captured so far.
+        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+            try:
+                process = subprocess.Popen(
+                    argv,
+                    cwd=str(worktree_path),
+                    stdout=stdout_file,
+                    stderr=stderr_file if separate_stderr else subprocess.STDOUT,
+                    stdin=subprocess.PIPE if stdin_text is not None else None,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    **_process_group_kwargs(),
+                )
+            except OSError as exc:
+                # The program resolved when the command was planned, but the OS
+                # refused to execute it: a script with no shebang, a file whose
+                # format or extension is not executable, or a program deleted
+                # since planning. The same contract as a missing shell, a red
+                # stage the agent can report, not a crash.
+                return StageResult(
+                    command=command,
+                    exit_code=EXIT_UNRUNNABLE,
+                    output=f"cannot run {command!r}: {exc}",
+                )
+            timed_out = False
+            try:
+                with _kill_on_termination(process):
+                    process.communicate(input=stdin_text, timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                _kill_process_tree(process)
+                if process.stdin is not None:
+                    with suppress(OSError):
+                        process.stdin.close()
+                with suppress(subprocess.TimeoutExpired):
+                    process.wait(timeout=_POST_KILL_WAIT_SECONDS)
+            # Captured output is a *report*, not structured data: a linter that
+            # emits one stray byte must not crash the gate, and the exit code
+            # (which is what decides the stage) is unaffected either way.
+            stdout = read_capped(stdout_file, MAX_CAPTURED_BYTES)
+            stderr = read_capped(stderr_file, MAX_CAPTURED_BYTES) if separate_stderr else ""
+        output = stdout + stderr
+        if timed_out:
+            output += f"\n[timed out after {timeout_seconds}s]"
+        result = StageResult(
+            command=command,
+            exit_code=124 if timed_out else process.returncode,
+            output=output,
+            timed_out=timed_out,
+            stdout=stdout if separate_stderr else None,
+            stderr=stderr if separate_stderr else None,
+        )
     finally:
         copied_files_changed = guard.stop()
     result.copied_files_changed = copied_files_changed

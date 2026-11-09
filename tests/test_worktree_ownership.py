@@ -363,6 +363,32 @@ def test_replace_refuses_while_the_existing_run_is_executing(feature_repo):
         holder.wait(timeout=5)
 
 
+def test_start_holds_the_operation_lock_until_the_run_is_ready(feature_repo, monkeypatch):
+    start_module = import_module("agentic_preflight.runs.start")
+    original = start_module._run_setup_command
+    idle_during_setup: list[bool] = []
+
+    def probing(ctx, run_id, wt_path, changed):
+        with ctx.session.store.try_operation(run_id) as idle:
+            idle_during_setup.append(idle)
+        return original(ctx, run_id, wt_path, changed)
+
+    monkeypatch.setattr(start_module, "_run_setup_command", probing)
+    started = ScriptedAgent(feature_repo).run("start")
+
+    assert idle_during_setup == [False]
+    store = runs.open_session(feature_repo).store
+    with store.try_operation(started["run_id"]) as idle:
+        assert idle
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="mode bits do not restrict access on Windows")
+def test_the_run_store_is_owner_only(feature_repo):
+    ScriptedAgent(feature_repo).run("start")
+
+    assert _state_root(feature_repo).stat().st_mode & 0o777 == 0o700
+
+
 def test_replace_preserves_an_isolated_validation_checkout(feature_repo):
     write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
     commit_all(feature_repo, "use strict validation")

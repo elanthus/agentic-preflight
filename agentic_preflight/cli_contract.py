@@ -418,6 +418,7 @@ class GcData(RunDataBase):
     removed: list[Any] | None = None
     retained: list[Any] | None = None
     orphans: list[Any] | None = None
+    pruned: list[str] | None = None
     reclaimed_runners: list[str] | None = None
     legacy_worktrees: list[str] | None = None
     runs_known: list[str] | None = None

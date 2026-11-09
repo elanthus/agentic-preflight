@@ -26,7 +26,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from . import filelock
+from . import filelock, fileperms
 from .config import snapshot_run_settings
 from .machine import TERMINAL_STATES, State
 from .models import Finding, RunDoc
@@ -157,6 +157,9 @@ class Store:
     def run_dir(self, run_id: str) -> Path:
         return self.root / "runs" / run_id
 
+    def operation_lock_path(self, run_id: str) -> Path:
+        return self.run_dir(run_id) / ".operation.lock"
+
     def run_path(self, run_id: str) -> Path:
         return self.run_dir(run_id) / "run.json"
 
@@ -189,6 +192,7 @@ class Store:
 
     def create_run(self, run: RunDoc) -> RunDoc:
         run.updated_at = run.created_at
+        fileperms.private_directory(self.root)
         self.run_dir(run.run_id).mkdir(parents=True, exist_ok=True)
         _atomic_write(self.run_path(run.run_id), run.model_dump_json(indent=2))
         self.append_event(
@@ -446,13 +450,13 @@ class Store:
     @contextmanager
     def operation(self, run_id: str) -> Iterator[None]:
         """Serialize a complete mutating command for one run."""
-        with filelock.exclusive(self.run_dir(run_id) / ".operation.lock"):
+        with filelock.exclusive(self.operation_lock_path(run_id)):
             yield
 
     @contextmanager
     def try_operation(self, run_id: str) -> Iterator[bool]:
         """Probe whether a run is between commands without waiting for it."""
-        with filelock.try_exclusive(self.run_dir(run_id) / ".operation.lock") as acquired:
+        with filelock.try_exclusive(self.operation_lock_path(run_id)) as acquired:
             yield acquired
 
     @contextmanager

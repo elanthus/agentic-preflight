@@ -385,4 +385,5 @@ preserve the directory. This includes the user cache and old sibling default;
 For a pushed run with no PR, follow `finish` with `gc`. `gc` compares original fixes
 with post-merge-back history using stable patch IDs. Only patch-equivalent fixes are
 reclaimed automatically; anything unmerged is retained unless the user explicitly
-chooses `--force`. Run directories remain because they hold stage logs.
+chooses `--force`. Run directories remain because they hold stage logs, until
+`[retention] run_days` expires them; report `data.pruned` when it is not empty.

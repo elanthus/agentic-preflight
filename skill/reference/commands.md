@@ -576,7 +576,12 @@ Reconciles run directories, git worktrees, and `ap/*` branches. For a terminal r
 each fix commit is compared by stable patch ID with commits in that run's
 post-merge-back history. Patch-equivalent cherry-picks are safe to reclaim; anything
 with no equivalent remains reported as unmerged and is never removed without
-`--force`. Run directories and their audit logs are retained.
+`--force`. Run directories and their audit logs are retained until they expire:
+a reclaimed run's directory is deleted once its record last changed more than
+`[retention] run_days` days ago (default 90; 0 keeps every record), and
+`data.pruned` lists the deleted run IDs. Pruned runs leave `data.runs_known`. A run
+whose command is still executing is never pruned, and a deletion that fails is reported
+in `data.retained` with reason `expired run record could not be deleted`.
 It marks a nonterminal run `ORPHANED` when its source worktree disappeared, its source
 head moved, or its ownership pointer vanished, but only when no command is executing.
 Orphaning releases ownership; cleanup remains a separate preserve-first decision.

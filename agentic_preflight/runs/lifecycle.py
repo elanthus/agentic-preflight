@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import shutil
+from contextlib import suppress
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .. import gitx, hook, telemetry, worktree
 from ..cli_contract import AbortData, EventsData, GcData, HookStatus, StatusData
+from ..config import ConfigError, load_config
 from ..envelope import Envelope
 from ..errors import (
     START_COMMAND,
@@ -14,9 +18,9 @@ from ..errors import (
     UnmergedWork,
     WrongState,
 )
-from ..machine import Action, State
+from ..machine import TERMINAL_STATES, Action, State
 from ..models import ABORT_REASONS, AbortReason, FindingStatus, RunDoc
-from ..store import RUN_READ_RECOVERY, RunReadError, StoreError, UnknownRun
+from ..store import RUN_READ_RECOVERY, RunReadError, Store, StoreError, UnknownRun
 from ._session import (
     RESTART_LIMIT_INSTRUCTION,
     Session,
@@ -268,12 +272,17 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
     reclaimed_runners = _reclaim_released_runners(
         session, known_runs, {item["run_id"] for item in retained if "run_id" in item}
     )
+    # After runner reclamation, which reads the records that name each runner.
+    pruned, prune_failures = _prune_expired_records(session, removed)
+    retained.extend(prune_failures)
+    known_runs.difference_update(pruned)
 
     legacy = worktree.legacy_worktrees(session.repo_root, session.config.worktree.root)
 
     return Envelope(
         data=GcData(
             removed=removed,
+            pruned=pruned,
             retained=retained,
             orphans=orphans,
             reclaimed_runners=reclaimed_runners,
@@ -303,6 +312,93 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
             else None
         ),
     )
+
+
+def _retention_days(session: Session) -> int:
+    """Read ``[retention] run_days`` from the files; snapshots never carry it.
+
+    A repository section overrides the user's, including with a shorter window:
+    unlike ``[telemetry]``, retention is deliberately not restricted to the user
+    file. Configuration that cannot be read deletes nothing.
+    """
+    try:
+        return load_config(session.repo_root, tolerate_removed_keys=True).retention.run_days
+    except ConfigError:
+        return 0
+
+
+def _prune_expired_records(
+    session: Session, reclaimed: list[str]
+) -> tuple[list[str], list[dict[str, str]]]:
+    """Delete reclaimed run records that last changed before the retention window.
+
+    Only runs this collection just reclaimed are candidates: terminal, with no
+    unlanded fix commits and a released worktree. A run whose command is still
+    executing is left for the next collection.
+    """
+    days = _retention_days(session)
+    if days == 0:
+        return [], []
+    store = session.store
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    pruned: list[str] = []
+    failures: list[dict[str, str]] = []
+    for run_id in reclaimed:
+        try:
+            run = store.load_run(run_id)
+        except StoreError:
+            continue
+        if run.state not in TERMINAL_STATES or run.updated_at is None:
+            continue
+        try:
+            updated = datetime.fromisoformat(run.updated_at)
+        except ValueError:
+            continue
+        if (updated if updated.tzinfo else updated.replace(tzinfo=UTC)) >= cutoff:
+            continue
+        with store.try_operation(run_id) as idle:
+            if not idle:
+                continue
+            error = _delete_run_contents(store, run_id)
+        if error is not None:
+            failures.append(
+                {
+                    "run_id": run_id,
+                    "reason": "expired run record could not be deleted",
+                    "error": error[:500],
+                }
+            )
+            continue
+        # The lock file goes after release: Windows cannot delete an open file. A
+        # command that took the lock in between finds no record and leaves it.
+        with suppress(OSError):
+            store.operation_lock_path(run_id).unlink()
+            store.run_dir(run_id).rmdir()
+        pruned.append(run_id)
+    return pruned, failures
+
+
+def _delete_run_contents(store: Store, run_id: str) -> str | None:
+    """Delete everything in a run's directory but its operation lock, record last.
+
+    Called under the run's operation lock, so no command can start on the run
+    while its files disappear. Keeping ``run.json`` until the end means a deletion
+    that fails partway leaves a record the next collection prunes again.
+    """
+    lock = store.operation_lock_path(run_id)
+    record = store.run_path(run_id)
+    try:
+        for entry in store.run_dir(run_id).iterdir():
+            if entry in (lock, record):
+                continue
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry)
+            else:
+                entry.unlink()
+        record.unlink(missing_ok=True)
+    except OSError as exc:
+        return str(exc)
+    return None
 
 
 def _reclaim_released_runners(
