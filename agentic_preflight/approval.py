@@ -63,8 +63,13 @@ def latest_approvals(
     does. Explicit owner mode also accepts an author's Comment review containing only
     ``approved``. Their latest Comment review replaces that self-approval, including
     edited text.
+
+    A decisive review counts toward the latest review even when GitHub reports no
+    commit for it, for example after the commit is garbage-collected. Such a review
+    revokes, but can never count as an approval itself. An eligible decisive review
+    without an integer ``id`` cannot be ordered, so it raises ``ValueError``.
     """
-    latest: dict[str, tuple[int, str, str]] = {}
+    latest: dict[str, tuple[int, str, str | None]] = {}
     for review in _flatten_reviews(reviews):
         user = review.get("user")
         if not isinstance(user, Mapping):
@@ -80,7 +85,6 @@ def latest_approvals(
             or association not in _TRUSTED_AUTHOR_ASSOCIATIONS
             or (owner_reviewer is None and login.casefold() == pull_request_author.casefold())
             or (owner_reviewer is not None and login.casefold() != owner_reviewer.casefold())
-            or not isinstance(commit_id, str)
             or state not in _DECISIVE_REVIEW_STATES | {"COMMENTED"}
         ):
             continue
@@ -93,15 +97,20 @@ def latest_approvals(
         if owner_reviewer is not None:
             login = owner_reviewer
         review_id = review.get("id")
-        order = review_id if isinstance(review_id, int) else 0
-        if login not in latest or order >= latest[login][0]:
-            latest[login] = (order, state, commit_id)
+        if not isinstance(review_id, int) or isinstance(review_id, bool):
+            # Without an id the review cannot be ordered against the others, and
+            # guessing an order could let an earlier approval outlive it.
+            raise ValueError(f"a decisive review by {login} has no integer id")
+        # A missing commit (GitHub reports null once it is gone) still revokes.
+        head = commit_id if isinstance(commit_id, str) else None
+        if login not in latest or review_id >= latest[login][0]:
+            latest[login] = (review_id, state, head)
     return [
         HeadApproval(login, commit_id, order)
         for login, (order, state, commit_id) in sorted(latest.items())
         # Filter by head only after choosing the latest review, so a revocation
         # submitted on another head is never skipped.
-        if state == "APPROVED" and (heads is None or commit_id in heads)
+        if state == "APPROVED" and commit_id is not None and (heads is None or commit_id in heads)
     ]
 
 

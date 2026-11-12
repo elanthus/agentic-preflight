@@ -93,7 +93,6 @@ H2 = "b" * 40
     ("owner_reviewer", "author", "approval", "revocation"),
     [
         (None, "author", {}, {"state": "CHANGES_REQUESTED"}),
-        (None, "author", {}, {"state": "DISMISSED"}),
         ("reviewer", "author", {}, {"state": "CHANGES_REQUESTED"}),
         (
             "reviewer",
@@ -123,6 +122,106 @@ def test_a_later_revocation_on_another_head_revokes_an_exact_head_approval(
         )
         == []
     )
+
+
+@pytest.mark.parametrize(
+    ("owner_reviewer", "author", "approval", "revocation"),
+    [
+        (None, "author", {}, {"state": "CHANGES_REQUESTED"}),
+        ("reviewer", "author", {}, {"state": "CHANGES_REQUESTED"}),
+        (
+            "reviewer",
+            "reviewer",
+            {"state": "COMMENTED", "body": "approved"},
+            {"state": "COMMENTED", "body": "needs another change"},
+        ),
+        # An approval whose commit is gone cannot count, but still replaces H1's.
+        (None, "author", {}, {"state": "APPROVED"}),
+    ],
+)
+def test_a_later_review_whose_commit_is_gone_still_revokes(
+    owner_reviewer, author, approval, revocation
+):
+    """GitHub reports ``commit_id: null`` once H2 is garbage-collected."""
+    reviews = [
+        _review(1, commit_id=H1, **approval),
+        _review(2, commit_id=None, **revocation),
+    ]
+    assert (
+        current_human_approvers(
+            reviews, head_sha=H1, pull_request_author=author, owner_reviewer=owner_reviewer
+        )
+        == []
+    )
+
+
+def test_dismissing_a_later_approval_of_another_head_revokes_the_reviewer():
+    """Dismissal changes the dismissed review's state; it does not add a review."""
+    reviews = [_review(1, commit_id=H1), _review(2, state="DISMISSED", commit_id=H2)]
+    assert current_human_approvers(reviews, head_sha=H1, pull_request_author="author") == []
+
+
+def test_an_owner_reviewers_comment_on_another_authors_pr_does_not_revoke():
+    reviews = [
+        _review(1, commit_id=H1),
+        _review(2, state="COMMENTED", body="one more thought", commit_id=H2),
+        _review(3, state="COMMENTED", body="", commit_id=H2),
+    ]
+    assert current_human_approvers(
+        reviews, head_sha=H1, pull_request_author="author", owner_reviewer="reviewer"
+    ) == ["reviewer"]
+
+
+@pytest.mark.parametrize("review_id", [None, "7", 2.0, True])
+@pytest.mark.parametrize("state", ["APPROVED", "CHANGES_REQUESTED"])
+def test_a_decisive_review_without_an_integer_id_is_rejected(review_id, state):
+    """An unorderable review must not lose to an earlier approval by sorting first."""
+    reviews = [_review(1, commit_id=H1), _review(review_id, state=state, commit_id=H2)]
+    with pytest.raises(ValueError, match="no integer id"):
+        current_human_approvers(reviews, head_sha=H1, pull_request_author="author")
+
+
+def test_a_non_decisive_review_without_an_id_is_ignored():
+    reviews = [
+        _review(1, commit_id=H1),
+        _review(None, state="COMMENTED", body="question", commit_id=H2),
+        _review(None, login="automation", user_type="Bot", commit_id=H2),
+    ]
+    assert current_human_approvers(reviews, head_sha=H1, pull_request_author="author") == [
+        "reviewer"
+    ]
+
+
+def test_approval_check_fails_closed_on_a_decisive_review_without_an_id(
+    tmp_repo, tmp_path, monkeypatch
+):
+    write(
+        tmp_repo,
+        ".agentic-preflight.toml",
+        "[policy]\nhigh_risk_paths = ['src/**']\n\n[approval]\nmode = 'peer_review'\n",
+    )
+    base = commit_all(tmp_repo, "configure risk")
+    git("switch", "-c", "feature/no-id", cwd=tmp_repo)
+    write(tmp_repo, "src/app.py", "def greet(name):\n    return f'hello {name}'\n")
+    head = commit_all(tmp_repo, "change application")
+    _stub_attestation(monkeypatch, head=head, branch="feature/no-id", findings_summary={})
+    reviews_file = tmp_path / "reviews.json"
+    reviews_file.write_text(
+        json.dumps([_review(1, commit_id=head), _review(None, state="CHANGES_REQUESTED")])
+    )
+    env = ScriptedAgent(tmp_repo).run(
+        "approval-check",
+        head,
+        "--base",
+        base,
+        "--reviews-file",
+        str(reviews_file),
+        "--author",
+        "author",
+        expect=ExitCode.STAGE_FAILED,
+    )
+    assert env["error"]["code"] == "attestation_failed"
+    assert "no integer id" in env["error"]["message"]
 
 
 def test_a_later_approval_of_a_different_head_replaces_an_exact_head_approval():

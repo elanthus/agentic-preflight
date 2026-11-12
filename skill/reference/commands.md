@@ -376,15 +376,21 @@ on, or `null`), and `approval_carried` (`true` only when that commit is an earli
 `--report-only` reports conditional Environment or peer-review state without failing, so
 a trusted workflow can dispatch the appropriate hosted job.
 A reviews file that is not UTF-8 JSON fails with `invalid_findings` (exit 3), as other
-JSON file inputs do.
+JSON file inputs do. A decisive review by an eligible reviewer without an integer `id`
+cannot be ordered, so the check fails closed with `attestation_failed` (exit 4). A
+revoking review still counts when its `commit_id` is `null`.
 
 `[approval] mode = "owner_review"` requires the configured `reviewer` GitHub login to
 approve the current head or an equivalent earlier head. An Approve review counts on
 another author's PR; on their own PR, a Comment review with trimmed body exactly
 `approved` counts. Conversation comments, reviews of heads with different content, bots,
-and other users do not count. Dismissal, changes requested on any head, editing a
-self-review to other text, or a later self-review Comment with other text on any head
-revokes approval. The check counts the account, not the person:
+and other users do not count. As for peers, only the reviewer's latest decisive review
+counts, whichever head it was submitted on: dismissal, changes requested on any head,
+editing a self-review to other text, or a later self-review Comment with other text on
+any head revokes approval, and a later approval of a head with different content replaces
+it. On their own PR, a review-thread reply is an empty-body Comment review, so it also
+revokes the self-approval, even on another head; on another author's PR, the reviewer's
+comments do not revoke an Approve review. The check counts the account, not the person:
 a review posted with the reviewer's credentials counts as theirs, whoever posted it.
 
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
