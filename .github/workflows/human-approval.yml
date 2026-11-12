@@ -209,7 +209,8 @@ jobs:
               # A review re-runs this run through human-approval-rerun.yml, so the failed
               # result is replaced in place rather than left beside a passing one.
               echo "::error::Waiting for an eligible $APPROVAL_MODE review of head $HEAD_SHA." \
-                "A submitted review re-runs this check. An approval of an earlier head counts" \
+                "A review from an owner, member, or collaborator, or a dismissal by a user" \
+                "with write access, re-runs this check. An approval of an earlier head counts" \
                 "only while the branch content is unchanged."
               exit 1
             fi

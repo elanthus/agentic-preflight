@@ -88,8 +88,18 @@ def rerun(tmp_path):
     bash = shutil.which("bash")
     if bash is None or shutil.which("jq") is None:
         pytest.skip("Bash and jq are required to execute the workflow step")
-    script = _step_script(
-        _read("human-approval-rerun.yml"), "Re-run the trusted policy run for the reviewed head"
+    companion = _read("human-approval-rerun.yml")
+    authorize = _step_script(companion, "Authorize the review for the reviewed head")
+    rerun_step = _step_script(companion, "Re-run the trusted policy run for the reviewed head")
+    # The two jobs run in order; the re-run job runs only when authorize allows it,
+    # with the pull request number from authorize's outputs.
+    script = (
+        ": > github-output.txt\n(\n"
+        + authorize
+        + "\n)\nif grep -qx 'allowed=true' github-output.txt; then\n"
+        + "  PR_NUMBER=$(sed -n 's/^pr_number=//p' github-output.txt)\n(\n"
+        + rerun_step
+        + "\n)\nfi\n"
     )
 
     def run(
@@ -162,6 +172,7 @@ gh() {
 }
 sleep() { echo slept >> sleeps.txt; }
 RUNNER_TEMP=.
+GITHUB_OUTPUT=github-output.txt
 """
         result = subprocess.run(
             [bash, "--noprofile", "--norc", "-e", "-u", "-o", "pipefail", "-c", harness + script],
@@ -517,7 +528,8 @@ def test_waiting_approval_names_the_head_and_the_rerun(enforce):
     result = enforce(APPROVED="false")
     assert result.returncode == 1
     assert f"Waiting for an eligible owner_review review of head {HEAD}" in result.stdout
-    assert "A submitted review re-runs this check" in result.stdout
+    assert "A review from an owner, member, or collaborator" in result.stdout
+    assert "with write access, re-runs this check" in result.stdout
 
 
 def test_recorded_approval_names_the_approved_head(enforce):
@@ -603,16 +615,36 @@ def test_companion_runs_from_the_default_branch_with_rerun_permission_only():
     ]
     assert "actions/checkout" not in companion
     assert "name: high-risk human approval" not in companion
-    job = " ".join(_job(companion, "rerun").split())
+    # No workflow-level concurrency: an ineligible review must never enter the group.
+    assert "\nconcurrency:" not in companion
+    authorize = _job(companion, "authorize", "rerun")
+    flat_authorize = " ".join(authorize.split())
     assert (
         "if: >- github.event.workflow_run.event == 'pull_request_review' && "
         "github.event.workflow_run.conclusion == 'success'"
-    ) in job
-    assert "TRIGGERING_ACTOR: ${{ github.event.workflow_run.triggering_actor.login }}" in job
-    concurrency = companion.split("\nconcurrency:\n", 1)[1].split("\n\n", 1)[0]
-    assert concurrency.split() == [
-        "group:",
-        "agentic-preflight-human-approval-rerun-${{",
-        "github.event.workflow_run.head_sha",
-        "}}",
-    ]
+    ) in flat_authorize
+    assert "concurrency:" not in authorize
+    assert (
+        "TRIGGERING_ACTOR: ${{ github.event.workflow_run.triggering_actor.login }}"
+        in flat_authorize
+    )
+    assert "allowed: ${{ steps.authorize.outputs.allowed }}" in flat_authorize
+    assert "pr_number: ${{ steps.authorize.outputs.pr_number }}" in flat_authorize
+    assert "gh run rerun" not in authorize
+    rerun = _job(companion, "rerun")
+    flat_rerun = " ".join(rerun.split())
+    # The re-run job is skipped, never queued, unless authorize allowed it, and only
+    # then takes the per-head concurrency slot.
+    assert (
+        "needs: authorize if: needs.authorize.outputs.allowed == 'true' runs-on: ubuntu-latest"
+        in flat_rerun
+    )
+    assert (
+        "concurrency: group: agentic-preflight-human-approval-rerun-"
+        "${{ github.event.workflow_run.head_sha }} #" in flat_rerun
+    )
+    assert flat_rerun.index("if: needs.authorize") < flat_rerun.index("concurrency:")
+    assert "cancel-in-progress" not in rerun
+    assert "PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}" in flat_rerun
+    assert "TRIGGERING_ACTOR" not in rerun
+    assert 'gh run download "$RELAY_RUN_ID"' not in rerun

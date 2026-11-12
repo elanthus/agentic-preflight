@@ -16,7 +16,9 @@
 - `human-approval-rerun.yml` re-runs the approval policy only when the user who submitted,
   edited, or dismissed the review is an owner, member, or collaborator with a review on
   the pull request, or has write access. Comment reviews from other users on a public
-  pull request no longer queue policy re-runs.
+  pull request no longer queue policy re-runs. Eligibility is decided in an `authorize`
+  job before the re-run job joins its per-head concurrency group, so an ineligible
+  review cannot replace an eligible re-run that is waiting in that group.
 - The configuration that `init` writes, and the Claude and Codex reviewer example
   configurations, add `docs/CODEOWNERS` and the reviewer wrapper directory
   `docs/examples/reviewers/**` to `human_review_paths`. Existing configuration files are

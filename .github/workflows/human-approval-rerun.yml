@@ -22,21 +22,26 @@ permissions:
   contents: read
   pull-requests: read
 
-concurrency:
-  group: agentic-preflight-human-approval-rerun-${{ github.event.workflow_run.head_sha }}
-
 jobs:
-  rerun:
-    name: re-run the approval policy for the reviewed head
+  # Eligibility is decided here, before the re-run job enters its concurrency group.
+  # A queued job replaces any pending job in its group. If an ineligible review's run
+  # took the pending slot, it would cancel an owner's waiting re-run and then exit at
+  # the actor check, so the owner's approval would never be counted. This job has no
+  # concurrency group, and the re-run job is skipped, not queued, unless it allows.
+  authorize:
+    name: authorize the review that started the relay
     if: >-
       github.event.workflow_run.event == 'pull_request_review' &&
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    # The waits share a twenty-minute budget; leave time to explain why.
-    timeout-minutes: 30
+    timeout-minutes: 5
+    outputs:
+      allowed: ${{ steps.authorize.outputs.allowed }}
+      pr_number: ${{ steps.authorize.outputs.pr_number }}
     steps:
       # No checkout. The relay artifact supplies only a pull request number.
-      - name: Re-run the trusted policy run for the reviewed head
+      - name: Authorize the review for the reviewed head
+        id: authorize
         env:
           GH_TOKEN: ${{ github.token }}
           RELAY_RUN_ID: ${{ github.event.workflow_run.id }}
@@ -98,6 +103,48 @@ jobs:
                 exit 0
                 ;;
             esac
+          fi
+          echo "allowed=true" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+
+  rerun:
+    name: re-run the approval policy for the reviewed head
+    needs: authorize
+    if: needs.authorize.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    # Only authorized runs reach this group, so a newer one replaces an older pending
+    # one; either re-runs every policy run for the pull request's current head.
+    concurrency:
+      group: agentic-preflight-human-approval-rerun-${{ github.event.workflow_run.head_sha }}
+    # The waits share a twenty-minute budget; leave time to explain why.
+    timeout-minutes: 30
+    steps:
+      - name: Re-run the trusted policy run for the reviewed head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+        run: |
+          pr_number=$PR_NUMBER
+          case "$pr_number" in
+            '' | 0* | *[!0-9]*)
+              echo "The authorize job did not name a pull request number." >&2
+              exit 1
+              ;;
+          esac
+          # The head can move while this job waits for its concurrency slot.
+          pr_file="$RUNNER_TEMP/pull-request.json"
+          gh api "/repos/$GITHUB_REPOSITORY/pulls/$pr_number" > "$pr_file"
+          if ! jq -e --arg head "$RUN_HEAD_SHA" --arg repository "$RUN_HEAD_REPOSITORY" '
+            .state == "open" and
+            .head.sha == $head and
+            .head.repo.full_name == $repository and
+            (.base.sha | test("^[0-9a-f]{40}$"))
+          ' "$pr_file" > /dev/null; then
+            echo "Pull request $pr_number is closed or no longer has the reviewed head."
+            echo "The run for its current head reports the check."
+            exit 0
           fi
           head_sha=$(jq -r '.head.sha' "$pr_file")
           runs_file="$RUNNER_TEMP/policy-runs.json"
