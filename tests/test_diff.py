@@ -52,7 +52,7 @@ def test_bundle_uses_a_single_batched_diff_for_an_ordinary_change(feature_repo, 
 
 def test_bundle_rejects_an_incomplete_per_file_mapping(feature_repo, monkeypatch):
     base = git("rev-parse", "main", cwd=feature_repo)
-    monkeypatch.setattr(diff.gitx, "diff_text_by_path", lambda *_args: {})
+    monkeypatch.setattr(diff.gitx, "diff_text_by_path", lambda *_args, **_kwargs: {})
 
     with pytest.raises(ValueError, match=r"missing patches for changed files: src/app\.py"):
         diff.build_bundle(feature_repo, base, "HEAD")

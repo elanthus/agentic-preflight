@@ -31,6 +31,7 @@ Under this rule, 0.8.0 must read 0.7.0 records, notes, and snapshots. It need no
 | 8 | `REMOVED_CONFIG_KEYS` entries removed in 0.7.0 | 0.7.0 | 0.6.0 snapshots and config files | 0.10.0 |
 | 9 | `LEGACY_DIRNAME`, `legacy_worktrees`, runner reclamation at the old root | 0.7.0 | worktrees created before 0.7.0 | 0.10.0 |
 | 10 | `record.get("producer")` raw fallback in `telemetry._producer` | after v0.7.0 | 0.7.0 records without the key | 0.10.0 |
+| 11 | `full_index=False` in `gitx.diff_text_by_path` and `diff.build_bundle`, and the second pass in `refresh_validation._manifest` | after v0.8.1 | review digests in notes from 0.8.1 and earlier | 0.10.0 |
 
 Run schema 2, attestation schema 7, and fingerprint version 2 do not change in any stage.
 No stage rewrites saved data or deletes user work. Rejected records keep the existing

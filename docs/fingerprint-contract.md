@@ -42,6 +42,16 @@ Review binds these inputs:
 
 The `[stage]` section governs command-review timeouts and retries.
 
+The included diff bytes are the patch text that Git prints for the merge base and the head.
+The tool fixes the `core.*` and `diff.*` settings that shape that text, and each patch names full object IDs.
+Thus, two machines whose Git configuration differs in those settings build the same bytes from the same commits.
+Attributes are the exception.
+A `-diff` attribute or a `diff` driver in a `.gitattributes` file in the checkout, in `$GIT_DIR/info/attributes`, or in a system-wide attributes file still changes the text.
+So does the `diff.<driver>.*` configuration of a driver that an attribute names.
+Notes from 0.8.1 and earlier hash patches with abbreviated object IDs, whose length depends on the clone.
+A verifier builds that text only when the current text does not reproduce a note's digest.
+See [the compatibility entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-configuration).
+
 Intent and shell-command digests hash the exact UTF-8 text bytes.
 They do not normalize whitespace or Unicode.
 Configuration and documentation-surface digests hash JSON with sorted keys and compact separators.

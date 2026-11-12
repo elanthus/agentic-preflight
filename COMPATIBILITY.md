@@ -488,3 +488,40 @@ Invalid `mirror` and `hook_log` values and unknown keys in the repository sectio
 `mirror` and `hook_log` now accept only `true` and `false`, in either file. Earlier releases also accepted values such as `1`, `"yes"`, and `"on"`. Such a value is now an error that names the file.
 Attestation verification reads the protected base's `[telemetry]` section by the same rule, so a `path` there no longer fails verification.
 No configuration digest, snapshot, fingerprint, or attestation changes, because none of them contains `[telemetry]`.
+
+## Unreleased: review patches no longer depend on Git configuration
+
+The review digest hashes the patch text of the change, and a verifier accepts a note only when it can rebuild that text.
+Earlier releases built it with the Git configuration of the machine that ran the command.
+A producer and a verifier with different settings then disagreed about the same commits, and `verify`, `push`, and the pre-push hook failed with "review fingerprint does not match the Git diff".
+
+Review patches now have one form on every machine:
+
+- The `index` line of each patch names full object IDs. Earlier releases abbreviated them to a length that `core.abbrev` sets and that Git otherwise raises as a clone gains objects.
+- These settings no longer change the patch text or the list of changed files: `core.quotePath`, `diff.noprefix`, `diff.mnemonicPrefix`, `diff.srcPrefix`, `diff.dstPrefix`, `diff.algorithm`, `diff.context`, `diff.interHunkContext`, `diff.indentHeuristic`, `diff.suppressBlankEmpty`, `diff.submodule`, `diff.ignoreSubmodules`, `diff.relative`, and `diff.orderFile`.
+  Each is fixed to Git's default.
+- The user-level attributes file (`core.attributesFile`, by default `$XDG_CONFIG_HOME/git/attributes`) is not read for review patches.
+
+Attributes are not fixed.
+A `.gitattributes` file in the checkout, `$GIT_DIR/info/attributes`, and a system-wide attributes file still apply.
+A `-diff` attribute or a `diff` driver set there still changes the patch text.
+A driver takes its definition from `diff.<driver>.*` configuration, so a driver that an attribute names can still differ between machines, as `$GIT_DIR/info/attributes` can.
+
+What changes at upgrade:
+
+- `diff_sha256`, the review manifest, and the digest of each file-level review unit change for every diff, because the file header changed.
+  A file-level unit is a patch without hunks, such as a binary change. Hunk unit digests are unchanged.
+- A note that 0.8.1 or an earlier release wrote still verifies.
+  When the full-ID text does not reproduce a note's digest, the verifier also builds the abbreviated text and accepts the note if that text matches.
+  The other settings above are fixed for that text too.
+  Such a note still fails in a clone whose abbreviation length differs from the producer's. Validate the commit again to replace it.
+- Review evidence that an earlier release recorded does not carry to a new head. The review runs again.
+- A run that an earlier release reviewed and that is still open reopens review at its next command.
+  The shell stages run again after the new review.
+- 0.8.1 and earlier verifiers reject a note that this release writes, with "review fingerprint does not match the Git diff".
+  Upgrade the protected verifier before, or together with, the local publisher and the hook.
+
+A repository that sets `diff.ignoreSubmodules = all` now sees submodule pointer changes in the review diff, the changed-file list, and risk classification.
+Earlier releases left them out.
+
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.

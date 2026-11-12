@@ -40,7 +40,10 @@ def _diff_text(cwd, base: str, head: str = "HEAD") -> str:
 
 
 def _diff_text_for_path(cwd, base: str, head: str, path: str) -> str:
-    """Return the diff for one path between the merge base and head."""
+    """Return the diff for one path between the merge base and head.
+
+    Full object IDs, as review patches carry them; every other option is Git's default.
+    """
     return gitx.run(
         cwd,
         "diff",
@@ -48,6 +51,7 @@ def _diff_text_for_path(cwd, base: str, head: str, path: str) -> str:
         "--no-textconv",
         "--no-color",
         "--no-renames",
+        "--full-index",
         f"{base}...{head}",
         "--",
         f":(literal){path}",
@@ -912,15 +916,23 @@ def test_crlf_patch_text_and_digests_match_main(tmp_repo):
 
     bundle = diff_module.build_bundle(tmp_repo, "HEAD~1", "HEAD")
     manifest = diff_module.build_review_manifest(tmp_repo, bundle)
+    earlier = diff_module.build_bundle(tmp_repo, "HEAD~1", "HEAD", full_index=False)
+    earlier_manifest = diff_module.build_review_manifest(tmp_repo, earlier)
 
     # Values computed with main's text-mode decoding before the byte-split change.
-    assert hashlib.sha256(bundle.text.encode()).hexdigest() == (
+    # Notes from 0.8.1 and earlier record them, so the abbreviated format keeps them.
+    assert hashlib.sha256(earlier.text.encode()).hexdigest() == (
         "6e99453702fcbb1be74d16ea51a2fc0bc9bbee874879c4bb842eb791e3666f44"
     )
+    assert earlier_manifest.diff_sha256 == (
+        "6e99453702fcbb1be74d16ea51a2fc0bc9bbee874879c4bb842eb791e3666f44"
+    )
+    # Full object IDs change the file header and nothing inside a hunk.
     assert manifest.diff_sha256 == (
-        "6e99453702fcbb1be74d16ea51a2fc0bc9bbee874879c4bb842eb791e3666f44"
+        "89a3f679bedb130ada4cf144088006a18ab70e7eab3ff61e6933cfbe6b3b2874"
     )
-    assert [unit.digest for unit in manifest.units] == [
-        "260f79bfed5421811142664fbeec72c91df66872417ba092e9734645815f1790"
-    ]
+    for built in (manifest, earlier_manifest):
+        assert [unit.digest for unit in built.units] == [
+            "260f79bfed5421811142664fbeec72c91df66872417ba092e9734645815f1790"
+        ]
     assert "\r" not in bundle.per_file["a.txt"]

@@ -574,6 +574,48 @@ def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> bool:
 # by path, so renames are disabled and each path reports as A, D, M or T.
 _NO_RENAMES = "--no-renames"
 
+# Review evidence is a hash of patch text, and a verifier on another machine must
+# rebuild that text from the same commits. Git shapes it from ``core.*`` and
+# ``diff.*`` configuration, so the settings that change a byte or drop a path are
+# fixed here instead of being read from whoever runs the command. Each value is
+# Git's own default: a repository with no such configuration produces the same
+# text as before. ``/dev/null`` is the spelling Git documents for "no file" and
+# resolves itself on Windows.
+#
+# Not fixed: attributes in the checkout, in ``$GIT_DIR/info/attributes``, or
+# system-wide, and the ``diff.<driver>.*`` definition of a driver they name.
+#
+# Settings with no command-line option. The attributes file is the user-level one.
+_PINNED_DIFF_CONFIG = (
+    "-c",
+    "core.quotePath=true",
+    "-c",
+    "diff.suppressBlankEmpty=false",
+    "-c",
+    "core.attributesFile=/dev/null",
+)
+# Which paths a diff lists, and in which order.
+_PINNED_INVENTORY_OPTIONS = (
+    "--no-ext-diff",
+    "--no-textconv",
+    _NO_RENAMES,
+    "--ignore-submodules=none",
+    "--no-relative",
+    "-O/dev/null",
+)
+# The text of each patch.
+_PINNED_PATCH_OPTIONS = (
+    *_PINNED_INVENTORY_OPTIONS,
+    "--no-color",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+    "--diff-algorithm=myers",
+    "--indent-heuristic",
+    "--unified=3",
+    "--inter-hunk-context=0",
+    "--submodule=short",
+)
+
 
 def changed_files(cwd: Path | str, base: str, head: str = "HEAD") -> list[str]:
     """Return display paths changed between the merge base and head."""
@@ -584,12 +626,11 @@ def changed_files_raw(cwd: Path | str, base: str, head: str = "HEAD") -> list[st
     """Return changed paths in raw form, suitable only for handing back to Git."""
     output = _run_bytes(
         cwd,
+        *_PINNED_DIFF_CONFIG,
         "diff",
-        "--no-ext-diff",
-        "--no-textconv",
+        *_PINNED_INVENTORY_OPTIONS,
         "--name-only",
         "-z",
-        _NO_RENAMES,
         f"{base}...{head}",
     )
     return [_decode_path(path) for path in output.split(b"\0") if path]
@@ -607,12 +648,11 @@ def merge_result_files(cwd: Path | str, base: str, head: str) -> list[str]:
     tree, _clean = merge_tree_result(cwd, base, head)
     output = _run_bytes(
         cwd,
+        *_PINNED_DIFF_CONFIG,
         "diff",
-        "--no-ext-diff",
-        "--no-textconv",
+        *_PINNED_INVENTORY_OPTIONS,
         "--name-only",
         "-z",
-        _NO_RENAMES,
         base,
         tree,
     )
@@ -640,6 +680,7 @@ def non_merge_commit_files(cwd: Path | str, base: str, head: str) -> list[str]:
         "--no-ext-diff",
         "--no-textconv",
         _NO_RENAMES,
+        "--ignore-submodules=none",
         f"{base}..{head}",
         "--",
     ).stdout
@@ -862,13 +903,19 @@ def _streamed_diff_text_by_path(
 
 
 def diff_text_by_path(
-    cwd: Path | str, base: str, head: str, paths: Sequence[str]
+    cwd: Path | str, base: str, head: str, paths: Sequence[str], *, full_index: bool = True
 ) -> dict[str, str]:
     """Return complete per-file patches using one Git process per bounded batch.
 
     ``paths`` and the returned keys are raw paths from :func:`changed_files_raw`.
     Windows arguments cannot carry surrogateescaped Git names. For those names,
     stream the full diff once and retain only requested raw inventory entries.
+
+    The pinned options above keep ``core.*`` and ``diff.*`` configuration out of
+    the text; attributes still shape it. ``full_index=False`` reproduces the
+    patches of 0.8.1 and earlier releases, whose ``index`` lines abbreviate object
+    IDs to a length that grows with the clone. It exists to verify notes those
+    releases wrote and is the one form that still varies between clones.
     """
     unfiltered = _WINDOWS_PATH_ARGUMENTS and any(
         "\udc80" <= char <= "\udcff" for path in paths for char in path
@@ -877,14 +924,13 @@ def diff_text_by_path(
     per_file: dict[str, str] = {}
     for batch in batches:
         args = (
+            *_PINNED_DIFF_CONFIG,
             "diff",
-            "--no-ext-diff",
-            "--no-textconv",
+            *_PINNED_PATCH_OPTIONS,
+            *(("--full-index",) if full_index else ()),
             "--raw",
             "-z",
             "--patch",
-            "--no-color",
-            _NO_RENAMES,
             f"{base}...{head}",
             "--",
             *(f":(literal){path}" for path in batch if not unfiltered),
