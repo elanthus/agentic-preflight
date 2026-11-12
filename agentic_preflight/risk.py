@@ -179,8 +179,9 @@ def command_path_patterns(command: str) -> list[str]:
     paths are resolved against both the repository root and ``DIR``. ``-m a.b`` protects
     the top-level package ``a/**``. A leading ``$VAR/`` or ``$(...)/`` is dropped and
     the literal path after it is kept. Other computed paths, files that the program
-    reads on its own, the modules beside a root-level script, and the interpreter's
-    environment are not detected; list those in ``[review] trusted_paths``.
+    reads on its own, the modules beside a root-level script or under a root search-path
+    entry such as ``PYTHONPATH=.``, and the interpreter's environment are not detected;
+    list those in ``[review] trusted_paths``.
     """
     directories = [""]
     patterns: list[str] = []
