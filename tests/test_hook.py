@@ -238,9 +238,10 @@ def test_hook_installer_sets_the_final_mode_through_the_open_file(feature_repo, 
     created_modes = []
     real_open = os.open
 
-    def recording_open(file, flags, mode=0o777, *args, **kwargs):
-        created_modes.append(mode)
-        return real_open(file, flags, mode, *args, **kwargs)
+    def recording_open(file, flags, *args, **kwargs):
+        # Record the mode the installer passes, without supplying one of our own.
+        created_modes.append(args[0] if args else kwargs.get("mode"))
+        return real_open(file, flags, *args, **kwargs)
 
     monkeypatch.setattr(hook.os, "open", recording_open)
     # A chmod by path would follow a symlink swapped in after the write.
