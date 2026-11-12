@@ -502,10 +502,7 @@ Review patches now have one form on every machine:
   Each is fixed to Git's default.
 - The user-level attributes file (`core.attributesFile`, by default `$XDG_CONFIG_HOME/git/attributes`) is not read for review patches.
 
-Attributes are not fixed.
-A `.gitattributes` file in the checkout, `$GIT_DIR/info/attributes`, and a system-wide attributes file still apply.
-A `-diff` attribute or a `diff` driver set there still changes the patch text.
-A driver takes its definition from `diff.<driver>.*` configuration, so a driver that an attribute names can still differ between machines, as `$GIT_DIR/info/attributes` can.
+Attributes in the checkout are covered by the next entry.
 
 What changes at upgrade:
 
@@ -523,5 +520,30 @@ What changes at upgrade:
 
 A repository that sets `diff.ignoreSubmodules = all` now sees submodule pointer changes in the review diff, the changed-file list, and risk classification.
 Earlier releases left them out.
+
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Unreleased: review patches no longer depend on Git attributes
+
+Review patches followed the Git attributes of the checkout that built them.
+A branch that committed `.gitattributes` with `* -diff` turned every patch into "Binary files ... differ", so the reviewer saw no content while each file still counted as reviewed.
+Git reads `.gitattributes` from the checkout, not from the commits, so a verifier with a different checkout also rebuilt different text.
+`$GIT_DIR/info/attributes`, `attr.tree`, `GIT_ATTR_SOURCE`, the system attributes file, and the `diff.<driver>.*` configuration of a driver that an attribute names did the same without leaving a trace in the diff.
+
+Review patches now have one form whatever the attributes:
+
+- Git builds them without `.gitattributes` files, the index, `attr.tree`, `GIT_ATTR_SOURCE`, the user attributes file, or the system attributes file. Each of these works from Git 2.38, the supported minimum.
+- Text files are diffed with `--text`. The tool decides which files are binary with Git's default rule: either side is larger than 512 MiB or has a NUL byte in its first 8,000 bytes. A binary file's patch is Git's "Binary files ... differ" line, and its content is never printed.
+- Hunk headers use Git's default rule, which picks the nearest earlier line that starts with a letter, `_`, or `$`. A `diff=python` or other driver attribute no longer changes them.
+- Git always reads `$GIT_DIR/info/attributes`. `-diff` there has no effect, and neither has a driver that only sets `textconv` or `command`. A driver there with a hunk-header pattern, built in or set by `diff.<driver>.xfuncname` or `diff.<driver>.funcname`, or `diff` set on a binary file, stops `context` and review with `review_diff_attribute` (exit 3), and verification on that machine rejects the note. Remove that entry to continue. A built-in driver that a Git release after 2.54 adds is not refused; its hunk headers then differ on that machine only, and a verifier elsewhere rejects the note.
+
+What changes at upgrade:
+
+- `diff_sha256`, the review manifest, and the affected unit digests change for a repository whose attributes changed a patch: a `-diff`, `binary`, or `diff` attribute, or a diff driver with a hunk-header pattern. A repository without such attributes gets the same text as the previous entry describes.
+- A note that 0.8.1 or an earlier release wrote still verifies when its text can be rebuilt, as the previous entry describes. That text follows the verifier's attributes, as 0.8.1 did.
+  The verifier now rejects such a note when its text shows "Binary files ... differ" for a file whose content is text. The message names the file.
+  A repository that lowered `core.bigFileThreshold` can see this for a large text file. Validate the commit again to replace the note.
+- Review evidence recorded against attribute-shaped text does not carry to a new head. The review runs again and now sees the content.
+- Earlier verifiers rebuild attribute-shaped text, so they reject a note that this release writes for a repository whose attributes changed a patch. Upgrade the protected verifier before, or together with, the local publisher and the hook, as the previous entry already requires.
 
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.

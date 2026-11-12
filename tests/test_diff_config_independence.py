@@ -157,7 +157,7 @@ def test_the_inventory_lists_every_path_from_a_subdirectory_under_diff_relative(
 def test_the_abbreviated_format_reproduces_the_patches_of_earlier_releases(varied_repo):
     """Notes written before full object IDs hash this text, so it must stay available."""
     repo, base = varied_repo
-    legacy = diff.build_bundle(repo, base, "HEAD", full_index=False)
+    legacy = diff.build_bundle(repo, base, "HEAD", legacy=True)
 
     assert legacy.files == diff.build_bundle(repo, base, "HEAD").files
     for path in legacy.files:
@@ -189,7 +189,7 @@ def test_a_note_written_with_abbreviated_object_ids_still_verifies(
         earlier_release.setattr(
             gitx,
             "diff_text_by_path",
-            lambda cwd, base, head, paths, **_: current(cwd, base, head, paths, full_index=False),
+            lambda cwd, base, head, paths, **_: current(cwd, base, head, paths, legacy=True),
         )
         green_run(feature_repo, tmp_path)
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
@@ -218,7 +218,7 @@ def test_a_run_reviewed_by_an_earlier_release_is_reviewed_again_after_an_upgrade
         earlier_release.setattr(
             gitx,
             "diff_text_by_path",
-            lambda cwd, base, head, paths, **_: current(cwd, base, head, paths, full_index=False),
+            lambda cwd, base, head, paths, **_: current(cwd, base, head, paths, legacy=True),
         )
         agent.run("start")
         agent.run("context")

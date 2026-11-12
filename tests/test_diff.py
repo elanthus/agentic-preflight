@@ -36,10 +36,10 @@ def test_bundle_uses_a_single_batched_diff_for_an_ordinary_change(feature_repo, 
         calls += 1
         return real_run(cwd, *args, **kwargs)
 
-    def recording_run_bytes(cwd, *args):
+    def recording_run_bytes(cwd, *args, **kwargs):
         nonlocal calls
         calls += 1
-        return real_run_bytes(cwd, *args)
+        return real_run_bytes(cwd, *args, **kwargs)
 
     monkeypatch.setattr(diff.gitx, "run", recording_run)
     monkeypatch.setattr(diff.gitx, "_run_bytes", recording_run_bytes)
@@ -47,7 +47,10 @@ def test_bundle_uses_a_single_batched_diff_for_an_ordinary_change(feature_repo, 
     bundle = diff.build_bundle(feature_repo, base, "HEAD")
 
     assert bundle.files == ["src/app.py"]
-    assert calls == 2  # changed-file inventory plus one patch batch
+    # The changed-file inventory, then for the patches: the Git directory, one raw
+    # inventory batch, one attribute check, and one patch batch. Blobs are read
+    # by a streamed process that this count does not see.
+    assert calls == 5
 
 
 def test_bundle_rejects_an_incomplete_per_file_mapping(feature_repo, monkeypatch):

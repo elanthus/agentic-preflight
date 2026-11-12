@@ -15,7 +15,7 @@ import click
 from .config import ConfigError
 from .envelope import Envelope, ExitCode, emit
 from .errors import AgenticError, SourceWorktreeMissing
-from .gitx import GitError
+from .gitx import GitError, ReviewDiffError
 from .store import RUN_READ_RECOVERY, RunReadError
 from .worktree import CopiedFileInCommit, CopyRefused, WorktreeError
 
@@ -178,6 +178,17 @@ def command(fn):
                     str(exc),
                     ExitCode.PRECONDITION,
                     "Rewrite the commit without that file, then retry.",
+                    "agentic-preflight status",
+                )
+            )
+        except ReviewDiffError as exc:
+            fail(
+                as_error(
+                    "review_diff_attribute",
+                    str(exc),
+                    ExitCode.PRECONDITION,
+                    "Remove the attribute the message names, then retry. Review patches "
+                    "must not depend on attributes that only this machine has.",
                     "agentic-preflight status",
                 )
             )

@@ -255,11 +255,11 @@ def build_bundle(
     head: str = "HEAD",
     *,
     exclude: list[str] | tuple[str, ...] | None = None,
-    full_index: bool = True,
+    legacy: bool = False,
 ) -> DiffBundle:
     """Build the review diff bundle between two refs, applying excludes.
 
-    ``full_index=False`` builds the patch text of 0.8.1 and earlier releases; see
+    ``legacy=True`` builds the patch text of 0.8.1 and earlier releases; see
     :func:`agentic_preflight.gitx.diff_text_by_path`.
     """
     patterns = list(exclude) if exclude is not None else []
@@ -268,7 +268,7 @@ def build_bundle(
     display = {raw: gitx.display_path(raw) for raw in raw_files}
     kept_raw = [p for p in raw_files if not is_excluded(display[p], patterns)]
     dropped = [display[p] for p in raw_files if is_excluded(display[p], patterns)]
-    raw_patches = gitx.diff_text_by_path(repo, base, head, kept_raw, full_index=full_index)
+    raw_patches = gitx.diff_text_by_path(repo, base, head, kept_raw, legacy=legacy)
     return DiffBundle(
         base=base,
         head=head,

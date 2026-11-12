@@ -163,6 +163,15 @@ The diff is never truncated, so reviewing part of it is not an option. Look at
 those globs to `[diff] exclude`. Raise `[diff] max_bytes` only if the change genuinely
 is that large.
 
+## Diff attribute refused (exit 3, `review_diff_attribute`)
+
+`$GIT_DIR/info/attributes` on this machine sets a `diff` attribute that would change
+the review patch: a diff driver with a hunk-header pattern, or `diff` on a binary file.
+A verifier on another machine cannot see that file, so the tool refuses rather than
+hash text nobody else can rebuild. Show the user the message. Do not edit the file
+yourself; the user removes the named entry, then the same command is retried.
+Committed `.gitattributes` files never cause this: review patches ignore them.
+
 ## No command configured (exit 2, `needs_command`)
 
 For lint/test, inspect `data.candidates`, show the exact selected command to the user, and

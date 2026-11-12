@@ -45,12 +45,19 @@ The `[stage]` section governs command-review timeouts and retries.
 The included diff bytes are the patch text that Git prints for the merge base and the head.
 The tool fixes the `core.*` and `diff.*` settings that shape that text, and each patch names full object IDs.
 Thus, two machines whose Git configuration differs in those settings build the same bytes from the same commits.
-Attributes are the exception.
-A `-diff` attribute or a `diff` driver in a `.gitattributes` file in the checkout, in `$GIT_DIR/info/attributes`, or in a system-wide attributes file still changes the text.
-So does the `diff.<driver>.*` configuration of a driver that an attribute names.
-Notes from 0.8.1 and earlier hash patches with abbreviated object IDs, whose length depends on the clone.
+Git attributes do not shape the text either.
+Git runs without `.gitattributes` files, the index, `attr.tree`, `GIT_ATTR_SOURCE`, and the user and system attributes files.
+Text files are diffed with `--text`.
+A file is binary when either side is larger than 512 MiB or has a NUL byte in its first 8,000 bytes, which is Git's own default rule.
+Its patch is Git's `Binary files ... differ` line, and its content is never printed.
+Git always reads `$GIT_DIR/info/attributes`.
+`-diff` there has no effect.
+A diff driver there with a hunk-header pattern, or `diff` set on a binary file, stops the command with `review_diff_attribute`, because the text would differ on this machine only.
+Notes from 0.8.1 and earlier hash patches with abbreviated object IDs, whose length depends on the clone, and whose text followed the checkout's attributes.
 A verifier builds that text only when the current text does not reproduce a note's digest.
-See [the compatibility entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-configuration).
+It rejects the note when that text marks a file whose content is text as binary.
+See [the compatibility entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-configuration)
+and [the attributes entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-attributes).
 
 Intent and shell-command digests hash the exact UTF-8 text bytes.
 They do not normalize whitespace or Unicode.

@@ -402,17 +402,19 @@ def test_diff_text_by_path_batches_many_files(tmp_repo, monkeypatch):
         calls += 1
         return real_run(cwd, *args, **kwargs)
 
-    def recording_run_bytes(cwd, *args):
+    def recording_run_bytes(cwd, *args, **kwargs):
         nonlocal calls
         calls += 1
-        return real_run_bytes(cwd, *args)
+        return real_run_bytes(cwd, *args, **kwargs)
 
     monkeypatch.setattr(gitx, "run", recording_run)
     monkeypatch.setattr(gitx, "_run_bytes", recording_run_bytes)
     paths = [f"many/{index:03d}.txt" for index in range(300)]
 
     assert len(gitx.diff_text_by_path(tmp_repo, base, "HEAD", paths)) == 300
-    assert calls == 2
+    # Two batches each of raw inventory and patches, plus the Git directory and
+    # one attribute check for every path.
+    assert calls == 6
 
 
 def test_is_clean_is_true_for_an_untouched_tree(tmp_repo):
@@ -830,7 +832,6 @@ def test_windows_raw_git_path_diff_selects_inventory_once(tmp_repo, monkeypatch)
 
     def popen(args, **kwargs):
         calls.append(args)
-        assert args[-1] == "--"
         return original(args, **kwargs)
 
     monkeypatch.setattr(subprocess, "Popen", popen)
@@ -839,7 +840,10 @@ def test_windows_raw_git_path_diff_selects_inventory_once(tmp_repo, monkeypatch)
 
     assert list(patches) == requested
     assert all("+x\n" in patch for patch in patches.values())
-    assert len(calls) == 1
+    diffs = [args for args in calls if "--raw" in args]
+    assert diffs
+    assert all(args[-1] == "--" for args in diffs)
+    assert len([args for args in diffs if "--patch" in args]) == 1
 
 
 @pytest.mark.parametrize("chunk_size", [1, 2, 7, 11, 64 * 1024])
@@ -867,7 +871,7 @@ def test_streamed_patch_inventory_keeps_both_type_change_blocks():
         {"kind", "kept"},
     )
 
-    assert buffers == {"kind": deleted + added, "kept": kept}
+    assert buffers == {"kind": [deleted, added], "kept": [kept]}
     assert count == expected == 4
 
 
@@ -916,7 +920,7 @@ def test_crlf_patch_text_and_digests_match_main(tmp_repo):
 
     bundle = diff_module.build_bundle(tmp_repo, "HEAD~1", "HEAD")
     manifest = diff_module.build_review_manifest(tmp_repo, bundle)
-    earlier = diff_module.build_bundle(tmp_repo, "HEAD~1", "HEAD", full_index=False)
+    earlier = diff_module.build_bundle(tmp_repo, "HEAD~1", "HEAD", legacy=True)
     earlier_manifest = diff_module.build_review_manifest(tmp_repo, earlier)
 
     # Values computed with main's text-mode decoding before the byte-split change.

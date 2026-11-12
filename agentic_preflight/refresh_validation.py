@@ -31,14 +31,14 @@ def _manifest(repo: Path | str, origin: OriginalExecution, *, head: str, base: s
     if not isinstance(fingerprint, ReviewFingerprint):
         raise ValueError("review origin has the wrong fingerprint")
     # 0.8.1 and earlier releases hashed patches whose ``index`` lines abbreviate
-    # object IDs. A digest that the current text does not reproduce is checked
-    # against that earlier text before the note is rejected. The second format
-    # goes when a release no longer has to read 0.8 notes; see
+    # object IDs and whose text follows the checkout's Git attributes. A digest
+    # that the current text does not reproduce is checked against that earlier
+    # text before the note is rejected. Building it raises when an attribute marks
+    # a text file as binary, so the earlier format cannot hide content. It goes
+    # when a release no longer has to read 0.8 notes; see
     # docs/maintainers/compatibility-removal-plan.md.
-    for full_index in (True, False):
-        bundle = diff.build_bundle(
-            repo, base, head, exclude=cfg.diff.exclude, full_index=full_index
-        )
+    for legacy in (False, True):
+        bundle = diff.build_bundle(repo, base, head, exclude=cfg.diff.exclude, legacy=legacy)
         manifest = diff.build_review_manifest(
             repo, bundle, grounding_sha256=fingerprint.grounding_sha256
         )
