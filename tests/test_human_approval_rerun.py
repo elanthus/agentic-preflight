@@ -62,6 +62,17 @@ def _run(
     }
 
 
+def _review(login="owner-login", association="OWNER", *, state="COMMENTED", body="approved"):
+    return {
+        "id": 1,
+        "user": {"login": login, "type": "User"},
+        "author_association": association,
+        "state": state,
+        "body": body,
+        "commit_id": HEAD,
+    }
+
+
 def _pull_request(*, state="open", head_sha=HEAD, base_sha=BASE, head_repo=None):
     if head_repo is None:
         head_repo = {"full_name": "contributor/project"}
@@ -94,11 +105,18 @@ def rerun(tmp_path):
         rerun_error="HTTP 403: boom",
         run_status="completed",
         status_exit=0,
+        actor="owner-login",
+        reviews=None,
+        permission="read",
+        permission_exit=0,
     ):
         (tmp_path / "pr-fixture.json").write_text(json.dumps(pull_request or _pull_request()))
         (tmp_path / "relay.txt").write_text(relay)
         (tmp_path / "policy-fixture.json").write_text(json.dumps(policy))
         (tmp_path / "runs.json").write_text(json.dumps(runs if runs is not None else _runs()))
+        (tmp_path / "reviews.json").write_text(
+            json.dumps([reviews if reviews is not None else [_review()]])
+        )
         harness = r"""
 gh() {
   printf '%s\n' "$*" >> gh-calls.txt
@@ -121,10 +139,19 @@ gh() {
       [ "$TEST_RERUN_EXIT" = 0 ] || echo "gh: $TEST_RERUN_ERROR" >&2
       return "$TEST_RERUN_EXIT"
       ;;
-    "api --paginate") cat runs.json ;;
+    "api --paginate")
+      case "$4" in
+        */reviews*) cat reviews.json ;;
+        *) cat runs.json ;;
+      esac
+      ;;
     api*)
       case "$2" in
         */pulls/*) cat pr-fixture.json ;;
+        */collaborators/*)
+          [ "$TEST_PERMISSION_EXIT" = 0 ] || return "$TEST_PERMISSION_EXIT"
+          echo "$TEST_PERMISSION"
+          ;;
         */actions/runs/*)
           [ "$TEST_STATUS_EXIT" = 0 ] || return "$TEST_STATUS_EXIT"
           echo "$TEST_RUN_STATUS"
@@ -152,6 +179,9 @@ RUNNER_TEMP=.
                 "TEST_RERUN_ERROR": rerun_error,
                 "TEST_RUN_STATUS": run_status,
                 "TEST_STATUS_EXIT": str(status_exit),
+                "TRIGGERING_ACTOR": actor,
+                "TEST_PERMISSION": permission,
+                "TEST_PERMISSION_EXIT": str(permission_exit),
             },
             capture_output=True,
             text=True,
@@ -384,6 +414,74 @@ def test_companion_shows_github_reason_when_a_rerun_is_refused(rerun):
     assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
 
 
+def test_companion_reruns_for_the_owners_own_approved_comment_review(rerun):
+    result, calls = rerun(runs=_runs(_run(1, 5)), actor="Owner-Login")
+    assert result.returncode == 0, result.stderr
+    assert "api --paginate --slurp /repos/owner/project/pulls/17/reviews?per_page=100" in calls
+    assert not any("/collaborators/" in call for call in calls)
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+@pytest.mark.parametrize("association", ["MEMBER", "COLLABORATOR"])
+def test_companion_reruns_for_other_associated_reviewers(rerun, association):
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="peer",
+        reviews=[_review("peer", association, state="APPROVED", body="")],
+    )
+    assert result.returncode == 0, result.stderr
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+@pytest.mark.parametrize("association", ["NONE", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR"])
+def test_companion_ignores_reviews_from_unassociated_users(rerun, association):
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="drive-by",
+        reviews=[_review(), _review("drive-by", association, body="spam")],
+    )
+    assert result.returncode == 0, result.stderr
+    assert "api /repos/owner/project/collaborators/drive-by/permission --jq .permission" in calls
+    assert "drive-by is not an owner, member, or collaborator" in result.stdout
+    assert _reruns(calls) == []
+    assert not any("actions/workflows" in call for call in calls)
+
+
+def test_companion_ignores_an_actor_who_matches_only_another_users_review(rerun):
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="drive-by",
+        reviews=[
+            _review(),
+            _review("drive-by", "OWNER") | {"user": {"login": "x", "type": "User"}},
+        ],
+    )
+    assert result.returncode == 0, result.stderr
+    assert _reruns(calls) == []
+
+
+@pytest.mark.parametrize("permission", ["admin", "write"])
+def test_companion_reruns_for_a_dismissal_by_a_user_with_write_access(rerun, permission):
+    result, calls = rerun(runs=_runs(_run(1, 5)), actor="maintainer", permission=permission)
+    assert result.returncode == 0, result.stderr
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_does_not_rerun_when_the_permission_lookup_fails(rerun):
+    result, calls = rerun(runs=_runs(_run(1, 5)), actor="maintainer", permission_exit=1)
+    assert result.returncode == 0, result.stderr
+    assert _reruns(calls) == []
+
+
+@pytest.mark.parametrize("actor", ["", "dependabot[bot]", "a/b", "x y"])
+def test_companion_does_not_look_up_an_actor_that_is_not_a_user_login(rerun, actor):
+    result, calls = rerun(runs=_runs(_run(1, 5)), actor=actor)
+    assert result.returncode == 0, result.stderr
+    assert "not started by a repository user" in result.stdout
+    assert not any("/reviews" in call or "/collaborators/" in call for call in calls)
+    assert _reruns(calls) == []
+
+
 @pytest.fixture
 def enforce(tmp_path):
     bash = shutil.which("bash")
@@ -510,6 +608,7 @@ def test_companion_runs_from_the_default_branch_with_rerun_permission_only():
         "if: >- github.event.workflow_run.event == 'pull_request_review' && "
         "github.event.workflow_run.conclusion == 'success'"
     ) in job
+    assert "TRIGGERING_ACTOR: ${{ github.event.workflow_run.triggering_actor.login }}" in job
     concurrency = companion.split("\nconcurrency:\n", 1)[1].split("\n\n", 1)[0]
     assert concurrency.split() == [
         "group:",

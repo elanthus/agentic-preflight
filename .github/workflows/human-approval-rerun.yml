@@ -42,6 +42,9 @@ jobs:
           RELAY_RUN_ID: ${{ github.event.workflow_run.id }}
           RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           RUN_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          # GitHub sets this to the user who submitted, edited, or dismissed the review,
+          # or who re-ran the relay. The pull request cannot change it.
+          TRIGGERING_ACTOR: ${{ github.event.workflow_run.triggering_actor.login }}
         run: |
           relay_dir="$RUNNER_TEMP/human-approval-review"
           gh run download "$RELAY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
@@ -64,6 +67,37 @@ jobs:
             echo "Pull request $pr_number is closed or no longer has the reviewed head."
             echo "The run for its current head reports the check."
             exit 0
+          fi
+          # Any GitHub user can submit a Comment review on a public pull request. Only a
+          # review that approval-check can count, from an owner, member, or collaborator,
+          # re-runs the policy, so other reviews cannot queue re-runs at will. A dismissal
+          # is recorded on the dismissed review, not under the person who dismissed it,
+          # so someone with write access to the repository also qualifies.
+          case "$TRIGGERING_ACTOR" in
+            '' | *[!A-Za-z0-9-]*)
+              echo "The review relay was not started by a repository user. Nothing to re-run."
+              exit 0
+              ;;
+          esac
+          reviews_file="$RUNNER_TEMP/pull-request-reviews.json"
+          gh api --paginate --slurp \
+            "/repos/$GITHUB_REPOSITORY/pulls/$pr_number/reviews?per_page=100" > "$reviews_file"
+          if ! jq -e --arg actor "$TRIGGERING_ACTOR" '
+            [.[][]?] | any(.[];
+              .user.type == "User" and
+              ((.user.login // "") | ascii_downcase) == ($actor | ascii_downcase) and
+              (.author_association | IN("OWNER", "MEMBER", "COLLABORATOR")))
+          ' "$reviews_file" > /dev/null; then
+            permission=$(gh api "/repos/$GITHUB_REPOSITORY/collaborators/$TRIGGERING_ACTOR/permission" \
+              --jq '.permission') || permission=unknown
+            case "$permission" in
+              admin | write) ;;
+              *)
+                echo "$TRIGGERING_ACTOR is not an owner, member, or collaborator with a review" \
+                  "on pull request $pr_number, or a user with write access. Nothing to re-run."
+                exit 0
+                ;;
+            esac
           fi
           head_sha=$(jq -r '.head.sha' "$pr_file")
           runs_file="$RUNNER_TEMP/policy-runs.json"

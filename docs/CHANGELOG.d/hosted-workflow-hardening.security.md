@@ -13,3 +13,7 @@
   rewrite the conventions shown to its own reviewer. The branch's edits to those files,
   including files it adds, reach the reviewer through the diff. For a branch that edits
   those files, the grounding changes, so its earlier review evidence is not reused.
+- `human-approval-rerun.yml` re-runs the approval policy only when the user who submitted,
+  edited, or dismissed the review is an owner, member, or collaborator with a review on
+  the pull request, or has write access. Comment reviews from other users on a public
+  pull request no longer queue policy re-runs.
