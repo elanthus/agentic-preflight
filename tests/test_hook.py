@@ -161,6 +161,67 @@ def test_hook_installer_directly_refuses_and_then_replaces_a_foreign_hook(featur
     assert written is False
 
 
+def _symlink_or_skip(link: Path, target: Path) -> None:
+    link.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        link.symlink_to(target)
+    except OSError as exc:  # Windows without symlink privilege
+        pytest.skip(f"symlinks are unavailable: {exc}")
+
+
+def test_hook_installer_replaces_a_dangling_symlink_instead_of_creating_its_target(
+    feature_repo, tmp_path
+):
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    target = tmp_path / "outside" / "pre-push"
+    target.parent.mkdir()
+    _symlink_or_skip(path, target)
+
+    installed, written = hook.install(feature_repo)
+
+    assert installed == path
+    assert written is True
+    assert not path.is_symlink()
+    assert "agentic-preflight hook-check" in path.read_text(encoding="utf-8")
+    assert not target.exists()
+
+
+def test_hook_installer_with_force_replaces_a_symlink_and_leaves_its_target_alone(
+    feature_repo,
+):
+    # core.hooksPath pointing into the repository makes the link's target a tracked file.
+    git("config", "core.hooksPath", ".githooks", cwd=feature_repo)
+    tracked = write(feature_repo, "scripts/team-pre-push", "#!/bin/sh\necho team hook\n")
+    path = Path(feature_repo) / ".githooks" / "pre-push"
+    _symlink_or_skip(path, Path("..") / "scripts" / "team-pre-push")
+
+    with pytest.raises(FileExistsError):
+        hook.install(feature_repo)
+    assert path.is_symlink()
+
+    installed, written = hook.install(feature_repo, force=True)
+
+    assert installed.resolve() == path.resolve()
+    assert written is True
+    assert not path.is_symlink()
+    assert "agentic-preflight hook-check" in path.read_text(encoding="utf-8")
+    assert tracked.read_text(encoding="utf-8") == "#!/bin/sh\necho team hook\n"
+
+
+def test_hook_installer_replaces_a_symlink_to_an_earlier_hook_of_its_own(feature_repo, tmp_path):
+    previous = next(iter(hook.PREVIOUS_HOOK_SCRIPTS))
+    target = tmp_path / "shared-pre-push"
+    target.write_bytes(previous)
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    _symlink_or_skip(path, target)
+
+    _, written = hook.install(feature_repo)
+
+    assert written is True
+    assert not path.is_symlink()
+    assert target.read_bytes() == previous
+
+
 def test_hook_installer_rejects_a_non_repository_directory(tmp_path):
     with pytest.raises(gitx.GitError):
         hook.install(tmp_path)
