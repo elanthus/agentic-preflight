@@ -198,12 +198,16 @@ def command_path_patterns(command: str) -> list[str]:
     after_change_directory = False
     after_module_flag = False
     for piece in _shell_pieces(_EXPANSION_PREFIX.sub("", command)):
-        module = piece if after_module_flag else _attached_module(piece)
+        attached = _attached_module(piece)
+        module = piece if after_module_flag else attached
         after_module_flag = False
-        if module is not None:
-            for directory in directories:
-                patterns.extend(_module_patterns(directory, module))
+        found = [p for d in directories for p in _module_patterns(d, module)] if module else []
+        if found:
+            patterns.extend(found)
             continue
+        # A value that is not a module name, as in ``reviewer -vm prompts/review.txt``
+        # or ``-mprompts/review.txt``, is checked as an ordinary word below.
+        piece = attached or piece
         if after_change_directory and piece.startswith("-") and piece != "-":
             # ``cd -P tools`` and ``cd -- tools``: options come before the directory.
             continue
