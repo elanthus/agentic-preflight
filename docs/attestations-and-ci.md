@@ -82,6 +82,9 @@ The job checks out the base commit and installs the verifier from it.
 Then it fetches the proposed commit and its note from the contributor's remote as data, without checking them out or running anything from them.
 A pull request can still change the workflow, the verifier, or its scripts, but those changes take effect only after merge; they never judge the pull request that proposes them.
 The workflow token is read-only.
+Every checkout in a `pull_request_target` workflow sets `persist-credentials: false`, so the token is not left in the checkout's Git configuration for later steps.
+This repository is public, so the fetches that follow work without credentials.
+A private repository must authenticate those fetches; pass the read-only token to the fetch command alone rather than persisting it for the whole job.
 A `pull_request` trigger would not give this guarantee: it runs the workflow file from the pull request's merge ref, so the pull request could rewrite the job itself.
 Governance paths are also listed in `.github/CODEOWNERS`.
 That file requests reviewers.
