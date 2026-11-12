@@ -62,6 +62,9 @@ _DIRECTORY_OPTIONS = tuple(f"{flag}=" for flag in _DIRECTORY_FLAGS if flag.start
 # Variables whose value is a list of directories that code is loaded from.
 _SEARCH_PATH_VARIABLES = frozenset({"PYTHONPATH", "NODE_PATH"})
 _MODULE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
+# ``-m``, a short-flag cluster that ends in it (``-Bm``), or the attached ``-mNAME``.
+_MODULE_FLAG = re.compile(r"-[A-Za-z]*m")
+_ATTACHED_MODULE = re.compile(r"-m(?P<module>[A-Za-z_].*)")
 # ``sh -c 'cd tools && python3 review.py'`` nests a command inside one quoted word.
 _MAX_NESTING = 3
 
@@ -153,6 +156,12 @@ def _file_patterns(path: str) -> list[str]:
     return [f"{parent}/**"] if parent else [path, f"{path}/**"]
 
 
+def _attached_module(piece: str) -> str | None:
+    """The module of an attached ``-mNAME``."""
+    attached = _ATTACHED_MODULE.fullmatch(piece)
+    return attached["module"] if attached else None
+
+
 def _module_patterns(directory: str, module: str) -> list[str]:
     """``python -m a.b.c`` runs ``a/b/c.py`` after importing ``a/__init__.py``."""
     if not _MODULE_NAME.fullmatch(module):
@@ -189,10 +198,11 @@ def command_path_patterns(command: str) -> list[str]:
     after_change_directory = False
     after_module_flag = False
     for piece in _shell_pieces(_EXPANSION_PREFIX.sub("", command)):
-        if after_module_flag:
-            after_module_flag = False
+        module = piece if after_module_flag else _attached_module(piece)
+        after_module_flag = False
+        if module is not None:
             for directory in directories:
-                patterns.extend(_module_patterns(directory, piece))
+                patterns.extend(_module_patterns(directory, module))
             continue
         if after_change_directory and piece.startswith("-") and piece != "-":
             # ``cd -P tools`` and ``cd -- tools``: options come before the directory.
@@ -220,7 +230,7 @@ def command_path_patterns(command: str) -> list[str]:
             continue
         if after_directory_flag:
             continue
-        if piece == "-m":
+        if _MODULE_FLAG.fullmatch(piece):
             after_module_flag = True
             continue
         word = _word_value(piece)

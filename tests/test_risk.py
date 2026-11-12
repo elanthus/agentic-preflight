@@ -197,6 +197,8 @@ def test_imported_attestation_preserves_medium_and_high_finding_risk():
         # ``-m`` imports the top-level package before the module.
         ("python3 -m tools.reviewer", ["tools/**"]),
         ("python3 -m reviewer --json", ["reviewer.py", "reviewer/**"]),
+        ("python3 -Bm tools.reviewer", ["tools/**"]),
+        ("python3 -mreviewer", ["reviewer.py", "reviewer/**"]),
         # A leading expansion before a slash is dropped and the literal path kept.
         ('python3 "$PWD/tools/rev.py"', ["tools/**"]),
         ("python3 ${REPO}/tools/rev.py", ["tools/**"]),

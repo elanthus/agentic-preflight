@@ -489,7 +489,7 @@ Reading paths from a command is approximate:
 - The word after a shell's `-c` flag, as in `sh -c '...'` or `bash -lc '...'`, is read as a command too.
 - A directory that the command changes to is protected as `DIR/**`: the argument of `cd` or `pushd`, and the value of `-C`, `--directory`, `--cwd`, `--prefix`, `--project`, or `--chdir` (also `--option=DIR` and `-CDIR`). Later relative paths are protected both as written and under `DIR`.
 - Each directory in a `PYTHONPATH=` or `NODE_PATH=` value is protected as `DIR/**`. A root entry such as `.` is not, because that would cover the whole repository; list the root modules that the reviewer imports in `trusted_paths`.
-- `-m a.b` protects the top-level package `a/**`, whose `__init__.py` runs first. `-m reviewer` protects `reviewer.py` and `reviewer/**`.
+- `-m a.b` protects the top-level package `a/**`, whose `__init__.py` runs first. `-m reviewer` protects `reviewer.py` and `reviewer/**`. A flag cluster such as `-Bm a.b` and the attached form `-ma.b` count too.
 - A leading `$VAR/`, `${VAR}/`, `$(...)/`, or backtick expansion before a slash is dropped, and the literal path after it is kept.
 - Bare program names, absolute paths, paths outside the repository, and other words with a shell expansion or a glob are skipped.
 
