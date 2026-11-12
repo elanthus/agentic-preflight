@@ -234,8 +234,20 @@ Every non-merge contribution must be attributed to the bot, committed by GitHub'
 A human-signed commit with a forged bot author does not qualify.
 A merge commit qualifies only under two conditions.
 Its second parent belongs to the protected base, and its tree exactly matches Git's clean merge of the two parents.
-Human-added commits, conflict resolutions, unrelated branch merges, missing records, and snapshot mismatches do not receive this exemption.
+
+Signed bot metadata shows only that GitHub created a commit, so the workflow also binds the exemption to the account that set the head.
+The run's event must be a `pull_request_target` `opened` or `synchronize` event for the exact head and base, sent by the `dependabot[bot]` Bot account.
+A `synchronize` event must also report that head as the result of its push.
+The workflow passes the event name and the event payload file to the verifier, which fails closed on any other shape.
+A head that a person pushed, including a clean merge from **Update branch**, does not qualify.
+Nor does a run from a `reopened`, `ready_for_review`, or auto-merge event, because its sender is whoever performed that action and not necessarily whoever set the head.
+Ask Dependabot to rebase or recreate the pull request to restore the exemption, or obtain owner approval.
+A re-run replays the original event payload, so a review-triggered re-run keeps the sender of the event that set the head.
+
+Human-added commits, human-pushed heads, conflict resolutions, unrelated branch merges, missing records, and snapshot mismatches do not receive this exemption.
 Ordinary approval policy applies to them.
+The exemption therefore means that GitHub reported Dependabot set the head, and that every commit since the base is GitHub-signed bot work or a clean protected-base merge.
+It is not a review of the content. See [Limits](limits.md#the-dependabot-exemption-trusts-githubs-event-sender).
 Only protected-base code runs, with read-only permissions. Proposed code is inert Git data.
 The hosted report records the exact head and base and the verification result.
 
@@ -247,12 +259,13 @@ The repository's hosted workflow separately verifies and applies the bot exempti
 
 A narrower class of Dependabot updates also skips local attestation and is eligible for the auto-merge workflow.
 These are same-repository PRs that the actual `dependabot[bot]` Bot account authored, with exactly one verified Dependabot commit that matches the event and the current head.
+The head must have been set by the same kind of Dependabot-sent `opened` or `synchronize` event that the approval exemption requires.
 Their metadata must identify every dependency as a Python patch or minor update in the root directory.
 Their modified files must be limited to `pyproject.toml` and `uv.lock`.
 Unknown metadata, renames, deletions, additional commits or files, major updates, and GitHub Actions updates do not qualify for the attestation and auto-merge exception.
 A grouped update qualifies only when every member qualifies.
 
-The shared `dependabot-policy.yml` workflow checks the bot identity, the signed commit metadata, and every grouped dependency.
+The shared `dependabot-policy.yml` workflow checks the bot identity, the event sender, the signed commit metadata, and every grouped dependency.
 It also checks the complete paginated commit and file lists and the current head.
 CI still runs tests, the built-wheel smoke check, and dependency audits.
 This repository already makes owner approval optional for routine Python dependencies.

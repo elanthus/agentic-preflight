@@ -31,6 +31,11 @@ def classify(tmp_path):
         commit_count=None,
         result="success",
         api_fail=False,
+        event_name="pull_request_target",
+        action="synchronize",
+        after=HEAD,
+        sender="dependabot[bot]",
+        sender_type="Bot",
     ):
         if dependencies is None:
             dependencies = [
@@ -88,6 +93,11 @@ def classify(tmp_path):
                 "METADATA_RESULT": result,
                 "DEPENDENCIES": json.dumps(dependencies),
                 "API_FAIL": str(api_fail).lower(),
+                "EVENT_NAME": event_name,
+                "EVENT_ACTION": action,
+                "EVENT_AFTER": after,
+                "SENDER_LOGIN": sender,
+                "SENDER_TYPE": sender_type,
             },
             capture_output=True,
             text=True,
@@ -112,6 +122,49 @@ def test_patch_minor_groups_qualify(classify, ecosystem):
     )
     assert result.returncode == 0, result.stderr
     assert output == "eligible=true"
+
+
+def test_pull_request_opened_by_dependabot_qualifies(classify):
+    result, output = classify(action="opened", after="")
+    assert result.returncode == 0, result.stderr
+    assert output == "eligible=true"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"sender": "maintainer", "sender_type": "User"},
+        {"sender": "dependabot[bot]", "sender_type": "User"},
+        {"sender": "github-actions[bot]"},
+        {"sender": ""},
+        {"action": "opened", "sender": "maintainer", "sender_type": "User"},
+    ],
+)
+def test_head_set_by_another_actor_does_not_qualify(classify, changes):
+    # Metadata, files, and the signed commit all look like Dependabot's; the push did not.
+    result, output = classify(**changes)
+    assert result.returncode == 0
+    assert output == "eligible=false"
+    assert "not established as dependabot[bot]" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"action": "reopened"},
+        {"action": "ready_for_review"},
+        {"action": "auto_merge_enabled"},
+        {"action": ""},
+        {"after": "b" * 40},
+        {"after": ""},
+        {"event_name": "pull_request"},
+        {"event_name": "workflow_run"},
+    ],
+)
+def test_event_that_does_not_establish_the_head_actor_does_not_qualify(classify, changes):
+    result, output = classify(**changes)
+    assert result.returncode == 0
+    assert output == "eligible=false"
 
 
 @pytest.mark.parametrize("kind", ["major", "unknown"])
@@ -195,6 +248,18 @@ def test_bot_identity_and_verified_metadata_are_required():
     assert "github.event.pull_request.user.login == 'dependabot[bot]'" in workflow
     assert "github.event.pull_request.user.type == 'Bot'" in workflow
     assert "github.event.pull_request.head.repo.full_name == github.repository" in workflow
+    assert "github.event.sender.login == 'dependabot[bot]'" in workflow
+    assert "github.event.sender.type == 'Bot'" in workflow
+    assert "(github.event.action == 'opened' || github.event.action == 'synchronize')" in workflow
+    for variable, field in {
+        "EVENT_NAME": "event_name",
+        "EVENT_ACTION": "event.action",
+        "EVENT_AFTER": "event.after",
+        "SENDER_LOGIN": "event.sender.login",
+        "SENDER_TYPE": "event.sender.type",
+    }.items():
+        assert f"{variable}: ${{{{ github.{field} }}}}" in workflow
+    assert "triggering_actor" not in workflow
     assert "uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98" in workflow
     assert "skip-verification" not in workflow
     assert "skip-commit-verification" not in workflow

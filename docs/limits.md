@@ -162,3 +162,26 @@ If the approval must come from a person the agent cannot impersonate, keep the a
 - Run the agent under its own GitHub account, so that it opens pull requests as that account and never holds the reviewer's token. The reviewer then submits an **Approve** review on another author's pull request.
 
 Each choice protects the approval only while the agent cannot reach the approving account's credentials.
+
+## The Dependabot exemption trusts GitHub's event sender
+
+This repository's hosted workflows waive owner review for verified Dependabot pull requests, and auto-merge a narrower class of them.
+See [Dependabot and other bot-authored pull requests](attestations-and-ci.md#dependabot-and-other-bot-authored-pull-requests).
+That exemption rests on two checks of GitHub-supplied data:
+
+- Every non-merge commit is attributed to `dependabot[bot]`, committed by `web-flow`, and has a valid signature.
+  This shows that GitHub created the commit. It does not show that Dependabot wrote its content.
+- The event that set the current head was an `opened` or `synchronize` event whose sender is the `dependabot[bot]` Bot account, and a `synchronize` event reports that exact head as the result of its push.
+  This shows that Dependabot, not a person, placed the commit at the head.
+
+The second check exists because a person with write access might obtain a GitHub-signed commit attributed to Dependabot, for example from a squash merge of a Dependabot pull request that carries their own commits, and push it to another Dependabot branch.
+Whether GitHub attributes such a squash commit to Dependabot was not tested; the check does not depend on the answer.
+A head pushed by a person, including a clean merge from **Update branch**, does not receive the exemption, and neither does a head whose actor the event cannot establish.
+`reopened`, `ready_for_review`, and auto-merge events name whoever performed that action, and a branch can change while its pull request is closed, so those runs fail closed.
+Ask Dependabot to rebase or recreate the pull request to restore the exemption, or obtain owner approval.
+A re-run replays the original event, so a review-triggered re-run keeps the original sender.
+
+The guarantee is therefore: GitHub reported that Dependabot set this head, and every commit since the base is GitHub-signed bot work or a clean merge of the protected base.
+It is not a review of the content, and it trusts GitHub's attribution of both the commits and the event.
+For an `opened` event, it also trusts that the branch still held Dependabot's push when Dependabot opened the pull request.
+The exemption still applies to every file that Dependabot changes, including GitHub Actions workflows.

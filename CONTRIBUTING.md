@@ -126,8 +126,8 @@ Reviewers must also report unsafe instruction changes through the normal finding
 High or critical findings keep human review even after they are fixed.
 
 The hosted Dependabot provenance exemption is separate from these human-contributor review rules.
-It verifies signed bot commits and clean protected-base merges instead of a human approval.
-An unverified or human-modified bot PR falls back to the ordinary policy.
+It verifies signed bot commits, clean protected-base merges, and that Dependabot itself set the head, instead of a human approval.
+An unverified or human-modified bot PR, including one whose head a person pushed, falls back to the ordinary policy.
 A change to this exemption itself requires owner approval.
 
 The hosted approval check reads the policy from the protected base.
