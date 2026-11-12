@@ -179,6 +179,8 @@ def test_imported_attestation_preserves_medium_and_high_finding_risk():
         ("cd tools&&python3 review.py", ["tools/**", "review.py", "review.py/**"]),
         ("pushd tools/reviewer; python3 ../run.py", ["tools/reviewer/**", "tools/**"]),
         ("cd tools/reviewer && make", ["tools/reviewer/**"]),
+        ("cd -P tools && python3 review.py", ["tools/**", "review.py", "review.py/**"]),
+        ("cd -- tools && python3 review.py", ["tools/**", "review.py", "review.py/**"]),
         ("uv run --directory tools python review.py", ["tools/**", "review.py", "review.py/**"]),
         ("uv run --project tools reviewer", ["tools/**"]),
         ("uv run --project=tools reviewer", ["tools/**"]),

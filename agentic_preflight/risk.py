@@ -185,6 +185,7 @@ def command_path_patterns(command: str) -> list[str]:
     directories = [""]
     patterns: list[str] = []
     after_directory_flag = False
+    after_change_directory = False
     after_module_flag = False
     for piece in _shell_pieces(_EXPANSION_PREFIX.sub("", command)):
         if after_module_flag:
@@ -192,6 +193,10 @@ def command_path_patterns(command: str) -> list[str]:
             for directory in directories:
                 patterns.extend(_module_patterns(directory, piece))
             continue
+        if after_change_directory and piece.startswith("-") and piece != "-":
+            # ``cd -P tools`` and ``cd -- tools``: options come before the directory.
+            continue
+        after_change_directory = piece in {"cd", "pushd"}
         target = _directory_target(piece, after_flag=after_directory_flag)
         after_directory_flag = piece in _CHANGE_DIRECTORY
         name, separator, value = piece.partition("=")
