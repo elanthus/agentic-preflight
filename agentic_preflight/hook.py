@@ -46,6 +46,9 @@ export AGENTIC_PREFLIGHT_PUSH_REMOTE
 exec agentic-preflight hook-check
 """
 
+#: The installed hook's mode: executable by everyone who can run Git in the clone.
+HOOK_MODE = 0o755
+
 #: Hook scripts that earlier versions installed, byte for byte. ``install``
 #: replaces one of these with :data:`HOOK_SCRIPT`; any other content is left alone.
 PREVIOUS_HOOK_SCRIPTS: frozenset[bytes] = frozenset(
@@ -332,12 +335,18 @@ def install(repo_root: Path | str, *, force: bool = False) -> tuple[Path, bool]:
     if path.is_symlink():
         path.unlink()
     # O_NOFOLLOW refuses a symlink that appears after the unlink, where the
-    # platform supports it.
+    # platform supports it. The file is created owner-only and given its final
+    # mode through the open descriptor, so the mode never follows a path that was
+    # swapped for a symlink after the write.
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(path, flags | getattr(os, "O_BINARY", 0), 0o755)
+    fd = os.open(path, flags | getattr(os, "O_BINARY", 0), 0o700)
     # LF explicitly: this is a shell script executed by Git's own ``sh``, and a
     # CRLF shebang line makes the interpreter unfindable.
     with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(HOOK_SCRIPT)
-    path.chmod(0o755)
+        handle.flush()
+        if hasattr(os, "fchmod"):
+            os.fchmod(handle.fileno(), HOOK_MODE)
+        else:  # pragma: no cover - Windows has no fchmod; chmod sets only read-only there
+            path.chmod(HOOK_MODE)
     return path, True

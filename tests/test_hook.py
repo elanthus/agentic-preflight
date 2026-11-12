@@ -229,6 +229,29 @@ def test_hook_installer_with_force_replaces_a_symlink_and_leaves_its_target_alon
     assert tracked.read_text(encoding="utf-8") == "#!/bin/sh\necho team hook\n"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+def test_hook_installer_sets_the_final_mode_through_the_open_file(feature_repo, monkeypatch):
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text("#!/bin/sh\necho existing\n")
+    path.chmod(0o644)
+    created_modes = []
+    real_open = os.open
+
+    def recording_open(file, flags, mode=0o777, *args, **kwargs):
+        created_modes.append(mode)
+        return real_open(file, flags, mode, *args, **kwargs)
+
+    monkeypatch.setattr(hook.os, "open", recording_open)
+    # A chmod by path would follow a symlink swapped in after the write.
+    monkeypatch.setattr(Path, "chmod", lambda *_a, **_k: pytest.fail("chmod by path"))
+
+    hook.install(feature_repo, force=True)
+
+    assert created_modes == [0o700]
+    assert path.stat().st_mode & 0o777 == hook.HOOK_MODE == 0o755
+
+
 def test_hook_installer_replaces_a_symlink_to_an_earlier_hook_of_its_own(feature_repo, tmp_path):
     previous = next(iter(hook.PREVIOUS_HOOK_SCRIPTS))
     target = tmp_path / "shared-pre-push"
