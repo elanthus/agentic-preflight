@@ -190,8 +190,13 @@ jobs:
           test "$POLICY_RESULT" = "success"
           if [ "${DEPENDABOT_EXEMPT:-false}" = "true" ]; then
             echo "Verified Dependabot contributions; human review is not required."
-          elif [ "$REQUIRES_APPROVAL" != "true" ]; then
+          elif [ "$REQUIRES_APPROVAL" = "false" ]; then
             echo "No high-risk approval is required."
+          elif [ "$REQUIRES_APPROVAL" != "true" ]; then
+            # Fail closed: a missing, empty, or null result is not a verdict.
+            echo "::error::The policy job reported requires_approval='$REQUIRES_APPROVAL'," \
+              "not true or false." >&2
+            exit 1
           elif [ "$APPROVAL_MODE" = "manual_merge" ]; then
             echo "High-risk change verified; a person must perform the merge manually."
           elif [ "$APPROVAL_MODE" = "environment" ]; then

@@ -434,6 +434,20 @@ def test_recorded_approval_without_an_approved_head_names_the_current_head(enfor
     assert f"recorded for head {HEAD}." in result.stdout
 
 
+def test_explicit_false_is_the_only_result_that_skips_approval(enforce):
+    result = enforce(REQUIRES_APPROVAL="false", APPROVED="false")
+    assert result.returncode == 0, result.stderr
+    assert "No high-risk approval is required." in result.stdout
+
+
+@pytest.mark.parametrize("requires", ["", "null", "False", "0", "yes"])
+def test_a_missing_or_malformed_approval_result_fails_closed(enforce, requires):
+    result = enforce(REQUIRES_APPROVAL=requires, APPROVED="false")
+    assert result.returncode == 1
+    assert "No high-risk approval is required" not in result.stdout
+    assert f"requires_approval='{requires}'" in result.stderr
+
+
 def test_policy_workflow_runs_only_on_the_protected_base_event():
     policy = _read("human-approval.yml")
     events = " ".join(policy.split("\non:\n", 1)[1].split("\npermissions:", 1)[0].split())
