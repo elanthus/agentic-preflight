@@ -50,8 +50,12 @@ _FINDING_RISK = {
 _SHELL_OPERATORS = re.compile(r"[;&|()<>]+")
 # A word with an expansion or a glob does not name one fixed path.
 _UNRESOLVED = frozenset("$`~*?[]{}")
-# Builtins that change the directory later words are resolved against.
-_CHANGE_DIRECTORY = frozenset({"cd", "pushd"})
+# Builtins, and common tool options, that change the directory later words are
+# resolved against: ``cd tools``, ``uv run --directory tools``, ``make -C tools``.
+_CHANGE_DIRECTORY = frozenset(
+    {"cd", "pushd", "-C", "--directory", "--cwd", "--prefix", "--project"}
+)
+_DIRECTORY_OPTIONS = tuple(f"{flag}=" for flag in _CHANGE_DIRECTORY if flag.startswith("--"))
 # ``sh -c 'cd tools && python3 review.py'`` nests a command inside one quoted word.
 _MAX_NESTING = 3
 
@@ -126,8 +130,9 @@ def command_path_patterns(command: str) -> list[str]:
     protected together with its directory, because interpreters load sibling modules
     from the script's directory (the example wrappers import ``_reviewer_common``).
     A path at the repository root is protected as a file and as a directory. After
-    ``cd DIR`` or ``pushd DIR``, a relative path is resolved against both the
-    repository root and ``DIR``, so either reading is protected. Paths that the
+    ``cd DIR``, ``pushd DIR``, or a directory option such as ``--directory DIR`` or
+    ``-C DIR``, a relative path is resolved against both the repository root and
+    ``DIR``, so either reading is protected. Paths that the
     command computes, imports by module name, or reads from outside the repository
     are not detected; list those in ``[review] trusted_paths``.
     """
@@ -135,13 +140,17 @@ def command_path_patterns(command: str) -> list[str]:
     patterns: list[str] = []
     changing_directory = False
     for piece in _shell_pieces(command):
+        target = None
         if changing_directory:
-            changing_directory = False
-            targets = (_repo_relative(directory, piece) for directory in directories)
-            directories = _unique([*directories, *(target for target in targets if target)])
+            target = piece
+        elif piece.startswith(_DIRECTORY_OPTIONS):
+            target = piece.partition("=")[2]
+        changing_directory = piece in _CHANGE_DIRECTORY
+        if target is not None:
+            resolved = (_repo_relative(directory, target) for directory in directories)
+            directories = _unique([*directories, *(path for path in resolved if path)])
             continue
-        if piece in _CHANGE_DIRECTORY:
-            changing_directory = True
+        if changing_directory:
             continue
         value = _word_value(piece)
         if value is None or not _looks_like_path(value):

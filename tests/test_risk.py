@@ -177,6 +177,10 @@ def test_imported_attestation_preserves_medium_and_high_finding_risk():
         # After ``cd``, a relative path is protected under the root and that directory.
         ("cd tools&&python3 review.py", ["review.py", "review.py/**", "tools/**"]),
         ("pushd tools/reviewer; python3 ../run.py", ["tools/**"]),
+        # Tool options that change the working directory count like ``cd``.
+        ("uv run --directory tools python review.py", ["review.py", "review.py/**", "tools/**"]),
+        ("uv run --project=tools python review.py", ["review.py", "review.py/**", "tools/**"]),
+        ("make -C tools review.mk", ["review.mk", "review.mk/**", "tools/**"]),
         # A command nested in one quoted word is read again.
         ("sh -c 'python3 tools/review.py'", ["tools/**"]),
         ("bash -c 'cd tools && python3 review.py'", ["review.py", "review.py/**", "tools/**"]),

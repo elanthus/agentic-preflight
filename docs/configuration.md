@@ -482,7 +482,7 @@ The hosted approval check and attestation verification use the `[review]` sectio
 Reading paths from a command is approximate.
 A word counts as a path when it contains `/` or `.`, after the value of a `--option=value` or `NAME=value` word is taken.
 The word after a `-c` flag, as in `sh -c '...'` or `bash -lc '...'`, is read as a command too.
-After `cd DIR` or `pushd DIR`, a relative path is protected both as written and under `DIR`.
+After `cd DIR`, `pushd DIR`, or one of the options `-C`, `--directory`, `--cwd`, `--prefix`, and `--project` followed by `DIR` (or `--option=DIR`), a relative path is protected both as written and under `DIR`.
 Bare program names, absolute paths, paths outside the repository, and words with a shell expansion or a glob are skipped.
 List in `trusted_paths` anything else that decides what the reviewer does: a module that the command loads by name (`python -m reviewer`), a prompt or configuration file in another directory, or a path that the command computes.
 
