@@ -108,6 +108,7 @@ It is not a signature. Anyone with permission to update the notes ref can replac
 A note holds the branch name, the finding titles and details, the file paths, and the configuration snapshot.
 `push` publishes the notes of the commits it pushes, and the gate lists them in `published_notes`.
 Notes on commits that were never pushed stay in the local `refs/notes/agentic-preflight`.
+The scope is per commit, not per branch. A pushed commit's note is published even when a run on another branch wrote it, for example an aborted branch that pointed at the same commit, and that note names the other branch.
 This scope covers `push` and the manual gate command only.
 A hand-run `git push origin refs/notes/agentic-preflight` sends every local note, including those of unpushed commits.
 Releases before this scoping pushed the whole local notes ref, so the remote may already hold such notes.

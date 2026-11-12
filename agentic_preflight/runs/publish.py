@@ -33,6 +33,9 @@ from .mergeback import _remote_for
 #: a ref, so a summary that shows it cannot be run as a literal command.
 NOTES_COMMIT_PLACEHOLDER = "<notes-commit>"
 
+#: Stands for the remote notes tip that ``push`` fetches and builds on.
+NOTES_TIP_PLACEHOLDER = "<fetched-notes-tip>"
+
 #: How many times ``push`` builds its notes commit when another clone updates
 #: the remote notes ref between the fetch and the push.
 _NOTES_PUBLISH_ATTEMPTS = 3
@@ -67,13 +70,39 @@ def _published_notes(session: Session, commits: list[str]) -> list[str]:
     return [sha for sha in commits if sha in local]
 
 
-def _push_commands(evidence_refspecs: list[str], refspecs: list[str]) -> list[str]:
+def _notes_lease(expected: str | None) -> str:
+    """Require the remote notes ref to still be the tip the notes commit was built on.
+
+    An empty expectation requires the ref to be absent. Without the lease a
+    remote ref deleted or rewound after the fetch would be recreated, or moved
+    forward again, by the staged commit.
+    """
+    return f"--force-with-lease={NOTES_REF}:{expected or ''}"
+
+
+def _push_args(refspecs: list[str], notes_lease: str | None) -> list[str]:
+    """Arguments for the atomic branch and notes push."""
+    return ["push", "--atomic", *([notes_lease] if notes_lease else []), "origin", *refspecs]
+
+
+def _push_commands(
+    evidence_refspecs: list[str], refspecs: list[str], notes_lease: str | None = None
+) -> list[str]:
     """Describe the same dependency-first atomic pushes used for publication."""
-    return [
-        shlex.join(["git", "push", "--atomic", "origin", *group])
-        for group in (evidence_refspecs, refspecs)
-        if group
-    ]
+    commands = []
+    if evidence_refspecs:
+        commands.append(shlex.join(["git", "push", "--atomic", "origin", *evidence_refspecs]))
+    if refspecs:
+        commands.append(shlex.join(["git", *_push_args(refspecs, notes_lease)]))
+    return commands
+
+
+def _attestation_or_none(session: Session, sha: str) -> Attestation | None:
+    """The head's stored attestation, or ``None`` when it is missing or unreadable."""
+    try:
+        return attestationmod.read(session.repo_root, sha)
+    except attestationmod.InvalidAttestation:
+        return None
 
 
 def gate(session: Session) -> Envelope:
@@ -111,16 +140,24 @@ def gate(session: Session) -> Envelope:
         # atomic push is rejected and publishes nothing; the person reruns gate.
         with session.store.resource("notes"):
             gitx.sweep_notes_staging_refs(session.repo_root)
+            before = _attestation_or_none(session, run.head_sha)
             remote_tip = gitx.fetch_notes(session.repo_root, "origin", NOTES_REF)
+            if _attestation_or_none(session, run.head_sha) != before:
+                raise AttestationFailed(
+                    "Attestation changed during notes synchronization; refresh before publication",
+                    next_command="agentic-preflight status",
+                )
             with gitx.notes_publication(
                 session.repo_root, NOTES_REF, remote_tip, pushed_commits
             ) as (staging, published_notes):
                 notes_source = (
                     None if staging is None else gitx.rev_parse(session.repo_root, staging)
                 )
+        notes_lease = None if notes_source is None else _notes_lease(remote_tip)
     else:
         published_notes = _published_notes(session, pushed_commits)
         notes_source = NOTES_COMMIT_PLACEHOLDER if published_notes else None
+        notes_lease = None if notes_source is None else _notes_lease(NOTES_TIP_PLACEHOLDER)
     refspecs = _push_refspecs(run.head_sha, run.branch, notes_source)
     if run.risk != assessment or run.changed_files != changed_files:
         with session.store.transaction(run.run_id) as doc:
@@ -147,7 +184,9 @@ def gate(session: Session) -> Envelope:
             run_id=run.run_id,
             data={
                 **summary.as_dict(),
-                "manual_command": " && ".join(_push_commands(evidence_refspecs, refspecs)),
+                "manual_command": " && ".join(
+                    _push_commands(evidence_refspecs, refspecs, notes_lease)
+                ),
             },
             next_instruction=(
                 "Show the user this summary and data.manual_command, then stop; the user "
@@ -211,7 +250,7 @@ def gate(session: Session) -> Envelope:
         data=GateData.model_validate(
             {
                 **summary.as_dict(),
-                "push_commands": _push_commands(evidence_refspecs, refspecs),
+                "push_commands": _push_commands(evidence_refspecs, refspecs, notes_lease),
             }
         ),
         next_instruction=(
@@ -252,13 +291,16 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
     pushed_commits = _pushed_commits(session, run)
 
     if dry_run:
-        refspecs = _push_refspecs(run.head_sha, run.branch)
+        candidates = _published_notes(session, pushed_commits)
+        notes_source = NOTES_COMMIT_PLACEHOLDER if candidates else None
+        refspecs = _push_refspecs(run.head_sha, run.branch, notes_source)
+        notes_lease = None if notes_source is None else _notes_lease(NOTES_TIP_PLACEHOLDER)
         return _envelope_for(
             run,
             data=PushData(
                 dry_run=True,
-                would_push=" && ".join(_push_commands(evidence_refspecs, refspecs)),
-                published_notes=_published_notes(session, pushed_commits),
+                would_push=" && ".join(_push_commands(evidence_refspecs, refspecs, notes_lease)),
+                published_notes=candidates,
                 branch=run.branch,
                 base_ref=run.base_ref,
                 pr_mode=session.config.pr.mode,
@@ -326,7 +368,9 @@ def _publish(
     another clone moves the remote notes between the fetch and the push, the
     atomic push is rejected as a non-fast-forward and nothing lands; the notes
     commit is then rebuilt on the new tip, which keeps the other clone's notes.
-    After a successful push the published commit is folded into the local notes
+    A lease on the fetched tip also rejects a remote ref that was deleted or
+    rewound in the meantime, so the rebuild honours that change instead of
+    undoing it. After a successful push the published commit is folded into the local notes
     ref. Return the commits whose note was added or changed on the remote.
     """
     gitx.sweep_notes_staging_refs(session.repo_root)
@@ -342,12 +386,10 @@ def _publish(
             staging,
             published_notes,
         ):
-            args = [
-                "push",
-                "--atomic",
-                "origin",
-                *_push_refspecs(run.head_sha, run.branch, staging),
-            ]
+            args = _push_args(
+                _push_refspecs(run.head_sha, run.branch, staging),
+                None if staging is None else _notes_lease(remote_tip),
+            )
             result = gitx.run(session.repo_root, *args, check=False)
             if result.returncode == 0:
                 if staging is not None:

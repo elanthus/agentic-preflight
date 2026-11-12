@@ -478,7 +478,7 @@ only the unchanged source or the completed verified tree can resume a pending at
 ### `agentic-preflight gate`
 Mints a confirmation token and summarises the remote, refspec, branch, and commits.
 `data.published_notes` lists the listed commits that carry a local attestation note:
-the only notes the push can publish. The gate does not contact the remote, so a note the
+the only notes the push can publish. Outside manual mode the gate does not contact the remote, so a note the
 remote already holds unchanged is listed here but not sent again. Notes on any other local
 commit, such as an aborted or never-pushed branch, stay local. In manual mode the list is
 exact: only the notes that the built commit adds or changes. The summary also includes the configured PR mode, `automated_cleanup` setting, and
@@ -490,8 +490,11 @@ and [merge approval guidance](../SKILL.md#escalation-etiquette) for the returned
 Only `[gate] mode = "manual"` exits 4 and puts the literal `git push` command in
 `data.manual_command` for a person to run; the agent must not run it. In manual mode
 the gate fetches the remote notes and builds the notes commit to publish, so the command
-names that commit's SHA. No ref keeps that commit, so run the command promptly. If the
-remote notes change before it runs, or Git has since pruned the unreferenced commit, the
+names that commit's SHA and leases the remote notes ref to the tip the gate fetched
+(`--force-with-lease`; an empty expectation means the ref must not exist). If the fetch
+changed the head's stored attestation, the gate exits 2 with `attestation_failed`. No ref
+keeps that commit, so run the command promptly. If the remote notes change before it runs,
+including a deletion or a rewind, or Git has since pruned the unreferenced commit, the
 atomic push is rejected and publishes nothing; run `gate` again.
 
 ### `agentic-preflight push --confirm TOKEN [--dry-run]`
@@ -503,7 +506,9 @@ remote notes tip plus the local notes of the pushed commits, the same range the 
 the remote keeps other clones' notes and receives no other local note. `push` works out that set
 again when it builds. When another clone updates the remote
 notes between the fetch and the push, the atomic push is rejected without landing anything, and
-`push` rebuilds the notes commit on the new tip, up to three attempts in all. If the push fails
+`push` rebuilds the notes commit on the new tip, up to three attempts in all. The push leases
+the remote notes ref to the fetched tip, so a ref that another writer deleted or rewound in the
+meantime is also rejected and rebuilt on, never recreated or moved forward again. If the push fails
 for another reason, it reports Git's push error. After a successful push it merges the published
 notes commit into the local notes ref, keeping local notes where they differ, so the next notes
 fetch extends local history. `data.published_notes` names the SHAs whose note the push added to or
@@ -512,7 +517,7 @@ commit that carries a local note, as the gate does. Publication first deletes an
 ref that an interrupted command left behind. A dependency publication failure stops
 before the branch push; retained evidence refs are safe to retry. Gate summaries, manual commands, and
 dry runs disclose the complete refspecs; outside manual mode they show the notes commit as
-`<notes-commit>`, because `push` builds it. These evidence refs survive ordinary
+`<notes-commit>` and the leased tip as `<fetched-notes-tip>`, because `push` fetches and builds them. These evidence refs survive ordinary
 run/worktree cleanup. **Require user authorization before running this**, as described
 in the authorization rule linked under `gate`. The token is a non-secret, run-state nonce
 that prevents an accidental push; it is readable through `status`, grants no GitHub

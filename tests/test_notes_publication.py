@@ -215,12 +215,53 @@ def test_manual_gate_command_publishes_only_the_pushed_commits_note(
     assert env["data"]["published_notes"] == [head]
     assert f"{NOTES_REF}:{NOTES_REF}" not in command
     assert publish.NOTES_COMMIT_PLACEHOLDER not in command
+    # The remote had no notes ref when the gate fetched, so the lease requires none.
+    assert f"--force-with-lease={NOTES_REF}: " in command
 
     for part in command.split(" && "):
         subprocess.run(shlex.split(part), cwd=feature_repo, check=True, capture_output=True)
 
     assert remote_notes(bare_remote) == {head}
     assert private not in remote_notes(bare_remote)
+
+
+def test_manual_gate_command_is_rejected_once_the_remote_notes_move(
+    feature_repo, bare_remote, tmp_path
+):
+    configure_base(feature_repo, MANUAL_CONFIG)
+    peer, peer_commit = peer_clone(bare_remote, tmp_path, "feature/y")
+    agent = verify(feature_repo, tmp_path)
+    env = agent.run("gate", expect=ExitCode.NEEDS_HUMAN)
+    git("notes", f"--ref={NOTES_REF}", "add", "-m", "peer", peer_commit, cwd=peer)
+    git("push", "origin", "feature/y", NOTES_REF, cwd=peer)
+
+    for part in env["data"]["manual_command"].split(" && "):
+        result = subprocess.run(shlex.split(part), cwd=feature_repo, capture_output=True)
+    assert result.returncode != 0
+    assert remote_notes(bare_remote) == {peer_commit}
+    assert subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", "refs/heads/feature/x"],
+        cwd=bare_remote,
+        capture_output=True,
+    ).returncode
+
+
+def test_manual_gate_rejects_a_fetch_that_changes_the_head_attestation(
+    feature_repo, bare_remote, tmp_path
+):
+    configure_base(feature_repo, MANUAL_CONFIG)
+    agent = verify(feature_repo, tmp_path)
+    head = git("rev-parse", "HEAD", cwd=feature_repo)
+    git("push", "origin", NOTES_REF, cwd=feature_repo)
+    # Another writer replaces the head's note on the remote; the gate's fetch
+    # fast-forwards the local notes ref onto it.
+    git("notes", f"--ref={NOTES_REF}", "add", "-f", "-m", "replaced", head, cwd=bare_remote)
+
+    env = agent.run("gate", expect=ExitCode.STAGE_FAILED)
+
+    assert env["error"]["code"] == "attestation_failed"
+    assert "notes synchronization" in env["error"]["message"]
+    assert agent.run("status")["state"] == "VERIFIED"
 
 
 @pytest.mark.parametrize("remote_has_notes", [False, True])
@@ -337,7 +378,7 @@ def test_a_failed_follow_up_query_reports_the_original_push_error(
     env = agent.run("push", "--confirm", token, expect=ExitCode.ERROR)
 
     message = env["error"]["message"]
-    assert "git push --atomic origin" in message
+    assert message.startswith("git push --atomic")
     assert "QUERY-FAILED" not in message
     assert agent.run("status")["state"] == "AWAITING_PUSH_CONFIRM"
 
@@ -384,3 +425,76 @@ def test_notes_publication_reports_only_added_or_changed_notes(tmp_repo):
         assert changed == [rewritten, new]
         assert gitx.read_note(tmp_repo, ref, rewritten) == "local value"
         assert gitx.read_note(tmp_repo, ref, same) == "same"
+
+
+@contextmanager
+def _race(original, bases, interfere):
+    """Wrap ``notes_publication`` to change the remote once, after the fetch."""
+
+    @contextmanager
+    def racing(cwd, notes_ref, base, commits):
+        bases.append(base)
+        if len(bases) == 1:
+            interfere()
+        with original(cwd, notes_ref, base, commits) as staged:
+            yield staged
+
+    yield racing
+
+
+def test_a_remote_notes_ref_deleted_after_the_fetch_is_not_recreated_from_it(
+    feature_repo, bare_remote, tmp_path, monkeypatch
+):
+    configure_base(feature_repo, CONFIG)
+    peer, peer_commit = peer_clone(bare_remote, tmp_path, "feature/y")
+    git("notes", f"--ref={NOTES_REF}", "add", "-m", "peer", peer_commit, cwd=peer)
+    git("push", "origin", "feature/y", NOTES_REF, cwd=peer)
+    agent = verify(feature_repo, tmp_path)
+    head = git("rev-parse", "HEAD", cwd=feature_repo)
+    token = agent.run("gate")["data"]["token"]
+
+    bases: list[str | None] = []
+    with _race(
+        gitx.notes_publication,
+        bases,
+        lambda: git("update-ref", "-d", NOTES_REF, cwd=bare_remote),
+    ) as racing:
+        monkeypatch.setattr(gitx, "notes_publication", racing)
+        pushed = agent.run("push", "--confirm", token)
+
+    assert pushed["state"] == "PUSHED"
+    assert bases[0] is not None
+    assert bases[1] is None
+    # The deletion is honoured: the rebuilt ref carries only this push's note.
+    assert remote_notes(bare_remote) == {head}
+
+
+def test_a_remote_notes_ref_rewound_after_the_fetch_is_not_moved_forward_again(
+    feature_repo, bare_remote, tmp_path, monkeypatch
+):
+    configure_base(feature_repo, CONFIG)
+    peer, peer_commit = peer_clone(bare_remote, tmp_path, "feature/y")
+    main = git("rev-parse", "origin/main", cwd=peer)
+    git("notes", f"--ref={NOTES_REF}", "add", "-m", "kept", peer_commit, cwd=peer)
+    git("push", "origin", "feature/y", NOTES_REF, cwd=peer)
+    rewound = git("rev-parse", NOTES_REF, cwd=peer)
+    git("notes", f"--ref={NOTES_REF}", "add", "-m", "withdrawn", main, cwd=peer)
+    git("push", "origin", NOTES_REF, cwd=peer)
+    agent = verify(feature_repo, tmp_path)
+    head = git("rev-parse", "HEAD", cwd=feature_repo)
+    token = agent.run("gate")["data"]["token"]
+
+    bases: list[str | None] = []
+    with _race(
+        gitx.notes_publication,
+        bases,
+        lambda: git("update-ref", NOTES_REF, rewound, cwd=bare_remote),
+    ) as racing:
+        monkeypatch.setattr(gitx, "notes_publication", racing)
+        pushed = agent.run("push", "--confirm", token)
+
+    assert pushed["state"] == "PUSHED"
+    assert bases[1] == rewound
+    assert gitx.is_ancestor(bare_remote, rewound, NOTES_REF)
+    # The withdrawn note stays withdrawn; this push adds only its own.
+    assert remote_notes(bare_remote) == {peer_commit, head}
