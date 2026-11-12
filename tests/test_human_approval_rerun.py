@@ -467,6 +467,15 @@ def test_policy_workflow_runs_only_on_the_protected_base_event():
     assert "overwrite: true" in record
 
 
+def test_docs_do_not_claim_the_required_check_name_cannot_be_imitated():
+    """Required checks match on name, so the docs state the real guarantee."""
+    docs = " ".join((ROOT / "docs/attestations-and-ci.md").read_text().split())
+    assert "cannot be satisfied that way" not in docs
+    assert "A required check matches on the check name" in docs
+    assert "Select **GitHub Actions** as the expected source of each required check" in docs
+    assert "requires the workflow itself to pass, pinned to a protected ref" in docs
+
+
 def test_review_relay_has_no_permissions_and_no_check_of_its_own():
     relay = _read("human-approval-review.yml")
     events = " ".join(relay.split("\non:\n", 1)[1].split("\npermissions:", 1)[0].split())

@@ -205,7 +205,19 @@ A run that lists no pull requests, such as one from a fork, counts when it comes
 All waits share one twenty-minute budget, so the job stays inside its timeout however many runs a head has.
 The check is deliberately not a commit status.
 Any workflow with the repository's Actions token can write a commit status, and a ruleset cannot tell one workflow from another, so a branch workflow could mark a high-risk pull request approved.
-A job of the protected-base run cannot be satisfied that way.
+A job of the protected-base run is harder to imitate, but it is not proof against imitation.
+The pull request cannot change that job, because GitHub runs it from the base.
+A required check matches on the check name, though, and every workflow in the repository reports through the same GitHub Actions app.
+A `pull_request` workflow that the pull request adds could therefore report a passing job with the same name.
+The real job still reports its own result for that name on the same head.
+The behavior described above suggests that a failing real result keeps blocking the merge.
+This project has not tested a same-name job from another workflow, so it does not rely on that.
+Such a pull request changes `.github/workflows/**`, so the policy requires approval, but the imitation targets that very check.
+To enforce the check by its source rather than by its name, an administrator should:
+
+- Select **GitHub Actions** as the expected source of each required check in the branch ruleset. A commit status or another app then cannot satisfy the name, although another Actions workflow still can.
+- Where the plan offers it, use a ruleset that requires the workflow itself to pass, pinned to a protected ref, instead of a required check name. GitHub then runs the workflow file from that ref.
+
 `manual_merge` and `environment` modes do not read reviews, and a re-run in `environment` mode would discard a granted Environment approval, so the companion leaves those runs alone.
 The recorded mode, not the current base's configuration, decides, because a re-run replays the original event and base; a run from before the artifact existed is not re-run automatically.
 GitHub permits a re-run for 30 days after the original run; after that, push the branch again to start a new one.
