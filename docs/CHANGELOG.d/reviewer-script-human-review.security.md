@@ -15,7 +15,8 @@
   command strings, not the scripts that they run.
 - Reviewer path detection also protects directories that a command changes to (`cd`,
   `pushd`, `-C`, `--directory`, `--cwd`, `--prefix`, `--project`, `--chdir`), directories
-  in `PYTHONPATH` and `NODE_PATH`, the top-level package of a `-m` module, and the literal
+  in `PYTHONPATH` and `NODE_PATH`, the top-level package of a dotted `-m` module (or
+  `name.py` and `name/**` for `-m name`), and the literal
   path after a leading `$VAR/` or `$(...)/` expansion.
 - The example Claude wrapper passes `--safe-mode --setting-sources user`, and the example
   Codex wrapper passes `--config project_doc_max_bytes=0 --ignore-rules`, so the branch
