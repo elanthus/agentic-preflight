@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import posixpath
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from pathlib import PureWindowsPath
 from typing import Literal
 
@@ -50,41 +50,73 @@ _FINDING_RISK = {
 _SHELL_OPERATORS = re.compile(r"[;&|()<>]+")
 # A word with an expansion or a glob does not name one fixed path.
 _UNRESOLVED = frozenset("$`~*?[]{}")
+# Builtins that change the directory later words are resolved against.
+_CHANGE_DIRECTORY = frozenset({"cd", "pushd"})
+# ``sh -c 'cd tools && python3 review.py'`` nests a command inside one quoted word.
+_MAX_NESTING = 3
 
 
 def _unique(patterns: Iterable[str]) -> list[str]:
     return list(dict.fromkeys(patterns))
 
 
-def _command_path(word: str) -> str | None:
-    """The repository-relative path that one shell word names, if it looks like one.
+def _runs_a_command_string(flag: str) -> bool:
+    """``-c`` and combined short flags such as ``-lc`` or ``-ec`` (``sh``, ``bash``)."""
+    return flag.startswith("-") and not flag.startswith("--") and "c" in flag[1:]
 
-    A word counts when it contains a directory separator or a dot, which is how a
-    script is usually named (``python3 tools/review.py`` or ``./review``). Bare words
-    such as ``python``, ``uv``, or ``run`` are program names or subcommands, which the
-    shell finds on ``PATH`` rather than in the worktree.
+
+def _shell_pieces(command: str, depth: int = 0) -> Iterator[str]:
+    """Shell words of ``command``, split again on control operators.
+
+    The word after a ``-c`` flag, as in ``sh -c 'python3 tools/review.py'``, is read
+    again as a nested command. Any other quoted word stays whole, so a path that
+    contains a space is kept.
     """
+    words = commandmod.split(command)
+    if words is None:
+        words = command.split()
+    previous = ""
+    for word in words:
+        if depth < _MAX_NESTING and _runs_a_command_string(previous):
+            yield from _shell_pieces(word, depth + 1)
+        else:
+            yield from (piece for piece in _SHELL_OPERATORS.split(word) if piece)
+        previous = word
+
+
+def _word_value(word: str) -> str | None:
+    """The part of one shell word that could be a path."""
     if word.startswith("-"):
         # ``--script=tools/review.py`` names a path; a bare flag does not.
-        _, separator, word = word.partition("=")
-        if not separator:
-            return None
-    else:
-        name, separator, value = word.partition("=")
-        if separator and name.isidentifier():
-            # ``VAR=tools/config.json`` before a program, or as an ``env`` argument.
-            word = value
-    word = word.replace("\\", "/")
-    if not word or ("/" not in word and "." not in word):
+        _, separator, value = word.partition("=")
+        return value if separator else None
+    name, separator, value = word.partition("=")
+    if separator and name.isidentifier():
+        # ``VAR=tools/config.json`` before a program, or as an ``env`` argument.
+        return value
+    return word
+
+
+def _repo_relative(directory: str, value: str) -> str | None:
+    """``value`` resolved against repository ``directory``, if it stays inside."""
+    value = value.replace("\\", "/")
+    if not value or any(char in _UNRESOLVED for char in value):
         return None
-    if any(char in _UNRESOLVED for char in word):
+    if value.startswith("/") or PureWindowsPath(value).drive:
         return None
-    if word.startswith("/") or PureWindowsPath(word).drive:
-        return None
-    normalized = posixpath.normpath(word)
+    normalized = posixpath.normpath(posixpath.join(directory, value))
     if normalized in {".", ".."} or normalized.startswith("../"):
         return None
     return normalized
+
+
+def _looks_like_path(value: str) -> bool:
+    """A word with a directory separator or a dot, which is how a script is named.
+
+    Bare words such as ``python``, ``uv``, or ``run`` are program names or
+    subcommands, which the shell finds on ``PATH`` rather than in the worktree.
+    """
+    return "/" in value or "\\" in value or "." in value
 
 
 def command_path_patterns(command: str) -> list[str]:
@@ -93,17 +125,29 @@ def command_path_patterns(command: str) -> list[str]:
     This is a best-effort reading of shell words, not a shell. A named file is
     protected together with its directory, because interpreters load sibling modules
     from the script's directory (the example wrappers import ``_reviewer_common``).
-    A path at the repository root is protected as a file and as a directory. Paths
-    that the command computes, imports by module name, or reads from outside the
-    repository are not detected; list those in ``[review] trusted_paths``.
+    A path at the repository root is protected as a file and as a directory. After
+    ``cd DIR`` or ``pushd DIR``, a relative path is resolved against both the
+    repository root and ``DIR``, so either reading is protected. Paths that the
+    command computes, imports by module name, or reads from outside the repository
+    are not detected; list those in ``[review] trusted_paths``.
     """
-    words = commandmod.split(command)
-    if words is None:
-        words = command.split()
+    directories = [""]
     patterns: list[str] = []
-    for word in words:
-        for piece in _SHELL_OPERATORS.split(word):
-            path = _command_path(piece)
+    changing_directory = False
+    for piece in _shell_pieces(command):
+        if changing_directory:
+            changing_directory = False
+            targets = (_repo_relative(directory, piece) for directory in directories)
+            directories = _unique([*directories, *(target for target in targets if target)])
+            continue
+        if piece in _CHANGE_DIRECTORY:
+            changing_directory = True
+            continue
+        value = _word_value(piece)
+        if value is None or not _looks_like_path(value):
+            continue
+        for directory in directories:
+            path = _repo_relative(directory, value)
             if path is None:
                 continue
             parent = posixpath.dirname(path)
