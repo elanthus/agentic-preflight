@@ -488,3 +488,15 @@ Invalid `mirror` and `hook_log` values and unknown keys in the repository sectio
 `mirror` and `hook_log` now accept only `true` and `false`, in either file. Earlier releases also accepted values such as `1`, `"yes"`, and `"on"`. Such a value is now an error that names the file.
 Attestation verification reads the protected base's `[telemetry]` section by the same rule, so a `path` there no longer fails verification.
 No configuration digest, snapshot, fingerprint, or attestation changes, because none of them contains `[telemetry]`.
+
+## Unreleased: the reviewer's own files need human review
+
+Risk classification now treats the repository paths that `[review] command` and `[review.contracts] planner_command` name as human-review paths, together with every file under each named file's directory.
+The new optional `[review] trusted_paths` list adds more patterns.
+This applies to local runs, to attestation verification, and to `approval-check`, which reads both from the protected base.
+A pull request that edits a configured reviewer script, or a sibling file such as the example wrappers' `_reviewer_common.py`, is now high risk and needs the configured approval. Earlier releases classified it by `[policy]` alone.
+Such paths appear in `data.path_reasons` with the existing kind `human_review_path`. No envelope field or reason kind is new.
+Earlier releases reject a configuration file that sets `trusted_paths`, as an unknown key. Upgrade the protected-base verifier and every machine that shares a clone before you set it.
+Configuration snapshots omit `trusted_paths` when it is empty, so snapshots and configuration digests for existing configurations are unchanged.
+A snapshot that sets it cannot be read by an earlier release.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.

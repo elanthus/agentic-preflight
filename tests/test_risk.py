@@ -1,4 +1,6 @@
-from agentic_preflight.config import PolicySection
+import pytest
+
+from agentic_preflight.config import PolicySection, ReviewContractsSection, ReviewSection
 from agentic_preflight.models import (
     Finding,
     FindingAction,
@@ -8,7 +10,12 @@ from agentic_preflight.models import (
     Stage,
     Verdict,
 )
-from agentic_preflight.risk import assess, include_attested_findings
+from agentic_preflight.risk import (
+    assess,
+    command_path_patterns,
+    include_attested_findings,
+    reviewer_patterns,
+)
 
 
 def _finding(
@@ -39,12 +46,13 @@ def _assess(
     *,
     review_blocking_severities=("critical", "high"),
     docs_blocking_severities=("critical", "high"),
+    review=None,
 ):
     return assess(
         list(paths),
         list(findings),
         policy=policy or PolicySection(),
-        review_blocking_severities=list(review_blocking_severities),
+        review=review or ReviewSection(blocking_severities=list(review_blocking_severities)),
         docs_blocking_severities=list(docs_blocking_severities),
     )
 
@@ -154,3 +162,78 @@ def test_imported_attestation_preserves_medium_and_high_finding_risk():
     assert high.verdict is Verdict.NEEDS_HUMAN
     assert high.requires_human_review is True
     assert high.reasons[-1].severity is Severity.CRITICAL
+
+
+@pytest.mark.parametrize(
+    ("command", "patterns"),
+    [
+        ("python3 reviewer/rev.py", ["reviewer/**"]),
+        ("python3 ./rev.py --json", ["rev.py", "rev.py/**"]),
+        (
+            "env AP_REVIEWER_MODEL=claude-opus-5-5 uv run python -B "
+            "docs/examples/reviewers/claude_review.py",
+            ["docs/examples/reviewers/**"],
+        ),
+        ("cd tools&&python3 review.py", ["review.py", "review.py/**"]),
+        ("node 'my tools/review.mjs' --config=conf/reviewer.json", ["my tools/**", "conf/**"]),
+        ("CONFIG=conf/review.toml reviewer", ["conf/**"]),
+        ("node tools/reviewer/", ["tools/**"]),
+        # Bare program names, absolute paths, escapes from the repository, and paths
+        # that the shell would compute are not repository paths.
+        ("codex exec --json", []),
+        ("/usr/local/bin/reviewer ../outside/review.py", []),
+        ("python3 $REVIEWER tools/*.py ~/review.py", []),
+        # Unbalanced quoting falls back to whitespace splitting.
+        ("python3 tools/review.py 'unbalanced", ["tools/**"]),
+    ],
+)
+def test_command_path_patterns_name_the_repository_paths_a_command_runs(command, patterns):
+    assert command_path_patterns(command) == patterns
+
+
+def test_reviewer_patterns_combine_both_commands_and_the_trusted_paths():
+    review = ReviewSection(
+        command="python3 reviewer/rev.py",
+        trusted_paths=["prompts/**", "reviewer/**"],
+        contracts=ReviewContractsSection(planner_command="python3 planner/plan.py"),
+    )
+    assert reviewer_patterns(review) == ["prompts/**", "reviewer/**", "planner/**"]
+    assert reviewer_patterns(ReviewSection()) == []
+
+
+@pytest.mark.parametrize(
+    "review",
+    [
+        ReviewSection(command="python3 reviewer/rev.py"),
+        ReviewSection(trusted_paths=["reviewer/**"]),
+        ReviewSection(contracts=ReviewContractsSection(planner_command="python3 reviewer/rev.py")),
+    ],
+)
+def test_a_change_to_the_reviewer_requires_human_review(review):
+    result = _assess(["reviewer/rev.py", "src/app.py"], review=review)
+    assert result.level is RiskLevel.HIGH
+    assert result.verdict is Verdict.NEEDS_HUMAN
+    assert [(reason.kind, reason.path, reason.pattern) for reason in result.reasons] == [
+        ("human_review_path", "reviewer/rev.py", "reviewer/**")
+    ]
+    assert _assess(["src/app.py"], review=review).level is RiskLevel.LOW
+
+
+def test_a_reviewer_path_already_in_the_policy_is_reported_once():
+    result = _assess(
+        ["reviewer/rev.py"],
+        policy=PolicySection(human_review_paths=["reviewer/**"]),
+        review=ReviewSection(command="python3 reviewer/rev.py"),
+    )
+    assert len(result.reasons) == 1
+
+
+def test_default_trusted_paths_stay_out_of_configuration_snapshots():
+    assert "trusted_paths" not in ReviewSection().model_dump()
+    configured = ReviewSection(trusted_paths=["reviewer/**"])
+    assert configured.model_dump()["trusted_paths"] == ["reviewer/**"]
+
+
+def test_trusted_paths_must_be_repository_relative():
+    with pytest.raises(ValueError, match="repo-relative"):
+        ReviewSection(trusted_paths=["../reviewer/**"])

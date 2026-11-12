@@ -19,6 +19,15 @@ The [Claude configuration](examples/claude-reviewer.toml) calls the
 Both configurations set `executor = "command"`.
 Thus, `agentic-preflight review run` launches an independent reviewer wrapper.
 
+The wrapper is independent of the coding agent's session, not of the branch.
+It runs from the worktree that holds the change under review, so a branch that edits the wrapper changes its own reviewer.
+Verification compares only the configured command string.
+Instead, risk classification treats the files that the command names, and every file under the wrapper's directory, as human-review paths.
+A change to the wrapper or to `_reviewer_common.py` then needs human approval before merge.
+List any other file that the reviewer reads, such as a prompt in another directory, in `[review] trusted_paths`.
+Also list the wrapper directory in your forge's code-owner rules.
+See [Review independence](configuration.md#review-independence-review).
+
 Set `AP_CODEX_BIN` or `AP_CLAUDE_BIN` if the executable is not named `codex` or `claude`.
 Set `AP_REVIEWER_MODEL` to an exact model ID.
 Set `AP_REVIEWER_EFFORT` to an effort that the model and CLI support.

@@ -312,6 +312,91 @@ def test_approval_policy_comes_from_the_base_commit_not_the_pr_head(tmp_repo, mo
     assert result["approved"] is False
 
 
+def _repository_reviewer(repo, review):
+    write(
+        repo,
+        ".agentic-preflight.toml",
+        f"[review]\nexecutor = 'command'\n{review}\n\n[approval]\nmode = 'peer_review'\n",
+    )
+    write(repo, "reviewer/rev.py", "raise SystemExit(1)\n")
+    write(repo, "reviewer/common.py", "BLOCK = True\n")
+    return commit_all(repo, "configure a repository reviewer")
+
+
+@pytest.mark.parametrize(
+    ("review", "rewritten"),
+    [
+        ("command = 'python3 reviewer/rev.py'", "reviewer/rev.py"),
+        # Interpreters load sibling modules from the script's directory.
+        ("command = 'python3 reviewer/rev.py'", "reviewer/common.py"),
+        ("command = 'external-reviewer'\ntrusted_paths = ['reviewer/**']", "reviewer/rev.py"),
+        (
+            "command = 'external-reviewer'\n\n[review.contracts]\n"
+            "planner_command = 'python3 reviewer/rev.py'",
+            "reviewer/rev.py",
+        ),
+    ],
+)
+def test_a_branch_that_rewrites_the_base_reviewer_requires_human_approval(
+    tmp_repo, monkeypatch, review, rewritten
+):
+    # GHSA-3372-q2xp-jr7q: the base pins the review command as a string, but the command
+    # runs a script from the worktree under review. Without this rule, a branch could
+    # replace that script with one that reports nothing and merge with no human review.
+    base = _repository_reviewer(tmp_repo, review)
+    git("switch", "-c", "feature/own-reviewer", cwd=tmp_repo)
+    write(tmp_repo, rewritten, "print('{}')\n")
+    write(tmp_repo, "src/extra.py", "EXTRA = 1\n")
+    head = commit_all(tmp_repo, "rewrite the reviewer")
+    _stub_attestation(
+        monkeypatch, head=head, branch="feature/own-reviewer", findings_summary={"open": 0}
+    )
+
+    result = evaluate(tmp_repo, base_sha=base, head_sha=head, reviews=[], pull_request_author="a")
+
+    assert result["requires_human_approval"] is True
+    assert result["approved"] is False
+    assert [(reason["kind"], reason["path"]) for reason in result["path_reasons"]] == [
+        ("human_review_path", rewritten)
+    ]
+
+
+def test_a_branch_cannot_move_the_reviewer_to_escape_the_base_policy(tmp_repo, monkeypatch):
+    # The base's command decides which paths are protected, not the branch's.
+    base = _repository_reviewer(tmp_repo, "command = 'python3 reviewer/rev.py'")
+    git("switch", "-c", "feature/move-reviewer", cwd=tmp_repo)
+    write(
+        tmp_repo,
+        ".agentic-preflight.toml",
+        "[review]\nexecutor = 'command'\ncommand = 'python3 other/rev.py'\n",
+    )
+    write(tmp_repo, "reviewer/rev.py", "print('{}')\n")
+    head = commit_all(tmp_repo, "point the branch at another reviewer")
+    _stub_attestation(
+        monkeypatch, head=head, branch="feature/move-reviewer", findings_summary={"open": 0}
+    )
+
+    result = evaluate(tmp_repo, base_sha=base, head_sha=head, reviews=[], pull_request_author="a")
+
+    assert result["requires_human_approval"] is True
+    assert "reviewer/rev.py" in {reason["path"] for reason in result["path_reasons"]}
+
+
+def test_a_branch_that_leaves_the_base_reviewer_alone_needs_no_approval(tmp_repo, monkeypatch):
+    base = _repository_reviewer(tmp_repo, "command = 'python3 reviewer/rev.py'")
+    git("switch", "-c", "feature/ordinary", cwd=tmp_repo)
+    write(tmp_repo, "src/extra.py", "EXTRA = 1\n")
+    head = commit_all(tmp_repo, "ordinary change")
+    _stub_attestation(
+        monkeypatch, head=head, branch="feature/ordinary", findings_summary={"open": 0}
+    )
+
+    result = evaluate(tmp_repo, base_sha=base, head_sha=head, reviews=[], pull_request_author="a")
+
+    assert result["requires_human_approval"] is False
+    assert result["path_reasons"] == []
+
+
 def test_approval_check_reports_a_malformed_reviews_file_as_unreadable_input(tmp_repo, tmp_path):
     reviews_file = tmp_path / "reviews.json"
     reviews_file.write_text("{not json")

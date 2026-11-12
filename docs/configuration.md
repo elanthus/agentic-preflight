@@ -28,6 +28,8 @@ A base commit with no such file uses the defaults.
 Thus, the base policy decides what verification and the hosted approval check require, whatever the user file or the branch sets.
 A relaxed setting fails verification only when the run's evidence falls short of the base policy.
 For example, verification rejects a note whose run skipped docs that the base enables, ran a lint, test, or review command other than the one the base configures, or excluded review files that the base does not exclude.
+Verification compares those commands as strings. A branch can still edit a script that a command runs from the repository.
+For the review and planner commands, such an edit makes the change high risk; see [Review independence](#review-independence-review).
 See [what verification trusts](limits.md#attestations-are-not-signatures).
 
 > **Warning: the configuration executes committed code.**
@@ -63,6 +65,7 @@ max_findings = 50
 executor = "in_harness"       # default; or "command"
 # command = "reviewer --json" # receives review context JSON on stdin
 require_command_for = []      # e.g. ["high"] to require independence by risk
+trusted_paths = []            # e.g. ["tools/reviewer/**"]; changes need human review
 
 [review.contracts]
 enabled = false              # opt-in executable review evidence
@@ -464,6 +467,23 @@ Verification compares the attested review command only with a `command` committe
 When the base requires command review but sets no `command`, a note from any review command passes, as lint and test commands do when the base sets none.
 Commit `command` to control which reviewer satisfies the requirement.
 
+Verification compares the command string, not the program that it runs.
+`command` runs in the worktree that holds the change under review, so a script that it names in the repository is the branch's copy of that script.
+Thus, risk classification treats the reviewer's own files as human-review paths, in addition to `[policy] human_review_paths`:
+
+- Every repository-relative path that `command` or `[review.contracts] planner_command` names.
+  A named file is protected together with every file under its directory, because interpreters load sibling modules from there.
+  The example wrappers, for instance, import `_reviewer_common.py` from their own directory.
+  A path at the repository root is protected as that file, or as that directory if it is one.
+- Every pattern in `trusted_paths`. Patterns are repository-relative globs with the same matching and restrictions as `[policy]`.
+
+A change to any of these paths is high risk and needs human approval before merge.
+The hosted approval check and attestation verification use the `[review]` section committed at the protected base, so a branch cannot point the command elsewhere to escape the rule.
+Reading paths from a command is approximate.
+A word counts as a path when it contains `/` or `.`, after the value of a `--option=value` or `NAME=value` word is taken.
+Bare program names, absolute paths, paths outside the repository, and words with a shell expansion or a glob are skipped.
+List in `trusted_paths` anything else that decides what the reviewer does: a module that the command loads by name (`python -m reviewer`), a prompt or configuration file in another directory, or a path that the command computes.
+
 Command review uses `[stage] timeout_seconds` and `max_attempts`.
 Attempts persist across process restarts.
 Every repair invalidates the prior executor and coverage evidence.
@@ -480,6 +500,7 @@ It never makes a small change safe or a large change dangerous.
 `[policy]` classifies the paths that the branch changes:
 
 - `human_review_paths` marks ownership-sensitive paths as high risk. It records the specific policy match for reviewers.
+  The paths of the configured reviewer count as human-review paths too; see [Review independence](#review-independence-review).
 - `high_risk_paths` assigns high risk. Every high-risk result uses the configured approval mode before merge. It does not require a person to perform the push.
 - `medium_risk_paths` assigns medium risk. Unmatched changes start at low risk.
 
