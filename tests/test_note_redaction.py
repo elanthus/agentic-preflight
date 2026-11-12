@@ -280,7 +280,8 @@ def test_finding_redaction_keeps_the_length_caps():
 
     (redacted,) = redact_submissions([submission], ["ab"])
 
-    assert len(redacted.title) == 200
+    assert len(redacted.title) <= 200
+    assert redacted.title.rstrip().endswith("[redacted]")
     assert "ab" not in redacted.title.replace("[redacted]", "")
     assert redacted.detail == "[redacted]"
     assert redacted.suggestion is None

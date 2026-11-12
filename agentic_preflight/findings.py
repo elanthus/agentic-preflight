@@ -152,10 +152,21 @@ def redact_text(value: str, secrets: list[str], *, limit: int) -> str:
     """Remove copied-file values from finding text, keeping the field's length cap.
 
     A ``[redacted]`` marker can be longer than the value it replaces, so the
-    result is cut back to ``limit``. Cutting after redaction cannot restore a
-    secret.
+    result is cut back to ``limit``, dropping a marker that the cut would split.
+    Cutting after redaction cannot restore a secret.
     """
-    return shellstage.redact(value, secrets)[:limit]
+    text = shellstage.redact(value, secrets)
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    start = cut.rfind("[")
+    if (
+        start != -1
+        and cut[start:] != shellstage.REDACTED
+        and (shellstage.REDACTED.startswith(cut[start:]))
+    ):
+        cut = cut[:start]
+    return cut
 
 
 def redact_submissions(

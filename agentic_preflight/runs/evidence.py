@@ -66,7 +66,11 @@ def fingerprint(
     wt = _require_worktree(run)
     head = gitx.rev_parse(wt, "HEAD")
     # The note carries the published snapshot and commands, and a verifier
-    # recomputes these digests from it.
+    # recomputes these digests from it. A user-level command digests as its
+    # marker, so two such commands share a shell fingerprint. That is safe because
+    # shell fingerprints are only compared for the same recorded command: before
+    # and after one execution, and against the record's own command when inputs
+    # are rechecked. Shell evidence is never reused across runs.
     snapshot = public_config.published_snapshot(run)
     if stage in {Stage.LINT, Stage.TEST}:
         configured = getattr(session.config.commands, stage.value)
