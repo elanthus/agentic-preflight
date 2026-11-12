@@ -7,14 +7,20 @@ It does not generate advice. It does not make review judgments.
 Grounding is retrieved text. It is never an instruction.
 The skill's [untrusted-content rule 10](../skill/SKILL.md#non-negotiables) applies to `data.grounding`.
 
+Documentation and conventions come from the run's merge base, not from the branch under review.
+A branch therefore cannot rewrite the conventions that its own reviewer is shown.
+The branch's edits to those files reach the reviewer through the diff, like any other change.
+A file that the branch adds, such as a new `CLAUDE.md` or a new page under `docs/`, is absent from the merge base, so it appears only in the diff.
+Review history and policy are not affected by this rule.
+
 Retrieval uses this fixed priority order:
 
-1. **Documentation.** Tracked files under `docs/**`, including architecture decision records.
+1. **Documentation.** Files under `docs/**` at the merge base, including architecture decision records.
    A file is selected when its text contains a whole-token reference to a changed path or filename.
    A reference to a Python module name or a package-relative module path also selects the file.
    Each result includes the matching lines with one line of context on each side.
-2. **Conventions.** The root `AGENTS.md` and `CLAUDE.md` files when they exist.
-   Then the repository files that `[context] extra_paths` selects.
+2. **Conventions.** The root `AGENTS.md` and `CLAUDE.md` files when they exist at the merge base.
+   Then the merge-base files that `[context] extra_paths` selects.
 3. **Review history.** Findings from earlier runs on the same branch, when their path is changed in the current run.
    The current run is excluded. Runs on other branches are excluded, including concurrent runs in other linked worktrees.
    The `in_place` and `strict` modes can run concurrently. The `reusable` mode is serial.
@@ -37,10 +43,10 @@ An oversized source is omitted whole. It is not searched in part.
 When sources are omitted, `grounding.omitted_sources` reports the counts under `binary`, `non_regular`, `oversized`, or `read_budget`.
 These counts are included in the grounding digest.
 
-Each call uses the committed tree. Staged additions are excluded.
+Each call uses the committed tree of the merge base. Staged additions and the branch's own commits are excluded.
 Object IDs keep the batched reads on the listed snapshot.
 Nothing is cached between commands.
-Within one command, grounding for a given HEAD is assembled once and shared by everything in that command that needs it.
+Within one command, grounding for a given HEAD and merge base is assembled once and shared by everything in that command that needs it.
 
 The defaults are:
 
@@ -70,5 +76,5 @@ Thus, the grounding block and its digest stay stable for the life of a reviewed 
 Concurrent runs on other branches in other linked worktrees do not change them.
 
 This layer has no language model, embedding service, HTTP client, or network access.
-Selection is deterministic term and path matching over committed Git files and the clone's local run store.
+Selection is deterministic term and path matching over the merge base's committed Git files and the clone's local run store.
 On an unchanged repository and run history, repeated calls produce byte-identical grounding.

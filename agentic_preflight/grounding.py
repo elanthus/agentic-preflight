@@ -3,6 +3,11 @@
 Grounding deliberately reads only committed files and persisted local runs. That
 keeps the bundle tied to the reviewed Git snapshot without introducing a model,
 an embedding index, a network dependency, or filesystem iteration order.
+
+Documentation and conventions come from the run's merge base, not from the branch
+under review, so a change cannot rewrite the conventions its own reviewer is shown.
+The branch's edits to those files, including files it adds, reach the reviewer
+through the diff instead.
 """
 
 from __future__ import annotations
@@ -276,7 +281,11 @@ def _apply_total_budget(
 
 
 def assemble(session: Session, run: RunDoc, changed_files: list[str]) -> dict[str, Any]:
-    """Assemble stable, bounded repository context for one review snapshot."""
+    """Assemble stable, bounded repository context for one review snapshot.
+
+    Documentation and convention files are read from ``run.merge_base_sha``. A file
+    that the branch adds is absent there, so it appears only in the review diff.
+    """
     config = session.config.context
     if not config.enabled:
         return {"enabled": False, "entries": [], "dropped": {}}
@@ -289,6 +298,7 @@ def assemble(session: Session, run: RunDoc, changed_files: list[str]) -> dict[st
             or path in _CONVENTION_PATHS
             or any(path_matches(path, pattern) for pattern in config.extra_paths)
         ),
+        revision=run.merge_base_sha,
     )
     groups = (
         ("doc", _doc_entries(texts, changed_files, config.entry_max_bytes)),
@@ -337,14 +347,16 @@ _BINARY_SUFFIXES = frozenset(
 
 
 def _load_sources(
-    repo: Path | str, select: Callable[[str], bool]
+    repo: Path | str, select: Callable[[str], bool], *, revision: str = "HEAD"
 ) -> tuple[dict[str, str], dict[str, int], set[str]]:
     """Select by metadata before one batched content read; report every omitted source.
 
-    Object IDs from ls-tree bind subsequent reads to that tree even if HEAD moves.
-    Neither staged files nor filesystem symlink targets enter the source set.
+    ``revision`` names the commit whose tree is read; review grounding passes the
+    run's merge base. Object IDs from ls-tree bind subsequent reads to that tree even
+    if HEAD moves. Neither staged files nor filesystem symlink targets enter the
+    source set.
     """
-    output = gitx.run(repo, "ls-tree", "-r", "-l", "-z", "HEAD").stdout
+    output = gitx.run(repo, "ls-tree", "-r", "-l", "-z", revision).stdout
     candidates = []
     paths = set()
     omitted: Counter[str] = Counter()
