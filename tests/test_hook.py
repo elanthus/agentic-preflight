@@ -54,6 +54,27 @@ def test_init_writes_a_config_file_if_absent(feature_repo):
     assert "automated_cleanup = false" in config
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".agentic-preflight.toml",
+        ".github/workflows/ci.yml",
+        ".github/CODEOWNERS",
+        "CODEOWNERS",
+        "docs/CODEOWNERS",
+        "docs/examples/reviewers/claude_review.py",
+        "docs/examples/reviewers/_reviewer_common.py",
+    ],
+)
+def test_init_template_sends_ownership_and_reviewer_changes_to_human_review(feature_repo, path):
+    from agentic_preflight.config import load_config
+    from agentic_preflight.diff import path_matches
+
+    ScriptedAgent(feature_repo).run("init")
+    config = load_config(feature_repo, user_config_dir=Path(feature_repo) / "no-user-config")
+    assert any(path_matches(path, pattern) for pattern in config.policy.human_review_paths)
+
+
 def test_init_does_not_clobber_an_existing_config(feature_repo):
     write(feature_repo, ".agentic-preflight.toml", "[general]\nbase_ref = 'develop'\n")
     agent = ScriptedAgent(feature_repo)

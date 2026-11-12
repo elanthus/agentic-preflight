@@ -17,3 +17,7 @@
   edited, or dismissed the review is an owner, member, or collaborator with a review on
   the pull request, or has write access. Comment reviews from other users on a public
   pull request no longer queue policy re-runs.
+- The configuration that `init` writes, and the Claude and Codex reviewer example
+  configurations, add `docs/CODEOWNERS` and the reviewer wrapper directory
+  `docs/examples/reviewers/**` to `human_review_paths`. Existing configuration files are
+  not changed; add these paths by hand to apply them.

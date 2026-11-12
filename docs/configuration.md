@@ -81,6 +81,9 @@ human_review_paths = [
   ".github/workflows/**",
   ".github/CODEOWNERS",
   "CODEOWNERS",
+  "docs/CODEOWNERS",
+  # Command reviewer wrappers decide what a review reports.
+  "docs/examples/reviewers/**",
 ]
 # Every high-risk result requires human merge approval; medium risk does not.
 high_risk_paths = ["db/migrations/**", "infra/**"]
