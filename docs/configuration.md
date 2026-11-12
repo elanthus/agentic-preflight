@@ -475,6 +475,7 @@ Thus, risk classification treats the reviewer's own files as human-review paths,
   A named file is protected together with every file under its directory, because interpreters load sibling modules from there.
   The example wrappers, for instance, import `_reviewer_common.py` from their own directory.
   A path at the repository root is protected as that file, or as that directory if it is one.
+  Its sibling files are not protected, because that would cover the whole repository. List any module that a root-level reviewer imports in `trusted_paths`, or move the reviewer into its own directory.
 - Every pattern in `trusted_paths`. Patterns are repository-relative globs with the same matching and restrictions as `[policy]`.
 
 A change to any of these paths is high risk and needs human approval before merge.
