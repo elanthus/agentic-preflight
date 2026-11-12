@@ -171,8 +171,9 @@ That exemption rests on two checks of GitHub-supplied data:
 
 - Every non-merge commit is attributed to `dependabot[bot]`, committed by `web-flow`, and has a valid signature.
   This shows that GitHub created the commit. It does not show that Dependabot wrote its content.
-- The event that set the current head was an `opened` or `synchronize` event whose sender is the `dependabot[bot]` Bot account, and a `synchronize` event reports that exact head as the result of its push.
+- The event that set the current head was an `opened` or `synchronize` event whose sender is the `dependabot[bot]` Bot account (login, type, and account id `49699333`), and a `synchronize` event reports that exact head as the result of its push.
   This shows that Dependabot, not a person, placed the commit at the head.
+  The pull request must also target the default branch.
 
 The second check exists because a person with write access might obtain a GitHub-signed commit attributed to Dependabot, for example from a squash merge of a Dependabot pull request that carries their own commits, and push it to another Dependabot branch.
 Whether GitHub attributes such a squash commit to Dependabot was not tested; the check does not depend on the answer.
@@ -181,7 +182,12 @@ A head pushed by a person, including a clean merge from **Update branch**, does 
 Ask Dependabot to rebase or recreate the pull request to restore the exemption, or obtain owner approval.
 A re-run replays the original event, so a review-triggered re-run keeps the original sender.
 
-The guarantee is therefore: GitHub reported that Dependabot set this head, and every commit since the base is GitHub-signed bot work or a clean merge of the protected base.
+The result is bound to the base named by the event that produced it.
+Retargeting a pull request does not re-run the workflow, because an `edited` event cannot establish who set the head and would fail every edit closed.
+Requiring the default branch means a run judged against another base cannot be carried to the default branch by a retarget.
+A pull request retargeted away from the default branch keeps its earlier result; protect other branches with their own rules if that matters.
+
+The guarantee is therefore: GitHub reported that Dependabot set this head on a pull request into the default branch, and every commit since the base is GitHub-signed bot work or a clean merge of the protected base that Dependabot pushed.
 It is not a review of the content, and it trusts GitHub's attribution of both the commits and the event.
 For an `opened` event, it also trusts that the branch still held Dependabot's push when Dependabot opened the pull request.
 The exemption still applies to every file that Dependabot changes, including GitHub Actions workflows.

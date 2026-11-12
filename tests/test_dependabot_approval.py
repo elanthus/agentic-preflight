@@ -48,15 +48,21 @@ def snapshot(repo, base, head):
     }
 
 
-def event(head, base, *, action="synchronize", login="dependabot[bot]", kind="Bot"):
+BOT_ID = 49699333
+
+
+def event(
+    head, base, *, action="synchronize", login="dependabot[bot]", kind="Bot", sender_id=BOT_ID
+):
     """Return a pull_request_target payload whose sender set the head."""
     payload = {
         "action": action,
-        "sender": {"login": login, "type": kind},
+        "sender": {"login": login, "type": kind, "id": sender_id},
+        "repository": {"full_name": "owner/repo", "default_branch": "main"},
         "pull_request": {
             "user": {"login": "dependabot[bot]", "type": "Bot"},
-            "head": {"sha": head, "repo": {"full_name": "owner/repo"}},
-            "base": {"sha": base, "repo": {"full_name": "owner/repo"}},
+            "head": {"sha": head, "ref": "dependabot/update", "repo": {"full_name": "owner/repo"}},
+            "base": {"sha": base, "ref": "main", "repo": {"full_name": "owner/repo"}},
         },
     }
     if action == "synchronize":
@@ -99,6 +105,47 @@ def test_head_set_by_another_actor_with_dependabot_metadata_is_not_exempt(
     result = verify(**bot_change)
     assert result["verified"] is False
     assert result["reason"] == "head_set_by_other_actor"
+
+
+@pytest.mark.parametrize("sender_id", [1, 49699334, "49699333", None, True])
+def test_sender_must_be_dependabots_account_id(bot_change, sender_id):
+    # A login and type that look like Dependabot's are not enough without its account id.
+    bot_change["event"]["sender"]["id"] = sender_id
+    assert verify(**bot_change)["reason"] == "head_set_by_other_actor"
+
+
+def test_sender_without_account_id_fails_closed(bot_change):
+    del bot_change["event"]["sender"]["id"]
+    assert verify(**bot_change)["reason"] == "unreadable_provenance"
+
+
+@pytest.mark.parametrize("base_ref", ["release", "scratch", "", None])
+def test_pull_request_into_another_branch_is_not_exempt(bot_change, base_ref):
+    # A retarget does not re-run the workflow, so only the default branch can qualify.
+    bot_change["event"]["pull_request"]["base"]["ref"] = base_ref
+    assert verify(**bot_change)["reason"] == "base_not_default_branch"
+
+
+@pytest.mark.parametrize("default_branch", [None, 7, ["main"]])
+def test_unreadable_default_branch_fails_closed(bot_change, default_branch):
+    bot_change["event"]["repository"]["default_branch"] = default_branch
+    assert verify(**bot_change)["verified"] is False
+
+
+def test_retarget_event_fails_closed(bot_change):
+    payload = event(bot_change["head"], bot_change["base"], action="edited")
+    payload["changes"] = {"base": {"ref": {"from": "scratch"}, "sha": {"from": "d" * 40}}}
+    bot_change["event"] = payload
+    assert verify(**bot_change)["reason"] == "head_actor_unknown"
+
+
+@pytest.mark.parametrize("field", ["repository", "base_ref"])
+def test_missing_base_branch_fields_fail_closed(bot_change, field):
+    if field == "repository":
+        del bot_change["event"]["repository"]
+    else:
+        del bot_change["event"]["pull_request"]["base"]["ref"]
+    assert verify(**bot_change)["reason"] == "unreadable_provenance"
 
 
 @pytest.mark.parametrize(
@@ -334,3 +381,6 @@ def test_workflow_passes_the_replayed_event_payload_to_the_verifier():
     # A review-triggered re-run has another triggering actor; the head's actor is the
     # replayed payload's sender, so the step must not consult the re-running account.
     assert "triggering_actor" not in workflow
+    script = SCRIPT.read_text()
+    assert "BOT_ID = 49699333" in script
+    assert 'event["repository"]["default_branch"]' in script

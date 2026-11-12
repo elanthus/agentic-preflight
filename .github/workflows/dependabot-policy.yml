@@ -22,6 +22,8 @@ jobs:
           github.event_name == 'pull_request_target' &&
           github.event.sender.login == 'dependabot[bot]' &&
           github.event.sender.type == 'Bot' &&
+          github.event.sender.id == 49699333 &&
+          github.event.pull_request.base.ref == github.event.repository.default_branch &&
           (github.event.action == 'opened' || github.event.action == 'synchronize') &&
           github.event.pull_request.user.login == 'dependabot[bot]' &&
           github.event.pull_request.user.type == 'Bot' &&
@@ -43,15 +45,26 @@ jobs:
           EVENT_AFTER: ${{ github.event.after }}
           SENDER_LOGIN: ${{ github.event.sender.login }}
           SENDER_TYPE: ${{ github.event.sender.type }}
+          SENDER_ID: ${{ github.event.sender.id }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           echo "eligible=false" >> "$GITHUB_OUTPUT"
           # Signed bot commit metadata shows only that GitHub created the commit.
           # Require that dependabot[bot] itself set this head: only opened and
           # synchronize name the account that set the head as their sender, and a
           # synchronize must report this exact head as the result of its push.
+          # 49699333 is the numeric id of GitHub's dependabot[bot] account.
           if [ "$EVENT_NAME" != "pull_request_target" ] ||
-            [ "$SENDER_LOGIN" != "dependabot[bot]" ] || [ "$SENDER_TYPE" != "Bot" ]; then
+            [ "$SENDER_LOGIN" != "dependabot[bot]" ] || [ "$SENDER_TYPE" != "Bot" ] ||
+            [ "$SENDER_ID" != "49699333" ]; then
             echo "The account that set head $HEAD_SHA is not established as dependabot[bot]."
+            exit 0
+          fi
+          # A retarget does not re-run this check, so judge only pull requests into the
+          # default branch, whose base this event fixed.
+          if [ -z "$DEFAULT_BRANCH" ] || [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
+            echo "Only a pull request into the default branch qualifies."
             exit 0
           fi
           case "$EVENT_ACTION" in

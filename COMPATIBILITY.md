@@ -242,6 +242,10 @@ The existing required check names stay available.
 Other PRs keep their prior gates.
 See `docs/attestations-and-ci.md`.
 
+The Dependabot approval exemption and the auto-merge and attestation exception now also require that the `dependabot[bot]` account (login, Bot type, and account id `49699333`) set the current head through a `pull_request_target` `opened` or `synchronize` event on a pull request into the default branch.
+A head that a person pushed, including a clean **Update branch** merge, and runs from `reopened`, `ready_for_review`, or auto-merge events no longer qualify; they need owner approval or a Dependabot rebase.
+`.github/scripts/verify_dependabot.py` requires the new `--event-name` and `--event-file` arguments.
+
 Run read diagnostics now report `unreadable` for encoding or I/O failures and `invalid` for JSON, schema, or configuration failures.
 They do not list field locations.
 Unsupported records stay preserved.

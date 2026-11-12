@@ -36,6 +36,9 @@ def classify(tmp_path):
         after=HEAD,
         sender="dependabot[bot]",
         sender_type="Bot",
+        sender_id="49699333",
+        base_ref="main",
+        default_branch="main",
     ):
         if dependencies is None:
             dependencies = [
@@ -98,6 +101,9 @@ def classify(tmp_path):
                 "EVENT_AFTER": after,
                 "SENDER_LOGIN": sender,
                 "SENDER_TYPE": sender_type,
+                "SENDER_ID": sender_id,
+                "BASE_REF": base_ref,
+                "DEFAULT_BRANCH": default_branch,
             },
             capture_output=True,
             text=True,
@@ -138,6 +144,9 @@ def test_pull_request_opened_by_dependabot_qualifies(classify):
         {"sender": "github-actions[bot]"},
         {"sender": ""},
         {"action": "opened", "sender": "maintainer", "sender_type": "User"},
+        {"sender_id": "1"},
+        {"sender_id": "49699334"},
+        {"sender_id": ""},
     ],
 )
 def test_head_set_by_another_actor_does_not_qualify(classify, changes):
@@ -165,6 +174,17 @@ def test_event_that_does_not_establish_the_head_actor_does_not_qualify(classify,
     result, output = classify(**changes)
     assert result.returncode == 0
     assert output == "eligible=false"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [{"base_ref": "release"}, {"base_ref": ""}, {"default_branch": ""}, {"base_ref": "Main"}],
+)
+def test_pull_request_into_another_branch_does_not_qualify(classify, changes):
+    result, output = classify(**changes)
+    assert result.returncode == 0
+    assert output == "eligible=false"
+    assert "default branch" in result.stdout
 
 
 @pytest.mark.parametrize("kind", ["major", "unknown"])
@@ -250,6 +270,10 @@ def test_bot_identity_and_verified_metadata_are_required():
     assert "github.event.pull_request.head.repo.full_name == github.repository" in workflow
     assert "github.event.sender.login == 'dependabot[bot]'" in workflow
     assert "github.event.sender.type == 'Bot'" in workflow
+    assert "github.event.sender.id == 49699333" in workflow
+    assert (
+        "github.event.pull_request.base.ref == github.event.repository.default_branch" in workflow
+    )
     assert "(github.event.action == 'opened' || github.event.action == 'synchronize')" in workflow
     for variable, field in {
         "EVENT_NAME": "event_name",
@@ -257,6 +281,9 @@ def test_bot_identity_and_verified_metadata_are_required():
         "EVENT_AFTER": "event.after",
         "SENDER_LOGIN": "event.sender.login",
         "SENDER_TYPE": "event.sender.type",
+        "SENDER_ID": "event.sender.id",
+        "BASE_REF": "event.pull_request.base.ref",
+        "DEFAULT_BRANCH": "event.repository.default_branch",
     }.items():
         assert f"{variable}: ${{{{ github.{field} }}}}" in workflow
     assert "triggering_actor" not in workflow

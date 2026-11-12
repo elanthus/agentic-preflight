@@ -143,7 +143,9 @@ jobs:
           # inspected only as Git objects, after normal attestation verification.
           # Commit metadata does not show who placed a commit at the head, so the
           # script also reads this event's payload: only an opened or synchronize
-          # event sent by dependabot[bot] for this exact head can exempt it. A re-run,
+          # event sent by dependabot[bot] for this exact head, into the default branch,
+          # can exempt it. Retargeting (edited) is not a trigger, so a result stays
+          # bound to the base this event named. A re-run,
           # including one a review triggers, replays the original payload, so its
           # sender stays the account that set the head, not the account that re-ran.
           commits_file="$RUNNER_TEMP/dependabot-approval-commits.json"

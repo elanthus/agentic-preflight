@@ -5,7 +5,8 @@ Maintainer runbook for when a pull request is ready to merge.
 Verified Dependabot updates do not require human review, including major versions and
 GitHub Actions updates. Require the protected-base hosted approval workflow to verify
 the exact head's bot provenance and pass its applicable attestation and CI checks.
-The event that set the head must come from Dependabot itself. A head that a person
+The event that set the head must come from Dependabot itself, on a pull request into the
+default branch. A head that a person
 pushed, including a clean **Update branch** merge, needs owner approval or a Dependabot
 rebase; so does a run from a reopened, ready-for-review, or auto-merge event. Human-added
 commits and merge resolutions never qualify. A bot author or label alone is not an

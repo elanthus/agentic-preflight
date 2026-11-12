@@ -20,6 +20,8 @@ from agentic_preflight import gitx
 
 OID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 BOT_LOGIN = "dependabot[bot]"
+# The numeric id of GitHub's dependabot[bot] account (GET /users/dependabot%5Bbot%5D).
+BOT_ID = 49699333
 # Only these pull_request_target actions name the account that set the current head as
 # their sender. Any other action, such as reopened, ready_for_review, or an auto-merge
 # toggle, names whoever performed that action, and the head may have changed while the
@@ -51,8 +53,18 @@ def _head_actor_reason(event_name: str, event: object, head: str, base: str) -> 
     # A synchronize event's after SHA is the head that the sender's push produced.
     if action == "synchronize" and event["after"] != head:
         return "event_mismatch"
+    # The result is judged against the base at event time, and a later retarget does
+    # not re-run this workflow, so only a pull request into the default branch qualifies.
+    default_branch = event["repository"]["default_branch"]
+    if not isinstance(default_branch, str) or pr["base"]["ref"] != default_branch:
+        return "base_not_default_branch"
     sender = event["sender"]
-    if sender["login"] != BOT_LOGIN or sender["type"] != "Bot":
+    if (
+        sender["login"] != BOT_LOGIN
+        or sender["type"] != "Bot"
+        or type(sender["id"]) is not int
+        or sender["id"] != BOT_ID
+    ):
         return "head_set_by_other_actor"
     return None
 
