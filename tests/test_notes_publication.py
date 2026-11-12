@@ -42,14 +42,14 @@ def remote_notes(remote: Path) -> set[str]:
     return set(gitx.note_blobs(remote, NOTES_REF))
 
 
-def private_attested_commit(repo: Path, tmp_path: Path) -> str:
+def private_attested_commit(repo: Path, tmp_path: Path, back: str = "feature/x") -> str:
     """Attest a commit on a branch that is aborted and never pushed."""
     git("switch", "-c", "private-wip", "main", cwd=repo)
     write(repo, "src/private.py", "SECRET_PLAN = 'not for the remote'\n")
     private = commit_all(repo, "private work in progress")
     verify(repo, tmp_path).run("abort")
     assert gitx.read_note(repo, NOTES_REF, private) is not None
-    git("switch", "feature/x", cwd=repo)
+    git("switch", back, cwd=repo)
     return private
 
 
@@ -94,17 +94,23 @@ def test_pushing_one_branch_does_not_publish_an_unpushed_branchs_note(
 
 def test_two_clones_pushing_different_branches_keep_both_notes(feature_repo, bare_remote, tmp_path):
     configure_base(feature_repo, CONFIG)
+    first_private = private_attested_commit(feature_repo, tmp_path)
     peer, _ = peer_clone(bare_remote, tmp_path, "feature/y")
+    second_private = private_attested_commit(peer, tmp_path, back="feature/y")
     first = verify(feature_repo, tmp_path)
     second = verify(peer, tmp_path)
     first_head = git("rev-parse", "HEAD", cwd=feature_repo)
     second_head = git("rev-parse", "HEAD", cwd=peer)
 
-    second.run("push", "--confirm", second.run("gate")["data"]["token"])
+    pushed = second.run("push", "--confirm", second.run("gate")["data"]["token"])
+    assert pushed["data"]["published_notes"] == [second_head]
     assert remote_notes(bare_remote) == {second_head}
-    first.run("push", "--confirm", first.run("gate")["data"]["token"])
+    pushed = first.run("push", "--confirm", first.run("gate")["data"]["token"])
+    assert pushed["data"]["published_notes"] == [first_head]
 
+    # Each clone's unpushed attested commit kept its note local.
     assert remote_notes(bare_remote) == {first_head, second_head}
+    assert not {first_private, second_private} & remote_notes(bare_remote)
     # A later synchronization in either clone merges cleanly.
     gitx.fetch_notes(peer, "origin", NOTES_REF)
     assert {first_head, second_head} <= set(gitx.note_blobs(peer, NOTES_REF))
@@ -251,3 +257,130 @@ def test_push_refspecs_never_publish_the_local_notes_ref():
     ]
     assert publish._push_refspecs(sha, "feature/x", None) == [f"{sha}:refs/heads/feature/x"]
     assert not any(spec.startswith(f"{NOTES_REF}:") for spec in publish._push_refspecs(sha, "x"))
+
+
+def test_an_attested_intermediate_commit_publishes_with_the_head(
+    feature_repo, bare_remote, tmp_path
+):
+    configure_base(feature_repo, CONFIG)
+    verify(feature_repo, tmp_path).run("abort")
+    intermediate = git("rev-parse", "HEAD", cwd=feature_repo)
+    write(feature_repo, "src/second.py", "SECOND = True\n")
+    head = commit_all(feature_repo, "second change")
+    agent = verify(feature_repo, tmp_path)
+
+    gate = agent.run("gate")
+    assert gate["data"]["published_notes"] == [intermediate, head]
+    pushed = agent.run("push", "--confirm", gate["data"]["token"])
+
+    assert pushed["data"]["published_notes"] == [intermediate, head]
+    assert remote_notes(bare_remote) == {intermediate, head}
+
+
+def test_a_merge_range_publishes_the_merged_commits_notes_only(feature_repo, bare_remote, tmp_path):
+    configure_base(feature_repo, CONFIG)
+    private = private_attested_commit(feature_repo, tmp_path)
+    git("switch", "-c", "side", "main", cwd=feature_repo)
+    write(feature_repo, "src/side.py", "SIDE = True\n")
+    side = commit_all(feature_repo, "side change")
+    verify(feature_repo, tmp_path).run("abort")
+    git("switch", "feature/x", cwd=feature_repo)
+    git("merge", "--no-ff", "-m", "merge side", "side", cwd=feature_repo)
+    merge = git("rev-parse", "HEAD", cwd=feature_repo)
+    agent = verify(feature_repo, tmp_path)
+
+    gate = agent.run("gate")
+    assert set(gate["data"]["published_notes"]) == {side, merge}
+    agent.run("push", "--confirm", gate["data"]["token"])
+
+    assert remote_notes(bare_remote) == {side, merge}
+    assert private not in remote_notes(bare_remote)
+
+
+def test_published_notes_are_folded_so_a_rewritten_note_still_syncs(
+    feature_repo, bare_remote, tmp_path
+):
+    configure_base(feature_repo, CONFIG)
+    peer, peer_commit = peer_clone(bare_remote, tmp_path, "feature/y")
+    agent = verify(feature_repo, tmp_path)
+    head = git("rev-parse", "HEAD", cwd=feature_repo)
+    # After this clone attested, another clone starts the remote notes history,
+    # so the published commit and the local notes ref share no common tip.
+    git("notes", f"--ref={NOTES_REF}", "add", "-m", "peer", peer_commit, cwd=peer)
+    git("push", "origin", "feature/y", NOTES_REF, cwd=peer)
+    agent.run("push", "--confirm", agent.run("gate")["data"]["token"])
+    remote_tip = git("rev-parse", NOTES_REF, cwd=bare_remote)
+    assert gitx.is_ancestor(feature_repo, remote_tip, NOTES_REF)
+
+    # Without the fold, the local and published histories diverge after the
+    # peer's commit and disagree on this note, so the next synchronization
+    # would fail its three-way notes merge.
+    git("notes", f"--ref={NOTES_REF}", "add", "-f", "-m", "rewritten", head, cwd=feature_repo)
+
+    assert gitx.fetch_notes(feature_repo, "origin", NOTES_REF) == remote_tip
+    assert gitx.read_note(feature_repo, NOTES_REF, head) == "rewritten"
+
+
+def test_a_failed_follow_up_query_reports_the_original_push_error(
+    feature_repo, bare_remote, tmp_path, monkeypatch
+):
+    configure_base(feature_repo, CONFIG)
+    peer, _ = peer_clone(bare_remote, tmp_path, "feature/x")
+    git("push", "origin", "feature/x", cwd=peer)
+    agent = verify(feature_repo, tmp_path)
+    token = agent.run("gate")["data"]["token"]
+
+    def unreachable(cwd, remote, ref):
+        raise gitx.GitError(["ls-remote", remote, ref], 128, "QUERY-FAILED")
+
+    monkeypatch.setattr(gitx, "remote_ref_tip", unreachable)
+    env = agent.run("push", "--confirm", token, expect=ExitCode.ERROR)
+
+    message = env["error"]["message"]
+    assert "git push --atomic origin" in message
+    assert "QUERY-FAILED" not in message
+    assert agent.run("status")["state"] == "AWAITING_PUSH_CONFIRM"
+
+
+def test_leftover_temporary_notes_refs_are_swept(feature_repo, bare_remote, tmp_path):
+    configure_base(feature_repo, CONFIG)
+    head = git("rev-parse", "HEAD", cwd=feature_repo)
+    stale = [
+        "refs/notes/agentic-preflight-publish-99999-deadbeef",
+        "refs/agentic-preflight/fetched-notes-99999",
+    ]
+    for ref in stale:
+        git("update-ref", ref, head, cwd=feature_repo)
+    agent = verify(feature_repo, tmp_path)
+    agent.run("push", "--confirm", agent.run("gate")["data"]["token"])
+    for ref in stale:
+        assert git("for-each-ref", ref, cwd=feature_repo) == ""
+
+    for ref in stale:
+        git("update-ref", ref, head, cwd=feature_repo)
+    agent.run("finish")
+    agent.run("gc")
+    for ref in stale:
+        assert git("for-each-ref", ref, cwd=feature_repo) == ""
+    assert git("show-ref", "--verify", NOTES_REF, cwd=feature_repo)
+
+
+def test_notes_publication_reports_only_added_or_changed_notes(tmp_repo):
+    write(tmp_repo, "a.txt", "a\n")
+    same = commit_all(tmp_repo, "same note")
+    write(tmp_repo, "b.txt", "b\n")
+    rewritten = commit_all(tmp_repo, "rewritten note")
+    write(tmp_repo, "c.txt", "c\n")
+    new = commit_all(tmp_repo, "new note")
+    git("notes", f"--ref={NOTES_REF}", "add", "-m", "same", same, cwd=tmp_repo)
+    git("notes", f"--ref={NOTES_REF}", "add", "-m", "remote value", rewritten, cwd=tmp_repo)
+    remote_tip = git("rev-parse", NOTES_REF, cwd=tmp_repo)
+    git("notes", f"--ref={NOTES_REF}", "add", "-f", "-m", "local value", rewritten, cwd=tmp_repo)
+    git("notes", f"--ref={NOTES_REF}", "add", "-m", "new", new, cwd=tmp_repo)
+
+    commits = [same, rewritten, new]
+    with gitx.notes_publication(tmp_repo, NOTES_REF, remote_tip, commits) as (ref, changed):
+        assert ref is not None
+        assert changed == [rewritten, new]
+        assert gitx.read_note(tmp_repo, ref, rewritten) == "local value"
+        assert gitx.read_note(tmp_repo, ref, same) == "same"

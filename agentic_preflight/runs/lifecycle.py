@@ -278,6 +278,9 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
     known_runs.difference_update(pruned)
 
     legacy = worktree.legacy_worktrees(session.repo_root, session.config.worktree.root)
+    # An interrupted notes fetch or publication can leave its temporary ref.
+    with store.resource("notes"):
+        gitx.sweep_notes_staging_refs(session.repo_root)
 
     return Envelope(
         data=GcData(

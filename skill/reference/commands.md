@@ -477,9 +477,11 @@ only the unchanged source or the completed verified tree can resume a pending at
 
 ### `agentic-preflight gate`
 Mints a confirmation token and summarises the remote, refspec, branch, and commits.
-`data.published_notes` lists the SHAs whose attestation notes the push will publish:
-the listed commits that carry a local note. Notes on any other local commit, such as an
-aborted or never-pushed branch, stay local. The summary also includes the configured PR mode, `automated_cleanup` setting, and
+`data.published_notes` lists the listed commits that carry a local attestation note:
+the only notes the push can publish. The gate does not contact the remote, so a note the
+remote already holds unchanged is listed here but not sent again. Notes on any other local
+commit, such as an aborted or never-pushed branch, stay local. In manual mode the list is
+exact: only the notes that the built commit adds or changes. The summary also includes the configured PR mode, `automated_cleanup` setting, and
 deterministic risk classification and verdict. Whether the agent may push without
 asking follows
 [push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/configuration.md#push-and-pull-request-authorization).
@@ -497,11 +499,17 @@ Requires the token from `gate`. It first publishes the original-commit refs requ
 by attestation evidence under `refs/agentic-preflight/evidence/<SHA>`, then atomically pushes
 the attested head SHA to `refs/heads/<branch>` and a notes commit to `refs/notes/agentic-preflight`.
 It never pushes the local notes ref. It builds the notes commit in a temporary ref from the
-remote notes tip plus only the local notes of the gate's `published_notes` commits, so the remote
-keeps other clones' notes and receives no other local note. When another clone updates the remote
+remote notes tip plus the local notes of the pushed commits, the same range the gate lists, so
+the remote keeps other clones' notes and receives no other local note. `push` works out that set
+again when it builds. When another clone updates the remote
 notes between the fetch and the push, the atomic push is rejected without landing anything, and
-`push` rebuilds the notes commit on the new tip, up to three attempts in all. `data.published_notes`
-names the SHAs whose notes were published, or would be on a dry run. A dependency publication failure stops
+`push` rebuilds the notes commit on the new tip, up to three attempts in all. If the push fails
+for another reason, it reports Git's push error. After a successful push it merges the published
+notes commit into the local notes ref, keeping local notes where they differ, so the next notes
+fetch extends local history. `data.published_notes` names the SHAs whose note the push added to or
+changed on the remote. On a dry run, which does not contact the remote, it lists every pushed
+commit that carries a local note, as the gate does. Publication first deletes any temporary notes
+ref that an interrupted command left behind. A dependency publication failure stops
 before the branch push; retained evidence refs are safe to retry. Gate summaries, manual commands, and
 dry runs disclose the complete refspecs; outside manual mode they show the notes commit as
 `<notes-commit>`, because `push` builds it. These evidence refs survive ordinary
@@ -568,6 +576,10 @@ other value exits 6 with `usage_error`. The `aborted` event records `forced`, `r
 (`null` when absent), and `aborted_from_state`, the state that the transition left.
 
 ### `agentic-preflight gc [--force]`
+Also deletes temporary notes refs (`refs/notes/agentic-preflight-publish-*` and
+`refs/agentic-preflight/fetched-notes-*`) that an interrupted `push`, `gate`, or `start`
+left behind.
+
 Unreadable run records are retained and reported individually in `data.retained`, with
 their run ID, path, reason, and diagnostic. Collection continues for other eligible runs.
 Read failures use `unreadable` for encoding or I/O failures and `invalid` for JSON,

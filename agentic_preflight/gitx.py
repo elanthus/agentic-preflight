@@ -531,13 +531,19 @@ def write_note(cwd: Path | str, notes_ref: str, sha: str, payload: str) -> None:
     run(cwd, "notes", f"--ref={notes_ref}", "add", "-f", "-m", payload, sha)
 
 
+#: Temporary refs that notes synchronization and publication create and delete.
+#: An interrupted process can leave one behind; see ``sweep_notes_staging_refs``.
+_FETCHED_NOTES_PREFIX = "refs/agentic-preflight/fetched-notes-"
+_PUBLISH_NOTES_PREFIX = "refs/notes/agentic-preflight-publish-"
+
+
 def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> str | None:
     """Reconcile remote notes without discarding locally-created attestations.
 
     Return the remote notes tip that was reconciled, or ``None`` when the remote
     has no notes ref yet.
     """
-    fetched_ref = f"refs/agentic-preflight/fetched-notes-{os.getpid()}"
+    fetched_ref = f"{_FETCHED_NOTES_PREFIX}{os.getpid()}"
     result = run(cwd, "fetch", remote, f"+{notes_ref}:{fetched_ref}", check=False)
     if result.returncode != 0:
         if "couldn't find remote ref" in result.stderr.lower():
@@ -588,6 +594,29 @@ def remote_ref_tip(cwd: Path | str, remote: str, ref: str) -> str | None:
     return None
 
 
+def sweep_notes_staging_refs(cwd: Path | str) -> list[str]:
+    """Delete temporary notes refs that an interrupted fetch or publication left.
+
+    Call it only while holding the clone's ``notes`` resource lock: every
+    command that creates these refs holds that lock, so none is in use.
+    """
+    listing = out(
+        cwd,
+        "for-each-ref",
+        "--format=%(refname)",
+        f"{_FETCHED_NOTES_PREFIX}*",
+        f"{_PUBLISH_NOTES_PREFIX}*",
+    )
+    stale = [
+        ref
+        for ref in listing.splitlines()
+        if ref.startswith((_FETCHED_NOTES_PREFIX, _PUBLISH_NOTES_PREFIX))
+    ]
+    for ref in stale:
+        run(cwd, "update-ref", "-d", ref)
+    return stale
+
+
 @contextmanager
 def notes_publication(
     cwd: Path | str, notes_ref: str, base: str | None, commits: Iterable[str]
@@ -597,23 +626,40 @@ def notes_publication(
     ``base`` is the remote notes tip, or ``None`` when the remote has no notes
     ref. The commit is built in a temporary notes ref, so notes on other local
     commits never enter it. Yields that ref, or ``None`` when it would be empty,
-    and the commits whose local notes it carries. The ref is deleted on exit.
+    and the commits whose note it adds to or changes on ``base``, oldest first.
+    The ref is deleted on exit.
     """
-    staging = f"refs/notes/agentic-preflight-publish-{os.getpid()}-{secrets.token_hex(4)}"
+    staging = f"{_PUBLISH_NOTES_PREFIX}{os.getpid()}-{secrets.token_hex(4)}"
     local = note_blobs(cwd, notes_ref)
-    included = [sha for sha in commits if sha in local]
     try:
         published: dict[str, str] = {}
         if base is not None:
             run(cwd, "update-ref", staging, base, "")
             published = note_blobs(cwd, staging)
-        for sha in included:
-            if published.get(sha) != local[sha]:
-                run(cwd, "notes", f"--ref={staging}", "add", "-f", "-C", local[sha], sha)
+        changed = [sha for sha in commits if sha in local and published.get(sha) != local[sha]]
+        for sha in changed:
+            run(cwd, "notes", f"--ref={staging}", "add", "-f", "-C", local[sha], sha)
         exists = run(cwd, "rev-parse", "--verify", "--quiet", staging, check=False)
-        yield (staging if exists.returncode == 0 else None), included
+        yield (staging if exists.returncode == 0 else None), changed
     finally:
         run(cwd, "update-ref", "-d", staging, check=False)
+
+
+def fold_published_notes(cwd: Path | str, notes_ref: str, published_ref: str) -> bool:
+    """Merge a published notes commit into the local notes ref, keeping local notes.
+
+    Afterwards the local ref descends from what the remote holds, so the next
+    ``fetch_notes`` fast-forwards or keeps local history instead of attempting a
+    three-way merge that a locally rewritten note would fail. Best effort: on
+    failure the local ref is left as it was and ``False`` is returned.
+    """
+    merged = run(
+        cwd, "notes", f"--ref={notes_ref}", "merge", "-q", "-s", "ours", published_ref, check=False
+    )
+    if merged.returncode != 0:
+        run(cwd, "notes", f"--ref={notes_ref}", "merge", "--abort", check=False)
+        return False
+    return True
 
 
 # -- diff -------------------------------------------------------------------

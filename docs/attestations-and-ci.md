@@ -13,9 +13,10 @@ Any other schema version is rejected.
 Then it pushes the branch and a notes commit to `refs/notes/agentic-preflight` atomically.
 The notes commit is the remote notes tip plus the local notes of the pushed commits: the run's commits from its merge base to the attested head.
 Notes on other local commits, such as those of an aborted or never-pushed branch, stay local.
-The gate summary names the published commits in `published_notes`.
+The gate summary lists the pushed commits that carry a local note in `published_notes`. The push result lists the notes that it added or changed on the remote.
 If another clone updates the remote notes first, the atomic push is rejected and nothing lands.
 `push` then rebuilds the notes commit on the new remote tip, so both clones' notes reach the remote.
+After the push, the published notes commit is merged into the local notes ref, so later fetches extend local history.
 If the publication of an original fails, the branch push does not start.
 An interrupted publication can leave retained evidence refs that are ready for a retry.
 Git does not fetch notes in an ordinary checkout.

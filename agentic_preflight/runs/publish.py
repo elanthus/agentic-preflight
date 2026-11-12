@@ -58,7 +58,11 @@ def _pushed_commits(session: Session, run: RunDoc) -> list[str]:
 
 
 def _published_notes(session: Session, commits: list[str]) -> list[str]:
-    """The commits among ``commits`` whose local notes publication would carry."""
+    """The commits among ``commits`` that have a local note publication may send.
+
+    Without contacting the remote this is an upper bound: ``push`` leaves out a
+    note the remote already holds unchanged.
+    """
     local = gitx.note_blobs(session.repo_root, NOTES_REF)
     return [sha for sha in commits if sha in local]
 
@@ -106,6 +110,7 @@ def gate(session: Session) -> Envelope:
         # remote notes move first, or Git prunes the unreferenced commit, the
         # atomic push is rejected and publishes nothing; the person reruns gate.
         with session.store.resource("notes"):
+            gitx.sweep_notes_staging_refs(session.repo_root)
             remote_tip = gitx.fetch_notes(session.repo_root, "origin", NOTES_REF)
             with gitx.notes_publication(
                 session.repo_root, NOTES_REF, remote_tip, pushed_commits
@@ -321,8 +326,10 @@ def _publish(
     another clone moves the remote notes between the fetch and the push, the
     atomic push is rejected as a non-fast-forward and nothing lands; the notes
     commit is then rebuilt on the new tip, which keeps the other clone's notes.
-    Return the commits whose notes were published.
+    After a successful push the published commit is folded into the local notes
+    ref. Return the commits whose note was added or changed on the remote.
     """
+    gitx.sweep_notes_staging_refs(session.repo_root)
     remote_tip = _synchronize_notes(session, run, portable)
     # Publish dependencies before exposing a note that requires them. Some
     # servers reject hidden refs before processing the atomic ref transaction;
@@ -342,12 +349,20 @@ def _publish(
                 *_push_refspecs(run.head_sha, run.branch, staging),
             ]
             result = gitx.run(session.repo_root, *args, check=False)
-        if result.returncode == 0:
-            return published_notes
-        if attempt >= _NOTES_PUBLISH_ATTEMPTS or (
-            gitx.remote_ref_tip(session.repo_root, "origin", NOTES_REF) == remote_tip
-        ):
-            raise gitx.GitError(args, result.returncode, result.stderr)
+            if result.returncode == 0:
+                if staging is not None:
+                    gitx.fold_published_notes(session.repo_root, NOTES_REF, staging)
+                return published_notes
+        push_error = gitx.GitError(args, result.returncode, result.stderr)
+        if attempt >= _NOTES_PUBLISH_ATTEMPTS:
+            raise push_error
+        try:
+            current_tip = gitx.remote_ref_tip(session.repo_root, "origin", NOTES_REF)
+        except gitx.GitError as exc:
+            # Report why the push failed, not why the follow-up query failed.
+            raise push_error from exc
+        if current_tip == remote_tip:
+            raise push_error
         attempt += 1
         remote_tip = _synchronize_notes(session, run, portable)
 

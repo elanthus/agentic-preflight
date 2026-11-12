@@ -495,6 +495,9 @@ No configuration digest, snapshot, fingerprint, or attestation changes, because 
 It pushes a notes commit built from the remote notes tip plus the notes of the commits it pushes.
 The remote notes history still only moves forward, so a reader that fetches the notes ref is unaffected.
 `gate`, `push`, and `push --dry-run` envelopes add `data.published_notes`, a list of commit SHAs.
+From `push` it lists only the notes added or changed on the remote. From `gate` and dry runs, which do not contact the remote, it lists every pushed commit that has a local note.
+After a successful push, the published notes commit is merged into the local notes ref, so that ref gains merge commits.
+`gc` and publication delete leftover `refs/notes/agentic-preflight-publish-*` and `refs/agentic-preflight/fetched-notes-*` refs.
 Outside manual gate mode, `data.refspec`, `data.push_commands`, and `data.would_push` show the notes source as `<notes-commit>` instead of `refs/notes/agentic-preflight`.
 A wrapper that ran those strings as commands must run `push` instead.
 In manual gate mode, `gate` now fetches the remote notes, and `data.manual_command` names the notes commit's SHA.
