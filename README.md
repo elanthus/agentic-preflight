@@ -1,62 +1,43 @@
 # agentic-preflight
 
 [![CI](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml/badge.svg)](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/agentic-preflight)](https://pypi.org/project/agentic-preflight/)
 [![Coverage](https://raw.githubusercontent.com/elanthus/agentic-preflight/badges/coverage.svg)](https://github.com/elanthus/agentic-preflight/tree/badges)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/pyproject.toml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/LICENSE)
 
 **Check your coding agent's work before a push.**
 
-Agentic Preflight checks a coding agent's work before the agent pushes a commit.
+A coding agent that reports "tests passed" may be describing a different revision, a different configuration, or a different intent from the commit it is about to push.
+Nothing in a normal push connects that claim to the exact inputs that produced it.
+
+Agentic Preflight guides your coding agent through review, documentation, lint, and test stages.
+It records each result with a fingerprint of those inputs.
+The pre-push hook blocks a normal push if this evidence is missing or no longer matches the commit.
 It works with Codex, Claude Code, Cursor, OpenCode, and Amp.
-It guides your coding agent through review, documentation, lint, and test stages.
-It records the results for the exact commit.
-The pre-push hook blocks a normal push if this evidence is missing or no longer valid.
 
 - **Use your current agent.** The core CLI calls no model and needs no model API key.
 - **Inspect each stage.** The run record includes skipped stages, failures, findings, and approvals.
 - **Keep results with their inputs.** A changed commit, configuration, or intent cannot use unrelated evidence.
 
-The [dogfooding case study](docs/dogfooding-case-study.md) found the same failure in three
-independent codebases: a green result stayed valid after an input that shaped it changed.
-Green evidence must bind every decision-making input, including code, configuration,
-intent, model, and prompts. The study also describes the limits of its evidence.
-
-As of 10/30/26, across three public repositories, [442 of 665 merged pull requests
-record Preflight use, with 110 containing concrete finding records](docs/dogfooding-case-study.md#public-snapshot-as-of-103026).
-These are one owner's PR records, not a measure of external adoption or distinct defects fixed.
+Agentic Preflight is in beta.
+The [compatibility policy](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/COMPATIBILITY.md)
+lists the supported platforms and each compatibility change.
+The [changelog](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/CHANGELOG.md) lists each release.
 
 ![The hook blocks a push. Review finds an unguarded division. A verified fix passes the gate, which shows the publication target.](https://raw.githubusercontent.com/elanthus/agentic-preflight/daba4f3e7b9652ac9bf59c125f6e9ba9d2f50d91/demo.gif)
 
-## The problem
-
-A coding agent that reports "tests passed" may be describing a different revision, a different configuration, or a different intent from the commit it is about to push.
-Nothing in a normal push connects that claim to the exact inputs that produced it.
-Agentic Preflight records each result with a fingerprint of those inputs and refuses the push when they no longer match.
-
-## How it fits together
-
-```mermaid
-flowchart LR
-    A[Coding agent] --> S[Skill]
-    S --> C[JSON-envelope CLI<br/>and state machine]
-    C --> R[(Run store)]
-    R --> N[Git-note attestation]
-    N --> H[Pre-push hook]
-    H --> V[CI verifier]
-```
-
-## Design highlights
-
-- [Fingerprint contract](docs/fingerprint-contract.md): which inputs a result is bound to, and what invalidates it.
-- [Context grounding](docs/context-grounding.md): how review is tied to the repository's own facts.
-- [State machine](docs/state-machine.md): the stages, transitions, and when a run may publish.
-- [Regression eval](docs/regression-eval.md): the scripted cases that guard workflow behavior.
-
 ## Quickstart
 
-You need Git 2.38+, Python 3.11 through 3.13, and
-[`uv`](https://docs.astral.sh/uv/getting-started/installation/).
+You need the following:
+
+- Git 2.38+
+- Python 3.11 through 3.13 on a macOS, Linux, or Windows version from the
+  [compatibility policy](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/COMPATIBILITY.md)
+- [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
+- `gh` if the agent will create pull requests, inspect hosted checks, or verify merges
+- A POSIX shell if a configured command needs shell interpretation or its program cannot be resolved directly.
+  Git for Windows supplies a POSIX shell on Windows.
 
 1. Install the CLI and the integrations for your coding agents:
 
@@ -100,8 +81,7 @@ Set `[gate] mode = "manual"` if only a person must run the final Git command.
 
 The [installation guide](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/installation.md)
 includes source installations, upgrades, project skills, other Agent Skills clients, and removal.
-Upgrading from 0.7? Follow the [0.7 to 0.8 upgrade steps](docs/installation.md#upgrading-from-07-to-08)
-to align shared-clone machines, copied skills, and the protected CI verifier before enabling new settings.
+If you have an earlier version, see [Releases and upgrades](#releases-and-upgrades).
 
 ## What Agentic Preflight adds
 
@@ -173,7 +153,8 @@ Use `agentic-preflight status --all` to list runs across linked worktrees.
 
 Commit `.agentic-preflight.toml` at the repository root.
 Each section replaces the complete matching section in the user configuration, `~/.config/agentic-preflight/config.toml`.
-`[telemetry]` is the exception: a repository section can only turn telemetry off. See [Local run telemetry](docs/configuration.md#local-run-telemetry-telemetry).
+`[telemetry]` is the exception: a repository section can only turn telemetry off.
+See [Local run telemetry](https://github.com/elanthus/agentic-preflight/blob/main/docs/configuration.md#local-run-telemetry-telemetry).
 Use the file to set these options:
 
 - Protected base branch and lint/test commands
@@ -184,10 +165,6 @@ Use the file to set these options:
 - Automatic or manual push and pull-request behavior
 
 Unknown keys cause errors.
-The retired `[ci]` and `[reuse]` sections cause a warning and have no effect.
-
-When you upgrade from 0.6.0, remove those sections and `[hook] enabled`.
-See the [0.7 upgrade guide](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/upgrade-0.7.md).
 Commit configuration changes before you start the affected run.
 Each run saves its resolved configuration.
 The [configuration reference](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/configuration.md)
@@ -222,33 +199,6 @@ This requires forge configuration. A committed `.agentic-preflight.toml` file al
 See [Portable attestations and CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/attestations-and-ci.md)
 for setup and verification commands.
 
-## Architecture, evaluation, and evidence
-
-Design records, executable tests, and published evaluations support this workflow.
-Use this table to find more information:
-
-| Question | Design or evidence |
-|---|---|
-| How does this workflow compare with its inspiration? | [Prior art and differentiation](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/prior-art.md) |
-| Where does responsibility pass between the coding agent, CLI, and shell commands? | [ADR 0001: orchestration boundaries](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/adr/0001-orchestration-boundaries.md) |
-| How can linked worktrees run independently and safely? | [ADR 0002: worktree-scoped run ownership](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/adr/0002-scope-run-ownership-to-worktrees.md) |
-| What repository context reaches review, and how is untrusted content bounded? | [Grounded context](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/context-grounding.md) |
-| When can evidence survive a rebase or restack? | [Fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/fingerprint-contract.md) |
-| How are attestations enforced in CI? | [CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/attestations-and-ci.md) |
-| What does a second reviewer add, and how are reviewers compared? | [Independent review and agreement](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/independent-review.md) |
-| What public evidence supports the project, and what does it not prove? | [Dogfooding case study](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/dogfooding-case-study.md) and [public regression eval](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/regression-eval.md) |
-| Where are the pre-registered evaluation results and the immutable evidence ledgers published? | [elanthus/preflight-eval-results](https://github.com/elanthus/preflight-eval-results) |
-| What did real Claude and Codex smoke runs measure? | [Opus 5.5 and GPT-6.1 Sol at low effort: runtime, findings, states, and tokens (2026-10-17)](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/evals/2026-10-17-opus-sol-low/README.md) |
-| What does the tool record about my own runs, and where? | [Local run telemetry](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md) |
-| How do I summarize my runs across repositories? | [Read the report](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md#read-the-report) |
-| Which pushes did the pre-push hook allow or block, and why? | [Hook decisions](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md#hook-decisions) |
-
-Integration tests use real Git repositories. They do not simulate Git behavior.
-CI rejects overall test coverage below 85%.
-It also installs the built wheel as a `uv` tool before it invokes the CLI.
-The [contributor guide](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/CONTRIBUTING.md)
-describes local development.
-
 ## Limits
 
 **Agentic Preflight is an advisory pre-push check. It is not a security boundary.**
@@ -268,15 +218,97 @@ Set `[gate] mode = "manual"` if the CLI must refuse to perform the final push.
 Read the [limits guide](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/limits.md)
 before you use attestations or evidence reuse to enforce policy.
 
-## Requirements
+## Documentation
 
-- A supported macOS, Linux, or Windows and Python combination from the
-  [compatibility policy](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/COMPATIBILITY.md)
-- Git 2.38+
-- A POSIX shell if a configured command needs shell interpretation or its program cannot be resolved directly
-- `gh` if the agent will create pull requests, inspect hosted checks, or verify merges
+Use this table to find the guide for a task:
 
-Git for Windows supplies a POSIX shell on Windows.
+| Question | Guide |
+|---|---|
+| How do I install from source, upgrade, use another Agent Skills client, or remove the tool? | [Installation](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/installation.md) |
+| Which options can I set, and what does a complete configuration look like? | [Configuration reference](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/configuration.md) |
+| Which validation worktree mode fits my repository? | [Worktree modes](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/worktree-modes.md) |
+| What does the pre-push hook check, and what does it not check? | [Pre-push hook](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/pre-push-hook.md) |
+| When does a run skip the software test command? | [Change scope and the test-skip exception](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/change-scope.md) |
+| How are attestations enforced in CI? | [Portable attestations and CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/attestations-and-ci.md) |
+| What does a second reviewer add, and how are reviewers compared? | [Independent review and agreement](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/independent-review.md) |
+| What does the tool record about my own runs, and where? | [Local run telemetry](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md) |
+| How do I summarize my runs across repositories? | [Read the report](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md#read-the-report) |
+| Which pushes did the pre-push hook allow or block, and why? | [Hook decisions](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md#hook-decisions) |
+| What can attestations and evidence reuse not prove? | [Limits](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/limits.md) |
+| Which platforms are supported, and what changed between versions? | [Compatibility policy](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/COMPATIBILITY.md) |
+
+## Design and evidence
+
+Design records, executable tests, and published evaluations support this workflow.
+
+### How it fits together
+
+```mermaid
+flowchart LR
+    A[Coding agent] --> S[Skill]
+    S --> C[JSON-envelope CLI<br/>and state machine]
+    C --> R[(Run store)]
+    R --> N[Git-note attestation]
+    N --> H[Pre-push hook]
+    H --> V[CI verifier]
+```
+
+### Design records
+
+| Question | Design or evidence |
+|---|---|
+| Which inputs is a result bound to, and when can evidence survive a rebase or restack? | [Fingerprint contract](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/fingerprint-contract.md) |
+| Which stages and transitions exist, and when may a run publish? | [State machine](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/state-machine.md) |
+| What repository context reaches review, and how is untrusted content bounded? | [Grounded context](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/context-grounding.md) |
+| Where does responsibility pass between the coding agent, CLI, and shell commands? | [ADR 0001: orchestration boundaries](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/adr/0001-orchestration-boundaries.md) |
+| How can linked worktrees run independently and safely? | [ADR 0002: worktree-scoped run ownership](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/adr/0002-scope-run-ownership-to-worktrees.md) |
+| How does this workflow compare with its inspiration? | [Prior art and differentiation](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/prior-art.md) |
+| Which scripted cases guard workflow behavior? | [Public regression eval](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/regression-eval.md) |
+| Where are the pre-registered evaluation results and the immutable evidence ledgers published? | [elanthus/preflight-eval-results](https://github.com/elanthus/preflight-eval-results) |
+| What did real Claude and Codex smoke runs measure? | [Opus 5.5 and GPT-6.1 Sol at low effort: runtime, findings, states, and tokens (2026-10-17)](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/evals/2026-10-17-opus-sol-low/README.md) |
+| What public evidence supports the project, and what does it not prove? | [Dogfooding case study](https://github.com/elanthus/agentic-preflight/blob/main/docs/dogfooding-case-study.md) |
+
+### Dogfooding
+
+The [dogfooding case study](https://github.com/elanthus/agentic-preflight/blob/main/docs/dogfooding-case-study.md)
+found the same failure in three independent codebases: a green result stayed valid after an input that shaped it changed.
+Green evidence must bind every decision-making input, including code, configuration,
+intent, model, and prompts. The study also describes the limits of its evidence.
+
+As of 2026-10-30, across three public repositories, [442 of 665 merged pull requests
+record Preflight use, with 110 containing concrete finding records](https://github.com/elanthus/agentic-preflight/blob/main/docs/dogfooding-case-study.md#public-snapshot-as-of-103026).
+These are one owner's PR records, not a measure of external adoption or distinct defects fixed.
+
+### Tests
+
+Integration tests use real Git repositories. They do not simulate Git behavior.
+CI rejects overall test coverage below 85%.
+It also installs the built wheel as a `uv` tool before it invokes the CLI.
+The [contributor guide](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/CONTRIBUTING.md)
+describes local development.
+
+## Releases and upgrades
+
+Releases publish to PyPI from GitHub Actions with [Trusted Publishing](https://docs.pypi.org/trusted-publishers/).
+Each release distribution has a CycloneDX SBOM.
+Each release also has GitHub artifact attestations for build provenance and for the SBOM.
+To verify a distribution that you downloaded from PyPI, run this command:
+
+```bash
+gh attestation verify <file> -R elanthus/agentic-preflight
+```
+
+An attestation does not establish that an artifact is free of vulnerabilities.
+See the [security policy](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/SECURITY.md).
+
+Before you upgrade, read the steps for your current version:
+
+- **From 0.7:** follow the [0.7 to 0.8 upgrade steps](https://github.com/elanthus/agentic-preflight/blob/main/docs/installation.md#upgrading-from-07-to-08)
+  to align shared-clone machines, copied skills, and the protected CI verifier before you enable new settings.
+- **From 0.6.0:** remove the retired `[ci]` and `[reuse]` sections and `[hook] enabled`.
+  The retired sections cause a warning and have no effect.
+  See the [0.7 upgrade guide](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/upgrade-0.7.md).
+  That guide installs 0.7.0. Then follow the 0.7 to 0.8 upgrade steps.
 
 ## Help and development
 
