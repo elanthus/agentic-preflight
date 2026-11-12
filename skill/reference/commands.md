@@ -488,8 +488,9 @@ and [merge approval guidance](../SKILL.md#escalation-etiquette) for the returned
 Only `[gate] mode = "manual"` exits 4 and puts the literal `git push` command in
 `data.manual_command` for a person to run; the agent must not run it. In manual mode
 the gate fetches the remote notes and builds the notes commit to publish, so the command
-names that commit's SHA. If the remote notes change before the command runs, the atomic
-push is rejected and publishes nothing; run `gate` again.
+names that commit's SHA. No ref keeps that commit, so run the command promptly. If the
+remote notes change before it runs, or Git has since pruned the unreferenced commit, the
+atomic push is rejected and publishes nothing; run `gate` again.
 
 ### `agentic-preflight push --confirm TOKEN [--dry-run]`
 Requires the token from `gate`. It first publishes the original-commit refs required

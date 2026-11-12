@@ -102,8 +102,9 @@ def gate(session: Session) -> Envelope:
     notes_source: str | None
     if session.config.gate.mode == "manual":
         # A person runs the manual command, so it must name a real notes commit.
-        # Build it now on the remote notes tip. If the remote notes move first,
-        # the atomic push fails as a non-fast-forward and publishes nothing.
+        # Build it now on the remote notes tip. No ref keeps it afterwards. If the
+        # remote notes move first, or Git prunes the unreferenced commit, the
+        # atomic push is rejected and publishes nothing; the person reruns gate.
         with session.store.resource("notes"):
             remote_tip = gitx.fetch_notes(session.repo_root, "origin", NOTES_REF)
             with gitx.notes_publication(
