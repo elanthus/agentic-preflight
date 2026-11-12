@@ -128,7 +128,7 @@ Every command runs in the worktree that holds the change, so a command that name
 A branch can therefore change what a lint, test, review, or planner command does without changing its string.
 Lint and test commands run the branch's own code by design.
 For the reviewer, the path that the base's `[review] command` or `planner_command` names, the files under its directory, and the base's `[review] trusted_paths` count as human-review paths.
-A branch that edits them, including one that rewrites the reviewer to report nothing, still passes `verify`.
+A branch that edits them, including one that rewrites the reviewer to report nothing, still passes `verify`, unless the base's `require_command_for` includes `high`. Then `verify` requires a command review.
 The change is high risk, so the hosted approval check applies the configured `[approval] mode`: an owner or peer approval, an Environment release, or a manual merge.
 Finding the paths in a command is approximate. A reviewer file that the command does not name, outside the named script's directory, is protected only if `trusted_paths` or `[policy] human_review_paths` lists it.
 For a script at the repository root, that includes every module beside it.
