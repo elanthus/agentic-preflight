@@ -187,7 +187,8 @@ def unlocked_install_problems(workflow):
                 problems.append(f"package installer: {command}")
             if programs[0] == "agentic-preflight":
                 problems.append(f"installed console script: {command}")
-            if "agentic_preflight" in tokens and not command.startswith(LOCKED_RUN):
+            # The checker must be the program of this segment's own locked `uv run`.
+            if "agentic_preflight" in tokens and programs[0] != "uv":
                 problems.append(f"checker outside the locked environment: {command}")
     return problems
 
@@ -247,6 +248,7 @@ def test_trusted_workflows_install_and_run_only_from_the_lock_file(filename):
         "run: sudo pip install .",
         "run: agentic-preflight verify HEAD",
         "run: python -m agentic_preflight verify HEAD",
+        "run: uv run --locked --no-dev --no-sync true && python -m agentic_preflight verify HEAD",
         "UV_NO_SYNC: 1",
         "UV_FROZEN: true",
         "UV_INDEX: x=https://x.test",
