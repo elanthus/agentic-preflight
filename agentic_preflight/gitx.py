@@ -670,6 +670,7 @@ def non_merge_commit_files(cwd: Path | str, base: str, head: str) -> list[str]:
     """
     output = run(
         cwd,
+        *_PINNED_DIFF_CONFIG,
         "log",
         "--no-merges",
         "--no-show-signature",
@@ -677,10 +678,7 @@ def non_merge_commit_files(cwd: Path | str, base: str, head: str) -> list[str]:
         "--format=",
         "--name-only",
         "-z",
-        "--no-ext-diff",
-        "--no-textconv",
-        _NO_RENAMES,
-        "--ignore-submodules=none",
+        *_PINNED_INVENTORY_OPTIONS,
         f"{base}..{head}",
         "--",
     ).stdout

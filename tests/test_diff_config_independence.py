@@ -142,6 +142,18 @@ def test_a_submodule_change_stays_in_the_inventory_when_git_is_told_to_ignore_it
     assert "vendor/sub" in gitx.non_merge_commit_files(repo, base, "HEAD")
 
 
+def test_the_inventory_lists_every_path_from_a_subdirectory_under_diff_relative(varied_repo):
+    """``diff.relative`` limits a diff to the directory it runs in and shortens its paths."""
+    repo, base = varied_repo
+    expected = sorted(gitx.changed_files(repo, base, "HEAD"))
+    git("config", "--local", "diff.relative", "true", cwd=repo)
+    subdirectory = repo / "src"
+
+    assert sorted(gitx.changed_files(subdirectory, base, "HEAD")) == expected
+    assert gitx.classified_files(subdirectory, base, "HEAD") == expected
+    assert gitx.non_merge_commit_files(subdirectory, base, "HEAD") == expected
+
+
 def test_the_abbreviated_format_reproduces_the_patches_of_earlier_releases(varied_repo):
     """Notes written before full object IDs hash this text, so it must stay available."""
     repo, base = varied_repo
