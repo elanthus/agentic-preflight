@@ -135,4 +135,4 @@ A PR that changes this policy is evaluated with the configured review policy.
 The narrower rules take effect for subsequent PRs after the change merges.
 CODEOWNERS routes review requests.
 The current branch rules require automated CI, audits, and the `high-risk human approval` check.
-A submitted review re-runs that check for the current head.
+A submitted review from an owner, member, or collaborator re-runs that check for the current head.

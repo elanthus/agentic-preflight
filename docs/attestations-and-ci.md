@@ -175,7 +175,7 @@ Run the workflow again after you correct the cause.
 A separate `pull_request_target` workflow enforces high-risk merge handling.
 It also installs its policy checker from the protected base. It never executes proposed branch content.
 It runs again when the head changes.
-In the review modes, a submitted, edited, or dismissed review re-runs it; see [how a review reaches the check](#how-a-review-reaches-the-check).
+In the review modes, a submitted, edited, or dismissed review re-runs it when it comes from an owner, member, or collaborator, or from a user with write access; see [how a review reaches the check](#how-a-review-reaches-the-check).
 
 The default `manual_merge` mode reports success only while GitHub auto-merge is disabled.
 It instructs the agent never to merge or enable auto-merge.
