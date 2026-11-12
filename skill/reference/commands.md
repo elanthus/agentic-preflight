@@ -377,7 +377,7 @@ on, or `null`), and `approval_carried` (`true` only when that commit is an earli
 a trusted workflow can dispatch the appropriate hosted job.
 A reviews file that is not UTF-8 JSON fails with `invalid_findings` (exit 3), as other
 JSON file inputs do. A decisive review by an eligible reviewer without an integer `id`
-cannot be ordered, so the check fails closed with `attestation_failed` (exit 4). A
+cannot be ordered, so the check fails closed with `attestation_failed` (exit 2). A
 revoking review still counts when its `commit_id` is `null`.
 
 `[approval] mode = "owner_review"` requires the configured `reviewer` GitHub login to
