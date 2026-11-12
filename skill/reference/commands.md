@@ -46,7 +46,8 @@ with the current script; a hook containing the command with other edits is left 
 is. A symlink at the hook path is replaced with a regular file and never written
 through: a dangling link is replaced without `--force`, and a link to a file is judged
 by that file's content. Does not clobber an existing config. `data.hook_path` is the
-absolute path Git will execute, without following a symlink at the hook itself, `data.hook_installed` confirms that installation left that path
+absolute path Git will execute; it names a symlink at the hook itself rather than its
+target. `data.hook_installed` confirms that installation left that path
 containing `agentic-preflight hook-check`, and `data.hooks_path_overridden` reports
 whether the effective path is outside the common Git directory's `hooks/` directory.
 With `--no-hook`, the effective path and override state are still reported, while
