@@ -23,8 +23,10 @@ def main() -> int:
     try:
         context = read_context()
         executable = os.environ.get("AP_CODEX_BIN", "codex")
-        # These flags were verified against Codex CLI 0.153.0. The model and
-        # medium-effort default preserve a balanced example configuration.
+        # These flags were verified against Codex CLI 0.163.0. The model and
+        # medium-effort default preserve a balanced example configuration. The CLI
+        # works in the worktree under review, so `project_doc_max_bytes=0` stops it
+        # reading the branch's AGENTS.md and `--ignore-rules` its `.rules` files.
         model = os.environ.get("AP_REVIEWER_MODEL", "gpt-5.3-codex")
         effort = reviewer_effort("medium")
         with tempfile.TemporaryDirectory(prefix="ap-codex-review-") as directory:
@@ -40,6 +42,9 @@ def main() -> int:
                 model,
                 "--config",
                 f'model_reasoning_effort="{effort}"',
+                "--config",
+                "project_doc_max_bytes=0",
+                "--ignore-rules",
                 "-C",
                 str(context.get("worktree_path", ".")),
                 "-o",

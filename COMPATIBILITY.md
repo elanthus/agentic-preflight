@@ -492,6 +492,7 @@ No configuration digest, snapshot, fingerprint, or attestation changes, because 
 ## Unreleased: the reviewer's own files need human review
 
 Risk classification now treats the repository paths that `[review] command` and `[review.contracts] planner_command` name as human-review paths, together with every file under each named file's directory.
+Directories that a command changes to or adds to `PYTHONPATH` or `NODE_PATH`, and the top-level package of a `-m` module, are protected as whole directories.
 The new optional `[review] trusted_paths` list adds more patterns.
 This applies to local runs, to attestation verification, and to `approval-check`, which reads both from the protected base.
 A pull request that edits a configured reviewer script, or a sibling file such as the example wrappers' `_reviewer_common.py`, is now high risk and needs the configured approval. Earlier releases classified it by `[policy]` alone.
@@ -500,3 +501,9 @@ Earlier releases reject a configuration file that sets `trusted_paths`, as an un
 Configuration snapshots omit `trusted_paths` when it is empty, so snapshots and configuration digests for existing configurations are unchanged.
 A snapshot that sets it cannot be read by an earlier release.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+The example reviewer configurations now run their wrapper with `python3 -S -B`.
+The Claude wrapper now passes `--safe-mode` and `--setting-sources user`, checked against Claude Code 2.1.292.
+The Codex wrapper now passes `--config project_doc_max_bytes=0` and `--ignore-rules`, checked against Codex CLI 0.163.0.
+An older CLI that lacks one of these options fails the review with a visible error. Update the CLI, or remove the option from your copy of the wrapper and protect the files that it would read with `trusted_paths`.
+With `--safe-mode`, the Claude reviewer also ignores your user `CLAUDE.md`, skills, hooks, and MCP servers.

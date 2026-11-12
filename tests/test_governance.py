@@ -71,6 +71,7 @@ def owners_for(path):
         "SECURITY.md",
         "docs/examples/reviewers/claude_review.py",
         "docs/examples/reviewers/_reviewer_common.py",
+        "sitecustomize.py",
         "agentic_preflight/approval.py",
         "agentic_preflight/attestation.py",
         "agentic_preflight/cli_policy.py",

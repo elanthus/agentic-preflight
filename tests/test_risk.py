@@ -174,16 +174,34 @@ def test_imported_attestation_preserves_medium_and_high_finding_risk():
             "docs/examples/reviewers/claude_review.py",
             ["docs/examples/reviewers/**"],
         ),
-        # After ``cd``, a relative path is protected under the root and that directory.
-        ("cd tools&&python3 review.py", ["review.py", "review.py/**", "tools/**"]),
-        ("pushd tools/reviewer; python3 ../run.py", ["tools/**"]),
-        # Tool options that change the working directory count like ``cd``.
-        ("uv run --directory tools python review.py", ["review.py", "review.py/**", "tools/**"]),
-        ("uv run --project=tools python review.py", ["review.py", "review.py/**", "tools/**"]),
-        ("make -C tools review.mk", ["review.mk", "review.mk/**", "tools/**"]),
+        # A directory the command changes to is protected, and later relative paths
+        # are protected under both the root and that directory.
+        ("cd tools&&python3 review.py", ["tools/**", "review.py", "review.py/**"]),
+        ("pushd tools/reviewer; python3 ../run.py", ["tools/reviewer/**", "tools/**"]),
+        ("cd tools/reviewer && make", ["tools/reviewer/**"]),
+        ("uv run --directory tools python review.py", ["tools/**", "review.py", "review.py/**"]),
+        ("uv run --project tools reviewer", ["tools/**"]),
+        ("uv run --project=tools reviewer", ["tools/**"]),
+        ("make -C tools review.mk", ["tools/**", "review.mk", "review.mk/**"]),
+        ("make -Ctools", ["tools/**"]),
+        ("npm --prefix tools/reviewer run review", ["tools/reviewer/**"]),
+        ("env --chdir=tools ./review", ["tools/**", "review", "review/**"]),
+        # Search-path variables name directories even without a slash or a dot.
+        (
+            "PYTHONPATH=tools:lib/py python3 -m reviewer",
+            ["tools/**", "lib/py/**", "reviewer.py", "reviewer/**"],
+        ),
+        ("NODE_PATH=tools node review.js", ["tools/**", "review.js", "review.js/**"]),
+        # ``-m`` imports the top-level package before the module.
+        ("python3 -m tools.reviewer", ["tools/**"]),
+        ("python3 -m reviewer --json", ["reviewer.py", "reviewer/**"]),
+        # A leading expansion before a slash is dropped and the literal path kept.
+        ('python3 "$PWD/tools/rev.py"', ["tools/**"]),
+        ("python3 ${REPO}/tools/rev.py", ["tools/**"]),
+        ("python3 $(git rev-parse --show-toplevel)/tools/rev.py", ["tools/**"]),
         # A command nested in one quoted word is read again.
         ("sh -c 'python3 tools/review.py'", ["tools/**"]),
-        ("bash -c 'cd tools && python3 review.py'", ["review.py", "review.py/**", "tools/**"]),
+        ("bash -c 'cd tools && python3 review.py'", ["tools/**", "review.py", "review.py/**"]),
         ("bash -lc 'python3 tools/review.py'", ["tools/**"]),
         ("node 'my tools/review.mjs' --config=conf/reviewer.json", ["my tools/**", "conf/**"]),
         ("CONFIG=conf/review.toml reviewer", ["conf/**"]),

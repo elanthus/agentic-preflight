@@ -10,6 +10,7 @@
 /.github/scripts/verify_dependabot.py @elanthus
 /SECURITY.md @elanthus
 /docs/examples/reviewers/ @elanthus
+/sitecustomize.py @elanthus
 /agentic_preflight/approval.py @elanthus
 /agentic_preflight/attestation.py @elanthus
 /agentic_preflight/cli_policy.py @elanthus

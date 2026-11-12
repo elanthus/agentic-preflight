@@ -50,12 +50,18 @@ _FINDING_RISK = {
 _SHELL_OPERATORS = re.compile(r"[;&|()<>]+")
 # A word with an expansion or a glob does not name one fixed path.
 _UNRESOLVED = frozenset("$`~*?[]{}")
-# Builtins, and common tool options, that change the directory later words are
-# resolved against: ``cd tools``, ``uv run --directory tools``, ``make -C tools``.
-_CHANGE_DIRECTORY = frozenset(
-    {"cd", "pushd", "-C", "--directory", "--cwd", "--prefix", "--project"}
-)
-_DIRECTORY_OPTIONS = tuple(f"{flag}=" for flag in _CHANGE_DIRECTORY if flag.startswith("--"))
+# A leading expansion before a slash, as in ``"$PWD/tools/review.py"`` or
+# ``$(git rev-parse --show-toplevel)/tools/review.py``, usually names the repository
+# root. Dropping it keeps the literal path after it.
+_EXPANSION_PREFIX = re.compile(r"(?:\$\{\w+\}|\$\w+|\$\([^()]*\)|`[^`]*`)/")
+# Tool options that change the directory later words are resolved against:
+# ``uv run --project tools``, ``make -C tools``, ``env --chdir=tools``.
+_DIRECTORY_FLAGS = frozenset({"-C", "--directory", "--cwd", "--prefix", "--project", "--chdir"})
+_CHANGE_DIRECTORY = _DIRECTORY_FLAGS | {"cd", "pushd"}
+_DIRECTORY_OPTIONS = tuple(f"{flag}=" for flag in _DIRECTORY_FLAGS if flag.startswith("--"))
+# Variables whose value is a list of directories that code is loaded from.
+_SEARCH_PATH_VARIABLES = frozenset({"PYTHONPATH", "NODE_PATH"})
+_MODULE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
 # ``sh -c 'cd tools && python3 review.py'`` nests a command inside one quoted word.
 _MAX_NESTING = 3
 
@@ -123,6 +129,34 @@ def _looks_like_path(value: str) -> bool:
     return "/" in value or "\\" in value or "." in value
 
 
+def _directory_target(piece: str, *, after_flag: bool) -> str | None:
+    """The directory that ``piece`` changes to, if it is a directory argument."""
+    if after_flag:
+        return piece
+    if piece.startswith(_DIRECTORY_OPTIONS):
+        return piece.partition("=")[2]
+    if piece.startswith("-C") and len(piece) > 2:
+        # The attached short form, ``-Ctools``.
+        return piece[2:]
+    return None
+
+
+def _file_patterns(path: str) -> list[str]:
+    parent = posixpath.dirname(path)
+    return [f"{parent}/**"] if parent else [path, f"{path}/**"]
+
+
+def _module_patterns(directory: str, module: str) -> list[str]:
+    """``python -m a.b.c`` runs ``a/b/c.py`` after importing ``a/__init__.py``."""
+    if not _MODULE_NAME.fullmatch(module):
+        return []
+    top, _, rest = module.partition(".")
+    path = _repo_relative(directory, top)
+    if path is None:
+        return []
+    return [f"{path}/**"] if rest else [f"{path}.py", f"{path}/**"]
+
+
 def command_path_patterns(command: str) -> list[str]:
     """Human-review patterns for the repository paths that ``command`` names.
 
@@ -130,41 +164,59 @@ def command_path_patterns(command: str) -> list[str]:
     protected together with its directory, because interpreters load sibling modules
     from the script's directory (the example wrappers import ``_reviewer_common``).
     A path at the repository root is protected as a file and as a directory, but not
-    with its siblings, which would cover the whole repository. After ``cd DIR``,
-    ``pushd DIR``, or a directory option such as ``--directory DIR`` or ``-C DIR``, a
-    relative path is resolved against both the repository root and ``DIR``, so either
-    reading is protected. Paths that the command computes, imports by module name, or
-    reads from outside the repository, and the modules beside a root-level script, are
-    not detected; list those in ``[review] trusted_paths``.
+    with its siblings, which would cover the whole repository.
+
+    A directory that the command changes to (``cd DIR``, ``pushd DIR``, ``-C DIR``,
+    ``--directory``, ``--cwd``, ``--prefix``, ``--project``, ``--chdir``) or adds to
+    ``PYTHONPATH`` or ``NODE_PATH`` is protected as ``DIR/**``, and later relative
+    paths are resolved against both the repository root and ``DIR``. ``-m a.b`` protects
+    the top-level package ``a/**``. A leading ``$VAR/`` or ``$(...)/`` is dropped and
+    the literal path after it is kept. Other computed paths, files that the program
+    reads on its own, the modules beside a root-level script, and the interpreter's
+    environment are not detected; list those in ``[review] trusted_paths``.
     """
     directories = [""]
     patterns: list[str] = []
-    changing_directory = False
-    for piece in _shell_pieces(command):
-        target = None
-        if changing_directory:
-            target = piece
-        elif piece.startswith(_DIRECTORY_OPTIONS):
-            target = piece.partition("=")[2]
-        changing_directory = piece in _CHANGE_DIRECTORY
-        if target is not None:
-            resolved = (_repo_relative(directory, target) for directory in directories)
-            directories = _unique([*directories, *(path for path in resolved if path)])
+    after_directory_flag = False
+    after_module_flag = False
+    for piece in _shell_pieces(_EXPANSION_PREFIX.sub("", command)):
+        if after_module_flag:
+            after_module_flag = False
+            for directory in directories:
+                patterns.extend(_module_patterns(directory, piece))
             continue
-        if changing_directory:
+        target = _directory_target(piece, after_flag=after_directory_flag)
+        after_directory_flag = piece in _CHANGE_DIRECTORY
+        name, separator, value = piece.partition("=")
+        if target is None and separator and name in _SEARCH_PATH_VARIABLES:
+            targets, changes_directory = value.split(":"), False
+        elif target is not None:
+            targets, changes_directory = [target], True
+        else:
+            targets, changes_directory = [], False
+        if targets:
+            found = [
+                path
+                for directory in directories
+                for entry in targets
+                if (path := _repo_relative(directory, entry))
+            ]
+            patterns.extend(f"{path}/**" for path in found)
+            if changes_directory:
+                directories = _unique([*directories, *found])
             continue
-        value = _word_value(piece)
-        if value is None or not _looks_like_path(value):
+        if after_directory_flag:
+            continue
+        if piece == "-m":
+            after_module_flag = True
+            continue
+        word = _word_value(piece)
+        if word is None or not _looks_like_path(word):
             continue
         for directory in directories:
-            path = _repo_relative(directory, value)
-            if path is None:
-                continue
-            parent = posixpath.dirname(path)
-            if parent:
-                patterns.append(f"{parent}/**")
-            else:
-                patterns.extend((path, f"{path}/**"))
+            path = _repo_relative(directory, word)
+            if path is not None:
+                patterns.extend(_file_patterns(path))
     return _unique(patterns)
 
 

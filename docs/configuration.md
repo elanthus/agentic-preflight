@@ -69,7 +69,7 @@ trusted_paths = []            # e.g. ["tools/reviewer/**"]; changes need human r
 
 [review.contracts]
 enabled = false              # opt-in executable review evidence
-# planner_command = "python3 -B docs/examples/reviewers/claude_review.py"
+# planner_command = "python3 -S -B docs/examples/reviewers/claude_review.py"
 # image = "registry.example/runtime@sha256:<64 lowercase hex characters>"
 max_checks = 8               # 1..32, three probes per check
 timeout_seconds = 10         # 1..60 per probe
@@ -478,14 +478,30 @@ Thus, risk classification treats the reviewer's own files as human-review paths,
   Its sibling files are not protected, because that would cover the whole repository. List any module that a root-level reviewer imports in `trusted_paths`, or move the reviewer into its own directory.
 - Every pattern in `trusted_paths`. Patterns are repository-relative globs with the same matching and restrictions as `[policy]`.
 
-A change to any of these paths is high risk and needs human approval before merge.
+A change to any of these paths is high risk, so it goes through the configured `[approval] mode` before merge.
 The hosted approval check and attestation verification use the `[review]` section committed at the protected base, so a branch cannot point the command elsewhere to escape the rule.
-Reading paths from a command is approximate.
-A word counts as a path when it contains `/` or `.`, after the value of a `--option=value` or `NAME=value` word is taken.
-The word after a `-c` flag, as in `sh -c '...'` or `bash -lc '...'`, is read as a command too.
-After `cd DIR`, `pushd DIR`, or one of the options `-C`, `--directory`, `--cwd`, `--prefix`, and `--project` followed by `DIR` (or `--option=DIR`), a relative path is protected both as written and under `DIR`.
-Bare program names, absolute paths, paths outside the repository, and words with a shell expansion or a glob are skipped.
-List in `trusted_paths` anything else that decides what the reviewer does: a module that the command loads by name (`python -m reviewer`), a prompt or configuration file in another directory, or a path that the command computes.
+A local run classifies risk with the branch's own configuration. Its verdict is advisory.
+When the base sets no `command`, for example because the command comes only from a user configuration file, the base names no reviewer paths. Protect that reviewer with `trusted_paths` or `[policy] human_review_paths` committed at the base.
+
+Reading paths from a command is approximate:
+
+- A word counts as a path when it contains `/` or `.`, after the value of a `--option=value` or `NAME=value` word is taken.
+- The word after a `-c` flag, as in `sh -c '...'` or `bash -lc '...'`, is read as a command too.
+- A directory that the command changes to is protected as `DIR/**`: the argument of `cd` or `pushd`, and the value of `-C`, `--directory`, `--cwd`, `--prefix`, `--project`, or `--chdir` (also `--option=DIR` and `-CDIR`). Later relative paths are protected both as written and under `DIR`.
+- Each directory in a `PYTHONPATH=` or `NODE_PATH=` value is protected as `DIR/**`.
+- `-m a.b` protects the top-level package `a/**`, whose `__init__.py` runs first. `-m reviewer` protects `reviewer.py` and `reviewer/**`.
+- A leading `$VAR/`, `${VAR}/`, `$(...)/`, or backtick expansion before a slash is dropped, and the literal path after it is kept.
+- Bare program names, absolute paths, paths outside the repository, and other words with a shell expansion or a glob are skipped.
+
+List in `trusted_paths` anything else that decides what the reviewer does: a prompt or configuration file in another directory, a path that the command computes, or a file that the program reads on its own.
+
+The interpreter and runner environment is a reviewer input too, and command parsing does not find it.
+`uv run`, `poetry run`, and `npm run` load or synchronize the project from its manifest and lockfile, which can run build hooks or path dependencies from the branch.
+During startup, Python imports a `sitecustomize` module from any directory on `sys.path`, and an editable install puts the repository there.
+Run a reviewer that needs only the standard library directly, with `python3 -S -B`, as the [example configurations](independent-review.md) do. `-S` skips that startup processing.
+Otherwise, protect the runner's inputs with `trusted_paths`.
+The coding-agent CLI that a wrapper starts can also read instructions and settings from the worktree, such as `CLAUDE.md`, `AGENTS.md`, or `.claude/settings.json`.
+The example wrappers turn those sources off. A custom wrapper must do the same, or list them in `trusted_paths`.
 
 Command review uses `[stage] timeout_seconds` and `max_attempts`.
 Attempts persist across process restarts.

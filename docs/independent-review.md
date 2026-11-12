@@ -23,10 +23,20 @@ The wrapper is independent of the coding agent's session, not of the branch.
 It runs from the worktree that holds the change under review, so a branch that edits the wrapper changes its own reviewer.
 Verification compares only the configured command string.
 Instead, risk classification treats the files that the command names, and every file under the wrapper's directory, as human-review paths.
-A change to the wrapper or to `_reviewer_common.py` then needs human approval before merge.
+A change to the wrapper or to `_reviewer_common.py` then goes through the configured approval mode before merge.
 List any other file that the reviewer reads, such as a prompt in another directory, in `[review] trusted_paths`.
 Also list the wrapper directory in your forge's code-owner rules.
 See [Review independence](configuration.md#review-independence-review).
+
+The example configurations run the wrapper with `python3 -S -B`, not through a project runner such as `uv run`.
+The wrappers use only the standard library.
+`-S` stops Python from importing a `sitecustomize` module that the branch could add to `sys.path`.
+A project runner would also load the branch's manifest and lockfile.
+The CLI that the wrapper starts works in the worktree under review, so the wrappers also turn off the instructions and settings it would read there:
+
+- The Claude wrapper passes `--safe-mode`, which skips `CLAUDE.md`, skills, hooks, MCP servers, plugins, and custom agents, and `--setting-sources user`, which ignores the project's `.claude/settings.json` and `.claude/settings.local.json`.
+  Your own user customizations are skipped too. Authentication and model selection work normally.
+- The Codex wrapper passes `--config project_doc_max_bytes=0`, so Codex does not read `AGENTS.md`, and `--ignore-rules`, so it does not load `.rules` files.
 
 Set `AP_CODEX_BIN` or `AP_CLAUDE_BIN` if the executable is not named `codex` or `claude`.
 Set `AP_REVIEWER_MODEL` to an exact model ID.
