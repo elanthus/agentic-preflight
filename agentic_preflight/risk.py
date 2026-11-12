@@ -129,12 +129,13 @@ def command_path_patterns(command: str) -> list[str]:
     This is a best-effort reading of shell words, not a shell. A named file is
     protected together with its directory, because interpreters load sibling modules
     from the script's directory (the example wrappers import ``_reviewer_common``).
-    A path at the repository root is protected as a file and as a directory. After
-    ``cd DIR``, ``pushd DIR``, or a directory option such as ``--directory DIR`` or
-    ``-C DIR``, a relative path is resolved against both the repository root and
-    ``DIR``, so either reading is protected. Paths that the
-    command computes, imports by module name, or reads from outside the repository
-    are not detected; list those in ``[review] trusted_paths``.
+    A path at the repository root is protected as a file and as a directory, but not
+    with its siblings, which would cover the whole repository. After ``cd DIR``,
+    ``pushd DIR``, or a directory option such as ``--directory DIR`` or ``-C DIR``, a
+    relative path is resolved against both the repository root and ``DIR``, so either
+    reading is protected. Paths that the command computes, imports by module name, or
+    reads from outside the repository, and the modules beside a root-level script, are
+    not detected; list those in ``[review] trusted_paths``.
     """
     directories = [""]
     patterns: list[str] = []
