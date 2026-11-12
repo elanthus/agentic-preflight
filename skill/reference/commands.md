@@ -230,7 +230,7 @@ timeout, malformed JSON, stale coverage, or invalid findings enter
 `REVIEW_COMMAND_RED` and consume one persisted attempt. A successful command records its
 command, zero exit code, and SHA-256 of redacted captured output alongside coverage in
 the schema-v7 attestation. A command from a user-level `[review]` section is recorded
-there with its `NAME=value` assignment values replaced by `[redacted]`. Changed review inputs require fresh command
+there as `[redacted user-level command]`. Changed review inputs require fresh command
 review; validated derivation retains original process evidence and coverage provenance.
 
 ### `agentic-preflight review contracts --file PATH`
@@ -283,7 +283,9 @@ equal the reviewed head. A mismatch exits 3. Findings match when they cite the s
 and path and their line numbers are equal or within three lines. The command writes the
 unit counts, agreed and reviewer-only findings, severity disagreements, and agreement rate
 to `review-compare.json`, appends a `review_compared` event, and returns the summary as
-`data`. It is legal from `REVIEW_GREEN` onward and never advances the run.
+`data`. Finding titles, details, and suggestions in the summary, the event, and `data`
+have copied-file values replaced by `[redacted]`; a copied file that cannot be read for
+that redaction exits 3. It is legal from `REVIEW_GREEN` onward and never advances the run.
 
 ### `agentic-preflight submit-findings --file PATH`
 `PATH` may be `-` for stdin. Review requires

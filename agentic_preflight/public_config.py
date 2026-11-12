@@ -13,7 +13,6 @@ Verification takes its policy from the protected base, not from the note.
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from .config import Config, snapshot_config
@@ -24,13 +23,10 @@ from .models import RunDoc, Stage
 #: review diff from ``[diff] exclude``, and the section holds only path patterns.
 PUBLISHED_USER_SECTIONS = frozenset({"diff"})
 
-#: ``NAME=value`` shell assignments, as a command prefix, after ``env``, or after
-#: an operator. The value may combine quoted and unquoted parts.
-_ASSIGNMENT = re.compile(
-    r"""(?:^|(?<=[\s;&|(]))([A-Za-z_][A-Za-z0-9_]*)="""
-    r"""(?:"(?:[^"\\]|\\.)*"?|'[^']*'?|\\.|[^\s;&|()'"\\])*"""
-)
-REDACTED_VALUE = "[redacted]"
+#: What a note records in place of a command from a user-level section. A fixed
+#: marker, not a digest: a digest of a command would let a reader confirm a
+#: guessed low-entropy credential in it.
+REDACTED_COMMAND = "[redacted user-level command]"
 
 
 def withheld_sections(run: RunDoc) -> set[str]:
@@ -59,11 +55,6 @@ def published_config_digest(run: RunDoc) -> str:
     return json_digest(published_snapshot(run))
 
 
-def redact_assignments(command: str) -> str:
-    """Replace the value of every ``NAME=value`` shell assignment in ``command``."""
-    return _ASSIGNMENT.sub(lambda match: f"{match.group(1)}={REDACTED_VALUE}", command)
-
-
 def _command_section(stage: Stage) -> str:
     return "review" if stage is Stage.REVIEW else "commands"
 
@@ -72,13 +63,14 @@ def published_command(run: RunDoc, stage: Stage, command: str | None) -> str | N
     """The stage command as a note records it.
 
     A command configured in the repository file is published as written, so a
-    verifier can compare it with the protected policy. A command from a
-    user-level ``[review]`` or ``[commands]`` section is published with its
-    environment assignments redacted.
+    verifier can compare it with the protected policy. A command that depends on
+    a user-level ``[review]`` or ``[commands]`` section, including a ``stage run
+    --command`` override, is replaced by :data:`REDACTED_COMMAND`. Shell syntax
+    can carry a credential in too many forms to redact parts of it.
     """
     if command is None or _command_section(stage) not in run.user_config_sections:
         return command
-    return redact_assignments(command)
+    return REDACTED_COMMAND
 
 
 def local_policy(run: RunDoc) -> Config:

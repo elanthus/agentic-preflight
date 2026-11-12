@@ -110,19 +110,23 @@ It is not a signature. Anyone with permission to update the notes ref can replac
 The note includes the full text of every finding and response note, and the commands that ran.
 It includes the configuration from the repository file, which the repository already publishes.
 It leaves out the sections of the user configuration file, except `[diff]`.
+It records `[redacted user-level command]` in place of a command that depends on a user-level `[review]` or `[commands]` section.
 
 Redaction narrows what the note can reveal. It is not a secret scanner:
 
 - Finding text and response notes are redacted only for exact values from `[worktree] copy_files` files.
   A reviewer that paraphrases, encodes, or splits a value, or that quotes another file, can still place it in the note.
-- A command that depends on a user-level section is published with `NAME=value` assignment values redacted.
-  A credential in another argument, such as `--token abc` or a URL, is published.
-  Keep credentials in the environment, not in commands.
-- Other commands, including a command in the repository file, are published as written.
+- Short copied values are redacted too. A `.env` line such as `DEBUG=1` replaces every `1` in finding text with `[redacted]`.
+  The note is public, so the tool redacts too much rather than publish a short credential.
+  Keep unrelated short values out of `copy_files` files to keep findings readable.
+- A command in the repository file and a `stage run --command` override when the repository file sets `[commands]`, or when neither file sets it, are published as written.
+- The source worktree ID is an unsalted SHA-256 digest of the local path of the worktree's Git directory.
+  A reader who guesses the path, for example from a user name and a common layout, can confirm the guess.
 - The local run record keeps the full user configuration, because the run executes it.
 
 Notes that earlier releases wrote keep whatever they contained.
 A run that an earlier release started still publishes its user-level sections. Start a new run to leave them out.
+Evidence reuse refuses evidence from a record without user-level sections, such as one that an earlier release wrote, unless its configuration snapshot matches what the current run publishes.
 Rewriting a published note does not remove it from clones or forks that already fetched it.
 
 ## Attestations are not signatures

@@ -14,13 +14,20 @@ A note contains these fields:
 - For each stage, its status, a reason when it was skipped, and its process evidence.
   A command review and a green lint or test stage carry the command, the exit code, and a SHA-256 digest of the redacted output.
   The output itself is not included.
-  Review also carries its coverage: the manifest and grounding digests, the unit IDs, and the excluded file paths.
+  Review also records its executor and its coverage: the manifest and grounding digests, the reviewed head, the unit count, the cited and clean unit IDs, the excluded file paths, and a contract-plan digest when contract checks are enabled.
 - The totals of findings by status and severity.
-- For each stage, the original execution evidence and its fingerprints.
-  This records the original run ID, commits, branch, finish time, and a digest that identifies the source worktree.
-  It repeats the published configuration snapshot and the stage result.
-  It also includes every finding from that stage in full: ID, path, line, unit, severity, action, title, detail, suggestion, status, fix commit, and response note.
-  The fingerprints hold tree hashes and SHA-256 digests only.
+- For each stage, its evidence: a version, a digest of the original execution, the current fingerprint, and, for evidence reused from an earlier run, the refresh time and the derivation reason.
+- For each stage, the original execution:
+  - The original run ID, stage, commits, branch, base branch, and finish time.
+  - The source worktree ID, an unsalted SHA-256 digest of the local path of the worktree's Git directory.
+  - The published configuration snapshot and its digest, and the stage result as above.
+  - The original fingerprint.
+  - Every finding from that stage in full: ID, stage, whether code owns it, path, line, unit, severity, action, title, detail, suggestion, status, fix commit, and response note.
+    The `respond --reason` label is not included.
+- A fingerprint holds a version, tree hashes, and SHA-256 digests.
+  A review fingerprint also holds the excluded file paths, the executor, and whether the configuration was supported.
+  A docs fingerprint also holds whether the configuration was supported.
+  A shell fingerprint also holds why its inputs were unavailable, when they were.
 
 The published configuration snapshot leaves out every section that came from the user configuration file, `~/.config/agentic-preflight/config.toml`.
 Those sections apply to the run, but they describe one machine.
@@ -28,13 +35,18 @@ Those sections apply to the run, but they describe one machine.
 A section that the repository file sets is published as written.
 
 The review command depends on `[review]`, and the lint and test commands depend on `[commands]`, including a `stage run --command` override.
-When that section came from the user file, the note replaces the value of every `NAME=value` assignment in the command with `[redacted]`.
-Other parts of the command are published as written.
+When that section came from the user file, the note records `[redacted user-level command]` in place of the command.
+The shell-command digest in the fingerprint covers that marker, not the command, so the note cannot confirm a guessed command.
 Otherwise the command is published as written, so a verifier can compare it with the protected policy.
+
+Evidence reused from an earlier run is held to the same rule.
+Reuse refuses evidence whose configuration snapshot holds a section that the current run withholds.
+It also refuses evidence from a run record without user-level sections, such as one that an earlier release wrote, unless that snapshot equals the one the current run publishes.
+Reuse also refuses evidence with finding text that the current copied-file values would redact.
 
 Finding text and response notes are redacted before they are saved, in the same way as stage logs.
 A value from a `[worktree] copy_files` file that appears verbatim becomes `[redacted]`.
-This covers findings from a review command, from `submit-findings`, and the `respond --note` text.
+This covers findings from a review command, from `submit-findings`, and from `review compare`, and the `respond --note` text.
 See [the limits of exact-value redaction](worktree-modes.md#secrets-in-worktrees) and [what a published note reveals](limits.md#what-a-published-note-reveals).
 
 `agentic-preflight push` first publishes the original-commit refs that the attestation evidence needs.

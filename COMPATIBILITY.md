@@ -135,8 +135,11 @@ The schema number alone does not guarantee that an older verifier accepts new po
 
 Attestation schema 7 and fingerprint version 2 are retained, and current verifiers read notes from earlier releases unchanged.
 A note's `config_snapshot` now leaves out the sections that came from the user configuration file, except `[diff]`.
-A command that depends on such a section has its `NAME=value` assignment values replaced by `[redacted]`.
+A command that depends on such a section is recorded as `[redacted user-level command]`.
 The configuration digest and the review, docs, and shell fingerprint digests cover that published form, so a verifier that recomputes them from the note still agrees.
+Evidence reuse refuses a candidate whose snapshot holds a section the current run withholds, or whose findings the current copied-file values would redact.
+It also refuses evidence from a record without `user_config_sections`, such as one an earlier release wrote, unless its snapshot equals the current published snapshot.
+Expect one fresh review and docs stage after upgrading if you have user-level sections.
 A run with no user-level sections publishes the same snapshot and digests as before.
 A consumer that read a user-level setting from a note must read it locally instead. A section missing from the snapshot was set in the user file.
 

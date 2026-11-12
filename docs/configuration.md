@@ -470,7 +470,7 @@ Attempts persist across process restarts.
 Every repair invalidates the prior executor and coverage evidence.
 Attestation schema v7 records `executor` and per-stage provenance for every review.
 Command reviews also record the configured command, the exit code, and the redacted output digest.
-A command from a user-level `[review]` section is recorded with its `NAME=value` assignment values replaced by `[redacted]`.
+A command from a user-level `[review]` section is recorded as `[redacted user-level command]`.
 
 See [Independent review and agreement](independent-review.md) for worked Codex and Claude configurations and the two-reviewer comparison report.
 

@@ -3,6 +3,10 @@
   reviewer that quotes a copied secret no longer places it in `findings.json` or in the
   published attestation note (GHSA-8c37-fpgq-vp36).
 - The published attestation note now leaves out configuration sections from the user
-  configuration file, except `[diff]`, and redacts `NAME=value` assignment values in a
-  command that depends on such a section. Attestation schema 7 is unchanged. See
-  `COMPATIBILITY.md`, and `docs/attestations-and-ci.md` for exactly what a note contains.
+  configuration file, except `[diff]`, and records `[redacted user-level command]` in
+  place of a command that depends on such a section. Evidence reuse refuses earlier
+  evidence that would carry withheld configuration or unredacted finding text into a
+  note. Attestation schema 7 is unchanged. See `COMPATIBILITY.md`, and
+  `docs/attestations-and-ci.md` for exactly what a note contains.
+- `review compare` redacts copied-file values in compared findings before it writes its
+  summary and event.

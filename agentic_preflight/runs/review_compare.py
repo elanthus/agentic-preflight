@@ -16,6 +16,7 @@ from ..envelope import Envelope
 from ..errors import InvalidFindings, StageFailed
 from ..machine import State
 from ..models import FindingSubmission, RunDoc, Stage
+from ..stages import shellstage
 from . import review_coverage, review_protocol
 from ._session import Session, _envelope_for, _load_current, _require_state, _require_worktree
 from ._shell import _run_protected, _withheld_message
@@ -331,6 +332,20 @@ def _summarise(
     }
 
 
+def _redact_findings(run: RunDoc, worktree: str, *submissions: dict[str, Any]) -> None:
+    """Redact copied-file values from compared findings before the summary is written."""
+    if not any(submission["findings"] for submission in submissions):
+        return
+    try:
+        secrets = shellstage.read_secrets(worktree, run.copied_files)
+    except shellstage.SecretRedactionError as exc:
+        raise _refusal(
+            "comparison cannot be recorded because copied-file redaction is unavailable", run
+        ) from exc
+    for submission in submissions:
+        submission["findings"] = findingsmod.redact_submissions(submission["findings"], secrets)
+
+
 def compare_reviews(session: Session, payload: Any | None = None) -> Envelope:
     """Compare accepted evidence with a supplied or shadow submission in place."""
     run = _load_current(session)
@@ -394,6 +409,7 @@ def compare_reviews(session: Session, payload: Any | None = None) -> Envelope:
             raise _refusal("review submissions have different reviewed HEADs", run)
     if recorded["executor"] == second["executor"]:
         raise _refusal("comparison requires one in_harness and one command submission", run)
+    _redact_findings(run, worktree, recorded, second)
     a, b = (recorded, second) if recorded["executor"] == "in_harness" else (second, recorded)
     summary = _summarise(manifest, a, b)
     summary_path = session.store.run_dir(run.run_id) / "review-compare.json"

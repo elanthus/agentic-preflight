@@ -36,6 +36,7 @@ from ..models import (
     StageStatus,
 )
 from ..refresh_validation import verify_stage
+from ..stages import shellstage
 from ..store import RunReadError, UnknownRun
 from . import review_protocol
 from ._session import (
@@ -251,6 +252,53 @@ def _same_withheld_config(old: RunDoc, run: RunDoc, stage: Stage) -> bool:
     )
 
 
+def _copied_file_secrets(run: RunDoc) -> list[str] | None:
+    """Copied-file values for checking reused findings, or None when unreadable."""
+    try:
+        return shellstage.read_secrets(_require_worktree(run), run.copied_files)
+    except shellstage.SecretRedactionError:
+        return None
+
+
+def _publishable(item: StageEvidence, run: RunDoc, secrets: list[str] | None) -> bool:
+    """Whether reused evidence would publish nothing this run withholds or redacts.
+
+    A record that an earlier release wrote embeds its full configuration snapshot,
+    user-level sections included, and its findings as they were submitted. Such
+    evidence must not carry those into this run's note.
+    """
+    origin = item.origin
+    withheld = public_config.withheld_sections(run)
+    if withheld & set(origin.config_snapshot):
+        return False
+    if secrets is None:
+        return False
+    return all(
+        shellstage.redact(value, secrets) == value
+        for finding in origin.findings
+        for value in (finding.title, finding.detail, finding.suggestion, finding.response_note)
+        if value
+    )
+
+
+def _admissible(
+    old: RunDoc, run: RunDoc, stage: Stage, item: StageEvidence, secrets: list[str] | None
+) -> bool:
+    """Whether a prior run's evidence may become a candidate for this run."""
+    if item.origin.source_worktree_id != run.source_worktree_id:
+        return False
+    if not _same_withheld_config(old, run, stage):
+        return False
+    if not old.user_config_sections and (
+        item.origin.config_snapshot != public_config.published_snapshot(run)
+    ):
+        # An earlier release wrote such a record with its full snapshot, user-level
+        # sections included, and the record cannot say which those were. Reusable
+        # evidence comes from identical trees, so the repository configuration matches.
+        return False
+    return _publishable(item, run, secrets)
+
+
 def _select_candidates(
     session: Session, run: RunDoc, prior_runs: list[RunDoc]
 ) -> dict[Stage, StageEvidence]:
@@ -271,13 +319,12 @@ def _select_candidates(
                 current[stage] = None
         return current[stage]
 
+    secrets = _copied_file_secrets(run) if prior_runs else None
     for old in prior_runs:
         for stage, item in old.evidence.items():
             if stage in {Stage.LINT, Stage.TEST}:
                 continue
-            if item.origin.source_worktree_id != run.source_worktree_id:
-                continue
-            if not _same_withheld_config(old, run, stage):
+            if not _admissible(old, run, stage, item, secrets):
                 continue
             if stage in settled:
                 continue
@@ -400,16 +447,18 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
         return run
     run = reopen_changed_inputs(session, run, clean=True)
     decisions: dict[Stage, Classification] = {}
+    secrets = _copied_file_secrets(run) if run.reuse_candidates else None
     current: dict[Stage, StageFingerprint] = {}
     for stage in Stage:
         if (boundary := _execution_boundary(session, stage)) is not None:
             decisions[stage] = boundary
             continue
         item = run.reuse_candidates.get(stage)
-        if item is None:
-            decisions[stage] = Classification(
-                disposition=Disposition.UNKNOWN, reasons=(ReasonCode.FINGERPRINT_MISSING,)
+        if item is None or not _publishable(item, run, secrets):
+            reason = (
+                ReasonCode.FINGERPRINT_MISSING if item is None else ReasonCode.PROVENANCE_INVALID
             )
+            decisions[stage] = Classification(disposition=Disposition.UNKNOWN, reasons=(reason,))
             continue
         try:
             new = fingerprint(session, run, stage, clean=True)
