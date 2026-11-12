@@ -95,7 +95,8 @@ Another rule can still classify them as human review, for example a high or crit
 The current branch rules make `high-risk human approval` a required check, so a high-risk pull request cannot merge until the configured owner approves its exact content, unless someone uses the ruleset bypass.
 
 The explicit `human_review_paths` in `.agentic-preflight.toml` cover the decision points:
-policy and ownership, CI workflows, merge approval, attestation verification, the pre-push hook, publication gates, and security guidance.
+policy and ownership, CI workflows, merge approval, attestation verification, the pre-push hook, publication gates, security guidance, and the reviewer wrappers that `[review] command` runs.
+The tool also treats the files that `[review] command` names as human-review paths; see [Review independence](docs/configuration.md#review-independence-review).
 Dependency manifest and lockfile changes rely on the required automated dependency audit.
 Keep `.github/CODEOWNERS` aligned with that list.
 A blanket package owner would restore mandatory human review when Code Owner review is enforced.
