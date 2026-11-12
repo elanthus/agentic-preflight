@@ -43,8 +43,10 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
-      - name: Install the trusted verifier
-        run: uv tool install --python 3.11 .
+      # Install from uv.lock, not a fresh resolution, so the verifier runs
+      # with the audited, Dependabot-cooled dependency versions.
+      - name: Install the trusted verifier from the lock file
+        run: uv sync --locked --no-dev --python 3.11
 
       - name: Fetch and verify the pull request attestation
         env:
@@ -63,7 +65,8 @@ jobs:
             '+refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*'
           result_file="$RUNNER_TEMP/attestation-result.json"
           verify_exit=0
-          agentic-preflight verify "$ATTESTED_SHA" --base "$BASE_SHA" \
+          uv run --locked --no-dev --python 3.11 \
+            agentic-preflight verify "$ATTESTED_SHA" --base "$BASE_SHA" \
             > "$result_file" || verify_exit=$?
           cat "$result_file"
           exit "$verify_exit"

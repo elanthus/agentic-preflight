@@ -41,8 +41,10 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
-      - name: Install the trusted policy checker
-        run: uv tool install --python 3.11 .
+      # Install from uv.lock, not a fresh resolution, so the checker runs
+      # with the audited, Dependabot-cooled dependency versions.
+      - name: Install the trusted policy checker from the lock file
+        run: uv sync --locked --no-dev --python 3.11
 
       - name: Evaluate approval policy for the exact head
         id: policy
@@ -69,7 +71,8 @@ jobs:
             "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews?per_page=100" \
             > "$reviews_file"
           policy_exit=0
-          agentic-preflight approval-check "$HEAD_SHA" \
+          uv run --locked --no-dev --python 3.11 \
+            agentic-preflight approval-check "$HEAD_SHA" \
             --base "$BASE_SHA" \
             --reviews-file "$reviews_file" \
             --author "$PR_AUTHOR" \

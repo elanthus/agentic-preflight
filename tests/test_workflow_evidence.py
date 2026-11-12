@@ -2,9 +2,11 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import textwrap
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -44,7 +46,7 @@ def test_protected_workflow_configuration(filename, job, head_variable):
     assert "with: ref: ${{ github.event.pull_request.base.sha }} fetch-depth: 0" in trusted
     assert (
         trusted.index("- uses: actions/checkout@")
-        < trusted.index("run: uv tool install --python 3.11 .")
+        < trusted.index("run: uv sync --locked --no-dev --python 3.11")
         < trusted.index("env:")
     )
     for variable, field in {
@@ -65,6 +67,43 @@ def test_protected_workflow_configuration(filename, job, head_variable):
         ci = (ROOT / ".github/workflows/ci.yml").read_text()
         assert "attestation:" not in ci.split("\njobs:\n", 1)[1]
         assert "needs.dependabot-policy.outputs.eligible != 'true'" in trusted
+
+
+LOCKED_RUN = "uv run --locked --no-dev --python 3.11"
+UNLOCKED_INSTALL = re.compile(r"(^|[\s;&|(])(uv tool|uv pip|uvx|pipx|pip3? install)\b")
+
+
+def _shell_commands(workflow):
+    # One logical command per entry: join shell continuations, drop comments.
+    joined = re.sub(r"\\\n", " ", workflow)
+    commands = []
+    for line in joined.splitlines():
+        command = " ".join(line.split()).removeprefix("- ").removeprefix("run: ")
+        if command and not command.startswith("#"):
+            commands.append(command)
+    return commands
+
+
+@pytest.mark.parametrize("filename", ["attestation.yml", "human-approval.yml"])
+def test_trusted_workflows_install_and_run_only_from_the_lock_file(filename):
+    commands = _shell_commands((ROOT / ".github/workflows" / filename).read_text())
+    assert [command for command in commands if UNLOCKED_INSTALL.search(command)] == []
+    uv_commands = [command for command in commands if re.search(r"(^|\s)uv (sync|run)\b", command)]
+    assert uv_commands
+    assert all("--locked --no-dev" in command for command in uv_commands), uv_commands
+    assert "uv sync --locked --no-dev --python 3.11" in commands
+    tool_calls = [
+        command for command in commands if re.search(r"(^|\s)agentic-preflight [a-z]", command)
+    ]
+    assert tool_calls
+    assert all(command.startswith(f"{LOCKED_RUN} agentic-preflight ") for command in tool_calls)
+
+
+def test_build_backend_is_pinned():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    requires = project["build-system"]["requires"]
+    assert requires
+    assert all(re.fullmatch(r"[A-Za-z0-9_.-]+==[0-9][0-9A-Za-z.]*", item) for item in requires)
 
 
 def test_approval_events_outputs_and_dependencies():
@@ -159,6 +198,12 @@ def run_step(tmp_path):
         (tmp_path / "approval-policy.json").write_text('{"ok":true,"data":{"approved":true}}')
         (tmp_path / "attestation-result.json").write_text('{"ok":true}')
         harness = r"""
+uv() {
+  printf '%s\n' "$*" >> uv-args.txt
+  [ "$1 $2 $3 $4 $5" = "run --locked --no-dev --python 3.11" ] || return 97
+  shift 5
+  "$@"
+}
 agentic-preflight() {
   printf '%s\n' "$@" > helper-args.txt
   printf 'call\n' >> helper-calls.txt
@@ -238,6 +283,9 @@ def test_success_passes_fixed_event_and_resolved_fork_remote(run_step, filename,
     assert json.loads(result.stdout)["ok"] is True
     args = (path / "helper-args.txt").read_text().splitlines()
     assert args[:2] == ["verify" if filename == "attestation.yml" else "approval-check", HEAD]
+    uv_calls = (path / "uv-args.txt").read_text().splitlines()
+    assert len(uv_calls) == 1
+    assert f"uv {uv_calls[0]}".startswith(f"{LOCKED_RUN} agentic-preflight {args[0]} {HEAD}")
     assert not (path / "injected").exists()
     git_args = (path / "git-args.txt").read_text().splitlines()
     if fork:
