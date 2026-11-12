@@ -70,7 +70,10 @@ def test_protected_workflow_configuration(filename, job, head_variable):
 
 
 LOCKED_RUN = "uv run --locked --no-dev --python 3.11"
-UNLOCKED_INSTALL = re.compile(r"(^|[\s;&|(])(uv tool|uv pip|uvx|pipx|pip3? install)\b")
+UNLOCKED_INSTALL = re.compile(
+    r"(^|[\s;&|(])(uv tool|uv pip|uv add|uv lock|uvx|pipx|pip3? install)\b"
+    r"|--upgrade\b|--frozen\b|(^|\s)-U(\s|$)"
+)
 
 
 def _shell_commands(workflow):
