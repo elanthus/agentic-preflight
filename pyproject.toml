@@ -47,9 +47,9 @@ dev = [
 ]
 
 [build-system]
-# Pinned so builds, including the locked environment that the trusted
-# pull_request_target workflows install, do not pick up a new backend release
-# at run time. uv.lock does not record the build backend.
+# Pinned so builds do not pick up a new backend release at build time; uv.lock
+# does not record the build backend. The trusted pull_request_target workflows
+# do not build the package at all (they sync with --no-install-project).
 requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 

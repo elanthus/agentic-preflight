@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import textwrap
@@ -46,7 +47,7 @@ def test_protected_workflow_configuration(filename, job, head_variable):
     assert "with: ref: ${{ github.event.pull_request.base.sha }} fetch-depth: 0" in trusted
     assert (
         trusted.index("- uses: actions/checkout@")
-        < trusted.index("run: uv sync --locked --no-dev --python 3.11")
+        < trusted.index("run: uv sync --locked --no-dev --no-install-project --python 3.11")
         < trusted.index("env:")
     )
     for variable, field in {
@@ -69,11 +70,48 @@ def test_protected_workflow_configuration(filename, job, head_variable):
         assert "needs.dependabot-policy.outputs.eligible != 'true'" in trusted
 
 
-LOCKED_RUN = "uv run --locked --no-dev --python 3.11"
-UNLOCKED_INSTALL = re.compile(
-    r"(^|[\s;&|(])(uv tool|uv pip|uv add|uv lock|uvx|pipx|pip3? install)\b"
-    r"|--upgrade\b|--frozen\b|(^|\s)-U(\s|$)"
+TRUSTED_WORKFLOWS = ["attestation.yml", "human-approval.yml"]
+LOCKED_SYNC = "uv sync --locked --no-dev --no-install-project --python 3.11"
+LOCKED_RUN = "uv run --locked --no-dev --no-sync --python 3.11"
+PINNED_SETUP_UV = re.compile(
+    r'uses: astral-sh/setup-uv@[0-9a-f]{40} # v\S+ with: version: "\d+\.\d+\.\d+"'
 )
+# uv options that take their value from the next token.
+UV_VALUE_OPTIONS = {
+    "--python",
+    "-p",
+    "--directory",
+    "--project",
+    "--config-file",
+    "--cache-dir",
+    "--color",
+    "--with",
+    "--with-requirements",
+    "--with-editable",
+    "--index",
+    "--index-url",
+    "--extra-index-url",
+    "--default-index",
+    "--find-links",
+    "-f",
+    "--upgrade-package",
+    "-P",
+}
+UV_REQUIRED = {
+    "sync": {"--locked", "--no-dev", "--no-install-project"},
+    "run": {"--locked", "--no-dev", "--no-sync"},
+}
+UV_FORBIDDEN = re.compile(
+    r"--(with|no-project|index|extra-index|default-index|find-links|isolated|upgrade|frozen)"
+    r"|-[UPf]$"
+)
+FORBIDDEN_ENVIRONMENT = re.compile(
+    r"\bUV_(NO_SYNC|FROZEN|INDEX\w*|EXTRA_INDEX_URL|DEFAULT_INDEX|FIND_LINKS|ISOLATED)\b"
+)
+INSTALLER = re.compile(r"pip[0-9.]*|pipx|uvx|easy_install")
+WRAPPERS = {"sudo", "env", "exec", "command", "nohup", "time"}
+SEPARATORS = {"&&", "||", ";", "|", "&", "(", ")"}
+ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 
 
 def _shell_commands(workflow):
@@ -87,19 +125,147 @@ def _shell_commands(workflow):
     return commands
 
 
-@pytest.mark.parametrize("filename", ["attestation.yml", "human-approval.yml"])
+def _segments(command):
+    """Split one shell line into simple commands without leading assignments."""
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError:  # A quoted string that spans YAML lines, such as a jq program.
+        tokens = command.split()
+    segment: list[str] = []
+    for token in [*tokens, ";"]:
+        if token in SEPARATORS:
+            while segment and ASSIGNMENT.match(segment[0]):
+                segment.pop(0)
+            if segment:
+                yield segment
+            segment = []
+        else:
+            segment.append(token)
+
+
+def _uv_problem(tokens):
+    """Check one uv invocation, whose global options may precede the subcommand."""
+    options, subcommand, index = [], None, 1
+    while index < len(tokens):
+        token = tokens[index]
+        if not token.startswith("-"):
+            if subcommand is not None:
+                break  # The program that `uv run` starts, and its arguments.
+            subcommand = token
+        else:
+            options.append(token.split("=", 1)[0])
+            if "=" not in token and token in UV_VALUE_OPTIONS:
+                index += 1
+        index += 1
+    if subcommand not in UV_REQUIRED:
+        return f"uv subcommand {subcommand!r} is not allowed"
+    forbidden = [option for option in options if UV_FORBIDDEN.match(option)]
+    if forbidden:
+        return f"uv {subcommand} uses {forbidden}"
+    missing = UV_REQUIRED[subcommand] - set(options)
+    if missing:
+        return f"uv {subcommand} lacks {sorted(missing)}"
+    return None
+
+
+def unlocked_install_problems(workflow):
+    """Return every way a trusted workflow could install or run unlocked code."""
+    problems = [f"environment sets UV_{name}" for name in FORBIDDEN_ENVIRONMENT.findall(workflow)]
+    for command in _shell_commands(workflow):
+        for tokens in _segments(command):
+            while len(tokens) > 1 and tokens[0] in WRAPPERS:
+                tokens = tokens[1:]
+            programs = [os.path.basename(token) for token in tokens]
+            module = programs[2] if programs[1:2] == ["-m"] and len(programs) > 2 else ""
+            if programs[0] == "uv":
+                problem = _uv_problem(tokens)
+                if problem:
+                    problems.append(f"{problem}: {command}")
+            if INSTALLER.fullmatch(programs[0]) or INSTALLER.fullmatch(module):
+                problems.append(f"package installer: {command}")
+            if programs[0] == "agentic-preflight":
+                problems.append(f"installed console script: {command}")
+            if "agentic_preflight" in tokens and not command.startswith(LOCKED_RUN):
+                problems.append(f"checker outside the locked environment: {command}")
+    return problems
+
+
+@pytest.mark.parametrize("filename", TRUSTED_WORKFLOWS)
 def test_trusted_workflows_install_and_run_only_from_the_lock_file(filename):
-    commands = _shell_commands((ROOT / ".github/workflows" / filename).read_text())
-    assert [command for command in commands if UNLOCKED_INSTALL.search(command)] == []
-    uv_commands = [command for command in commands if re.search(r"(^|\s)uv (sync|run)\b", command)]
-    assert uv_commands
-    assert all("--locked --no-dev" in command for command in uv_commands), uv_commands
-    assert "uv sync --locked --no-dev --python 3.11" in commands
-    tool_calls = [
-        command for command in commands if re.search(r"(^|\s)agentic-preflight [a-z]", command)
-    ]
-    assert tool_calls
-    assert all(command.startswith(f"{LOCKED_RUN} agentic-preflight ") for command in tool_calls)
+    workflow = (ROOT / ".github/workflows" / filename).read_text()
+    assert unlocked_install_problems(workflow) == []
+    commands = _shell_commands(workflow)
+    assert LOCKED_SYNC in commands
+    checker = [command for command in commands if "-m agentic_preflight " in command]
+    assert checker
+    assert all(
+        command.startswith(f"{LOCKED_RUN} python -m agentic_preflight ") for command in checker
+    )
+    flat = " ".join(workflow.split())
+    assert flat.count("uses: astral-sh/setup-uv@") == len(PINNED_SETUP_UV.findall(flat)) == 1
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "run: uv tool install --python 3.11 .",
+        "run: uv --python 3.11 tool install .",
+        "run: uv -q tool install .",
+        "run: uv build",
+        "run: uv pip install .",
+        "run: uv add click",
+        "run: uv lock --upgrade",
+        "run: uv sync --no-dev --no-install-project",
+        "run: uv sync --locked --no-install-project",
+        "run: uv sync --locked --no-dev",
+        "run: uv --python 3.11 sync --no-dev --no-install-project",
+        "run: uv sync --locked --no-dev --no-install-project --upgrade",
+        "run: uv sync --locked --no-dev --no-install-project --upgrade-package click",
+        "run: uv sync --locked --no-dev --no-install-project -U",
+        "run: uv sync --locked --no-dev --no-install-project --index-url https://x.test",
+        "run: uv sync --locked --no-dev --no-install-project --extra-index-url=https://x.test",
+        "run: uv sync --locked --no-dev --no-install-project --index x=https://x.test",
+        "run: uv sync --locked --no-dev --no-install-project --default-index https://x.test",
+        "run: uv sync --locked --no-dev --no-install-project --frozen",
+        "run: uv -q run --no-dev --no-sync python -m agentic_preflight verify",
+        "run: uv run --locked --no-sync python -m agentic_preflight verify",
+        "run: uv run --locked --no-dev python -m agentic_preflight verify",
+        "run: uv run --locked --no-dev --no-sync --with click python x.py",
+        "run: uv run --locked --no-dev --no-sync --with-requirements r.txt python x.py",
+        "run: uv run --locked --no-dev --no-sync --no-project python x.py",
+        "run: uv run --locked --no-dev --no-sync --isolated python x.py",
+        "run: cd sub && uv run --no-dev --no-sync python x.py",
+        "run: sudo uv tool install .",
+        "run: uvx pip-audit",
+        "run: pip install .",
+        "run: pip3.11 install .",
+        "run: pipx install agentic-preflight",
+        "run: python -m pip install .",
+        "run: python3 -m pip3 install .",
+        "run: sudo pip install .",
+        "run: agentic-preflight verify HEAD",
+        "run: python -m agentic_preflight verify HEAD",
+        "UV_NO_SYNC: 1",
+        "UV_FROZEN: true",
+        "UV_INDEX: x=https://x.test",
+        "UV_INDEX_URL: https://x.test",
+        "UV_EXTRA_INDEX_URL: https://x.test",
+        "run: UV_FROZEN=1 uv run --locked --no-dev --no-sync python x.py",
+    ],
+)
+def test_unlocked_install_variants_are_rejected(line):
+    assert unlocked_install_problems(f"    steps:\n      - {line}\n") != []
+
+
+def test_locked_install_variants_are_accepted():
+    workflow = (
+        f"      - run: {LOCKED_SYNC}\n"
+        "      - run: uv --quiet run --locked --no-dev --no-sync --python=3.11 python x.py\n"
+        f"      - run: |\n          {LOCKED_RUN} \\\n            python -m agentic_preflight verify\n"
+    )
+    assert unlocked_install_problems(workflow) == []
 
 
 def test_build_backend_is_pinned():
@@ -203,9 +369,11 @@ def run_step(tmp_path):
         harness = r"""
 uv() {
   printf '%s\n' "$*" >> uv-args.txt
-  [ "$1 $2 $3 $4 $5" = "run --locked --no-dev --python 3.11" ] || return 97
-  shift 5
-  "$@"
+  [ "$1 $2 $3 $4 $5 $6" = "run --locked --no-dev --no-sync --python 3.11" ] || return 97
+  shift 6
+  [ "$1 $2 $3" = "python -m agentic_preflight" ] || return 98
+  shift 3
+  agentic-preflight "$@"
 }
 agentic-preflight() {
   printf '%s\n' "$@" > helper-args.txt
@@ -288,7 +456,9 @@ def test_success_passes_fixed_event_and_resolved_fork_remote(run_step, filename,
     assert args[:2] == ["verify" if filename == "attestation.yml" else "approval-check", HEAD]
     uv_calls = (path / "uv-args.txt").read_text().splitlines()
     assert len(uv_calls) == 1
-    assert f"uv {uv_calls[0]}".startswith(f"{LOCKED_RUN} agentic-preflight {args[0]} {HEAD}")
+    assert f"uv {uv_calls[0]}".startswith(
+        f"{LOCKED_RUN} python -m agentic_preflight {args[0]} {HEAD}"
+    )
     assert not (path / "injected").exists()
     git_args = (path / "git-args.txt").read_text().splitlines()
     if fork:

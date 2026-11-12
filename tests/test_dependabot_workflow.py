@@ -306,9 +306,12 @@ def test_provenance_verifier_runs_from_protected_base_with_read_only_permissions
     workflow = (ROOT / ".github/workflows/human-approval.yml").read_text()
     assert "ref: ${{ github.event.pull_request.base.sha }}" in workflow
     assert (
-        "uv run --locked --no-dev --python 3.11 python .github/scripts/verify_dependabot.py"
+        "uv run --locked --no-dev --no-sync --python 3.11 python .github/scripts/verify_dependabot.py"
         in workflow
     )
+    # The project is not installed in the trusted job, so the script imports the
+    # package from the base checkout.
+    assert "PYTHONPATH: ${{ github.workspace }}" in workflow
     assert "gh api --paginate --slurp" in workflow
     assert ": write" not in workflow
     assert (

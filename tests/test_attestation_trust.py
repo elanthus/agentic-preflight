@@ -1,5 +1,6 @@
 """Verification takes its merge base and policy from a trusted base, not from the note."""
 
+import importlib.metadata
 import json
 from types import SimpleNamespace
 
@@ -121,6 +122,41 @@ def test_verify_accepts_a_protected_base_that_advanced_past_the_merge_base(featu
     env = ScriptedAgent(feature_repo).run("verify", sha, "--base", base)
 
     assert env["data"]["verified"] is True
+
+
+def test_verify_and_approval_check_need_no_installed_package_metadata(
+    feature_repo, tmp_path, monkeypatch
+):
+    # The trusted workflows run `python -m agentic_preflight` from the base checkout
+    # without installing the project, so no distribution metadata exists there.
+    green_run(feature_repo, tmp_path)
+    sha = git("rev-parse", "HEAD", cwd=feature_repo)
+    base = git("rev-parse", "main", cwd=feature_repo)
+    reviews = tmp_path / "reviews.json"
+    reviews.write_text("[]")
+
+    def missing(name):
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata.Distribution, "from_name", staticmethod(missing))
+    with pytest.raises(importlib.metadata.PackageNotFoundError):
+        importlib.metadata.version("agentic-preflight")
+
+    agent = ScriptedAgent(feature_repo)
+    assert agent.run("verify", sha, "--base", base)["data"]["verified"] is True
+    policy = agent.run(
+        "approval-check",
+        sha,
+        "--base",
+        base,
+        "--reviews-file",
+        str(reviews),
+        "--author",
+        "author",
+        "--report-only",
+    )
+    assert policy["ok"] is True
+    assert policy["data"]["head_sha"] == sha
 
 
 @pytest.mark.parametrize("ref", ["refs/tags/old-policy", "refs/notes/old-policy"])
