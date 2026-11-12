@@ -81,7 +81,7 @@ def test_push_refspec_names_the_attested_sha_and_a_full_branch_ref():
     sha = "a" * 40
     assert publish._push_refspecs(sha, "feature/x") == [
         f"{sha}:refs/heads/feature/x",
-        f"{NOTES_REF}:{NOTES_REF}",
+        f"{publish.NOTES_COMMIT_PLACEHOLDER}:{NOTES_REF}",
     ]
 
 

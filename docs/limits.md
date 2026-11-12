@@ -103,6 +103,16 @@ Treat the attestation as an audit trail.
 It does not replace CI or a human reviewer.
 It is not a signature. Anyone with permission to update the notes ref can replace it.
 
+## Published notes are visible to everyone who can fetch them
+
+A note holds the branch name, the finding titles and details, the file paths, and the configuration snapshot.
+`push` publishes the notes of the commits it pushes, and the gate lists them in `published_notes`.
+Notes on commits that were never pushed stay in the local `refs/notes/agentic-preflight`.
+This scope covers `push` and the manual gate command only.
+A hand-run `git push origin refs/notes/agentic-preflight` sends every local note, including those of unpushed commits.
+Releases before this scoping pushed the whole local notes ref, so the remote may already hold such notes.
+Removing them requires rewriting the remote notes ref.
+
 ## Attestations are not signatures
 
 Anyone with permission to update `refs/notes/agentic-preflight` can replace an attestation.

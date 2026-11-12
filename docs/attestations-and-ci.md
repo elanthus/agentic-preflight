@@ -10,7 +10,12 @@ A skipped stage records why it was skipped.
 Any other schema version is rejected.
 
 `agentic-preflight push` first publishes the original-commit refs that the attestation evidence needs.
-Then it pushes the branch and `refs/notes/agentic-preflight` atomically.
+Then it pushes the branch and a notes commit to `refs/notes/agentic-preflight` atomically.
+The notes commit is the remote notes tip plus the local notes of the pushed commits: the run's commits from its merge base to the attested head.
+Notes on other local commits, such as those of an aborted or never-pushed branch, stay local.
+The gate summary names the published commits in `published_notes`.
+If another clone updates the remote notes first, the atomic push is rejected and nothing lands.
+`push` then rebuilds the notes commit on the new remote tip, so both clones' notes reach the remote.
 If the publication of an original fails, the branch push does not start.
 An interrupted publication can leave retained evidence refs that are ready for a retry.
 Git does not fetch notes in an ordinary checkout.

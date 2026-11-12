@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 import subprocess
 import tempfile
 from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from functools import cache
 from pathlib import Path
 from typing import IO
@@ -501,19 +503,27 @@ def patch_ids(cwd: Path | str, base: str, head: str) -> dict[str, str | None]:
 # -- attestations -----------------------------------------------------------
 
 
-def read_note(cwd: Path | str, notes_ref: str, sha: str) -> str | None:
-    # A successful list with no matching entry establishes absence; a failed
-    # `notes show` alone cannot distinguish a missing note from a read failure.
-    """Return the note on a commit under a notes ref, or None."""
-    resolved = rev_parse(cwd, sha)
-    listing = out(cwd, "notes", f"--ref={notes_ref}", "list")
-    for line in listing.splitlines():
+def note_blobs(cwd: Path | str, notes_ref: str) -> dict[str, str]:
+    """Map each annotated commit under a notes ref to its note blob.
+
+    A successful list with no matching entry establishes absence; a failed
+    `notes show` alone cannot distinguish a missing note from a read failure.
+    """
+    notes: dict[str, str] = {}
+    for line in out(cwd, "notes", f"--ref={notes_ref}", "list").splitlines():
         fields = line.split()
         if len(fields) != 2:
             raise GitError(["notes", "list"], 1, "unexpected notes listing")
-        if fields[1] == resolved:
-            return run(cwd, "cat-file", "blob", fields[0]).stdout.rstrip("\n")
-    return None
+        notes[fields[1]] = fields[0]
+    return notes
+
+
+def read_note(cwd: Path | str, notes_ref: str, sha: str) -> str | None:
+    """Return the note on a commit under a notes ref, or None."""
+    blob = note_blobs(cwd, notes_ref).get(rev_parse(cwd, sha))
+    if blob is None:
+        return None
+    return run(cwd, "cat-file", "blob", blob).stdout.rstrip("\n")
 
 
 def write_note(cwd: Path | str, notes_ref: str, sha: str, payload: str) -> None:
@@ -521,18 +531,23 @@ def write_note(cwd: Path | str, notes_ref: str, sha: str, payload: str) -> None:
     run(cwd, "notes", f"--ref={notes_ref}", "add", "-f", "-m", payload, sha)
 
 
-def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> bool:
-    """Reconcile remote notes without discarding locally-created attestations."""
+def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> str | None:
+    """Reconcile remote notes without discarding locally-created attestations.
+
+    Return the remote notes tip that was reconciled, or ``None`` when the remote
+    has no notes ref yet.
+    """
     fetched_ref = f"refs/agentic-preflight/fetched-notes-{os.getpid()}"
     result = run(cwd, "fetch", remote, f"+{notes_ref}:{fetched_ref}", check=False)
     if result.returncode != 0:
         if "couldn't find remote ref" in result.stderr.lower():
-            return False
+            return None
         raise GitError(
             ["fetch", remote, f"+{notes_ref}:{fetched_ref}"], result.returncode, result.stderr
         )
 
     try:
+        fetched = rev_parse(cwd, fetched_ref)
         local = run(cwd, "rev-parse", "--verify", notes_ref, check=False)
         if local.returncode != 0:
             run(cwd, "update-ref", notes_ref, fetched_ref)
@@ -559,9 +574,46 @@ def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> bool:
                     merged.returncode,
                     merged.stderr,
                 )
-        return True
+        return fetched
     finally:
         run(cwd, "update-ref", "-d", fetched_ref, check=False)
+
+
+def remote_ref_tip(cwd: Path | str, remote: str, ref: str) -> str | None:
+    """Return the object a remote ref names now, or ``None`` when it does not exist."""
+    for line in out(cwd, "ls-remote", remote, ref).splitlines():
+        fields = line.split()
+        if len(fields) == 2 and fields[1] == ref:
+            return fields[0]
+    return None
+
+
+@contextmanager
+def notes_publication(
+    cwd: Path | str, notes_ref: str, base: str | None, commits: Iterable[str]
+) -> Iterator[tuple[str | None, list[str]]]:
+    """Stage a notes commit that adds only the given commits' local notes to ``base``.
+
+    ``base`` is the remote notes tip, or ``None`` when the remote has no notes
+    ref. The commit is built in a temporary notes ref, so notes on other local
+    commits never enter it. Yields that ref, or ``None`` when it would be empty,
+    and the commits whose local notes it carries. The ref is deleted on exit.
+    """
+    staging = f"refs/notes/agentic-preflight-publish-{os.getpid()}-{secrets.token_hex(4)}"
+    local = note_blobs(cwd, notes_ref)
+    included = [sha for sha in commits if sha in local]
+    try:
+        published: dict[str, str] = {}
+        if base is not None:
+            run(cwd, "update-ref", staging, base, "")
+            published = note_blobs(cwd, staging)
+        for sha in included:
+            if published.get(sha) != local[sha]:
+                run(cwd, "notes", f"--ref={staging}", "add", "-f", "-C", local[sha], sha)
+        exists = run(cwd, "rev-parse", "--verify", "--quiet", staging, check=False)
+        yield (staging if exists.returncode == 0 else None), included
+    finally:
+        run(cwd, "update-ref", "-d", staging, check=False)
 
 
 # -- diff -------------------------------------------------------------------

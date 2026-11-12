@@ -488,3 +488,14 @@ Invalid `mirror` and `hook_log` values and unknown keys in the repository sectio
 `mirror` and `hook_log` now accept only `true` and `false`, in either file. Earlier releases also accepted values such as `1`, `"yes"`, and `"on"`. Such a value is now an error that names the file.
 Attestation verification reads the protected base's `[telemetry]` section by the same rule, so a `path` there no longer fails verification.
 No configuration digest, snapshot, fingerprint, or attestation changes, because none of them contains `[telemetry]`.
+
+## Unreleased: push publishes only the pushed commits' notes
+
+`push` no longer pushes the local `refs/notes/agentic-preflight` ref.
+It pushes a notes commit built from the remote notes tip plus the notes of the commits it pushes.
+The remote notes history still only moves forward, so a reader that fetches the notes ref is unaffected.
+`gate`, `push`, and `push --dry-run` envelopes add `data.published_notes`, a list of commit SHAs.
+Outside manual gate mode, `data.refspec`, `data.push_commands`, and `data.would_push` show the notes source as `<notes-commit>` instead of `refs/notes/agentic-preflight`.
+A wrapper that ran those strings as commands must run `push` instead.
+In manual gate mode, `gate` now fetches the remote notes, and `data.manual_command` names the notes commit's SHA.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
