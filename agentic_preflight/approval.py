@@ -55,12 +55,14 @@ def latest_approvals(
 ) -> list[HeadApproval]:
     """Return eligible reviewers whose latest decisive review is an approval.
 
-    Only reviews submitted on one of ``heads`` are considered. ``None`` considers
-    reviews on every head, so a later revocation on any head of the pull request
-    replaces an earlier approval. Peer comments do not erase an approval; dismissal
-    or changes requested does. Explicit owner mode also accepts an author's Comment
-    review containing only ``approved``. Their latest Comment review replaces that
-    self-approval, including edited text.
+    Each reviewer's latest decisive review is chosen across every head of the pull
+    request first, so a later revocation on any head replaces an earlier approval,
+    even after the branch returns to the approved commit. Only then is an approval
+    kept when it was submitted on one of ``heads``; ``None`` keeps an approval on any
+    head. Peer comments do not erase an approval; dismissal or changes requested
+    does. Explicit owner mode also accepts an author's Comment review containing only
+    ``approved``. Their latest Comment review replaces that self-approval, including
+    edited text.
     """
     latest: dict[str, tuple[int, str, str]] = {}
     for review in _flatten_reviews(reviews):
@@ -79,7 +81,6 @@ def latest_approvals(
             or (owner_reviewer is None and login.casefold() == pull_request_author.casefold())
             or (owner_reviewer is not None and login.casefold() != owner_reviewer.casefold())
             or not isinstance(commit_id, str)
-            or (heads is not None and commit_id not in heads)
             or state not in _DECISIVE_REVIEW_STATES | {"COMMENTED"}
         ):
             continue
@@ -98,7 +99,9 @@ def latest_approvals(
     return [
         HeadApproval(login, commit_id, order)
         for login, (order, state, commit_id) in sorted(latest.items())
-        if state == "APPROVED"
+        # Filter by head only after choosing the latest review, so a revocation
+        # submitted on another head is never skipped.
+        if state == "APPROVED" and (heads is None or commit_id in heads)
     ]
 
 
@@ -109,7 +112,11 @@ def current_human_approvers(
     pull_request_author: str,
     owner_reviewer: str | None = None,
 ) -> list[str]:
-    """Return repository-associated human approvals for the exact current head."""
+    """Return repository-associated human approvals for the exact current head.
+
+    A reviewer counts only when their latest decisive review on any head is an
+    approval of ``head_sha``.
+    """
     return [
         approval.login
         for approval in latest_approvals(
@@ -268,10 +275,12 @@ def evaluate_value(
 ) -> dict[str, Any]:
     """Combine validated evidence with a caller-supplied protected approval policy.
 
-    In ``peer_review`` and ``owner_review`` modes, an approval recorded on an
-    earlier head still counts when that head is equivalent to the current one (see
-    ``equivalent_heads``). ``fetch_commit`` may supply an approved head that is not
-    an ancestor of the current head. It is used only when carryover is needed.
+    Only each reviewer's latest decisive review, on whichever head it was
+    submitted, can count. In ``peer_review`` and ``owner_review`` modes, that
+    approval may be recorded on an earlier head when that head is equivalent to the
+    current one (see ``equivalent_heads``). ``fetch_commit`` may supply an approved
+    head that is not an ancestor of the current head. It is used only when carryover
+    is needed.
     """
     # Classify what any GitHub merge method could land: the shared branch and
     # merge-result paths, plus every path a non-merge commit touches. A rebase
