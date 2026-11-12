@@ -368,6 +368,7 @@ The reviewer checks that content.
 It returns that knowledge in `data.grounding`.
 The default sources are matching files under `docs/**` and the root `AGENTS.md` and `CLAUDE.md` files.
 They also include relevant findings from earlier local runs and the deterministic policy reasons for the change.
+The documentation, the convention files, and this `[context]` section are read at the run's merge base, so a branch's change to `[context]` applies to later runs after it merges.
 See [Grounded context](context-grounding.md) for the matching and ordering rules.
 
 `enabled = false` returns an explicit empty grounding block.

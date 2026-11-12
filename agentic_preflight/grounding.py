@@ -4,8 +4,9 @@ Grounding deliberately reads only committed files and persisted local runs. That
 keeps the bundle tied to the reviewed Git snapshot without introducing a model,
 an embedding index, a network dependency, or filesystem iteration order.
 
-Documentation and conventions come from the run's merge base, not from the branch
-under review, so a change cannot rewrite the conventions its own reviewer is shown.
+Documentation and conventions, and the ``[context]`` settings that select and bound
+them, come from the run's merge base, not from the branch under review. A change
+therefore cannot rewrite the conventions its own reviewer is shown, or turn them off.
 The branch's edits to those files, including files it adds, reach the reviewer
 through the diff instead.
 """
@@ -23,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from . import gitx
 from . import risk as riskmod
+from .config import committed_context
 from .diff import path_matches
 from .models import RunDoc
 
@@ -283,14 +285,15 @@ def _apply_total_budget(
 def assemble(session: Session, run: RunDoc, changed_files: list[str]) -> dict[str, Any]:
     """Assemble stable, bounded repository context for one review snapshot.
 
-    Documentation and convention files are read from ``run.merge_base_sha``. A file
-    that the branch adds is absent there, so it appears only in the review diff.
+    Documentation and convention files, and the ``[context]`` settings that select
+    and bound them, are read from ``run.merge_base_sha``. A file that the branch adds
+    is absent there, so it appears only in the review diff.
     """
-    config = session.config.context
+    repo = Path(run.worktree_path or session.repo_root)
+    config = committed_context(repo, run.merge_base_sha)
     if not config.enabled:
         return {"enabled": False, "entries": [], "dropped": {}}
 
-    repo = Path(run.worktree_path or session.repo_root)
     texts, omitted, _ = _load_sources(
         repo,
         lambda path: (

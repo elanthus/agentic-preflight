@@ -8,11 +8,13 @@
   A dangling link no longer creates its target, and `--force` no longer overwrites the
   file a link points to, which could be a tracked file when `core.hooksPath` points
   into the repository. `data.hook_path` now names the link rather than its target.
-- Review grounding reads `docs/**`, `AGENTS.md`, `CLAUDE.md`, and `[context] extra_paths`
-  from the run's merge base instead of the branch under review, so a change cannot
-  rewrite the conventions shown to its own reviewer. The branch's edits to those files,
-  including files it adds, reach the reviewer through the diff. For a branch that edits
-  those files, the grounding changes, so its earlier review evidence is not reused.
+- Review grounding reads `docs/**`, `AGENTS.md`, `CLAUDE.md`, `[context] extra_paths`,
+  and the `[context]` settings themselves from the run's merge base instead of the branch
+  under review. A change cannot rewrite the conventions shown to its own reviewer, or turn
+  grounding off or shrink it for its own review; a `[context]` change takes effect after
+  it merges. The branch's edits to those files, including files it adds, reach the
+  reviewer through the diff. For a branch that edits those files, the grounding changes,
+  so its earlier review evidence is not reused.
 - `human-approval-rerun.yml` re-runs the approval policy only when the user who submitted,
   edited, or dismissed the review is an owner, member, or collaborator with a review on
   the pull request, or has write access. Comment reviews from other users on a public

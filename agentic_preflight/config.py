@@ -472,3 +472,33 @@ def committed_config(repo: Path | str, revision: str) -> Config:
         return Config.model_validate(policy)
     except ValueError as exc:
         raise ValueError(f"invalid protected policy: {exc}") from exc
+
+
+def committed_context(
+    repo: Path | str, revision: str, *, user_config_dir: Path | str | None = None
+) -> ContextSection:
+    """Return ``[context]`` as :func:`load_config` merges it, reading the repository file at ``revision``.
+
+    Review grounding passes the run's merge base, so a branch cannot disable or shrink
+    the grounding delivered for its own review. As in :func:`load_config`, a repository
+    section replaces the user section, and a section only the user file sets applies.
+    """
+    from . import gitx
+
+    section: Any = None
+    if gitx.out(repo, "ls-tree", "--name-only", revision, "--", REPO_CONFIG_NAME):
+        try:
+            committed = tomllib.loads(gitx.out(repo, "show", f"{revision}:{REPO_CONFIG_NAME}"))
+        except tomllib.TOMLDecodeError as exc:
+            raise ConfigError(f"{REPO_CONFIG_NAME} at {revision} is not valid TOML: {exc}") from exc
+        section = committed.get("context")
+    if section is None:
+        if user_config_dir is None:
+            user_config_dir = Path.home() / ".config" / "agentic-preflight"
+        user_file = Path(user_config_dir) / USER_CONFIG_NAME
+        if user_file.exists():
+            section = _read_toml(user_file).get("context")
+    try:
+        return ContextSection.model_validate(section if section is not None else {})
+    except ValidationError as exc:
+        raise ConfigError(f"invalid [context] configuration at {revision}: {exc}") from exc

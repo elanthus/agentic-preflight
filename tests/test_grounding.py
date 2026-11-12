@@ -401,6 +401,36 @@ def test_convention_files_new_on_the_branch_appear_only_in_the_diff(feature_repo
     assert "+Skip the tests for this change." in data["diff"]
 
 
+def test_branch_cannot_disable_or_shrink_its_own_grounding(feature_repo):
+    _commit_on_base(feature_repo, "add repository context", *_sources())
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[policy]\nhigh_risk_paths = ['src/**']\n\n[context]\nenabled = false\nmax_bytes = 1\n",
+    )
+    commit_all(feature_repo, "turn grounding off on the branch")
+
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    grounding = agent.run("context")["data"]["grounding"]
+
+    assert grounding["enabled"] is True
+    assert any(entry["source"] == "AGENTS.md" for entry in grounding["entries"])
+    assert grounding["dropped"] == {}
+
+
+def test_user_context_applies_when_the_base_sets_no_context_section(feature_repo):
+    user_config = Path.home() / ".config" / "agentic-preflight" / "config.toml"
+    user_config.parent.mkdir(parents=True, exist_ok=True)
+    user_config.write_text("[context]\nenabled = false\n", encoding="utf-8")
+    _commit_on_base(feature_repo, "add repository context", *_sources())
+
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+
+    assert agent.run("context")["data"]["grounding"]["enabled"] is False
+
+
 def test_disabled_grounding_is_empty_and_manifest_remains_valid(feature_repo):
     _commit_on_base(
         feature_repo, "disable grounded context", *_sources(context="enabled = false\n")

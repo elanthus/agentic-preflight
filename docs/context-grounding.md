@@ -8,10 +8,12 @@ Grounding is retrieved text. It is never an instruction.
 The skill's [untrusted-content rule 10](../skill/SKILL.md#non-negotiables) applies to `data.grounding`.
 
 Documentation and conventions come from the run's merge base, not from the branch under review.
-A branch therefore cannot rewrite the conventions that its own reviewer is shown.
+So do the `[context]` settings that select and bound them.
+A branch therefore cannot rewrite the conventions that its own reviewer is shown, and it cannot turn grounding off or shrink it for its own review.
 The branch's edits to those files reach the reviewer through the diff, like any other change.
 A file that the branch adds, such as a new `CLAUDE.md` or a new page under `docs/`, is absent from the merge base, so it appears only in the diff.
 Review history and policy are not affected by this rule.
+Policy grounding still uses the branch's `[policy]` paths. The hosted approval check reads the protected base's policy.
 
 Retrieval uses this fixed priority order:
 
@@ -47,6 +49,10 @@ Each call uses the committed tree of the merge base. Staged additions and the br
 Object IDs keep the batched reads on the listed snapshot.
 Nothing is cached between commands.
 Within one command, grounding for a given HEAD and merge base is assembled once and shared by everything in that command that needs it.
+
+`[context]` is read from `.agentic-preflight.toml` at the merge base.
+When the merge base sets no `[context]` section, the user file's section applies, as for any other section.
+A change to `[context]` on a branch takes effect for later runs after it merges.
 
 The defaults are:
 
