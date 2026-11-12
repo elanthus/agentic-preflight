@@ -27,6 +27,8 @@ def main() -> int:
         # medium-effort default preserve a balanced example configuration. The CLI
         # works in the worktree under review, so `project_doc_max_bytes=0` stops it
         # reading the branch's AGENTS.md and `--ignore-rules` its `.rules` files.
+        # No option skips a project `.codex/config.toml`; list `.codex/**` in
+        # `[review] trusted_paths` so that a change to it needs human review.
         model = os.environ.get("AP_REVIEWER_MODEL", "gpt-5.3-codex")
         effort = reviewer_effort("medium")
         with tempfile.TemporaryDirectory(prefix="ap-codex-review-") as directory:

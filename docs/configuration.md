@@ -486,7 +486,7 @@ When the base sets no `command`, for example because the command comes only from
 Reading paths from a command is approximate:
 
 - A word counts as a path when it contains `/` or `.`, after the value of a `--option=value` or `NAME=value` word is taken.
-- The word after a `-c` flag, as in `sh -c '...'` or `bash -lc '...'`, is read as a command too.
+- The word after a shell's `-c` flag, as in `sh -c '...'` or `bash -lc '...'`, is read as a command too.
 - A directory that the command changes to is protected as `DIR/**`: the argument of `cd` or `pushd`, and the value of `-C`, `--directory`, `--cwd`, `--prefix`, `--project`, or `--chdir` (also `--option=DIR` and `-CDIR`). Later relative paths are protected both as written and under `DIR`.
 - Each directory in a `PYTHONPATH=` or `NODE_PATH=` value is protected as `DIR/**`.
 - `-m a.b` protects the top-level package `a/**`, whose `__init__.py` runs first. `-m reviewer` protects `reviewer.py` and `reviewer/**`.
@@ -501,7 +501,8 @@ During startup, Python imports a `sitecustomize` module from any directory on `s
 Run a reviewer that needs only the standard library directly, with `python3 -S -B`, as the [example configurations](independent-review.md) do. `-S` skips that startup processing.
 Otherwise, protect the runner's inputs with `trusted_paths`.
 The coding-agent CLI that a wrapper starts can also read instructions and settings from the worktree, such as `CLAUDE.md`, `AGENTS.md`, or `.claude/settings.json`.
-The example wrappers turn those sources off. A custom wrapper must do the same, or list them in `trusted_paths`.
+The example wrappers turn off those that the CLI lets them. A project `.codex/config.toml` cannot be turned off, so list `.codex/**` in `trusted_paths` when you use Codex.
+A custom wrapper must turn these sources off too, or list them in `trusted_paths`.
 
 Command review uses `[stage] timeout_seconds` and `max_attempts`.
 Attempts persist across process restarts.

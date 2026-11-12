@@ -37,6 +37,9 @@ The CLI that the wrapper starts works in the worktree under review, so the wrapp
 - The Claude wrapper passes `--safe-mode`, which skips `CLAUDE.md`, skills, hooks, MCP servers, plugins, and custom agents, and `--setting-sources user`, which ignores the project's `.claude/settings.json` and `.claude/settings.local.json`.
   Your own user customizations are skipped too. Authentication and model selection work normally.
 - The Codex wrapper passes `--config project_doc_max_bytes=0`, so Codex does not read `AGENTS.md`, and `--ignore-rules`, so it does not load `.rules` files.
+  Codex CLI 0.163.0 has no option to skip a project `.codex/config.toml`, which can change the model provider, tools, or instructions.
+  The wrapper's `--model`, `--sandbox`, and `--config` values take precedence over that file, but nothing else does.
+  List `.codex/**` in `[review] trusted_paths` when you use the Codex wrapper.
 
 Set `AP_CODEX_BIN` or `AP_CLAUDE_BIN` if the executable is not named `codex` or `claude`.
 Set `AP_REVIEWER_MODEL` to an exact model ID.

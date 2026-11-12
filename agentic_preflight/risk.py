@@ -70,27 +70,34 @@ def _unique(patterns: Iterable[str]) -> list[str]:
     return list(dict.fromkeys(patterns))
 
 
-def _runs_a_command_string(flag: str) -> bool:
-    """``-c`` and combined short flags such as ``-lc`` or ``-ec`` (``sh``, ``bash``)."""
-    return flag.startswith("-") and not flag.startswith("--") and "c" in flag[1:]
+_SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
+_SHELL_COMMAND_FLAG = re.compile(r"-[A-Za-z]*c[A-Za-z]*")
+
+
+def _is_shell(word: str) -> bool:
+    """``sh``, ``bash``, or a path to one, such as ``/bin/bash``."""
+    return posixpath.basename(word.replace("\\", "/")) in _SHELLS
 
 
 def _shell_pieces(command: str, depth: int = 0) -> Iterator[str]:
     """Shell words of ``command``, split again on control operators.
 
-    The word after a ``-c`` flag, as in ``sh -c 'python3 tools/review.py'``, is read
-    again as a nested command. Any other quoted word stays whole, so a path that
+    The word after a shell's ``-c`` flag, as in ``sh -c 'python3 tools/review.py'``,
+    is read again as a nested command. Any other quoted word stays whole, so a path that
     contains a space is kept.
     """
     words = commandmod.split(command)
     if words is None:
         words = command.split()
     previous = ""
+    shell = False
     for word in words:
-        if depth < _MAX_NESTING and _runs_a_command_string(previous):
+        if depth < _MAX_NESTING and shell and _SHELL_COMMAND_FLAG.fullmatch(previous):
+            # ``-c`` and combined short flags such as ``-lc`` or ``-ec``.
             yield from _shell_pieces(word, depth + 1)
         else:
             yield from (piece for piece in _SHELL_OPERATORS.split(word) if piece)
+        shell = shell or _is_shell(word)
         previous = word
 
 

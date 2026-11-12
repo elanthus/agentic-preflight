@@ -203,6 +203,9 @@ def test_imported_attestation_preserves_medium_and_high_finding_risk():
         ("sh -c 'python3 tools/review.py'", ["tools/**"]),
         ("bash -c 'cd tools && python3 review.py'", ["tools/**", "review.py", "review.py/**"]),
         ("bash -lc 'python3 tools/review.py'", ["tools/**"]),
+        ("/bin/sh -ec 'python3 tools/review.py'", ["tools/**"]),
+        # Only a shell's ``-c`` takes a command; another tool's flag is an ordinary word.
+        ("reviewer -vc 'conf/my review.toml'", ["conf/**"]),
         ("node 'my tools/review.mjs' --config=conf/reviewer.json", ["my tools/**", "conf/**"]),
         ("CONFIG=conf/review.toml reviewer", ["conf/**"]),
         ("node tools/reviewer/", ["tools/**"]),
