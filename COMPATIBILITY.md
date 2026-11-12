@@ -488,3 +488,28 @@ Invalid `mirror` and `hook_log` values and unknown keys in the repository sectio
 `mirror` and `hook_log` now accept only `true` and `false`, in either file. Earlier releases also accepted values such as `1`, `"yes"`, and `"on"`. Such a value is now an error that names the file.
 Attestation verification reads the protected base's `[telemetry]` section by the same rule, so a `path` there no longer fails verification.
 No configuration digest, snapshot, fingerprint, or attestation changes, because none of them contains `[telemetry]`.
+
+## Unreleased: grounding reads the merge base
+
+`data.grounding` now reads `docs/**`, `AGENTS.md`, `CLAUDE.md`, the files that `[context] extra_paths` selects, and the `[context]` section itself from `.agentic-preflight.toml` at the run's merge base.
+Earlier releases read them from the branch head and the working-tree configuration.
+When the merge base sets no `[context]` section, the user file's section applies.
+A branch's edits to those files reach the reviewer only through the diff, and a branch's `[context]` change applies to later runs after it merges.
+For a branch that edits those files or `[context]`, the grounding and `grounding_sha256` change, so review and docs evidence recorded for that branch before the upgrade is not reused and those stages run again.
+For other branches the grounding is unchanged.
+Run schema 2, attestation schema 7, fingerprint version 2, and the configuration digest are unchanged.
+
+## Unreleased: hook path names a symlink, not its target
+
+`init` now replaces a symlink at the pre-push hook path with a regular file instead of writing through it.
+A dangling link is replaced without `--force`. A link to an existing file is judged by that file's content, as before.
+`data.hook_path` from `init` and the hook path that `status` reports now name the hook path itself, without following a symlink there.
+Earlier releases reported the link's target, or the missing target of a dangling link.
+The hooks directory, including `core.hooksPath`, is still resolved to an absolute path.
+
+## Unreleased: hosted workflow hardening
+
+The `high-risk human approval` job now fails unless the policy job reports `requires_approval` as exactly `true` or `false`.
+The checkouts in `attestation.yml` and `human-approval.yml` set `persist-credentials: false`. A private repository that copies them must authenticate the later `git fetch` itself; see [Portable attestations and CI enforcement](docs/attestations-and-ci.md#required-github-check).
+`human-approval-rerun.yml` now has an `authorize` job and a `rerun` job, and re-runs the policy only for a review from an owner, member, or collaborator, or an action by a user with write access. A project that copied the companion should copy the new version.
+The required check keeps its name, and `approval-check`, its outputs, and the attestation schema are unchanged.
