@@ -14,6 +14,7 @@ from ..errors import (
 )
 from ..machine import Action, State
 from ..models import RESPONSE_REASONS, FindingStatus, ResponseReason, RunDoc, Stage
+from ..stages import shellstage
 from ._session import (
     Session,
     _apply,
@@ -84,6 +85,26 @@ def _validate_response(
     return None
 
 
+def _redacted_note(run: RunDoc, note: str | None) -> str | None:
+    """Apply stage-log redaction to a response note before it is persisted."""
+    if note is None:
+        return None
+    try:
+        secrets = shellstage.read_secrets(_require_worktree(run), run.copied_files)
+    except shellstage.SecretRedactionError as exc:
+        raise InvalidResponse(
+            "the response cannot be recorded because copied-file redaction is unavailable",
+            state=run.state.value,
+            run_id=run.run_id,
+            data={"copied_file": str(exc.path)},
+            next_instruction=(
+                "Restore the reported copied file as readable text, or remove it from "
+                "[worktree] copy_files, then respond again."
+            ),
+        ) from exc
+    return findingsmod.redact_text(note, secrets, limit=findingsmod.RESPONSE_NOTE_LIMIT)
+
+
 def respond(
     session: Session,
     *,
@@ -135,6 +156,7 @@ def respond(
         )
 
     commit = _validate_response(session, run, target, finding_id, action, commit, note, reason)
+    note = _redacted_note(run, note)
 
     new_commits = (
         _in_place_fix_commits(session, run, commit)

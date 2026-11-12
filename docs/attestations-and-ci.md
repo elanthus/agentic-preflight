@@ -2,12 +2,40 @@
 
 A successful merge-back writes a schema version 7 JSON attestation as a Git note on the exact commit.
 Every note includes an explicit `outcome`. `verified` means that all local validation is complete.
-A note includes the run identity and the commit and tree hashes.
-It includes dedicated SHA-256 bindings for the user intent and for the complete effective configuration snapshot.
-It also includes the finding totals, the stage fingerprints, and the original execution provenance.
-A green shell stage includes its command, exit code, and redacted-output digest.
-A skipped stage records why it was skipped.
 Any other schema version is rejected.
+`push` publishes the note, so anyone who can read the remote can read it.
+
+A note contains these fields:
+
+- The kind, schema version, outcome, and the time that local validation went green.
+- The run ID, the branch, the base branch, and the commit, tree, and merge-base hashes.
+- A SHA-256 digest of the intent. The intent text itself is not included.
+- The published configuration snapshot and its SHA-256 digest.
+- For each stage, its status, a reason when it was skipped, and its process evidence.
+  A command review and a green lint or test stage carry the command, the exit code, and a SHA-256 digest of the redacted output.
+  The output itself is not included.
+  Review also carries its coverage: the manifest and grounding digests, the unit IDs, and the excluded file paths.
+- The totals of findings by status and severity.
+- For each stage, the original execution evidence and its fingerprints.
+  This records the original run ID, commits, branch, finish time, and a digest that identifies the source worktree.
+  It repeats the published configuration snapshot and the stage result.
+  It also includes every finding from that stage in full: ID, path, line, unit, severity, action, title, detail, suggestion, status, fix commit, and response note.
+  The fingerprints hold tree hashes and SHA-256 digests only.
+
+The published configuration snapshot leaves out every section that came from the user configuration file, `~/.config/agentic-preflight/config.toml`.
+Those sections apply to the run, but they describe one machine.
+`[diff]` is the exception. Verification rebuilds the review diff from its exclusions, so it is published from either file.
+A section that the repository file sets is published as written.
+
+The review command depends on `[review]`, and the lint and test commands depend on `[commands]`, including a `stage run --command` override.
+When that section came from the user file, the note replaces the value of every `NAME=value` assignment in the command with `[redacted]`.
+Other parts of the command are published as written.
+Otherwise the command is published as written, so a verifier can compare it with the protected policy.
+
+Finding text and response notes are redacted before they are saved, in the same way as stage logs.
+A value from a `[worktree] copy_files` file that appears verbatim becomes `[redacted]`.
+This covers findings from a review command, from `submit-findings`, and the `respond --note` text.
+See [the limits of exact-value redaction](worktree-modes.md#secrets-in-worktrees) and [what a published note reveals](limits.md#what-a-published-note-reveals).
 
 `agentic-preflight push` first publishes the original-commit refs that the attestation evidence needs.
 Then it pushes the branch and `refs/notes/agentic-preflight` atomically.

@@ -131,6 +131,21 @@ Follow the [upgrade guide](docs/upgrade-0.7.md) for the rollout order, configura
 Run schema 2, attestation schema 7, and fingerprint version 2 are retained.
 The schema number alone does not guarantee that an older verifier accepts new policy fields or evidence.
 
+## Attestation note content without user-level configuration
+
+Attestation schema 7 and fingerprint version 2 are retained, and current verifiers read notes from earlier releases unchanged.
+A note's `config_snapshot` now leaves out the sections that came from the user configuration file, except `[diff]`.
+A command that depends on such a section has its `NAME=value` assignment values replaced by `[redacted]`.
+The configuration digest and the review, docs, and shell fingerprint digests cover that published form, so a verifier that recomputes them from the note still agrees.
+A run with no user-level sections publishes the same snapshot and digests as before.
+A consumer that read a user-level setting from a note must read it locally instead. A section missing from the snapshot was set in the user file.
+
+Finding titles, details, suggestions, and response notes are redacted for copied-file values before they are saved, so `findings.json` and the note carry the redacted text.
+
+Run records add `user_config_sections` only when a run has user-level sections.
+Older releases cannot read a run record that has the field. Finish such a run with the current release.
+A run that an earlier release started has no `user_config_sections`, so it publishes its full snapshot as before.
+
 ## Compatibility changes
 
 Agentic Preflight 0.7.0 requires Click 8.2 or newer.

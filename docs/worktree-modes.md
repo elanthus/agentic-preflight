@@ -173,6 +173,7 @@ In-place files are never moved or removed.
 Dotenv assignment values are redacted when they appear verbatim in captured stage output.
 This includes exported, quoted, multiline, and short non-empty values.
 Redaction occurs before the output is written to a log or envelope.
+The same redaction applies to finding titles, details, suggestions, and response notes before they are saved, because the published attestation note includes them.
 This is exact-value redaction. It is not a general secret scanner.
 Arbitrary copied-file formats and transformed, encoded, interpolated, or derived values are outside this guarantee.
 

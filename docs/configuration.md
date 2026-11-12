@@ -10,6 +10,7 @@ A section in the repository file replaces the whole matching user section.
 `[telemetry]` is the exception. A repository section can only turn telemetry off. See [Local run telemetry](#local-run-telemetry-telemetry).
 Keys are not merged across the two files.
 A section that only the user file sets still applies.
+The published attestation note leaves out such a section, except `[diff]`. See [Portable attestations](attestations-and-ci.md).
 Unknown keys are errors that name the key. They are not ignored.
 The retired `[ci]` and `[reuse]` sections are the exception. File loading ignores them with a warning.
 Removed individual keys, including `[hook] enabled`, still fail file loading. Remove them from both files.
@@ -469,6 +470,7 @@ Attempts persist across process restarts.
 Every repair invalidates the prior executor and coverage evidence.
 Attestation schema v7 records `executor` and per-stage provenance for every review.
 Command reviews also record the configured command, the exit code, and the redacted output digest.
+A command from a user-level `[review]` section is recorded with its `NAME=value` assignment values replaced by `[redacted]`.
 
 See [Independent review and agreement](independent-review.md) for worked Codex and Claude configurations and the two-reviewer comparison report.
 

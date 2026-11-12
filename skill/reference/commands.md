@@ -228,8 +228,9 @@ applied; the command cannot bypass the normal findings pipeline.
 The review command inherits `[stage] timeout_seconds` and `max_attempts`. Non-zero exit,
 timeout, malformed JSON, stale coverage, or invalid findings enter
 `REVIEW_COMMAND_RED` and consume one persisted attempt. A successful command records its
-configured command, zero exit code, and SHA-256 of redacted captured output alongside
-coverage in the schema-v7 attestation. Changed review inputs require fresh command
+command, zero exit code, and SHA-256 of redacted captured output alongside coverage in
+the schema-v7 attestation. A command from a user-level `[review]` section is recorded
+there with its `NAME=value` assignment values replaced by `[redacted]`. Changed review inputs require fresh command
 review; validated derivation retains original process evidence and coverage provenance.
 
 ### `agentic-preflight review contracts --file PATH`
@@ -293,8 +294,13 @@ The manifest must match the current diff. Docs requires `{"findings": [...]}`; a
 Rejects (exit 3, `invalid_findings`): missing, stale, or unknown review coverage;
 agent-supplied `id` or `stage`; unknown or path-mismatched review units; paths outside
 the worktree; paths outside the changed-file set (review) or documentation allowlist
-(docs); line numbers past end of file; and batches over `[review] max_findings`.
+(docs); line numbers past end of file; batches over `[review] max_findings`; and a
+nonempty batch while a `copy_files` file cannot be read for redaction.
 All-or-nothing — one bad finding rejects the batch.
+
+Accepted finding titles, details, and suggestions have copied-file values replaced by
+`[redacted]` before they are saved or returned, as in stage logs, because the published
+attestation note includes them. Review-command findings are redacted the same way.
 
 ### `agentic-preflight respond --id F001 --action fixed|dismissed|accepted [--commit SHA] [--note TEXT] [--reason REASON]`
 - `fixed` requires `--commit`. The commit is verified four ways: it exists, it touches
@@ -313,6 +319,9 @@ All-or-nothing — one bad finding rejects the batch.
   `finding_resolved` event repeats it as `reason` (`null` when absent). A finding without
   a reason has no `response_reason` key. The reason is telemetry only: it never enters
   stage evidence or the attestation. Put the specifics in `--note`.
+- `--note` text has copied-file values replaced by `[redacted]` before it is saved; the
+  note is published in the attestation. A `copy_files` file that cannot be read for
+  redaction exits 3 with `invalid_response`.
 - Unknown id exits 3 listing the valid ids. Each finding is resolved once.
 - Non-blocking findings may be resolved after their review or docs stage is green. A
   note-only disposition preserves the green state. A fix that changes the reviewed
@@ -327,7 +336,7 @@ CI. It checks the note schema, exact commit and tree binding, complete stage set
 process evidence for green lint/test stages. Fetch the notes ref before calling it in
 a fresh clone, together with the head and `refs/agentic-preflight/evidence/*`
 from the contributor remote. Schema v7 requires an explicit `verified` outcome,
-complete local stage evidence, and the full configuration snapshot. It
+complete local stage evidence, and the published configuration snapshot. It
 verifies original execution digests, Git and configuration bindings, stage applicability,
 finding dispositions, and original/current review-unit accounting.
 

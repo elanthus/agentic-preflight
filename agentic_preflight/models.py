@@ -378,6 +378,9 @@ class RunDoc(BaseModel):
     copied_files: list[str] = Field(default_factory=list)
     config_snapshot: dict[str, Any]
     config_digest: str
+    # Sections of the snapshot that came from the user configuration file. They run
+    # locally but stay out of the published note. Absent from earlier records.
+    user_config_sections: list[str] = Field(default_factory=list)
     changed_files: list[str] = Field(default_factory=list)
     review_coverage: ReviewCoverage | None = None
     risk: RiskAssessment | None = None
@@ -429,6 +432,19 @@ class RunDoc(BaseModel):
         if type(value) is not int or value != 2:
             raise ValueError("schema_version must be the JSON integer 2")
         return value
+
+    @model_serializer(mode="wrap")
+    def omit_empty_user_config_sections(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        """Write a run without user-level sections exactly as earlier versions did.
+
+        Older releases forbid unknown keys, so they can still read such a record.
+        """
+        data = handler(self)
+        if not self.user_config_sections:
+            data.pop("user_config_sections", None)
+        return data
 
 
 class AttestedStage(BaseModel):

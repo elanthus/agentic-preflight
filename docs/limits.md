@@ -103,6 +103,28 @@ Treat the attestation as an audit trail.
 It does not replace CI or a human reviewer.
 It is not a signature. Anyone with permission to update the notes ref can replace it.
 
+## What a published note reveals
+
+`push` publishes the attestation note to the remote with the branch.
+[Portable attestations](attestations-and-ci.md) lists every field.
+The note includes the full text of every finding and response note, and the commands that ran.
+It includes the configuration from the repository file, which the repository already publishes.
+It leaves out the sections of the user configuration file, except `[diff]`.
+
+Redaction narrows what the note can reveal. It is not a secret scanner:
+
+- Finding text and response notes are redacted only for exact values from `[worktree] copy_files` files.
+  A reviewer that paraphrases, encodes, or splits a value, or that quotes another file, can still place it in the note.
+- A command that depends on a user-level section is published with `NAME=value` assignment values redacted.
+  A credential in another argument, such as `--token abc` or a URL, is published.
+  Keep credentials in the environment, not in commands.
+- Other commands, including a command in the repository file, are published as written.
+- The local run record keeps the full user configuration, because the run executes it.
+
+Notes that earlier releases wrote keep whatever they contained.
+A run that an earlier release started still publishes its user-level sections. Start a new run to leave them out.
+Rewriting a published note does not remove it from clones or forks that already fetched it.
+
 ## Attestations are not signatures
 
 Anyone with permission to update `refs/notes/agentic-preflight` can replace an attestation.
@@ -116,7 +138,7 @@ Otherwise it is the note's `base_ref`, resolved to `refs/remotes/origin/<branch>
 A fully qualified `base_ref` must already be under one of those namespaces. A tag fails with `base_mismatch`.
 The note's `merge_base_sha` must be the only merge base of that base and the head.
 Policy comes from the `.agentic-preflight.toml` committed at the trusted base.
-The note's configuration snapshot records what ran. It does not decide what was required.
+The note's configuration snapshot records the published part of what ran. It does not decide what was required.
 
 Thus, with a trusted base, a branch cannot relax the policy that judges it.
 It cannot skip docs that the base enables, or replace a configured lint, test, or review command.

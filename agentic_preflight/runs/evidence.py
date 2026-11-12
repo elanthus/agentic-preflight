@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from pydantic import ValidationError
 
-from .. import findings, gitx
+from .. import findings, gitx, public_config
 from ..digests import json_digest, sha256_text
 from ..errors import STAGE_EVIDENCE_RECOVERY, StageEvidenceInvalid
 from ..fingerprints import (
@@ -20,6 +20,8 @@ from ..fingerprints import (
     classify_review,
     compute_docs_fingerprint,
     compute_review_fingerprint,
+    docs_relevant_config,
+    review_relevant_config,
     shell_config_digest,
 )
 from ..machine import Action, State
@@ -62,13 +64,16 @@ def fingerprint(
     """
     wt = _require_worktree(run)
     head = gitx.rev_parse(wt, "HEAD")
-    snapshot = run.config_snapshot
+    # The note carries the published snapshot and commands, and a verifier
+    # recomputes these digests from it.
+    snapshot = public_config.published_snapshot(run)
     if stage in {Stage.LINT, Stage.TEST}:
         configured = getattr(session.config.commands, stage.value)
+        ran = command if command is not None else configured or ""
         return ShellFingerprint(
             base_tree_sha=gitx.tree_sha(wt, run.merge_base_sha),
             head_tree_sha=gitx.tree_sha(wt, head),
-            command_sha256=sha256_text(command if command is not None else configured or ""),
+            command_sha256=sha256_text(public_config.published_command(run, stage, ran) or ""),
             config_sha256=shell_config_digest(snapshot, stage.value),
         )
     bundle = review_protocol.bundle_for(session, run, head=head)
@@ -150,7 +155,7 @@ def archive(session: Session, run: RunDoc) -> RunDoc:
         result = AttestedStage(
             status="green" if record.status is StageStatus.GREEN else "skipped",
             executor=record.executor,
-            command=record.command,
+            command=public_config.published_command(run, stage, record.command),
             exit_code=record.exit_code,
             output_sha256=record.output_sha256,
             reason=record.reason,
@@ -164,8 +169,8 @@ def archive(session: Session, run: RunDoc) -> RunDoc:
             base_sha=run.merge_base_sha,
             branch=run.branch,
             base_ref=run.base_ref,
-            config_sha256=run.config_digest,
-            config_snapshot=run.config_snapshot,
+            config_sha256=public_config.published_config_digest(run),
+            config_snapshot=public_config.published_snapshot(run),
             finished_at=datetime.fromisoformat(record.finished_at),
             result=result,
             fingerprint=record.fingerprint,
@@ -234,6 +239,18 @@ def _prior_runs(session: Session, run: RunDoc) -> list[RunDoc]:
     return prior_runs
 
 
+def _same_withheld_config(old: RunDoc, run: RunDoc, stage: Stage) -> bool:
+    """Compare the user-level settings a stage depends on, which fingerprints omit.
+
+    Fingerprints bind the published snapshot, so a change to a user-level
+    section would otherwise go unseen when evidence is reused locally.
+    """
+    relevant = review_relevant_config if stage is Stage.REVIEW else docs_relevant_config
+    return relevant(public_config.withheld_snapshot(old)) == relevant(
+        public_config.withheld_snapshot(run)
+    )
+
+
 def _select_candidates(
     session: Session, run: RunDoc, prior_runs: list[RunDoc]
 ) -> dict[Stage, StageEvidence]:
@@ -259,6 +276,8 @@ def _select_candidates(
             if stage in {Stage.LINT, Stage.TEST}:
                 continue
             if item.origin.source_worktree_id != run.source_worktree_id:
+                continue
+            if not _same_withheld_config(old, run, stage):
                 continue
             if stage in settled:
                 continue
