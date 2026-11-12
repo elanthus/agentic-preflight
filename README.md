@@ -308,6 +308,7 @@ Before you upgrade, read the steps for your current version:
 - **From 0.6.0:** remove the retired `[ci]` and `[reuse]` sections and `[hook] enabled`.
   The retired sections cause a warning and have no effect.
   See the [0.7 upgrade guide](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/upgrade-0.7.md).
+  That guide installs 0.7.0. Then follow the 0.7 to 0.8 upgrade steps.
 
 ## Help and development
 
