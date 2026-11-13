@@ -42,7 +42,8 @@ If no compatible version can read the record and you decide to abandon the run, 
 The old run can then no longer be resumed from that worktree.
 Its record, worktree, and branch stay. `status --all` and `gc` report it while it stays unreadable, and a version that can read it may later orphan and reclaim it.
 A `reusable` run may still lease the clone's single runner on its own branch, which can hold unmerged fixes, so deleting its pointer would not let any worktree start a reusable run.
-For such a run, and whenever the mode cannot be read, `data.pointer_paths` is absent. Keep the record, its pointers, the runner, and its branch, and resolve the record first.
+For such a run `data.pointer_paths` is absent. Keep the record, its pointers, the runner, and its branch, and resolve the record first.
+When the mode cannot be determined, for example because the record cannot be read at all, `data.pointer_paths` is also absent. Keep the record and its pointers.
 
 A repeated `start` with the same head, intent, base, and effective configuration resumes the matching run.
 If the source head moved, `start` marks the old run `ORPHANED` and continues.

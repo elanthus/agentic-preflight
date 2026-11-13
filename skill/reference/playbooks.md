@@ -174,11 +174,13 @@ and the old run can no longer be resumed from that worktree. The record, its wor
 and its branch stay in place. `gc` keeps reporting the record in `data.retained` while it
 stays unreadable, and a version that can read it may later orphan and reclaim it.
 
-For a `reusable` run, or when the record's mode cannot be read, `data.pointer_paths` is
-absent. The run may still lease the clone's single runner on its own branch, and that
-branch may hold unmerged fix commits, so no worktree in the clone can start a reusable
-run until the record is resolved. Do not delete the record, its pointers, the runner, or
-its branch; show the user the record path and stop.
+For a `reusable` run, `data.pointer_paths` is absent. The run may still lease the
+clone's single runner on its own branch, and that branch may hold unmerged fix commits,
+so no worktree in the clone can start a reusable run until the record is resolved. Do
+not delete the record, its pointers, the runner, or its branch; show the user the record
+path and stop. When the record's worktree mode cannot be determined, `data.pointer_paths`
+is also absent and the instruction says so: keep the record and its pointers, show the
+user the record path, and stop.
 
 Never delete a pointer on your own initiative, and never delete the record itself. A
 global inventory or cleanup failure still fails the command and must be investigated.

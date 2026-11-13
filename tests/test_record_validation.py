@@ -17,6 +17,7 @@ from agentic_preflight.runs import evidence
 from agentic_preflight.store import (
     RUN_READ_RECOVERY,
     RUN_READ_RUNNER_RECOVERY,
+    RUN_READ_UNKNOWN_MODE_RECOVERY,
     RecordValidationError,
     RunReadError,
     Store,
@@ -303,15 +304,53 @@ def test_a_reusable_run_offers_no_pointer_because_the_runner_stays_leased(featur
     assert record.read_bytes() == original
 
 
-@pytest.mark.parametrize("mode", [None, "reusable", "unexpected"])
-def test_no_pointer_is_offered_unless_the_mode_is_known_to_be_releasable(tmp_path, mode):
+@pytest.mark.parametrize(
+    ("mode", "instruction"),
+    [
+        (None, RUN_READ_UNKNOWN_MODE_RECOVERY),
+        ("unexpected", RUN_READ_UNKNOWN_MODE_RECOVERY),
+        ("reusable", RUN_READ_RUNNER_RECOVERY),
+    ],
+)
+def test_no_pointer_is_offered_unless_the_mode_is_known_to_be_releasable(
+    tmp_path, mode, instruction
+):
     pointer = tmp_path / "owner.run"
     error = RunReadError(
         "r_0123456789", tmp_path / "run.json", "unreadable", "x", pointer_paths=[pointer]
     )
     error.worktree_mode = mode
 
-    assert error.recovery() == (RUN_READ_RUNNER_RECOVERY, [])
+    assert error.recovery() == (instruction, [])
+
+
+def test_an_undecodable_record_gets_the_unknown_mode_instruction(store):
+    run = store.create_run(make_run())
+    store.set_active("owner", run.run_id)
+    store.run_path(run.run_id).write_bytes(b"\xff\xfe not utf-8")
+
+    with pytest.raises(RunReadError) as caught:
+        store.load_run(run.run_id)
+
+    assert caught.value.reason == "unreadable"
+    assert caught.value.recovery() == (RUN_READ_UNKNOWN_MODE_RECOVERY, [])
+    assert "reusable" not in RUN_READ_UNKNOWN_MODE_RECOVERY
+
+
+def test_a_corrupt_pointer_still_yields_a_read_error(store):
+    run = store.create_run(make_run())
+    path = store.run_path(run.run_id)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["unknown"] = True
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    store.active_dir.mkdir(parents=True, exist_ok=True)
+    (store.active_dir / "corrupt.run").write_bytes(b"\xff\xfe")
+
+    with pytest.raises(RunReadError) as caught:
+        store.load_run(run.run_id)
+
+    assert caught.value.reason == "invalid"
+    assert caught.value.recovery() == (RUN_READ_RECOVERY, [])
 
 
 def test_an_unowned_unreadable_record_keeps_the_plain_recovery(tmp_path):
@@ -322,16 +361,16 @@ def test_an_unowned_unreadable_record_keeps_the_plain_recovery(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("worktree_path", "offered"),
+    ("worktree_path", "refused"),
     [
-        (None, True),
-        ("/cache/worktrees/repo-1/r_0123456789", True),
-        ("/cache/worktrees/repo-1/runner", False),
-        (7, False),
+        (None, None),
+        ("/cache/worktrees/repo-1/r_0123456789", None),
+        ("/cache/worktrees/repo-1/runner", RUN_READ_RUNNER_RECOVERY),
+        (7, RUN_READ_UNKNOWN_MODE_RECOVERY),
     ],
 )
 def test_a_record_that_names_the_runner_is_never_offered_pointer_deletion(
-    store, worktree_path, offered
+    store, worktree_path, refused
 ):
     run = store.create_run(make_run())
     store.set_active("owner", run.run_id)
@@ -345,5 +384,7 @@ def test_a_record_that_names_the_runner_is_never_offered_pointer_deletion(
         store.load_run(run.run_id)
 
     instruction, pointers = caught.value.recovery()
-    assert pointers == ([store.active_path("owner")] if offered else [])
-    assert (instruction == RUN_READ_RUNNER_RECOVERY) is not offered
+    if refused is None:
+        assert pointers == [store.active_path("owner")]
+    else:
+        assert (instruction, pointers) == (refused, [])

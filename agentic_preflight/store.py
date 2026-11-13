@@ -85,6 +85,15 @@ def run_read_release(pointer_paths: list[Path]) -> str:
     )
 
 
+RUN_READ_UNKNOWN_MODE_RECOVERY = (
+    "Use a compatible tool version or inspect the retained run record; --force cannot "
+    "establish cleanup eligibility for an unreadable record. The worktree mode cannot be "
+    "determined from the record, so it is unknown whether releasing ownership is safe. "
+    "Do not delete the record or its ownership pointers. Show the user the record path "
+    "and stop; the user decides how to recover it."
+)
+
+
 RUN_READ_RUNNER_RECOVERY = (
     "Use a compatible tool version or inspect the retained run record; --force cannot "
     "establish cleanup eligibility for an unreadable record. This run may still lease "
@@ -128,7 +137,9 @@ class RunReadError(StoreError):
             return RUN_READ_RECOVERY, []
         if self.worktree_mode in _RELEASABLE_MODES:
             return run_read_release(self.pointer_paths), self.pointer_paths
-        return RUN_READ_RUNNER_RECOVERY, []
+        if self.worktree_mode == "reusable":
+            return RUN_READ_RUNNER_RECOVERY, []
+        return RUN_READ_UNKNOWN_MODE_RECOVERY, []
 
     def details(self) -> dict:
         return {
@@ -197,9 +208,10 @@ def _recorded_worktree_mode(payload: str) -> str | None:
     """Read the worktree mode an invalid record names, without trusting the rest of it.
 
     A record whose raw ``worktree_path`` names the reusable runner, as gc's
-    runner reclamation recognises it, counts as unknown whatever mode it
+    runner reclamation recognises it, counts as ``reusable`` whatever mode it
     claims: an edited or partly corrupt record must not unlock pointer
-    deletion for a run that may still lease the runner.
+    deletion for a run that may still lease the runner. A ``worktree_path``
+    that is not a string makes the mode unknown.
     """
     try:
         raw = json.loads(payload)
@@ -207,10 +219,10 @@ def _recorded_worktree_mode(payload: str) -> str | None:
         worktree_path = raw.get("worktree_path")
     except (json.JSONDecodeError, TypeError, KeyError, AttributeError):
         return None
-    if worktree_path is not None and (
-        not isinstance(worktree_path, str) or Path(worktree_path).name == "runner"
-    ):
+    if worktree_path is not None and not isinstance(worktree_path, str):
         return None
+    if worktree_path is not None and Path(worktree_path).name == "runner":
+        return "reusable"
     return mode if isinstance(mode, str) else None
 
 
@@ -406,7 +418,9 @@ class Store:
         """Return the ownership pointers that name ``run_id``, for read-failure recovery."""
         try:
             owners = self.list_active()
-        except OSError:
+        except (OSError, ValueError):
+            # A corrupt pointer must not turn a read failure into another error;
+            # without the pointers the plain recovery applies.
             return []
         return sorted(
             self.active_path(owner) for owner, active in owners.items() if active == run_id
