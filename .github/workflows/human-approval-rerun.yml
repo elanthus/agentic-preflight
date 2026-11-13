@@ -256,18 +256,27 @@ jobs:
           # The head can move while this job waits for its concurrency slot.
           pr_file="$RUNNER_TEMP/pull-request.json"
           head_sha=$RUN_HEAD_SHA
+          pr_readable=false
           if gh_retry "$pr_file" api "/repos/$GITHUB_REPOSITORY/pulls/$pr_number"; then
-            if ! jq -e --arg head "$RUN_HEAD_SHA" --arg repository "$RUN_HEAD_REPOSITORY" '
+            # jq exits 1 for a readable pull request that is closed or moved on, and
+            # another non-zero status when the response could not be parsed.
+            pr_status=0
+            jq -e --arg head "$RUN_HEAD_SHA" --arg repository "$RUN_HEAD_REPOSITORY" '
               .state == "open" and
               .head.sha == $head and
               .head.repo.full_name == $repository and
               (.base.sha | test("^[0-9a-f]{40}$"))
-            ' "$pr_file" > /dev/null; then
-              echo "Pull request $pr_number is closed or no longer has the reviewed head."
-              echo "The run for its current head reports the check."
-              exit 0
-            fi
-          else
+            ' "$pr_file" > /dev/null || pr_status=$?
+            case "$pr_status" in
+              0) pr_readable=true ;;
+              1)
+                echo "Pull request $pr_number is closed or no longer has the reviewed head."
+                echo "The run for its current head reports the check."
+                exit 0
+                ;;
+            esac
+          fi
+          if [ "$pr_readable" != true ]; then
             # Re-running the policy for the reviewed head is safe even if the pull
             # request moved on: each policy run evaluates its own head and reviews.
             echo "::warning::Could not read pull request $pr_number; re-running the policy" \

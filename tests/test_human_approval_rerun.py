@@ -595,6 +595,16 @@ def test_companion_reruns_the_reviewed_head_when_the_pull_request_stays_unreadab
     assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
 
 
+def test_companion_reruns_the_reviewed_head_when_the_pull_request_is_malformed(rerun):
+    # A response that cannot be parsed is not a verdict that the pull request moved on.
+    result, calls = rerun(runs=_runs(_run(1, 5)), pull_request="not a pull request")
+    assert result.returncode == 0, result.stderr
+    assert "::warning::Could not read the pull request for pull request 17" in result.stdout
+    assert "Could not read pull request 17; re-running the policy runs" in result.stdout
+    assert "closed or no longer has the reviewed head" not in result.stdout
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
 def test_companion_retries_listing_the_policy_runs(rerun):
     result, calls = rerun(runs=_runs(_run(1, 5)), runs_fail_first=2)
     assert result.returncode == 0, result.stderr
