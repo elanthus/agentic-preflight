@@ -32,7 +32,7 @@ from tests.conftest import (
     write,
 )
 from tests.driver import ScriptedAgent, green_run
-from tests.test_hook import hook_check
+from tests.test_hook import bound_hook_log_on_path, hook_check
 from tests.test_report import ROOT_A, ROOT_B
 
 #: No fixture repository has a network remote, so the product keeps every one out of
@@ -427,8 +427,11 @@ def test_the_fallback_reads_each_telemetry_section_and_the_repository_only_turns
     assert hooklog.fallback_section(repo, user_config_dir=tmp_path / "none") is None
 
 
-def test_the_installed_hook_passes_the_remote_name_on_a_real_push(feature_repo, bare_remote):
+def test_the_installed_hook_passes_the_remote_name_on_a_real_push(
+    feature_repo, bare_remote, tmp_path, monkeypatch
+):
     ScriptedAgent(feature_repo).run("init")
+    bound_hook_log_on_path(tmp_path / "bin", monkeypatch)
 
     result = subprocess.run(
         ["git", "push", "origin", "feature/x"],
@@ -689,6 +692,8 @@ def test_settings_for_an_up_to_date_push_use_a_bounded_git_call(tmp_repo, tmp_pa
     assert root == gitx.repo_root(tmp_repo)
     assert config is not None
     assert config.telemetry.hook_log is False
+    # The call uses the module's bound, which the suite raises. The docs test pins
+    # the product's value through PRODUCT_HOOK_LOG_TIMEOUT_SECONDS.
     assert timeouts[0] == hooklog.TIMEOUT_SECONDS
 
     def hung_git(*args, **kwargs):

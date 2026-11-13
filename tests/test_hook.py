@@ -2,6 +2,7 @@
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -41,6 +42,30 @@ def hook_check(repo, stdin_text, extra_env=None, *, log_timeout=HOOK_LOG_TIMEOUT
         text=True,
         env=env,
     )
+
+
+def bound_hook_log_on_path(directory, monkeypatch, *, log_timeout=HOOK_LOG_TIMEOUT_SECONDS):
+    """Put an ``agentic-preflight`` first on ``PATH`` that runs hook-check like ``hook_check``.
+
+    A real ``git push`` runs the installed hook, which finds ``agentic-preflight`` on
+    ``PATH``. Git prepends only its own exec path, which holds no such program, so this
+    shim runs instead of the installed CLI and sets the same hook-log time bound. The
+    shim is a ``sh`` script, so on Windows the push uses the installed CLI and the
+    product's bound.
+    """
+    if sys.platform == "win32":
+        return
+    directory.mkdir(parents=True, exist_ok=True)
+    script = directory / "hook_check.py"
+    script.write_text(_HOOK_CHECK, encoding="utf-8")
+    shim = directory / "agentic-preflight"
+    shim.write_text(
+        "#!/bin/sh\n"
+        f'exec {shlex.quote(sys.executable)} {shlex.quote(str(script))} {log_timeout} "$@"\n',
+        encoding="utf-8",
+    )
+    shim.chmod(0o755)
+    monkeypatch.setenv("PATH", os.pathsep.join((str(directory), os.environ["PATH"])))
 
 
 ZERO = "0" * 40
