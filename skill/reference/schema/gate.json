@@ -114,6 +114,21 @@
       "default": null,
       "title": "Pr Mode"
     },
+    "published_notes": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Published Notes"
+    },
     "push_commands": {
       "anyOf": [
         {
