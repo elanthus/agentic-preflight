@@ -34,6 +34,7 @@ from ._session import (
     _require_worktree,
     _worktree_mode,
 )
+from .fix_commits import derive_fix_commits
 from .review_coverage import invalidate_stage_result, reopen_if_stale
 
 
@@ -128,6 +129,27 @@ def _reset_non_equivalent_merge_to_review(
         },
     )
     _check_restart_limit(run)
+    return run
+
+
+def _register_validated_history(session: Session, run: RunDoc) -> RunDoc:
+    """Make the replay list the history review, lint, and test validated.
+
+    At ``TEST_GREEN`` the review coverage names the validation checkout's current
+    head, so ``head_sha..HEAD`` is exactly what was validated, including commits
+    made after the last ``respond`` or never cited by one.
+    """
+    derived = derive_fix_commits(session, run)
+    if derived == run.fix_commits:
+        return run
+    with session.store.transaction(run.run_id) as doc:
+        recorded = list(doc.fix_commits)
+        doc.fix_commits = derived
+        run = doc
+    session.store.append_event(
+        run.run_id,
+        {"event": "validated_fix_commits_registered", "recorded": recorded, "commits": derived},
+    )
     return run
 
 
@@ -332,6 +354,8 @@ def mergeback(session: Session) -> Envelope:
                 data=MergebackData(coverage_invalidated=True),
                 next_command="agentic-preflight context",
             )
+        if not in_place:
+            run = _register_validated_history(session, run)
     _require_state(
         run,
         State.TEST_GREEN,

@@ -273,7 +273,7 @@ def _unrecorded_work(run: RunDoc, path: str) -> str | None:
     releasing it removes the worktree and branch or resets and cleans the
     runner. The checkout is releasable only when it is clean apart from copied
     files and its HEAD is the recorded head, a recorded fix, or a commit with
-    the recorded head's tree.
+    the tree of the recorded head or the last recorded fix.
     """
     try:
         status = gitx.run(
@@ -296,10 +296,12 @@ def _unrecorded_work(run: RunDoc, path: str) -> str | None:
         return UNCOMMITTED_CHANGES
     if head == run.head_sha or head in run.fix_commits:
         return None
-    # A sync that rewrote commits, or a tree-equivalent merge-back, can leave
-    # HEAD on a different commit with the recorded head's tree: no work is lost.
+    # A sync that rewrote commits, a tree-equivalent merge-back, or an empty
+    # commit after the last fix can leave HEAD on a different commit with the
+    # recorded head's or last fix's tree: no work is lost.
     try:
-        if gitx.tree_sha(path, head) == gitx.tree_sha(path, run.head_sha):
+        recorded = {gitx.tree_sha(path, ref) for ref in (run.head_sha, *run.fix_commits[-1:])}
+        if gitx.tree_sha(path, head) in recorded:
             return None
     except (gitx.GitError, OSError):
         pass
@@ -363,6 +365,9 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
 
     legacy = worktree.legacy_worktrees(session.repo_root, session.config.worktree.root)
     unrecorded_retained = any(item.get("reason") in UNRECORDED_WORK_REASONS for item in retained)
+    # An interrupted notes fetch or publication can leave its temporary ref.
+    with store.resource("notes"):
+        gitx.sweep_notes_staging_refs(session.repo_root)
 
     return Envelope(
         data=GcData(
