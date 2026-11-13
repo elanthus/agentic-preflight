@@ -158,13 +158,21 @@ in `data.retained`, and continues collecting understood runs. An unknown field a
 means the schema is invalid or unsupported; it does not prove a newer producer or
 corruption. `--force` does not authorize deleting these records or their resources.
 
-Use the reported path to inspect the record. Keep its JSON, worktree, branch, and
-active aliases intact. Both forms of `status` report
-unreadable records; single-run status preserves ownership and reports `has_run: true`
-and `readable: false`. Do not start a replacement run as if the record were missing.
-Mutating commands reject unreadable records with `run_record_unreadable` (exit 3).
-Only a confirmed missing file permits compare-and-clear pointer recovery. A global
-inventory or cleanup failure still fails the command and must be investigated.
+Use the reported path to inspect the record. Keep its JSON, worktree, and branch
+intact, and keep its active aliases unless the user decides otherwise. Both forms of
+`status` report unreadable records; single-run status preserves ownership and reports
+`has_run: true` and `readable: false`. Do not start a replacement run as if the record
+were missing. Mutating commands, including `abort --force` and `start --replace`, reject
+unreadable records with `run_record_unreadable` (exit 3). The tool itself clears a
+pointer only when the record is confirmed missing.
+
+When a compatible tool version cannot read the record either and the user decides to
+abandon the run, the error's `data.pointer_paths` names the exact ownership pointer to
+delete. Deleting only that file releases the worktree, so `start` creates a fresh run.
+The record, its worktree, and its branch stay in place, and `gc` keeps reporting the
+record in `data.retained`. Never delete a pointer on your own initiative, and never
+delete the record itself. A global inventory or cleanup failure still fails the command
+and must be investigated.
 
 ## Diff too large (exit 2, `diff_too_large`)
 

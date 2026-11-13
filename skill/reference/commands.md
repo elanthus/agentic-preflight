@@ -35,6 +35,14 @@ Without it, the command resolves the run owned by the invoking Git worktree. Whe
 selected run's recorded source checkout no longer exists, inspection commands remain
 available, mutating commands exit 3 with `source_worktree_missing`, and `gc` remains the
 recovery path from another worktree in the clone.
+When the selected run's record cannot be read or validated, workflow commands other than
+`status`, including `abort --force` and `start --replace`, exit 3 with
+`run_record_unreadable` and leave the record unchanged. `data` holds the record's
+`run_id`, `path`, `reason`, and value-free `diagnostic`. When worktree ownership pointers
+still name the run, `data.pointer_paths` lists them and `next.instruction` names them:
+deleting only those files releases the worktree so `start` can create a fresh run, while
+the record, its worktree, and its branch stay in place for inspection and `gc` keeps
+retaining them. `next.command` is `null`; deleting a pointer is the user's decision.
 
 ## Setup
 
@@ -331,6 +339,9 @@ attestation note includes them. Review-command findings are redacted the same wa
 - `--note` text has copied-file values replaced by `[redacted]` before it is saved; the
   note is published in the attestation. A `copy_files` file that cannot be read for
   redaction exits 3 with `invalid_response`.
+- `--note` is limited to 4,000 characters. A longer note exits 6 with `usage_error`,
+  states the limit in `error.message`, and records nothing; the Python `respond` API
+  raises `invalid_response`.
 - Unknown id exits 3 listing the valid ids. Each finding is resolved once.
 - Non-blocking findings may be resolved after their review or docs stage is green. A
   note-only disposition preserves the green state. A fix that changes the reviewed

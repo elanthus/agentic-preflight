@@ -36,7 +36,9 @@ For readable nonterminal runs, `gc` can mark a run orphaned when its source work
 It does not orphan a run while a run command is still executing.
 It keeps isolated resources that contain unmerged fixes unless you use `--force`.
 In-place source commits stay intact.
-Inspect the reported path. Never delete an alias to make an unreadable run look absent.
+Inspect the reported path. Never delete the record or an alias to make an unreadable run look absent.
+If no compatible version can read the record and you decide to abandon the run, a refused command names the ownership pointer in `data.pointer_paths`.
+Deleting only that file lets the worktree start a fresh run; the record, its worktree, and its branch stay, and `status --all` and `gc` still report it.
 
 A repeated `start` with the same head, intent, base, and effective configuration resumes the matching run.
 If the source head moved, `start` marks the old run `ORPHANED` and continues.

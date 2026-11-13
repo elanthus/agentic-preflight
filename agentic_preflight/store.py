@@ -37,6 +37,16 @@ def _parse_run(payload: str) -> RunDoc:
     return RunDoc.model_validate(json.loads(payload))
 
 
+def _parse_findings(payload: str) -> list[Finding]:
+    """Parse and validate a findings list, as :meth:`Store.load_findings` reads it."""
+    return [Finding.model_validate(item) for item in json.loads(payload)]
+
+
+def _check_run_payload(payload: str) -> None:
+    """Apply every check :meth:`Store._load_run` applies to a stored run."""
+    snapshot_run_settings(_parse_run(payload).config_snapshot)
+
+
 class StoreError(Exception):
     """Base class for persistence failures."""
 
@@ -48,14 +58,42 @@ RUN_READ_RECOVERY = (
 )
 
 
+def run_read_release(pointer_paths: list[Path]) -> str:
+    """Recovery for a command refused by an unreadable record that a worktree still owns.
+
+    Deleting the ownership pointer is the one manual step that lets the worktree
+    start again without touching the record, its worktree, or its branch, so the
+    instruction names that file exactly and leaves the decision to the user.
+    """
+    names = " and ".join(str(path) for path in pointer_paths)
+    return (
+        "Use a compatible tool version or inspect the retained run record; --force "
+        "cannot establish cleanup eligibility for an unreadable record. Do not replace "
+        "or delete the record. Only if the user decides to abandon the run, delete the "
+        f"ownership pointer {names} so the worktree can start a fresh run. The record, "
+        "its worktree, and its branch stay in place, and gc keeps retaining them."
+    )
+
+
 class RunReadError(StoreError):
     """An existing record could not be read or validated; preserve its resources."""
 
-    def __init__(self, run_id: str, path: Path, reason: str, detail: str):
+    def __init__(
+        self,
+        run_id: str,
+        path: Path,
+        reason: str,
+        detail: str,
+        *,
+        pointer_paths: list[Path] | None = None,
+    ):
         super().__init__(detail)
         self.run_id = run_id
         self.path = path
         self.reason = reason
+        #: Worktree ownership pointers that name this run. Deleting one releases
+        #: that worktree without touching the record; see :func:`run_read_release`.
+        self.pointer_paths = pointer_paths or []
 
     def details(self) -> dict:
         return {
@@ -64,6 +102,39 @@ class RunReadError(StoreError):
             "reason": self.reason,
             "diagnostic": str(self),
         }
+
+
+class RecordValidationError(StoreError):
+    """A record failed the loader's validation before it was written; nothing was written.
+
+    The message names the failing fields but never their values, like
+    :class:`RunReadError`, because records can carry copied-file text.
+    """
+
+    def __init__(self, path: Path, fields: list[str]) -> None:
+        names = ", ".join(fields) or "(record)"
+        super().__init__(f"refusing to write {path.name}: invalid fields {names}")
+        self.path = path
+        self.fields = fields
+
+
+def _require_loadable(path: Path, payload: str, check: Callable[[str], object]) -> None:
+    """Raise unless ``payload`` passes the loader's own parse, so a write cannot strand a run.
+
+    Models are mutated by attribute assignment and ``model_copy(update=...)``,
+    neither of which runs validators. Parsing the serialized text back through
+    the loader catches every such bypass at the one place records are written.
+    """
+    try:
+        check(payload)
+    except ValidationError as exc:
+        fields = sorted(
+            {
+                ".".join(str(part) for part in error["loc"]) or "(record)"
+                for error in exc.errors(include_input=False, include_context=False)
+            }
+        )
+        raise RecordValidationError(path, fields) from None
 
 
 class UnknownRun(StoreError):
@@ -85,6 +156,10 @@ class EventLog(NamedTuple):
 
     events: list[dict[str, Any]]
     skipped_lines: int
+
+
+def _findings_payload(findings: list[Finding]) -> str:
+    return json.dumps([f.model_dump(mode="json") for f in findings], indent=2)
 
 
 def _utcnow() -> str:
@@ -199,9 +274,11 @@ class Store:
 
     def create_run(self, run: RunDoc) -> RunDoc:
         run.updated_at = run.created_at
+        payload = run.model_dump_json(indent=2)
+        _require_loadable(self.run_path(run.run_id), payload, _check_run_payload)
         fileperms.private_directory(self.root)
         self.run_dir(run.run_id).mkdir(parents=True, exist_ok=True)
-        _atomic_write(self.run_path(run.run_id), run.model_dump_json(indent=2))
+        _atomic_write(self.run_path(run.run_id), payload)
         self.append_event(
             run.run_id,
             {
@@ -248,15 +325,35 @@ class Store:
         except FileNotFoundError as exc:
             raise UnknownRun(run_id) from exc
         except (UnicodeDecodeError, OSError) as exc:
-            raise RunReadError(run_id, path, "unreadable", "Cannot read run record.") from exc
+            raise RunReadError(
+                run_id,
+                path,
+                "unreadable",
+                "Cannot read run record.",
+                pointer_paths=self._pointers_to(run_id),
+            ) from exc
         try:
             run = _parse_run(payload)
             snapshot_run_settings(run.config_snapshot)
         except (json.JSONDecodeError, ValidationError) as exc:
             raise RunReadError(
-                run_id, path, "invalid", "Run record is invalid or unsupported."
+                run_id,
+                path,
+                "invalid",
+                "Run record is invalid or unsupported.",
+                pointer_paths=self._pointers_to(run_id),
             ) from exc
         return run
+
+    def _pointers_to(self, run_id: str) -> list[Path]:
+        """Return the ownership pointers that name ``run_id``, for read-failure recovery."""
+        try:
+            owners = self.list_active()
+        except OSError:
+            return []
+        return sorted(
+            self.active_path(owner) for owner, active in owners.items() if active == run_id
+        )
 
     def list_runs(self) -> list[str]:
         runs = self.root / "runs"
@@ -316,12 +413,17 @@ class Store:
 
             run.seq += 1
             run.updated_at = _utcnow()
+            # Validate both records before writing either, so a refused write
+            # leaves the previous files byte-identical.
+            findings_payload = None
             if findings is not None:
-                _atomic_write(
-                    self.findings_path(run_id),
-                    json.dumps([f.model_dump(mode="json") for f in findings], indent=2),
-                )
-            _atomic_write(path, run.model_dump_json(indent=2))
+                findings_payload = _findings_payload(findings)
+                _require_loadable(self.findings_path(run_id), findings_payload, _parse_findings)
+            run_payload = run.model_dump_json(indent=2)
+            _require_loadable(path, run_payload, _check_run_payload)
+            if findings_payload is not None:
+                _atomic_write(self.findings_path(run_id), findings_payload)
+            _atomic_write(path, run_payload)
             for event in [*run._state_events, *(events or [])]:
                 self.append_event(run_id, {**event, "seq": run.seq})
             run._state_events.clear()
@@ -345,11 +447,11 @@ class Store:
             path = self.findings_path(run_id)
             if not path.exists():
                 return []
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            return [Finding.model_validate(item) for item in payload]
+            return _parse_findings(path.read_text(encoding="utf-8"))
 
     def save_findings(self, run_id: str, findings: list[Finding]) -> None:
-        payload = json.dumps([f.model_dump(mode="json") for f in findings], indent=2)
+        payload = _findings_payload(findings)
+        _require_loadable(self.findings_path(run_id), payload, _parse_findings)
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
             _atomic_write(self.findings_path(run_id), payload)
 
