@@ -66,6 +66,11 @@ The pinned package must be published before this example can run.
   run: agentic-preflight verify "$ATTESTED_SHA"
 ```
 
+`pipx install` pins the verifier release but resolves its dependencies at install time.
+To pin those as well, install the verifier from its `uv.lock`, as the protected-base flow below does.
+Take that lock file and source from a separate checkout of a trusted revision, such as the protected base commit or a release tag.
+Never install from the attested-head checkout above: that is the code under verification.
+
 Pass `--base` with the pull request's base SHA when the job runs for a pull request.
 Without it, the note names its own base branch.
 
@@ -78,7 +83,8 @@ The required remote check is what rejects a branch tip without an attestation.
 
 This repository uses that check on itself.
 It runs in `.github/workflows/attestation.yml` on `pull_request_target`, so GitHub takes the workflow definition from the base branch, not from the pull request.
-The job checks out the base commit and installs the verifier from it.
+The job checks out the base commit and installs the verifier's runtime dependencies from that commit's `uv.lock`, not from a fresh resolution at run time.
+It runs the verifier from the same checkout.
 Then it fetches the proposed commit and its note from the contributor's remote as data, without checking them out or running anything from them.
 A pull request can still change the workflow, the verifier, or its scripts, but those changes take effect only after merge; they never judge the pull request that proposes them.
 The workflow token is read-only.
@@ -126,7 +132,7 @@ No settings were changed during release preparation.
 
 ## Protected-base fetch and verification
 
-Both repository workflows install their checker from the protected event-base commit.
+Both repository workflows run their checker from the protected event-base checkout.
 They fetch the proposed content only as inert Git data.
 They select the contributor's remote for fork pull requests.
 Then they fetch the exact event head, the notes, and the retained evidence:
@@ -135,12 +141,28 @@ Then they fetch the exact event head, the notes, and the retained evidence:
 git fetch --no-tags -- "$source_remote" "$HEAD_SHA" \
   '+refs/notes/agentic-preflight:refs/notes/agentic-preflight' \
   '+refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*'
-agentic-preflight verify "$HEAD_SHA" --base "$BASE_SHA"
+uv run --locked --no-dev --no-sync --python 3.11 \
+  python -m agentic_preflight verify "$HEAD_SHA" --base "$BASE_SHA"
 ```
 
 `--base` makes the protected pull-request base, not the note, decide the merge base and the policy.
 
-For approval evaluation, call `approval-check "$HEAD_SHA" --base "$BASE_SHA"` with `--reviews-file "$reviews_file" --author "$PR_AUTHOR"`.
+Before that step, each job installs only the runtime dependencies pinned in the base commit's `uv.lock`:
+
+```bash
+uv sync --locked --no-dev --no-install-project --python 3.11
+```
+
+`--no-install-project` skips building and installing the checker itself.
+No build backend or build dependency therefore runs in the job, and nothing is resolved at run time.
+The checker runs from the base checkout as `python -m agentic_preflight`, and `--no-sync` keeps `uv run` from installing anything.
+The `verify` and `approval-check` commands do not need the package's installed metadata.
+The Dependabot verification script imports the package from the same checkout through `PYTHONPATH`.
+Each job also pins the uv release in its `astral-sh/setup-uv` step.
+Maintainers bump that `version` by hand; Dependabot updates the action, not the uv release it installs.
+`tests/test_workflow_evidence.py` rejects any other install form in these two workflows.
+
+For approval evaluation, call `approval-check "$HEAD_SHA" --base "$BASE_SHA"` through the same `uv run --locked --no-dev --no-sync` and `python -m agentic_preflight` prefix with `--reviews-file "$reviews_file" --author "$PR_AUTHOR"`.
 Add `--report-only` or `--environment-approved` when applicable.
 These flags keep their policy meanings.
 The caller still enforces the auto-merge restrictions and the actual GitHub Environment approval.
@@ -173,7 +195,7 @@ Run the workflow again after you correct the cause.
 ## High-risk merge handling
 
 A separate `pull_request_target` workflow enforces high-risk merge handling.
-It also installs its policy checker from the protected base. It never executes proposed branch content.
+It also runs its policy checker from the protected base with the dependencies pinned in that commit's `uv.lock`. It never executes proposed branch content.
 It runs again when the head changes.
 In the review modes, a submitted, edited, or dismissed review re-runs it when it comes from an owner, member, or collaborator, or from a user with write access; see [how a review reaches the check](#how-a-review-reaches-the-check).
 
