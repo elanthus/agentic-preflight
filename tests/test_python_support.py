@@ -83,6 +83,9 @@ def test_pull_requests_test_the_minimum_and_maximum_versions():
     assert MINIMUM in pull_request
     assert MAXIMUM in pull_request
     assert set(pull_request) <= set(SUPPORTED)
+    # The main ruleset requires `test / test (ubuntu-latest, py3.13)`; see
+    # docs/attestations-and-ci.md. Dropping this leg needs a ruleset change first.
+    assert "3.13" in pull_request
 
 
 def test_coverage_badge_is_produced_by_exactly_one_matrix_leg():
