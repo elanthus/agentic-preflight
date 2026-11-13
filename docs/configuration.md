@@ -491,7 +491,7 @@ Thus, risk classification treats the reviewer's own files as human-review paths,
 A change to any of these paths is high risk, so it goes through the configured `[approval] mode` before merge.
 The hosted approval check and attestation verification use the `[review]` section committed at the protected base, so a branch cannot point the command elsewhere to escape the rule.
 A local run classifies risk with the branch's own configuration. Its verdict is advisory.
-When the base sets no `command`, for example because the command comes only from a user configuration file, the base names no reviewer paths. Protect that reviewer with `trusted_paths` or `[policy] human_review_paths` committed at the base.
+When the base sets no `command`, for example because the command comes only from a user configuration file, the base names no reviewer paths. Protect that reviewer with `[policy] human_review_paths` committed at the base. A committed `[review]` section that sets only `trusted_paths` would replace the user's whole `[review]` section, including its `command`, so set `trusted_paths` there only together with the command.
 
 Reading paths from a command is approximate:
 
