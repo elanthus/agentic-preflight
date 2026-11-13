@@ -706,7 +706,7 @@ def test_an_unloadable_snapshot_stops_a_state_changing_command(agent, feature_re
     status = agent.run("status")
     assert status["data"]["readable"] is False
     assert status["data"]["read_failure"]["reason"] == "invalid"
-    assert "pr_mode" not in status["data"] or status["data"]["pr_mode"] is None
+    assert set(status["data"]) == {"has_run", "readable", "read_failure", "hook"}
 
 
 # -- verify -----------------------------------------------------------------
