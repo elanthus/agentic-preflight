@@ -18,9 +18,9 @@
 - `human-approval-rerun.yml` re-runs the approval policy only when the user who submitted,
   edited, or dismissed the review is an owner, member, or collaborator with a review on
   the pull request, or has write access. A bot account, such as a GitHub App, re-runs it
-  when it dismissed an owner, member, or collaborator review in the five minutes before
-  the relay run and submitted no review since; if the issue events cannot be read, it
-  does not. Comment reviews from other users on a public pull request no longer queue
+  for the first relay run it starts after dismissing an owner, member, or collaborator
+  review, within five minutes; if the issue events or relay runs cannot be read, it does
+  not. Comment reviews from other users on a public pull request no longer queue
   policy re-runs. Eligibility is decided in an `authorize`
   job before the re-run job joins its per-head concurrency group, so an ineligible
   review cannot replace an eligible re-run that is waiting in that group.
