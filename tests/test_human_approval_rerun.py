@@ -484,13 +484,47 @@ def test_companion_does_not_rerun_when_the_permission_lookup_fails(rerun):
     assert _reruns(calls) == []
 
 
-@pytest.mark.parametrize("actor", ["", "dependabot[bot]", "a/b", "x y"])
+@pytest.mark.parametrize("actor", ["", "a/b", "x y", "[bot]", "a/b[bot]", "x[bot]y"])
 def test_companion_does_not_look_up_an_actor_that_is_not_a_user_login(rerun, actor):
     result, calls = rerun(runs=_runs(_run(1, 5)), actor=actor)
     assert result.returncode == 0, result.stderr
     assert "not started by a repository user" in result.stdout
     assert not any("/reviews" in call or "/collaborators/" in call for call in calls)
     assert _reruns(calls) == []
+
+
+@pytest.mark.parametrize("association", ["OWNER", "MEMBER", "COLLABORATOR"])
+def test_companion_reruns_when_a_bot_dismisses_an_eligible_approval(rerun, association):
+    # The owner approved, then a GitHub App dismissed that approval through the API.
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="review-app[bot]",
+        reviews=[_review("approver", association, state="DISMISSED", body="")],
+    )
+    assert result.returncode == 0, result.stderr
+    assert not any("/collaborators/" in call for call in calls)
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+@pytest.mark.parametrize(
+    "reviews",
+    [
+        [_review()],
+        [_review("approver", "OWNER", state="APPROVED", body="")],
+        [_review("drive-by", "NONE", state="DISMISSED", body="")],
+        [_review("helper[bot]", "NONE", state="DISMISSED", body="")],
+    ],
+    ids=["owner-comment", "approval", "unassociated-dismissed", "bot-dismissed"],
+)
+def test_companion_ignores_a_bot_without_a_dismissed_eligible_review(rerun, reviews):
+    if reviews[0]["user"]["login"].endswith("[bot]"):
+        reviews[0]["user"]["type"] = "Bot"
+    result, calls = rerun(runs=_runs(_run(1, 5)), actor="review-app[bot]", reviews=reviews)
+    assert result.returncode == 0, result.stderr
+    assert "is a bot account" in result.stdout
+    assert not any("/collaborators/" in call for call in calls)
+    assert _reruns(calls) == []
+    assert not any("actions/workflows" in call for call in calls)
 
 
 @pytest.fixture

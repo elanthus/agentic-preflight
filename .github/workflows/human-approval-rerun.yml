@@ -78,7 +78,20 @@ jobs:
           # re-runs the policy, so other reviews cannot queue re-runs at will. A dismissal
           # is recorded on the dismissed review, not under the person who dismissed it,
           # so someone with write access to the repository also qualifies.
+          actor_kind=user
           case "$TRIGGERING_ACTOR" in
+            *'[bot]')
+              # A GitHub App or other bot account, for example one that dismisses an
+              # approval through the API. It has no repository permission to look up.
+              bot_name=${TRIGGERING_ACTOR%'[bot]'}
+              case "$bot_name" in
+                '' | *[!A-Za-z0-9-]*)
+                  echo "The review relay was not started by a repository user. Nothing to re-run."
+                  exit 0
+                  ;;
+              esac
+              actor_kind=bot
+              ;;
             '' | *[!A-Za-z0-9-]*)
               echo "The review relay was not started by a repository user. Nothing to re-run."
               exit 0
@@ -87,7 +100,24 @@ jobs:
           reviews_file="$RUNNER_TEMP/pull-request-reviews.json"
           gh api --paginate --slurp \
             "/repos/$GITHUB_REPOSITORY/pulls/$pr_number/reviews?per_page=100" > "$reviews_file"
-          if ! jq -e --arg actor "$TRIGGERING_ACTOR" '
+          if [ "$actor_kind" = bot ]; then
+            # A bot's review never counts, but a dismissal it performs can revoke an
+            # approval that does. Re-run only while the pull request has a dismissed
+            # review from an owner, member, or collaborator, which is read from the
+            # reviews API, not from the relay. Other bot reviews on such a pull request
+            # also re-run it; a bot that people outside the repository can drive is
+            # bounded by that bot's own limits.
+            if ! jq -e '
+              [.[][]?] | any(.[];
+                .state == "DISMISSED" and
+                .user.type == "User" and
+                (.author_association | IN("OWNER", "MEMBER", "COLLABORATOR")))
+            ' "$reviews_file" > /dev/null; then
+              echo "$TRIGGERING_ACTOR is a bot account, and pull request $pr_number has no" \
+                "dismissed owner, member, or collaborator review. Nothing to re-run."
+              exit 0
+            fi
+          elif ! jq -e --arg actor "$TRIGGERING_ACTOR" '
             [.[][]?] | any(.[];
               .user.type == "User" and
               ((.user.login // "") | ascii_downcase) == ($actor | ascii_downcase) and
