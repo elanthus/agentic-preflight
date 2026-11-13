@@ -16,6 +16,7 @@ from ..envelope import Envelope
 from ..errors import InvalidFindings, StageFailed
 from ..machine import State
 from ..models import FindingSubmission, RunDoc, Stage
+from ..stages import shellstage
 from . import review_coverage, review_protocol
 from ._session import Session, _envelope_for, _load_current, _require_state, _require_worktree
 from ._shell import _run_protected, _withheld_message
@@ -66,9 +67,31 @@ def persist_submission(
     )
 
 
+def _describe(exc: Exception) -> str:
+    """Describe a rejected submission without echoing its values.
+
+    Pydantic's own text quotes the rejected input, which can be a copied-file
+    value that the submission repeated.
+    """
+    if isinstance(exc, ValidationError):
+        return review_protocol.describe_validation(exc)
+    return str(exc)
+
+
+def _safe_text(run: RunDoc, text: str) -> str:
+    """Redact copied-file values from refusal text, which can quote a submission."""
+    if run.worktree_path is None:
+        return text
+    try:
+        secrets = shellstage.read_secrets(run.worktree_path, run.copied_files)
+    except shellstage.SecretRedactionError:
+        return "the details are withheld because copied-file redaction is unavailable"
+    return shellstage.redact(text, secrets)
+
+
 def _refusal(message: str, run: RunDoc) -> InvalidFindings:
     return InvalidFindings(
-        message,
+        _safe_text(run, message),
         state=run.state.value,
         run_id=run.run_id,
         stage=Stage.REVIEW.value,
@@ -89,7 +112,9 @@ def _load_recorded(session: Session, run: RunDoc) -> dict[str, Any]:
         payload = json.loads(path.read_text(encoding="utf-8"))
         return _parse_persisted(payload)
     except (OSError, json.JSONDecodeError, ValueError, ValidationError) as exc:
-        raise _refusal(f"the recorded {executor} review submission is invalid: {exc}", run) from exc
+        raise _refusal(
+            f"the recorded {executor} review submission is invalid: {_describe(exc)}", run
+        ) from exc
 
 
 def _parse_persisted(payload: Any) -> dict[str, Any]:
@@ -105,7 +130,10 @@ def _parse_persisted(payload: Any) -> dict[str, Any]:
     findings = payload.get("findings")
     if not isinstance(findings, list):
         raise ValueError("findings must be a list")
-    parsed = [FindingSubmission.model_validate(item) for item in findings]
+    try:
+        parsed = [FindingSubmission.model_validate(item) for item in findings]
+    except ValidationError as exc:
+        raise ValueError(review_protocol.describe_validation(exc)) from exc
     return {
         "manifest": manifest,
         "head_sha": head_sha,
@@ -208,7 +236,9 @@ def _shadow_submission(
         )
     except (json.JSONDecodeError, ValidationError, InvalidFindings) as exc:
         raise StageFailed(
-            f"the shadow review command returned an invalid submission: {exc}",
+            _safe_text(
+                run, f"the shadow review command returned an invalid submission: {_describe(exc)}"
+            ),
             state=run.state.value,
             run_id=run.run_id,
             stage=Stage.REVIEW.value,
@@ -331,6 +361,20 @@ def _summarise(
     }
 
 
+def _redact_findings(run: RunDoc, worktree: str, *submissions: dict[str, Any]) -> None:
+    """Redact copied-file values from compared findings before the summary is written."""
+    if not any(submission["findings"] for submission in submissions):
+        return
+    try:
+        secrets = shellstage.read_secrets(worktree, run.copied_files)
+    except shellstage.SecretRedactionError as exc:
+        raise _refusal(
+            "comparison cannot be recorded because copied-file redaction is unavailable", run
+        ) from exc
+    for submission in submissions:
+        submission["findings"] = findingsmod.redact_submissions(submission["findings"], secrets)
+
+
 def compare_reviews(session: Session, payload: Any | None = None) -> Envelope:
     """Compare accepted evidence with a supplied or shadow submission in place."""
     run = _load_current(session)
@@ -365,7 +409,7 @@ def compare_reviews(session: Session, payload: Any | None = None) -> Envelope:
                 manifest=manifest,
             )
         except (ValueError, ValidationError, InvalidFindings) as exc:
-            raise _refusal(f"the comparison submission is invalid: {exc}", run) from exc
+            raise _refusal(f"the comparison submission is invalid: {_describe(exc)}", run) from exc
 
     try:
         findingsmod.validate_and_assign(
@@ -378,14 +422,17 @@ def compare_reviews(session: Session, payload: Any | None = None) -> Envelope:
     except (InvalidFindings, findingsmod.FindingRejected) as exc:
         if payload is None:
             raise StageFailed(
-                f"the shadow review command returned an invalid submission: {exc}",
+                _safe_text(
+                    run,
+                    f"the shadow review command returned an invalid submission: {_describe(exc)}",
+                ),
                 state=run.state.value,
                 run_id=run.run_id,
                 stage=Stage.REVIEW.value,
                 data={"log_path": str(session.store.logs_dir(run.run_id) / "review-compare.txt")},
                 next_command="agentic-preflight review compare",
             ) from exc
-        raise _refusal(f"the comparison submission is invalid: {exc}", run) from exc
+        raise _refusal(f"the comparison submission is invalid: {_describe(exc)}", run) from exc
 
     for candidate in (recorded, second):
         if candidate["manifest"] != manifest.manifest:
@@ -394,6 +441,7 @@ def compare_reviews(session: Session, payload: Any | None = None) -> Envelope:
             raise _refusal("review submissions have different reviewed HEADs", run)
     if recorded["executor"] == second["executor"]:
         raise _refusal("comparison requires one in_harness and one command submission", run)
+    _redact_findings(run, worktree, recorded, second)
     a, b = (recorded, second) if recorded["executor"] == "in_harness" else (second, recorded)
     summary = _summarise(manifest, a, b)
     summary_path = session.store.run_dir(run.run_id) / "review-compare.json"
