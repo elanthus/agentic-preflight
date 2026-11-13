@@ -17,10 +17,9 @@
   so its earlier review evidence is not reused.
 - `human-approval-rerun.yml` re-runs the approval policy only when the user who submitted,
   edited, or dismissed the review is an owner, member, or collaborator with a review on
-  the pull request, or has write access. A bot account, such as a GitHub App that
-  dismisses an approval, re-runs it while the pull request has a dismissed owner, member,
-  or collaborator review. Comment reviews from other users on a public pull request no
-  longer queue policy re-runs. Eligibility is decided in an `authorize`
+  the pull request, or has write access. A bot account, such as a GitHub App, re-runs it
+  when it dismissed an owner, member, or collaborator review of the pull request. Comment
+  reviews from other users on a public pull request no longer queue policy re-runs. Eligibility is decided in an `authorize`
   job before the re-run job joins its per-head concurrency group, so an ineligible
   review cannot replace an eligible re-run that is waiting in that group.
 - The configuration that `init` writes, and the Claude and Codex reviewer example

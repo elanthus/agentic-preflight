@@ -517,5 +517,5 @@ The hooks directory, including `core.hooksPath`, is still resolved to an absolut
 
 The `high-risk human approval` job now fails unless the policy job reports `requires_approval` as exactly `true` or `false`.
 The checkouts in `attestation.yml` and `human-approval.yml` set `persist-credentials: false`. A private repository that copies them must authenticate the later `git fetch` itself; see [Portable attestations and CI enforcement](docs/attestations-and-ci.md#required-github-check).
-`human-approval-rerun.yml` now has an `authorize` job and a `rerun` job, and re-runs the policy only for a review from an owner, member, or collaborator, an action by a user with write access, or an action by a bot account while the pull request has a dismissed owner, member, or collaborator review. A project that copied the companion should copy the new version.
+`human-approval-rerun.yml` now has an `authorize` job and a `rerun` job, and re-runs the policy only for a review from an owner, member, or collaborator, an action by a user with write access, or a bot account's dismissal of an owner, member, or collaborator review. A project that copied the companion should copy the new version.
 The required check keeps its name, and `approval-check`, its outputs, and the attestation schema are unchanged.

@@ -119,6 +119,8 @@ def rerun(tmp_path):
         reviews=None,
         permission="read",
         permission_exit=0,
+        events=None,
+        events_exit=0,
     ):
         (tmp_path / "pr-fixture.json").write_text(json.dumps(pull_request or _pull_request()))
         (tmp_path / "relay.txt").write_text(relay)
@@ -127,6 +129,7 @@ def rerun(tmp_path):
         (tmp_path / "reviews.json").write_text(
             json.dumps([reviews if reviews is not None else [_review()]])
         )
+        (tmp_path / "events.json").write_text(json.dumps([events or []]))
         harness = r"""
 gh() {
   printf '%s\n' "$*" >> gh-calls.txt
@@ -152,6 +155,10 @@ gh() {
     "api --paginate")
       case "$4" in
         */reviews*) cat reviews.json ;;
+        */events*)
+          [ "$TEST_EVENTS_EXIT" = 0 ] || return "$TEST_EVENTS_EXIT"
+          cat events.json
+          ;;
         *) cat runs.json ;;
       esac
       ;;
@@ -193,6 +200,7 @@ GITHUB_OUTPUT=github-output.txt
                 "TRIGGERING_ACTOR": actor,
                 "TEST_PERMISSION": permission,
                 "TEST_PERMISSION_EXIT": str(permission_exit),
+                "TEST_EVENTS_EXIT": str(events_exit),
             },
             capture_output=True,
             text=True,
@@ -493,16 +501,56 @@ def test_companion_does_not_look_up_an_actor_that_is_not_a_user_login(rerun, act
     assert _reruns(calls) == []
 
 
+def _dismissed(actor="review-app[bot]", review_id=1):
+    return {
+        "event": "review_dismissed",
+        "actor": {"login": actor},
+        "dismissed_review": {"review_id": review_id},
+    }
+
+
 @pytest.mark.parametrize("association", ["OWNER", "MEMBER", "COLLABORATOR"])
 def test_companion_reruns_when_a_bot_dismisses_an_eligible_approval(rerun, association):
-    # The owner approved, then a GitHub App dismissed that approval through the API.
+    # The reviewer approved, then a GitHub App dismissed that approval through the API.
     result, calls = rerun(
         runs=_runs(_run(1, 5)),
         actor="review-app[bot]",
         reviews=[_review("approver", association, state="DISMISSED", body="")],
+        events=[_dismissed("Review-App[bot]")],
     )
     assert result.returncode == 0, result.stderr
+    assert "api --paginate --slurp /repos/owner/project/issues/17/events?per_page=100" in calls
     assert not any("/collaborators/" in call for call in calls)
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+@pytest.mark.parametrize(
+    "events",
+    [[], [_dismissed("maintainer")], [_dismissed(review_id=2)]],
+    ids=["no-events", "dismissed-by-a-person", "other-review"],
+)
+def test_companion_ignores_a_bot_that_did_not_dismiss_the_eligible_review(rerun, events):
+    # Another bot's review on a pull request with a dismissed approval must not re-run it.
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="review-app[bot]",
+        reviews=[_review("approver", "OWNER", state="DISMISSED", body="")],
+        events=events,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "did not dismiss" in result.stdout
+    assert _reruns(calls) == []
+
+
+def test_companion_falls_back_to_dismissed_reviews_when_events_are_unreadable(rerun):
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="review-app[bot]",
+        reviews=[_review("approver", "OWNER", state="DISMISSED", body="")],
+        events_exit=1,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Could not read the issue events" in result.stdout
     assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
 
 
@@ -513,13 +561,25 @@ def test_companion_reruns_when_a_bot_dismisses_an_eligible_approval(rerun, assoc
         [_review("approver", "OWNER", state="APPROVED", body="")],
         [_review("drive-by", "NONE", state="DISMISSED", body="")],
         [_review("helper[bot]", "NONE", state="DISMISSED", body="")],
+        [_review("owner-app[bot]", "OWNER", state="DISMISSED", body="")],
     ],
-    ids=["owner-comment", "approval", "unassociated-dismissed", "bot-dismissed"],
+    ids=[
+        "owner-comment",
+        "approval",
+        "unassociated-dismissed",
+        "bot-dismissed",
+        "bot-owner-dismissed",
+    ],
 )
 def test_companion_ignores_a_bot_without_a_dismissed_eligible_review(rerun, reviews):
     if reviews[0]["user"]["login"].endswith("[bot]"):
         reviews[0]["user"]["type"] = "Bot"
-    result, calls = rerun(runs=_runs(_run(1, 5)), actor="review-app[bot]", reviews=reviews)
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="review-app[bot]",
+        reviews=reviews,
+        events=[_dismissed()],
+    )
     assert result.returncode == 0, result.stderr
     assert "is a bot account" in result.stdout
     assert not any("/collaborators/" in call for call in calls)
