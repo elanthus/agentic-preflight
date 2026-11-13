@@ -35,7 +35,7 @@ Saved configuration snapshots ignore keys that a later release removed. Those ke
 For readable nonterminal runs, `gc` can mark a run orphaned when its source worktree or lease disappears, or when its source head moves after startup.
 It does not orphan a run while a run command is still executing.
 It keeps isolated resources that contain unmerged fixes unless you use `--force`.
-It also keeps a validation worktree that has uncommitted changes, or whose `HEAD` is neither the recorded head nor the last recorded fix, unless you use `--force`.
+It also keeps a validation worktree that has uncommitted changes, or whose `HEAD` is neither the recorded head, a recorded fix, nor a commit with the recorded head's tree, unless you use `--force`.
 In-place source commits stay intact.
 Inspect the reported path. Never delete an alias to make an unreadable run look absent.
 

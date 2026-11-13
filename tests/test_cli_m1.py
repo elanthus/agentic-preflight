@@ -672,9 +672,29 @@ def test_gc_retains_a_validation_worktree_holding_unrecorded_work(
     record = Store(_run_dir(feature_repo, run_id).parent.parent).load_run(run_id)
     assert record.state is State.ORPHANED
     assert record.worktree_released is False
+    assert "`gc --force` discards that work" in env["next"]["instruction"]
+    assert env["next"]["command"] is None
 
     forced = agent.run("gc", "--force")
     assert run_id in forced["data"]["removed"]
+
+
+@pytest.mark.parametrize("mode", ["strict", "reusable"])
+def test_gc_releases_a_validation_worktree_whose_head_has_the_recorded_tree(
+    agent, feature_repo, tmp_path, mode
+):
+    """A rewritten commit with the recorded head's tree holds no work to keep."""
+    run_id, wt = _blocked_isolated_run(agent, feature_repo, tmp_path, mode)
+    recorded = git("rev-parse", "HEAD", cwd=wt)
+    git("commit", "--amend", "-m", "rewritten without changing the tree", cwd=wt)
+    assert git("rev-parse", "HEAD", cwd=wt) != recorded
+    write(feature_repo, "src/other.py", "x = 1\n")
+    commit_all(feature_repo, "unrelated source work")
+
+    env = agent.run("gc")
+
+    assert run_id in env["data"]["removed"]
+    assert [item for item in env["data"]["retained"] if item.get("run_id") == run_id] == []
 
 
 @pytest.mark.parametrize("mode", ["strict", "reusable"])

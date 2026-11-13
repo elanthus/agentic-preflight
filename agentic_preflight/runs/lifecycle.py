@@ -252,6 +252,19 @@ def _collect_run(
     return True, None, False
 
 
+UNCOMMITTED_CHANGES = "validation worktree has uncommitted changes"
+UNRECORDED_COMMITS = "validation worktree holds unrecorded commits"
+UNINSPECTABLE_WORKTREE = "validation worktree could not be inspected"
+UNRECORDED_WORK_REASONS = frozenset(
+    {UNCOMMITTED_CHANGES, UNRECORDED_COMMITS, UNINSPECTABLE_WORKTREE}
+)
+UNRECORDED_WORK_INSTRUCTION = (
+    "Validation worktrees holding uncommitted changes or commits that `respond` never "
+    "recorded were retained; inspect each `worktree_path` in `data.retained`. "
+    "`gc --force` discards that work."
+)
+
+
 def _unrecorded_work(run: RunDoc, path: str) -> str | None:
     """Name the work that releasing a validation checkout would discard, if any.
 
@@ -259,7 +272,8 @@ def _unrecorded_work(run: RunDoc, path: str) -> str | None:
     not yet answered, or an uncommitted file, lives only in the checkout, and
     releasing it removes the worktree and branch or resets and cleans the
     runner. The checkout is releasable only when it is clean apart from copied
-    files and its HEAD is the recorded head or the last recorded fix.
+    files and its HEAD is the recorded head, a recorded fix, or a commit with
+    the recorded head's tree.
     """
     try:
         status = gitx.run(
@@ -272,16 +286,23 @@ def _unrecorded_work(run: RunDoc, path: str) -> str | None:
         ).stdout
         head = gitx.rev_parse(path, "HEAD")
     except gitx.GitError:
-        return "validation worktree could not be inspected"
+        return UNINSPECTABLE_WORKTREE
     copied = [entry.rstrip("/") for entry in run.copied_files]
     if any(
         not any(changed == entry or changed.startswith(entry + "/") for entry in copied)
         for changed in _porcelain_paths(status)
     ):
-        return "validation worktree has uncommitted changes"
-    if head not in {run.head_sha, *run.fix_commits[-1:]}:
-        return "validation worktree holds unrecorded commits"
-    return None
+        return UNCOMMITTED_CHANGES
+    if head == run.head_sha or head in run.fix_commits:
+        return None
+    # A sync that rewrote commits, or a tree-equivalent merge-back, can leave
+    # HEAD on a different commit with the recorded head's tree: no work is lost.
+    try:
+        if gitx.tree_sha(path, head) == gitx.tree_sha(path, run.head_sha):
+            return None
+    except gitx.GitError:
+        pass
+    return UNRECORDED_COMMITS
 
 
 def _porcelain_paths(status: str) -> list[str]:
@@ -340,6 +361,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
     known_runs.difference_update(pruned)
 
     legacy = worktree.legacy_worktrees(session.repo_root, session.config.worktree.root)
+    unrecorded_retained = any(item.get("reason") in UNRECORDED_WORK_REASONS for item in retained)
 
     return Envelope(
         data=GcData(
@@ -361,6 +383,8 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
         next_instruction=(
             RUN_READ_RECOVERY
             if unreadable_retained
+            else UNRECORDED_WORK_INSTRUCTION
+            if unrecorded_retained
             else "Orphans were found; inspect them before removing."
             if orphans
             else "Validation worktrees remain at the old sibling default location; "
@@ -370,7 +394,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
         ),
         next_command=(
             "agentic-preflight gc --force"
-            if orphans and not force and not unreadable_retained
+            if orphans and not force and not unreadable_retained and not unrecorded_retained
             else None
         ),
     )
