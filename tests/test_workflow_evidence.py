@@ -101,9 +101,11 @@ UV_REQUIRED = {
     "sync": {"--locked", "--no-dev", "--no-install-project"},
     "run": {"--locked", "--no-dev", "--no-sync"},
 }
+# --no-locked overrides --locked and --dev overrides --no-dev; both are accepted
+# silently when they follow the required flag.
 UV_FORBIDDEN = re.compile(
     r"--(with|no-project|index|extra-index|default-index|find-links|isolated|upgrade|frozen)"
-    r"|-[UPf]$"
+    r"|--no-locked$|--dev$|-[UPf]$"
 )
 FORBIDDEN_ENVIRONMENT = re.compile(
     r"\bUV_(NO_SYNC|FROZEN|INDEX\w*|EXTRA_INDEX_URL|DEFAULT_INDEX|FIND_LINKS|ISOLATED)\b"
@@ -230,6 +232,9 @@ def test_trusted_workflows_install_and_run_only_from_the_lock_file(filename):
         "run: uv sync --locked --no-dev --no-install-project --index x=https://x.test",
         "run: uv sync --locked --no-dev --no-install-project --default-index https://x.test",
         "run: uv sync --locked --no-dev --no-install-project --frozen",
+        "run: uv sync --locked --no-dev --no-install-project --no-locked",
+        "run: uv sync --locked --no-dev --no-install-project --dev",
+        "run: uv run --locked --no-dev --no-sync --no-locked python x.py",
         "run: uv -q run --no-dev --no-sync python -m agentic_preflight verify",
         "run: uv run --locked --no-sync python -m agentic_preflight verify",
         "run: uv run --locked --no-dev python -m agentic_preflight verify",
