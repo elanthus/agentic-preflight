@@ -258,6 +258,26 @@ def test_remove_deletes_the_worktree_and_its_copies(feature_repo, wt):
     assert "ap/r_abc123" not in git("branch", "--list", cwd=feature_repo)
 
 
+def test_remove_refuses_a_locked_worktree_instead_of_deleting_it(feature_repo, wt):
+    """`git worktree lock` is a deliberate refusal; removal must not fall back to rmtree."""
+    write(wt, "notes.txt", "kept\n")
+    git("worktree", "lock", "--reason", "keep me", str(wt), cwd=feature_repo)
+
+    with pytest.raises(worktree.WorktreeLocked, match="locked") as caught:
+        worktree.remove(feature_repo, wt, branch="ap/r_abc123")
+
+    assert isinstance(caught.value, worktree.WorktreeError)
+    assert str(wt) in str(caught.value)
+    assert (wt / "notes.txt").read_text(encoding="utf-8") == "kept\n"
+    assert "ap/r_abc123" in git("branch", "--list", cwd=feature_repo)
+    listed = git("worktree", "list", "--porcelain", cwd=feature_repo)
+    assert "locked keep me" in listed
+
+    git("worktree", "unlock", str(wt), cwd=feature_repo)
+    worktree.remove(feature_repo, wt, branch="ap/r_abc123")
+    assert not wt.exists()
+
+
 def test_setup_command_runs_inside_the_worktree(feature_repo, wt):
     """``git rev-parse`` rather than ``pwd``: the shell builtin reports a POSIX
     path under Git Bash on Windows, which no comparison with ``wt`` can survive."""

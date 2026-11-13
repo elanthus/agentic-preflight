@@ -35,6 +35,7 @@ Saved configuration snapshots ignore keys that a later release removed. Those ke
 For readable nonterminal runs, `gc` can mark a run orphaned when its source worktree or lease disappears, or when its source head moves after startup.
 It does not orphan a run while a run command is still executing.
 It keeps isolated resources that contain unmerged fixes unless you use `--force`.
+A run that `abort --force` ended has already discarded its fixes, so `gc` reclaims it.
 It also keeps a validation worktree that has uncommitted changes, or whose `HEAD` is neither the recorded head, a recorded fix, nor a commit with the tree of the recorded head or the last recorded fix, unless you use `--force`.
 In-place source commits stay intact.
 Inspect the reported path. Never delete the record or an alias to make an unreadable run look absent.
@@ -103,6 +104,10 @@ The mode reduces local disk churn. It does nothing more.
 
 This mode creates a fresh worktree for every run and removes it afterward.
 Use it when each local validation must begin with no retained artifacts.
+
+A strict worktree that you lock with `git worktree lock` is never deleted.
+`abort` and `finish` stop with an error that names it, and `gc` retains it with the reason `validation worktree is locked`.
+Unlock it with `git worktree unlock`, then retry.
 
 Remote CI must stay the clean verification boundary in both isolated modes.
 

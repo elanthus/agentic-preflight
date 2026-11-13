@@ -37,6 +37,10 @@ class WorktreeError(Exception):
     """The worktree could not be created or removed."""
 
 
+class WorktreeLocked(WorktreeError):
+    """Git refused to remove a worktree that ``git worktree lock`` protects."""
+
+
 class CopyRefused(Exception):
     """A ``copy_files`` entry is not gitignored, so copying it is unsafe."""
 
@@ -200,13 +204,49 @@ def release_reusable(
 
 
 def remove(repo: Path | str, path: Path | str, *, branch: str | None = None) -> None:
-    """Tear down the worktree and its branch. Copied files die with it."""
-    gitx.run(repo, "worktree", "remove", "--force", str(path), check=False)
+    """Tear down the worktree and its branch. Copied files die with it.
+
+    A worktree that ``git worktree lock`` protects is refused on purpose, so it
+    is reported with :class:`WorktreeLocked` and left in place with its branch.
+    Any other refusal falls back to deleting the directory.
+    """
+    removal = gitx.run(repo, "worktree", "remove", "--force", str(path), check=False)
+    if removal.returncode != 0 and Path(path).exists():
+        reason = _lock_reason(repo, path)
+        if reason is not None:
+            detail = f" ({reason})" if reason else ""
+            raise WorktreeLocked(
+                f"worktree {path} is locked{detail}; Git refuses to remove it. "
+                f"Run `git worktree unlock {path}` if it is no longer needed, then retry."
+            )
     if Path(path).exists():
         shutil.rmtree(path, ignore_errors=True)
     if branch:
         gitx.run(repo, "branch", "-D", branch, check=False)
     gitx.run(repo, "worktree", "prune", check=False)
+
+
+def _lock_reason(repo: Path | str, path: Path | str) -> str | None:
+    """The lock reason of the registered worktree at ``path``, or ``None`` if unlocked.
+
+    An empty string means locked without a reason. A worktree list that cannot
+    be read is treated as unlocked, which keeps the previous removal behavior.
+    """
+    try:
+        records = gitx.list_worktrees(repo)
+        target = Path(path).resolve()
+    except (gitx.GitError, OSError):
+        return None
+    for record in records:
+        listed = record.get("worktree")
+        if listed is None or "locked" not in record:
+            continue
+        try:
+            if Path(listed).resolve() == target:
+                return record["locked"]
+        except OSError:
+            continue
+    return None
 
 
 def _copy_owner_only(source: Path, destination: Path) -> None:

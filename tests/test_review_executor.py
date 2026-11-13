@@ -240,6 +240,11 @@ def test_interrupted_command_is_recorded_before_a_new_process_retries(feature_re
     with session.store.transaction(run_id) as run:
         _apply(run, Action.RUN_REVIEW_COMMAND)
 
+    status = ScriptedAgent(feature_repo).run("status")
+    assert status["state"] == "REVIEW_COMMAND_RUNNING"
+    # `status` cannot recover the interrupted command; `review run` does.
+    assert status["next"]["command"] == "agentic-preflight review run"
+
     env = ScriptedAgent(feature_repo).run("review", "run")
 
     assert env["state"] == "DOCS_GREEN"

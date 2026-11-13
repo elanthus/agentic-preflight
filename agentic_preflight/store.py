@@ -365,8 +365,26 @@ class Store:
         The stored snapshot remains unchanged so its digest still binds the original
         evidence. Unknown keys and invalid current settings remain read failures.
         """
+        if self._run_dir_absent(run_id):
+            raise UnknownRun(run_id)
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
             return self._load_run(run_id)
+
+    def _run_dir_absent(self, run_id: str) -> bool:
+        """Whether the run has no directory, checked before taking its lock.
+
+        Taking the run lock creates the directory, so a read of an unknown run
+        ID would otherwise leave an empty ``runs/<id>/`` that nothing collects.
+        Only a definite absence counts: any other error defers to the locked
+        read and its diagnostics.
+        """
+        try:
+            self.run_dir(run_id).stat()
+        except (FileNotFoundError, NotADirectoryError):
+            return True
+        except OSError:
+            return False
+        return False
 
     def peek(self, run_id: str, *fields: str) -> dict[str, Any] | None:
         """Return top-level fields of a run record without validating it.
@@ -376,6 +394,8 @@ class Store:
         but returns ``None`` on any failure, so a caller that sees ``None`` must
         fall back to ``load_run`` and handle that record exactly as before.
         """
+        if self._run_dir_absent(run_id):
+            return None
         try:
             with filelock.exclusive(self.run_dir(run_id) / ".lock"):
                 raw = json.loads(self.run_path(run_id).read_text(encoding="utf-8"))
@@ -514,6 +534,8 @@ class Store:
     # -- findings ------------------------------------------------------------
 
     def load_findings(self, run_id: str) -> list[Finding]:
+        if self._run_dir_absent(run_id):
+            return []
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
             path = self.findings_path(run_id)
             if not path.exists():

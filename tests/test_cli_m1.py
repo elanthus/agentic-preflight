@@ -634,6 +634,94 @@ def _blocked_isolated_run(agent, feature_repo, tmp_path, mode):
 
 
 @pytest.mark.parametrize("mode", ["strict", "reusable"])
+def test_gc_reclaims_and_prunes_a_force_aborted_run_whose_fixes_were_discarded(
+    agent, feature_repo, tmp_path, mode
+):
+    """`abort --force` already chose to discard the fix commits; gc must not keep them."""
+    run_id, wt = _blocked_isolated_run(agent, feature_repo, tmp_path, mode)
+    sha = fix_commit(wt)
+    agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", sha)
+    aborted = agent.run("abort", "--force")
+    assert aborted["data"]["discarded_fix_commits"] == [sha]
+
+    env = agent.run("gc")
+
+    assert run_id in env["data"]["removed"]
+    assert [item for item in env["data"]["retained"] if item.get("run_id") == run_id] == []
+    _last_changed_days_ago(feature_repo, run_id, 91)
+    assert agent.run("gc")["data"]["pruned"] == [run_id]
+    assert not _run_dir(feature_repo, run_id).exists()
+
+
+def test_abort_reports_a_locked_strict_worktree_and_keeps_it(agent, feature_repo):
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(feature_repo, "use strict validation")
+    started = agent.run("start")
+    wt = Path(started["data"]["worktree_path"])
+    git("worktree", "lock", str(wt), cwd=feature_repo)
+
+    env = agent.run("abort", expect=ExitCode.ERROR)
+
+    assert "locked" in env["error"]["message"]
+    assert wt.is_dir()
+    assert agent.run("status")["state"] == started["state"]
+
+    git("worktree", "unlock", str(wt), cwd=feature_repo)
+    assert agent.run("abort")["state"] == "ABORTED"
+    assert not wt.exists()
+
+
+def test_gc_retains_a_locked_strict_worktree_and_collects_the_rest(agent, feature_repo):
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(feature_repo, "use strict validation")
+    started = agent.run("start")
+    run_id = started["run_id"]
+    wt = Path(started["data"]["worktree_path"])
+    git("worktree", "lock", str(wt), cwd=feature_repo)
+    # The user moves the source branch, so gc orphans the stale run.
+    write(feature_repo, "src/other.py", "x = 1\n")
+    commit_all(feature_repo, "unrelated source work")
+
+    env = agent.run("gc", "--force")
+
+    assert env["ok"] is True
+    assert run_id not in env["data"]["removed"]
+    assert {
+        "run_id": run_id,
+        "reason": "validation worktree is locked",
+        "worktree_path": str(wt),
+    } in env["data"]["retained"]
+    assert wt.is_dir()
+
+
+@pytest.mark.parametrize("mode", ["strict", "reusable"])
+def test_gc_keeps_an_aborted_runs_fix_commits_without_a_forced_abort_marker(
+    agent, feature_repo, tmp_path, mode
+):
+    """Only a recorded forced abort discards fixes; anything else stays retained."""
+    run_id, wt = _blocked_isolated_run(agent, feature_repo, tmp_path, mode)
+    sha = fix_commit(wt)
+    agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", sha)
+    agent.run("abort", "--force")
+    events = _run_dir(feature_repo, run_id) / "events.jsonl"
+    kept = [
+        line
+        for line in events.read_text(encoding="utf-8").splitlines()
+        if json.loads(line).get("event") != "aborted"
+    ]
+    events.write_text("\n".join(kept) + "\n", encoding="utf-8")
+
+    env = agent.run("gc")
+
+    assert run_id not in env["data"]["removed"]
+    assert {
+        "run_id": run_id,
+        "reason": "unmerged fix commits",
+        "fix_commits": [sha],
+    } in env["data"]["retained"]
+
+
+@pytest.mark.parametrize("mode", ["strict", "reusable"])
 @pytest.mark.parametrize("work", ["unresponded_commit", "uncommitted_file"])
 def test_gc_retains_a_validation_worktree_holding_unrecorded_work(
     agent, feature_repo, tmp_path, mode, work

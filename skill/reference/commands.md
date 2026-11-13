@@ -788,7 +788,7 @@ first. GitHub does not associate a commit with a pull request that was closed wi
 merging, so when the list is empty it also reads
 `/repos/{owner}/{repo}/pulls?state=all&head={owner}:{branch}` and uses the pull request
 whose head is the commit. The check runs reduce to one conclusion: `failure` when any has
-the conclusion `failure`, `cancelled`, or `timed_out`; otherwise `pending` when any is not
+the conclusion `failure`, `cancelled`, `timed_out`, or `startup_failure`; otherwise `pending` when any is not
 complete; `none` when there are none; otherwise `success`. Commit statuses are not read.
 It writes `hosted.json` in the run directory with `fetched_at`, `sha`, `pr` (`number`,
 `url`, `state`, `merged_at`, or `null`), `checks` (`conclusion`, `total`, and the `failed`

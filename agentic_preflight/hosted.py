@@ -39,7 +39,8 @@ GH_TIMEOUT_SECONDS = 60
 _PAGE_SIZE = 100
 #: A commit with more check runs than this has its first pages counted only.
 _MAX_CHECK_PAGES = 10
-_FAILED_CONCLUSIONS = frozenset({"failure", "cancelled", "timed_out"})
+#: ``startup_failure`` is a workflow that could not start, so it never passed.
+_FAILED_CONCLUSIONS = frozenset({"failure", "cancelled", "timed_out", "startup_failure"})
 #: Failures that concern one commit. The sync records them and goes on to older runs.
 _COMMIT_ERRORS = frozenset({"http_error", "invalid_response"})
 _SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
@@ -254,7 +255,8 @@ def choose_pull_request(pulls: Any, sha: str, branch: str | None) -> dict[str, A
 def reduce_checks(check_runs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """One conclusion for a commit's check runs.
 
-    ``failure`` when any run failed, was cancelled, or timed out; otherwise
+    ``failure`` when any run failed, was cancelled, timed out, or could not
+    start; otherwise
     ``pending`` when any run is not complete; ``none`` when there are no runs;
     else ``success``.
     """

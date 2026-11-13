@@ -221,22 +221,17 @@ def _collect_run(
             }
         return False, retained, False
     store.clear_run(run_id)
-    if run.fix_commits and not force and not _is_in_place(run):
-        unlanded = (
-            _unlanded_fix_commits(session.repo_root, run)
-            if run.state is State.DONE
-            else list(run.fix_commits)
+    unlanded = [] if force else _unlanded_terminal_fixes(session, run)
+    if unlanded:
+        return (
+            False,
+            {
+                "run_id": run_id,
+                "reason": "unmerged fix commits",
+                "fix_commits": unlanded,
+            },
+            False,
         )
-        if unlanded:
-            return (
-                False,
-                {
-                    "run_id": run_id,
-                    "reason": "unmerged fix commits",
-                    "fix_commits": unlanded,
-                },
-                False,
-            )
     if not run.worktree_released and run.worktree_path and Path(run.worktree_path).exists():
         if not force and not _is_in_place(run):
             unrecorded = _unrecorded_work(run, run.worktree_path)
@@ -246,10 +241,54 @@ def _collect_run(
                     {"run_id": run_id, "reason": unrecorded, "worktree_path": run.worktree_path},
                     False,
                 )
-        _release_run_worktree(session, run)
+        try:
+            _release_run_worktree(session, run)
+        except worktree.WorktreeLocked:
+            return (
+                False,
+                {
+                    "run_id": run_id,
+                    "reason": LOCKED_WORKTREE,
+                    "worktree_path": run.worktree_path,
+                },
+                False,
+            )
         with store.transaction(run_id) as doc:
             doc.worktree_released = True
     return True, None, False
+
+
+LOCKED_WORKTREE = "validation worktree is locked"
+
+
+def _unlanded_terminal_fixes(session: Session, run: RunDoc) -> list[str]:
+    """The fix commits of a terminal isolated run that collection would lose."""
+    if not run.fix_commits or _is_in_place(run):
+        return []
+    if run.state is State.DONE:
+        return _unlanded_fix_commits(session.repo_root, run)
+    if _fix_commits_discarded(session.store, run):
+        return []
+    return list(run.fix_commits)
+
+
+def _fix_commits_discarded(store: Store, run: RunDoc) -> bool:
+    """Whether ``abort --force`` already discarded this run's fix commits.
+
+    That abort records its decision as an ``aborted`` event with ``forced``
+    true. An unreadable event log, or a run that ended any other way, keeps the
+    commits retained.
+    """
+    if run.state is not State.ABORTED:
+        return False
+    try:
+        events = store.load_events(run.run_id)
+    except OSError:
+        return False
+    for event in reversed(events):
+        if event.get("event") == "aborted":
+            return event.get("forced") is True
+    return False
 
 
 UNCOMMITTED_CHANGES = "validation worktree has uncommitted changes"
