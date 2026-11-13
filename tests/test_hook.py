@@ -589,6 +589,32 @@ def test_a_new_branch_in_a_sha256_repository_is_not_reported_as_a_force_push():
     assert "SHA-256 repositories are not supported" in decision.message
 
 
+def test_a_rewriting_push_in_a_sha256_repository_says_it_is_unsupported():
+    """The force-push fix cannot help in a SHA-256 repository, so that message comes first."""
+    update = hook.RefUpdate("refs/heads/feature/x", "a" * 64, "refs/heads/feature/x", "b" * 64)
+    decision = hook.evaluate(
+        [update], is_ancestor=lambda *_: False, has_attestation=lambda _: False
+    )
+    assert decision.allowed is False
+    assert decision.reason == hook.MISSING_ATTESTATION
+    assert decision.updates[0].force is True
+    assert "SHA-256 repositories are not supported" in decision.message
+    assert "force push" not in decision.message
+
+
+def test_a_commit_the_remote_already_has_in_a_sha256_repository_is_allowed():
+    local, remote = "a" * 64, "b" * 64
+    update = hook.RefUpdate("refs/heads/main", local, "refs/heads/main", remote)
+    decision = hook.evaluate(
+        [update],
+        is_ancestor=lambda a, b: (a, b) == (local, remote),
+        has_attestation=lambda _: False,
+        allow_force_push=True,
+    )
+    assert decision.allowed is True
+    assert decision.reason == hook.ALREADY_ON_REMOTE
+
+
 def test_a_deletion_in_a_sha256_repository_is_allowed():
     update = hook.RefUpdate("(delete)", ZERO_SHA256, "refs/heads/feature/x", "a" * 64)
     decision = hook.evaluate(
