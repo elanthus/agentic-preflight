@@ -319,3 +319,31 @@ def test_an_unowned_unreadable_record_keeps_the_plain_recovery(tmp_path):
     error.worktree_mode = "in_place"
 
     assert error.recovery() == (RUN_READ_RECOVERY, [])
+
+
+@pytest.mark.parametrize(
+    ("worktree_path", "offered"),
+    [
+        (None, True),
+        ("/cache/worktrees/repo-1/r_0123456789", True),
+        ("/cache/worktrees/repo-1/runner", False),
+        (7, False),
+    ],
+)
+def test_a_record_that_names_the_runner_is_never_offered_pointer_deletion(
+    store, worktree_path, offered
+):
+    run = store.create_run(make_run())
+    store.set_active("owner", run.run_id)
+    path = store.run_path(run.run_id)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["config_snapshot"] = {"worktree": {"mode": "strict"}, "unknown": {}}
+    raw["worktree_path"] = worktree_path
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(RunReadError) as caught:
+        store.load_run(run.run_id)
+
+    instruction, pointers = caught.value.recovery()
+    assert pointers == ([store.active_path("owner")] if offered else [])
+    assert (instruction == RUN_READ_RUNNER_RECOVERY) is not offered

@@ -194,11 +194,22 @@ class EventLog(NamedTuple):
 
 
 def _recorded_worktree_mode(payload: str) -> str | None:
-    """Read the worktree mode an invalid record names, without trusting the rest of it."""
+    """Read the worktree mode an invalid record names, without trusting the rest of it.
+
+    A record whose raw ``worktree_path`` names the reusable runner, as gc's
+    runner reclamation recognises it, counts as unknown whatever mode it
+    claims: an edited or partly corrupt record must not unlock pointer
+    deletion for a run that may still lease the runner.
+    """
     try:
         raw = json.loads(payload)
         mode = raw["config_snapshot"]["worktree"]["mode"]
-    except (json.JSONDecodeError, TypeError, KeyError):
+        worktree_path = raw.get("worktree_path")
+    except (json.JSONDecodeError, TypeError, KeyError, AttributeError):
+        return None
+    if worktree_path is not None and (
+        not isinstance(worktree_path, str) or Path(worktree_path).name == "runner"
+    ):
         return None
     return mode if isinstance(mode, str) else None
 
