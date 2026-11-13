@@ -14,7 +14,13 @@ from agentic_preflight.errors import InvalidResponse
 from agentic_preflight.findings import RESPONSE_NOTE_LIMIT
 from agentic_preflight.models import Finding, FindingAction, Severity, Stage
 from agentic_preflight.runs import evidence
-from agentic_preflight.store import RecordValidationError, Store
+from agentic_preflight.store import (
+    RUN_READ_RECOVERY,
+    RUN_READ_RUNNER_RECOVERY,
+    RecordValidationError,
+    RunReadError,
+    Store,
+)
 from tests.conftest import git, make_run
 from tests.driver import ScriptedAgent, findings_json
 from tests.test_evidence_refresh import _finish, _prepare, _restack
@@ -238,25 +244,30 @@ def _make_unreadable(repo: Path, run_id: str) -> tuple[Path, bytes]:
     return path, original
 
 
+@pytest.mark.parametrize("mode", ["in_place", "strict"])
 def test_the_unreadable_record_error_names_the_pointer_that_releases_the_worktree(
-    feature_repo,
+    feature_repo, mode
 ):
+    _prepare(feature_repo, mode=mode)
     agent = ScriptedAgent(feature_repo)
     started = agent.run("start")
     record, original = _make_unreadable(feature_repo, started["run_id"])
+    # Isolated modes also alias the validation worktree to the run.
     pointers = sorted((_state_root(feature_repo) / "active").glob("*.run"))
-    assert len(pointers) == 1
+    assert len(pointers) == (1 if mode == "in_place" else 2)
 
     for args in [("abort", "--force"), ("start", "--replace")]:
         failure = agent.run(*args, expect=ExitCode.PRECONDITION)
         assert failure["error"]["code"] == "run_record_unreadable"
         assert failure["data"]["path"] == str(record)
-        assert failure["data"]["pointer_paths"] == [str(pointers[0])]
-        assert str(pointers[0]) in failure["next"]["instruction"]
+        assert failure["data"]["pointer_paths"] == [str(path) for path in pointers]
+        for pointer in pointers:
+            assert str(pointer) in failure["next"]["instruction"]
         assert failure["next"]["command"] is None
         assert "DO_NOT_ECHO_RECORD_VALUES" not in json.dumps(failure)
 
-    pointers[0].unlink()
+    for pointer in pointers:
+        pointer.unlink()
     fresh = agent.run("start", "--intent", "start over after an unreadable record")
 
     assert fresh["run_id"] != started["run_id"]
@@ -264,3 +275,47 @@ def test_the_unreadable_record_error_names_the_pointer_that_releases_the_worktre
     retained = agent.run("gc")["data"]["retained"]
     assert [item["run_id"] for item in retained] == [started["run_id"]]
     agent.run("abort", "--force")
+
+
+def test_a_reusable_run_offers_no_pointer_because_the_runner_stays_leased(feature_repo):
+    _prepare(feature_repo, mode="reusable")
+    agent = ScriptedAgent(feature_repo)
+    started = agent.run("start")
+    record, original = _make_unreadable(feature_repo, started["run_id"])
+    pointers = sorted((_state_root(feature_repo) / "active").glob("*.run"))
+    assert pointers
+
+    for args in [("abort", "--force"), ("start", "--replace")]:
+        failure = agent.run(*args, expect=ExitCode.PRECONDITION)
+        assert failure["error"]["code"] == "run_record_unreadable"
+        assert "pointer_paths" not in failure["data"]
+        assert failure["next"]["instruction"] == RUN_READ_RUNNER_RECOVERY
+        assert failure["next"]["command"] is None
+
+    assert all(pointer.exists() for pointer in pointers)
+    assert record.read_bytes() == original
+    # Why none is offered: without the pointers, the runner is still leased on the
+    # unreadable run's branch, so a fresh reusable run cannot start anyway.
+    for pointer in pointers:
+        pointer.unlink()
+    blocked = agent.run("start", "--intent", "start over", expect=ExitCode.NEEDS_HUMAN)
+    assert "still leased" in blocked["error"]["message"]
+    assert record.read_bytes() == original
+
+
+@pytest.mark.parametrize("mode", [None, "reusable", "unexpected"])
+def test_no_pointer_is_offered_unless_the_mode_is_known_to_be_releasable(tmp_path, mode):
+    pointer = tmp_path / "owner.run"
+    error = RunReadError(
+        "r_0123456789", tmp_path / "run.json", "unreadable", "x", pointer_paths=[pointer]
+    )
+    error.worktree_mode = mode
+
+    assert error.recovery() == (RUN_READ_RUNNER_RECOVERY, [])
+
+
+def test_an_unowned_unreadable_record_keeps_the_plain_recovery(tmp_path):
+    error = RunReadError("r_0123456789", tmp_path / "run.json", "invalid", "x")
+    error.worktree_mode = "in_place"
+
+    assert error.recovery() == (RUN_READ_RECOVERY, [])

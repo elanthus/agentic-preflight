@@ -541,3 +541,12 @@ Outside manual gate mode, `data.refspec`, `data.push_commands`, and `data.would_
 A wrapper that ran those strings as commands must run `push` instead.
 In manual gate mode, `gate` now fetches the remote notes, and `data.manual_command` names the notes commit's SHA.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Unreleased: run and findings records are validated before they are written
+
+The run store parses each run and findings record back through its loader before writing it, and writes neither file of a transaction when either is invalid.
+Such a refusal is reported as `internal_error`; the earlier files stay unchanged.
+`respond --note` longer than 4,000 characters now exits 6 with `usage_error`, and the Python `respond` API raises `invalid_response`. Earlier releases exited 0 and wrote a findings record that could not be read.
+A `run_record_unreadable` error envelope from a mutating command adds `data.pointer_paths`, a list of ownership pointer file paths, when the record names the `in_place` or `strict` worktree mode. Otherwise the key is absent and `next.instruction` says to keep the runner and stop.
+Single-run `status`, `status --all`, and `gc` output are unchanged.
+Run schema 2, attestation schema 7, fingerprint version 2, and the findings format are unchanged.

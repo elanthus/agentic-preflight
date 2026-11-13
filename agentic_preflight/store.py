@@ -58,8 +58,15 @@ RUN_READ_RECOVERY = (
 )
 
 
+#: Modes whose new run needs no resource an unreadable run may still hold. A
+#: ``reusable`` run leases the clone's single runner on its own branch, and
+#: acquisition refuses while that branch is checked out, so releasing the
+#: ownership pointer alone would not let any worktree start a run.
+_RELEASABLE_MODES = frozenset({"in_place", "strict"})
+
+
 def run_read_release(pointer_paths: list[Path]) -> str:
-    """Recovery for a command refused by an unreadable record that a worktree still owns.
+    """Recovery for a command refused by an unreadable ``in_place`` or ``strict`` run.
 
     Deleting the ownership pointer is the one manual step that lets the worktree
     start again without touching the record, its worktree, or its branch, so the
@@ -69,10 +76,23 @@ def run_read_release(pointer_paths: list[Path]) -> str:
     return (
         "Use a compatible tool version or inspect the retained run record; --force "
         "cannot establish cleanup eligibility for an unreadable record. Do not replace "
-        "or delete the record. Only if the user decides to abandon the run, delete the "
-        f"ownership pointer {names} so the worktree can start a fresh run. The record, "
-        "its worktree, and its branch stay in place, and gc keeps retaining them."
+        "or delete the record. Only if a compatible version cannot read it either and "
+        f"the user decides to abandon the run, delete the ownership pointer {names} so "
+        "the worktree can start a fresh run. That run can then no longer be resumed "
+        "from this worktree. The record, its worktree, and its branch stay in place; gc "
+        "retains them while the record stays unreadable, and a version that can read it "
+        "may later orphan and reclaim it."
     )
+
+
+RUN_READ_RUNNER_RECOVERY = (
+    "Use a compatible tool version or inspect the retained run record; --force cannot "
+    "establish cleanup eligibility for an unreadable record. This run may still lease "
+    "the clone's reusable runner on its own branch, which may hold unmerged fix commits, "
+    "so no worktree in this clone can start a reusable run until the record is resolved. "
+    "Do not delete the record, its ownership pointers, the runner, or its branch. Show "
+    "the user the record path and stop; the user decides how to recover it."
+)
 
 
 class RunReadError(StoreError):
@@ -86,14 +106,29 @@ class RunReadError(StoreError):
         detail: str,
         *,
         pointer_paths: list[Path] | None = None,
+        worktree_mode: str | None = None,
     ):
         super().__init__(detail)
         self.run_id = run_id
         self.path = path
         self.reason = reason
-        #: Worktree ownership pointers that name this run. Deleting one releases
-        #: that worktree without touching the record; see :func:`run_read_release`.
+        #: Worktree ownership pointers that name this run.
         self.pointer_paths = pointer_paths or []
+        #: The worktree mode the raw record names, or ``None`` when it cannot be read.
+        self.worktree_mode = worktree_mode
+
+    def recovery(self) -> tuple[str, list[Path]]:
+        """Return the recovery instruction and the pointers it offers for deletion.
+
+        A pointer is offered only when the record names a mode whose new run
+        needs nothing this run may still hold. Otherwise, including when the
+        mode is unknown, nothing is offered for deletion.
+        """
+        if not self.pointer_paths:
+            return RUN_READ_RECOVERY, []
+        if self.worktree_mode in _RELEASABLE_MODES:
+            return run_read_release(self.pointer_paths), self.pointer_paths
+        return RUN_READ_RUNNER_RECOVERY, []
 
     def details(self) -> dict:
         return {
@@ -156,6 +191,16 @@ class EventLog(NamedTuple):
 
     events: list[dict[str, Any]]
     skipped_lines: int
+
+
+def _recorded_worktree_mode(payload: str) -> str | None:
+    """Read the worktree mode an invalid record names, without trusting the rest of it."""
+    try:
+        raw = json.loads(payload)
+        mode = raw["config_snapshot"]["worktree"]["mode"]
+    except (json.JSONDecodeError, TypeError, KeyError):
+        return None
+    return mode if isinstance(mode, str) else None
 
 
 def _findings_payload(findings: list[Finding]) -> str:
@@ -342,6 +387,7 @@ class Store:
                 "invalid",
                 "Run record is invalid or unsupported.",
                 pointer_paths=self._pointers_to(run_id),
+                worktree_mode=_recorded_worktree_mode(payload),
             ) from exc
         return run
 

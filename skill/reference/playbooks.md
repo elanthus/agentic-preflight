@@ -166,13 +166,22 @@ were missing. Mutating commands, including `abort --force` and `start --replace`
 unreadable records with `run_record_unreadable` (exit 3). The tool itself clears a
 pointer only when the record is confirmed missing.
 
-When a compatible tool version cannot read the record either and the user decides to
-abandon the run, the error's `data.pointer_paths` names the exact ownership pointer to
-delete. Deleting only that file releases the worktree, so `start` creates a fresh run.
-The record, its worktree, and its branch stay in place, and `gc` keeps reporting the
-record in `data.retained`. Never delete a pointer on your own initiative, and never
-delete the record itself. A global inventory or cleanup failure still fails the command
-and must be investigated.
+For an `in_place` or `strict` run, a refused mutating command such as `abort --force`
+or `start --replace` lists the run's ownership pointers in `data.pointer_paths`; `status`
+does not. When a compatible tool version cannot read the record either and the user
+decides to abandon the run, delete only those files. `start` then creates a fresh run,
+and the old run can no longer be resumed from that worktree. The record, its worktree,
+and its branch stay in place. `gc` keeps reporting the record in `data.retained` while it
+stays unreadable, and a version that can read it may later orphan and reclaim it.
+
+For a `reusable` run, or when the record's mode cannot be read, `data.pointer_paths` is
+absent. The run may still lease the clone's single runner on its own branch, and that
+branch may hold unmerged fix commits, so no worktree in the clone can start a reusable
+run until the record is resolved. Do not delete the record, its pointers, the runner, or
+its branch; show the user the record path and stop.
+
+Never delete a pointer on your own initiative, and never delete the record itself. A
+global inventory or cleanup failure still fails the command and must be investigated.
 
 ## Diff too large (exit 2, `diff_too_large`)
 

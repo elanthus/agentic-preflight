@@ -38,11 +38,19 @@ recovery path from another worktree in the clone.
 When the selected run's record cannot be read or validated, workflow commands other than
 `status`, including `abort --force` and `start --replace`, exit 3 with
 `run_record_unreadable` and leave the record unchanged. `data` holds the record's
-`run_id`, `path`, `reason`, and value-free `diagnostic`. When worktree ownership pointers
-still name the run, `data.pointer_paths` lists them and `next.instruction` names them:
-deleting only those files releases the worktree so `start` can create a fresh run, while
-the record, its worktree, and its branch stay in place for inspection and `gc` keeps
-retaining them. `next.command` is `null`; deleting a pointer is the user's decision.
+`run_id`, `path`, `reason`, and value-free `diagnostic`. `next.command` is `null`.
+When worktree ownership pointers still name the run and the raw record names the
+`in_place` or `strict` worktree mode, `data.pointer_paths` lists those pointers and
+`next.instruction` names them. If a compatible version cannot read the record either and
+the user decides to abandon the run, deleting only those files lets `start` create a
+fresh run. The old run can then no longer be resumed from that worktree. Its record,
+worktree, and branch stay in place; `gc` retains them while the record stays unreadable,
+and a version that can read it may later orphan and reclaim it. For a `reusable` run, or
+when the mode cannot be read, `data.pointer_paths` is absent: the run may still lease the
+clone's single runner on its own branch, so deleting a pointer would not let any
+worktree start a reusable run. The instruction then says to keep the record, pointers,
+runner, and branch, and to stop for the user. Single-run `status` reports the read
+failure without `data.pointer_paths`.
 
 ## Setup
 

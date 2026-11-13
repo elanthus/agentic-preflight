@@ -210,7 +210,7 @@ to summarize the user's run history.
 | Base synchronization failed at start (exit 4, `sync_conflict` or `sync_failed`) | Print the whole `data` object; the user resolves the listed conflicts, moves or removes listed local files, or fixes the remote, then `abort --force` and `start` again |
 | Interrupted legacy update | Follow `status` from the recorded source worktree; below the restart limit, `start` retires interrupted validation and discards its journal while preserving audit history and user work. At the limit, stop for the user’s abort/restart decision |
 | Abandoned run | `status --all`; inspect explicitly with `--run RUN_ID` |
-| Unreadable shared run record | Preserve the record and ownership; inspect its path. Only if the user decides to abandon the run, delete just the pointer in `data.pointer_paths` so the worktree can start again |
+| Unreadable shared run record | Preserve the record and ownership; inspect its path. Only if a compatible version cannot read it either and the user decides to abandon the run, delete just the pointers a refused mutating command lists in `data.pointer_paths` (`in_place` and `strict` runs only). Without that field, as for a `reusable` run, delete nothing and stop for the user |
 | Diff too large (exit 2, `diff_too_large`) | Exclude generated globs; never review part of it |
 | No command configured (exit 2, `needs_command`) | Show candidates; require user selection and approval; re-run with `--command` and `--record`; distrust the first green |
 | Setup failed (exit 2, `setup_failed`) | Obey `status`: abort `SETUP_FAILED` initial setup or preserve the baseline retry |
