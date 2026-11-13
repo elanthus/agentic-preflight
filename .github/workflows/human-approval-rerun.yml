@@ -64,18 +64,37 @@ jobs:
               exit 1
               ;;
           esac
+          # When a lookup that decides authorization fails, authorize the re-run instead
+          # of skipping it. Skipping could leave a stale passing check after a dismissal.
+          # A re-run cannot make the policy pass wrongly: the policy job reads the reviews
+          # itself and fails if it cannot. The rerun job checks the pull request again.
+          authorize_unverified() {
+            echo "::warning::Could not read $1 for pull request $pr_number, so the action by" \
+              "$TRIGGERING_ACTOR re-runs the policy without that check."
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+            echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
           pr_file="$RUNNER_TEMP/pull-request.json"
-          gh api "/repos/$GITHUB_REPOSITORY/pulls/$pr_number" > "$pr_file"
-          if ! jq -e --arg head "$RUN_HEAD_SHA" --arg repository "$RUN_HEAD_REPOSITORY" '
+          if ! gh api "/repos/$GITHUB_REPOSITORY/pulls/$pr_number" > "$pr_file"; then
+            authorize_unverified "the pull request"
+          fi
+          pr_status=0
+          jq -e --arg head "$RUN_HEAD_SHA" --arg repository "$RUN_HEAD_REPOSITORY" '
             .state == "open" and
             .head.sha == $head and
             .head.repo.full_name == $repository and
             (.base.sha | test("^[0-9a-f]{40}$"))
-          ' "$pr_file" > /dev/null; then
-            echo "Pull request $pr_number is closed or no longer has the reviewed head."
-            echo "The run for its current head reports the check."
-            exit 0
-          fi
+          ' "$pr_file" > /dev/null || pr_status=$?
+          case "$pr_status" in
+            0) ;;
+            1)
+              echo "Pull request $pr_number is closed or no longer has the reviewed head."
+              echo "The run for its current head reports the check."
+              exit 0
+              ;;
+            *) authorize_unverified "the pull request" ;;
+          esac
           # Any GitHub user can submit a Comment review on a public pull request. Only a
           # review that approval-check can count, from an owner, member, or collaborator,
           # re-runs the policy, so other reviews cannot queue re-runs at will. A dismissal
@@ -101,8 +120,10 @@ jobs:
               ;;
           esac
           reviews_file="$RUNNER_TEMP/pull-request-reviews.json"
-          gh api --paginate --slurp \
-            "/repos/$GITHUB_REPOSITORY/pulls/$pr_number/reviews?per_page=100" > "$reviews_file"
+          if ! gh api --paginate --slurp \
+            "/repos/$GITHUB_REPOSITORY/pulls/$pr_number/reviews?per_page=100" > "$reviews_file"; then
+            authorize_unverified "the reviews"
+          fi
           if [ "$actor_kind" = bot ]; then
             # A bot's review never counts, but a dismissal it performs can revoke an
             # approval that does. Neither the workflow_run payload nor the Actions API
@@ -118,13 +139,12 @@ jobs:
             events_file="$RUNNER_TEMP/pull-request-events.json"
             if ! gh api --paginate --slurp \
               "/repos/$GITHUB_REPOSITORY/issues/$pr_number/events?per_page=100" > "$events_file"; then
-              # Fail closed: without the events nothing shows that this bot dismissed a review.
-              echo "::warning::Could not read the issue events of pull request $pr_number," \
-                "so the action by $TRIGGERING_ACTOR does not re-run the policy." \
-                "Re-run the Human approval policy run by hand if a review was dismissed."
-              exit 0
+              authorize_unverified "the issue events"
             fi
-            if ! jq -e --arg actor "$TRIGGERING_ACTOR" --arg relay "$RELAY_CREATED_AT" \
+            # jq exits 1 when the data was read and shows no qualifying dismissal, and
+            # another non-zero status when the data could not be read.
+            dismissal_status=0
+            jq -e --arg actor "$TRIGGERING_ACTOR" --arg relay "$RELAY_CREATED_AT" \
               --slurpfile events "$events_file" '
                 ($relay | fromdateiso8601) as $relay_at
                 | ($actor | ascii_downcase) as $bot
@@ -139,27 +159,43 @@ jobs:
                           .state == "DISMISSED" and
                           .user.type == "User" and
                           (.author_association | IN("OWNER", "MEMBER", "COLLABORATOR")))))
-              ' "$reviews_file" > /dev/null; then
-              echo "$TRIGGERING_ACTOR is a bot account that had not dismissed an owner, member," \
-                "or collaborator review of pull request $pr_number when this relay run was" \
-                "created. Nothing to re-run."
-              exit 0
-            fi
-          elif ! jq -e --arg actor "$TRIGGERING_ACTOR" '
-            [.[][]?] | any(.[];
-              .user.type == "User" and
-              ((.user.login // "") | ascii_downcase) == ($actor | ascii_downcase) and
-              (.author_association | IN("OWNER", "MEMBER", "COLLABORATOR")))
-          ' "$reviews_file" > /dev/null; then
-            permission=$(gh api "/repos/$GITHUB_REPOSITORY/collaborators/$TRIGGERING_ACTOR/permission" \
-              --jq '.permission') || permission=unknown
-            case "$permission" in
-              admin | write) ;;
-              *)
-                echo "$TRIGGERING_ACTOR is not an owner, member, or collaborator with a review" \
-                  "on pull request $pr_number, or a user with write access. Nothing to re-run."
+              ' "$reviews_file" > /dev/null || dismissal_status=$?
+            case "$dismissal_status" in
+              0) ;;
+              1)
+                echo "$TRIGGERING_ACTOR is a bot account that had not dismissed an owner, member," \
+                  "or collaborator review of pull request $pr_number when this relay run was" \
+                  "created. Nothing to re-run."
                 exit 0
                 ;;
+              *) authorize_unverified "the dismissed review" ;;
+            esac
+          else
+            review_status=0
+            jq -e --arg actor "$TRIGGERING_ACTOR" '
+              [.[][]?] | any(.[];
+                .user.type == "User" and
+                ((.user.login // "") | ascii_downcase) == ($actor | ascii_downcase) and
+                (.author_association | IN("OWNER", "MEMBER", "COLLABORATOR")))
+            ' "$reviews_file" > /dev/null || review_status=$?
+            case "$review_status" in
+              0) ;;
+              1)
+                if ! permission=$(gh api \
+                  "/repos/$GITHUB_REPOSITORY/collaborators/$TRIGGERING_ACTOR/permission" \
+                  --jq '.permission'); then
+                  authorize_unverified "the repository permission of $TRIGGERING_ACTOR"
+                fi
+                case "$permission" in
+                  admin | write) ;;
+                  *)
+                    echo "$TRIGGERING_ACTOR is not an owner, member, or collaborator with a review" \
+                      "on pull request $pr_number, or a user with write access. Nothing to re-run."
+                    exit 0
+                    ;;
+                esac
+                ;;
+              *) authorize_unverified "the reviews" ;;
             esac
           fi
           echo "allowed=true" >> "$GITHUB_OUTPUT"

@@ -125,6 +125,8 @@ def rerun(tmp_path):
         permission_exit=0,
         events=None,
         events_exit=0,
+        reviews_exit=0,
+        pr_fail_first=0,
         relay_created_at=RELAY_AT,
     ):
         (tmp_path / "pr-fixture.json").write_text(json.dumps(pull_request or _pull_request()))
@@ -159,7 +161,10 @@ gh() {
       ;;
     "api --paginate")
       case "$4" in
-        */reviews*) cat reviews.json ;;
+        */reviews*)
+          [ "$TEST_REVIEWS_EXIT" = 0 ] || return "$TEST_REVIEWS_EXIT"
+          cat reviews.json
+          ;;
         */events*)
           [ "$TEST_EVENTS_EXIT" = 0 ] || return "$TEST_EVENTS_EXIT"
           cat events.json
@@ -169,7 +174,12 @@ gh() {
       ;;
     api*)
       case "$2" in
-        */pulls/*) cat pr-fixture.json ;;
+        */pulls/*)
+          pr_attempts=$(( $(cat pr-attempts.txt 2>/dev/null || echo 0) + 1 ))
+          echo "$pr_attempts" > pr-attempts.txt
+          [ "$pr_attempts" -gt "$TEST_PR_FAIL_FIRST" ] || return 1
+          cat pr-fixture.json
+          ;;
         */collaborators/*)
           [ "$TEST_PERMISSION_EXIT" = 0 ] || return "$TEST_PERMISSION_EXIT"
           echo "$TEST_PERMISSION"
@@ -206,6 +216,8 @@ GITHUB_OUTPUT=github-output.txt
                 "TEST_PERMISSION": permission,
                 "TEST_PERMISSION_EXIT": str(permission_exit),
                 "TEST_EVENTS_EXIT": str(events_exit),
+                "TEST_REVIEWS_EXIT": str(reviews_exit),
+                "TEST_PR_FAIL_FIRST": str(pr_fail_first),
                 "RELAY_CREATED_AT": relay_created_at,
             },
             capture_output=True,
@@ -492,9 +504,49 @@ def test_companion_reruns_for_a_dismissal_by_a_user_with_write_access(rerun, per
     assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
 
 
-def test_companion_does_not_rerun_when_the_permission_lookup_fails(rerun):
+def test_companion_reruns_when_the_permission_lookup_fails(rerun):
+    # A failed lookup must not leave a stale success after a dismissal; the re-run
+    # policy job reads the reviews itself.
     result, calls = rerun(runs=_runs(_run(1, 5)), actor="maintainer", permission_exit=1)
     assert result.returncode == 0, result.stderr
+    assert "::warning::Could not read the repository permission of maintainer" in result.stdout
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+@pytest.mark.parametrize("actor", ["owner-login", "drive-by", "review-app[bot]"])
+def test_companion_reruns_when_the_reviews_are_unreadable(rerun, actor):
+    result, calls = rerun(runs=_runs(_run(1, 5)), actor=actor, reviews_exit=1)
+    assert result.returncode == 0, result.stderr
+    assert "::warning::Could not read the reviews" in result.stdout
+    assert not any("/collaborators/" in call or "/events" in call for call in calls)
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+@pytest.mark.parametrize("actor", ["owner-login", "review-app[bot]"])
+def test_companion_reruns_when_the_reviews_are_malformed(rerun, actor):
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)), actor=actor, reviews=["not a review"], events=[_dismissed()]
+    )
+    assert result.returncode == 0, result.stderr
+    assert "::warning::Could not read" in result.stdout
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_reruns_when_the_pull_request_lookup_fails_in_authorize(rerun):
+    # The rerun job fetches the pull request again and checks its head before re-running.
+    result, calls = rerun(runs=_runs(_run(1, 5)), pr_fail_first=1)
+    assert result.returncode == 0, result.stderr
+    assert "::warning::Could not read the pull request for pull request 17" in result.stdout
+    assert calls.count("api /repos/owner/project/pulls/17") == 2
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_still_checks_the_head_after_an_unverified_authorization(rerun):
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)), pull_request=_pull_request(state="closed"), pr_fail_first=1
+    )
+    assert result.returncode == 0, result.stderr
+    assert "closed or no longer has the reviewed head" in result.stdout
     assert _reruns(calls) == []
 
 
@@ -624,7 +676,7 @@ def test_companion_ignores_a_bot_that_did_not_dismiss_an_eligible_review(rerun, 
 
 
 @pytest.mark.parametrize("relay_created_at", ["", "not-a-time"])
-def test_companion_ignores_a_bot_relay_without_a_creation_time(rerun, relay_created_at):
+def test_companion_reruns_a_bot_relay_whose_dismissal_cannot_be_evaluated(rerun, relay_created_at):
     result, calls = rerun(
         runs=_runs(_run(1, 5)),
         actor="review-app[bot]",
@@ -633,22 +685,22 @@ def test_companion_ignores_a_bot_relay_without_a_creation_time(rerun, relay_crea
         relay_created_at=relay_created_at,
     )
     assert result.returncode == 0, result.stderr
-    assert _reruns(calls) == []
+    assert "::warning::Could not read the dismissed review" in result.stdout
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
 
 
-def test_companion_fails_closed_for_a_bot_when_events_are_unreadable(rerun):
+def test_companion_reruns_for_a_bot_when_the_issue_events_are_unreadable(rerun):
+    # Skipping here could leave a stale success after a dismissal. A re-run cannot make
+    # the policy pass wrongly, because the policy job reads the reviews itself.
     result, calls = rerun(
         runs=_runs(_run(1, 5)),
         actor="review-app[bot]",
         reviews=[_dismissed_approval()],
-        events=[_dismissed()],
         events_exit=1,
     )
     assert result.returncode == 0, result.stderr
     assert "::warning::Could not read the issue events" in result.stdout
-    assert "Re-run the Human approval policy run by hand" in result.stdout
-    assert _reruns(calls) == []
-    assert not any("actions/workflows" in call for call in calls)
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
 
 
 @pytest.fixture
