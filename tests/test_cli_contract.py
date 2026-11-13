@@ -140,7 +140,6 @@ EMITTED_NOT_DOCUMENTED: dict[str, set[str]] = {
         "conflicting_commit",
         "conflicting_files",
         "coverage_invalidated",
-        "fix_commits",
         "green_transferred",
         "inputs_invalidated",
         "local_tree_sha",

@@ -127,7 +127,9 @@ quiet while code verifies that no delivered unit disappears.
 A low- or medium-severity `auto_fix` finding does not make the stage red, but it still
 needs an explicit disposition before following the normal stage continuation. Use
 `fixed --commit <sha>` to register the repair, or `accepted --note <reason>` to record
-why the valid finding is not worth fixing. A green-stage repair changes the reviewed
+why the valid finding is not worth fixing. `--commit` cites the repair for the audit
+record; in isolated modes every commit in the validation worktree merges back in commit
+order, cited or not. A green-stage repair changes the reviewed
 snapshot and returns the run to review; a note-only disposition leaves it green.
 
 Always pass `--reason` when you dismiss or accept a finding, and when you abort a run.

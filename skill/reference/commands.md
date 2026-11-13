@@ -310,6 +310,11 @@ attestation note includes them. Review-command findings are redacted the same wa
   mode it is reachable from the validation worktree's current `HEAD`, descends from the
   reviewed head, and is not that head. Citing a commit that review already covered exits 3
   with `invalid_response`.
+- `--commit` names the repair for the finding's audit record (`fix_commit`). It does not
+  choose what merges back. In `reusable` or `strict` mode the run's `fix_commits` is every
+  commit from the reviewed head to the validation worktree's `HEAD`, in commit order,
+  including commits no response cites, such as a separate regression test. Responses may
+  arrive in any order.
 - `dismissed` and `accepted` require `--note` and refuse `--commit`: passing
   `--commit` with any action other than `fixed` exits 6 with `usage_error`, and the
   Python `respond` API raises `invalid_response`.
@@ -447,7 +452,8 @@ If a lint or test process is killed or times out outside the harness, its persis
 `*_RUNNING` state is recoverable. `stage run lint|test` is the legal retry from that state:
 it first records the interrupted process as a red attempt with exit code 125 and reason
 `interrupted`, then retries normally. The interrupted attempt counts toward `[stage]`
-`max_attempts`.
+`max_attempts`. A repair committed after the interruption is registered as a fix commit
+and returns the run to review, as after any red attempt.
 
 **A command that no-ops and exits 0 is indistinguishable from one that passed.**
 Pass/fail uses only the exit code because parsing output is brittle, but it assumes the command
@@ -469,8 +475,11 @@ a diff that touches tested code, suspect the command before trusting it.
 
 ### `agentic-preflight mergeback`
 In in-place mode, attests the already-verified current SHA without creating or
-cherry-picking a commit. The checkout must remain clean. In isolated modes, cherry-picks
-the fix commits onto the source branch; only paths those commits may overwrite are
+cherry-picking a commit. The checkout must remain clean. In isolated modes, first records
+the validated history, every commit from the reviewed head to the validation worktree's
+`HEAD`, as `fix_commits`, then cherry-picks it in commit order onto the source branch.
+Commits made after the last `respond` are included, because review, lint, and test
+validated them. Only paths those commits may overwrite are
 blocked, while unrelated tracked edits and untracked files are left alone. A dirty
 submodule on one of those paths blocks merge-back even when Git config ignores it.
 
