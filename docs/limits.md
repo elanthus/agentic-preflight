@@ -105,9 +105,9 @@ It is not a signature. Anyone with permission to update the notes ref can replac
 
 ## What a published note reveals
 
-`push` publishes the attestation note to the remote with the branch.
+`push` publishes the attestation notes of the commits it pushes to the remote with the branch.
 [Portable attestations](attestations-and-ci.md) lists every field.
-The note includes the full text of every finding and response note, and the commands that ran.
+The note includes the text of every finding and response note, after copied-file values are redacted, and the commands that ran.
 It includes the configuration from the repository file, which the repository already publishes.
 It leaves out the sections of the user configuration file, except `[diff]`.
 It records `[redacted user-level command]` in place of a command that depends on a user-level `[review]` or `[commands]` section.
