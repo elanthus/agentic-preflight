@@ -2,6 +2,9 @@
 
 Agentic Preflight supports Python 3.11, 3.12, and 3.13 on macOS 15 or newer, on Linux, and on Windows 10 or newer.
 Git 2.38 or newer is required.
+Repositories that use the SHA-256 object format are not supported.
+Run records and attestation notes hold only SHA-1 object IDs, so a run in such a repository fails before it is green, and no commit there can have a valid attestation.
+The pre-push hook blocks a branch push in such a repository with a message that says so.
 
 Windows support is native.
 It does not use WSL. It does not require a POSIX shell for ordinary use.
@@ -494,3 +497,12 @@ Invalid `mirror` and `hook_log` values and unknown keys in the repository sectio
 `mirror` and `hook_log` now accept only `true` and `false`, in either file. Earlier releases also accepted values such as `1`, `"yes"`, and `"on"`. Such a value is now an error that names the file.
 Attestation verification reads the protected base's `[telemetry]` section by the same rule, so a `path` there no longer fails verification.
 No configuration digest, snapshot, fingerprint, or attestation changes, because none of them contains `[telemetry]`.
+
+## Unreleased: the pre-push hook recognizes the SHA-256 zero object ID
+
+`hook-check` now treats Git's 64-character zero object ID as a ref that does not exist, as it treats the 40-character one.
+In a SHA-256 repository it no longer blocks every new branch as a force push.
+It blocks a branch push that needs an attestation with the reason code `missing_attestation` and a message that says SHA-256 repositories are not supported.
+Deletions, tags, the attestation notes ref, evidence refs, and pushes of a commit the remote already has are allowed as in a SHA-1 repository.
+The exit codes, the reason codes, and the hook decision lines are unchanged. Behavior in a SHA-1 repository is unchanged.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.

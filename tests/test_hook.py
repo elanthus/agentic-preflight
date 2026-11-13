@@ -30,6 +30,8 @@ def hook_check(repo, stdin_text, extra_env=None):
 
 
 ZERO = "0" * 40
+#: Git's zero object ID in a repository that uses the SHA-256 object format.
+ZERO_SHA256 = "0" * 64
 
 
 # -- init -------------------------------------------------------------------
@@ -555,3 +557,82 @@ def test_a_new_branch_commit_without_attestation_is_still_blocked():
     )
     assert decision.allowed is False
     assert decision.reason == hook.MISSING_ATTESTATION
+
+
+# -- SHA-256 repositories -----------------------------------------------------
+
+
+@pytest.mark.parametrize("value", [ZERO, ZERO_SHA256])
+def test_the_zero_id_of_either_object_format_is_recognized(value):
+    assert hook.is_zero_id(value) is True
+
+
+@pytest.mark.parametrize("value", ["a" * 64, "0" * 39, "0" * 63, "0" * 65, ""])
+def test_other_values_are_not_the_zero_id(value):
+    assert hook.is_zero_id(value) is False
+
+
+def test_a_new_branch_in_a_sha256_repository_is_not_reported_as_a_force_push():
+    """Git sends a 64-character zero ID for a remote ref that does not exist yet."""
+    update = hook.RefUpdate("refs/heads/feature/x", "a" * 64, "refs/heads/feature/x", ZERO_SHA256)
+
+    def unexpected_ancestry(*_):
+        pytest.fail("A new branch has no remote tip to compare")
+
+    decision = hook.evaluate(
+        [update], is_ancestor=unexpected_ancestry, has_attestation=lambda _: False
+    )
+    assert decision.allowed is False
+    assert decision.reason == hook.MISSING_ATTESTATION
+    assert decision.updates[0].force is False
+    assert "force push" not in decision.message
+    assert "SHA-256 repositories are not supported" in decision.message
+
+
+def test_a_deletion_in_a_sha256_repository_is_allowed():
+    update = hook.RefUpdate("(delete)", ZERO_SHA256, "refs/heads/feature/x", "a" * 64)
+    decision = hook.evaluate(
+        [update], is_ancestor=lambda *_: False, has_attestation=lambda _: False
+    )
+    assert decision.allowed is True
+    assert decision.reason == hook.DELETION
+
+
+def _sha256_repo_with_remote(tmp_path: Path) -> Path:
+    remote = tmp_path / "remote.git"
+    git("init", "--bare", "-b", "main", "--object-format=sha256", str(remote), cwd=tmp_path)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git("init", "-b", "main", "--object-format=sha256", cwd=repo)
+    write(repo, "README.md", "# demo\n")
+    git("add", "-A", cwd=repo)
+    git("commit", "-m", "base", cwd=repo)
+    git("remote", "add", "origin", str(remote), cwd=repo)
+    git("push", "origin", "main", "main:refs/heads/stale", cwd=repo)
+    return repo
+
+
+def test_a_real_push_of_a_new_branch_in_a_sha256_repository_says_it_is_unsupported(tmp_path):
+    repo = _sha256_repo_with_remote(tmp_path)
+    ScriptedAgent(repo).run("init")
+    git("switch", "-c", "feature/x", cwd=repo)
+    write(repo, "src/app.py", "x = 1\n")
+    git("add", "-A", cwd=repo)
+    git("commit", "-m", "feature", cwd=repo)
+
+    result = subprocess.run(
+        ["git", "push", "origin", "feature/x"], cwd=repo, capture_output=True, text=True
+    )
+    assert result.returncode != 0
+    assert "push blocked" in result.stderr
+    assert "SHA-256 repositories are not supported" in result.stderr
+    assert "force push" not in result.stderr
+
+
+def test_a_real_branch_deletion_in_a_sha256_repository_is_allowed(tmp_path):
+    repo = _sha256_repo_with_remote(tmp_path)
+    ScriptedAgent(repo).run("init")
+    result = subprocess.run(
+        ["git", "push", "origin", "--delete", "stale"], cwd=repo, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr

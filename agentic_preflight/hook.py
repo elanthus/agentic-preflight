@@ -23,7 +23,19 @@ from . import gitx
 from .attestation import NOTES_REF
 from .evidence_transport import REF_PREFIX
 
-ZERO_SHA = "0" * 40
+#: Git's zero object ID, which names no object: 40 zeros in a SHA-1 repository and
+#: 64 in a SHA-256 one. Git sends it for a remote ref that does not exist yet and
+#: for the local side of a deletion.
+ZERO_IDS = frozenset({"0" * 40, "0" * 64})
+
+#: The length of a SHA-256 object ID in hexadecimal.
+SHA256_ID_LENGTH = 64
+
+
+def is_zero_id(value: str) -> bool:
+    """Whether ``value`` is Git's zero object ID in either object format."""
+    return value in ZERO_IDS
+
 
 #: The environment variable through which the installed hook passes Git's first
 #: pre-push argument, the remote name, to ``hook-check``. An environment variable
@@ -228,7 +240,7 @@ def evaluate(
             outcomes.append(UpdateOutcome(update, exemption, None))
             continue
 
-        forced = update.remote_sha != ZERO_SHA and not is_ancestor(
+        forced = not is_zero_id(update.remote_sha) and not is_ancestor(
             update.remote_sha, update.local_sha
         )
         if forced and not allow_force_push:
@@ -249,9 +261,29 @@ def evaluate(
             )
 
         # The remote already has this commit, so the push publishes nothing new.
-        if update.remote_sha != ZERO_SHA and is_ancestor(update.local_sha, update.remote_sha):
+        if not is_zero_id(update.remote_sha) and is_ancestor(update.local_sha, update.remote_sha):
             outcomes.append(UpdateOutcome(update, ALREADY_ON_REMOTE, forced))
             continue
+
+        # Run records and attestation notes hold only SHA-1 object IDs, so no
+        # commit in a SHA-256 repository can have a valid note. Say so, rather
+        # than send the agent to a run that cannot finish.
+        if len(update.local_sha) == SHA256_ID_LENGTH:
+            outcomes.append(UpdateOutcome(update, MISSING_ATTESTATION, forced))
+            return _blocked(
+                MISSING_ATTESTATION,
+                _block_message(
+                    update.local_sha,
+                    headline="SHA-256 repositories are not supported",
+                    reason=(
+                        "attestation notes hold only SHA-1 object IDs, so no commit in a "
+                        "SHA-256 repository can have a valid one"
+                    ),
+                    fix="none in this version; stop and tell the user (see COMPATIBILITY.md)",
+                ),
+                outcomes,
+                updates[index + 1 :],
+            )
 
         if not has_attestation(update.local_sha):
             outcomes.append(UpdateOutcome(update, MISSING_ATTESTATION, forced))

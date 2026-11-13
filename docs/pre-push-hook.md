@@ -24,6 +24,11 @@ Original execution commits travel as data under `refs/agentic-preflight/evidence
 Updates to this destination namespace are exempt, like tags. This includes replacement and deletion.
 A push of an evidence object to a branch still requires valid publication evidence.
 
+Repositories that use the SHA-256 object format are not supported.
+In such a repository the hook blocks a branch update that needs an attestation, and its message says that SHA-256 repositories are not supported.
+It never reports a new branch there as a force push. The exempt updates above are still allowed.
+See [COMPATIBILITY.md](../COMPATIBILITY.md).
+
 ## Failure behavior
 
 The hook never uses the network. It never changes the repository.
