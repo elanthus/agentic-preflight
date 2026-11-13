@@ -105,9 +105,9 @@ It is not a signature. Anyone with permission to update the notes ref can replac
 
 ## What a published note reveals
 
-`push` publishes the attestation note to the remote with the branch.
+`push` publishes the attestation notes of the commits it pushes to the remote with the branch.
 [Portable attestations](attestations-and-ci.md) lists every field.
-The note includes the full text of every finding and response note, and the commands that ran.
+The note includes the text of every finding and response note, after copied-file values are redacted, and the commands that ran.
 It includes the configuration from the repository file, which the repository already publishes.
 It leaves out the sections of the user configuration file, except `[diff]`.
 It records `[redacted user-level command]` in place of a command that depends on a user-level `[review]` or `[commands]` section.
@@ -126,9 +126,20 @@ Redaction narrows what the note can reveal. It is not a secret scanner:
 
 Notes that earlier releases wrote keep whatever they contained.
 A run that an earlier release started cannot publish: `mergeback`, `gate`, and `push` refuse it because the run did not record which sections came from the user file. Abort it and start a fresh run.
-Other notes in the local notes ref, such as one an earlier release wrote for a run you later aborted, are pushed with the whole ref. Remove them before you push if they may hold user-level configuration.
+Other notes in the local notes ref, such as one an earlier release wrote for a run you later aborted, are published only when `push` publishes their commit, or when someone pushes the whole ref by hand, as the next section describes. Remove them before then if they may hold user-level configuration.
 Evidence reuse refuses evidence from a record without user-level sections, such as one that an earlier release wrote, unless its configuration snapshot matches what the current run publishes.
 Rewriting a published note does not remove it from clones or forks that already fetched it.
+
+## Published notes are visible to everyone who can fetch them
+
+A note holds the branch name, the finding titles and details, the file paths, and the published configuration snapshot described above.
+`push` publishes the notes of the commits it pushes, and the gate lists them in `published_notes`.
+Notes on commits that were never pushed stay in the local `refs/notes/agentic-preflight`.
+The scope is per commit, not per branch. A pushed commit's note is published even when a run on another branch wrote it, for example an aborted branch that pointed at the same commit, and that note names the other branch.
+This scope covers `push` and the manual gate command only.
+A hand-run `git push origin refs/notes/agentic-preflight` sends every local note, including those of unpushed commits.
+Releases before this scoping pushed the whole local notes ref, so the remote may already hold such notes.
+Removing them requires rewriting the remote notes ref.
 
 ## Attestations are not signatures
 

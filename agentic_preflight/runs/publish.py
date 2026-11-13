@@ -14,6 +14,7 @@ from ..cli_contract import FinishData, GateData, PushData
 from ..envelope import Envelope
 from ..errors import AttestationFailed, ManualGate, NeedsConfirm
 from ..machine import Action, State
+from ..models import Attestation, RunDoc
 from ._session import (
     Session,
     _apply,
@@ -28,18 +29,80 @@ from ._session import (
 )
 from .mergeback import _remote_for, require_known_provenance
 
+#: Stands for the notes commit that ``push`` builds when it publishes. It is not
+#: a ref, so a summary that shows it cannot be run as a literal command.
+NOTES_COMMIT_PLACEHOLDER = "<notes-commit>"
 
-def _push_refspecs(head_sha: str, branch: str) -> list[str]:
-    return [f"{head_sha}:refs/heads/{branch}", f"{NOTES_REF}:{NOTES_REF}"]
+#: Stands for the remote notes tip that ``push`` fetches and builds on.
+NOTES_TIP_PLACEHOLDER = "<fetched-notes-tip>"
+
+#: How many times ``push`` builds its notes commit when another clone updates
+#: the remote notes ref between the fetch and the push.
+_NOTES_PUBLISH_ATTEMPTS = 3
 
 
-def _push_commands(evidence_refspecs: list[str], refspecs: list[str]) -> list[str]:
+def _push_refspecs(
+    head_sha: str, branch: str, notes_source: str | None = NOTES_COMMIT_PLACEHOLDER
+) -> list[str]:
+    """Push the attested head and, when there is one, the notes commit to publish.
+
+    The notes source is never the local notes ref: that ref also holds notes for
+    commits that were never pushed.
+    """
+    refspecs = [f"{head_sha}:refs/heads/{branch}"]
+    if notes_source is not None:
+        refspecs.append(f"{notes_source}:{NOTES_REF}")
+    return refspecs
+
+
+def _pushed_commits(session: Session, run: RunDoc) -> list[str]:
+    """The commits this run publishes, oldest first; the gate lists the same range."""
+    return gitx.commits_between(session.repo_root, run.merge_base_sha, run.head_sha)
+
+
+def _published_notes(session: Session, commits: list[str]) -> list[str]:
+    """The commits among ``commits`` that have a local note publication may send.
+
+    Without contacting the remote this is an upper bound: ``push`` leaves out a
+    note the remote already holds unchanged.
+    """
+    local = gitx.note_blobs(session.repo_root, NOTES_REF)
+    return [sha for sha in commits if sha in local]
+
+
+def _notes_lease(expected: str | None) -> str:
+    """Require the remote notes ref to still be the tip the notes commit was built on.
+
+    An empty expectation requires the ref to be absent. Without the lease a
+    remote ref deleted or rewound after the fetch would be recreated, or moved
+    forward again, by the staged commit.
+    """
+    return f"--force-with-lease={NOTES_REF}:{expected or ''}"
+
+
+def _push_args(refspecs: list[str], notes_lease: str | None) -> list[str]:
+    """Arguments for the atomic branch and notes push."""
+    return ["push", "--atomic", *([notes_lease] if notes_lease else []), "origin", *refspecs]
+
+
+def _push_commands(
+    evidence_refspecs: list[str], refspecs: list[str], notes_lease: str | None = None
+) -> list[str]:
     """Describe the same dependency-first atomic pushes used for publication."""
-    return [
-        shlex.join(["git", "push", "--atomic", "origin", *group])
-        for group in (evidence_refspecs, refspecs)
-        if group
-    ]
+    commands = []
+    if evidence_refspecs:
+        commands.append(shlex.join(["git", "push", "--atomic", "origin", *evidence_refspecs]))
+    if refspecs:
+        commands.append(shlex.join(["git", *_push_args(refspecs, notes_lease)]))
+    return commands
+
+
+def _attestation_or_none(session: Session, sha: str) -> Attestation | None:
+    """The head's stored attestation, or ``None`` when it is missing or unreadable."""
+    try:
+        return attestationmod.read(session.repo_root, sha)
+    except attestationmod.InvalidAttestation:
+        return None
 
 
 def gate(session: Session) -> Envelope:
@@ -50,9 +113,10 @@ def gate(session: Session) -> Envelope:
     require_known_provenance(run, command="gate")
 
     _remote_for(session, run)
+    pushed_commits = _pushed_commits(session, run)
     commits = [
         {"sha": sha, "subject": gitx.commit_subject(session.repo_root, sha)}
-        for sha in gitx.commits_between(session.repo_root, run.merge_base_sha, run.head_sha)
+        for sha in pushed_commits
     ]
     changed_files = gitx.changed_files(
         session.repo_root,
@@ -66,10 +130,36 @@ def gate(session: Session) -> Envelope:
         portable = None
     if portable is not None:
         assessment = riskmod.include_attested_findings(assessment, portable.findings_summary)
-    refspecs = _push_refspecs(run.head_sha, run.branch)
     evidence_refspecs = []
     if portable is not None:
         evidence_refspecs = evidence_transport.refspecs(portable)
+    notes_source: str | None
+    if session.config.gate.mode == "manual":
+        # A person runs the manual command, so it must name a real notes commit.
+        # Build it now on the remote notes tip. No ref keeps it afterwards. If the
+        # remote notes move first, or Git prunes the unreferenced commit, the
+        # atomic push is rejected and publishes nothing; the person reruns gate.
+        with session.store.resource("notes"):
+            gitx.sweep_notes_staging_refs(session.repo_root)
+            before = _attestation_or_none(session, run.head_sha)
+            remote_tip = gitx.fetch_notes(session.repo_root, "origin", NOTES_REF)
+            if _attestation_or_none(session, run.head_sha) != before:
+                raise AttestationFailed(
+                    "Attestation changed during notes synchronization; refresh before publication",
+                    next_command="agentic-preflight status",
+                )
+            with gitx.notes_publication(
+                session.repo_root, NOTES_REF, remote_tip, pushed_commits
+            ) as (staging, published_notes):
+                notes_source = (
+                    None if staging is None else gitx.rev_parse(session.repo_root, staging)
+                )
+        notes_lease = None if notes_source is None else _notes_lease(remote_tip)
+    else:
+        published_notes = _published_notes(session, pushed_commits)
+        notes_source = NOTES_COMMIT_PLACEHOLDER if published_notes else None
+        notes_lease = None if notes_source is None else _notes_lease(NOTES_TIP_PLACEHOLDER)
+    refspecs = _push_refspecs(run.head_sha, run.branch, notes_source)
     if run.risk != assessment or run.changed_files != changed_files:
         with session.store.transaction(run.run_id) as doc:
             doc.changed_files = changed_files
@@ -84,6 +174,7 @@ def gate(session: Session) -> Envelope:
         automated_cleanup=session.config.pr.automated_cleanup,
         approval_mode=session.config.approval.mode,
         commits=commits,
+        published_notes=published_notes,
         risk=assessment.model_dump(mode="json"),
     )
 
@@ -94,7 +185,9 @@ def gate(session: Session) -> Envelope:
             run_id=run.run_id,
             data={
                 **summary.as_dict(),
-                "manual_command": " && ".join(_push_commands(evidence_refspecs, refspecs)),
+                "manual_command": " && ".join(
+                    _push_commands(evidence_refspecs, refspecs, notes_lease)
+                ),
             },
             next_instruction=(
                 "Show the user this summary and data.manual_command, then stop; the user "
@@ -158,7 +251,7 @@ def gate(session: Session) -> Envelope:
         data=GateData.model_validate(
             {
                 **summary.as_dict(),
-                "push_commands": _push_commands(evidence_refspecs, refspecs),
+                "push_commands": _push_commands(evidence_refspecs, refspecs, notes_lease),
             }
         ),
         next_instruction=(
@@ -196,15 +289,20 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
         portable = attestationmod.verify(session.repo_root, run.head_sha, purpose="publish")
     except (attestationmod.InvalidAttestation, gitx.GitError) as exc:
         raise AttestationFailed(str(exc), next_command="agentic-preflight status") from exc
-    refspecs = _push_refspecs(run.head_sha, run.branch)
     evidence_refspecs = evidence_transport.refspecs(portable)
+    pushed_commits = _pushed_commits(session, run)
 
     if dry_run:
+        candidates = _published_notes(session, pushed_commits)
+        notes_source = NOTES_COMMIT_PLACEHOLDER if candidates else None
+        refspecs = _push_refspecs(run.head_sha, run.branch, notes_source)
+        notes_lease = None if notes_source is None else _notes_lease(NOTES_TIP_PLACEHOLDER)
         return _envelope_for(
             run,
             data=PushData(
                 dry_run=True,
-                would_push=" && ".join(_push_commands(evidence_refspecs, refspecs)),
+                would_push=" && ".join(_push_commands(evidence_refspecs, refspecs, notes_lease)),
+                published_notes=candidates,
                 branch=run.branch,
                 base_ref=run.base_ref,
                 pr_mode=session.config.pr.mode,
@@ -216,31 +314,7 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
         )
 
     with session.store.resource("notes"):
-        gitx.fetch_notes(session.repo_root, "origin", NOTES_REF)
-        try:
-            synchronized = attestationmod.read(session.repo_root, run.head_sha)
-        except attestationmod.InvalidAttestation as exc:
-            raise AttestationFailed(
-                "Attestation changed during notes synchronization; refresh before publication",
-                next_command="agentic-preflight status",
-            ) from exc
-        if synchronized != portable:
-            raise AttestationFailed(
-                "Attestation changed during notes synchronization; refresh before publication",
-                next_command="agentic-preflight status",
-            )
-        # Publish dependencies before exposing a note that requires them. Some
-        # servers reject hidden refs before processing the atomic ref transaction;
-        # a combined push can otherwise expose the branch despite that rejection.
-        if evidence_refspecs:
-            gitx.run(session.repo_root, "push", "--atomic", "origin", *evidence_refspecs)
-        gitx.run(
-            session.repo_root,
-            "push",
-            "--atomic",
-            "origin",
-            *refspecs,
-        )
+        published_notes = _publish(session, run, portable, evidence_refspecs, pushed_commits)
 
     with session.store.transaction(run.run_id) as doc:
         doc.pushed_sha = run.head_sha
@@ -259,8 +333,82 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
             pr_mode=session.config.pr.mode,
             automated_cleanup=session.config.pr.automated_cleanup,
             dry_run=False,
+            published_notes=published_notes,
         ),
     )
+
+
+def _synchronize_notes(session: Session, run: RunDoc, portable: Attestation) -> str | None:
+    """Fetch the remote notes, confirm the head's attestation survived, return the tip."""
+    remote_tip = gitx.fetch_notes(session.repo_root, "origin", NOTES_REF)
+    try:
+        synchronized = attestationmod.read(session.repo_root, run.head_sha)
+    except attestationmod.InvalidAttestation as exc:
+        raise AttestationFailed(
+            "Attestation changed during notes synchronization; refresh before publication",
+            next_command="agentic-preflight status",
+        ) from exc
+    if synchronized != portable:
+        raise AttestationFailed(
+            "Attestation changed during notes synchronization; refresh before publication",
+            next_command="agentic-preflight status",
+        )
+    return remote_tip
+
+
+def _publish(
+    session: Session,
+    run: RunDoc,
+    portable: Attestation,
+    evidence_refspecs: list[str],
+    pushed_commits: list[str],
+) -> list[str]:
+    """Push the branch with a notes commit that holds only the pushed commits' notes.
+
+    The notes commit is the remote notes tip plus the local notes of
+    ``pushed_commits``, so notes on commits that stay local are never sent. If
+    another clone moves the remote notes between the fetch and the push, the
+    atomic push is rejected as a non-fast-forward and nothing lands; the notes
+    commit is then rebuilt on the new tip, which keeps the other clone's notes.
+    A lease on the fetched tip also rejects a remote ref that was deleted or
+    rewound in the meantime, so the rebuild honours that change instead of
+    undoing it. After a successful push the published commit is folded into the local notes
+    ref. Return the commits whose note was added or changed on the remote.
+    """
+    gitx.sweep_notes_staging_refs(session.repo_root)
+    remote_tip = _synchronize_notes(session, run, portable)
+    # Publish dependencies before exposing a note that requires them. Some
+    # servers reject hidden refs before processing the atomic ref transaction;
+    # a combined push can otherwise expose the branch despite that rejection.
+    if evidence_refspecs:
+        gitx.run(session.repo_root, "push", "--atomic", "origin", *evidence_refspecs)
+    attempt = 1
+    while True:
+        with gitx.notes_publication(session.repo_root, NOTES_REF, remote_tip, pushed_commits) as (
+            staging,
+            published_notes,
+        ):
+            args = _push_args(
+                _push_refspecs(run.head_sha, run.branch, staging),
+                None if staging is None else _notes_lease(remote_tip),
+            )
+            result = gitx.run(session.repo_root, *args, check=False)
+            if result.returncode == 0:
+                if staging is not None:
+                    gitx.fold_published_notes(session.repo_root, NOTES_REF, staging)
+                return published_notes
+        push_error = gitx.GitError(args, result.returncode, result.stderr)
+        if attempt >= _NOTES_PUBLISH_ATTEMPTS:
+            raise push_error
+        try:
+            current_tip = gitx.remote_ref_tip(session.repo_root, "origin", NOTES_REF)
+        except gitx.GitError as exc:
+            # Report why the push failed, not why the follow-up query failed.
+            raise push_error from exc
+        if current_tip == remote_tip:
+            raise push_error
+        attempt += 1
+        remote_tip = _synchronize_notes(session, run, portable)
 
 
 def finish(session: Session) -> Envelope:
@@ -316,6 +464,7 @@ class GateSummary:
     automated_cleanup: bool
     approval_mode: str
     commits: list[dict] = field(default_factory=list)
+    published_notes: list[str] = field(default_factory=list)
     risk: dict = field(default_factory=dict)
     token: str = ""
 

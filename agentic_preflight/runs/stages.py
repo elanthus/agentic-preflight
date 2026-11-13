@@ -5,7 +5,7 @@ from __future__ import annotations
 import shlex
 from typing import NoReturn, TypedDict
 
-from .. import gitx, worktree
+from .. import gitx
 from ..attestation import output_digest
 from ..cli_contract import LogsData, StageRunData
 from ..envelope import Envelope
@@ -34,6 +34,7 @@ from ._session import (
     _start_command,
 )
 from ._shell import _run_protected, _withheld_message
+from .fix_commits import derive_fix_commits, record_fix_commits
 from .review import _skip_test_if_not_applicable
 from .review_coverage import invalidate_stage_result, reopen_if_stale
 from .stage_baseline import check_baseline
@@ -90,7 +91,10 @@ def _recover_interrupted_stage(
         entry.output_sha256 = None
         entry.log_path = None
         entry.finished_at = _now()
-        entry.head_sha = gitx.rev_parse(_require_worktree(doc), "HEAD")
+        # Keep the head the attempt began from, so a repair committed after the
+        # interruption is registered rather than mistaken for the tested tree.
+        if entry.head_sha is None:
+            entry.head_sha = gitx.rev_parse(_require_worktree(doc), "HEAD")
         doc.stages[stage] = entry
         _apply(doc, spec["failed"])
         run = doc
@@ -130,13 +134,9 @@ def _register_stage_fix_commits(
                     producer=run.producer,
                 ),
             )
-        commits = gitx.commits_between(wt, record_entry.head_sha, current_head)
-        for commit in commits:
-            worktree.assert_commit_is_clean_of(wt, commit, run.copied_files)
+        derived = derive_fix_commits(session, run)
         with session.store.transaction(run.run_id) as doc:
-            for commit in commits:
-                if commit not in doc.fix_commits:
-                    doc.fix_commits.append(commit)
+            commits = record_fix_commits(doc, derived)
             entry = doc.stages.get(stage) or StageRecord()
             entry.head_sha = None
             doc.stages[stage] = entry
@@ -343,7 +343,9 @@ def run_stage(
     stage = Stage(stage_name)
     record_entry = run.stages.get(stage) or StageRecord()
     accepting_repair = (
-        _is_in_place(run) and run.state is spec["red"] and record_entry.head_sha is not None
+        _is_in_place(run)
+        and run.state in (spec["red"], spec["running"])
+        and record_entry.head_sha is not None
     )
     if not accepting_repair:
         _assert_fresh(session, run)
@@ -394,6 +396,10 @@ def run_stage(
         with session.store.transaction(run.run_id) as doc:
             _apply(doc, spec["retry"] if doc.state is spec["red"] else spec["run"])
             doc.setup_failure = None
+            # Interrupted-stage recovery compares this with the head it finds.
+            entry = doc.stages.get(stage) or StageRecord()
+            entry.head_sha = gitx.rev_parse(worktree_path, "HEAD")
+            doc.stages[stage] = entry
             run = doc
         baseline_red = (
             check_baseline(session, run, stage, resolved, failure_action=spec["failed"])

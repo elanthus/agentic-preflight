@@ -313,6 +313,13 @@ attestation note includes them. Review-command findings are redacted the same wa
   mode it is reachable from the validation worktree's current `HEAD`, descends from the
   reviewed head, and is not that head. Citing a commit that review already covered exits 3
   with `invalid_response`.
+- `--commit` names the repair for the finding's audit record (`fix_commit`). It does not
+  choose what merges back. In `reusable` or `strict` mode the run's `fix_commits` is every
+  commit from the reviewed head to the validation worktree's `HEAD`, in commit order,
+  including commits no response cites, such as a separate regression test. Responses may
+  arrive in any order. Empty commits are left out. A merge commit in that history exits 3
+  with `nonlinear_fix_history` and names the merge commits; rebase the validation
+  worktree onto the reviewed head, as the recovery command shows, and respond again.
 - `dismissed` and `accepted` require `--note` and refuse `--commit`: passing
   `--commit` with any action other than `fixed` exits 6 with `usage_error`, and the
   Python `respond` API raises `invalid_response`.
@@ -450,7 +457,10 @@ If a lint or test process is killed or times out outside the harness, its persis
 `*_RUNNING` state is recoverable. `stage run lint|test` is the legal retry from that state:
 it first records the interrupted process as a red attempt with exit code 125 and reason
 `interrupted`, then retries normally. The interrupted attempt counts toward `[stage]`
-`max_attempts`.
+`max_attempts`. A repair committed after the interruption is registered as a fix commit
+and returns the run to review, as after any red attempt. In `reusable` or `strict` mode,
+registering a repair after a red or interrupted attempt exits 3 with
+`nonlinear_fix_history` when the validation history holds a merge commit.
 
 **A command that no-ops and exits 0 is indistinguishable from one that passed.**
 Pass/fail uses only the exit code because parsing output is brittle, but it assumes the command
@@ -472,8 +482,12 @@ a diff that touches tested code, suspect the command before trusting it.
 
 ### `agentic-preflight mergeback`
 In in-place mode, attests the already-verified current SHA without creating or
-cherry-picking a commit. The checkout must remain clean. In isolated modes, cherry-picks
-the fix commits onto the source branch; only paths those commits may overwrite are
+cherry-picking a commit. The checkout must remain clean. In isolated modes, first records
+the validated history, every commit from the reviewed head to the validation worktree's
+`HEAD`, as `fix_commits`, then cherry-picks it in commit order onto the source branch.
+Commits made after the last `respond` are included, because review, lint, and test
+validated them. Empty commits are left out, and a merge commit exits 3 with
+`nonlinear_fix_history` before the source branch changes. Only paths those commits may overwrite are
 blocked, while unrelated tracked edits and untracked files are left alone. A dirty
 submodule on one of those paths blocks merge-back even when Git config ignores it.
 
@@ -509,21 +523,47 @@ only the unchanged source or the completed verified tree can resume a pending at
 
 ### `agentic-preflight gate`
 Mints a confirmation token and summarises the remote, refspec, branch, and commits.
-The summary also includes the configured PR mode, `automated_cleanup` setting, and
+`data.published_notes` lists the listed commits that carry a local attestation note:
+the only notes the push can publish. Outside manual mode the gate does not contact the remote, so a note the
+remote already holds unchanged is listed here but not sent again. Notes on any other local
+commit, such as an aborted or never-pushed branch, stay local. In manual mode the list is
+exact: only the notes that the built commit adds or changes. The summary also includes the configured PR mode, `automated_cleanup` setting, and
 deterministic risk classification and verdict. Whether the agent may push without
 asking follows
 [push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/configuration.md#push-and-pull-request-authorization).
 Follow the skill's [PR lifecycle and cleanup](../SKILL.md#pull-request-lifecycle-and-cleanup)
 and [merge approval guidance](../SKILL.md#escalation-etiquette) for the returned policy.
 Only `[gate] mode = "manual"` exits 4 and puts the literal `git push` command in
-`data.manual_command` for a person to run; the agent must not run it.
+`data.manual_command` for a person to run; the agent must not run it. In manual mode
+the gate fetches the remote notes and builds the notes commit to publish, so the command
+names that commit's SHA and leases the remote notes ref to the tip the gate fetched
+(`--force-with-lease`; an empty expectation means the ref must not exist). If the fetch
+changed the head's stored attestation, the gate exits 2 with `attestation_failed`. No ref
+keeps that commit, so run the command promptly. If the remote notes change before it runs,
+including a deletion or a rewind, or Git has since pruned the unreferenced commit, the
+atomic push is rejected and publishes nothing; run `gate` again.
 
 ### `agentic-preflight push --confirm TOKEN [--dry-run]`
 Requires the token from `gate`. It first publishes the original-commit refs required
 by attestation evidence under `refs/agentic-preflight/evidence/<SHA>`, then atomically pushes
-the attested head SHA to `refs/heads/<branch>` and `refs/notes/agentic-preflight`. A dependency publication failure stops
+the attested head SHA to `refs/heads/<branch>` and a notes commit to `refs/notes/agentic-preflight`.
+It never pushes the local notes ref. It builds the notes commit in a temporary ref from the
+remote notes tip plus the local notes of the pushed commits, the same range the gate lists, so
+the remote keeps other clones' notes and receives no other local note. `push` works out that set
+again when it builds. When another clone updates the remote
+notes between the fetch and the push, the atomic push is rejected without landing anything, and
+`push` rebuilds the notes commit on the new tip, up to three attempts in all. The push leases
+the remote notes ref to the fetched tip, so a ref that another writer deleted or rewound in the
+meantime is also rejected and rebuilt on, never recreated or moved forward again. If the push fails
+for another reason, it reports Git's push error. After a successful push it merges the published
+notes commit into the local notes ref, keeping local notes where they differ, so the next notes
+fetch extends local history. `data.published_notes` names the SHAs whose note the push added to or
+changed on the remote. On a dry run, which does not contact the remote, it lists every pushed
+commit that carries a local note, as the gate does. Publication first deletes any temporary notes
+ref that an interrupted command left behind. A dependency publication failure stops
 before the branch push; retained evidence refs are safe to retry. Gate summaries, manual commands, and
-dry runs disclose the complete refspecs. These evidence refs survive ordinary
+dry runs disclose the complete refspecs; outside manual mode they show the notes commit as
+`<notes-commit>` and the leased tip as `<fetched-notes-tip>`, because `push` fetches and builds them. These evidence refs survive ordinary
 run/worktree cleanup. **Require user authorization before running this**, as described
 in the authorization rule linked under `gate`. The token is a non-secret, run-state nonce
 that prevents an accidental push; it is readable through `status`, grants no GitHub
@@ -589,6 +629,10 @@ other value exits 6 with `usage_error`. The `aborted` event records `forced`, `r
 (`null` when absent), and `aborted_from_state`, the state that the transition left.
 
 ### `agentic-preflight gc [--force]`
+Also deletes temporary notes refs (`refs/notes/agentic-preflight-publish-*` and
+`refs/agentic-preflight/fetched-notes-*`) that an interrupted `push`, `gate`, or `start`
+left behind.
+
 Unreadable run records are retained and reported individually in `data.retained`, with
 their run ID, path, reason, and diagnostic. Collection continues for other eligible runs.
 Read failures use `unreadable` for encoding or I/O failures and `invalid` for JSON,
