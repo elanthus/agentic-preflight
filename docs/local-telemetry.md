@@ -443,7 +443,7 @@ The log cannot change either of them.
 | `no_updates` | yes | Git sent no update. Git runs the hook this way when the remote is already up to date. |
 | `config_unavailable` | yes | The hook could not load the repository or its configuration. It allowed the push without a check. |
 | `force_push_refused` | no | An update rewrites history that the remote has, and `[hook] allow_force_push` is false. |
-| `missing_attestation` | no | The new tip of an update has no valid attestation note for publication. |
+| `missing_attestation` | no | The new tip of an update has no valid attestation note for publication. In a SHA-256 repository, which is not supported, this is the reason for every branch update that needs an attestation, including one that rewrites history. |
 
 The first update that blocks the push sets the reason.
 The hook does not examine the updates after it, so their `force` is `null`.
