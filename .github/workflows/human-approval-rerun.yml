@@ -181,10 +181,18 @@ jobs:
             case "$review_status" in
               0) ;;
               1)
+                permission_error="$RUNNER_TEMP/permission-error.txt"
                 if ! permission=$(gh api \
                   "/repos/$GITHUB_REPOSITORY/collaborators/$TRIGGERING_ACTOR/permission" \
-                  --jq '.permission'); then
-                  authorize_unverified "the repository permission of $TRIGGERING_ACTOR"
+                  --jq '.permission' 2> "$permission_error"); then
+                  # A 404 is a definite answer: no such collaborator or user. Any other
+                  # failure, such as a rate limit or a server error, is a failed lookup.
+                  if grep -q '(HTTP 404)' "$permission_error"; then
+                    permission=none
+                  else
+                    cat "$permission_error" >&2
+                    authorize_unverified "the repository permission of $TRIGGERING_ACTOR"
+                  fi
                 fi
                 case "$permission" in
                   admin | write) ;;

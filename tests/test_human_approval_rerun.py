@@ -123,6 +123,7 @@ def rerun(tmp_path):
         reviews=None,
         permission="read",
         permission_exit=0,
+        permission_error="Server Error (HTTP 500)",
         events=None,
         events_exit=0,
         reviews_exit=0,
@@ -181,7 +182,10 @@ gh() {
           cat pr-fixture.json
           ;;
         */collaborators/*)
-          [ "$TEST_PERMISSION_EXIT" = 0 ] || return "$TEST_PERMISSION_EXIT"
+          if [ "$TEST_PERMISSION_EXIT" != 0 ]; then
+            echo "gh: $TEST_PERMISSION_ERROR" >&2
+            return "$TEST_PERMISSION_EXIT"
+          fi
           echo "$TEST_PERMISSION"
           ;;
         */actions/runs/*)
@@ -215,6 +219,7 @@ GITHUB_OUTPUT=github-output.txt
                 "TRIGGERING_ACTOR": actor,
                 "TEST_PERMISSION": permission,
                 "TEST_PERMISSION_EXIT": str(permission_exit),
+                "TEST_PERMISSION_ERROR": permission_error,
                 "TEST_EVENTS_EXIT": str(events_exit),
                 "TEST_REVIEWS_EXIT": str(reviews_exit),
                 "TEST_PR_FAIL_FIRST": str(pr_fail_first),
@@ -504,13 +509,33 @@ def test_companion_reruns_for_a_dismissal_by_a_user_with_write_access(rerun, per
     assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
 
 
-def test_companion_reruns_when_the_permission_lookup_fails(rerun):
+@pytest.mark.parametrize(
+    "error", ["Server Error (HTTP 500)", "API rate limit exceeded (HTTP 403)", "timeout"]
+)
+def test_companion_reruns_when_the_permission_lookup_fails(rerun, error):
     # A failed lookup must not leave a stale success after a dismissal; the re-run
     # policy job reads the reviews itself.
-    result, calls = rerun(runs=_runs(_run(1, 5)), actor="maintainer", permission_exit=1)
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)), actor="maintainer", permission_exit=1, permission_error=error
+    )
     assert result.returncode == 0, result.stderr
     assert "::warning::Could not read the repository permission of maintainer" in result.stdout
     assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_treats_a_permission_404_as_no_access(rerun):
+    # A 404 is a definite answer, so a drive-by reviewer is still not authorized.
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="drive-by",
+        reviews=[_review(), _review("drive-by", "NONE", body="spam")],
+        permission_exit=1,
+        permission_error="drive-by is not a user (HTTP 404)",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "::warning::" not in result.stdout
+    assert "drive-by is not an owner, member, or collaborator" in result.stdout
+    assert _reruns(calls) == []
 
 
 @pytest.mark.parametrize("actor", ["owner-login", "drive-by", "review-app[bot]"])
