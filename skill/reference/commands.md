@@ -373,25 +373,35 @@ medium-risk changes pass without a review. High-risk handling follows `[approval
 workflow separately rejects enabled GitHub auto-merge); `environment` exits 4 until
 `--environment-approved` is supplied by the trusted Environment job; and `peer_review`
 exits 4 until an eligible non-author has an `APPROVED` review for the current head or an
-equivalent earlier head. Later dismissal or changes-requested reviews revoke that
-person's peer approval. An earlier head is equivalent only when Git objects prove the
-branch content unchanged: the same changed paths and `git patch-id --stable` identity
-against the base, a tree equal to Git's clean merge of the approved head with the base
-commit the current head contains, identical clean merges of both heads into the base, and
-the same non-merge commit patch identities since the base. Peer and owner review results
+equivalent earlier head. Only each reviewer's latest decisive review counts, whichever
+head it was submitted on: later dismissal or changes-requested reviews on any head revoke
+that person's peer approval, a later approval of a head with different content replaces
+it, and returning the branch to an approved commit does not restore it. An earlier head
+is equivalent only when Git objects prove the branch content unchanged: the same changed
+paths and `git patch-id --stable` identity against the base, a tree equal to Git's clean
+merge of the approved head with the base commit the current head contains, identical
+clean merges of both heads into the base, and the same non-merge commit patch identities
+since the base. Peer and owner review results
 include `human_approvers`, `approved_head` (the commit the counted review was submitted
 on, or `null`), and `approval_carried` (`true` only when that commit is an earlier head).
 `--report-only` reports conditional Environment or peer-review state without failing, so
 a trusted workflow can dispatch the appropriate hosted job.
 A reviews file that is not UTF-8 JSON fails with `invalid_findings` (exit 3), as other
-JSON file inputs do.
+JSON file inputs do. A decisive review by an eligible reviewer without an integer `id`
+cannot be ordered, so the check fails closed with `attestation_failed` (exit 2). A
+revoking review still counts when its `commit_id` is `null`.
 
 `[approval] mode = "owner_review"` requires the configured `reviewer` GitHub login to
 approve the current head or an equivalent earlier head. An Approve review counts on
 another author's PR; on their own PR, a Comment review with trimmed body exactly
 `approved` counts. Conversation comments, reviews of heads with different content, bots,
-and other users do not count. Dismissal, changes requested on any head, or editing a
-self-review to other text revokes approval. The check counts the account, not the person:
+and other users do not count. As for peers, only the reviewer's latest decisive review
+counts, whichever head it was submitted on: dismissal, changes requested on any head,
+editing a self-review to other text, or a later self-review Comment with other text on
+any head revokes approval, and a later approval of a head with different content replaces
+it. On their own PR, a review-thread reply is an empty-body Comment review, so it also
+revokes the self-approval, even on another head; on another author's PR, the reviewer's
+comments do not revoke an Approve review. The check counts the account, not the person:
 a review posted with the reviewer's credentials counts as theirs, whoever posted it.
 
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`

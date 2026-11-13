@@ -19,6 +19,12 @@ jobs:
       - name: Read verified Dependabot metadata
         id: metadata
         if: >-
+          github.event_name == 'pull_request_target' &&
+          github.event.sender.login == 'dependabot[bot]' &&
+          github.event.sender.type == 'Bot' &&
+          github.event.sender.id == 49699333 &&
+          github.event.pull_request.base.ref == github.event.repository.default_branch &&
+          (github.event.action == 'opened' || github.event.action == 'synchronize') &&
           github.event.pull_request.user.login == 'dependabot[bot]' &&
           github.event.pull_request.user.type == 'Bot' &&
           github.event.pull_request.head.repo.full_name == github.repository
@@ -33,8 +39,47 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           METADATA_RESULT: ${{ steps.metadata.outcome }}
           DEPENDENCIES: ${{ steps.metadata.outputs.updated-dependencies-json }}
+          # A called workflow sees its caller's event. Re-runs replay that payload.
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_AFTER: ${{ github.event.after }}
+          SENDER_LOGIN: ${{ github.event.sender.login }}
+          SENDER_TYPE: ${{ github.event.sender.type }}
+          SENDER_ID: ${{ github.event.sender.id }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           echo "eligible=false" >> "$GITHUB_OUTPUT"
+          # Signed bot commit metadata shows only that GitHub created the commit.
+          # Require that dependabot[bot] itself set this head: only opened and
+          # synchronize name the account that set the head as their sender, and a
+          # synchronize must report this exact head as the result of its push.
+          # 49699333 is the numeric id of GitHub's dependabot[bot] account.
+          if [ "$EVENT_NAME" != "pull_request_target" ] ||
+            [ "$SENDER_LOGIN" != "dependabot[bot]" ] || [ "$SENDER_TYPE" != "Bot" ] ||
+            [ "$SENDER_ID" != "49699333" ]; then
+            echo "The account that set head $HEAD_SHA is not established as dependabot[bot]."
+            exit 0
+          fi
+          # A retarget does not re-run this check, so judge only pull requests into the
+          # default branch, whose base this event fixed.
+          if [ -z "$DEFAULT_BRANCH" ] || [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
+            echo "Only a pull request into the default branch qualifies."
+            exit 0
+          fi
+          case "$EVENT_ACTION" in
+            opened) ;;
+            synchronize)
+              if [ "$EVENT_AFTER" != "$HEAD_SHA" ]; then
+                echo "The synchronize event did not set head $HEAD_SHA."
+                exit 0
+              fi
+              ;;
+            *)
+              echo "A $EVENT_ACTION event does not establish who set head $HEAD_SHA."
+              exit 0
+              ;;
+          esac
           if [ "$METADATA_RESULT" != "success" ]; then
             exit 0
           fi
