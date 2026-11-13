@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import textwrap
@@ -397,10 +398,19 @@ def test_provenance_exemption_still_requires_successful_attestation(
 def test_provenance_verifier_runs_from_protected_base_with_read_only_permissions():
     workflow = (ROOT / ".github/workflows/human-approval.yml").read_text()
     assert "ref: ${{ github.event.pull_request.base.sha }}" in workflow
+    # The step ends at the next step or at the next job.
+    step = re.split(
+        r"\n      - |\n  environment:\n",
+        workflow.split("      - name: Verify Dependabot contributions", 1)[1],
+        maxsplit=1,
+    )[0]
     assert (
-        "uv run --locked --no-dev --python 3.11 python .github/scripts/verify_dependabot.py"
-        in workflow
+        "uv run --locked --no-dev --no-sync --python 3.11 python .github/scripts/verify_dependabot.py"
+        in step
     )
+    # The project is not installed in the trusted job, so this step's script imports
+    # the package from the base checkout.
+    assert "PYTHONPATH: ${{ github.workspace }}" in step.split("        run: |\n", 1)[0]
     assert "gh api --paginate --slurp" in workflow
     assert ": write" not in workflow
     assert (
