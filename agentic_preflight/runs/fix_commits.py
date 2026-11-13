@@ -33,9 +33,11 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
     in-place mode advances it as each repair is registered, so the result is the
     repairs made since the last registration.
 
-    Empty commits are left out: they change no tree, and replaying one makes
-    ``git cherry-pick`` stop. In isolated modes a merge commit is refused with
-    ``NonlinearFixHistory``, because merge-back cannot cherry-pick it.
+    In isolated modes, which replay the result with ``git cherry-pick``, empty
+    commits are left out (they change no tree, and replaying one stops the
+    cherry-pick) and a merge commit is refused with ``NonlinearFixHistory``. The
+    in-place mode replays nothing, so it keeps every commit and ``head_sha`` can
+    advance to the checkout's real ``HEAD``.
 
     Raises ``StaleRun`` when the validation branch was rewritten rather than
     advanced, and refuses any commit that carries a copied environment file.
@@ -73,11 +75,9 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
                 ),
                 next_command=shlex.join(["git", "-C", checkout, "rebase", run.head_sha]),
             )
-    commits = [
-        sha
-        for sha in gitx.commits_between(checkout, run.head_sha, current)
-        if not _is_empty(checkout, sha)
-    ]
+    commits = gitx.commits_between(checkout, run.head_sha, current)
+    if not _is_in_place(run):
+        commits = [sha for sha in commits if not _is_empty(checkout, sha)]
     for sha in commits:
         # Independent of the preflight copy refusal: a .gitignore edited mid-run
         # must not be able to open this hole.

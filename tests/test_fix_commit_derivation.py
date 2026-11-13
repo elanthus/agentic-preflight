@@ -187,3 +187,29 @@ def test_a_merge_in_the_validation_history_is_refused_with_a_recovery(feature_re
 
     assert merged["state"] == "VERIFIED"
     assert _tree(feature_repo) == validated_tree
+
+
+def test_in_place_registration_keeps_an_empty_commit_so_the_head_advances(
+    feature_repo, tmp_path, monkeypatch
+):
+    """Only isolated replay drops empty commits; in place, the recorded head is HEAD."""
+    agent, wt = _start(feature_repo, "in_place")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+
+    from agentic_preflight.runs import stages as stagesmod
+
+    def killed(*args, **kwargs):
+        raise RuntimeError("stage process killed")
+
+    with monkeypatch.context() as fault:
+        fault.setattr(stagesmod, "_persist_stage_result", killed)
+        agent.run("stage", "run", "lint", expect=1)
+    repair = _commit(wt, "src/app.py", "def greet(name, loud=False):\n    return 'R'\n", "repair")
+    git("commit", "--allow-empty", "-m", "empty marker", cwd=wt)
+    marker = git("rev-parse", "HEAD", cwd=wt)
+
+    assert agent.run("stage", "run", "lint")["data"]["validation_restarted"] is True
+
+    status = agent.run("status")["data"]
+    assert status["fix_commits"] == [repair, marker]
+    assert status["head_sha"] == marker
