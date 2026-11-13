@@ -69,24 +69,29 @@ jobs:
           # re-runs the policy, so other reviews cannot queue re-runs at will. A dismissal
           # is recorded on the dismissed review, not under the person who dismissed it,
           # so someone with write access to the repository also qualifies.
+          # GitHub logins contain only letters, digits, and hyphens. An Enterprise Managed
+          # User login adds one underscore and the enterprise shortcode, such as
+          # mona-cat_octo. Anything else, including characters that could change the
+          # API path below, is not a repository user.
+          valid_login() {
+            case "$1" in
+              '' | *[!A-Za-z0-9_-]* | _* | *_ | *_*_*) return 1 ;;
+            esac
+            [ "${#1}" -le 39 ]
+          }
+          not_a_user() {
+            echo "The review relay was not started by a repository user. Nothing to re-run."
+            exit 0
+          }
           actor_kind=user
           case "$TRIGGERING_ACTOR" in
             *'[bot]')
               # A GitHub App or other bot account, for example one that dismisses an
               # approval through the API. It has no repository permission to look up.
-              bot_name=${TRIGGERING_ACTOR%'[bot]'}
-              case "$bot_name" in
-                '' | *[!A-Za-z0-9-]*)
-                  echo "The review relay was not started by a repository user. Nothing to re-run."
-                  exit 0
-                  ;;
-              esac
+              valid_login "${TRIGGERING_ACTOR%'[bot]'}" || not_a_user
               actor_kind=bot
               ;;
-            '' | *[!A-Za-z0-9-]*)
-              echo "The review relay was not started by a repository user. Nothing to re-run."
-              exit 0
-              ;;
+            *) valid_login "$TRIGGERING_ACTOR" || not_a_user ;;
           esac
           # When a lookup that decides authorization fails, authorize the re-run instead
           # of skipping it. Skipping could leave a stale passing check after a dismissal.

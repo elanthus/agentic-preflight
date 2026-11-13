@@ -584,13 +584,69 @@ def test_companion_still_checks_the_head_after_an_unverified_authorization(rerun
     assert _reruns(calls) == []
 
 
-@pytest.mark.parametrize("actor", ["", "a/b", "x y", "[bot]", "a/b[bot]", "x[bot]y"])
+@pytest.mark.parametrize(
+    "actor",
+    [
+        "",
+        "a/b",
+        "x y",
+        "[bot]",
+        "a/b[bot]",
+        "x[bot]y",
+        "a_b_c",
+        "_octo",
+        "mona_",
+        "mona_cat/x",
+        "a%2Fb",
+        "a" * 40,
+        "_[bot]",
+    ],
+)
 def test_companion_does_not_look_up_an_actor_that_is_not_a_user_login(rerun, actor):
     result, calls = rerun(runs=_runs(_run(1, 5)), actor=actor)
     assert result.returncode == 0, result.stderr
     assert "not started by a repository user" in result.stdout
     assert not any("/reviews" in call or "/collaborators/" in call for call in calls)
     assert _reruns(calls) == []
+
+
+@pytest.mark.parametrize("association", ["OWNER", "MEMBER", "COLLABORATOR"])
+def test_companion_reruns_for_an_enterprise_managed_user_reviewer(rerun, association):
+    # Enterprise Managed User logins end in an underscore and the enterprise shortcode.
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="mona-cat_octo",
+        reviews=[_review("mona-cat_octo", association, state="APPROVED", body="")],
+    )
+    assert result.returncode == 0, result.stderr
+    assert not any("/collaborators/" in call for call in calls)
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_reruns_for_an_enterprise_managed_user_dismisser(rerun):
+    # A managed maintainer with write access and no review of their own dismissed one.
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="mona-cat_octo",
+        reviews=[_dismissed_approval()],
+        permission="write",
+    )
+    assert result.returncode == 0, result.stderr
+    assert (
+        "api /repos/owner/project/collaborators/mona-cat_octo/permission --jq .permission" in calls
+    )
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_accepts_a_39_character_login(rerun):
+    login = "a" * 34 + "_octo"
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor=login,
+        reviews=[_review(login, "OWNER", state="APPROVED", body="")],
+    )
+    assert result.returncode == 0, result.stderr
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
 
 
 def _dismissed(actor="review-app[bot]", review_id=1, at="2026-11-13T11:59:50Z"):
