@@ -324,6 +324,13 @@ def _check_preconditions(
     )
 
 
+#: States only an interrupted `start` leaves persisted, with the orphaning reason.
+_INTERRUPTED_START: dict[State, str] = {
+    State.CREATED: "start was interrupted before its validation checkout existed",
+    State.WORKTREE_READY: "start was interrupted before synchronization began",
+}
+
+
 def _resolve_existing_run(ctx: _StartContext, *, replace: bool) -> Envelope | None:
     session = ctx.session
 
@@ -351,6 +358,15 @@ def _resolve_existing_run(ctx: _StartContext, *, replace: bool) -> Envelope | No
                     _orphan(
                         session, existing, reason="interrupted legacy update", discard_pending=True
                     )
+                    return None
+                interrupted = _INTERRUPTED_START.get(existing.state)
+                if interrupted is not None:
+                    # `start` holds the run's operation lock from before the
+                    # record exists until it returns, so an idle run in one of
+                    # these states belongs to a start that died. `_orphan`
+                    # refuses a run whose start is still running. Replace it
+                    # whatever the request, since there is nothing to resume.
+                    _orphan(session, existing, reason=interrupted)
                     return None
                 stale = (
                     existing.stale
@@ -434,7 +450,9 @@ def _create_run_record(ctx: _StartContext, run_id: str, merge_base: str) -> tupl
         created_at=_now(),
     )
     # Persist the intent *before* the git call, so a crash mid-create leaves a
-    # record for `gc` to reconcile rather than an orphan nobody knows about.
+    # visible CREATED record rather than an orphan nobody knows about. The next
+    # `start` in this worktree orphans that record and creates a fresh run;
+    # `gc` reclaims it only once the source worktree or its lease disappears.
     ctx.session.store.create_run(run)
     try:
         ctx.session.store.claim_active(ctx.session.owner_id, run_id)

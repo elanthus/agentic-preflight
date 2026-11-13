@@ -1,5 +1,6 @@
 """M0 walking skeleton: start -> context -> submit-findings -> verify -> status."""
 
+import importlib
 import json
 import time
 from pathlib import Path
@@ -194,6 +195,79 @@ def test_a_run_left_in_sync_running_offers_abort(agent, feature_repo):
     assert resumed["state"] == "SYNC_RUNNING"
     assert resumed["next"]["command"] == "agentic-preflight abort --force"
     assert agent.run("abort", "--force")["state"] == "ABORTED"
+
+
+class _Killed(BaseException):
+    """Stands in for the process dying: nothing in `start` handles it."""
+
+
+def _kill_start_before_the_checkout_exists(agent, feature_repo, monkeypatch, mode):
+    """Run `start` until its record is written, then die before the checkout exists."""
+    from agentic_preflight import worktree
+    from agentic_preflight.machine import State
+
+    startmod = importlib.import_module("agentic_preflight.runs.start")
+
+    if mode != "in_place":
+        write(feature_repo, ".agentic-preflight.toml", f"[worktree]\nmode = '{mode}'\n")
+        commit_all(feature_repo, f"use {mode} validation")
+
+    def die(*_args, **_kwargs):
+        raise _Killed
+
+    with monkeypatch.context() as patch:
+        if mode == "strict":
+            patch.setattr(worktree, "create", die)
+        elif mode == "reusable":
+            patch.setattr(worktree, "acquire_reusable", die)
+        else:
+            patch.setattr(startmod, "_provision_validation_checkout", die)
+        with pytest.raises(_Killed):
+            agent.run("start")
+
+    session = runs.open_session(feature_repo)
+    store = session.store
+    dead_run_id = store.get_active(session.owner_id)
+    assert dead_run_id is not None
+    assert store.load_run(dead_run_id).state is State.CREATED
+    return dead_run_id
+
+
+@pytest.mark.parametrize("mode", ["in_place", "strict", "reusable"])
+@pytest.mark.parametrize("replace", [False, True], ids=["start", "start-replace"])
+def test_start_recovers_a_run_that_died_in_created(agent, feature_repo, monkeypatch, mode, replace):
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start_before_the_checkout_exists(agent, feature_repo, monkeypatch, mode)
+    status = agent.run("status")
+    assert status["state"] == "CREATED"
+    assert status["next"]["command"].startswith("agentic-preflight start")
+
+    env = agent.run("start", *(["--replace"] if replace else []))
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert env["run_id"] != dead_run_id
+    assert env["data"].get("resumed") is not True
+    store = runs.open_session(feature_repo).store
+    dead = store.load_run(dead_run_id)
+    assert dead.state is State.ORPHANED
+    assert dead.orphaned_reason == "start was interrupted before its validation checkout existed"
+    assert agent.run("status")["run_id"] == env["run_id"]
+
+
+def test_start_leaves_a_created_run_alone_while_its_start_is_still_running(
+    agent, feature_repo, monkeypatch
+):
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start_before_the_checkout_exists(
+        agent, feature_repo, monkeypatch, "in_place"
+    )
+    store = runs.open_session(feature_repo).store
+    with store.operation(dead_run_id):
+        env = agent.run("start", expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "wrong_state"
+    assert store.load_run(dead_run_id).state is State.CREATED
 
 
 def test_start_resumes_a_matching_run_in_the_same_worktree(agent):

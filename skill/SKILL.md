@@ -204,6 +204,7 @@ to summarize the user's run history.
 | Hosted CI failed | Inspect the failure; unchanged-source CI reruns preserve local evidence, while source repairs revalidate affected stages |
 | Stale head (exit 3, `stale_run`) | Run `start` again; it preserves the old run as `ORPHANED` |
 | Base synchronization failed at start (exit 4, `sync_conflict` or `sync_failed`) | Print the whole `data` object; the user resolves the listed conflicts, moves or removes listed local files, or fixes the remote, then `abort --force` and `start` again |
+| Run left in `CREATED` or `WORKTREE_READY` after `start` died | Run `start` again; it preserves the interrupted run as `ORPHANED` and creates a fresh one |
 | Interrupted legacy update | Follow `status` from the recorded source worktree; below the restart limit, `start` retires interrupted validation and discards its journal while preserving audit history and user work. At the limit, stop for the user’s abort/restart decision |
 | Abandoned run | `status --all`; inspect explicitly with `--run RUN_ID` |
 | Unreadable shared run record | Preserve the record and ownership; inspect its path |

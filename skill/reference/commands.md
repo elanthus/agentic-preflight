@@ -91,6 +91,9 @@ accepts `start` without `--intent`, but the command then fails with exit 3 and
 `intent_required`.
 Different linked source worktrees may have runs active concurrently. Repeating `start` with the
 same head, intent, base, and effective configuration resumes that worktree's existing run.
+A run left in `CREATED` or `WORKTREE_READY` by an interrupted `start` is not resumed:
+the next `start`, with or without `--replace`, orphans it and creates a fresh run. It exits 3
+(`wrong_state`) while that run's `start` still holds its operation lock.
 A nonterminal run with a legacy `pending-update.json` is instead orphaned at the next
 `start`, its ownership cleared and journal removed, and a fresh run created. The old
 audit record and user work remain for normal safe cleanup. `status` reports
