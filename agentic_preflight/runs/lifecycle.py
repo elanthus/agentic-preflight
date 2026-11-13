@@ -135,10 +135,14 @@ def _inventory(session: Session):
         for record in gitx.list_worktrees(repo)
         if "worktree" in record and record.get("branch", "").startswith("refs/heads/ap/")
     }
+    # ``for-each-ref`` prints bare names. ``git branch`` decorates the current
+    # branch with ``*`` and one checked out in a linked worktree with ``+``.
     ap_branches = {
-        line.strip().lstrip("* ").strip()
-        for line in gitx.out(repo, "branch", "--list", "ap/*").splitlines()
-        if line.strip()
+        line
+        for line in gitx.out(
+            repo, "for-each-ref", "--format=%(refname:short)", "refs/heads/ap/"
+        ).splitlines()
+        if line
     }
     return known_runs, active, active_run_ids, live_worktrees, ap_branches
 
@@ -234,10 +238,88 @@ def _collect_run(
                 False,
             )
     if not run.worktree_released and run.worktree_path and Path(run.worktree_path).exists():
+        if not force and not _is_in_place(run):
+            unrecorded = _unrecorded_work(run, run.worktree_path)
+            if unrecorded is not None:
+                return (
+                    False,
+                    {"run_id": run_id, "reason": unrecorded, "worktree_path": run.worktree_path},
+                    False,
+                )
         _release_run_worktree(session, run)
         with store.transaction(run_id) as doc:
             doc.worktree_released = True
     return True, None, False
+
+
+UNCOMMITTED_CHANGES = "validation worktree has uncommitted changes"
+UNRECORDED_COMMITS = "validation worktree holds unrecorded commits"
+UNINSPECTABLE_WORKTREE = "validation worktree could not be inspected"
+UNRECORDED_WORK_REASONS = frozenset(
+    {UNCOMMITTED_CHANGES, UNRECORDED_COMMITS, UNINSPECTABLE_WORKTREE}
+)
+UNRECORDED_WORK_INSTRUCTION = (
+    "Validation worktrees that hold uncommitted changes or commits that `respond` never "
+    "recorded, or that could not be inspected, were retained; inspect each "
+    "`worktree_path` in `data.retained`. `gc --force` discards any work they hold."
+)
+
+
+def _unrecorded_work(run: RunDoc, path: str) -> str | None:
+    """Name the work that releasing a validation checkout would discard, if any.
+
+    ``fix_commits`` lists only fixes answered with ``respond``. A commit made but
+    not yet answered, or an uncommitted file, lives only in the checkout, and
+    releasing it removes the worktree and branch or resets and cleans the
+    runner. The checkout is releasable only when it is clean apart from copied
+    files and its HEAD is the recorded head, a recorded fix, or a commit with
+    the tree of the recorded head or the last recorded fix.
+    """
+    try:
+        status = gitx.run(
+            path,
+            "status",
+            "--porcelain",
+            "-z",
+            "--untracked-files=all",
+            "--ignore-submodules=none",
+        ).stdout
+        head = gitx.rev_parse(path, "HEAD")
+    except (gitx.GitError, OSError):
+        # OSError: Git could not start, for example in a directory it cannot enter.
+        return UNINSPECTABLE_WORKTREE
+    copied = [entry.rstrip("/") for entry in run.copied_files]
+    if any(
+        not any(changed == entry or changed.startswith(entry + "/") for entry in copied)
+        for changed in _porcelain_paths(status)
+    ):
+        return UNCOMMITTED_CHANGES
+    if head == run.head_sha or head in run.fix_commits:
+        return None
+    # A sync that rewrote commits, a tree-equivalent merge-back, or an empty
+    # commit after the last fix can leave HEAD on a different commit with the
+    # recorded head's or last fix's tree: no work is lost.
+    try:
+        recorded = {gitx.tree_sha(path, ref) for ref in (run.head_sha, *run.fix_commits[-1:])}
+        if gitx.tree_sha(path, head) in recorded:
+            return None
+    except (gitx.GitError, OSError):
+        pass
+    return UNRECORDED_COMMITS
+
+
+def _porcelain_paths(status: str) -> list[str]:
+    """Return every path in NUL-separated ``git status --porcelain`` output."""
+    paths: list[str] = []
+    entries = iter(status.split("\0"))
+    for entry in entries:
+        if len(entry) < 4:
+            continue
+        paths.append(entry[3:])
+        if "R" in entry[:2] or "C" in entry[:2]:
+            # A rename or copy is followed by its original path.
+            paths.append(next(entries, ""))
+    return paths
 
 
 def gc(session: Session, *, force: bool = False) -> Envelope:
@@ -282,6 +364,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
     known_runs.difference_update(pruned)
 
     legacy = worktree.legacy_worktrees(session.repo_root, session.config.worktree.root)
+    unrecorded_retained = any(item.get("reason") in UNRECORDED_WORK_REASONS for item in retained)
     # An interrupted notes fetch or publication can leave its temporary ref.
     with store.resource("notes"):
         gitx.sweep_notes_staging_refs(session.repo_root)
@@ -306,6 +389,8 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
         next_instruction=(
             RUN_READ_RECOVERY
             if unreadable_retained
+            else UNRECORDED_WORK_INSTRUCTION
+            if unrecorded_retained
             else "Orphans were found; inspect them before removing."
             if orphans
             else "Validation worktrees remain at the old sibling default location; "
@@ -315,7 +400,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
         ),
         next_command=(
             "agentic-preflight gc --force"
-            if orphans and not force and not unreadable_retained
+            if orphans and not force and not unreadable_retained and not unrecorded_retained
             else None
         ),
     )
