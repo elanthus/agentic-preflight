@@ -42,7 +42,7 @@ from .config import Config, ConfigError, load_config
 from .digests import sha256_text
 from .machine import TERMINAL_STATES, State
 from .models import Finding, RunDoc, Stage
-from .store import RunReadError, Store, _atomic_write
+from .store import Store, _atomic_write
 
 SUMMARY_KIND = "agentic-preflight-run-summary"
 SUMMARY_NAME = "summary.json"
@@ -763,9 +763,10 @@ def _load_findings(store: Store, run_id: str) -> list[Finding] | None:
 
 
 def _load_events(store: Store, run_id: str) -> list[dict] | None:
+    # Unparseable lines, such as a torn append, are skipped by the store.
     try:
         return store.load_events(run_id)
-    except (OSError, RunReadError):
+    except OSError:
         return None
 
 
@@ -851,10 +852,9 @@ def _read_findings(store: Store, run_id: str) -> Any:
 
 
 def _read_events(store: Store, run_id: str) -> list[dict[str, Any]]:
+    # Unparseable lines, such as a torn append, are skipped by the store.
     try:
         return store.load_events(run_id)
-    except RunReadError as exc:
-        raise _Unreadable(exc.path, exc.reason, str(exc)) from exc
     except OSError as exc:
         raise _Unreadable(store.events_path(run_id), "unreadable", "Cannot read events.") from exc
 

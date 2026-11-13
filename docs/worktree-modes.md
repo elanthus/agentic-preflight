@@ -22,9 +22,10 @@ It can orphan the run and reclaim eligible validation resources. It keeps the ru
 A `RUN_ID` must be `r_` followed by 10 lowercase hex digits.
 Any other value fails with `invalid_run_id` and exit code 6 before the run store is opened.
 
-A run's event log tolerates a torn final line that an interrupted append left.
-`events` and `status` drop that line and read the rest.
-A malformed earlier line is reported as `run_record_unreadable` with reason `invalid`.
+A run's event log tolerates a torn line that an interrupted append left.
+The next append starts on a new line, so the torn line never absorbs a later event.
+`events`, `status`, and telemetry summaries skip any line that is not valid UTF-8 JSON and read the rest.
+`events` reports the number of skipped lines as `skipped_lines`.
 
 If a stored record cannot be read or validated, `status` reports its identity and diagnostic.
 It does not clear the ownership pointer.

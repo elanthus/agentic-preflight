@@ -790,7 +790,43 @@ def test_a_torn_final_event_line_does_not_break_status(agent, feature_repo):
 
     history = agent.run("events")["data"]
     assert history["count"] == 2
+    assert history["skipped_lines"] == 1
     assert agent.run("status")["run_id"] == run_id
+
+
+def test_events_survive_an_append_after_a_torn_line(agent, feature_repo, tmp_path):
+    run_id = agent.run("start")["run_id"]
+    events = feature_repo / ".git" / "agentic-preflight" / "runs" / run_id / "events.jsonl"
+    before = agent.run("events")["data"]["count"]
+    with open(events, "a", encoding="utf-8", newline="\n") as handle:
+        handle.write('{"event": "trunc')
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+
+    history = agent.run("events")["data"]
+    assert history["skipped_lines"] == 1
+    assert history["count"] > before
+    assert all("trunc" not in json.dumps(event) for event in history["events"])
+
+
+def test_status_in_mergeback_conflict_survives_a_torn_event_line(agent, feature_repo):
+    run_id = agent.run("start")["run_id"]
+    state_root = feature_repo / ".git" / "agentic-preflight"
+    events = state_root / "runs" / run_id / "events.jsonl"
+    with open(events, "a", encoding="utf-8", newline="\n") as handle:
+        handle.write('{"event": "trunc')
+    store = store_module.Store(state_root)
+    store.append_event(run_id, {"event": "mergeback_conflict", "conflicting_commit": "abc123"})
+    store.append_event(run_id, {"event": "mergeback_retry_refused"})
+    run_path = state_root / "runs" / run_id / "run.json"
+    doc = json.loads(run_path.read_text(encoding="utf-8"))
+    doc["state"] = "MERGEBACK_CONFLICT"
+    run_path.write_text(json.dumps(doc), encoding="utf-8")
+
+    status = agent.run("status")
+    assert status["state"] == "MERGEBACK_CONFLICT"
+    assert status["data"]["mergeback_conflict"]["conflicting_commit"] == "abc123"
+    assert agent.run("events")["data"]["skipped_lines"] == 1
 
 
 def test_a_final_event_line_cut_inside_a_multibyte_character_does_not_break_status(

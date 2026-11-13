@@ -405,6 +405,10 @@ class LogsData(RunDataBase):
 class EventsData(RunDataBase):
     events: list[Obj] | None = None
     count: int | None = None
+    skipped_lines: int | None = Field(
+        default=None,
+        description="Unreadable event log lines skipped, such as one left by an interrupted append.",
+    )
 
 
 class AbortData(RunDataBase):

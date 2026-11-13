@@ -54,6 +54,19 @@
       "description": "True once the run hit the restart limit and needs a person.",
       "title": "Needs Human"
     },
+    "skipped_lines": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Unreadable event log lines skipped, such as one left by an interrupted append.",
+      "title": "Skipped Lines"
+    },
     "source_worktree_path": {
       "anyOf": [
         {
