@@ -644,6 +644,71 @@ def test_review_rejects_a_manifest_that_does_not_match_the_current_diff(agent, t
     assert "does not match" in env["error"]["message"]
 
 
+def _edit_snapshot(feature_repo: Path, run_id: str, section: str, key: str, value) -> None:
+    """Imitate a record whose snapshot an older release wrote, digest included."""
+    from agentic_preflight.config import config_digest
+
+    path = feature_repo / ".git" / "agentic-preflight" / "runs" / run_id / "run.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["config_snapshot"].setdefault(section, {})[key] = value
+    raw["config_digest"] = config_digest(raw["config_snapshot"])
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+
+def _write_user_config(text: str) -> None:
+    path = Path.home() / ".config" / "agentic-preflight" / "config.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def test_a_snapshot_holding_a_retired_key_still_governs_the_run(agent, feature_repo, tmp_path):
+    run_id = agent.run("start")["run_id"]
+    agent.run("context")
+    # A pre-0.7 record: the snapshot still carries the removed [hook] enabled key.
+    _edit_snapshot(feature_repo, run_id, "hook", "enabled", True)
+    # The files now disagree with the snapshot on both pr mode and blocking policy.
+    _write_user_config('[pr]\nmode = "manual"\n\n[review]\nblocking_severities = ["critical"]\n')
+
+    status = agent.run("status")
+    assert status["data"].get("readable") is not False
+    assert status["data"]["pr_mode"] == "auto"
+
+    path = findings_json(
+        tmp_path,
+        [
+            {
+                "path": "src/app.py",
+                "line": 1,
+                "severity": "high",
+                "action": "auto_fix",
+                "title": "loud flag is never used",
+            }
+        ],
+    )
+    env = agent.run("submit-findings", "--file", path)
+    assert env["state"] == "REVIEW_BLOCKED"
+    assert [f["id"] for f in env["blocking"]] == ["F001"]
+
+
+def test_an_unloadable_snapshot_stops_a_state_changing_command(agent, feature_repo, tmp_path):
+    run_id = agent.run("start")["run_id"]
+    agent.run("context")
+    _edit_snapshot(feature_repo, run_id, "approval", "mode", "not-a-mode")
+    _write_user_config('[review]\nblocking_severities = ["critical"]\n')
+
+    env = agent.run(
+        "submit-findings", "--file", findings_json(tmp_path, []), expect=ExitCode.PRECONDITION
+    )
+    assert env["error"]["code"] == "run_record_unreadable"
+    assert env["run_id"] == run_id
+    assert env["data"]["reason"] == "invalid"
+
+    status = agent.run("status")
+    assert status["data"]["readable"] is False
+    assert status["data"]["read_failure"]["reason"] == "invalid"
+    assert set(status["data"]) == {"has_run", "readable", "read_failure", "hook"}
+
+
 # -- verify -----------------------------------------------------------------
 
 
