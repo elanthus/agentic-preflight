@@ -42,10 +42,14 @@ from ._session import (
 def events(session: Session, *, limit: int | None = None) -> Envelope:
     """Return the current run's event history."""
     run = _load_current(session)
-    history = session.store.load_events(run.run_id)
+    log = session.store.read_events(run.run_id)
+    history = log.events
     if limit:
         history = history[-limit:]
-    return _envelope_for(run, data=EventsData(events=history, count=len(history)))
+    return _envelope_for(
+        run,
+        data=EventsData(events=history, count=len(history), skipped_lines=log.skipped_lines),
+    )
 
 
 def abort(session: Session, *, force: bool = False, reason: AbortReason | None = None) -> Envelope:

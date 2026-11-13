@@ -22,7 +22,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from pydantic import ValidationError
 
@@ -78,6 +78,13 @@ class CurrentRunExists(StoreError):
     def __init__(self, run_id: str) -> None:
         super().__init__(f"run {run_id} is already active")
         self.run_id = run_id
+
+
+class EventLog(NamedTuple):
+    """A run's parsed event log and the number of unreadable lines it skipped."""
+
+    events: list[dict[str, Any]]
+    skipped_lines: int
 
 
 def _utcnow() -> str:
@@ -352,33 +359,52 @@ class Store:
         """Events are append-only and deliberately *not* atomic-replaced: an
         append is already a single small write, and losing the tail of an audit
         log is survivable in a way that losing ``run.json`` is not. A per-run events lock
-        keeps concurrent appends from interleaving within a line."""
+        keeps concurrent appends from interleaving within a line.
+
+        An interrupted append can leave a partial last line with no newline. The
+        next append starts a new line first, so the torn line stays on its own line
+        and readers skip it instead of the new event being glued onto it."""
         path = self.events_path(run_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps({"at": _utcnow(), **event}, sort_keys=True)
         with (
             filelock.exclusive(self.run_dir(run_id) / ".events.lock"),
-            open(path, "a", encoding="utf-8", newline="\n") as handle,
+            open(path, "a+b") as handle,
         ):
-            handle.write(line + "\n")
+            prefix = b""
+            end = handle.seek(0, os.SEEK_END)
+            if end:
+                handle.seek(end - 1)
+                if handle.read(1) != b"\n":
+                    prefix = b"\n"
+            handle.write(prefix + (line + "\n").encode("utf-8"))
 
-    def load_events(self, run_id: str) -> list[dict]:
+    def read_events(self, run_id: str) -> EventLog:
+        """Read the event log, skipping lines that are not JSON objects.
+
+        A line that is not valid UTF-8 JSON is what an interrupted append leaves
+        behind. It, and a line that parses to something other than an object, is
+        counted in ``skipped_lines`` rather than failing the read, wherever it sits."""
         path = self.events_path(run_id)
         if not path.exists():
-            return []
-        lines = [line for line in path.read_bytes().split(b"\n") if line.strip()]
-        events: list[dict] = []
-        for index, line in enumerate(lines):
+            return EventLog([], 0)
+        events: list[dict[str, Any]] = []
+        skipped = 0
+        for line in path.read_bytes().split(b"\n"):
+            if not line.strip():
+                continue
             try:
-                events.append(json.loads(line.decode("utf-8")))
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                # An interrupted append can leave a partial last line; only that is survivable.
-                if index == len(lines) - 1:
-                    break
-                raise RunReadError(
-                    run_id, path, "invalid", f"Invalid event line {index + 1}."
-                ) from exc
-        return events
+                event = json.loads(line.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                event = None
+            if isinstance(event, dict):
+                events.append(event)
+            else:
+                skipped += 1
+        return EventLog(events, skipped)
+
+    def load_events(self, run_id: str) -> list[dict]:
+        return self.read_events(run_id).events
 
     # -- active-run pointers -------------------------------------------------
 

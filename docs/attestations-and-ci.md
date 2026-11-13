@@ -2,12 +2,53 @@
 
 A successful merge-back writes a schema version 7 JSON attestation as a Git note on the exact commit.
 Every note includes an explicit `outcome`. `verified` means that all local validation is complete.
-A note includes the run identity and the commit and tree hashes.
-It includes dedicated SHA-256 bindings for the user intent and for the complete effective configuration snapshot.
-It also includes the finding totals, the stage fingerprints, and the original execution provenance.
-A green shell stage includes its command, exit code, and redacted-output digest.
-A skipped stage records why it was skipped.
 Any other schema version is rejected.
+`push` publishes the note, so anyone who can read the remote can read it.
+
+A note contains these fields:
+
+- The kind, schema version, outcome, and the time that local validation went green.
+- The run ID, the branch, the base branch, and the commit, tree, and merge-base hashes.
+- A SHA-256 digest of the intent. The intent text itself is not included.
+- The published configuration snapshot and its SHA-256 digest.
+- For each stage, its status, a reason when it was skipped, and its process evidence.
+  A command review and a green lint or test stage carry the command, the exit code, and a SHA-256 digest of the redacted output.
+  The output itself is not included.
+  Review also records its executor and its coverage: the manifest and grounding digests, the reviewed head, the unit count, the cited and clean unit IDs, the excluded file paths, and a contract-plan digest when contract checks are enabled.
+- The totals of findings by status and severity.
+- For each stage, its evidence: a version, a digest of the original execution, the current fingerprint, and, for evidence reused from an earlier run, the refresh time and the derivation reason.
+- For each stage, the original execution:
+  - The original run ID, stage, commits, branch, base branch, and finish time.
+  - The source worktree ID, an unsalted SHA-256 digest of the local path of the worktree's Git directory.
+  - The published configuration snapshot and its digest, and the stage result as above.
+  - The original fingerprint.
+  - Every finding from that stage in full: ID, stage, whether code owns it, path, line, unit, severity, action, title, detail, suggestion, status, fix commit, and response note.
+    The `respond --reason` label is not included.
+- A fingerprint holds a version, tree hashes, and SHA-256 digests.
+  A review fingerprint also holds the excluded file paths, the executor, and whether the configuration was supported.
+  A docs fingerprint also holds whether the configuration was supported.
+  A shell fingerprint also holds why its inputs were unavailable, when they were.
+
+The published configuration snapshot leaves out every section that came from the user configuration file, `~/.config/agentic-preflight/config.toml`.
+Those sections apply to the run, but they describe one machine.
+A run that an earlier release started did not record which sections came from that file, so `mergeback`, `gate`, and `push` refuse it. Abort it and start a fresh run before it can publish.
+`[diff]` is the exception. Verification rebuilds the review diff from its exclusions, so it is published from either file.
+A section that the repository file sets is published as written.
+
+The review command depends on `[review]`, and the lint and test commands depend on `[commands]`, including a `stage run --command` override.
+When that section came from the user file, the note records `[redacted user-level command]` in place of the command.
+The shell-command digest in the fingerprint covers that marker, not the command, so the note cannot confirm a guessed command.
+Otherwise the command is published as written, so a verifier can compare it with the protected policy.
+
+Evidence reused from an earlier run is held to the same rule.
+Reuse refuses evidence whose configuration snapshot holds a section that the current run withholds.
+It also refuses evidence from a run record without user-level sections, such as one that an earlier release wrote, unless that snapshot equals the one the current run publishes.
+Reuse also refuses evidence with finding text that the current copied-file values would redact.
+
+Finding text and response notes are redacted before they are saved, in the same way as stage logs.
+A value from a `[worktree] copy_files` file that appears verbatim becomes `[redacted]`.
+This covers findings from a review command, from `submit-findings`, and from `review compare`, and the `respond --note` text.
+See [the limits of exact-value redaction](worktree-modes.md#secrets-in-worktrees) and [what a published note reveals](limits.md#what-a-published-note-reveals).
 
 `agentic-preflight push` first publishes the original-commit refs that the attestation evidence needs.
 Then it pushes the branch and a notes commit to `refs/notes/agentic-preflight` atomically.
@@ -73,6 +114,11 @@ The pinned package must be published before this example can run.
   run: agentic-preflight verify "$ATTESTED_SHA"
 ```
 
+`pipx install` pins the verifier release but resolves its dependencies at install time.
+To pin those as well, install the verifier from its `uv.lock`, as the protected-base flow below does.
+Take that lock file and source from a separate checkout of a trusted revision, such as the protected base commit or a release tag.
+Never install from the attested-head checkout above: that is the code under verification.
+
 Pass `--base` with the pull request's base SHA when the job runs for a pull request.
 Without it, the note names its own base branch.
 
@@ -85,7 +131,8 @@ The required remote check is what rejects a branch tip without an attestation.
 
 This repository uses that check on itself.
 It runs in `.github/workflows/attestation.yml` on `pull_request_target`, so GitHub takes the workflow definition from the base branch, not from the pull request.
-The job checks out the base commit and installs the verifier from it.
+The job checks out the base commit and installs the verifier's runtime dependencies from that commit's `uv.lock`, not from a fresh resolution at run time.
+It runs the verifier from the same checkout.
 Then it fetches the proposed commit and its note from the contributor's remote as data, without checking them out or running anything from them.
 A pull request can still change the workflow, the verifier, or its scripts, but those changes take effect only after merge; they never judge the pull request that proposes them.
 The workflow token is read-only.
@@ -130,7 +177,7 @@ No settings were changed during release preparation.
 
 ## Protected-base fetch and verification
 
-Both repository workflows install their checker from the protected event-base commit.
+Both repository workflows run their checker from the protected event-base checkout.
 They fetch the proposed content only as inert Git data.
 They select the contributor's remote for fork pull requests.
 Then they fetch the exact event head, the notes, and the retained evidence:
@@ -139,12 +186,28 @@ Then they fetch the exact event head, the notes, and the retained evidence:
 git fetch --no-tags -- "$source_remote" "$HEAD_SHA" \
   '+refs/notes/agentic-preflight:refs/notes/agentic-preflight' \
   '+refs/agentic-preflight/evidence/*:refs/agentic-preflight/evidence/*'
-agentic-preflight verify "$HEAD_SHA" --base "$BASE_SHA"
+uv run --locked --no-dev --no-sync --python 3.11 \
+  python -m agentic_preflight verify "$HEAD_SHA" --base "$BASE_SHA"
 ```
 
 `--base` makes the protected pull-request base, not the note, decide the merge base and the policy.
 
-For approval evaluation, call `approval-check "$HEAD_SHA" --base "$BASE_SHA"` with `--reviews-file "$reviews_file" --author "$PR_AUTHOR"`.
+Before that step, each job installs only the runtime dependencies pinned in the base commit's `uv.lock`:
+
+```bash
+uv sync --locked --no-dev --no-install-project --python 3.11
+```
+
+`--no-install-project` skips building and installing the checker itself.
+No build backend or build dependency therefore runs in the job, and nothing is resolved at run time.
+The checker runs from the base checkout as `python -m agentic_preflight`, and `--no-sync` keeps `uv run` from installing anything.
+The `verify` and `approval-check` commands do not need the package's installed metadata.
+The Dependabot verification script imports the package from the same checkout through `PYTHONPATH`.
+Each job also pins the uv release in its `astral-sh/setup-uv` step.
+Maintainers bump that `version` by hand; Dependabot updates the action, not the uv release it installs.
+`tests/test_workflow_evidence.py` rejects any other install form in these two workflows.
+
+For approval evaluation, call `approval-check "$HEAD_SHA" --base "$BASE_SHA"` through the same `uv run --locked --no-dev --no-sync` and `python -m agentic_preflight` prefix with `--reviews-file "$reviews_file" --author "$PR_AUTHOR"`.
 Add `--report-only` or `--environment-approved` when applicable.
 These flags keep their policy meanings.
 The caller still enforces the auto-merge restrictions and the actual GitHub Environment approval.
@@ -177,7 +240,7 @@ Run the workflow again after you correct the cause.
 ## High-risk merge handling
 
 A separate `pull_request_target` workflow enforces high-risk merge handling.
-It also installs its policy checker from the protected base. It never executes proposed branch content.
+It also runs its policy checker from the protected base with the dependencies pinned in that commit's `uv.lock`. It never executes proposed branch content.
 It runs again when the head changes.
 In the review modes, a submitted, edited, or dismissed review re-runs it; see [how a review reaches the check](#how-a-review-reaches-the-check).
 
@@ -239,10 +302,30 @@ The protected-base human-approval workflow verifies the actual `dependabot[bot]`
 It also verifies the current event SHAs and the complete paginated commit list against Git history.
 Every non-merge contribution must be attributed to the bot, committed by GitHub's `web-flow` identity, and have a verified signature whose verification reason is `valid`.
 A human-signed commit with a forged bot author does not qualify.
-A merge commit qualifies only under two conditions.
+A merge commit passes this commit check only under two conditions.
 Its second parent belongs to the protected base, and its tree exactly matches Git's clean merge of the two parents.
-Human-added commits, conflict resolutions, unrelated branch merges, missing records, and snapshot mismatches do not receive this exemption.
+The head-actor check below still applies to the current head, so a clean merge that a person pushed as the head does not qualify.
+The verifier does not establish who pushed an earlier clean merge below a Dependabot-set head; it verifies only that the merge adds no content beyond its parents.
+
+Signed bot metadata shows only that GitHub created a commit, so the workflow also binds the exemption to the account that set the head.
+The run's event must be a `pull_request_target` `opened` or `synchronize` event for the exact head and base.
+Its sender must be the `dependabot[bot]` Bot account with GitHub's account id for it, `49699333`.
+A `synchronize` event must also report that head as the result of its push.
+The pull request's base branch must be the repository's default branch, both as named in the same payload.
+The result is judged against the base at event time, and retargeting a pull request (an `edited` event) does not re-run the workflow.
+`edited` is deliberately not a trigger: it cannot establish who set the head, so every edit, including Dependabot's own description updates, would fail the exemption.
+A pull request retargeted after its run therefore keeps that run's result; the default-branch rule prevents a run against another base from carrying over to the default branch.
+The workflow passes the event name and the event payload file to the verifier, which fails closed on any other shape.
+A head that a person pushed, including a clean merge from **Update branch**, does not qualify.
+Nor does a run from a `reopened`, `ready_for_review`, or auto-merge event, because its sender is whoever performed that action and not necessarily whoever set the head.
+Such a pull request follows the ordinary policy: it needs a preflight attestation for its head, which the attestation workflow verifies, and owner approval where the approval policy requires it.
+Alternatively, ask Dependabot to rebase or recreate the pull request, which restores the exemption with a new Dependabot-set head.
+A re-run replays the original event payload, so a review-triggered re-run keeps the sender of the event that set the head.
+
+Human-added commits, human-pushed heads (including a clean base merge that a person pushed as the head), pull requests into other branches, conflict resolutions, unrelated branch merges, missing records, and snapshot mismatches do not receive this exemption.
 Ordinary approval policy applies to them.
+The exemption therefore means that GitHub reported Dependabot set the head, and that every commit since the base is GitHub-signed bot work or a clean protected-base merge.
+It is not a review of the content. See [Limits](limits.md#the-dependabot-exemption-trusts-githubs-event-sender).
 Only protected-base code runs, with read-only permissions. Proposed code is inert Git data.
 The hosted report records the exact head and base and the verification result.
 
@@ -254,12 +337,13 @@ The repository's hosted workflow separately verifies and applies the bot exempti
 
 A narrower class of Dependabot updates also skips local attestation and is eligible for the auto-merge workflow.
 These are same-repository PRs that the actual `dependabot[bot]` Bot account authored, with exactly one verified Dependabot commit that matches the event and the current head.
+The head must have been set by the same kind of Dependabot-sent `opened` or `synchronize` event into the default branch that the approval exemption requires.
 Their metadata must identify every dependency as a Python patch or minor update in the root directory.
 Their modified files must be limited to `pyproject.toml` and `uv.lock`.
 Unknown metadata, renames, deletions, additional commits or files, major updates, and GitHub Actions updates do not qualify for the attestation and auto-merge exception.
 A grouped update qualifies only when every member qualifies.
 
-The shared `dependabot-policy.yml` workflow checks the bot identity, the signed commit metadata, and every grouped dependency.
+The shared `dependabot-policy.yml` workflow checks the bot identity, the event sender, the signed commit metadata, and every grouped dependency.
 It also checks the complete paginated commit and file lists and the current head.
 CI still runs tests, the built-wheel smoke check, and dependency audits.
 This repository already makes owner approval optional for routine Python dependencies.

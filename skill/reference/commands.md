@@ -228,8 +228,9 @@ applied; the command cannot bypass the normal findings pipeline.
 The review command inherits `[stage] timeout_seconds` and `max_attempts`. Non-zero exit,
 timeout, malformed JSON, stale coverage, or invalid findings enter
 `REVIEW_COMMAND_RED` and consume one persisted attempt. A successful command records its
-configured command, zero exit code, and SHA-256 of redacted captured output alongside
-coverage in the schema-v7 attestation. Changed review inputs require fresh command
+command, zero exit code, and SHA-256 of redacted captured output alongside coverage in
+the schema-v7 attestation. A command from a user-level `[review]` section is recorded
+there as `[redacted user-level command]`. Changed review inputs require fresh command
 review; validated derivation retains original process evidence and coverage provenance.
 
 ### `agentic-preflight review contracts --file PATH`
@@ -282,7 +283,9 @@ equal the reviewed head. A mismatch exits 3. Findings match when they cite the s
 and path and their line numbers are equal or within three lines. The command writes the
 unit counts, agreed and reviewer-only findings, severity disagreements, and agreement rate
 to `review-compare.json`, appends a `review_compared` event, and returns the summary as
-`data`. It is legal from `REVIEW_GREEN` onward and never advances the run.
+`data`. Finding titles, details, and suggestions in the summary, the event, and `data`
+have copied-file values replaced by `[redacted]`; a copied file that cannot be read for
+that redaction exits 3. It is legal from `REVIEW_GREEN` onward and never advances the run.
 
 ### `agentic-preflight submit-findings --file PATH`
 `PATH` may be `-` for stdin. Review requires
@@ -293,8 +296,13 @@ The manifest must match the current diff. Docs requires `{"findings": [...]}`; a
 Rejects (exit 3, `invalid_findings`): missing, stale, or unknown review coverage;
 agent-supplied `id` or `stage`; unknown or path-mismatched review units; paths outside
 the worktree; paths outside the changed-file set (review) or documentation allowlist
-(docs); line numbers past end of file; and batches over `[review] max_findings`.
+(docs); line numbers past end of file; batches over `[review] max_findings`; and a
+nonempty batch while a `copy_files` file cannot be read for redaction.
 All-or-nothing — one bad finding rejects the batch.
+
+Accepted finding titles, details, and suggestions have copied-file values replaced by
+`[redacted]` before they are saved or returned, as in stage logs, because the published
+attestation note includes them. Review-command findings are redacted the same way.
 
 ### `agentic-preflight respond --id F001 --action fixed|dismissed|accepted [--commit SHA] [--note TEXT] [--reason REASON]`
 - `fixed` requires `--commit`. The commit is verified four ways: it exists, it touches
@@ -313,6 +321,9 @@ All-or-nothing — one bad finding rejects the batch.
   `finding_resolved` event repeats it as `reason` (`null` when absent). A finding without
   a reason has no `response_reason` key. The reason is telemetry only: it never enters
   stage evidence or the attestation. Put the specifics in `--note`.
+- `--note` text has copied-file values replaced by `[redacted]` before it is saved; the
+  note is published in the attestation. A `copy_files` file that cannot be read for
+  redaction exits 3 with `invalid_response`.
 - Unknown id exits 3 listing the valid ids. Each finding is resolved once.
 - Non-blocking findings may be resolved after their review or docs stage is green. A
   note-only disposition preserves the green state. A fix that changes the reviewed
@@ -327,7 +338,7 @@ CI. It checks the note schema, exact commit and tree binding, complete stage set
 process evidence for green lint/test stages. Fetch the notes ref before calling it in
 a fresh clone, together with the head and `refs/agentic-preflight/evidence/*`
 from the contributor remote. Schema v7 requires an explicit `verified` outcome,
-complete local stage evidence, and the full configuration snapshot. It
+complete local stage evidence, and the published configuration snapshot. It
 verifies original execution digests, Git and configuration bindings, stage applicability,
 finding dispositions, and original/current review-unit accounting.
 
@@ -362,25 +373,35 @@ medium-risk changes pass without a review. High-risk handling follows `[approval
 workflow separately rejects enabled GitHub auto-merge); `environment` exits 4 until
 `--environment-approved` is supplied by the trusted Environment job; and `peer_review`
 exits 4 until an eligible non-author has an `APPROVED` review for the current head or an
-equivalent earlier head. Later dismissal or changes-requested reviews revoke that
-person's peer approval. An earlier head is equivalent only when Git objects prove the
-branch content unchanged: the same changed paths and `git patch-id --stable` identity
-against the base, a tree equal to Git's clean merge of the approved head with the base
-commit the current head contains, identical clean merges of both heads into the base, and
-the same non-merge commit patch identities since the base. Peer and owner review results
+equivalent earlier head. Only each reviewer's latest decisive review counts, whichever
+head it was submitted on: later dismissal or changes-requested reviews on any head revoke
+that person's peer approval, a later approval of a head with different content replaces
+it, and returning the branch to an approved commit does not restore it. An earlier head
+is equivalent only when Git objects prove the branch content unchanged: the same changed
+paths and `git patch-id --stable` identity against the base, a tree equal to Git's clean
+merge of the approved head with the base commit the current head contains, identical
+clean merges of both heads into the base, and the same non-merge commit patch identities
+since the base. Peer and owner review results
 include `human_approvers`, `approved_head` (the commit the counted review was submitted
 on, or `null`), and `approval_carried` (`true` only when that commit is an earlier head).
 `--report-only` reports conditional Environment or peer-review state without failing, so
 a trusted workflow can dispatch the appropriate hosted job.
 A reviews file that is not UTF-8 JSON fails with `invalid_findings` (exit 3), as other
-JSON file inputs do.
+JSON file inputs do. A decisive review by an eligible reviewer without an integer `id`
+cannot be ordered, so the check fails closed with `attestation_failed` (exit 2). A
+revoking review still counts when its `commit_id` is `null`.
 
 `[approval] mode = "owner_review"` requires the configured `reviewer` GitHub login to
 approve the current head or an equivalent earlier head. An Approve review counts on
 another author's PR; on their own PR, a Comment review with trimmed body exactly
 `approved` counts. Conversation comments, reviews of heads with different content, bots,
-and other users do not count. Dismissal, changes requested on any head, or editing a
-self-review to other text revokes approval. The check counts the account, not the person:
+and other users do not count. As for peers, only the reviewer's latest decisive review
+counts, whichever head it was submitted on: dismissal, changes requested on any head,
+editing a self-review to other text, or a later self-review Comment with other text on
+any head revokes approval, and a later approval of a head with different content replaces
+it. On their own PR, a review-thread reply is an empty-body Comment review, so it also
+revokes the self-approval, even on another head; on another author's PR, the reviewer's
+comments do not revoke an Approve review. The check counts the account, not the person:
 a review posted with the reviewer's credentials counts as theirs, whoever posted it.
 
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
@@ -470,6 +491,14 @@ snapshot and returns the active run to review before any stage can be trusted ag
 On success: compares the branch tree against the worktree tree. `tree_equivalent: true`
 means the verified content is byte-identical and a Git-note attestation is written for
 the exact commit. False returns to review with all snapshot-bound stage evidence cleared.
+
+A run that an earlier release started has no record of which configuration sections came
+from the user file. `mergeback` refuses it with exit 4 and `needs_human`, giving the reason
+`unknown_config_provenance`, before changing the source branch or writing a note, because
+its attestation could publish user-level configuration. `gate` and `push` refuse such a
+run the same way, and their message names the `git notes ... remove` command for a note an
+earlier release already wrote. The error data lists the recorded fix commits; in isolated
+modes, cherry-pick them before aborting. Abort it and start a fresh run.
 
 A merge-back interrupted after synchronizing the source with the base but before reaching
 the recorded verified tree is stale. Follow `status` and restart preflight for the current source;
@@ -570,7 +599,9 @@ including intermediate states within a transaction. Events carry `from`, `to`, `
 UTC `at`, and `monotonic_ns`; committed changes also carry the run `seq`. Creation has
 null `from` and `action`. Rolled-back transactions emit no transitions. Audit history is
 append-only and may be incomplete after an interrupted write; older histories are not
-backfilled. Monotonic timestamps are suitable for intervals within one host boot.
+backfilled. A line that is not a JSON object, such as one an interrupted write left
+unreadable, is skipped, and `skipped_lines` counts the skipped lines. Monotonic
+timestamps are suitable for intervals within one host boot.
 
 ### `agentic-preflight abort [--force] [--reason REASON]`
 Ends the run and releases the worktree. Exits 5 if unmerged fix commits would be lost;

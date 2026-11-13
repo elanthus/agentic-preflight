@@ -21,6 +21,7 @@ from ..models import (
     StageStatus,
 )
 from ..stages import docs as docsstage
+from ..stages import shellstage
 from . import evidence, review_compare, review_coverage, review_protocol
 from ._session import (
     Session,
@@ -213,6 +214,23 @@ def _parse_stage_submission(session: Session, run: RunDoc, stage: Stage, payload
     return submissions, manifest, coverage
 
 
+def _copied_file_secrets(run: RunDoc) -> list[str]:
+    """Read copied-file values to redact finding text, failing closed like stage logs."""
+    try:
+        return shellstage.read_secrets(_require_worktree(run), run.copied_files)
+    except shellstage.SecretRedactionError as exc:
+        raise InvalidFindings(
+            "findings cannot be recorded because copied-file redaction is unavailable",
+            state=run.state.value,
+            run_id=run.run_id,
+            data={"copied_file": str(exc.path)},
+            next_instruction=(
+                "Restore the reported copied file as readable text, or remove it from "
+                "[worktree] copy_files, then resubmit."
+            ),
+        ) from exc
+
+
 def submit_findings(
     session: Session,
     payload,
@@ -249,6 +267,8 @@ def submit_findings(
     worktree_path = _require_worktree(run)
     bundle = review_protocol.bundle_for(session, run)
     submissions, manifest, coverage = _parse_stage_submission(session, run, stage, payload, bundle)
+    if submissions:
+        submissions = findingsmod.redact_submissions(submissions, _copied_file_secrets(run))
     existing = session.store.load_findings(run.run_id)
     stage_fingerprint = evidence.fingerprint(session, run, stage)
     if stage is Stage.DOCS:
