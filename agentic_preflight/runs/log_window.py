@@ -57,7 +57,7 @@ def read_log_window(
         if tail is not None:
             start = _start_of_last_lines(data, tail)
         if max_bytes is not None and end - start > max_bytes:
-            start = _safe_start(data, end - max_bytes)
+            start = _line_start(data, _safe_start(data, end - max_bytes), end)
     return LogWindow(
         output=data[start:end].decode("utf-8", errors="replace"),
         truncated=(start, end) != (0, len(data)),
@@ -87,6 +87,17 @@ def _start_of_last_lines(data: bytes, count: int) -> int:
         limit = newline
         start = newline + 1
     return start
+
+
+def _line_start(data: bytes, start: int, end: int) -> int:
+    """Move a cut start to the next line when that line begins inside the window.
+
+    A window holding one partial line, or ending at the only newline, keeps its cut.
+    """
+    if start == 0 or data[start - 1 : start] == b"\n":
+        return start
+    newline = data.find(b"\n", start, end)
+    return newline + 1 if newline != -1 and newline + 1 < end else start
 
 
 def _is_continuation(byte: int) -> bool:

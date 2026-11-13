@@ -611,7 +611,9 @@ By default `data.output` holds the last 200 lines of the log, cut to at most 64 
 `--tail N` returns the last N lines and `--head N` the first N lines, each also cut to
 64 KiB. `--all` returns the whole log with no size limit. Choose at most one; combining
 them, or an N below 1, exits 6 with `usage_error`. A cut never splits a UTF-8 character
-or a `[redacted]` marker: a marker the cut would split is left out.
+or a `[redacted]` marker: a marker the cut would split is left out. When the 64 KiB cut falls
+inside a line, `--tail` and the default window start at the next line, unless the window
+holds only that one partial line.
 
 `data.stage` names the stage. `data.truncated` is true when `data.output` is less than
 the whole stored log.

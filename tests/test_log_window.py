@@ -65,6 +65,27 @@ def test_a_whole_marker_at_the_cut_is_kept(tmp_path):
     assert read_log_window(path, tail=1, max_bytes=5 + len(REDACTED)).output == (f"{REDACTED}after")
 
 
+def test_a_byte_cut_tail_starts_on_a_line_boundary(tmp_path):
+    path = _write(tmp_path, b"aaaaaaaaaa\nbbbb\ncc\n")
+
+    window = read_log_window(path, tail=10, max_bytes=12)
+
+    assert window.output == "bbbb\ncc\n"
+    assert window.truncated is True
+
+
+def test_a_byte_cut_tail_on_a_boundary_keeps_its_start(tmp_path):
+    path = _write(tmp_path, b"aaaa\nbbbb\ncc\n")
+
+    assert read_log_window(path, tail=10, max_bytes=8).output == "bbbb\ncc\n"
+
+
+def test_a_byte_cut_inside_one_long_line_keeps_the_partial_line(tmp_path):
+    path = _write(tmp_path, b"head\n" + b"x" * 100 + b"\n")
+
+    assert read_log_window(path, tail=10, max_bytes=20).output == "x" * 19 + "\n"
+
+
 def test_line_counts_include_an_unterminated_last_line(tmp_path):
     window = read_log_window(_write(tmp_path, b"a\nb\nc"), tail=2)
 
