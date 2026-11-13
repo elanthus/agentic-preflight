@@ -547,6 +547,18 @@ def test_companion_reruns_when_a_bot_dismisses_an_eligible_approval(rerun, assoc
     assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
 
 
+def test_companion_allows_a_minute_of_clock_skew_on_a_bot_dismissal(rerun):
+    # GitHub may stamp the dismissal a little after the relay run it caused.
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="review-app[bot]",
+        reviews=[_dismissed_approval()],
+        events=[_dismissed(at="2026-11-13T12:00:45Z")],
+    )
+    assert result.returncode == 0, result.stderr
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
 def test_companion_reruns_for_later_activity_by_a_bot_that_dismissed_an_approval(rerun):
     # An old dismissal by the bot, then a later, different review action by the same bot.
     # This run is authorized too, and that is harmless by construction: only authorized
@@ -569,7 +581,7 @@ def test_companion_reruns_for_later_activity_by_a_bot_that_dismissed_an_approval
     [
         ([_dismissed("maintainer")], [_dismissed_approval()]),
         ([_dismissed(review_id=2)], [_dismissed_approval()]),
-        ([_dismissed(at="2026-11-13T12:00:01Z")], [_dismissed_approval()]),
+        ([_dismissed(at="2026-11-13T12:01:01Z")], [_dismissed_approval()]),
         ([], [_dismissed_approval()]),
         ([{**_dismissed(), "event": "review_requested"}], [_dismissed_approval()]),
         ([_dismissed()], [_review()]),
@@ -792,7 +804,8 @@ def test_companion_runs_from_the_default_branch_with_rerun_permission_only():
     )
     assert (
         "concurrency: group: agentic-preflight-human-approval-rerun-"
-        "${{ github.event.workflow_run.head_sha }} #" in flat_rerun
+        "${{ needs.authorize.outputs.pr_number }}-${{ github.event.workflow_run.head_sha }} #"
+        in flat_rerun
     )
     assert flat_rerun.index("if: needs.authorize") < flat_rerun.index("concurrency:")
     assert "cancel-in-progress" not in rerun

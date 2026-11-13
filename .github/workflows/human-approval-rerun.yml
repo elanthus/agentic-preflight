@@ -109,7 +109,8 @@ jobs:
             # names the review action that started the relay, and the relay artifact is
             # untrusted, so this bot qualifies once the issue events show it dismissed an
             # owner, member, or collaborator review of this pull request no later than
-            # GitHub created this relay run. A later review by the same bot then also
+            # GitHub created this relay run, with a minute allowed for clock skew between
+            # the two records. A later review by the same bot then also
             # re-runs the policy. That is harmless: only authorized runs reach the rerun
             # job's concurrency group, and each of them re-runs every policy run for the
             # current head against the current reviews, so a replaced pending run loses
@@ -131,7 +132,7 @@ jobs:
                 | any($events[0][][]?;
                     .event == "review_dismissed" and
                     ((.actor.login // "") | ascii_downcase) == $bot and
-                    (.created_at | fromdateiso8601) <= $relay_at and
+                    (.created_at | fromdateiso8601) <= $relay_at + 60 and
                     (.dismissed_review.review_id as $id
                       | any($reviews[];
                           .id == $id and
@@ -170,9 +171,11 @@ jobs:
     if: needs.authorize.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     # Only authorized runs reach this group, so a newer one replaces an older pending
-    # one; either re-runs every policy run for the pull request's current head.
+    # one; either re-runs every policy run for the pull request's current head. The
+    # group names the pull request as well as the head, because another pull request
+    # with the same head selects different policy runs.
     concurrency:
-      group: agentic-preflight-human-approval-rerun-${{ github.event.workflow_run.head_sha }}
+      group: agentic-preflight-human-approval-rerun-${{ needs.authorize.outputs.pr_number }}-${{ github.event.workflow_run.head_sha }}
     # The waits share a twenty-minute budget; leave time to explain why.
     timeout-minutes: 30
     steps:

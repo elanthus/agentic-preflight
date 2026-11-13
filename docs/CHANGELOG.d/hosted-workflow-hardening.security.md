@@ -21,8 +21,9 @@
   once it has dismissed an owner, member, or collaborator review of the pull request; if
   the issue events cannot be read, it does not. Comment reviews from other users on a public pull request no longer queue
   policy re-runs. Eligibility is decided in an `authorize`
-  job before the re-run job joins its per-head concurrency group, so an ineligible
-  review cannot replace an eligible re-run that is waiting in that group.
+  job before the re-run job joins its concurrency group, which is keyed by the pull
+  request and its head, so an ineligible review, or a re-run for another pull request
+  with the same head, cannot replace an eligible re-run that is waiting in that group.
 - The configuration that `init` writes, and the Claude and Codex reviewer example
   configurations, add `docs/CODEOWNERS` and the reviewer wrapper directory
   `docs/examples/reviewers/**` to `human_review_paths`. Existing configuration files are
