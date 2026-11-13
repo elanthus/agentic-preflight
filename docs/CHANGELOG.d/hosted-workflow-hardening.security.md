@@ -7,7 +7,9 @@
 - `init` replaces a symlink at the pre-push hook path instead of writing through it.
   A dangling link no longer creates its target, and `--force` no longer overwrites the
   file a link points to, which could be a tracked file when `core.hooksPath` points
-  into the repository. `data.hook_path` now names the link rather than its target.
+  into the repository. A link to exactly the current hook script is replaced with a
+  regular file too. `data.hook_path` now names the link rather than its target, and a
+  `core.hooksPath` that ends in whitespace is kept as configured.
 - Review grounding reads `docs/**`, `AGENTS.md`, `CLAUDE.md`, `[context] extra_paths`,
   and the `[context]` settings themselves from the run's merge base instead of the branch
   under review. A change cannot rewrite the conventions shown to its own reviewer, or turn

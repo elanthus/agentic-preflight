@@ -306,6 +306,48 @@ def test_hook_installer_replaces_a_symlink_to_an_earlier_hook_of_its_own(feature
     assert target.read_bytes() == previous
 
 
+def test_hook_installer_replaces_a_symlink_to_the_current_script(feature_repo, tmp_path):
+    # A later change to the link's target could otherwise change or disable the hook.
+    target = tmp_path / "current-pre-push"
+    target.write_text(hook.HOOK_SCRIPT, encoding="utf-8", newline="\n")
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    _symlink_or_skip(path, target)
+
+    _, written = hook.install(feature_repo)
+
+    assert written is True
+    assert not path.is_symlink()
+    assert path.read_text(encoding="utf-8") == hook.HOOK_SCRIPT
+    assert target.read_text(encoding="utf-8") == hook.HOOK_SCRIPT
+
+
+def test_hook_installer_leaves_a_symlink_to_a_composed_hook_alone(feature_repo, tmp_path):
+    composed = "#!/bin/sh\necho team checks\n" + hook.HOOK_SCRIPT.split("\n", 1)[1]
+    target = tmp_path / "team-pre-push"
+    target.write_text(composed, encoding="utf-8", newline="\n")
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    _symlink_or_skip(path, target)
+
+    _, written = hook.install(feature_repo)
+
+    assert written is False
+    assert path.is_symlink()
+    assert target.read_text(encoding="utf-8") == composed
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows paths cannot end in a space")
+def test_hook_path_keeps_a_trailing_space_in_core_hooks_path(feature_repo):
+    git("config", "core.hooksPath", ".githooks ", cwd=feature_repo)
+    expected = (Path(feature_repo) / ".githooks " / "pre-push").resolve()
+
+    assert gitx.hook_path(feature_repo, "pre-push") == expected
+    installed, written = hook.install(feature_repo)
+    assert written is True
+    assert installed == expected
+    assert (Path(feature_repo) / ".githooks " / "pre-push").is_file()
+    assert not (Path(feature_repo) / ".githooks").exists()
+
+
 def test_hook_installer_rejects_a_non_repository_directory(tmp_path):
     with pytest.raises(gitx.GitError):
         hook.install(tmp_path)

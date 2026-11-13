@@ -312,8 +312,10 @@ def install(repo_root: Path | str, *, force: bool = False) -> tuple[Path, bool]:
     A symlink at the hook path is replaced, never written through. Its target
     may be a tracked file, for example when ``core.hooksPath`` points into the
     repository, or a file outside the repository. A dangling link is not a hook
-    Git can run, so it is replaced without ``force``; a link to a file is judged
-    by that file's content like any other existing hook.
+    Git can run, so it is replaced without ``force``. A link to exactly the
+    current script is replaced with a regular file. Any other link to a file is
+    judged by that file's content like any other existing hook, so a link to a
+    composed or edited hook is left as it is.
     """
     path = gitx.hook_path(repo_root, "pre-push")
     hooks_dir = path.parent
@@ -327,8 +329,12 @@ def install(repo_root: Path | str, *, force: bool = False) -> tuple[Path, bool]:
         existing = path.read_bytes()
         if HOOK_MARKER not in existing:
             raise FileExistsError(str(path))
-        if existing not in PREVIOUS_HOOK_SCRIPTS:
+        if existing not in PREVIOUS_HOOK_SCRIPTS and not (
+            path.is_symlink() and existing == HOOK_SCRIPT.encode()
+        ):
             return path, False
+        # A link to exactly the current script is replaced too: a later change to
+        # its target could otherwise change or disable the hook.
         # Exactly a script this tool wrote earlier, so replacing it loses nothing
         # anyone added. A composed or edited hook is never rewritten.
 

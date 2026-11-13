@@ -555,7 +555,7 @@ Run schema 2, attestation schema 7, fingerprint version 2, and the configuration
 ## Unreleased: hook path names a symlink, not its target
 
 `init` now replaces a symlink at the pre-push hook path with a regular file instead of writing through it.
-A dangling link is replaced without `--force`. A link to an existing file is judged by that file's content, as before.
+A dangling link, or a link to exactly the current hook script, is replaced without `--force`. Any other link to an existing file is judged by that file's content, as before.
 `data.hook_path` from `init` and the hook path that `status` reports now name the hook path itself, without following a symlink there.
 Earlier releases reported the link's target, or the missing target of a dangling link.
 The hooks directory, including `core.hooksPath`, is still resolved to an absolute path.

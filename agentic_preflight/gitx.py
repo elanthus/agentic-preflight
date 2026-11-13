@@ -252,8 +252,9 @@ def hook_path(cwd: Path | str, name: str) -> Path:
     symlinks, including a symlink at the hook itself, which would hand callers
     the link's target, even a target that does not exist, instead of the link.
     """
-    raw = out(cwd, "rev-parse", "--path-format=absolute", "--git-path", "hooks")
-    return Path(raw) / name
+    # Strip only the line terminator: a configured hooks directory may end in a space.
+    raw = run(cwd, "rev-parse", "--path-format=absolute", "--git-path", "hooks").stdout
+    return Path(raw.removesuffix("\n").removesuffix("\r")) / name
 
 
 def git_path(cwd: Path | str, name: str) -> Path:
