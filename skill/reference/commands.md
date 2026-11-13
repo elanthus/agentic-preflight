@@ -654,7 +654,16 @@ Reconciles run directories, git worktrees, and `ap/*` branches. For a terminal r
 each fix commit is compared by stable patch ID with commits in that run's
 post-merge-back history. Patch-equivalent cherry-picks are safe to reclaim; anything
 with no equivalent remains reported as unmerged and is never removed without
-`--force`. Run directories and their audit logs are retained until they expire:
+`--force`. Before it releases a `strict` or `reusable` validation worktree, `gc`
+also requires a checkout that is clean apart from copied files and whose `HEAD` is the
+recorded head, a recorded fix, or a commit with the tree of the recorded head or
+the last recorded fix. Otherwise it retains the run in `data.retained`
+with its `worktree_path` and reason `validation worktree has uncommitted changes`,
+`validation worktree holds unrecorded commits` (for example, a fix committed but not
+yet answered with `respond`), or `validation worktree could not be inspected`.
+`next.instruction` then says that `gc --force` discards any work they hold, and `next.command`
+is `null`. `--force` releases it anyway. `data.orphans` lists only `ap/*` branches and worktrees
+with no run record; a live run's branch is never reported there. Run directories and their audit logs are retained until they expire:
 a reclaimed run's directory is deleted once its record last changed more than
 `[retention] run_days` days ago (default 90; 0 keeps every record), and
 `data.pruned` lists the deleted run IDs. Pruned runs leave `data.runs_known`. A run
