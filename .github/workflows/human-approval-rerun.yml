@@ -64,6 +64,30 @@ jobs:
               exit 1
               ;;
           esac
+          # Any GitHub user can submit a Comment review on a public pull request. Only a
+          # review that approval-check can count, from an owner, member, or collaborator,
+          # re-runs the policy, so other reviews cannot queue re-runs at will. A dismissal
+          # is recorded on the dismissed review, not under the person who dismissed it,
+          # so someone with write access to the repository also qualifies.
+          actor_kind=user
+          case "$TRIGGERING_ACTOR" in
+            *'[bot]')
+              # A GitHub App or other bot account, for example one that dismisses an
+              # approval through the API. It has no repository permission to look up.
+              bot_name=${TRIGGERING_ACTOR%'[bot]'}
+              case "$bot_name" in
+                '' | *[!A-Za-z0-9-]*)
+                  echo "The review relay was not started by a repository user. Nothing to re-run."
+                  exit 0
+                  ;;
+              esac
+              actor_kind=bot
+              ;;
+            '' | *[!A-Za-z0-9-]*)
+              echo "The review relay was not started by a repository user. Nothing to re-run."
+              exit 0
+              ;;
+          esac
           # When a lookup that decides authorization fails, authorize the re-run instead
           # of skipping it. Skipping could leave a stale passing check after a dismissal.
           # A re-run cannot make the policy pass wrongly: the policy job reads the reviews
@@ -94,30 +118,6 @@ jobs:
               exit 0
               ;;
             *) authorize_unverified "the pull request" ;;
-          esac
-          # Any GitHub user can submit a Comment review on a public pull request. Only a
-          # review that approval-check can count, from an owner, member, or collaborator,
-          # re-runs the policy, so other reviews cannot queue re-runs at will. A dismissal
-          # is recorded on the dismissed review, not under the person who dismissed it,
-          # so someone with write access to the repository also qualifies.
-          actor_kind=user
-          case "$TRIGGERING_ACTOR" in
-            *'[bot]')
-              # A GitHub App or other bot account, for example one that dismisses an
-              # approval through the API. It has no repository permission to look up.
-              bot_name=${TRIGGERING_ACTOR%'[bot]'}
-              case "$bot_name" in
-                '' | *[!A-Za-z0-9-]*)
-                  echo "The review relay was not started by a repository user. Nothing to re-run."
-                  exit 0
-                  ;;
-              esac
-              actor_kind=bot
-              ;;
-            '' | *[!A-Za-z0-9-]*)
-              echo "The review relay was not started by a repository user. Nothing to re-run."
-              exit 0
-              ;;
           esac
           reviews_file="$RUNNER_TEMP/pull-request-reviews.json"
           if ! gh api --paginate --slurp \

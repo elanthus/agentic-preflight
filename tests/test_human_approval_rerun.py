@@ -566,6 +566,15 @@ def test_companion_reruns_when_the_pull_request_lookup_fails_in_authorize(rerun)
     assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
 
 
+@pytest.mark.parametrize("actor", ["", "a/b", "x[bot]y"])
+def test_companion_rejects_a_malformed_login_before_any_lookup_can_authorize(rerun, actor):
+    result, calls = rerun(runs=_runs(_run(1, 5)), actor=actor, pr_fail_first=1)
+    assert result.returncode == 0, result.stderr
+    assert "not started by a repository user" in result.stdout
+    assert not any(call.startswith("api ") for call in calls)
+    assert _reruns(calls) == []
+
+
 def test_companion_still_checks_the_head_after_an_unverified_authorization(rerun):
     result, calls = rerun(
         runs=_runs(_run(1, 5)), pull_request=_pull_request(state="closed"), pr_fail_first=1
