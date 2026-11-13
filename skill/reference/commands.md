@@ -314,7 +314,9 @@ attestation note includes them. Review-command findings are redacted the same wa
   choose what merges back. In `reusable` or `strict` mode the run's `fix_commits` is every
   commit from the reviewed head to the validation worktree's `HEAD`, in commit order,
   including commits no response cites, such as a separate regression test. Responses may
-  arrive in any order.
+  arrive in any order. Empty commits are left out. A merge commit in that history exits 3
+  with `nonlinear_fix_history` and names the merge commits; rebase the validation
+  worktree onto the reviewed head, as the recovery command shows, and respond again.
 - `dismissed` and `accepted` require `--note` and refuse `--commit`: passing
   `--commit` with any action other than `fixed` exits 6 with `usage_error`, and the
   Python `respond` API raises `invalid_response`.
@@ -479,7 +481,8 @@ cherry-picking a commit. The checkout must remain clean. In isolated modes, firs
 the validated history, every commit from the reviewed head to the validation worktree's
 `HEAD`, as `fix_commits`, then cherry-picks it in commit order onto the source branch.
 Commits made after the last `respond` are included, because review, lint, and test
-validated them. Only paths those commits may overwrite are
+validated them. Empty commits are left out, and a merge commit exits 3 with
+`nonlinear_fix_history` before the source branch changes. Only paths those commits may overwrite are
 blocked, while unrelated tracked edits and untracked files are left alone. A dirty
 submodule on one of those paths blocks merge-back even when Git config ignores it.
 

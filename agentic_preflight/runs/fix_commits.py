@@ -10,9 +10,17 @@ history, in commit order. Every path that registers fix commits uses
 from __future__ import annotations
 
 from .. import gitx, worktree
-from ..errors import StaleRun
+from ..envelope import ExitCode
+from ..errors import AgenticError, StaleRun
 from ..models import RunDoc
-from ._session import Session, _require_worktree, _start_command
+from ._session import Session, _is_in_place, _require_worktree, _start_command
+
+
+class NonlinearFixHistory(AgenticError):
+    """The isolated validation history contains a merge, which cannot be replayed."""
+
+    code = "nonlinear_fix_history"
+    exit_code = ExitCode.PRECONDITION
 
 
 def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
@@ -22,6 +30,10 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
     the run validates, so the result is the complete repair history. The
     in-place mode advances it as each repair is registered, so the result is the
     repairs made since the last registration.
+
+    Empty commits are left out: they change no tree, and replaying one makes
+    ``git cherry-pick`` stop. In isolated modes a merge commit is refused with
+    ``NonlinearFixHistory``, because merge-back cannot cherry-pick it.
 
     Raises ``StaleRun`` when the validation branch was rewritten rather than
     advanced, and refuses any commit that carries a copied environment file.
@@ -40,7 +52,28 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
                 producer=run.producer,
             ),
         )
-    commits = gitx.commits_between(checkout, run.head_sha, current)
+    span = f"{run.head_sha}..{current}"
+    if not _is_in_place(run):
+        merges = gitx._lines(gitx.out(checkout, "rev-list", "--reverse", "--merges", span))
+        if merges:
+            raise NonlinearFixHistory(
+                f"the validation history contains merge commit(s) {', '.join(merges)}; "
+                "merge-back replays repairs with cherry-pick and cannot apply a merge",
+                state=run.state.value,
+                run_id=run.run_id,
+                data={"merge_commits": merges, "reviewed_head": run.head_sha},
+                next_instruction=(
+                    "Replace the merge with linear commits on top of the reviewed head in "
+                    "the validation worktree, for example by rebasing onto it, then rerun "
+                    "the command. The changed history returns the run to review."
+                ),
+                next_command=f"git -C {checkout} rebase {run.head_sha}",
+            )
+    commits = [
+        sha
+        for sha in gitx.commits_between(checkout, run.head_sha, current)
+        if not _is_empty(checkout, sha)
+    ]
     for sha in commits:
         # Independent of the preflight copy refusal: a .gitignore edited mid-run
         # must not be able to open this hole.
@@ -48,13 +81,24 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
     return commits
 
 
-def record_fix_commits(run: RunDoc, derived: list[str]) -> list[str]:
-    """Store ``derived`` as the tail of ``run.fix_commits`` and return the new entries.
+def _is_empty(checkout: str, sha: str) -> bool:
+    """Whether a single-parent commit leaves its parent's tree unchanged."""
+    trees = gitx._lines(gitx.out(checkout, "rev-parse", f"{sha}^{{tree}}", f"{sha}^^{{tree}}"))
+    return len(trees) == 2 and trees[0] == trees[1]
 
-    Earlier entries that ``derived`` does not repeat keep their place (in-place
-    repairs registered before ``head_sha`` advanced); the derived history follows
-    in commit order, whatever order the agent cited it in.
+
+def record_fix_commits(run: RunDoc, derived: list[str]) -> list[str]:
+    """Store the derived history on ``run`` and return the entries it adds.
+
+    In isolated modes ``derived`` is the complete history, so it replaces the
+    list, dropping any commit a rebase of the validation branch removed. In the
+    in-place mode earlier entries (repairs registered before ``head_sha``
+    advanced) keep their place and the derived repairs follow. Either way the
+    order is commit order, whatever order the agent cited it in.
     """
     added = [sha for sha in derived if sha not in run.fix_commits]
-    run.fix_commits = [sha for sha in run.fix_commits if sha not in derived] + derived
+    if _is_in_place(run):
+        run.fix_commits = [sha for sha in run.fix_commits if sha not in derived] + derived
+    else:
+        run.fix_commits = list(derived)
     return added

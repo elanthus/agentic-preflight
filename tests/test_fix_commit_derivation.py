@@ -140,3 +140,50 @@ def test_a_repair_committed_after_an_interrupted_stage_is_registered(
 
     assert env["data"]["validation_restarted"] is True
     assert repair in agent.run("status")["data"]["fix_commits"]
+
+
+def test_an_empty_commit_in_the_validation_history_is_not_replayed(feature_repo, tmp_path):
+    agent, wt = _start(feature_repo)
+    agent.run("submit-findings", "--file", findings_json(tmp_path, [_finding("needs a fix")]))
+    git("commit", "--allow-empty", "-m", "empty marker", cwd=wt)
+    fix = _commit(wt, "src/app.py", "def greet(name, loud=False):\n    return 'FIXED'\n", "fix")
+    git("commit", "--allow-empty", "-m", "another empty marker", cwd=wt)
+
+    agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", fix)
+
+    assert agent.run("status")["data"]["fix_commits"] == [fix]
+    validated_tree = _tree(wt)
+    merged = _finish_and_merge(agent, tmp_path)
+
+    assert merged["state"] == "VERIFIED"
+    assert merged["data"]["tree_equivalent"] is True
+    assert merged["data"]["applied"] == [fix]
+    assert _tree(feature_repo) == validated_tree
+
+
+def test_a_merge_in_the_validation_history_is_refused_with_a_recovery(feature_repo, tmp_path):
+    agent, wt = _start(feature_repo)
+    agent.run("submit-findings", "--file", findings_json(tmp_path, [_finding("needs a fix")]))
+    reviewed = git("rev-parse", "HEAD", cwd=wt)
+    git("switch", "-c", "side", cwd=wt)
+    _commit(wt, "notes.txt", "side work\n", "side work")
+    git("switch", "-", cwd=wt)
+    fix = _commit(wt, "src/app.py", "def greet(name, loud=False):\n    return 'FIXED'\n", "fix")
+    git("merge", "--no-ff", "-m", "merge side", "side", cwd=wt)
+    merge = git("rev-parse", "HEAD", cwd=wt)
+
+    refused = agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", fix, expect=3)
+
+    assert refused["error"]["code"] == "nonlinear_fix_history"
+    assert refused["data"]["merge_commits"] == [merge]
+    assert reviewed in refused["next"]["command"]
+    assert agent.run("status")["data"]["fix_commits"] == []
+
+    git("rebase", reviewed, cwd=wt)
+    fix = git("log", "-1", "--format=%H", "--grep=^fix$", cwd=wt)
+    agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", fix)
+    validated_tree = _tree(wt)
+    merged = _finish_and_merge(agent, tmp_path)
+
+    assert merged["state"] == "VERIFIED"
+    assert _tree(feature_repo) == validated_tree
