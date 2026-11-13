@@ -22,7 +22,9 @@
   the pull request, or has write access. A bot account, such as a GitHub App, re-runs it
   once it has dismissed an owner, member, or collaborator review of the pull request.
   When a lookup that decides authorization fails, the policy is re-run, with a warning,
-  rather than skipped, so a stale success cannot stay authoritative. Comment reviews from other users on a public pull request no longer queue
+  rather than skipped, so a stale success cannot stay authoritative. The re-run job
+  retries its own lookups, re-runs the reviewed head's policy runs when the pull request
+  cannot be read, and fails with an error when the policy runs cannot be listed. Comment reviews from other users on a public pull request no longer queue
   policy re-runs. Eligibility is decided in an `authorize`
   job before the re-run job joins its concurrency group, which is keyed by the pull
   request and its head, so an ineligible review, or a re-run for another pull request

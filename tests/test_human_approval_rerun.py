@@ -128,6 +128,7 @@ def rerun(tmp_path):
         events_exit=0,
         reviews_exit=0,
         pr_fail_first=0,
+        runs_fail_first=0,
         relay_created_at=RELAY_AT,
     ):
         (tmp_path / "pr-fixture.json").write_text(json.dumps(pull_request or _pull_request()))
@@ -170,7 +171,12 @@ gh() {
           [ "$TEST_EVENTS_EXIT" = 0 ] || return "$TEST_EVENTS_EXIT"
           cat events.json
           ;;
-        *) cat runs.json ;;
+        *)
+          runs_attempts=$(( $(cat runs-attempts.txt 2>/dev/null || echo 0) + 1 ))
+          echo "$runs_attempts" > runs-attempts.txt
+          [ "$runs_attempts" -gt "$TEST_RUNS_FAIL_FIRST" ] || return 1
+          cat runs.json
+          ;;
       esac
       ;;
     api*)
@@ -223,6 +229,7 @@ GITHUB_OUTPUT=github-output.txt
                 "TEST_EVENTS_EXIT": str(events_exit),
                 "TEST_REVIEWS_EXIT": str(reviews_exit),
                 "TEST_PR_FAIL_FIRST": str(pr_fail_first),
+                "TEST_RUNS_FAIL_FIRST": str(runs_fail_first),
                 "RELAY_CREATED_AT": relay_created_at,
             },
             capture_output=True,
@@ -572,6 +579,34 @@ def test_companion_rejects_a_malformed_login_before_any_lookup_can_authorize(rer
     assert result.returncode == 0, result.stderr
     assert "not started by a repository user" in result.stdout
     assert not any(call.startswith("api ") for call in calls)
+    assert _reruns(calls) == []
+
+
+def test_companion_reruns_the_reviewed_head_when_the_pull_request_stays_unreadable(rerun):
+    # Every pull request lookup fails: authorize allows the run, and the rerun job
+    # re-runs the policy runs for the reviewed head instead of stopping.
+    result, calls = rerun(runs=_runs(_run(1, 5)), pr_fail_first=99)
+    assert result.returncode == 0, result.stderr
+    assert calls.count("api /repos/owner/project/pulls/17") == 4
+    assert (
+        f"Could not read pull request 17; re-running the policy runs for the reviewed head {HEAD}"
+        in (result.stdout)
+    )
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_retries_listing_the_policy_runs(rerun):
+    result, calls = rerun(runs=_runs(_run(1, 5)), runs_fail_first=2)
+    assert result.returncode == 0, result.stderr
+    assert sum("actions/workflows/human-approval.yml/runs" in call for call in calls) == 3
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_fails_visibly_when_the_policy_runs_stay_unlistable(rerun):
+    result, calls = rerun(runs=_runs(_run(1, 5)), runs_fail_first=99)
+    assert result.returncode == 1
+    assert "::error::Could not list the Human approval policy runs" in result.stderr
+    assert "by hand" in result.stderr
     assert _reruns(calls) == []
 
 

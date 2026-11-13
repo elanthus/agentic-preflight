@@ -242,24 +242,45 @@ jobs:
               exit 1
               ;;
           esac
+          # A failed lookup here must not quietly leave a stale passing check, so each
+          # one is retried, and a pull request that cannot be read does not stop the job.
+          gh_retry() {
+            output=$1
+            shift
+            for attempt in 1 2 3; do
+              gh "$@" > "$output" && return 0
+              [ "$attempt" -eq 3 ] || sleep 10
+            done
+            return 1
+          }
           # The head can move while this job waits for its concurrency slot.
           pr_file="$RUNNER_TEMP/pull-request.json"
-          gh api "/repos/$GITHUB_REPOSITORY/pulls/$pr_number" > "$pr_file"
-          if ! jq -e --arg head "$RUN_HEAD_SHA" --arg repository "$RUN_HEAD_REPOSITORY" '
-            .state == "open" and
-            .head.sha == $head and
-            .head.repo.full_name == $repository and
-            (.base.sha | test("^[0-9a-f]{40}$"))
-          ' "$pr_file" > /dev/null; then
-            echo "Pull request $pr_number is closed or no longer has the reviewed head."
-            echo "The run for its current head reports the check."
-            exit 0
+          head_sha=$RUN_HEAD_SHA
+          if gh_retry "$pr_file" api "/repos/$GITHUB_REPOSITORY/pulls/$pr_number"; then
+            if ! jq -e --arg head "$RUN_HEAD_SHA" --arg repository "$RUN_HEAD_REPOSITORY" '
+              .state == "open" and
+              .head.sha == $head and
+              .head.repo.full_name == $repository and
+              (.base.sha | test("^[0-9a-f]{40}$"))
+            ' "$pr_file" > /dev/null; then
+              echo "Pull request $pr_number is closed or no longer has the reviewed head."
+              echo "The run for its current head reports the check."
+              exit 0
+            fi
+          else
+            # Re-running the policy for the reviewed head is safe even if the pull
+            # request moved on: each policy run evaluates its own head and reviews.
+            echo "::warning::Could not read pull request $pr_number; re-running the policy" \
+              "runs for the reviewed head $RUN_HEAD_SHA."
           fi
-          head_sha=$(jq -r '.head.sha' "$pr_file")
           runs_file="$RUNNER_TEMP/policy-runs.json"
-          gh api --paginate --slurp \
-            "/repos/$GITHUB_REPOSITORY/actions/workflows/human-approval.yml/runs?event=pull_request_target&head_sha=$head_sha&per_page=100" \
-            > "$runs_file"
+          if ! gh_retry "$runs_file" api --paginate --slurp \
+            "/repos/$GITHUB_REPOSITORY/actions/workflows/human-approval.yml/runs?event=pull_request_target&head_sha=$head_sha&per_page=100"; then
+            echo "::error::Could not list the Human approval policy runs for head $head_sha," \
+              "so none was re-run and an earlier result may be stale. Re-run the policy run" \
+              "for pull request $pr_number by hand." >&2
+            exit 1
+          fi
           # Several events can start a policy run for one head, for example opening a
           # draft and then marking it ready. Each of those runs reports the required
           # check, so every one that reads reviews is re-run, oldest first. A run that
