@@ -23,7 +23,14 @@ from agentic_preflight import filelock, gitx, hook, hooklog, report, telemetry
 from agentic_preflight.config import Config, TelemetrySection
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.initcmd import DEFAULT_CONFIG
-from tests.conftest import git, home_env, opt_in_telemetry, set_home, write
+from tests.conftest import (
+    PRODUCT_HOOK_LOG_TIMEOUT_SECONDS,
+    git,
+    home_env,
+    opt_in_telemetry,
+    set_home,
+    write,
+)
 from tests.driver import ScriptedAgent, green_run
 from tests.test_hook import hook_check
 from tests.test_report import ROOT_A, ROOT_B
@@ -498,6 +505,48 @@ def test_a_slow_identity_is_abandoned_at_the_deadline_and_writes_nothing(
     assert not (directory / hooklog.LOG_NAME).exists()
 
 
+def test_a_write_slower_than_the_product_bound_finishes_under_the_suite_bound(
+    tmp_repo, monkeypatch
+):
+    """A loaded machine must not turn an expected line into ``timed_out`` (issue 352).
+
+    The suite's autouse fixture raises the bound, and a write without its own
+    ``timeout`` reads the bound when it starts.
+    """
+    real_identity = telemetry.repo_identity
+
+    def slow_identity(*args, **kwargs):
+        time.sleep(PRODUCT_HOOK_LOG_TIMEOUT_SECONDS + 0.5)
+        return real_identity(*args, **kwargs)
+
+    monkeypatch.setattr(telemetry, "repo_identity", slow_identity)
+
+    status = hooklog.record(
+        hook.evaluate([], is_ancestor=None, has_attestation=None),
+        repo_root=tmp_repo,
+        config=None,
+        remote="origin",
+    )
+
+    assert status == hooklog.WRITTEN
+    assert len(_log_lines()) == 1
+
+
+def test_a_timed_out_hook_check_write_keeps_the_exit_code_and_logs_nothing(feature_repo):
+    sha = git("rev-parse", "HEAD", cwd=feature_repo)
+    stdin = f"refs/heads/feature/x {sha} refs/heads/feature/x {ZERO}\n"
+
+    # A zero bound has passed before the worker looks at the decision.
+    timed_out = hook_check(feature_repo, stdin, _remote_env(), log_timeout=0)
+
+    assert timed_out.returncode == ExitCode.HOOK_BLOCK
+    assert "agentic-preflight: push blocked." in timed_out.stderr
+    assert not hooklog.log_path().exists()
+    logged = hook_check(feature_repo, stdin, _remote_env())
+    assert (logged.returncode, logged.stderr) == (timed_out.returncode, timed_out.stderr)
+    assert [line["reason"] for line in _log_lines()] == [hook.MISSING_ATTESTATION]
+
+
 def test_a_held_lock_is_waited_for_only_until_the_deadline(tmp_repo, tmp_path):
     directory = tmp_path / "telemetry"
     decision = hook.evaluate([], is_ancestor=None, has_attestation=None)
@@ -942,7 +991,7 @@ def test_the_log_and_its_switch_are_documented_where_readers_look():
     assert hook.REMOTE_ENV in pre_push
     assert hook.REMOTE_ENV in hook.HOOK_SCRIPT
     assert "## Hook decision log" in compatibility
-    assert f"{hooklog.TIMEOUT_SECONDS:g} seconds" in telemetry_doc
+    assert f"{PRODUCT_HOOK_LOG_TIMEOUT_SECONDS:g} seconds" in telemetry_doc
     for field_name in LINE_KEYS | UPDATE_KEYS:
         assert f"`{field_name}`" in telemetry_doc, field_name
 

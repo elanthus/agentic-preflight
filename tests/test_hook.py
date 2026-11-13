@@ -12,15 +12,29 @@ import pytest
 from agentic_preflight import attestation, gitx, hook
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.stages import command as command_plan
-from tests.conftest import git, write
+from tests.conftest import HOOK_LOG_TIMEOUT_SECONDS, git, write
 from tests.driver import ScriptedAgent, green_run
 
+#: Runs the CLI's ``hook-check`` as ``python -m agentic_preflight hook-check`` does, with
+#: the hook log's time bound set to ``sys.argv[1]`` seconds first.
+_HOOK_CHECK = """\
+import sys
+from agentic_preflight import hooklog
+hooklog.TIMEOUT_SECONDS = float(sys.argv[1])
+from agentic_preflight.cli import main
+main(["hook-check"], prog_name="agentic-preflight")
+"""
 
-def hook_check(repo, stdin_text, extra_env=None):
-    """Invoke hook-check exactly as the hook does: a real subprocess with stdin."""
+
+def hook_check(repo, stdin_text, extra_env=None, *, log_timeout=HOOK_LOG_TIMEOUT_SECONDS):
+    """Invoke hook-check as the hook does: a real subprocess with stdin.
+
+    The one difference is the hook log's time bound, ``log_timeout`` seconds, so that a
+    loaded machine cannot turn a test's expected log line into a ``timed_out`` write.
+    """
     env = {**os.environ, **(extra_env or {})}
     return subprocess.run(
-        [sys.executable, "-m", "agentic_preflight", "hook-check"],
+        [sys.executable, "-c", _HOOK_CHECK, str(log_timeout)],
         cwd=repo,
         input=stdin_text,
         capture_output=True,
