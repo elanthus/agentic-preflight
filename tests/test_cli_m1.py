@@ -837,6 +837,37 @@ def test_gc_cleanup_failures_still_surface(feature_repo, monkeypatch):
     assert store.load_run(run.run_id).worktree_released is False
 
 
+@pytest.mark.parametrize("failing", ["status", "tree"])
+def test_gc_survives_git_failing_to_start_in_the_validation_worktree(
+    tmp_path, monkeypatch, failing
+):
+    """`subprocess` raises OSError, not GitError, when Git cannot start in the checkout."""
+    import subprocess
+
+    from agentic_preflight import gitx
+    from agentic_preflight.runs.lifecycle import (
+        UNINSPECTABLE_WORKTREE,
+        UNRECORDED_COMMITS,
+        _unrecorded_work,
+    )
+    from tests.conftest import make_run
+
+    def denied(cwd, *args, **kwargs):
+        raise PermissionError(13, "Permission denied", str(cwd))
+
+    if failing == "status":
+        monkeypatch.setattr(gitx, "run", denied)
+    else:
+        clean = subprocess.CompletedProcess(["git"], 0, stdout="", stderr="")
+        monkeypatch.setattr(gitx, "run", lambda cwd, *args, **kwargs: clean)
+        monkeypatch.setattr(gitx, "rev_parse", lambda cwd, ref: "c" * 40)
+        monkeypatch.setattr(gitx, "tree_sha", denied)
+
+    assert _unrecorded_work(make_run(), str(tmp_path)) == (
+        UNINSPECTABLE_WORKTREE if failing == "status" else UNRECORDED_COMMITS
+    )
+
+
 def test_gc_reads_every_path_of_a_porcelain_status_including_rename_sources():
     from agentic_preflight.runs.lifecycle import _porcelain_paths
 

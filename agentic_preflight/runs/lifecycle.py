@@ -285,7 +285,8 @@ def _unrecorded_work(run: RunDoc, path: str) -> str | None:
             "--ignore-submodules=none",
         ).stdout
         head = gitx.rev_parse(path, "HEAD")
-    except gitx.GitError:
+    except (gitx.GitError, OSError):
+        # OSError: Git could not start, for example in a directory it cannot enter.
         return UNINSPECTABLE_WORKTREE
     copied = [entry.rstrip("/") for entry in run.copied_files]
     if any(
@@ -300,7 +301,7 @@ def _unrecorded_work(run: RunDoc, path: str) -> str | None:
     try:
         if gitx.tree_sha(path, head) == gitx.tree_sha(path, run.head_sha):
             return None
-    except gitx.GitError:
+    except (gitx.GitError, OSError):
         pass
     return UNRECORDED_COMMITS
 
