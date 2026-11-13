@@ -1,7 +1,21 @@
 # Compatibility policy
 
-Agentic Preflight supports Python 3.11, 3.12, and 3.13 on macOS 15 or newer, on Linux, and on Windows 10 or newer.
+Agentic Preflight supports Python 3.11, 3.12, 3.13, and 3.14 on macOS 15 or newer, on Linux, and on Windows 10 or newer.
 Git 2.38 or newer is required.
+
+## Python versions
+
+The package declares `requires-python = ">=3.11,<3.15"`.
+The upper bound is the first Python minor version that CI does not test.
+The tool runs inside your pre-push hook, so a crash on an untested interpreter would block your push.
+The cap keeps installers off such an interpreter.
+`pip` and `pipx` refuse to install the package on a Python version outside the range.
+`uv tool install` picks an interpreter inside the range unless you name one with `--python`.
+A version that you name outside the range is not supported, even when the installation succeeds.
+
+A new Python minor version becomes supported in one change.
+That change adds it to the CI matrix, fixes what fails, adds its classifier, and raises the cap to the next minor version.
+`tests/test_python_support.py` keeps the classifiers, the cap, this policy, and the CI matrix in step.
 
 Windows support is native.
 It does not use WSL. It does not require a POSIX shell for ordinary use.
@@ -113,17 +127,17 @@ not assert which consumer contracts the repository supports.
 
 The supported combinations receive different validation frequencies, so pull-request feedback stays fast:
 
-- Pull requests and pushes to `main` run on `ubuntu-latest` and `macos-latest` with Python 3.13. This conserves GitHub Actions minutes while catching macOS regressions before merge.
+- Pull requests and pushes to `main` run on `ubuntu-latest` and `macos-latest` with Python 3.11 and Python 3.14, the oldest and newest supported versions. This conserves GitHub Actions minutes while catching version-boundary and macOS regressions before merge.
 - A scheduled regression run covers the oldest supported boundary, macOS 15 with Python 3.11, every Monday and Thursday.
-- Manual CI runs and release tags cover Python 3.11, 3.12, and 3.13 on `ubuntu-latest`, `macos-latest`, and `windows-latest`.
+- Manual CI runs and release tags cover Python 3.11, 3.12, 3.13, and 3.14 on `ubuntu-latest`, `macos-latest`, and `windows-latest`.
 
 A platform is supported even when it is not in the pull-request job.
 A failure that is specific to a supported combination is a release blocker.
 Fix it with the same priority as a pull-request CI failure.
 
-Other POSIX systems and newer Python prereleases can work.
+Other POSIX systems can work.
 They are best effort until they are added to the supported matrix.
-A successful installation on a version outside the matrix does not make that version supported.
+Python versions outside the declared range are not supported; see [Python versions](#python-versions).
 
 ## Upgrading from 0.6.0 to 0.7.0
 
