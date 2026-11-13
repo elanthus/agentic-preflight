@@ -24,7 +24,7 @@ Any other value fails with `invalid_run_id` and exit code 6 before the run store
 
 A run's event log tolerates a torn line that an interrupted append left.
 The next append starts on a new line, so the torn line never absorbs a later event.
-`events`, `status`, and telemetry summaries skip any line that is not valid UTF-8 JSON and read the rest.
+`events`, `status`, and telemetry summaries skip any line that is not a JSON object and read the rest.
 `events` reports the number of skipped lines as `skipped_lines`.
 
 If a stored record cannot be read or validated, `status` reports its identity and diagnostic.

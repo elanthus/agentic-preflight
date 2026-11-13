@@ -83,7 +83,7 @@ class CurrentRunExists(StoreError):
 class EventLog(NamedTuple):
     """A run's parsed event log and the number of unreadable lines it skipped."""
 
-    events: list[Any]
+    events: list[dict[str, Any]]
     skipped_lines: int
 
 
@@ -380,21 +380,26 @@ class Store:
             handle.write(prefix + (line + "\n").encode("utf-8"))
 
     def read_events(self, run_id: str) -> EventLog:
-        """Read the event log, skipping lines that are not valid UTF-8 JSON.
+        """Read the event log, skipping lines that are not JSON objects.
 
-        Such a line is what an interrupted append leaves behind. It is counted in
-        ``skipped_lines`` rather than failing the read, wherever it sits in the log."""
+        A line that is not valid UTF-8 JSON is what an interrupted append leaves
+        behind. It, and a line that parses to something other than an object, is
+        counted in ``skipped_lines`` rather than failing the read, wherever it sits."""
         path = self.events_path(run_id)
         if not path.exists():
             return EventLog([], 0)
-        events: list[Any] = []
+        events: list[dict[str, Any]] = []
         skipped = 0
         for line in path.read_bytes().split(b"\n"):
             if not line.strip():
                 continue
             try:
-                events.append(json.loads(line.decode("utf-8")))
+                event = json.loads(line.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
+                event = None
+            if isinstance(event, dict):
+                events.append(event)
+            else:
                 skipped += 1
         return EventLog(events, skipped)
 

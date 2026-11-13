@@ -554,8 +554,8 @@ including intermediate states within a transaction. Events carry `from`, `to`, `
 UTC `at`, and `monotonic_ns`; committed changes also carry the run `seq`. Creation has
 null `from` and `action`. Rolled-back transactions emit no transitions. Audit history is
 append-only and may be incomplete after an interrupted write; older histories are not
-backfilled. A line that an interrupted write left unreadable is skipped, and
-`skipped_lines` counts the skipped lines. Monotonic timestamps are suitable for
+backfilled. A line that is not a JSON object, such as one an interrupted write left
+unreadable, is skipped, and `skipped_lines` counts the skipped lines. Monotonic timestamps are suitable for
 intervals within one host boot.
 
 ### `agentic-preflight abort [--force] [--reason REASON]`

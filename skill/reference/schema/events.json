@@ -64,7 +64,7 @@
         }
       ],
       "default": null,
-      "description": "Unreadable event log lines skipped, such as one left by an interrupted append.",
+      "description": "Event log lines skipped because they are not JSON objects, such as a torn append.",
       "title": "Skipped Lines"
     },
     "source_worktree_path": {

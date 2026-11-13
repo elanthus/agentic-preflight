@@ -407,7 +407,7 @@ class EventsData(RunDataBase):
     count: int | None = None
     skipped_lines: int | None = Field(
         default=None,
-        description="Unreadable event log lines skipped, such as one left by an interrupted append.",
+        description="Event log lines skipped because they are not JSON objects, such as a torn append.",
     )
 
 

@@ -763,7 +763,7 @@ def _load_findings(store: Store, run_id: str) -> list[Finding] | None:
 
 
 def _load_events(store: Store, run_id: str) -> list[dict] | None:
-    # Unparseable lines, such as a torn append, are skipped by the store.
+    # The store skips lines that are not JSON objects, such as a torn append.
     try:
         return store.load_events(run_id)
     except OSError:
@@ -852,7 +852,7 @@ def _read_findings(store: Store, run_id: str) -> Any:
 
 
 def _read_events(store: Store, run_id: str) -> list[dict[str, Any]]:
-    # Unparseable lines, such as a torn append, are skipped by the store.
+    # The store skips lines that are not JSON objects, such as a torn append.
     try:
         return store.load_events(run_id)
     except OSError as exc:

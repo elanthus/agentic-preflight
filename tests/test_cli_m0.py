@@ -833,11 +833,12 @@ def test_status_in_mergeback_conflict_survives_a_torn_event_line(agent, feature_
     assert status["data"]["mergeback_conflict"]["conflicting_commit"] == "abc123"
     assert agent.run("events")["data"]["skipped_lines"] == 1
 
-    # A line that is JSON but not an event object does not break status either.
+    # A line that is JSON but not an event object is skipped the same way.
     with open(events, "a", encoding="utf-8", newline="\n") as handle:
         handle.write("7\n")
     status = agent.run("status")
     assert status["data"]["mergeback_conflict"]["conflicting_commit"] == "abc123"
+    assert agent.run("events")["data"]["skipped_lines"] == 2
 
 
 def test_a_final_event_line_cut_inside_a_multibyte_character_does_not_break_status(

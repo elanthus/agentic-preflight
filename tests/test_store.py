@@ -367,6 +367,15 @@ def test_a_final_event_line_cut_inside_a_multibyte_character_is_dropped(store):
     ]
 
 
+@pytest.mark.parametrize("payload", ["7", "null", '"text"', "[]"])
+def test_an_event_line_that_is_not_an_object_is_skipped_and_counted(store, payload):
+    store.create_run(make_run())
+    store.events_path("r_abc123").write_text(payload + '\n{"event": "two"}\n', encoding="utf-8")
+    log = store.read_events("r_abc123")
+    assert log.events == [{"event": "two"}]
+    assert log.skipped_lines == 1
+
+
 def test_invalid_utf8_on_an_earlier_event_line_is_skipped_and_counted(store):
     store.create_run(make_run())
     store.events_path("r_abc123").write_bytes(b'{"event": "\xff"}\n{"event": "two"}\n')
