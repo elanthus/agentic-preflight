@@ -243,6 +243,10 @@ def evaluate(
         forced = not is_zero_id(update.remote_sha) and not is_ancestor(
             update.remote_sha, update.local_sha
         )
+        # The remote already has this commit, so the push publishes nothing new.
+        already_on_remote = not is_zero_id(update.remote_sha) and is_ancestor(
+            update.local_sha, update.remote_sha
+        )
         # Run records and attestation notes hold only SHA-1 object IDs, so no
         # commit in a SHA-256 repository can have a valid note. Say so, rather
         # than send the agent to a run that cannot finish. Git writes every ID on
@@ -250,9 +254,7 @@ def evaluate(
         # local ID marks a SHA-256 repository.
         # This comes before the force-push check, whose fix cannot help here. A
         # push of a commit the remote already has still needs no attestation.
-        if len(update.local_sha) == SHA256_ID_LENGTH and not (
-            not is_zero_id(update.remote_sha) and is_ancestor(update.local_sha, update.remote_sha)
-        ):
+        if len(update.local_sha) == SHA256_ID_LENGTH and not already_on_remote:
             outcomes.append(UpdateOutcome(update, MISSING_ATTESTATION, forced))
             return _blocked(
                 MISSING_ATTESTATION,
@@ -286,8 +288,7 @@ def evaluate(
                 updates[index + 1 :],
             )
 
-        # The remote already has this commit, so the push publishes nothing new.
-        if not is_zero_id(update.remote_sha) and is_ancestor(update.local_sha, update.remote_sha):
+        if already_on_remote:
             outcomes.append(UpdateOutcome(update, ALREADY_ON_REMOTE, forced))
             continue
 
