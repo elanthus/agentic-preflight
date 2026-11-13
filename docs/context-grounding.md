@@ -13,6 +13,9 @@ A branch therefore cannot rewrite the conventions that its own reviewer is shown
 The branch's edits to those files reach the reviewer through the diff, like any other change.
 A file that the branch adds, such as a new `CLAUDE.md` or a new page under `docs/`, is absent from the merge base, so it appears only in the diff.
 Review history and policy are not affected by this rule.
+The merge base comes from `[general] base_ref`, which a branch can change in its own `.agentic-preflight.toml`.
+Pointing it at an older branch moves the merge base, and so the revision grounding reads, for a local run.
+The hosted `verify` and `approval-check` steps pass the pull request's real base with `--base`, so they reject that note with `base_mismatch`; see [attestation verification](attestations-and-ci.md#protected-base-fetch-and-verification).
 Policy grounding still uses the branch's `[policy]` paths. The hosted approval check reads the protected base's policy.
 
 Retrieval uses this fixed priority order:
