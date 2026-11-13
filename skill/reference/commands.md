@@ -848,7 +848,7 @@ but cannot be read exits 1 with error code `telemetry_mirror_unreadable` and its
 | 4 | Human resolution required | Show recovery material; resolve only the bounded, unambiguous merge-back cases permitted by the skill, otherwise stop |
 | 5 | Confirmation required | Apply the skill's authorization rules, then re-run with the token |
 | 6 | Command-line usage error | Read `error.message`, run `next.command` for valid usage, and fix the invocation |
-| 10 | Hook blocked a push | Start a run with `agentic-preflight start --intent "..."` |
+| 10 | Hook blocked a push | Start a run with `agentic-preflight start --intent "..."`, unless the message says SHA-256 repositories are not supported: then stop and tell the user |
 
 A command-line usage error (unknown option, missing argument, bad choice, unknown
 command) prints one envelope with error code `usage_error`, Click's message in

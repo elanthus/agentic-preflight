@@ -267,7 +267,9 @@ def evaluate(
 
         # Run records and attestation notes hold only SHA-1 object IDs, so no
         # commit in a SHA-256 repository can have a valid note. Say so, rather
-        # than send the agent to a run that cannot finish.
+        # than send the agent to a run that cannot finish. Git writes every ID on
+        # the pre-push stdin in the repository's object format, so a 64-character
+        # local ID marks a SHA-256 repository.
         if len(update.local_sha) == SHA256_ID_LENGTH:
             outcomes.append(UpdateOutcome(update, MISSING_ATTESTATION, forced))
             return _blocked(
