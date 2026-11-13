@@ -80,7 +80,23 @@ def test_readme_names_the_supported_range():
 def test_pull_requests_test_the_minimum_and_maximum_versions():
     dispatch, pull_request = _workflow_matrices("ci.yml")
     assert dispatch == SUPPORTED
-    assert pull_request == [MINIMUM, MAXIMUM]
+    assert MINIMUM in pull_request
+    assert MAXIMUM in pull_request
+    assert set(pull_request) <= set(SUPPORTED)
+
+
+def test_coverage_badge_is_produced_by_exactly_one_matrix_leg():
+    # ci.yml passes several Python versions on push; every badge step must pin
+    # itself to one OS and one Python version, or two legs upload an artifact
+    # with the same name and upload-artifact fails the job.
+    workflow = (WORKFLOWS / "test.yml").read_text(encoding="utf-8")
+    steps = workflow.split("      - name: ")
+    badge_steps = [step for step in steps if "coverage badge" in step.splitlines()[0]]
+    assert len(badge_steps) == 2
+    for step in badge_steps:
+        condition = next(line for line in step.splitlines() if line.strip().startswith("if:"))
+        assert "runner.os == 'Linux'" in condition
+        assert "matrix.python-version == fromJSON(inputs.python-versions)[0]" in condition
 
 
 def test_releases_test_every_supported_version():

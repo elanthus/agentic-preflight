@@ -30,7 +30,7 @@ jobs:
     uses: ./.github/workflows/test.yml
     with:
       os: ${{ github.event_name == 'workflow_dispatch' && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest", "macos-latest"]' }}
-      python-versions: ${{ github.event_name == 'workflow_dispatch' && '["3.11", "3.12", "3.13", "3.14"]' || '["3.11", "3.14"]' }}
+      python-versions: ${{ github.event_name == 'workflow_dispatch' && '["3.11", "3.12", "3.13", "3.14"]' || '["3.11", "3.13", "3.14"]' }}
       coverage: true
 
   package:

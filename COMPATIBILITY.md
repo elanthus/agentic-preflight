@@ -127,7 +127,7 @@ not assert which consumer contracts the repository supports.
 
 The supported combinations receive different validation frequencies, so pull-request feedback stays fast:
 
-- Pull requests and pushes to `main` run on `ubuntu-latest` and `macos-latest` with Python 3.11 and Python 3.14, the oldest and newest supported versions. This conserves GitHub Actions minutes while catching version-boundary and macOS regressions before merge.
+- Pull requests and pushes to `main` run on `ubuntu-latest` and `macos-latest` with Python 3.11, 3.13, and 3.14. Python 3.11 and Python 3.14 are the oldest and newest supported versions. Python 3.13 stays because the `main` ruleset requires its test check; dropping it needs a matching ruleset change. This conserves GitHub Actions minutes while catching version-boundary and macOS regressions before merge.
 - A scheduled regression run covers the oldest supported boundary, macOS 15 with Python 3.11, every Monday and Thursday.
 - Manual CI runs and release tags cover Python 3.11, 3.12, 3.13, and 3.14 on `ubuntu-latest`, `macos-latest`, and `windows-latest`.
 

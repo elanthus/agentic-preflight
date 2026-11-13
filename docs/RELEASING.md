@@ -137,7 +137,7 @@ Optionally, restrict the environment's deployment branches to tags that match `v
   The tag and version consistency check in the `build` job catches the common "tagged the wrong version" mistake before an upload.
 - **A matrix failure after the tag does not consume a version number.**
   `publish` needs `test`.
-  A Windows failure, or a Python 3.12 or 3.13 failure, stops the run before anything reaches PyPI. PyPI never sees the version.
+  A Windows failure, or a Python 3.12 failure, stops the run before anything reaches PyPI. PyPI never sees the version.
   To recover, delete the tag locally and on the remote, fix the problem, and tag the *same* version again.
   The cost is a deleted tag and a delayed release, not a permanently used version.
   Step 4 makes even that uncommon.

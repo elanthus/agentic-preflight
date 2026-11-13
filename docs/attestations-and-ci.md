@@ -162,8 +162,9 @@ A read-only GitHub API inspection on 2026-11-01 found this repository's active [
 
 - Pull requests and protection against branch deletion are required on `main`.
 - The required checks are `test / test (ubuntu-latest, py3.13)`, `built wheel smoke test`, `trusted preflight attestation`, `CodeQL (Python)`, `dependency vulnerability audit`, and `high-risk human approval`.
-  Pull requests now run the test job on Python 3.11 and Python 3.14 instead of 3.13, so `test / test (ubuntu-latest, py3.13)` no longer reports.
-  The ruleset must require `test / test (ubuntu-latest, py3.11)` and `test / test (ubuntu-latest, py3.14)` in its place.
+  Pull requests run the test job on Python 3.11, 3.13, and 3.14, so the required `py3.13` check still reports.
+  The ruleset does not yet require the `py3.11` and `py3.14` legs.
+  Removing the `py3.13` leg from pull requests needs a ruleset change first, which only a repository administrator can make.
 - Zero approving reviews are required. Code Owner review, last-push approval, review-thread resolution, and strict up-to-date checks are disabled.
 - `high-risk human approval` became a required check on 2026-11-01. Until then the workflow reported it without blocking merge.
   The job fails until an eligible review covers the current head. A review re-runs the head's policy runs, which replaces each failed result in place; see [how a review reaches the check](#how-a-review-reaches-the-check).

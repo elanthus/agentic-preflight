@@ -64,9 +64,12 @@ jobs:
       # it; this previously relied on ci.yml passing a single combination on
       # push events, which stopped being true when Windows joined the matrix.
       # A self-contained condition cannot drift out of step with a caller.
-      # Python version is still left free: only one is passed on push.
+      # The Python version is pinned the same way, to the first entry of the
+      # caller's python-versions list, because ci.yml passes several versions
+      # on push and each Linux leg would otherwise upload a second artifact
+      # with the same name, which upload-artifact rejects.
       - name: Generate coverage badge
-        if: inputs.coverage && github.event_name == 'push' && runner.os == 'Linux'
+        if: inputs.coverage && github.event_name == 'push' && runner.os == 'Linux' && matrix.python-version == fromJSON(inputs.python-versions)[0]
         shell: bash
         run: |
           coverage_percent="$(uv run coverage report --format=total)"
@@ -86,7 +89,7 @@ jobs:
             --output coverage.svg
 
       - name: Upload coverage badge
-        if: inputs.coverage && github.event_name == 'push' && runner.os == 'Linux'
+        if: inputs.coverage && github.event_name == 'push' && runner.os == 'Linux' && matrix.python-version == fromJSON(inputs.python-versions)[0]
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-badge
