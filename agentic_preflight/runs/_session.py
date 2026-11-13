@@ -12,12 +12,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar
 
-from pydantic import ValidationError
-
 from .. import findings as findingsmod
 from .. import gitx, risk, telemetry, worktree
 from ..cli_contract import RunDataBase
-from ..config import Config, load_config, snapshot_run_settings
+from ..config import Config, load_config, snapshot_config, snapshot_run_settings
 from ..envelope import Envelope
 from ..errors import (
     MaxRestarts,
@@ -98,10 +96,16 @@ def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) ->
     if current:
         try:
             active = store.load_run(current)
-            cfg = Config.model_validate(active.config_snapshot)
-        except (UnknownRun, RunReadError, ValidationError):
+        except (UnknownRun, RunReadError):
             # Inspection must remain available without trusting an unreadable run.
+            # The files below only shape that inspection: every command that
+            # changes the run loads it again and fails with run_record_unreadable,
+            # and status reports it as unreadable rather than quoting this config.
             pass
+        else:
+            # The same tolerant loader the store just validated this snapshot with,
+            # so a key a later release removed cannot hand the run to the files.
+            cfg = snapshot_config(active.config_snapshot)
     repo_root = caller_root
     source_worktree_available = True
     if active is not None:
