@@ -203,7 +203,17 @@ class _Killed(BaseException):
 
 def _kill_start_before_the_checkout_exists(agent, feature_repo, monkeypatch, mode):
     """Run `start` until its record is written, then die before the checkout exists."""
-    from agentic_preflight import worktree
+    return _kill_start(agent, feature_repo, monkeypatch, mode, "before_checkout")
+
+
+def _kill_start(agent, feature_repo, monkeypatch, mode, point):
+    """Run `start` until ``point``, then die as if the process were killed.
+
+    ``before_checkout`` dies before any Git call; ``mid_create`` dies after
+    `git worktree add` and before the run branch exists; ``after_checkout`` dies
+    once the checkout is on the run branch but before the record names it.
+    """
+    from agentic_preflight import gitx, worktree
     from agentic_preflight.machine import State
 
     startmod = importlib.import_module("agentic_preflight.runs.start")
@@ -215,8 +225,19 @@ def _kill_start_before_the_checkout_exists(agent, feature_repo, monkeypatch, mod
     def die(*_args, **_kwargs):
         raise _Killed
 
+    real_git_run = gitx.run
+
+    def die_at_branch_switch(cwd, *args, **kwargs):
+        if args[:2] == ("switch", "-c"):
+            raise _Killed
+        return real_git_run(cwd, *args, **kwargs)
+
     with monkeypatch.context() as patch:
-        if mode == "strict":
+        if point == "after_checkout":
+            patch.setattr(startmod, "worktree_identity", die)
+        elif point == "mid_create":
+            patch.setattr(gitx, "run", die_at_branch_switch)
+        elif mode == "strict":
             patch.setattr(worktree, "create", die)
         elif mode == "reusable":
             patch.setattr(worktree, "acquire_reusable", die)
@@ -253,6 +274,71 @@ def test_start_recovers_a_run_that_died_in_created(agent, feature_repo, monkeypa
     assert dead.state is State.ORPHANED
     assert dead.orphaned_reason == "start was interrupted before its validation checkout existed"
     assert agent.run("status")["run_id"] == env["run_id"]
+
+
+@pytest.mark.parametrize(
+    ("mode", "point"),
+    [("strict", "mid_create"), ("strict", "after_checkout"), ("reusable", "after_checkout")],
+)
+def test_start_reclaims_the_checkout_an_interrupted_start_provisioned(
+    agent, feature_repo, monkeypatch, mode, point
+):
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, mode, point)
+    session = runs.open_session(feature_repo)
+    dead_checkout = session.store.worktrees_dir / dead_run_id
+    if mode == "strict":
+        assert dead_checkout.exists()
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert env["run_id"] != dead_run_id
+    assert session.store.load_run(dead_run_id).state is State.ORPHANED
+    assert not dead_checkout.exists()
+    assert str(dead_checkout) not in git("worktree", "list", "--porcelain", cwd=feature_repo)
+    assert git("branch", "--list", f"ap/{dead_run_id}", cwd=feature_repo) == ""
+
+
+def test_start_refuses_to_reclaim_an_interrupted_checkout_holding_changes(
+    agent, feature_repo, monkeypatch
+):
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "reusable", "after_checkout")
+    session = runs.open_session(feature_repo)
+    runner = session.store.worktrees_dir / "runner"
+    write(runner, "notes.txt", "keep me\n")
+
+    env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+
+    assert env["error"]["code"] == "needs_human"
+    assert env["data"]["worktree_path"] == str(runner)
+    assert session.store.load_run(dead_run_id).state is State.CREATED
+    assert (runner / "notes.txt").read_text(encoding="utf-8") == "keep me\n"
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=runner) == f"ap/{dead_run_id}"
+
+
+def test_start_recovers_a_run_left_in_worktree_ready(agent, feature_repo, monkeypatch):
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start_before_the_checkout_exists(
+        agent, feature_repo, monkeypatch, "in_place"
+    )
+    store = runs.open_session(feature_repo).store
+    with store.transaction(dead_run_id) as doc:
+        doc.state = State.WORKTREE_READY
+    status = agent.run("status")
+    assert status["state"] == "WORKTREE_READY"
+    assert status["next"]["command"].startswith("agentic-preflight start")
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    dead = store.load_run(dead_run_id)
+    assert dead.state is State.ORPHANED
+    assert dead.orphaned_reason == "start was interrupted before synchronization began"
 
 
 def test_start_leaves_a_created_run_alone_while_its_start_is_still_running(
