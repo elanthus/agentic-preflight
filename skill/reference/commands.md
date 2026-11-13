@@ -658,7 +658,7 @@ the last recorded fix. Otherwise it retains the run in `data.retained`
 with its `worktree_path` and reason `validation worktree has uncommitted changes`,
 `validation worktree holds unrecorded commits` (for example, a fix committed but not
 yet answered with `respond`), or `validation worktree could not be inspected`.
-`next.instruction` then says that `gc --force` discards that work, and `next.command`
+`next.instruction` then says that `gc --force` discards any work they hold, and `next.command`
 is `null`. `--force` releases it anyway. `data.orphans` lists only `ap/*` branches and worktrees
 with no run record; a live run's branch is never reported there. Run directories and their audit logs are retained until they expire:
 a reclaimed run's directory is deleted once its record last changed more than

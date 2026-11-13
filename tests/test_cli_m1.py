@@ -672,7 +672,7 @@ def test_gc_retains_a_validation_worktree_holding_unrecorded_work(
     record = Store(_run_dir(feature_repo, run_id).parent.parent).load_run(run_id)
     assert record.state is State.ORPHANED
     assert record.worktree_released is False
-    assert "`gc --force` discards that work" in env["next"]["instruction"]
+    assert "`gc --force` discards any work they hold" in env["next"]["instruction"]
     assert env["next"]["command"] is None
 
     forced = agent.run("gc", "--force")

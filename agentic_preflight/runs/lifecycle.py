@@ -259,9 +259,9 @@ UNRECORDED_WORK_REASONS = frozenset(
     {UNCOMMITTED_CHANGES, UNRECORDED_COMMITS, UNINSPECTABLE_WORKTREE}
 )
 UNRECORDED_WORK_INSTRUCTION = (
-    "Validation worktrees holding uncommitted changes or commits that `respond` never "
-    "recorded were retained; inspect each `worktree_path` in `data.retained`. "
-    "`gc --force` discards that work."
+    "Validation worktrees that hold uncommitted changes or commits that `respond` never "
+    "recorded, or that could not be inspected, were retained; inspect each "
+    "`worktree_path` in `data.retained`. `gc --force` discards any work they hold."
 )
 
 
