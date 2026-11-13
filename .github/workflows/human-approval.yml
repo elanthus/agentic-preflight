@@ -146,12 +146,20 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
           # The project is not installed, so the script imports agentic_preflight
           # from the base checkout.
           PYTHONPATH: ${{ github.workspace }}
         run: |
           # The checkout and script are from the protected base. PR code is
           # inspected only as Git objects, after normal attestation verification.
+          # Commit metadata does not show who placed a commit at the head, so the
+          # script also reads this event's payload: only an opened or synchronize
+          # event sent by dependabot[bot] for this exact head, into the default branch,
+          # can exempt it. Retargeting (edited) is not a trigger, so a result stays
+          # bound to the base this event named. A re-run,
+          # including one a review triggers, replays the original payload, so its
+          # sender stays the account that set the head, not the account that re-ran.
           commits_file="$RUNNER_TEMP/dependabot-approval-commits.json"
           pr_file="$RUNNER_TEMP/dependabot-approval-pr.json"
           result_file="$RUNNER_TEMP/dependabot-approval.json"
@@ -160,7 +168,8 @@ jobs:
           gh api "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$pr_file"
           uv run --locked --no-dev --no-sync --python 3.11 python .github/scripts/verify_dependabot.py \
             --repository "$GITHUB_REPOSITORY" --head "$HEAD_SHA" --base "$BASE_SHA" \
-            --pr-file "$pr_file" --commits-file "$commits_file" > "$result_file"
+            --pr-file "$pr_file" --commits-file "$commits_file" \
+            --event-name "$EVENT_NAME" --event-file "$GITHUB_EVENT_PATH" > "$result_file"
           cat "$result_file"
           echo "verified=$(jq -r '.verified' "$result_file")" >> "$GITHUB_OUTPUT"
 
