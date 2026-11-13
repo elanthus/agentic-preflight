@@ -205,6 +205,7 @@ to summarize the user's run history.
 | Hosted attestation fetch or verification failure | Inspect source fetch failures; read the offline verifier reason and restore exact-head evidence |
 | Push rejects the note against the protected base policy (exit 2, `attestation_failed`) | Stop; a branch cannot relax or replace the base's commands, docs, or exclusions. Tell the user a human must push and merge that policy change |
 | Hosted CI failed | Inspect the failure; unchanged-source CI reruns preserve local evidence, while source repairs revalidate affected stages |
+| Merge in the validation history (exit 3, `nonlinear_fix_history`) | Remove the named merge commits from the validation branch, keeping your own repairs as linear commits on the reviewed head, then rerun the command |
 | Stale head (exit 3, `stale_run`) | Run `start` again; it preserves the old run as `ORPHANED` |
 | Base synchronization failed at start (exit 4, `sync_conflict` or `sync_failed`) | Print the whole `data` object; the user resolves the listed conflicts, moves or removes listed local files, or fixes the remote, then `abort --force` and `start` again |
 | Interrupted legacy update | Follow `status` from the recorded source worktree; below the restart limit, `start` retires interrupted validation and discards its journal while preserving audit history and user work. At the limit, stop for the user’s abort/restart decision |

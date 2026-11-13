@@ -455,7 +455,9 @@ If a lint or test process is killed or times out outside the harness, its persis
 it first records the interrupted process as a red attempt with exit code 125 and reason
 `interrupted`, then retries normally. The interrupted attempt counts toward `[stage]`
 `max_attempts`. A repair committed after the interruption is registered as a fix commit
-and returns the run to review, as after any red attempt.
+and returns the run to review, as after any red attempt. In `reusable` or `strict` mode,
+registering a repair after a red or interrupted attempt exits 3 with
+`nonlinear_fix_history` when the validation history holds a merge commit.
 
 **A command that no-ops and exits 0 is indistinguishable from one that passed.**
 Pass/fail uses only the exit code because parsing output is brittle, but it assumes the command

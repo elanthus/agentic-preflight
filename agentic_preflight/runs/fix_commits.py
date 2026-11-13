@@ -9,6 +9,8 @@ history, in commit order. Every path that registers fix commits uses
 
 from __future__ import annotations
 
+import shlex
+
 from .. import gitx, worktree
 from ..envelope import ExitCode
 from ..errors import AgenticError, StaleRun
@@ -63,11 +65,13 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
                 run_id=run.run_id,
                 data={"merge_commits": merges, "reviewed_head": run.head_sha},
                 next_instruction=(
-                    "Replace the merge with linear commits on top of the reviewed head in "
-                    "the validation worktree, for example by rebasing onto it, then rerun "
-                    "the command. The changed history returns the run to review."
+                    "Remove the merge from the validation branch, for example by rebasing "
+                    "onto the reviewed head, and keep only your own repairs as linear "
+                    "commits; commits the merge brought in would otherwise become fix "
+                    "commits. Then rerun the command. The changed history returns the run "
+                    "to review."
                 ),
-                next_command=f"git -C {checkout} rebase {run.head_sha}",
+                next_command=shlex.join(["git", "-C", checkout, "rebase", run.head_sha]),
             )
     commits = [
         sha

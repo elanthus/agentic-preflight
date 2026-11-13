@@ -37,6 +37,16 @@ worktree while the run records fix commits. The fixes change nothing, so the fin
 they claim to fix were not repaired. Do not retry `mergeback`. Tell the user, run
 `agentic-preflight abort`, and start a new run so the branch is revalidated.
 
+## Merge in the validation history (exit 3, `nonlinear_fix_history`)
+
+In `reusable` or `strict` mode, the validation branch holds a merge commit after the
+reviewed head. Merge-back replays repairs with cherry-pick and cannot apply a merge.
+`respond`, `stage run lint|test`, or `mergeback` refused before changing anything, and the
+error names the merge commits. Remove the merge from the validation branch, keeping only
+your own repairs as linear commits on the reviewed head; the recovery command rebases onto
+it. Do not keep commits the merge brought in from another branch: they would become fix
+commits. Then rerun the refused command. The changed history returns the run to review.
+
 ## Stage red after max attempts (exit 4)
 
 Stop retrying — you have already tried `max_attempts` times and the tool is telling
