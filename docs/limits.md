@@ -179,7 +179,8 @@ The second check exists because a person with write access might obtain a GitHub
 Whether GitHub attributes such a squash commit to Dependabot was not tested; the check does not depend on the answer.
 A head pushed by a person, including a clean merge from **Update branch**, does not receive the exemption, and neither does a head whose actor the event cannot establish.
 `reopened`, `ready_for_review`, and auto-merge events name whoever performed that action, and a branch can change while its pull request is closed, so those runs fail closed.
-Ask Dependabot to rebase or recreate the pull request to restore the exemption, or obtain owner approval.
+Such a pull request follows the ordinary policy: it needs a preflight attestation for its head and owner approval where the approval policy requires it.
+Alternatively, ask Dependabot to rebase or recreate the pull request, which restores the exemption with a new Dependabot-set head.
 A re-run replays the original event, so a review-triggered re-run keeps the original sender.
 
 The result is bound to the base named by the event that produced it.
@@ -187,7 +188,8 @@ Retargeting a pull request does not re-run the workflow, because an `edited` eve
 Requiring the default branch means a run judged against another base cannot be carried to the default branch by a retarget.
 A pull request retargeted away from the default branch keeps its earlier result; protect other branches with their own rules if that matters.
 
-The guarantee is therefore: GitHub reported that Dependabot set this head on a pull request into the default branch, and every commit since the base is GitHub-signed bot work or a clean merge of the protected base that Dependabot pushed.
+The guarantee is therefore: GitHub reported that Dependabot set this head on a pull request into the default branch, and every commit since the base is either GitHub-signed bot work or a merge whose tree equals Git's clean merge of its parents, with the second parent in the protected base.
+The event check covers only the account that set the current head. It does not establish who pushed an earlier clean base merge in the history below that head; such a merge adds no content beyond the base and the bot commits.
 It is not a review of the content, and it trusts GitHub's attribution of both the commits and the event.
 For an `opened` event, it also trusts that the branch still held Dependabot's push when Dependabot opened the pull request.
 The exemption still applies to every file that Dependabot changes, including GitHub Actions workflows.

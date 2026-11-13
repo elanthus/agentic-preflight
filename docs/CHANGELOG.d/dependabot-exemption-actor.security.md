@@ -8,5 +8,7 @@
   `head_set_by_other_actor`, `head_actor_unknown`, `event_mismatch`, or
   `base_not_default_branch` when it fails closed. A head that a person pushed, including a
   clean **Update branch** merge, and runs from `reopened`, `ready_for_review`, or
-  auto-merge events now need owner approval or a Dependabot rebase. `docs/limits.md`
+  auto-merge events now follow the ordinary policy: a preflight attestation for the head,
+  plus owner approval where the approval policy requires it. `@dependabot rebase` or
+  `@dependabot recreate` restores eligibility instead. `docs/limits.md`
   describes the exemption's guarantee. (GHSA-v55v-mgfw-4j8q)

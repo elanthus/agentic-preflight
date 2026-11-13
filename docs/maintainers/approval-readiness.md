@@ -6,11 +6,13 @@ Verified Dependabot updates do not require human review, including major version
 GitHub Actions updates. Require the protected-base hosted approval workflow to verify
 the exact head's bot provenance and pass its applicable attestation and CI checks.
 The event that set the head must come from Dependabot itself, on a pull request into the
-default branch. A head that a person
-pushed, including a clean **Update branch** merge, needs owner approval or a Dependabot
-rebase; so does a run from a reopened, ready-for-review, or auto-merge event. Human-added
-commits and merge resolutions never qualify. A bot author or label alone is not an
-exemption. See
+default branch. A head that a person pushed, including a clean **Update branch** merge,
+does not qualify, and neither does a run from a reopened, ready-for-review, or auto-merge
+event. Such a pull request follows the ordinary policy: a preflight attestation for its
+head and owner approval where the approval policy requires it. Owner approval alone is not
+enough without that attestation. `@dependabot rebase` or `@dependabot recreate` restores
+eligibility instead. Human-added commits and merge resolutions never qualify. A bot author
+or label alone is not an exemption. See
 [Dependabot verification](../attestations-and-ci.md#dependabot-and-other-bot-authored-pull-requests).
 
 For changes requiring human approval, treat approval of an exact PR head as the final
