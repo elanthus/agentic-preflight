@@ -9,11 +9,11 @@ from ..envelope import Envelope
 from ..errors import (
     DirtyTree,
     InvalidResponse,
-    StaleRun,
     UnknownFinding,
 )
 from ..machine import Action, State
 from ..models import RESPONSE_REASONS, FindingStatus, ResponseReason, RunDoc, Stage
+from ..stages import shellstage
 from ._session import (
     Session,
     _apply,
@@ -27,8 +27,8 @@ from ._session import (
     _require_finding_stage,
     _require_state,
     _require_worktree,
-    _start_command,
 )
+from .fix_commits import derive_fix_commits, record_fix_commits
 from .review import _skip_docs_if_disabled
 from .review_coverage import reopen_if_stale
 
@@ -84,6 +84,26 @@ def _validate_response(
     return None
 
 
+def _redacted_note(run: RunDoc, note: str | None) -> str | None:
+    """Apply stage-log redaction to a response note before it is persisted."""
+    if note is None:
+        return None
+    try:
+        secrets = shellstage.read_secrets(_require_worktree(run), run.copied_files)
+    except shellstage.SecretRedactionError as exc:
+        raise InvalidResponse(
+            "the response cannot be recorded because copied-file redaction is unavailable",
+            state=run.state.value,
+            run_id=run.run_id,
+            data={"copied_file": str(exc.path)},
+            next_instruction=(
+                "Restore the reported copied file as readable text, or remove it from "
+                "[worktree] copy_files, then respond again."
+            ),
+        ) from exc
+    return findingsmod.redact_text(note, secrets, limit=findingsmod.RESPONSE_NOTE_LIMIT)
+
+
 def respond(
     session: Session,
     *,
@@ -135,12 +155,15 @@ def respond(
         )
 
     commit = _validate_response(session, run, target, finding_id, action, commit, note, reason)
+    note = _redacted_note(run, note)
 
-    new_commits = (
-        _in_place_fix_commits(session, run, commit)
-        if accepting_in_place_fix and commit
-        else ([commit] if commit else [])
-    )
+    # The cited commit is the audit record; the fix-commit list is the
+    # validated history, so uncited or out-of-order repairs still merge back.
+    new_commits: list[str] = []
+    if accepting_in_place_fix and commit:
+        new_commits = _in_place_fix_commits(session, run, commit)
+    elif commit:
+        new_commits = derive_fix_commits(session, run)
 
     target.status = FindingStatus(action)
     target.fix_commit = commit
@@ -155,9 +178,7 @@ def respond(
 
     responded_from_green = False
     with session.store.transaction(run.run_id, findings=stored) as doc:
-        for fix_commit in new_commits:
-            if fix_commit not in doc.fix_commits:
-                doc.fix_commits.append(fix_commit)
+        record_fix_commits(doc, new_commits)
         if accepting_in_place_fix:
             doc.head_sha = new_commits[-1]
             doc.source_head_sha = new_commits[-1]
@@ -290,25 +311,11 @@ def _in_place_fix_commits(session: Session, run: RunDoc, commit: str) -> list[st
             state=run.state.value,
             run_id=run.run_id,
         )
-    if not gitx.is_ancestor(repo, run.head_sha, current):
-        raise StaleRun(
-            "the in-place validation branch was rewritten instead of advanced by repair commits",
-            state=run.state.value,
-            run_id=run.run_id,
-            next_command=_start_command(
-                run.intent,
-                base_ref=run.base_ref,
-                default_base_ref=session.config.general.base_ref,
-                producer=run.producer,
-            ),
-        )
-    commits = gitx.commits_between(repo, run.head_sha, current)
+    commits = derive_fix_commits(session, run)
     if not commits:
         raise InvalidResponse(
             "in-place resolution requires a new repair commit after findings were submitted",
             state=run.state.value,
             run_id=run.run_id,
         )
-    for sha in commits:
-        worktree.assert_commit_is_clean_of(repo, sha, run.copied_files)
     return commits

@@ -85,6 +85,164 @@ def test_a_later_changes_request_revokes_the_same_reviewers_approval():
     assert current_human_approvers(reviews, head_sha=head, pull_request_author="author") == []
 
 
+H1 = "a" * 40
+H2 = "b" * 40
+
+
+@pytest.mark.parametrize(
+    ("owner_reviewer", "author", "approval", "revocation"),
+    [
+        (None, "author", {}, {"state": "CHANGES_REQUESTED"}),
+        ("reviewer", "author", {}, {"state": "CHANGES_REQUESTED"}),
+        (
+            "reviewer",
+            "reviewer",
+            {"state": "COMMENTED", "body": "approved"},
+            {"state": "COMMENTED", "body": "needs another change"},
+        ),
+        (
+            "reviewer",
+            "reviewer",
+            {"state": "COMMENTED", "body": "approved"},
+            {"state": "CHANGES_REQUESTED"},
+        ),
+    ],
+)
+def test_a_later_revocation_on_another_head_revokes_an_exact_head_approval(
+    owner_reviewer, author, approval, revocation
+):
+    """Approve H1, revoke on H2, then return the branch to H1: H1 is not approved."""
+    reviews = [
+        _review(1, commit_id=H1, **approval),
+        _review(2, commit_id=H2, **revocation),
+    ]
+    assert (
+        current_human_approvers(
+            reviews, head_sha=H1, pull_request_author=author, owner_reviewer=owner_reviewer
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    ("owner_reviewer", "author", "approval", "revocation"),
+    [
+        (None, "author", {}, {"state": "CHANGES_REQUESTED"}),
+        ("reviewer", "author", {}, {"state": "CHANGES_REQUESTED"}),
+        (
+            "reviewer",
+            "reviewer",
+            {"state": "COMMENTED", "body": "approved"},
+            {"state": "COMMENTED", "body": "needs another change"},
+        ),
+        # An approval whose commit is gone cannot count, but still replaces H1's.
+        (None, "author", {}, {"state": "APPROVED"}),
+    ],
+)
+def test_a_later_review_whose_commit_is_gone_still_revokes(
+    owner_reviewer, author, approval, revocation
+):
+    """GitHub reports ``commit_id: null`` once H2 is garbage-collected."""
+    reviews = [
+        _review(1, commit_id=H1, **approval),
+        _review(2, commit_id=None, **revocation),
+    ]
+    assert (
+        current_human_approvers(
+            reviews, head_sha=H1, pull_request_author=author, owner_reviewer=owner_reviewer
+        )
+        == []
+    )
+
+
+def test_dismissing_a_later_approval_of_another_head_revokes_the_reviewer():
+    """Dismissal changes the dismissed review's state; it does not add a review."""
+    reviews = [_review(1, commit_id=H1), _review(2, state="DISMISSED", commit_id=H2)]
+    assert current_human_approvers(reviews, head_sha=H1, pull_request_author="author") == []
+
+
+def test_an_owner_reviewers_comment_on_another_authors_pr_does_not_revoke():
+    reviews = [
+        _review(1, commit_id=H1),
+        _review(2, state="COMMENTED", body="one more thought", commit_id=H2),
+        _review(3, state="COMMENTED", body="", commit_id=H2),
+    ]
+    assert current_human_approvers(
+        reviews, head_sha=H1, pull_request_author="author", owner_reviewer="reviewer"
+    ) == ["reviewer"]
+
+
+@pytest.mark.parametrize("review_id", [None, "7", 2.0, True])
+@pytest.mark.parametrize("state", ["APPROVED", "CHANGES_REQUESTED"])
+def test_a_decisive_review_without_an_integer_id_is_rejected(review_id, state):
+    """An unorderable review must not lose to an earlier approval by sorting first."""
+    reviews = [_review(1, commit_id=H1), _review(review_id, state=state, commit_id=H2)]
+    with pytest.raises(ValueError, match="no integer id"):
+        current_human_approvers(reviews, head_sha=H1, pull_request_author="author")
+
+
+def test_a_non_decisive_review_without_an_id_is_ignored():
+    reviews = [
+        _review(1, commit_id=H1),
+        _review(None, state="COMMENTED", body="question", commit_id=H2),
+        _review(None, login="automation", user_type="Bot", commit_id=H2),
+    ]
+    assert current_human_approvers(reviews, head_sha=H1, pull_request_author="author") == [
+        "reviewer"
+    ]
+
+
+def test_approval_check_fails_closed_on_a_decisive_review_without_an_id(
+    tmp_repo, tmp_path, monkeypatch
+):
+    write(
+        tmp_repo,
+        ".agentic-preflight.toml",
+        "[policy]\nhigh_risk_paths = ['src/**']\n\n[approval]\nmode = 'peer_review'\n",
+    )
+    base = commit_all(tmp_repo, "configure risk")
+    git("switch", "-c", "feature/no-id", cwd=tmp_repo)
+    write(tmp_repo, "src/app.py", "def greet(name):\n    return f'hello {name}'\n")
+    head = commit_all(tmp_repo, "change application")
+    _stub_attestation(monkeypatch, head=head, branch="feature/no-id", findings_summary={})
+    reviews_file = tmp_path / "reviews.json"
+    reviews_file.write_text(
+        json.dumps([_review(1, commit_id=head), _review(None, state="CHANGES_REQUESTED")])
+    )
+    env = ScriptedAgent(tmp_repo).run(
+        "approval-check",
+        head,
+        "--base",
+        base,
+        "--reviews-file",
+        str(reviews_file),
+        "--author",
+        "author",
+        expect=ExitCode.STAGE_FAILED,
+    )
+    assert env["error"]["code"] == "attestation_failed"
+    assert "no integer id" in env["error"]["message"]
+
+
+def test_a_later_approval_of_a_different_head_replaces_an_exact_head_approval():
+    """The reviewer's last word was on H2's content, so H1 needs a fresh approval."""
+    reviews = [_review(1, commit_id=H1), _review(2, commit_id=H2)]
+    assert current_human_approvers(reviews, head_sha=H1, pull_request_author="author") == []
+    assert current_human_approvers(reviews, head_sha=H2, pull_request_author="author") == [
+        "reviewer"
+    ]
+
+
+def test_a_peer_comment_on_another_head_does_not_revoke_an_exact_head_approval():
+    reviews = [
+        _review(1, commit_id=H1),
+        _review(2, state="COMMENTED", body="looks fine", commit_id=H2),
+    ]
+    assert current_human_approvers(reviews, head_sha=H1, pull_request_author="author") == [
+        "reviewer"
+    ]
+
+
 def test_high_risk_attested_change_requires_exact_head_human_approval(
     tmp_repo, tmp_path, monkeypatch
 ):
@@ -710,6 +868,58 @@ def test_revocation_after_an_earlier_approval_prevents_carryover(
     )
     assert result["approved"] is False
     assert result["approval_carried"] is False
+
+
+@pytest.mark.parametrize(
+    ("mode", "author", "approval", "revocation"),
+    [
+        ("peer_review", "author", {}, {"state": "CHANGES_REQUESTED"}),
+        (
+            "owner_review",
+            "reviewer",
+            {"state": "COMMENTED", "body": "approved"},
+            {"state": "COMMENTED", "body": "please revert this"},
+        ),
+    ],
+)
+def test_returning_to_an_approved_head_does_not_restore_a_revoked_approval(
+    tmp_repo, monkeypatch, mode, author, approval, revocation
+):
+    write(
+        tmp_repo,
+        ".agentic-preflight.toml",
+        "[policy]\nhigh_risk_paths = ['src/**']\n"
+        f"[approval]\nmode = '{mode}'\nreviewer = 'reviewer'\n",
+    )
+    base = commit_all(tmp_repo, "configure approval")
+    git("switch", "-c", "feature/back", cwd=tmp_repo)
+    write(tmp_repo, "src/app.py", GREET + "\n\n" + WAVE)
+    first = commit_all(tmp_repo, "first head")
+    write(tmp_repo, "src/app.py", GREET + "\n\n" + WAVE.replace("name\n", "name.upper()\n"))
+    second = commit_all(tmp_repo, "second head")
+    # The author force-pushes the branch back to the approved head.
+    git("reset", "--hard", first, cwd=tmp_repo)
+    approved = _review(1, commit_id=first, **approval)
+    _stub_attestation(monkeypatch, head=first, branch="feature/back", findings_summary={})
+
+    before = evaluate(
+        tmp_repo, base_sha=base, head_sha=first, reviews=[approved], pull_request_author=author
+    )
+    assert before["approved"] is True
+    assert before["approved_head"] == first
+
+    after = evaluate(
+        tmp_repo,
+        base_sha=base,
+        head_sha=first,
+        reviews=[approved, _review(2, commit_id=second, **revocation)],
+        pull_request_author=author,
+    )
+    assert after["requires_human_approval"] is True
+    assert after["approved"] is False
+    assert after["approval_carried"] is False
+    assert after["approved_head"] is None
+    assert after["human_approvers"] == []
 
 
 @pytest.mark.parametrize("attack", ["criss_cross_revert", "ours_merge_extra_commit"])

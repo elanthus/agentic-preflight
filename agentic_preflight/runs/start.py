@@ -17,7 +17,7 @@ from typing import Any, Literal
 from .. import attestation, gitx, housekeeping, worktree
 from .. import sync as syncmod
 from ..cli_contract import StartData
-from ..config import Config, config_digest, load_config
+from ..config import Config, config_digest, load_config_layers
 from ..envelope import Envelope, ExitCode
 from ..errors import (
     AgenticError,
@@ -215,6 +215,7 @@ class _StartContext:
     head_sha: str
     snapshot: dict[str, Any]
     config_digest: str
+    user_config_sections: list[str]
     producer: Producer
 
 
@@ -253,7 +254,7 @@ def _check_preconditions(
     repo = session.caller_root
     # Starting is the one command that deliberately reads the working copy.
     # Every later command uses the snapshot persisted below.
-    cfg = load_config(repo)
+    cfg, user_config_sections = load_config_layers(repo)
     session.config = cfg
     if cfg.worktree.mode != "in_place":
         session.store.set_worktrees_root(worktree.resolve_root(repo, cfg.worktree.root))
@@ -320,6 +321,7 @@ def _check_preconditions(
         head_sha=head_sha,
         snapshot=snapshot,
         config_digest=resolved_config_digest,
+        user_config_sections=user_config_sections,
         producer=producer,
     )
 
@@ -430,6 +432,7 @@ def _create_run_record(ctx: _StartContext, run_id: str, merge_base: str) -> tupl
         owner_ids=[ctx.session.owner_id],
         config_snapshot=ctx.snapshot,
         config_digest=ctx.config_digest,
+        user_config_sections=ctx.user_config_sections,
         producer=ctx.producer,
         created_at=_now(),
     )

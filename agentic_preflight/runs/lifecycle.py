@@ -42,10 +42,14 @@ from ._session import (
 def events(session: Session, *, limit: int | None = None) -> Envelope:
     """Return the current run's event history."""
     run = _load_current(session)
-    history = session.store.load_events(run.run_id)
+    log = session.store.read_events(run.run_id)
+    history = log.events
     if limit:
         history = history[-limit:]
-    return _envelope_for(run, data=EventsData(events=history, count=len(history)))
+    return _envelope_for(
+        run,
+        data=EventsData(events=history, count=len(history), skipped_lines=log.skipped_lines),
+    )
 
 
 def abort(session: Session, *, force: bool = False, reason: AbortReason | None = None) -> Envelope:
@@ -278,6 +282,9 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
     known_runs.difference_update(pruned)
 
     legacy = worktree.legacy_worktrees(session.repo_root, session.config.worktree.root)
+    # An interrupted notes fetch or publication can leave its temporary ref.
+    with store.resource("notes"):
+        gitx.sweep_notes_staging_refs(session.repo_root)
 
     return Envelope(
         data=GcData(

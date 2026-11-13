@@ -131,6 +131,29 @@ Follow the [upgrade guide](docs/upgrade-0.7.md) for the rollout order, configura
 Run schema 2, attestation schema 7, and fingerprint version 2 are retained.
 The schema number alone does not guarantee that an older verifier accepts new policy fields or evidence.
 
+## Attestation note content without user-level configuration
+
+Attestation schema 7 and fingerprint version 2 are retained, and current verifiers read notes from earlier releases unchanged.
+A note's `config_snapshot` now leaves out the sections that came from the user configuration file, except `[diff]`.
+A command that depends on such a section is recorded as `[redacted user-level command]`.
+The configuration digest and the review, docs, and shell fingerprint digests cover that published form, so a verifier that recomputes them from the note still agrees.
+Evidence reuse refuses a candidate whose snapshot holds a section the current run withholds, or whose findings the current copied-file values would redact.
+It also refuses evidence from a record without `user_config_sections`, such as one an earlier release wrote, unless its snapshot equals the current published snapshot.
+Expect one fresh review and docs stage after upgrading if you have user-level sections.
+A run with no user-level sections publishes the same snapshot and digests as before.
+A consumer that read a user-level setting from a note must read it locally instead. A section missing from the snapshot was set in the user file.
+
+Finding titles, details, suggestions, and response notes are redacted for copied-file values before they are saved, so `findings.json` and the note carry the redacted text.
+
+Every run record that this release starts carries `user_config_sections`, an empty list when no section came from the user file.
+A record without the field was started by an earlier release, and its user-level sections cannot be identified.
+`mergeback`, `gate`, and `push` refuse such a run with exit 4, `needs_human`, and `data.reason` `unknown_config_provenance`.
+`mergeback` refuses before it changes the source branch or writes a note.
+A run that an earlier release already merged back has a note that may hold user-level configuration; `gate` and `push` refuse it, and the error names the `git notes` command that removes that note.
+Abort the run and start a fresh one after upgrading. In isolated modes, cherry-pick any recorded fix commits (`data.fix_commits`) first, because `abort --force` discards them.
+The field makes every new run record unreadable to earlier releases, which forbid unknown keys.
+Before downgrading, finish or abort the runs that this release started. A record that an earlier release wrote stays without the field and stays readable to that release.
+
 ## Compatibility changes
 
 Agentic Preflight 0.7.0 requires Click 8.2 or newer.
@@ -241,6 +264,12 @@ Eligible Python patch and minor updates skip local-attestation verification and 
 The existing required check names stay available.
 Other PRs keep their prior gates.
 See `docs/attestations-and-ci.md`.
+
+The Dependabot approval exemption and the auto-merge and attestation exception now also require that the `dependabot[bot]` account (login, Bot type, and account id `49699333`) set the current head through a `pull_request_target` `opened` or `synchronize` event on a pull request into the default branch.
+A head that a person pushed, including a clean **Update branch** merge, and runs from `reopened`, `ready_for_review`, or auto-merge events no longer qualify.
+Such a pull request follows the ordinary policy: it needs a preflight attestation for its head, which the attestation workflow verifies, and owner approval where the approval policy requires it.
+Alternatively, `@dependabot rebase` or `@dependabot recreate` restores eligibility with a new Dependabot-set head.
+`.github/scripts/verify_dependabot.py` requires the new `--event-name` and `--event-file` arguments.
 
 Run read diagnostics now report `unreadable` for encoding or I/O failures and `invalid` for JSON, schema, or configuration failures.
 They do not list field locations.
@@ -488,6 +517,30 @@ Invalid `mirror` and `hook_log` values and unknown keys in the repository sectio
 `mirror` and `hook_log` now accept only `true` and `false`, in either file. Earlier releases also accepted values such as `1`, `"yes"`, and `"on"`. Such a value is now an error that names the file.
 Attestation verification reads the protected base's `[telemetry]` section by the same rule, so a `path` there no longer fails verification.
 No configuration digest, snapshot, fingerprint, or attestation changes, because none of them contains `[telemetry]`.
+
+## Unreleased: event logs skip torn lines
+
+An event appended after an interrupted append now starts on a new line instead of joining the torn line.
+A run's event log line that is not a JSON object, such as a torn line, is now skipped wherever it appears.
+A line that is JSON but not an object, such as `7`, used to make `events` fail with `internal_error`.
+Earlier releases skipped only a torn final line and reported a malformed earlier line as `run_record_unreadable` with reason `invalid`, from `events`, from `status` in `MERGEBACK_CONFLICT`, and from `telemetry rebuild`.
+The `events` envelope adds `data.skipped_lines`, the number of lines skipped.
+Run schema 2, attestation schema 7, and the event format are unchanged.
+
+## Unreleased: push publishes only the pushed commits' notes
+
+`push` no longer pushes the local `refs/notes/agentic-preflight` ref.
+It pushes a notes commit built from the remote notes tip plus the notes of the commits it pushes.
+The remote notes history still only moves forward, so a reader that fetches the notes ref is unaffected.
+`gate`, `push`, and `push --dry-run` envelopes add `data.published_notes`, a list of commit SHAs.
+From `push` it lists only the notes added or changed on the remote. From dry runs, and from `gate` outside manual mode, neither of which contacts the remote, it lists every pushed commit that has a local note. In manual gate mode, `gate` fetches the remote notes and the list is exact.
+The branch and notes push now carries `--force-with-lease` on `refs/notes/agentic-preflight`, so a remote notes ref that changed after the fetch, including by deletion or rewind, rejects the push. `push` then rebuilds, and the manual command must be regenerated with `gate`.
+After a successful push, the published notes commit is merged into the local notes ref, so that ref gains merge commits.
+`gc` and publication delete leftover `refs/notes/agentic-preflight-publish-*` and `refs/agentic-preflight/fetched-notes-*` refs.
+Outside manual gate mode, `data.refspec`, `data.push_commands`, and `data.would_push` show the notes source as `<notes-commit>` instead of `refs/notes/agentic-preflight`.
+A wrapper that ran those strings as commands must run `push` instead.
+In manual gate mode, `gate` now fetches the remote notes, and `data.manual_command` names the notes commit's SHA.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
 ## Unreleased: the reviewer's own files need human review
 

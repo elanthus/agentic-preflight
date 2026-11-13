@@ -19,6 +19,10 @@ On Windows, use the PowerShell installer:
 
 The script installs from that checkout.
 You can run it again after you pull changes.
+It installs the package code from the checkout, but `uv tool install` resolves the runtime dependencies again from PyPI.
+It does not use the checkout's `uv.lock`, so the installed `click` and `pydantic` can be newer than the locked versions.
+The published package install below behaves the same way.
+To run the exact locked versions instead, run `uv sync --locked --no-dev` in the checkout and invoke the CLI with `uv run --locked --no-dev agentic-preflight`.
 Pass one or more agent names to limit the skill installation, for example `./install.sh codex` or `.\install.ps1 codex`.
 The script refuses to overwrite a locally modified or unmanaged skill copy.
 

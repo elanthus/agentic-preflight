@@ -10,6 +10,8 @@ A section in the repository file replaces the whole matching user section.
 `[telemetry]` is the exception. A repository section can only turn telemetry off. See [Local run telemetry](#local-run-telemetry-telemetry).
 Keys are not merged across the two files.
 A section that only the user file sets still applies.
+The published attestation note leaves out such a section, except `[diff]`. See [Portable attestations](attestations-and-ci.md).
+A run that an earlier release started must be restarted before it can publish a note.
 Unknown keys are errors that name the key. They are not ignored.
 The retired `[ci]` and `[reuse]` sections are the exception. File loading ignores them with a warning.
 Removed individual keys, including `[hook] enabled`, still fail file loading. Remove them from both files.
@@ -305,14 +307,22 @@ GitHub plan restrictions can limit required reviewers for private repositories.
 
 `mode = "peer_review"` keeps the original pull-request-review policy.
 An eligible repository owner, member, or collaborator other than the author must approve the current head or an equivalent earlier head.
+Only each reviewer's latest decisive review counts, whichever head they submitted it on.
+A later changes-requested review or dismissal on any head revokes the approval, and a later approval of a head with different content replaces it.
+Returning the branch to an approved commit does not restore a revoked approval.
+A revoking review still counts when GitHub no longer reports the commit it was submitted on.
+A comment does not revoke a peer approval.
 
 `mode = "owner_review"` requires the human GitHub login in `reviewer` to review the current head or an equivalent earlier head.
 They must be a repository owner, member, or collaborator.
 On another author's pull request, they submit an **Approve** review.
 On their own pull request, they submit a **Comment** review whose trimmed body is exactly `approved` in lowercase.
 An ordinary PR conversation comment does not count.
-A dismissal or a later changes-requested review on any head revokes the approval.
-An edit or replacement of a self-review with other text also removes its approval.
+As in `peer_review`, only the reviewer's latest decisive review counts: a dismissal or a later changes-requested review on any head revokes the approval, and a later approval of a head with different content replaces it.
+An edit of a self-review to other text, or a later self-review Comment with other text on any head, also removes its approval.
+On their own pull request, replying to a review thread creates a Comment review with an empty body, so a reply also removes the self-approval, even on another head.
+Post replies before the final `approved` Comment review, or approve again afterwards.
+On another author's pull request, the reviewer's Comment reviews and replies do not revoke an Approve review.
 Bots and other reviewers cannot satisfy this mode.
 
 The self-approval proves only that the reviewer's account posted it.
@@ -509,6 +519,7 @@ Attempts persist across process restarts.
 Every repair invalidates the prior executor and coverage evidence.
 Attestation schema v7 records `executor` and per-stage provenance for every review.
 Command reviews also record the configured command, the exit code, and the redacted output digest.
+A command from a user-level `[review]` section is recorded as `[redacted user-level command]`.
 
 See [Independent review and agreement](independent-review.md) for worked Codex and Claude configurations and the two-reviewer comparison report.
 
