@@ -135,10 +135,14 @@ def _inventory(session: Session):
         for record in gitx.list_worktrees(repo)
         if "worktree" in record and record.get("branch", "").startswith("refs/heads/ap/")
     }
+    # ``for-each-ref`` prints bare names. ``git branch`` decorates the current
+    # branch with ``*`` and one checked out in a linked worktree with ``+``.
     ap_branches = {
-        line.strip().lstrip("* ").strip()
-        for line in gitx.out(repo, "branch", "--list", "ap/*").splitlines()
-        if line.strip()
+        line
+        for line in gitx.out(
+            repo, "for-each-ref", "--format=%(refname:short)", "refs/heads/ap/"
+        ).splitlines()
+        if line
     }
     return known_runs, active, active_run_ids, live_worktrees, ap_branches
 
@@ -234,10 +238,64 @@ def _collect_run(
                 False,
             )
     if not run.worktree_released and run.worktree_path and Path(run.worktree_path).exists():
+        if not force and not _is_in_place(run):
+            unrecorded = _unrecorded_work(run, run.worktree_path)
+            if unrecorded is not None:
+                return (
+                    False,
+                    {"run_id": run_id, "reason": unrecorded, "worktree_path": run.worktree_path},
+                    False,
+                )
         _release_run_worktree(session, run)
         with store.transaction(run_id) as doc:
             doc.worktree_released = True
     return True, None, False
+
+
+def _unrecorded_work(run: RunDoc, path: str) -> str | None:
+    """Name the work that releasing a validation checkout would discard, if any.
+
+    ``fix_commits`` lists only fixes answered with ``respond``. A commit made but
+    not yet answered, or an uncommitted file, lives only in the checkout, and
+    releasing it removes the worktree and branch or resets and cleans the
+    runner. The checkout is releasable only when it is clean apart from copied
+    files and its HEAD is the recorded head or the last recorded fix.
+    """
+    try:
+        status = gitx.run(
+            path,
+            "status",
+            "--porcelain",
+            "-z",
+            "--untracked-files=all",
+            "--ignore-submodules=none",
+        ).stdout
+        head = gitx.rev_parse(path, "HEAD")
+    except gitx.GitError:
+        return "validation worktree could not be inspected"
+    copied = [entry.rstrip("/") for entry in run.copied_files]
+    if any(
+        not any(changed == entry or changed.startswith(entry + "/") for entry in copied)
+        for changed in _porcelain_paths(status)
+    ):
+        return "validation worktree has uncommitted changes"
+    if head not in {run.head_sha, *run.fix_commits[-1:]}:
+        return "validation worktree holds unrecorded commits"
+    return None
+
+
+def _porcelain_paths(status: str) -> list[str]:
+    """Return every path in NUL-separated ``git status --porcelain`` output."""
+    paths: list[str] = []
+    entries = iter(status.split("\0"))
+    for entry in entries:
+        if len(entry) < 4:
+            continue
+        paths.append(entry[3:])
+        if "R" in entry[:2] or "C" in entry[:2]:
+            # A rename or copy is followed by its original path.
+            paths.append(next(entries, ""))
+    return paths
 
 
 def gc(session: Session, *, force: bool = False) -> Envelope:

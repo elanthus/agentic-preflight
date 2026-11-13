@@ -624,6 +624,79 @@ def test_gc_never_deletes_unmerged_work_without_force(blocked, feature_repo):
     assert Path(wt).exists()
 
 
+def _blocked_isolated_run(agent, feature_repo, tmp_path, mode):
+    write(feature_repo, ".agentic-preflight.toml", f"[worktree]\nmode = '{mode}'\n")
+    commit_all(feature_repo, f"use {mode} validation")
+    env = agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, BLOCKING))
+    return env["run_id"], Path(env["data"]["worktree_path"])
+
+
+@pytest.mark.parametrize("mode", ["strict", "reusable"])
+@pytest.mark.parametrize("work", ["unresponded_commit", "uncommitted_file"])
+def test_gc_retains_a_validation_worktree_holding_unrecorded_work(
+    agent, feature_repo, tmp_path, mode, work
+):
+    """Work that `respond` never recorded is still work: gc must not discard it."""
+    run_id, wt = _blocked_isolated_run(agent, feature_repo, tmp_path, mode)
+    if work == "unresponded_commit":
+        sha = fix_commit(wt)
+    else:
+        write(wt, "notes/draft.txt", "half-finished fix\n")
+    # The user moves the source branch, so gc orphans the stale run.
+    write(feature_repo, "src/other.py", "x = 1\n")
+    commit_all(feature_repo, "unrelated source work")
+
+    env = agent.run("gc")
+
+    assert run_id not in env["data"]["removed"]
+    retained = [item for item in env["data"]["retained"] if item.get("run_id") == run_id]
+    assert retained == [
+        {
+            "run_id": run_id,
+            "reason": (
+                "validation worktree holds unrecorded commits"
+                if work == "unresponded_commit"
+                else "validation worktree has uncommitted changes"
+            ),
+            "worktree_path": str(wt),
+        }
+    ]
+    assert wt.exists()
+    if work == "unresponded_commit":
+        assert git("rev-parse", "HEAD", cwd=wt) == sha
+        assert git("rev-parse", f"ap/{run_id}", cwd=feature_repo) == sha
+    else:
+        assert (wt / "notes" / "draft.txt").read_text(encoding="utf-8") == "half-finished fix\n"
+    record = Store(_run_dir(feature_repo, run_id).parent.parent).load_run(run_id)
+    assert record.state is State.ORPHANED
+    assert record.worktree_released is False
+
+    forced = agent.run("gc", "--force")
+    assert run_id in forced["data"]["removed"]
+
+
+@pytest.mark.parametrize("mode", ["strict", "reusable"])
+def test_a_healthy_isolated_run_is_not_reported_as_an_orphan(agent, feature_repo, mode):
+    """A branch checked out in a linked worktree is listed by git with a `+` mark."""
+    write(feature_repo, ".agentic-preflight.toml", f"[worktree]\nmode = '{mode}'\n")
+    commit_all(feature_repo, f"use {mode} validation")
+    run_id = agent.run("start")["run_id"]
+
+    env = agent.run("gc")
+
+    assert env["data"]["orphans"] == []
+    assert env["data"]["removed"] == []
+    assert (env.get("next") or {}).get("command") is None
+    inventory = agent.run("status", "--all")
+    (summary,) = [item for item in inventory["data"]["runs"] if item["run_id"] == run_id]
+    assert summary["active"] is True
+    assert summary["state"] != "ORPHANED"
+    assert summary["orphaned_reason"] is None
+    assert agent.run("status")["run_id"] == run_id
+
+
 def test_gc_reconciles_a_worktree_with_no_run_directory(agent, feature_repo):
     """An orphan: git knows about the worktree, the store no longer does."""
     import shutil
@@ -673,6 +746,7 @@ def test_gc_retains_unreadable_resources_and_collects_other_runs(
         git("worktree", "add", "-b", f"ap/{run_id}", str(wt), "main", cwd=feature_repo)
         run = make_run(run_id)
         run.state = State.DONE
+        run.head_sha = run.source_head_sha = git("rev-parse", "main", cwd=feature_repo)
         run.pushed_sha = run.head_sha
         run.worktree_path = str(wt)
         run.worktree_branch = f"ap/{run_id}"
@@ -741,3 +815,11 @@ def test_gc_cleanup_failures_still_surface(feature_repo, monkeypatch):
     result = ScriptedAgent(feature_repo).run("gc", expect=1)
     assert result["error"]["code"] == "internal_error"
     assert store.load_run(run.run_id).worktree_released is False
+
+
+def test_gc_reads_every_path_of_a_porcelain_status_including_rename_sources():
+    from agentic_preflight.runs.lifecycle import _porcelain_paths
+
+    status = " M src/app.py\0R  new.py\0old.py\0?? notes/a b.txt\0"
+    assert _porcelain_paths(status) == ["src/app.py", "new.py", "old.py", "notes/a b.txt"]
+    assert _porcelain_paths("") == []
