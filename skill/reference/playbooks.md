@@ -51,7 +51,8 @@ commits. Then rerun the refused command. The changed history returns the run to 
 
 Stop retrying — you have already tried `max_attempts` times and the tool is telling
 you the loop is not converging. For a stage failure, show the user
-`agentic-preflight logs --stage <name>` output and ask how to proceed. For a baseline
+`agentic-preflight logs --stage <name>` output (the last 200 lines by default; see
+`data.truncated`) and ask how to proceed. For a baseline
 setup failure, no stage log exists; show `data.setup_failure` and obey the returned
 `agentic-preflight abort --force` command, with `--reason environment_failure`.
 

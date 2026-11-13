@@ -541,3 +541,13 @@ Outside manual gate mode, `data.refspec`, `data.push_commands`, and `data.would_
 A wrapper that ran those strings as commands must run `push` instead.
 In manual gate mode, `gate` now fetches the remote notes, and `data.manual_command` names the notes commit's SHA.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Unreleased: `logs` returns a bounded window
+
+`logs --stage` no longer returns the whole stage log by default.
+`data.output` now holds the last 200 lines, cut to at most 64 KiB.
+The `logs` envelope adds `data.truncated`, `data.total_bytes`, and `data.total_lines`, which describe the whole stored log.
+New flags choose the window: `--tail N`, `--head N`, and `--all`. `--all` restores the earlier whole-log output.
+A wrapper that read the whole log from `data.output` must pass `--all` or read the file at `data.log_path`.
+The stored log, its redaction, and its location are unchanged.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.

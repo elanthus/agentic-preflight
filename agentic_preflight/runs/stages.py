@@ -35,6 +35,7 @@ from ._session import (
 )
 from ._shell import _run_protected, _withheld_message
 from .fix_commits import derive_fix_commits, record_fix_commits
+from .log_window import DEFAULT_TAIL_LINES, read_log_window
 from .review import _skip_test_if_not_applicable
 from .review_coverage import invalidate_stage_result, reopen_if_stale
 from .stage_baseline import check_baseline
@@ -486,8 +487,20 @@ def run_stage(
     )
 
 
-def logs(session: Session, *, stage_name: str) -> Envelope:
-    """Return the captured log for a stage of the current run."""
+def logs(
+    session: Session,
+    *,
+    stage_name: str,
+    head: int | None = None,
+    tail: int | None = None,
+    whole: bool = False,
+) -> Envelope:
+    """Return a bounded window of the captured log for a stage of the current run.
+
+    By default the window is the last :data:`DEFAULT_TAIL_LINES` lines; ``head`` or
+    ``tail`` choose another line count. Either is cut to :data:`.log_window.MAX_WINDOW_BYTES`.
+    ``whole`` returns the entire log.
+    """
     run = _load_current(session)
     log_path = session.store.logs_dir(run.run_id) / f"{stage_name}.txt"
     if not log_path.exists():
@@ -503,12 +516,21 @@ def logs(session: Session, *, stage_name: str) -> Envelope:
             next_instruction="Run the stage first.",
             next_command=next_command,
         )
+    if whole:
+        window = read_log_window(log_path, max_bytes=None)
+    elif head is not None:
+        window = read_log_window(log_path, head=head)
+    else:
+        window = read_log_window(log_path, tail=DEFAULT_TAIL_LINES if tail is None else tail)
     return _envelope_for(
         run,
         stage=stage_name,
         data=LogsData(
             stage=stage_name,
             log_path=str(log_path),
-            output=log_path.read_text(encoding="utf-8"),
+            output=window.output,
+            truncated=window.truncated,
+            total_bytes=window.total_bytes,
+            total_lines=window.total_lines,
         ),
     )

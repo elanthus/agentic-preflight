@@ -257,11 +257,34 @@ def stage_run(name: str, command_str: str | None, record: bool, baseline: bool) 
 
 @click.command()
 @click.option("--stage", "stage_name", required=True, type=click.Choice(["review", "lint", "test"]))
+@click.option(
+    "--tail",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Return the last N lines (default 200), at most 64 KiB.",
+)
+@click.option(
+    "--head",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Return the first N lines, at most 64 KiB.",
+)
+@click.option("--all", "whole", is_flag=True, help="Return the whole log, with no size limit.")
 @command
-def logs(stage_name: str) -> None:
-    """The full captured output of a stage."""
+def logs(stage_name: str, tail: int | None, head: int | None, whole: bool) -> None:
+    """A bounded window of the captured output of a stage."""
+    chosen = [
+        flag for flag, value in (("--tail", tail), ("--head", head), ("--all", whole)) if value
+    ]
+    if len(chosen) > 1:
+        fail_usage(
+            click.UsageError(
+                f"choose one of --tail, --head, or --all, not {' and '.join(chosen)}",
+                ctx=click.get_current_context(),
+            )
+        )
     session = open_cli_session()
-    finish(runs.logs(session, stage_name=stage_name))
+    finish(runs.logs(session, stage_name=stage_name, head=head, tail=tail, whole=whole))
 
 
 @click.command()

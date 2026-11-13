@@ -603,8 +603,20 @@ In `MERGEBACK_CONFLICT`, it replays the stored conflict report and points back t
 legal `mergeback` retry.
 `--all` inventories stored and active runs across every linked worktree in the clone.
 
-### `agentic-preflight logs --stage review|lint|test`
-Full captured output. Copied-file contents are redacted.
+### `agentic-preflight logs --stage review|lint|test [--tail N | --head N | --all]`
+A window of the stage's captured output. Copied-file contents are redacted in the stored
+log, so every window is redacted too.
+
+By default `data.output` holds the last 200 lines of the log, cut to at most 64 KiB.
+`--tail N` returns the last N lines and `--head N` the first N lines, each also cut to
+64 KiB. `--all` returns the whole log with no size limit. Choose at most one; combining
+them, or an N below 1, exits 6 with `usage_error`. A cut never splits a UTF-8 character
+or a `[redacted]` marker: a marker the cut would split is left out.
+
+`data.stage` names the stage. `data.truncated` is true when `data.output` is less than
+the whole stored log.
+`data.total_bytes` and `data.total_lines` describe the whole log. `data.log_path` is the
+path of the stored log, for reading it with other tools.
 
 ### `agentic-preflight events [--limit N]`
 Run history, oldest first.
