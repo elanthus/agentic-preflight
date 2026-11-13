@@ -647,7 +647,7 @@ def _set_status_next(
             (
                 event
                 for event in reversed(session.store.load_events(run.run_id))
-                if event.get("event") == "mergeback_conflict"
+                if isinstance(event, dict) and event.get("event") == "mergeback_conflict"
             ),
             None,
         )

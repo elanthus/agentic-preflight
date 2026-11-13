@@ -807,6 +807,11 @@ def test_events_survive_an_append_after_a_torn_line(agent, feature_repo, tmp_pat
     assert history["skipped_lines"] == 1
     assert history["count"] > before
     assert all("trunc" not in json.dumps(event) for event in history["events"])
+    # The first event appended after the tear is kept, not glued onto the torn line.
+    assert any(
+        event.get("event") == "state_transition" and event.get("from") == "REVIEW_AWAITING_FINDINGS"
+        for event in history["events"]
+    )
 
 
 def test_status_in_mergeback_conflict_survives_a_torn_event_line(agent, feature_repo):
@@ -827,6 +832,12 @@ def test_status_in_mergeback_conflict_survives_a_torn_event_line(agent, feature_
     assert status["state"] == "MERGEBACK_CONFLICT"
     assert status["data"]["mergeback_conflict"]["conflicting_commit"] == "abc123"
     assert agent.run("events")["data"]["skipped_lines"] == 1
+
+    # A line that is JSON but not an event object does not break status either.
+    with open(events, "a", encoding="utf-8", newline="\n") as handle:
+        handle.write("7\n")
+    status = agent.run("status")
+    assert status["data"]["mergeback_conflict"]["conflicting_commit"] == "abc123"
 
 
 def test_a_final_event_line_cut_inside_a_multibyte_character_does_not_break_status(
