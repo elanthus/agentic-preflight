@@ -125,7 +125,8 @@ Redaction narrows what the note can reveal. It is not a secret scanner:
 - The local run record keeps the full user configuration, because the run executes it.
 
 Notes that earlier releases wrote keep whatever they contained.
-A run that an earlier release started still publishes its user-level sections. Start a new run to leave them out.
+A run that an earlier release started cannot publish: `mergeback`, `gate`, and `push` refuse it because the run did not record which sections came from the user file. Abort it and start a fresh run.
+Other notes in the local notes ref, such as one an earlier release wrote for a run you later aborted, are pushed with the whole ref. Remove them before you push if they may hold user-level configuration.
 Evidence reuse refuses evidence from a record without user-level sections, such as one that an earlier release wrote, unless its configuration snapshot matches what the current run publishes.
 Rewriting a published note does not remove it from clones or forks that already fetched it.
 

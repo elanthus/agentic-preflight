@@ -29,9 +29,18 @@ PUBLISHED_USER_SECTIONS = frozenset({"diff"})
 REDACTED_COMMAND = "[redacted user-level command]"
 
 
+def provenance_known(run: RunDoc) -> bool:
+    """Whether the run records which sections came from user configuration.
+
+    A run that an earlier release started does not. Its snapshot may hold
+    user-level sections that cannot be told apart, so it must not publish a note.
+    """
+    return run.user_config_sections is not None
+
+
 def withheld_sections(run: RunDoc) -> set[str]:
     """Snapshot sections that came from user configuration and are not published."""
-    return set(run.user_config_sections) - PUBLISHED_USER_SECTIONS
+    return set(run.user_config_sections or ()) - PUBLISHED_USER_SECTIONS
 
 
 def published_snapshot(run: RunDoc) -> dict[str, Any]:
@@ -68,7 +77,7 @@ def published_command(run: RunDoc, stage: Stage, command: str | None) -> str | N
     --command`` override, is replaced by :data:`REDACTED_COMMAND`. Shell syntax
     can carry a credential in too many forms to redact parts of it.
     """
-    if command is None or _command_section(stage) not in run.user_config_sections:
+    if command is None or _command_section(stage) not in (run.user_config_sections or ()):
         return command
     return REDACTED_COMMAND
 

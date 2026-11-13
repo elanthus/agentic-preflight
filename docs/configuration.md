@@ -11,6 +11,7 @@ A section in the repository file replaces the whole matching user section.
 Keys are not merged across the two files.
 A section that only the user file sets still applies.
 The published attestation note leaves out such a section, except `[diff]`. See [Portable attestations](attestations-and-ci.md).
+A run that an earlier release started must be restarted before it can publish a note.
 Unknown keys are errors that name the key. They are not ignored.
 The retired `[ci]` and `[reuse]` sections are the exception. File loading ignores them with a warning.
 Removed individual keys, including `[hook] enabled`, still fail file loading. Remove them from both files.

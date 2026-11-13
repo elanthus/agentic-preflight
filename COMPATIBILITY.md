@@ -145,9 +145,14 @@ A consumer that read a user-level setting from a note must read it locally inste
 
 Finding titles, details, suggestions, and response notes are redacted for copied-file values before they are saved, so `findings.json` and the note carry the redacted text.
 
-Run records add `user_config_sections` only when a run has user-level sections.
-Older releases cannot read a run record that has the field. Finish such a run with the current release.
-A run that an earlier release started has no `user_config_sections`, so it publishes its full snapshot as before.
+Every run record that this release starts carries `user_config_sections`, an empty list when no section came from the user file.
+A record without the field was started by an earlier release, and its user-level sections cannot be identified.
+`mergeback`, `gate`, and `push` refuse such a run with exit 4, `needs_human`, and `data.reason` `unknown_config_provenance`.
+`mergeback` refuses before it changes the source branch or writes a note.
+A run that an earlier release already merged back has a note that may hold user-level configuration; `gate` and `push` refuse it, and the error names the `git notes` command that removes that note.
+Abort the run and start a fresh one after upgrading. In isolated modes, cherry-pick any recorded fix commits (`data.fix_commits`) first, because `abort --force` discards them.
+The field makes every new run record unreadable to earlier releases, which forbid unknown keys.
+Before downgrading, finish or abort the runs that this release started. A record that an earlier release wrote stays without the field and stays readable to that release.
 
 ## Compatibility changes
 

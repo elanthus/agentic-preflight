@@ -107,6 +107,12 @@ def build(
         )
     from .refresh_validation import rebound_coverage, verify_evidence
 
+    if not public_config.provenance_known(run):
+        raise InvalidAttestation(
+            "the run was started by an earlier release that did not record which "
+            "configuration came from the user file; start a fresh run to publish"
+        )
+
     required_evidence = set(Stage)
     if run.worktree_path is None:
         raise InvalidAttestation("run has no validation worktree for evidence verification")

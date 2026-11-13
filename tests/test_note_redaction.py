@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from agentic_preflight import attestation
 from agentic_preflight.config import load_config_layers
 from agentic_preflight.digests import json_digest
@@ -267,10 +269,90 @@ def test_user_level_sections_are_those_the_repository_does_not_set(tmp_path):
     assert cfg.docs.enabled is True
 
 
-def test_a_run_without_user_level_sections_is_written_as_before():
+def test_run_records_mark_unknown_provenance_by_omitting_the_field():
+    # A record that an earlier release wrote has no field, and stays without one.
     assert "user_config_sections" not in make_run().model_dump(mode="json")
-    run = make_run().model_copy(update={"user_config_sections": ["review"]})
-    assert run.model_dump(mode="json")["user_config_sections"] == ["review"]
+    run = make_run().model_copy(update={"user_config_sections": []})
+    assert run.model_dump(mode="json")["user_config_sections"] == []
+
+
+def _to_test_green(agent: ScriptedAgent, tmp_path: Path) -> str:
+    run_id = agent.run("start")["run_id"]
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
+    return run_id
+
+
+def test_a_run_started_by_an_earlier_release_cannot_merge_back(feature_repo, tmp_path):
+    # An earlier release computed fingerprints over the full snapshot, which is
+    # what a run of unknown provenance still uses, so only the guard stops it.
+    # Without user config the record cannot be told from one that has it.
+    _protect(feature_repo, CLEAN_REVIEWER, PROTECTED)
+    agent = ScriptedAgent(feature_repo)
+    run_id = _to_test_green(agent, tmp_path)
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    path = store.run_dir(run_id) / "run.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    del payload["user_config_sections"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    head = git("rev-parse", "feature/x", cwd=feature_repo)
+
+    refused = agent.run("mergeback", expect=4)
+
+    assert refused["error"]["code"] == "needs_human"
+    assert refused["data"]["reason"] == "unknown_config_provenance"
+    assert refused["next"]["command"] == "agentic-preflight abort"
+    assert git("rev-parse", "feature/x", cwd=feature_repo) == head
+    assert git("notes", f"--ref={attestation.NOTES_REF}", "list", cwd=feature_repo) == ""
+    run = store.load_run(run_id)
+    assert run.user_config_sections is None
+    assert run.state.value == "TEST_GREEN"
+    assert run.mergeback_attempt is None
+    # The attestation builder refuses it too, independently of mergeback.
+    with pytest.raises(attestation.InvalidAttestation, match="earlier release"):
+        attestation.build(
+            run,
+            sha=head,
+            tree_sha=git("rev-parse", "HEAD^{tree}", cwd=feature_repo),
+            docs_enabled=False,
+            findings_summary={},
+        )
+
+
+def test_a_note_from_an_earlier_release_run_is_not_pushed(feature_repo, tmp_path):
+    _protect(feature_repo, CLEAN_REVIEWER, PROTECTED)
+    agent = ScriptedAgent(feature_repo)
+    run_id = _to_test_green(agent, tmp_path)
+    agent.run("mergeback")
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    path = store.run_dir(run_id) / "run.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    del payload["user_config_sections"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    refused = agent.run("gate", expect=4)
+
+    assert refused["data"]["reason"] == "unknown_config_provenance"
+    assert "git notes --ref=refs/notes/agentic-preflight remove" in refused["error"]["message"]
+    assert store.load_run(run_id).state.value == "VERIFIED"
+
+
+def test_a_new_run_without_user_config_records_an_empty_list_and_publishes(feature_repo, tmp_path):
+    _protect(feature_repo, CLEAN_REVIEWER, PROTECTED)
+    agent = ScriptedAgent(feature_repo)
+    run_id = _to_test_green(agent, tmp_path)
+    store = Store(feature_repo / ".git" / "agentic-preflight")
+    raw = json.loads((store.run_dir(run_id) / "run.json").read_text(encoding="utf-8"))
+    assert raw["user_config_sections"] == []
+
+    agent.run("mergeback")
+
+    head, body = _note(feature_repo)
+    note = json.loads(body)
+    assert note["config_snapshot"] == store.load_run(run_id).config_snapshot
+    assert attestation.verify(feature_repo, head, base="main").sha == head
 
 
 def test_finding_redaction_keeps_the_length_caps():
@@ -347,3 +429,48 @@ def test_review_compare_redacts_the_second_submission(feature_repo, tmp_path):
     run_dir = open_session(feature_repo, run_id=run_id).store.run_dir(run_id)
     assert COPIED_VALUE not in (run_dir / "review-compare.json").read_text(encoding="utf-8")
     assert COPIED_VALUE not in (run_dir / "events.jsonl").read_text(encoding="utf-8")
+
+
+def test_review_compare_refusal_does_not_echo_a_copied_value(feature_repo, tmp_path):
+    write(feature_repo, ".env", f"SAMPLE_SETTING={COPIED_VALUE}\n")
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        "[review]\nexecutor = 'in_harness'\n\n[docs]\nenabled = false\n",
+    )
+    commit_all(feature_repo, "configure in-harness review")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    context = agent.run("context")
+    coverage = context["data"]["review_coverage"]
+    first = tmp_path / "first.json"
+    first.write_text(
+        json.dumps(
+            {"coverage": {"manifest": coverage["manifest"], "examined": "all"}, "findings": []}
+        )
+    )
+    agent.run("submit-findings", "--file", str(first))
+    unit = coverage["units"][0]
+    persisted = {
+        "manifest": coverage["manifest"],
+        "head_sha": git("rev-parse", "HEAD", cwd=feature_repo),
+        "executor": "command",
+        "findings": [
+            {
+                "unit": unit["id"],
+                "path": unit["path"],
+                "severity": "low",
+                "action": "no_op",
+                # Over the 200-character cap, so validation rejects it.
+                "title": COPIED_VALUE * 20,
+            }
+        ],
+    }
+    second = tmp_path / "second.json"
+    second.write_text(json.dumps(persisted))
+
+    refused = agent.run("review", "compare", "--file", str(second), expect=3)
+
+    assert refused["error"]["code"] == "invalid_findings"
+    assert "title" in refused["error"]["message"]
+    assert COPIED_VALUE not in json.dumps(refused)

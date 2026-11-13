@@ -9,4 +9,10 @@
   note. Attestation schema 7 is unchanged. See `COMPATIBILITY.md`, and
   `docs/attestations-and-ci.md` for exactly what a note contains.
 - `review compare` redacts copied-file values in compared findings before it writes its
-  summary and event.
+  summary and event. Its refusals no longer quote rejected values and are redacted for
+  copied-file values.
+- `mergeback`, `gate`, and `push` refuse a run that an earlier release started (exit 4,
+  `needs_human`, `data.reason` `unknown_config_provenance`), because such a run did not
+  record which configuration came from the user file. Abort it and start a fresh run. Run
+  records now always carry `user_config_sections`, so earlier releases cannot read new run
+  records.

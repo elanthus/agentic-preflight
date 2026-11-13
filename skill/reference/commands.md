@@ -492,6 +492,14 @@ On success: compares the branch tree against the worktree tree. `tree_equivalent
 means the verified content is byte-identical and a Git-note attestation is written for
 the exact commit. False returns to review with all snapshot-bound stage evidence cleared.
 
+A run that an earlier release started has no record of which configuration sections came
+from the user file. `mergeback` refuses it with exit 4, `needs_human`, and `data.reason`
+`unknown_config_provenance` before changing the source branch or writing a note, because
+its attestation could publish user-level configuration. `gate` and `push` refuse such a
+run the same way, and their message names the `git notes ... remove` command for a note an
+earlier release already wrote. `data.fix_commits` lists recorded fix commits; in isolated
+modes, cherry-pick them before aborting. Abort it and start a fresh run.
+
 A merge-back interrupted after synchronizing the source with the base but before reaching
 the recorded verified tree is stale. Follow `status` and restart preflight for the current source;
 only the unchanged source or the completed verified tree can resume a pending attempt.

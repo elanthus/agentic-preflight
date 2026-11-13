@@ -31,6 +31,7 @@ A note contains these fields:
 
 The published configuration snapshot leaves out every section that came from the user configuration file, `~/.config/agentic-preflight/config.toml`.
 Those sections apply to the run, but they describe one machine.
+A run that an earlier release started did not record which sections came from that file, so `mergeback`, `gate`, and `push` refuse it. Abort it and start a fresh run before it can publish.
 `[diff]` is the exception. Verification rebuilds the review diff from its exclusions, so it is published from either file.
 A section that the repository file sets is published as written.
 

@@ -26,7 +26,7 @@ from ._session import (
     _worktree_completion,
     _worktree_mode,
 )
-from .mergeback import _remote_for
+from .mergeback import _remote_for, require_known_provenance
 
 
 def _push_refspecs(head_sha: str, branch: str) -> list[str]:
@@ -47,6 +47,7 @@ def gate(session: Session) -> Envelope:
     run = _load_current(session)
     _assert_fresh(session, run)
     _require_state(run, State.VERIFIED, State.AWAITING_PUSH_CONFIRM, command="gate")
+    require_known_provenance(run, command="gate")
 
     _remote_for(session, run)
     commits = [
@@ -174,6 +175,7 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
     run = _load_current(session)
     _assert_fresh(session, run)
     _require_state(run, State.AWAITING_PUSH_CONFIRM, command="push")
+    require_known_provenance(run, command="push")
 
     if not token_matches(run.gate_token, confirm):
         raise NeedsConfirm(

@@ -379,8 +379,10 @@ class RunDoc(BaseModel):
     config_snapshot: dict[str, Any]
     config_digest: str
     # Sections of the snapshot that came from the user configuration file. They run
-    # locally but stay out of the published note. Absent from earlier records.
-    user_config_sections: list[str] = Field(default_factory=list)
+    # locally but stay out of the published note. ``None`` means unknown: a run that
+    # an earlier release started, whose snapshot cannot be published safely. Every
+    # run started now records a list, even an empty one.
+    user_config_sections: list[str] | None = None
     changed_files: list[str] = Field(default_factory=list)
     review_coverage: ReviewCoverage | None = None
     risk: RiskAssessment | None = None
@@ -434,15 +436,16 @@ class RunDoc(BaseModel):
         return value
 
     @model_serializer(mode="wrap")
-    def omit_empty_user_config_sections(
+    def omit_unknown_user_config_sections(
         self, handler: SerializerFunctionWrapHandler
     ) -> dict[str, Any]:
-        """Write a run without user-level sections exactly as earlier versions did.
+        """Write a run that an earlier release started without the provenance field.
 
-        Older releases forbid unknown keys, so they can still read such a record.
+        Its absence keeps marking the provenance unknown, and such a record stays
+        readable by the release that started it, which forbids unknown keys.
         """
         data = handler(self)
-        if not self.user_config_sections:
+        if self.user_config_sections is None:
             data.pop("user_config_sections", None)
         return data
 
