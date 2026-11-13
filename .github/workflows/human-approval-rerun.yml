@@ -134,6 +134,8 @@ jobs:
                 | [.[][]?] as $reviews
                 | [$relay_runs[0][]?.workflow_runs[]?
                     | select(((.triggering_actor.login // "") | ascii_downcase) == $bot)
+                    # A relay run that finished without success never reaches this job.
+                    | select(.status != "completed" or .conclusion == "success")
                     | {id, at: (.created_at | fromdateiso8601)}] as $bot_runs
                 | [$events[0][][]?
                     | select(.event == "review_dismissed" and

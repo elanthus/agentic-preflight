@@ -38,8 +38,14 @@ def _step_script(workflow, label):
 RELAY_AT = "2026-11-13T12:00:00Z"
 
 
-def _relay_run(run_id, at, actor="review-app[bot]"):
-    return {"id": int(run_id), "created_at": at, "triggering_actor": {"login": actor}}
+def _relay_run(run_id, at, actor="review-app[bot]", conclusion="success"):
+    return {
+        "id": int(run_id),
+        "created_at": at,
+        "triggering_actor": {"login": actor},
+        "status": "completed",
+        "conclusion": conclusion,
+    }
 
 
 OWNER_REVIEW = {
@@ -606,6 +612,52 @@ def test_companion_reruns_a_bot_dismissal_that_follows_an_earlier_bot_review(rer
     )
     assert result.returncode == 0, result.stderr
     assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+@pytest.mark.parametrize("conclusion", ["failure", "cancelled"])
+def test_companion_skips_a_failed_first_relay_run_when_binding_a_bot_dismissal(rerun, conclusion):
+    # The first relay run after the dismissal never reached authorize, so the next one counts.
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="review-app[bot]",
+        reviews=[_dismissed_approval()],
+        events=[_dismissed(at="2026-11-13T11:59:50Z")],
+        relay_runs=[
+            _relay_run(40, "2026-11-13T11:59:51Z", conclusion=conclusion),
+            _relay_run(41, RELAY_AT),
+        ],
+    )
+    assert result.returncode == 0, result.stderr
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+@pytest.mark.parametrize(
+    ("relay_run_id", "relay_at", "expected"),
+    [
+        ("40", "2026-11-13T11:59:51Z", ["run rerun 1 --repo owner/project"]),
+        ("41", "2026-11-13T11:59:53Z", []),
+    ],
+    ids=["first-run-after-dismissal", "later-run"],
+)
+def test_companion_binds_a_dismissal_to_an_earlier_review_relay_created_after_it(
+    rerun, relay_run_id, relay_at, expected
+):
+    # The bot reviewed at :49 and dismissed at :50; the review's relay run (40) was created
+    # at :51 and is the first after the dismissal, so it re-runs and the later one does not.
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="review-app[bot]",
+        reviews=[_bot_review("2026-11-13T11:59:49Z"), _dismissed_approval()],
+        events=[_dismissed(at="2026-11-13T11:59:50Z")],
+        relay_runs=[
+            _relay_run(40, "2026-11-13T11:59:51Z"),
+            _relay_run(41, "2026-11-13T11:59:53Z"),
+        ],
+        relay_run_id=relay_run_id,
+        relay_created_at=relay_at,
+    )
+    assert result.returncode == 0, result.stderr
+    assert _reruns(calls) == expected
 
 
 @pytest.mark.parametrize(
