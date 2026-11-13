@@ -405,6 +405,10 @@ class LogsData(RunDataBase):
 class EventsData(RunDataBase):
     events: list[Obj] | None = None
     count: int | None = None
+    skipped_lines: int | None = Field(
+        default=None,
+        description="Event log lines skipped because they are not JSON objects, such as a torn append.",
+    )
 
 
 class AbortData(RunDataBase):
