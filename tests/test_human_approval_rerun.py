@@ -38,16 +38,6 @@ def _step_script(workflow, label):
 RELAY_AT = "2026-11-13T12:00:00Z"
 
 
-def _relay_run(run_id, at, actor="review-app[bot]", conclusion="success"):
-    return {
-        "id": int(run_id),
-        "created_at": at,
-        "triggering_actor": {"login": actor},
-        "status": "completed",
-        "conclusion": conclusion,
-    }
-
-
 OWNER_REVIEW = {
     "data": {"approval_mode": "owner_review", "requires_human_approval": True, "base_sha": BASE}
 }
@@ -136,9 +126,6 @@ def rerun(tmp_path):
         events=None,
         events_exit=0,
         relay_created_at=RELAY_AT,
-        relay_run_id="41",
-        relay_runs=None,
-        relay_runs_exit=0,
     ):
         (tmp_path / "pr-fixture.json").write_text(json.dumps(pull_request or _pull_request()))
         (tmp_path / "relay.txt").write_text(relay)
@@ -148,11 +135,6 @@ def rerun(tmp_path):
             json.dumps([reviews if reviews is not None else [_review()]])
         )
         (tmp_path / "events.json").write_text(json.dumps([events or []]))
-        if relay_runs is None:
-            relay_runs = [_relay_run(relay_run_id, relay_created_at)]
-        (tmp_path / "relay-runs-fixture.json").write_text(
-            json.dumps([{"workflow_runs": relay_runs}])
-        )
         harness = r"""
 gh() {
   printf '%s\n' "$*" >> gh-calls.txt
@@ -182,10 +164,6 @@ gh() {
           [ "$TEST_EVENTS_EXIT" = 0 ] || return "$TEST_EVENTS_EXIT"
           cat events.json
           ;;
-        */human-approval-review.yml/runs*)
-          [ "$TEST_RELAY_RUNS_EXIT" = 0 ] || return "$TEST_RELAY_RUNS_EXIT"
-          cat relay-runs-fixture.json
-          ;;
         *) cat runs.json ;;
       esac
       ;;
@@ -214,7 +192,7 @@ GITHUB_OUTPUT=github-output.txt
             env={
                 **os.environ,
                 "GITHUB_REPOSITORY": "owner/project",
-                "RELAY_RUN_ID": relay_run_id,
+                "RELAY_RUN_ID": "41",
                 "RUN_HEAD_SHA": HEAD,
                 "RUN_HEAD_REPOSITORY": "contributor/project",
                 "TEST_DOWNLOAD_EXIT": str(download_exit),
@@ -229,7 +207,6 @@ GITHUB_OUTPUT=github-output.txt
                 "TEST_PERMISSION_EXIT": str(permission_exit),
                 "TEST_EVENTS_EXIT": str(events_exit),
                 "RELAY_CREATED_AT": relay_created_at,
-                "TEST_RELAY_RUNS_EXIT": str(relay_runs_exit),
             },
             capture_output=True,
             text=True,
@@ -570,159 +547,68 @@ def test_companion_reruns_when_a_bot_dismisses_an_eligible_approval(rerun, assoc
     assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
 
 
-def test_companion_reruns_a_bot_dismissal_processed_after_that_bot_reviewed_again(rerun):
-    # The bot reviewed again after the relay run was created; the dismissal still counts.
-    result, calls = rerun(
-        runs=_runs(_run(1, 5)),
-        actor="review-app[bot]",
-        reviews=[_dismissed_approval(), _bot_review("2026-11-13T12:00:20Z")],
-        events=[_dismissed()],
-        relay_runs=[_relay_run(41, RELAY_AT), _relay_run(42, "2026-11-13T12:00:21Z")],
-    )
-    assert result.returncode == 0, result.stderr
-    assert any(
-        "actions/workflows/human-approval-review.yml/runs?event=pull_request_review"
-        f"&head_sha={HEAD}" in call
-        for call in calls
-    )
-    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
-
-
-def test_companion_reruns_a_bot_dismissal_followed_at_once_by_another_bot_review(rerun):
-    # Dismissal at :57, a follow-up bot review at :58, and their relay runs at 12:00:00
-    # and 12:00:01. The dismissal's relay run is the first after it, so it re-runs.
+def test_companion_reruns_for_later_activity_by_a_bot_that_dismissed_an_approval(rerun):
+    # An old dismissal by the bot, then a later, different review action by the same bot.
+    # This run is authorized too, and that is harmless by construction: only authorized
+    # runs reach the rerun job's concurrency group, and every one of them re-runs all
+    # policy runs for the current head against the current reviews, so a replaced pending
+    # run loses nothing. The cost is a redundant re-run, bounded to a bot that really
+    # dismissed an eligible review on this pull request.
     result, calls = rerun(
         runs=_runs(_run(1, 5)),
         actor="review-app[bot]",
         reviews=[_dismissed_approval(), _bot_review("2026-11-13T11:59:58Z")],
-        events=[_dismissed(at="2026-11-13T11:59:57Z")],
-        relay_runs=[_relay_run(41, RELAY_AT), _relay_run(42, "2026-11-13T12:00:01Z")],
-    )
-    assert result.returncode == 0, result.stderr
-    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
-
-
-def test_companion_reruns_a_bot_dismissal_that_follows_an_earlier_bot_review(rerun):
-    result, calls = rerun(
-        runs=_runs(_run(1, 5)),
-        actor="review-app[bot]",
-        reviews=[_bot_review("2026-11-13T11:59:44Z"), _dismissed_approval()],
-        events=[_dismissed(at="2026-11-13T11:59:50Z")],
-        relay_runs=[_relay_run(40, "2026-11-13T11:59:45Z"), _relay_run(41, RELAY_AT)],
-    )
-    assert result.returncode == 0, result.stderr
-    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
-
-
-@pytest.mark.parametrize("conclusion", ["failure", "cancelled"])
-def test_companion_skips_a_failed_first_relay_run_when_binding_a_bot_dismissal(rerun, conclusion):
-    # The first relay run after the dismissal never reached authorize, so the next one counts.
-    result, calls = rerun(
-        runs=_runs(_run(1, 5)),
-        actor="review-app[bot]",
-        reviews=[_dismissed_approval()],
-        events=[_dismissed(at="2026-11-13T11:59:50Z")],
-        relay_runs=[
-            _relay_run(40, "2026-11-13T11:59:51Z", conclusion=conclusion),
-            _relay_run(41, RELAY_AT),
-        ],
+        events=[_dismissed(at="2026-11-13T09:00:00Z")],
     )
     assert result.returncode == 0, result.stderr
     assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
 
 
 @pytest.mark.parametrize(
-    ("relay_run_id", "relay_at", "expected"),
+    ("events", "reviews"),
     [
-        ("40", "2026-11-13T11:59:51Z", ["run rerun 1 --repo owner/project"]),
-        ("41", "2026-11-13T11:59:53Z", []),
-    ],
-    ids=["first-run-after-dismissal", "later-run"],
-)
-def test_companion_binds_a_dismissal_to_an_earlier_review_relay_created_after_it(
-    rerun, relay_run_id, relay_at, expected
-):
-    # The bot reviewed at :49 and dismissed at :50; the review's relay run (40) was created
-    # at :51 and is the first after the dismissal, so it re-runs and the later one does not.
-    result, calls = rerun(
-        runs=_runs(_run(1, 5)),
-        actor="review-app[bot]",
-        reviews=[_bot_review("2026-11-13T11:59:49Z"), _dismissed_approval()],
-        events=[_dismissed(at="2026-11-13T11:59:50Z")],
-        relay_runs=[
-            _relay_run(40, "2026-11-13T11:59:51Z"),
-            _relay_run(41, "2026-11-13T11:59:53Z"),
-        ],
-        relay_run_id=relay_run_id,
-        relay_created_at=relay_at,
-    )
-    assert result.returncode == 0, result.stderr
-    assert _reruns(calls) == expected
-
-
-@pytest.mark.parametrize(
-    ("events", "relay_runs", "relay_run_id", "relay_at"),
-    [
-        # An old dismissal by the bot, then a later, different review action by the same
-        # bot: outside the window, and its relay run is not the dismissal's first run.
+        ([_dismissed("maintainer")], [_dismissed_approval()]),
+        ([_dismissed(review_id=2)], [_dismissed_approval()]),
+        ([_dismissed(at="2026-11-13T12:00:01Z")], [_dismissed_approval()]),
+        ([], [_dismissed_approval()]),
+        ([{**_dismissed(), "event": "review_requested"}], [_dismissed_approval()]),
+        ([_dismissed()], [_review()]),
+        ([_dismissed()], [_review("approver", "OWNER", state="APPROVED", body="")]),
+        ([_dismissed()], [_review("drive-by", "NONE", state="DISMISSED", body="")]),
         (
-            [_dismissed(at="2026-11-13T10:00:00Z")],
-            [_relay_run(30, "2026-11-13T10:00:03Z"), _relay_run(41, RELAY_AT)],
-            "41",
-            RELAY_AT,
+            [_dismissed()],
+            [
+                {
+                    **_review("owner-app[bot]", "OWNER", state="DISMISSED", body=""),
+                    "user": {"login": "owner-app[bot]", "type": "Bot"},
+                }
+            ],
         ),
-        # A recent dismissal had its own relay run; this later run is for another review.
-        (
-            [_dismissed(at="2026-11-13T11:58:00Z")],
-            [_relay_run(40, "2026-11-13T11:58:03Z"), _relay_run(41, RELAY_AT)],
-            "41",
-            RELAY_AT,
-        ),
-        # The follow-up review's relay run after an immediate dismissal.
-        (
-            [_dismissed(at="2026-11-13T11:59:57Z")],
-            [_relay_run(41, RELAY_AT), _relay_run(42, "2026-11-13T12:00:01Z")],
-            "42",
-            "2026-11-13T12:00:01Z",
-        ),
-        # A dismissal older than the window, with no other activity.
-        ([_dismissed(at="2026-11-13T11:54:59Z")], None, "41", RELAY_AT),
-        # A dismissal recorded after the relay run was created.
-        ([_dismissed(at="2026-11-13T12:00:01Z")], None, "41", RELAY_AT),
-        ([], None, "41", RELAY_AT),
-        ([_dismissed("maintainer")], None, "41", RELAY_AT),
-        ([_dismissed(review_id=2)], None, "41", RELAY_AT),
-        # Relay runs by another account do not stand in for this bot's runs.
-        ([_dismissed()], [_relay_run(41, RELAY_AT, actor="maintainer")], "41", RELAY_AT),
     ],
     ids=[
-        "old-dismissal-then-later-review",
-        "recent-dismissal-then-later-review",
-        "follow-up-review-relay",
-        "outside-window",
-        "after-relay",
+        "dismissed-by-another-account",
+        "dismissed-another-review",
+        "dismissed-after-the-relay-run",
         "no-events",
-        "dismissed-by-a-person",
-        "other-review",
-        "run-by-another-actor",
+        "other-event",
+        "review-not-dismissed",
+        "review-still-approved",
+        "unassociated-review",
+        "bot-type-review",
     ],
 )
-def test_companion_ignores_a_bot_action_not_tied_to_its_dismissal(
-    rerun, events, relay_runs, relay_run_id, relay_at
-):
+def test_companion_ignores_a_bot_that_did_not_dismiss_an_eligible_review(rerun, events, reviews):
     result, calls = rerun(
         runs=_runs(_run(1, 5)),
         actor="review-app[bot]",
-        reviews=[_dismissed_approval(), _bot_review("2026-11-13T11:59:58Z")],
+        reviews=reviews,
         events=events,
-        relay_runs=relay_runs,
-        relay_run_id=relay_run_id,
-        relay_created_at=relay_at,
     )
     assert result.returncode == 0, result.stderr
-    assert "is not the first one" in result.stdout
+    assert "is a bot account that had not dismissed" in result.stdout
+    assert not any("/collaborators/" in call for call in calls)
     assert _reruns(calls) == []
-    assert not any("actions/workflows/human-approval.yml" in call for call in calls)
+    assert not any("actions/workflows" in call for call in calls)
 
 
 @pytest.mark.parametrize("relay_created_at", ["", "not-a-time"])
@@ -738,54 +624,19 @@ def test_companion_ignores_a_bot_relay_without_a_creation_time(rerun, relay_crea
     assert _reruns(calls) == []
 
 
-@pytest.mark.parametrize("unreadable", ["events", "relay-runs"])
-def test_companion_fails_closed_for_a_bot_when_events_are_unreadable(rerun, unreadable):
+def test_companion_fails_closed_for_a_bot_when_events_are_unreadable(rerun):
     result, calls = rerun(
         runs=_runs(_run(1, 5)),
         actor="review-app[bot]",
         reviews=[_dismissed_approval()],
         events=[_dismissed()],
-        events_exit=1 if unreadable == "events" else 0,
-        relay_runs_exit=1 if unreadable == "relay-runs" else 0,
+        events_exit=1,
     )
     assert result.returncode == 0, result.stderr
-    assert "::warning::Could not read the issue events or relay runs" in result.stdout
+    assert "::warning::Could not read the issue events" in result.stdout
     assert "Re-run the Human approval policy run by hand" in result.stdout
     assert _reruns(calls) == []
-    assert not any("actions/workflows/human-approval.yml" in call for call in calls)
-
-
-@pytest.mark.parametrize(
-    "reviews",
-    [
-        [_review()],
-        [_review("approver", "OWNER", state="APPROVED", body="")],
-        [_review("drive-by", "NONE", state="DISMISSED", body="")],
-        [_review("helper[bot]", "NONE", state="DISMISSED", body="")],
-        [_review("owner-app[bot]", "OWNER", state="DISMISSED", body="")],
-    ],
-    ids=[
-        "owner-comment",
-        "approval",
-        "unassociated-dismissed",
-        "bot-dismissed",
-        "bot-owner-dismissed",
-    ],
-)
-def test_companion_ignores_a_bot_without_a_dismissed_eligible_review(rerun, reviews):
-    if reviews[0]["user"]["login"].endswith("[bot]"):
-        reviews[0]["user"]["type"] = "Bot"
-    result, calls = rerun(
-        runs=_runs(_run(1, 5)),
-        actor="review-app[bot]",
-        reviews=reviews,
-        events=[_dismissed()],
-    )
-    assert result.returncode == 0, result.stderr
-    assert "is a bot account" in result.stdout
-    assert not any("/collaborators/" in call for call in calls)
-    assert _reruns(calls) == []
-    assert not any("actions/workflows/human-approval.yml" in call for call in calls)
+    assert not any("actions/workflows" in call for call in calls)
 
 
 @pytest.fixture
@@ -912,6 +763,9 @@ def test_companion_runs_from_the_default_branch_with_rerun_permission_only():
     assert "name: high-risk human approval" not in companion
     # No workflow-level concurrency: an ineligible review must never enter the group.
     assert "\nconcurrency:" not in companion
+    # Only the rerun job holds a concurrency group; it re-runs every policy run for the
+    # head (test_companion_reruns_every_policy_run_for_the_reviewed_head_oldest_first).
+    assert companion.count("concurrency:") == 1
     authorize = _job(companion, "authorize", "rerun")
     flat_authorize = " ".join(authorize.split())
     assert (

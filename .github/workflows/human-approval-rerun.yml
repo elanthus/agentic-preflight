@@ -106,54 +106,42 @@ jobs:
           if [ "$actor_kind" = bot ]; then
             # A bot's review never counts, but a dismissal it performs can revoke an
             # approval that does. Neither the workflow_run payload nor the Actions API
-            # names the review action or review that started the relay, and the relay
-            # artifact is untrusted. So each dismissal of an owner, member, or
-            # collaborator review by this bot, from the issue events, is bound to the
-            # first relay run this bot triggered for the head at or after it, from the
-            # Actions API, and only that run re-runs the policy. A later review by the
-            # same bot starts a later relay run, which does not qualify. A dismissal more
-            # than five minutes before this relay run is ignored.
+            # names the review action that started the relay, and the relay artifact is
+            # untrusted, so this bot qualifies once the issue events show it dismissed an
+            # owner, member, or collaborator review of this pull request no later than
+            # GitHub created this relay run. A later review by the same bot then also
+            # re-runs the policy. That is harmless: only authorized runs reach the rerun
+            # job's concurrency group, and each of them re-runs every policy run for the
+            # current head against the current reviews, so a replaced pending run loses
+            # nothing. Missing a dismissal would leave a stale success instead.
             events_file="$RUNNER_TEMP/pull-request-events.json"
-            relay_runs_file="$RUNNER_TEMP/relay-runs.json"
             if ! gh api --paginate --slurp \
-              "/repos/$GITHUB_REPOSITORY/issues/$pr_number/events?per_page=100" > "$events_file" ||
-              ! gh api --paginate --slurp \
-              "/repos/$GITHUB_REPOSITORY/actions/workflows/human-approval-review.yml/runs?event=pull_request_review&head_sha=$RUN_HEAD_SHA&per_page=100" \
-              > "$relay_runs_file"; then
-              # Fail closed: without both lists nothing ties this run to a dismissal.
-              echo "::warning::Could not read the issue events or relay runs of pull request" \
-                "$pr_number, so the action by $TRIGGERING_ACTOR does not re-run the policy." \
+              "/repos/$GITHUB_REPOSITORY/issues/$pr_number/events?per_page=100" > "$events_file"; then
+              # Fail closed: without the events nothing shows that this bot dismissed a review.
+              echo "::warning::Could not read the issue events of pull request $pr_number," \
+                "so the action by $TRIGGERING_ACTOR does not re-run the policy." \
                 "Re-run the Human approval policy run by hand if a review was dismissed."
               exit 0
             fi
             if ! jq -e --arg actor "$TRIGGERING_ACTOR" --arg relay "$RELAY_CREATED_AT" \
-              --arg relay_id "$RELAY_RUN_ID" \
-              --slurpfile events "$events_file" --slurpfile relay_runs "$relay_runs_file" '
+              --slurpfile events "$events_file" '
                 ($relay | fromdateiso8601) as $relay_at
                 | ($actor | ascii_downcase) as $bot
                 | [.[][]?] as $reviews
-                | [$relay_runs[0][]?.workflow_runs[]?
-                    | select(((.triggering_actor.login // "") | ascii_downcase) == $bot)
-                    # A relay run that finished without success never reaches this job.
-                    | select(.status != "completed" or .conclusion == "success")
-                    | {id, at: (.created_at | fromdateiso8601)}] as $bot_runs
-                | [$events[0][][]?
-                    | select(.event == "review_dismissed" and
-                        ((.actor.login // "") | ascii_downcase) == $bot)
-                    | {at: (.created_at | fromdateiso8601), id: .dismissed_review.review_id}
-                    | select(.at >= $relay_at - 300 and .at <= $relay_at)]
-                | any(.[]; . as $dismissal
-                    | any($reviews[];
-                        .id == $dismissal.id and
-                        .state == "DISMISSED" and
-                        .user.type == "User" and
-                        (.author_association | IN("OWNER", "MEMBER", "COLLABORATOR")))
-                    and ([$bot_runs[] | select(.at >= $dismissal.at)]
-                      | sort_by(.at, .id) | first | .id | tostring) == $relay_id)
+                | any($events[0][][]?;
+                    .event == "review_dismissed" and
+                    ((.actor.login // "") | ascii_downcase) == $bot and
+                    (.created_at | fromdateiso8601) <= $relay_at and
+                    (.dismissed_review.review_id as $id
+                      | any($reviews[];
+                          .id == $id and
+                          .state == "DISMISSED" and
+                          .user.type == "User" and
+                          (.author_association | IN("OWNER", "MEMBER", "COLLABORATOR")))))
               ' "$reviews_file" > /dev/null; then
-              echo "$TRIGGERING_ACTOR is a bot account, and this relay run is not the first one" \
-                "it started after a dismissal by it of an owner, member, or collaborator" \
-                "review of pull request $pr_number. Nothing to re-run."
+              echo "$TRIGGERING_ACTOR is a bot account that had not dismissed an owner, member," \
+                "or collaborator review of pull request $pr_number when this relay run was" \
+                "created. Nothing to re-run."
               exit 0
             fi
           elif ! jq -e --arg actor "$TRIGGERING_ACTOR" '
