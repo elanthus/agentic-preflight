@@ -131,6 +131,29 @@ Follow the [upgrade guide](docs/upgrade-0.7.md) for the rollout order, configura
 Run schema 2, attestation schema 7, and fingerprint version 2 are retained.
 The schema number alone does not guarantee that an older verifier accepts new policy fields or evidence.
 
+## Attestation note content without user-level configuration
+
+Attestation schema 7 and fingerprint version 2 are retained, and current verifiers read notes from earlier releases unchanged.
+A note's `config_snapshot` now leaves out the sections that came from the user configuration file, except `[diff]`.
+A command that depends on such a section is recorded as `[redacted user-level command]`.
+The configuration digest and the review, docs, and shell fingerprint digests cover that published form, so a verifier that recomputes them from the note still agrees.
+Evidence reuse refuses a candidate whose snapshot holds a section the current run withholds, or whose findings the current copied-file values would redact.
+It also refuses evidence from a record without `user_config_sections`, such as one an earlier release wrote, unless its snapshot equals the current published snapshot.
+Expect one fresh review and docs stage after upgrading if you have user-level sections.
+A run with no user-level sections publishes the same snapshot and digests as before.
+A consumer that read a user-level setting from a note must read it locally instead. A section missing from the snapshot was set in the user file.
+
+Finding titles, details, suggestions, and response notes are redacted for copied-file values before they are saved, so `findings.json` and the note carry the redacted text.
+
+Every run record that this release starts carries `user_config_sections`, an empty list when no section came from the user file.
+A record without the field was started by an earlier release, and its user-level sections cannot be identified.
+`mergeback`, `gate`, and `push` refuse such a run with exit 4, `needs_human`, and `data.reason` `unknown_config_provenance`.
+`mergeback` refuses before it changes the source branch or writes a note.
+A run that an earlier release already merged back has a note that may hold user-level configuration; `gate` and `push` refuse it, and the error names the `git notes` command that removes that note.
+Abort the run and start a fresh one after upgrading. In isolated modes, cherry-pick any recorded fix commits (`data.fix_commits`) first, because `abort --force` discards them.
+The field makes every new run record unreadable to earlier releases, which forbid unknown keys.
+Before downgrading, finish or abort the runs that this release started. A record that an earlier release wrote stays without the field and stays readable to that release.
+
 ## Compatibility changes
 
 Agentic Preflight 0.7.0 requires Click 8.2 or newer.

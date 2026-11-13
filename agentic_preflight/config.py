@@ -411,6 +411,23 @@ def load_config(
     stale key in a repository file does not keep the user from their own telemetry.
     Workflow commands keep the strict default: an unknown key there is an error.
     """
+    return load_config_layers(
+        repo_root, user_config_dir=user_config_dir, tolerate_removed_keys=tolerate_removed_keys
+    )[0]
+
+
+def load_config_layers(
+    repo_root: Path | str,
+    *,
+    user_config_dir: Path | str | None = None,
+    tolerate_removed_keys: bool = False,
+) -> tuple[Config, list[str]]:
+    """Load configuration as :func:`load_config` does, and name the user-level sections.
+
+    The second value lists, sorted, the sections in force that came from the user
+    configuration file because the repository file has no section of that name.
+    A published attestation leaves them out (:mod:`agentic_preflight.public_config`).
+    """
     repo_root = Path(repo_root)
     if user_config_dir is None:
         user_config_dir = Path.home() / ".config" / "agentic-preflight"
@@ -418,6 +435,7 @@ def load_config(
 
     merged: dict[str, Any] = {}
     sources: dict[str, Path] = {}
+    user_sections: set[str] = set()
 
     user_file = user_config_dir / USER_CONFIG_NAME
     repo_file = repo_root / REPO_CONFIG_NAME
@@ -448,13 +466,17 @@ def load_config(
                             sources[f"{section}.{name}"] = user_file
             merged[section] = values
             sources[section] = path
+            if path == user_file:
+                user_sections.add(section)
+            else:
+                user_sections.discard(section)
 
     try:
         cfg = Config.model_validate(merged)
     except ValidationError as exc:
         raise ConfigError(_describe(exc, sources, repo_file)) from exc
 
-    return cfg
+    return cfg, sorted(user_sections)
 
 
 def committed_config(repo: Path | str, revision: str) -> Config:

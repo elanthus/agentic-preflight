@@ -228,8 +228,9 @@ applied; the command cannot bypass the normal findings pipeline.
 The review command inherits `[stage] timeout_seconds` and `max_attempts`. Non-zero exit,
 timeout, malformed JSON, stale coverage, or invalid findings enter
 `REVIEW_COMMAND_RED` and consume one persisted attempt. A successful command records its
-configured command, zero exit code, and SHA-256 of redacted captured output alongside
-coverage in the schema-v7 attestation. Changed review inputs require fresh command
+command, zero exit code, and SHA-256 of redacted captured output alongside coverage in
+the schema-v7 attestation. A command from a user-level `[review]` section is recorded
+there as `[redacted user-level command]`. Changed review inputs require fresh command
 review; validated derivation retains original process evidence and coverage provenance.
 
 ### `agentic-preflight review contracts --file PATH`
@@ -282,7 +283,9 @@ equal the reviewed head. A mismatch exits 3. Findings match when they cite the s
 and path and their line numbers are equal or within three lines. The command writes the
 unit counts, agreed and reviewer-only findings, severity disagreements, and agreement rate
 to `review-compare.json`, appends a `review_compared` event, and returns the summary as
-`data`. It is legal from `REVIEW_GREEN` onward and never advances the run.
+`data`. Finding titles, details, and suggestions in the summary, the event, and `data`
+have copied-file values replaced by `[redacted]`; a copied file that cannot be read for
+that redaction exits 3. It is legal from `REVIEW_GREEN` onward and never advances the run.
 
 ### `agentic-preflight submit-findings --file PATH`
 `PATH` may be `-` for stdin. Review requires
@@ -293,8 +296,13 @@ The manifest must match the current diff. Docs requires `{"findings": [...]}`; a
 Rejects (exit 3, `invalid_findings`): missing, stale, or unknown review coverage;
 agent-supplied `id` or `stage`; unknown or path-mismatched review units; paths outside
 the worktree; paths outside the changed-file set (review) or documentation allowlist
-(docs); line numbers past end of file; and batches over `[review] max_findings`.
+(docs); line numbers past end of file; batches over `[review] max_findings`; and a
+nonempty batch while a `copy_files` file cannot be read for redaction.
 All-or-nothing — one bad finding rejects the batch.
+
+Accepted finding titles, details, and suggestions have copied-file values replaced by
+`[redacted]` before they are saved or returned, as in stage logs, because the published
+attestation note includes them. Review-command findings are redacted the same way.
 
 ### `agentic-preflight respond --id F001 --action fixed|dismissed|accepted [--commit SHA] [--note TEXT] [--reason REASON]`
 - `fixed` requires `--commit`. The commit is verified four ways: it exists, it touches
@@ -313,6 +321,9 @@ All-or-nothing — one bad finding rejects the batch.
   `finding_resolved` event repeats it as `reason` (`null` when absent). A finding without
   a reason has no `response_reason` key. The reason is telemetry only: it never enters
   stage evidence or the attestation. Put the specifics in `--note`.
+- `--note` text has copied-file values replaced by `[redacted]` before it is saved; the
+  note is published in the attestation. A `copy_files` file that cannot be read for
+  redaction exits 3 with `invalid_response`.
 - Unknown id exits 3 listing the valid ids. Each finding is resolved once.
 - Non-blocking findings may be resolved after their review or docs stage is green. A
   note-only disposition preserves the green state. A fix that changes the reviewed
@@ -327,7 +338,7 @@ CI. It checks the note schema, exact commit and tree binding, complete stage set
 process evidence for green lint/test stages. Fetch the notes ref before calling it in
 a fresh clone, together with the head and `refs/agentic-preflight/evidence/*`
 from the contributor remote. Schema v7 requires an explicit `verified` outcome,
-complete local stage evidence, and the full configuration snapshot. It
+complete local stage evidence, and the published configuration snapshot. It
 verifies original execution digests, Git and configuration bindings, stage applicability,
 finding dispositions, and original/current review-unit accounting.
 
@@ -480,6 +491,14 @@ snapshot and returns the active run to review before any stage can be trusted ag
 On success: compares the branch tree against the worktree tree. `tree_equivalent: true`
 means the verified content is byte-identical and a Git-note attestation is written for
 the exact commit. False returns to review with all snapshot-bound stage evidence cleared.
+
+A run that an earlier release started has no record of which configuration sections came
+from the user file. `mergeback` refuses it with exit 4 and `needs_human`, giving the reason
+`unknown_config_provenance`, before changing the source branch or writing a note, because
+its attestation could publish user-level configuration. `gate` and `push` refuse such a
+run the same way, and their message names the `git notes ... remove` command for a note an
+earlier release already wrote. The error data lists the recorded fix commits; in isolated
+modes, cherry-pick them before aborting. Abort it and start a fresh run.
 
 A merge-back interrupted after synchronizing the source with the base but before reaching
 the recorded verified tree is stale. Follow `status` and restart preflight for the current source;
