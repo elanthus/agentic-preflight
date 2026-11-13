@@ -572,6 +572,14 @@ def test_other_values_are_not_the_zero_id(value):
     assert hook.is_zero_id(value) is False
 
 
+@pytest.mark.parametrize(
+    ("local_sha", "expected"), [(ZERO, True), (ZERO_SHA256, True), ("0" * 7, False)]
+)
+def test_a_deletion_is_the_zero_id_of_either_object_format(local_sha, expected):
+    update = hook.RefUpdate("(delete)", local_sha, "refs/heads/x", "a" * 40)
+    assert update.is_deletion is expected
+
+
 def test_a_new_branch_in_a_sha256_repository_is_not_reported_as_a_force_push():
     """Git sends a 64-character zero ID for a remote ref that does not exist yet."""
     update = hook.RefUpdate("refs/heads/feature/x", "a" * 64, "refs/heads/feature/x", ZERO_SHA256)

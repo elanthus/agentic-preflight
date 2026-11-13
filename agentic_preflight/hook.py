@@ -133,7 +133,7 @@ class RefUpdate:
 
     @property
     def is_deletion(self) -> bool:
-        return set(self.local_sha) == {"0"}
+        return is_zero_id(self.local_sha)
 
     @property
     def is_attestation_note(self) -> bool:
