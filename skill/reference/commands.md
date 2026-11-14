@@ -516,13 +516,17 @@ after the user unlocks it, and the retry removes the leftover first.
 A baseline that was killed, for example by SIGTERM, cannot clean up after itself. The
 next `--baseline` check removes a leftover that Git still registers as a worktree at
 the scratch path, including one whose directory is gone, and deletes a leftover
-`ap/<run-id>-baseline` branch that still points at the run's base commit. It never
-deletes an unregistered directory at that path. If the branch points anywhere else, or
-another worktree has it checked out, the check fails with `setup_failed`, names the
-branch, and leaves it alone: show the user the branch, never delete or rename it
-yourself, and retry only after the user removes or renames it. Baseline leftovers are
-not listed by the `start` housekeeping report or reclaimed by `gc`, by design; the
-stage envelope and the retry report them instead.
+`ap/<run-id>-baseline` branch that still points at the run's base commit. A clean,
+unlocked `<run-id>-baseline` checkout at the base that holds the branch elsewhere, such
+as one an earlier release created under `.git`, is removed too. It never deletes an
+unregistered directory at the scratch path. If the branch points anywhere else, the
+check fails with `setup_failed`, names the branch, and leaves it alone: show the user the
+branch, never delete or rename it yourself, and retry only after the user removes or
+renames it. If another worktree has the branch checked out, the failure names that
+worktree: show it to the user, never remove it yourself, and retry only after the user
+removes that worktree. Baseline leftovers are not listed by the `start` housekeeping
+report or reclaimed by `gc`, by design; the stage envelope and the retry report them
+instead.
 
 `--baseline` is also the cheapest way to see the command produce two different
 outcomes — if base and head are byte-identical greens on a diff that touches tested

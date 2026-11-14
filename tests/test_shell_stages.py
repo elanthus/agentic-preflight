@@ -1335,7 +1335,7 @@ def test_an_unregistered_directory_at_the_baseline_path_is_never_deleted(docs_gr
     assert (scratch / "keep.txt").read_text(encoding="utf-8") == "not ours\n"
 
 
-def test_a_baseline_branch_checked_out_elsewhere_is_refused_by_name(
+def test_a_baseline_branch_checked_out_elsewhere_names_the_worktree_to_remove(
     docs_green, feature_repo, tmp_path
 ):
     agent = docs_green()
@@ -1349,8 +1349,79 @@ def test_a_baseline_branch_checked_out_elsewhere_is_refused_by_name(
     assert env["error"]["code"] == "setup_failed"
     assert branch in env["error"]["message"]
     assert "checked out" in env["error"]["message"]
+    assert str(elsewhere.resolve()) in env["error"]["message"]
+    assert str(elsewhere.resolve()) in env["next"]["instruction"]
+    assert "removes that worktree" in env["next"]["instruction"]
+    assert "--baseline" in env["next"]["command"]
     assert elsewhere.exists()
     assert git("branch", "--list", branch, cwd=feature_repo) != ""
+
+
+def _old_baseline_checkout(repo, run_id):
+    """The scratch checkout an earlier release left under the Git directory."""
+    old = repo / ".git" / "agentic-preflight" / "worktrees" / f"{run_id}-baseline"
+    base = git("merge-base", "main", "feature/x", cwd=repo)
+    git("worktree", "add", "-b", f"ap/{run_id}-baseline", str(old), base, cwd=repo)
+    return old
+
+
+def test_an_earlier_releases_baseline_checkout_under_git_is_reclaimed(docs_green, feature_repo):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    old = _old_baseline_checkout(feature_repo, run_id)
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "stage_failed"
+    assert env["data"]["baseline_red"] is True
+    assert not old.exists()
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) == ""
+
+
+@pytest.mark.parametrize("change", ["dirty", "locked"])
+def test_an_earlier_baseline_checkout_with_changes_or_a_lock_is_kept(
+    docs_green, feature_repo, change
+):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    old = _old_baseline_checkout(feature_repo, run_id)
+    if change == "dirty":
+        (old / "notes.txt").write_text("work in progress\n", encoding="utf-8")
+    else:
+        git("worktree", "lock", str(old), cwd=feature_repo)
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "setup_failed"
+    assert "checked out in the worktree" in env["error"]["message"]
+    assert old.exists()
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) != ""
+
+
+def test_a_git_error_while_reclaiming_is_a_baseline_setup_failure(
+    docs_green, feature_repo, monkeypatch
+):
+    from agentic_preflight import gitx
+
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    git("branch", f"ap/{run_id}-baseline", "main", cwd=feature_repo)
+    real = gitx.rev_parse
+
+    def failing(cwd, ref):
+        if ref.startswith("refs/heads/ap/"):
+            raise gitx.GitError(["rev-parse", ref], 128, "simulated failure")
+        return real(cwd, ref)
+
+    monkeypatch.setattr(gitx, "rev_parse", failing)
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "setup_failed"
+    assert env["data"]["scope"] == "baseline"
+    assert env["data"]["setup"]["kind"] == "worktree"
+    assert "simulated failure" in env["error"]["message"]
+    assert "--baseline" in env["next"]["command"]
 
 
 def test_repeated_baseline_setup_failures_stop_without_a_nonexistent_log(docs_green):

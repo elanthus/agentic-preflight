@@ -133,7 +133,9 @@ A baseline that is killed, for example by SIGTERM, skips its cleanup and leaves 
 The next `--baseline` check of the same run reclaims them.
 It removes the scratch path only when Git registers it as a worktree, including a registration whose directory is gone. It never deletes an unregistered directory there.
 It deletes `ap/<run-id>-baseline` only when the branch still points at the run's base commit and no worktree has it checked out.
+A worktree that holds the branch is removed first only when it is a clean, unlocked `<run-id>-baseline` checkout at the base commit, such as one that an earlier release created under `.git`.
 If the branch points anywhere else, it may hold someone's work: the check fails with `setup_failed`, names the branch, and leaves it alone. Remove or rename the branch yourself, then retry.
+If another worktree has the branch checked out, Git cannot delete or rename it. The check fails with `setup_failed` and names that worktree. Remove that worktree yourself, then retry.
 
 By design, baseline leftovers are not listed in the `start` housekeeping report and `gc` does not reclaim them.
 The stage envelope and the next `--baseline` check report them instead.
