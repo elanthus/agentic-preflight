@@ -43,6 +43,13 @@ A docs finding can name the symlink, and an agent that edits that path writes to
 Grounding, by contrast, reads only regular files from the merge-base commit and skips symlinks.
 Review a committed symlink under a documentation path before you run the docs stage on it.
 
+## SHA-256 repositories are not supported
+
+Run records and attestation notes hold only SHA-1 object IDs.
+In a repository that uses the SHA-256 object format, a run fails before it is green, and no commit can have a valid attestation.
+The pre-push hook blocks a branch push there with a message that says SHA-256 repositories are not supported.
+See [COMPATIBILITY.md](../COMPATIBILITY.md).
+
 ## History rewrites require evidence refresh
 
 The attestation note is bound to an exact SHA.
