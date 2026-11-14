@@ -257,6 +257,14 @@ def test_agent_seconds_never_go_below_zero_from_whole_second_times():
             [*_timed_events()[:-1], *_command("mergeback", -1.0), _timed_events()[-1]],
             id="negative-seconds",
         ),
+        pytest.param(
+            [*_timed_events()[:-1], *_command("mergeback", float("nan")), _timed_events()[-1]],
+            id="nan-seconds",
+        ),
+        pytest.param(
+            [*_timed_events()[:-1], *_command("mergeback", float("inf")), _timed_events()[-1]],
+            id="infinite-seconds",
+        ),
     ],
 )
 def test_tool_and_agent_seconds_are_null_when_any_command_time_is_unknown(events):

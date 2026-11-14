@@ -38,6 +38,7 @@ both ends are read in one process. The sum is ``tool_seconds``:
 
 from __future__ import annotations
 
+import math
 import time
 from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping
@@ -159,7 +160,13 @@ def _total(states: Mapping[str, Mapping[str, Any]], prefixes: tuple[str, ...]) -
 
 
 def _seconds(value: Any) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, int | float) or value < 0:
+    # json.loads accepts NaN and Infinity, which are not times.
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not math.isfinite(value)
+        or value < 0
+    ):
         return None
     return float(value)
 
