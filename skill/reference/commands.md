@@ -525,11 +525,19 @@ rerunning completed stages, unless the branch never moved while the run recorded
 commits. That retry exits 4 with `fixes_not_landed`, because the recorded fixes never
 landed and the run needs revalidation. A different tree becomes the validation worktree's
 new snapshot and returns the active run to review before any stage can be trusted again,
-but only when the source branch carries every recorded fix commit, either as an ancestor
-or as a cherry-pick of it (same author, author date, and subject). Otherwise the retry
-exits 4 with `fix_commits_unmerged` and `data.missing_fix_commits`, returns the run to
-`MERGEBACK_CONFLICT`, and keeps the validation branch and `fix_commits`. Cherry-pick the
-named commits onto the source branch, resolving any conflict, then rerun `mergeback`.
+but only when every recorded fix commit counts as merged. A fix counts as merged when every
+path it changes holds the fix's or the validated tree's content. It also counts when the
+fix is an ancestor of the branch, a commit since the run's base has its stable patch ID, or
+a commit was cherry-picked from it (same author, author date, and subject), provided every
+path the fix changes differs from the source head merge-back left. This check covers fix
+provenance and changed paths; it does not prove that a differing resolution is correct,
+which the restarted review decides. Otherwise the retry exits 4 with `fix_commits_unmerged`
+and `data.missing_fix_commits`, returns the run to `MERGEBACK_CONFLICT`, and keeps the
+validation branch and `fix_commits`. Cherry-pick the named commits onto the source branch,
+resolving any conflict; if Git reports that a pick is now empty, record it with
+`git commit --allow-empty` instead of skipping it. Then rerun `mergeback`. After a
+base-rebase conflict (`data.mode: fresh_base_rebase_conflict`), a branch rebased by hand
+must also get the fix commits cherry-picked before the retry.
 
 On success: compares the branch tree against the worktree tree. `tree_equivalent: true`
 means the verified content is byte-identical and a Git-note attestation is written for

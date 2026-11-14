@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import Counter
+
 from .. import attestation as attestationmod
 from .. import gitx, public_config, worktree
 from .. import mergeback as mergebackmod
@@ -34,7 +36,7 @@ from ._session import (
     _require_worktree,
     _worktree_mode,
 )
-from .fix_commits import derive_fix_commits
+from .fix_commits import derive_fix_commits, patch_unlanded
 from .review_coverage import invalidate_stage_result, reopen_if_stale
 
 
@@ -216,46 +218,84 @@ class FixCommitsUnmerged(AgenticError):
     exit_code = ExitCode.NEEDS_HUMAN
 
 
-def _replay_identity(line: str) -> tuple[str, str] | None:
-    sha, _, identity = line.partition("\0")
-    return (sha, identity) if identity else None
-
-
-def _commit_identities(repo: str, *args: str) -> list[tuple[str, str]]:
+def _replay_identities(repo: str, *args: str) -> list[tuple[str, str]]:
     """``(sha, identity)`` for each listed commit; identity survives ``git cherry-pick``.
 
     Cherry-pick keeps the author name, email, and date and the subject, even when a
     human resolves a conflict and continues, while the SHA, committer, and patch change.
+    The identity is provenance only: it never shows that the fix's content is present.
     """
     listing = gitx.out(repo, "log", "--date=raw", "--format=%H%x00%an%x00%ae%x00%ad%x00%s", *args)
-    return [found for line in gitx._lines(listing) if (found := _replay_identity(line))]
+    found: list[tuple[str, str]] = []
+    for line in listing.splitlines():
+        sha, _, identity = line.partition("\0")
+        if identity:
+            found.append((sha, identity))
+    return found
+
+
+def _path_entries(repo: str, rev: str, paths: list[str]) -> dict[str, str]:
+    """Mode and object ID of each of ``paths`` at ``rev``; a missing path is absent."""
+    output = gitx.run(repo, "--literal-pathspecs", "ls-tree", "-z", rev, "--", *paths).stdout
+    entries: dict[str, str] = {}
+    for record in output.split("\0"):
+        meta, tab, path = record.partition("\t")
+        if tab:
+            mode, _, rest = meta.partition(" ")
+            entries[path] = f"{mode} {rest.partition(' ')[2]}"
+    return entries
 
 
 def unmerged_fix_commits(session: Session, run: RunDoc, head: str) -> list[str]:
-    """Recorded fix commits that ``head`` neither contains nor carries a replay of.
+    """Recorded fix commits whose provenance or content ``head`` does not carry.
 
-    A commit counts as merged when it is an ancestor of ``head`` or when a commit
-    between the run's base and ``head`` has the same author, author date, and
-    subject, which is what ``git cherry-pick`` produces with or without a resolved
-    conflict.
+    A recorded fix counts as merged when either holds:
+
+    - Exact content: at ``head``, every path the fix changes matches the fix commit or
+      the validated tree.
+    - Provenance and changed content: the fix is an ancestor of ``head``, a commit
+      since the run's base has the same stable patch ID, or such a commit was
+      cherry-picked from it (same author, author date, and subject; each replay
+      accounts for one fix). In addition, every path the fix changes must differ at
+      ``head`` from the source head merge-back started from, so a replay whose
+      resolution put back the unfixed content is not accepted.
     """
     if not run.fix_commits:
         return []
     repo = str(session.repo_root)
     base = run.sync_base_sha or run.merge_base_sha
-    replayed = {identity for _, identity in _commit_identities(repo, head, "--not", base)}
-    recorded = dict(_commit_identities(repo, "--no-walk=unsorted", *run.fix_commits))
-    return [
-        sha
-        for sha in run.fix_commits
-        if not gitx.is_ancestor(repo, sha, head) and recorded.get(sha) not in replayed
-    ]
+    validated = gitx.rev_parse(_require_worktree(run), "HEAD")
+    patch_missing = set(patch_unlanded(repo, list(run.fix_commits), base, head))
+    replays = Counter(identity for _, identity in _replay_identities(repo, head, "--not", base))
+    recorded = dict(_replay_identities(repo, "--no-walk=unsorted", *run.fix_commits))
+    missing: list[str] = []
+    for sha in run.fix_commits:
+        paths = gitx.commit_files(repo, sha)
+        now = _path_entries(repo, head, paths)
+        fixed = _path_entries(repo, sha, paths)
+        final = _path_entries(repo, validated, paths)
+        if all(now.get(path) in (fixed.get(path), final.get(path)) for path in paths):
+            continue
+        started = _path_entries(repo, run.source_head_sha, paths)
+        if not paths or any(now.get(path) == started.get(path) for path in paths):
+            missing.append(sha)
+            continue
+        if gitx.is_ancestor(repo, sha, head) or sha not in patch_missing:
+            continue
+        identity = recorded.get(sha)
+        if identity is not None and replays[identity] > 0:
+            replays[identity] -= 1
+            continue
+        missing.append(sha)
+    return missing
 
 
 def _refuse_unmerged_fixes(
     session: Session, run: RunDoc, result: mergebackmod.MergebackResult
 ) -> None:
     """Keep the validation branch and fix list while the source lacks a recorded fix."""
+    if result.applied == run.fix_commits:
+        return  # merge-back replayed every recorded fix itself
     missing = unmerged_fix_commits(session, run, result.post_sha)
     if not missing:
         return
@@ -284,8 +324,10 @@ def _refuse_unmerged_fixes(
         next_instruction=(
             "Tell the user. The validation branch and the recorded fix commits were kept. "
             "Apply the missing commits to the source branch with `git cherry-pick "
-            f"{' '.join(missing)}`, resolving any conflict and continuing, then rerun "
-            "`mergeback`. To discard the fixes instead, abort the run."
+            f"{' '.join(missing)}`, resolving any conflict and continuing. If Git reports "
+            "that a pick is now empty because the branch already holds the intended "
+            "content, record it with `git commit --allow-empty` instead of skipping it. "
+            "Then rerun `mergeback`. To discard the fixes instead, abort the run."
         ),
         next_command="agentic-preflight mergeback",
     )
@@ -495,6 +537,13 @@ def mergeback(session: Session) -> Envelope:
                 "Show the user the resolution block verbatim. The fix commits remain "
                 "intact; after the reported paths are resolved, `mergeback` can retry "
                 "without rerunning the completed stages."
+                + (
+                    ""
+                    if isinstance(exc, mergebackmod.MergebackConflict)
+                    else " If the branch is rebased onto the base by hand, also cherry-pick "
+                    "the recorded fix commits onto it before the retry; otherwise the "
+                    "retry stops with `fix_commits_unmerged`."
+                )
             ),
             next_command="agentic-preflight mergeback",
         ) from exc

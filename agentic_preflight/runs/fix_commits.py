@@ -10,6 +10,7 @@ history, in commit order. Every path that registers fix commits uses
 from __future__ import annotations
 
 import shlex
+from pathlib import Path
 
 from .. import gitx, worktree
 from ..envelope import ExitCode
@@ -83,6 +84,25 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
         # must not be able to open this hole.
         worktree.assert_commit_is_clean_of(checkout, sha, run.copied_files)
     return commits
+
+
+def patch_unlanded(repo: Path | str, fix_commits: list[str], base: str, head: str) -> list[str]:
+    """Return the fix commits with no patch-equivalent commit in ``base..head``.
+
+    Merge-back cherry-picks, so SHA ancestry cannot prove that a fix landed. A stable
+    patch ID ignores commit metadata, so a clean cherry-pick, including a reworded one,
+    compares equal to its source. An empty fix has no patch ID and is never landed.
+    """
+    if not fix_commits:
+        return []
+    landed = {
+        patch_id for patch_id in gitx.patch_ids(repo, base, head).values() if patch_id is not None
+    }
+    return [
+        sha
+        for sha in fix_commits
+        if (patch_id := gitx.commit_patch_id(repo, sha)) is None or patch_id not in landed
+    ]
 
 
 def _is_empty(checkout: str, sha: str) -> bool:

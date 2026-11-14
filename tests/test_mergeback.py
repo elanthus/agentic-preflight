@@ -946,3 +946,151 @@ def test_human_resolution_after_the_tools_rebase_restarts_review(ready, feature_
     assert (wt / "src" / "app.py").read_text(encoding="utf-8") == "HUMAN RESOLUTION\n"
     assert agent.run("status")["data"]["fix_commits"] == []
     assert _notes(feature_repo) == ""
+
+
+def test_replay_that_restores_the_unfixed_content_is_refused(ready, feature_repo, monkeypatch):
+    agent, wt, fix_commits, _ = _conflict_after_own_rebase(ready, feature_repo, monkeypatch)
+    unfixed = (feature_repo / "src" / "app.py").read_text(encoding="utf-8")
+
+    # The commit claims the fix's author, date, and subject, but its resolution put
+    # the unfixed content back and only added an unrelated file.
+    git("cherry-pick", "--no-commit", fix_commits[0], cwd=feature_repo)
+    write(feature_repo, "src/app.py", unfixed)
+    write(feature_repo, "unrelated.txt", "not the fix\n")
+    git("add", "-A", cwd=feature_repo)
+    git("commit", "--no-edit", "-C", fix_commits[0], cwd=feature_repo)
+
+    refused = agent.run("mergeback", expect=ExitCode.NEEDS_HUMAN)
+
+    assert refused["error"]["code"] == "fix_commits_unmerged"
+    assert refused["data"]["missing_fix_commits"] == fix_commits
+    assert agent.run("status")["data"]["fix_commits"] == fix_commits
+    assert "FIXED" in (wt / "src" / "app.py").read_text(encoding="utf-8")
+    assert _notes(feature_repo) == ""
+
+
+def test_resolution_with_the_validated_content_is_accepted(ready, feature_repo, monkeypatch):
+    agent, wt, _, _ = _conflict_after_own_rebase(ready, feature_repo, monkeypatch)
+
+    # Taking the fixed file from the validation branch under a new message, with
+    # another change in the same commit, carries the fix's exact content.
+    git("checkout", git("rev-parse", "HEAD", cwd=wt), "--", "src/app.py", cwd=feature_repo)
+    write(feature_repo, "extra.txt", "also changed\n")
+    git("add", "-A", cwd=feature_repo)
+    git("commit", "-m", "resolve by hand", cwd=feature_repo)
+
+    restarted = agent.run("mergeback")
+
+    assert restarted["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert restarted["data"]["validation_restarted"] is True
+    assert "FIXED" in (wt / "src" / "app.py").read_text(encoding="utf-8")
+
+
+def test_tweaked_resolution_recovers_by_recording_the_empty_pick(ready, feature_repo, monkeypatch):
+    agent, wt, fix_commits, _ = _conflict_after_own_rebase(ready, feature_repo, monkeypatch)
+
+    # A hand-written variant of the fix under the human's own message has neither
+    # the fix's content nor its provenance.
+    write(feature_repo, "src/app.py", "def greet(name, loud=False):\n    return 'FIXED!'\n")
+    git("add", "-A", cwd=feature_repo)
+    git("commit", "-m", "my own take on the fix", cwd=feature_repo)
+    refused = agent.run("mergeback", expect=ExitCode.NEEDS_HUMAN)
+    assert refused["error"]["code"] == "fix_commits_unmerged"
+    assert "git commit --allow-empty" in refused["next"]["instruction"]
+
+    # The documented recovery: pick the fix, keep the intended content, and record
+    # the now-empty pick instead of skipping it.
+    picked = subprocess.run(
+        ["git", "cherry-pick", fix_commits[0]], cwd=feature_repo, capture_output=True, text=True
+    )
+    assert picked.returncode != 0
+    write(feature_repo, "src/app.py", "def greet(name, loud=False):\n    return 'FIXED!'\n")
+    git("add", "src/app.py", cwd=feature_repo)
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "--no-edit"],
+        cwd=feature_repo,
+        check=True,
+        capture_output=True,
+    )
+
+    restarted = agent.run("mergeback")
+
+    assert restarted["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert "FIXED!" in (wt / "src" / "app.py").read_text(encoding="utf-8")
+
+
+def test_out_of_order_replay_conflicts_for_real_and_keeps_the_fixes(
+    feature_repo, tmp_path, monkeypatch
+):
+    configure_base(
+        feature_repo,
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+        "\n[worktree]\nmode = 'strict'\n",
+    )
+    git("switch", "main", cwd=feature_repo)
+    write(feature_repo, "upstream.txt", "new upstream content\n")
+    commit_all(feature_repo, "advance main before validation")
+    git("switch", "feature/x", cwd=feature_repo)
+    agent = ScriptedAgent(feature_repo)
+    started = agent.run("start")
+    wt = Path(started["data"]["worktree_path"])
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, BLOCKING))
+    write(wt, "src/app.py", "def greet(name, loud=False):\n    return 'FIRST'\n")
+    first = commit_all(wt, "first fix")
+    write(wt, "src/app.py", "def greet(name, loud=False):\n    return 'SECOND'\n")
+    second = commit_all(wt, "second fix")
+    agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", second)
+    agent.run("verify")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    assert agent.run("stage", "run", "test")["state"] == "TEST_GREEN"
+    validated_head = git("rev-parse", "HEAD", cwd=wt)
+
+    # Record the overlapping fixes out of order, so the replay after merge-back's own
+    # rebase hits a real Git conflict that the real abort path restores.
+    run_path = (
+        Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo))
+        / "agentic-preflight"
+        / "runs"
+        / started["run_id"]
+        / "run.json"
+    )
+
+    def record_fixes(commits):
+        doc = json.loads(run_path.read_text(encoding="utf-8"))
+        doc["fix_commits"] = commits
+        run_path.write_text(json.dumps(doc))
+
+    import importlib
+
+    runs_mergeback = importlib.import_module("agentic_preflight.runs.mergeback")
+
+    original = runs_mergeback._register_validated_history
+
+    def out_of_order(session, run):
+        run = original(session, run)
+        record_fixes([second, first])
+        return session.store.load_run(run.run_id)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(runs_mergeback, "_register_validated_history", out_of_order)
+        conflict = agent.run("mergeback", expect=ExitCode.NEEDS_HUMAN)
+    assert conflict["state"] == "MERGEBACK_CONFLICT"
+    assert conflict["data"]["branch_restored"] is True
+    rebased = git("rev-parse", "HEAD", cwd=feature_repo)
+
+    retry = agent.run("mergeback", expect=ExitCode.NEEDS_HUMAN)
+
+    assert retry["state"] == "MERGEBACK_CONFLICT"
+    assert retry["error"]["code"] == "mergeback_conflict"
+    assert git("rev-parse", "HEAD", cwd=feature_repo) == rebased
+    assert git("rev-parse", "HEAD", cwd=wt) == validated_head
+    assert agent.run("status")["data"]["fix_commits"] == [second, first]
+    assert _notes(feature_repo) == ""
+
+    record_fixes([first, second])
+    verified = agent.run("mergeback")
+    assert verified["state"] == "VERIFIED"
+    assert "SECOND" in (feature_repo / "src" / "app.py").read_text(encoding="utf-8")
