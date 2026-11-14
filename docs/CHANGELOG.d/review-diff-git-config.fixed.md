@@ -23,10 +23,12 @@
 - Notes written by 0.8.1 and earlier still verify when their producer left these settings
   at Git's default and the Git attributes and diff-driver settings that still apply give
   the verifier the same patch, unless the verifier's clone holds a number of objects for
-  which Git picks a different abbreviation length; the earlier text then differs. A note written with
-  another value, such as `diff.context = 5`, may fail verification, even on the machine that
-  wrote it, when that value changed the patch. If verification fails, validate the commit
-  again to replace the note.
+  which Git picks a different abbreviation length; the earlier text then differs. A note
+  written with another value, such as `diff.context = 5`, may fail verification, even on the
+  machine that wrote it, when that value changed the patch. A note for a commit whose
+  committed `.gitmodules` sets `submodule.<name>.ignore = all` on a changed submodule always
+  fails, because the earlier patch left that pointer out. If verification fails, validate
+  the commit again to replace the note.
   The verifier's own `core.abbrev` no longer matters for such a note. Until that format is
   removed in 0.10.0, a binary or other file-level patch in it binds its content only by an
   abbreviated object ID.
