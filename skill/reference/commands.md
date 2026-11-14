@@ -497,7 +497,13 @@ no results file, no tests run, **exit 0**. Engine and GUI toolchains are dense w
 these; treat their first green as unverified.
 
 `--baseline` also runs the command against the base commit, so a pre-existing failure
-is reported rather than blamed on the diff. It is also the cheapest way to see the
+is reported rather than blamed on the diff. The base commit is checked out in a scratch
+worktree, `<run-id>-baseline` on branch `ap/<run-id>-baseline`, under the validation
+worktree root (the user cache by default, or `[worktree] root`). This holds in every
+mode, `in_place` included, so the baseline never runs inside `.git`. The scratch
+worktree and its branch are removed afterwards, also when the command fails. If the
+scratch worktree was locked, it is left without its branch, the baseline result still
+stands, and the event log records `baseline_cleanup_failed`. It is also the cheapest way to see the
 command produce two different outcomes — if base and head are byte-identical greens on
 a diff that touches tested code, suspect the command before trusting it.
 

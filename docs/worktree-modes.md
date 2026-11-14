@@ -71,6 +71,10 @@ An uncommitted change or an unaccounted branch movement stops the run.
 In-place mode reuses the checkout's existing dependency environment. It does not run an automatic install.
 An explicit `setup_command` still runs.
 
+A `--baseline` stage is the one exception to working in the current checkout.
+It checks out the base commit in a scratch worktree under the same root that isolated modes use, never inside `.git`.
+See [Where isolated worktrees live](#where-isolated-worktrees-live).
+
 ## `reusable`
 
 This mode leases one validation worktree under the user cache directory.
@@ -117,6 +121,11 @@ Both isolated modes default to one directory per clone under `$XDG_CACHE_HOME/ag
 When `XDG_CACHE_HOME` is unset or is not an absolute path, the default is `~/.cache/agentic-preflight/worktrees/`.
 The location is outside `.git`, so tools such as Jest discover tests.
 Set `[worktree] root` to select another location. It must be outside the repository.
+
+The scratch worktree for a `--baseline` stage is the `<run-id>-baseline` entry in the same directory, in every mode, including `in_place`.
+It is on the branch `ap/<run-id>-baseline`. Both are removed when the baseline check ends, whether the command passed or failed.
+If someone locks the scratch worktree with `git worktree lock` while it runs, it is left in place without its branch.
+The baseline result still stands, and the run's event log records a `baseline_cleanup_failed` event that names the path.
 
 ### Migrating from the sibling default
 

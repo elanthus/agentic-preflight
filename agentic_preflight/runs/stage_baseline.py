@@ -5,6 +5,7 @@ from __future__ import annotations
 import shlex
 from contextlib import suppress
 from dataclasses import dataclass
+from pathlib import Path
 
 from .. import gitx, worktree
 from ..errors import SetupFailed
@@ -105,11 +106,26 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
     """Run the command against the base commit in a scratch worktree.
 
     Answers the question that otherwise sends an agent chasing phantoms: is this
-    failure ours, or was the base already broken? The scratch checkout lives with
-    the validation worktrees, never beside an in-place run's source checkout.
+    failure ours, or was the base already broken? The scratch checkout lives under
+    the external validation-worktree root in every mode, in-place included, so
+    runners that skip VCS directories (Jest among them) see an ordinary checkout
+    rather than one inside the Git directory.
     """
-    scratch = session.store.worktrees_dir / f"{run.run_id}-baseline"
     branch = f"ap/{run.run_id}-baseline"
+    configured = session.config.worktree.root
+    try:
+        root = worktree.resolve_root(session.repo_root, configured)
+    except worktree.WorktreeError as exc:
+        intended = str(Path(configured or "") / f"{run.run_id}-baseline")
+        raise _BaselineSetupFailure(
+            command=shlex.join(["git", "worktree", "add", "-b", branch, intended]),
+            exit_code=1,
+            worktree_path=intended,
+            kind="worktree",
+            reason="baseline worktree could not be prepared",
+            detail=str(exc),
+        ) from exc
+    scratch = root / f"{run.run_id}-baseline"
     try:
         worktree.create(session.repo_root, path=scratch, branch=branch, head_sha=run.merge_base_sha)
         with suppress(worktree.CopyRefused):
@@ -140,4 +156,34 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> bool:
             detail=str(exc),
         ) from exc
     finally:
+        _remove_scratch(session, run, scratch, branch)
+
+
+def _remove_scratch(session: Session, run: RunDoc, scratch: Path, branch: str) -> None:
+    """Tear down the baseline checkout without letting cleanup replace the outcome.
+
+    The baseline result, or the setup failure being raised, is the answer the agent
+    asked for; a cleanup refusal must not overwrite it. A worktree someone locked
+    stays in place as :func:`worktree.remove` promises, but it is detached first so
+    the throwaway ``ap/<run>-baseline`` branch can still be deleted, and the
+    refusal is recorded in the run's event log.
+    """
+    try:
         worktree.remove(session.repo_root, scratch, branch=branch)
+        return
+    except (worktree.WorktreeError, gitx.GitError, OSError) as exc:
+        detail = str(exc)
+    with suppress(gitx.GitError, OSError):
+        gitx.run(scratch, "switch", "--detach", check=False)
+    with suppress(gitx.GitError, OSError):
+        gitx.run(session.repo_root, "branch", "-D", branch, check=False)
+    with suppress(Exception):
+        session.store.append_event(
+            run.run_id,
+            {
+                "event": "baseline_cleanup_failed",
+                "worktree_path": str(scratch),
+                "branch": branch,
+                "detail": detail,
+            },
+        )

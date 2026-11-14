@@ -4,6 +4,7 @@ import contextlib
 import json
 import os
 import random
+import shlex
 import signal
 import subprocess
 import sys
@@ -1064,6 +1065,96 @@ def test_an_in_place_baseline_worktree_is_not_created_beside_the_checkout(docs_g
     assert scratch.name.endswith("-baseline")
     assert scratch.parent != feature_repo.resolve().parent
     assert not scratch.exists()
+
+
+def _record_baseline_pwd(target):
+    """A command that fails everywhere and records where the baseline copy ran."""
+    return f'case "$PWD" in *-baseline) pwd > {shlex.quote(str(target))};; esac; exit 1'
+
+
+def test_an_in_place_baseline_runs_outside_the_git_directory(docs_green, feature_repo, tmp_path):
+    """Runners that skip VCS directories must see the baseline as an ordinary checkout."""
+    agent = docs_green("[docs]\nenabled = false\n\n[worktree]\nmode = 'in_place'\n")
+    run_id = agent.run("status")["run_id"]
+    marker = tmp_path / "baseline-pwd"
+
+    env = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        _record_baseline_pwd(marker),
+        "--record",
+        "--baseline",
+        expect=ExitCode.STAGE_FAILED,
+    )
+
+    assert env["data"]["baseline_red"] is True
+    scratch = Path(marker.read_text(encoding="utf-8").strip()).resolve()
+    common = (feature_repo / git("rev-parse", "--git-common-dir", cwd=feature_repo)).resolve()
+    assert scratch.name == f"{run_id}-baseline"
+    assert not scratch.is_relative_to(common)
+    assert not scratch.is_relative_to(feature_repo.resolve())
+    assert agent.run("status")["data"]["worktree_path"] == str(feature_repo.resolve())
+    # The failing command still leaves neither the scratch checkout nor its branch.
+    assert not scratch.exists()
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) == ""
+    assert str(scratch) not in git("worktree", "list", "--porcelain", cwd=feature_repo)
+
+
+def test_a_locked_baseline_worktree_keeps_the_baseline_result_and_drops_its_branch(
+    docs_green, feature_repo
+):
+    """A cleanup refusal is not allowed to replace the answer the baseline produced."""
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    command = 'case "$PWD" in *-baseline) git worktree lock "$PWD";; esac; exit 1'
+
+    env = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        command,
+        "--record",
+        "--baseline",
+        expect=ExitCode.STAGE_FAILED,
+    )
+
+    assert env["error"]["code"] == "stage_failed"
+    assert env["data"]["baseline_red"] is True
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) == ""
+    events = agent.run("events")["data"]["events"]
+    cleanup = [event for event in events if event["event"] == "baseline_cleanup_failed"]
+    assert len(cleanup) == 1
+    assert cleanup[0]["worktree_path"].endswith(f"{run_id}-baseline")
+    assert "locked" in cleanup[0]["detail"]
+
+
+def test_an_in_place_baseline_root_inside_the_repository_is_a_setup_failure(
+    docs_green, feature_repo
+):
+    agent = docs_green(
+        "[docs]\nenabled = false\n\n"
+        f"[worktree]\nmode = 'in_place'\nroot = '{feature_repo.name}/scratch'\n"
+    )
+
+    env = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "exit 1",
+        "--record",
+        "--baseline",
+        expect=ExitCode.STAGE_FAILED,
+    )
+
+    assert env["error"]["code"] == "setup_failed"
+    assert env["data"]["setup"]["kind"] == "worktree"
+    assert "outside the repository" in env["error"]["message"]
+    assert "baseline_red" not in env["data"]
+    assert not (feature_repo / "scratch").exists()
 
 
 def test_a_baseline_worktree_that_cannot_be_prepared_is_not_reported_as_a_passing_base(
