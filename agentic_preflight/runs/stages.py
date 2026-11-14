@@ -5,7 +5,7 @@ from __future__ import annotations
 import shlex
 from typing import NoReturn, TypedDict
 
-from .. import gitx
+from .. import gitx, timing
 from ..attestation import output_digest
 from ..cli_contract import LogsData, StageRunData
 from ..envelope import Envelope
@@ -402,11 +402,12 @@ def run_stage(
             entry.head_sha = gitx.rev_parse(worktree_path, "HEAD")
             doc.stages[stage] = entry
             run = doc
-        baseline_red = (
-            check_baseline(session, run, stage, resolved, failure_action=spec["failed"])
-            if baseline
-            else None
-        )
+        baseline_red = None
+        if baseline:
+            with timing.timed_command(session.store, run.run_id, "baseline"):
+                baseline_red = check_baseline(
+                    session, run, stage, resolved, failure_action=spec["failed"]
+                )
         input_fingerprint = evidence.fingerprint(session, run, stage, command=resolved, clean=True)
 
     protected, clean_after = _run_protected(

@@ -35,6 +35,8 @@ FINDING_KEYS = (
     "by_action",
     "by_response_reason",
     "blocking",
+    "review_blocking_fixed",
+    "docs_blocking_fixed",
 )
 
 
@@ -475,6 +477,8 @@ def test_a_schema_1_record_summarizes_with_unknown_values_left_null():
         "duration_seconds": None,
         "reused": None,
         "reason": "changes are limited to documentation and CI configuration",
+        # No transitions in this log, so whether lint or test went red then green is unknown.
+        "red_then_green": None,
     }
     # No transition events in this log, so no state timing at all.
     assert row["timing"] is None
@@ -535,6 +539,9 @@ def test_a_schema_2_record_summarizes_reuse_review_findings_and_terminal_facts()
         "by_response_reason": {"unspecified": 2},
         # review blocks only critical here, docs blocks high and medium.
         "blocking": 2,
+        # Neither blocking finding was fixed.
+        "review_blocking_fixed": 0,
+        "docs_blocking_fixed": 0,
     }
     assert row["fix_commits"] == 2
     assert row["validation_restarts"] == 1
@@ -551,8 +558,13 @@ def test_a_schema_2_record_summarizes_reuse_review_findings_and_terminal_facts()
         "states": {},
         "review_wall_seconds": None,
         "shell_wall_seconds": None,
+        "tool_seconds": None,
+        "agent_seconds": None,
     }
     assert row["stages"]["lint"]["started_at"] is None
+    # The chain is broken, so a lint red could be missing from it.
+    assert row["stages"]["lint"]["red_then_green"] is None
+    assert row["stages"]["review"]["red_then_green"] is None
     assert row["stages"]["lint"]["duration_seconds"] is None
     assert row["hosted"] == NOT_SYNCED
     assert row["event_counts"] == {"stage_reused": 1, "state_transition": 2}

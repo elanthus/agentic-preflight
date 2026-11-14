@@ -516,6 +516,9 @@ def test_a_summary_with_timing_validates_and_one_without_it_still_does():
         "states": {"CREATED": {"visits": 1, "seconds": 7.0}},
         "review_wall_seconds": 0.0,
         "shell_wall_seconds": 0.0,
+        # No run_created event marks the commands as timed.
+        "tool_seconds": None,
+        "agent_seconds": None,
     }
     del row["timing"]
     assert telemetry.RunSummary.model_validate(row).timing is None
