@@ -330,6 +330,8 @@ def _findings_summary(
         "by_action",
         "by_response_reason",
         "blocking",
+        "review_blocking_fixed",
+        "docs_blocking_fixed",
     )
     items = _finding_items(findings)
     if items is None:
@@ -337,8 +339,14 @@ def _findings_summary(
     review = _blocking_severities(snapshot, "review")
     docs = _blocking_severities(snapshot, "docs")
     blocking: int | None = None
+    review_fixed: int | None = None
+    docs_fixed: int | None = None
     if review is not None and docs is not None:
-        blocking = sum(1 for item in items if _is_blocking(item, review, docs))
+        blocking_items = [item for item in items if _is_blocking(item, review, docs)]
+        blocking = len(blocking_items)
+        caught = [item for item in blocking_items if item.get("status") == "fixed"]
+        docs_fixed = sum(1 for item in caught if item.get("stage") == "docs")
+        review_fixed = len(caught) - docs_fixed
     return {
         "total": len(items),
         "by_stage": _tally(item.get("stage") for item in items),
@@ -347,6 +355,9 @@ def _findings_summary(
         "by_action": _tally(item.get("action") for item in items),
         "by_response_reason": _response_reasons(items),
         "blocking": blocking,
+        # Blocking findings that were fixed before the push: what review and docs caught.
+        "review_blocking_fixed": review_fixed,
+        "docs_blocking_fixed": docs_fixed,
     }
 
 
@@ -354,8 +365,50 @@ def _stage_order(name: str) -> tuple[int, str]:
     return (_STAGE_ORDER.index(name) if name in _STAGE_ORDER else len(_STAGE_ORDER), name)
 
 
-def _stages(record: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+#: Shell stages whose red state the gate can leave for green within one run.
+_SHELL_STAGES = ("lint", "test")
+
+
+def _red_then_green(
+    events: Sequence[Mapping[str, Any]] | None, complete: bool
+) -> dict[str, bool | None]:
+    """Whether each shell stage failed and later passed in the same run.
+
+    ``stages.<name>.attempts`` counts failures but not whether a later attempt
+    passed, so the transitions decide: a visit to ``<STAGE>_RED`` before a visit
+    to ``<STAGE>_GREEN``. A red that interrupted-command recovery committed (the
+    next event is ``<stage>_interrupted``) is not a failure of the change. Unless
+    the transition chain is complete (:func:`timing.state_timing`), a red can be
+    missing, so the answer is unknown.
+    """
+    if not complete:
+        return dict.fromkeys(_SHELL_STAGES)
+    items = list(_event_items(events))
+    result: dict[str, bool | None] = {}
+    for stage in _SHELL_STAGES:
+        red, green = f"{stage.upper()}_RED", f"{stage.upper()}_GREEN"
+        failed = caught = False
+        for index, event in enumerate(items):
+            if event.get("event") != "state_transition":
+                continue
+            target = event.get("to")
+            if target == red:
+                following = items[index + 1] if index + 1 < len(items) else {}
+                failed = failed or following.get("event") != f"{stage}_interrupted"
+            elif target == green and failed:
+                caught = True
+        result[stage] = caught
+    return result
+
+
+def _stages(
+    record: Mapping[str, Any],
+    events: Sequence[Mapping[str, Any]] | None = None,
+    *,
+    complete: bool = False,
+) -> dict[str, dict[str, Any]]:
     stages = _dict(record.get("stages")) or {}
+    red_then_green = _red_then_green(events, complete)
     evidence = _dict(record.get("evidence"))
     summary: dict[str, dict[str, Any]] = {}
     for name in sorted(stages, key=_stage_order):
@@ -380,6 +433,8 @@ def _stages(record: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
             # Skip reasons are code-assigned. Failure reasons can quote command
             # or reviewer output, which a summary never copies.
             "reason": _str(stage.get("reason")) if status == "skipped" else None,
+            # Only the shell stages have a red state that a repair turns green.
+            "red_then_green": red_then_green.get(name),
         }
     return summary
 
@@ -559,6 +614,8 @@ def summarize(
     intent = record.get("intent")
     created_at = _str(record.get("created_at"))
     finished_at = _finished_at(record, events)
+    run_timing = timing.state_timing(events, state)
+    complete = bool(run_timing and run_timing["complete"])
     return RunSummary.model_validate(
         {
             "written_at": written_at or _now(),
@@ -575,11 +632,11 @@ def summarize(
             "created_at": created_at,
             "finished_at": finished_at,
             "duration_seconds": _duration(created_at, _str(finished_at)),
-            "timing": timing.state_timing(events, state),
+            "timing": run_timing,
             "producer": _producer(run, record),
             "risk": _risk(record),
             "review": _review(record),
-            "stages": _stages(record),
+            "stages": _stages(record, events, complete=complete),
             "findings": _findings_summary(findings, snapshot),
             "fix_commits": _length(record.get("fix_commits")),
             "validation_restarts": _int(record.get("validation_restarts")),

@@ -31,7 +31,17 @@ ROOT_A = "a" * 40
 ROOT_B = "b" * 40
 
 FINDINGS_NULL = dict.fromkeys(
-    ("total", "by_stage", "by_severity", "by_status", "by_action", "by_response_reason", "blocking")
+    (
+        "total",
+        "by_stage",
+        "by_severity",
+        "by_status",
+        "by_action",
+        "by_response_reason",
+        "blocking",
+        "review_blocking_fixed",
+        "docs_blocking_fixed",
+    )
 )
 
 
@@ -825,10 +835,12 @@ def test_markdown_has_the_sections_in_order_and_ends_with_the_limits():
         "Agentic Preflight report",
         "Source",
         "Runs",
+        "Caught before push",
         "Findings",
         "Finding responses",
         "Stages",
         "Duration",
+        "Tool time",
         "Selected events",
         "Orphaned reasons",
         "Abort reasons",
