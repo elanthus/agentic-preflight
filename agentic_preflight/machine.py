@@ -195,8 +195,8 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
     ),
     _S.REVIEW_COMMAND_RUNNING: _state(
-        "The independent review command was interrupted; run it again to record the "
-        "interruption and retry.",
+        "The independent review command is running or was interrupted. If no review "
+        "command is still running, run it again to record the interruption and retry.",
         "agentic-preflight review run",
         (_A.REVIEW_COMMAND_PASSED, _S.REVIEW_AWAITING_FINDINGS),
         (_A.REVIEW_COMMAND_FAILED, _S.REVIEW_COMMAND_RED),

@@ -441,6 +441,20 @@ def test_a_login_profile_that_changes_directory_does_not_move_a_shell_stage(feat
     assert Path(result.output.strip()) == Path(feature_repo)
 
 
+def test_a_login_profile_cd_function_cannot_move_a_shell_stage(feature_repo):
+    """Version managers and directory hooks often redefine ``cd`` in the profile."""
+    home = Path.home()
+    profile = 'cd() { echo "PROFILE-CD $*"; builtin cd "$HOME"; }\n'
+    for name in (".bash_profile", ".profile"):
+        (home / name).write_text(profile, encoding="utf-8")
+
+    result = shellstage.run_stage(feature_repo, "git rev-parse --show-toplevel && exit 0")
+
+    assert result.passed, result.output
+    assert "PROFILE-CD" not in result.output
+    assert Path(result.output.strip()) == Path(feature_repo)
+
+
 def test_a_shell_stage_starts_in_a_directory_whose_name_needs_quoting(tmp_path):
     directory = tmp_path / "it's a $dir"
     directory.mkdir()

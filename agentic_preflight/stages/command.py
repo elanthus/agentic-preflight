@@ -370,7 +370,8 @@ def build_argv(command_plan: Plan, *, cwd: Path | str | None = None) -> list[str
 
     The shell is a login shell, which sources the user's profile before the
     command runs. A profile that changes directory would move the command, so
-    with ``cwd`` the command string first changes back to it. ``-P`` keeps
+    with ``cwd`` the command string first changes back to it. ``command`` skips
+    any ``cd`` function the profile defines, such as a version manager's hook. ``-P`` keeps
     ``$PWD`` the physical path the shell would have started with, and the
     prefix shares the command's first line so reported line numbers do not move.
     """
@@ -384,5 +385,5 @@ def build_argv(command_plan: Plan, *, cwd: Path | str | None = None) -> list[str
     if cwd is not None:
         # The forward-slash form, ``C:/...`` on Windows, is the form every
         # POSIX shell, Git Bash included, accepts as a directory.
-        script = f"cd -P -- {shlex.quote(Path(cwd).as_posix())} || exit; {script}"
+        script = f"command cd -P -- {shlex.quote(Path(cwd).as_posix())} || exit; {script}"
     return [*shell, script]

@@ -216,8 +216,9 @@ def remove(repo: Path | str, path: Path | str, *, branch: str | None = None) -> 
         if reason is not None:
             detail = f" ({reason})" if reason else ""
             raise WorktreeLocked(
-                f"worktree {path} is locked{detail}; Git refuses to remove it. "
-                f"Run `git worktree unlock {path}` if it is no longer needed, then retry."
+                f"worktree {path} is locked{detail}, so it was not removed. "
+                "Someone locked it on purpose: show this to the user and do not unlock "
+                "it yourself. Retry only after the user unlocks it."
             )
     if Path(path).exists():
         shutil.rmtree(path, ignore_errors=True)

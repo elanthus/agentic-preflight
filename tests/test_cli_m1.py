@@ -663,6 +663,7 @@ def test_abort_reports_a_locked_strict_worktree_and_keeps_it(agent, feature_repo
     env = agent.run("abort", expect=ExitCode.ERROR)
 
     assert "locked" in env["error"]["message"]
+    assert "do not unlock it yourself" in env["error"]["message"]
     assert wt.is_dir()
     assert agent.run("status")["state"] == started["state"]
 
@@ -692,6 +693,8 @@ def test_gc_retains_a_locked_strict_worktree_and_collects_the_rest(agent, featur
         "worktree_path": str(wt),
     } in env["data"]["retained"]
     assert wt.is_dir()
+    assert "ask whether to unlock it" in env["next"]["instruction"]
+    assert env["next"]["command"] is None
 
 
 @pytest.mark.parametrize("mode", ["strict", "reusable"])

@@ -268,6 +268,8 @@ def test_remove_refuses_a_locked_worktree_instead_of_deleting_it(feature_repo, w
 
     assert isinstance(caught.value, worktree.WorktreeError)
     assert str(wt) in str(caught.value)
+    assert "do not unlock" in str(caught.value)
+    assert "keep me" in str(caught.value)
     assert (wt / "notes.txt").read_text(encoding="utf-8") == "kept\n"
     assert "ap/r_abc123" in git("branch", "--list", cwd=feature_repo)
     listed = git("worktree", "list", "--porcelain", cwd=feature_repo)

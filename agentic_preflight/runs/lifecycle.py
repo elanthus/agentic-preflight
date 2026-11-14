@@ -259,6 +259,11 @@ def _collect_run(
 
 
 LOCKED_WORKTREE = "validation worktree is locked"
+LOCKED_WORKTREE_INSTRUCTION = (
+    "A validation worktree is locked with `git worktree lock`, so it was retained; "
+    "show the user each `worktree_path` in `data.retained` and ask whether to unlock it. "
+    "Do not unlock it yourself."
+)
 
 
 def _unlanded_terminal_fixes(session: Session, run: RunDoc) -> list[str]:
@@ -404,6 +409,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
 
     legacy = worktree.legacy_worktrees(session.repo_root, session.config.worktree.root)
     unrecorded_retained = any(item.get("reason") in UNRECORDED_WORK_REASONS for item in retained)
+    locked_retained = any(item.get("reason") == LOCKED_WORKTREE for item in retained)
     # An interrupted notes fetch or publication can leave its temporary ref.
     with store.resource("notes"):
         gitx.sweep_notes_staging_refs(session.repo_root)
@@ -430,6 +436,8 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
             if unreadable_retained
             else UNRECORDED_WORK_INSTRUCTION
             if unrecorded_retained
+            else LOCKED_WORKTREE_INSTRUCTION
+            if locked_retained
             else "Orphans were found; inspect them before removing."
             if orphans
             else "Validation worktrees remain at the old sibling default location; "
@@ -439,7 +447,11 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
         ),
         next_command=(
             "agentic-preflight gc --force"
-            if orphans and not force and not unreadable_retained and not unrecorded_retained
+            if orphans
+            and not force
+            and not unreadable_retained
+            and not unrecorded_retained
+            and not locked_retained
             else None
         ),
     )
