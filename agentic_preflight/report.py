@@ -823,7 +823,8 @@ def _tool_time(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     pull_requests: dict[tuple[str, int], list[float | None]] = {}
     unsynced = 0
     for row in done:
-        number = _int((row.get("hosted") or {}).get("pr_number"))
+        hosted = row.get("hosted")
+        number = _int(hosted.get("pr_number")) if isinstance(hosted, Mapping) else None
         if number is None:
             unsynced += 1
             continue
