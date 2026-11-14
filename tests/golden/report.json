@@ -1,0 +1,3843 @@
+{
+  "format": "json",
+  "source": {
+    "used": "mirror",
+    "scope": "all",
+    "mirror": {
+      "path": "/data/runs.jsonl",
+      "exists": true,
+      "lines": 13,
+      "rows": 8,
+      "malformed": 2,
+      "malformed_by_reason": {
+        "invalid_json": 1,
+        "not_a_summary": 1
+      },
+      "malformed_lines": [
+        {
+          "line": 12,
+          "reason": "invalid_json"
+        },
+        {
+          "line": 13,
+          "reason": "not_a_summary"
+        }
+      ],
+      "duplicates": 3
+    },
+    "clone": null
+  },
+  "filters": {
+    "since": "2026-01-01T00:00:00+00:00",
+    "until": null,
+    "repo": null,
+    "state": null
+  },
+  "filtered_out": {
+    "state": 0,
+    "repo": 0,
+    "since": 0,
+    "until": 0,
+    "time_unknown": 0,
+    "total": 0
+  },
+  "rows_reported": 8,
+  "overall": {
+    "runs": 8,
+    "states": {
+      "DONE": 4,
+      "ABORTED": 2,
+      "ORPHANED": 2
+    },
+    "completion_rate": {
+      "value": 0.5,
+      "numerator": 4,
+      "denominator": 8,
+      "denominator_label": "runs"
+    },
+    "findings": {
+      "runs_observed": 6,
+      "excluded_runs": 2,
+      "total": 7,
+      "by_stage": {
+        "docs": 3,
+        "review": 4
+      },
+      "by_severity": {
+        "critical": 2,
+        "high": 2,
+        "low": 2,
+        "medium": 1
+      },
+      "by_status": {
+        "accepted": 1,
+        "dismissed": 2,
+        "fixed": 3,
+        "open": 1
+      },
+      "by_action": {
+        "ask_user": 1,
+        "auto_fix": 4,
+        "no_op": 2
+      },
+      "blocking": {
+        "total": 2,
+        "runs_observed": 6,
+        "excluded_runs": 2,
+        "fixed": {
+          "min": 0,
+          "max": 1,
+          "exact": false
+        },
+        "fixed_share": {
+          "min": 0.0,
+          "max": 0.5,
+          "numerator_min": 0,
+          "numerator_max": 1,
+          "denominator": 2,
+          "denominator_label": "blocking findings"
+        },
+        "note": "A summary counts blocking findings and finding statuses separately. The fixed count is exact only for runs where every finding or no finding is blocking. Otherwise it is a range."
+      },
+      "review_findings_per_100_units": {
+        "value": 8.7,
+        "numerator": 4,
+        "numerator_label": "review-stage findings",
+        "denominator": 46,
+        "denominator_label": "review units",
+        "runs_observed": 6,
+        "excluded_runs": 2
+      }
+    },
+    "finding_responses": {
+      "runs_observed": 2,
+      "excluded_runs": 6,
+      "by_reason": {
+        "unspecified": 3
+      },
+      "responses": 6,
+      "unspecified": {
+        "value": 1.0,
+        "numerator": 3,
+        "denominator": 3,
+        "denominator_label": "dismissed or accepted findings"
+      },
+      "perceived_false_positive_share": {
+        "value": 0.0,
+        "numerator": 0,
+        "denominator": 6,
+        "denominator_label": "findings with a recorded response",
+        "max": 0.5,
+        "numerator_max": 3,
+        "exact": false
+      },
+      "note": "The perceived false-positive share counts the findings that the agent dismissed or accepted as `false_positive`, over every finding with a recorded response. A dismissal or acceptance without a reason counts as `unspecified`. While any are unspecified, the share is a range."
+    },
+    "fix_commits": {
+      "runs_with_any": {
+        "value": 0.2857,
+        "numerator": 2,
+        "denominator": 7,
+        "denominator_label": "runs with a fix-commit count"
+      },
+      "total": 4,
+      "excluded_runs": 1
+    },
+    "validation_restarts": {
+      "runs_with_any": {
+        "value": 0.3333,
+        "numerator": 2,
+        "denominator": 6,
+        "denominator_label": "runs with a validation-restart count"
+      },
+      "total": 2,
+      "excluded_runs": 2
+    },
+    "stages": {
+      "review": {
+        "runs": 6,
+        "statuses": {
+          "green": 6
+        },
+        "attempts_at_least_one": {
+          "value": 0.0,
+          "numerator": 0,
+          "denominator": 6,
+          "denominator_label": "runs with an attempt count for this stage"
+        },
+        "attempts_above_one": {
+          "value": 0.0,
+          "numerator": 0,
+          "denominator": 6,
+          "denominator_label": "runs with an attempt count for this stage"
+        },
+        "attempts_excluded_runs": 0,
+        "reused": {
+          "value": 0.1667,
+          "numerator": 1,
+          "denominator": 6,
+          "denominator_label": "runs with a reuse value for this stage"
+        },
+        "reused_excluded_runs": 0,
+        "duration_seconds": {
+          "observations": 0,
+          "excluded_runs": 6,
+          "minimum_observations": 5,
+          "median": null,
+          "p90": null,
+          "note": "Fewer than 5 observations. The median and p90 are not computed."
+        }
+      },
+      "docs": {
+        "runs": 1,
+        "statuses": {
+          "green": 1
+        },
+        "attempts_at_least_one": {
+          "value": 0.0,
+          "numerator": 0,
+          "denominator": 1,
+          "denominator_label": "runs with an attempt count for this stage"
+        },
+        "attempts_above_one": {
+          "value": 0.0,
+          "numerator": 0,
+          "denominator": 1,
+          "denominator_label": "runs with an attempt count for this stage"
+        },
+        "attempts_excluded_runs": 0,
+        "reused": {
+          "value": 0.0,
+          "numerator": 0,
+          "denominator": 1,
+          "denominator_label": "runs with a reuse value for this stage"
+        },
+        "reused_excluded_runs": 0,
+        "duration_seconds": {
+          "observations": 0,
+          "excluded_runs": 1,
+          "minimum_observations": 5,
+          "median": null,
+          "p90": null,
+          "note": "Fewer than 5 observations. The median and p90 are not computed."
+        }
+      },
+      "lint": {
+        "runs": 7,
+        "statuses": {
+          "green": 6,
+          "red": 1
+        },
+        "attempts_at_least_one": {
+          "value": 0.2857,
+          "numerator": 2,
+          "denominator": 7,
+          "denominator_label": "runs with an attempt count for this stage"
+        },
+        "attempts_above_one": {
+          "value": 0.1429,
+          "numerator": 1,
+          "denominator": 7,
+          "denominator_label": "runs with an attempt count for this stage"
+        },
+        "attempts_excluded_runs": 0,
+        "reused": {
+          "value": 0.0,
+          "numerator": 0,
+          "denominator": 6,
+          "denominator_label": "runs with a reuse value for this stage"
+        },
+        "reused_excluded_runs": 1,
+        "duration_seconds": {
+          "observations": 0,
+          "excluded_runs": 7,
+          "minimum_observations": 5,
+          "median": null,
+          "p90": null,
+          "note": "Fewer than 5 observations. The median and p90 are not computed."
+        }
+      },
+      "test": {
+        "runs": 5,
+        "statuses": {
+          "green": 3,
+          "skipped": 2
+        },
+        "attempts_at_least_one": {
+          "value": 0.0,
+          "numerator": 0,
+          "denominator": 4,
+          "denominator_label": "runs with an attempt count for this stage"
+        },
+        "attempts_above_one": {
+          "value": 0.0,
+          "numerator": 0,
+          "denominator": 4,
+          "denominator_label": "runs with an attempt count for this stage"
+        },
+        "attempts_excluded_runs": 1,
+        "reused": {
+          "value": 0.0,
+          "numerator": 0,
+          "denominator": 3,
+          "denominator_label": "runs with a reuse value for this stage"
+        },
+        "reused_excluded_runs": 2,
+        "duration_seconds": {
+          "observations": 0,
+          "excluded_runs": 5,
+          "minimum_observations": 5,
+          "median": null,
+          "p90": null,
+          "note": "Fewer than 5 observations. The median and p90 are not computed."
+        }
+      }
+    },
+    "duration_seconds": {
+      "observations": 7,
+      "excluded_runs": 1,
+      "minimum_observations": 5,
+      "median": 600.0,
+      "p90": 334819.2,
+      "note": null
+    },
+    "time_in_stages": {
+      "runs_observed": 3,
+      "excluded_runs": 5,
+      "total_seconds": 330.0,
+      "review_share": {
+        "value": 0.1212,
+        "numerator": 40.0,
+        "denominator": 330.0,
+        "denominator_label": "seconds in runs with a complete transition history"
+      },
+      "shell_share": {
+        "value": 0.7879,
+        "numerator": 260.0,
+        "denominator": 330.0,
+        "denominator_label": "seconds in runs with a complete transition history"
+      },
+      "note": "Review time covers the review and docs states. Shell time covers the lint and test states. Only runs with a complete transition history are counted."
+    },
+    "caught": {
+      "done_runs": 4,
+      "runs_with_any_catch": {
+        "value": 1.0,
+        "numerator": 1,
+        "denominator": 1,
+        "denominator_label": "DONE runs with every catch source known or a known catch"
+      },
+      "excluded_runs": 3,
+      "by_source": {
+        "review_blocking_fixed": {
+          "runs_with_any": {
+            "value": 0.0,
+            "numerator": 0,
+            "denominator": 1,
+            "denominator_label": "DONE runs with a known review blocking fixed value"
+          },
+          "total": 0,
+          "excluded_runs": 3
+        },
+        "docs_blocking_fixed": {
+          "runs_with_any": {
+            "value": 0.0,
+            "numerator": 0,
+            "denominator": 2,
+            "denominator_label": "DONE runs with a known docs blocking fixed value"
+          },
+          "total": 0,
+          "excluded_runs": 2
+        },
+        "lint_red_then_green": {
+          "runs_with_any": {
+            "value": 0.5,
+            "numerator": 1,
+            "denominator": 2,
+            "denominator_label": "DONE runs with a known lint red then green value"
+          },
+          "total": null,
+          "excluded_runs": 2
+        },
+        "test_red_then_green": {
+          "runs_with_any": {
+            "value": 0.0,
+            "numerator": 0,
+            "denominator": 2,
+            "denominator_label": "DONE runs with a known test red then green value"
+          },
+          "total": null,
+          "excluded_runs": 2
+        }
+      },
+      "note": "A catch is something the gate stopped before the push: a blocking review or docs finding that was fixed, or a lint or test stage that failed and later passed in the same run. It is not proof that hosted checks or a reviewer would have missed it."
+    },
+    "tool_time": {
+      "per_run": {
+        "observations": 1,
+        "excluded_runs": 3,
+        "minimum_observations": 5,
+        "median": null,
+        "p90": null,
+        "note": "Fewer than 5 observations. The median and p90 are not computed."
+      },
+      "per_run_label": "DONE runs",
+      "total_seconds": 12.5,
+      "per_pull_request": {
+        "observations": 0,
+        "minimum_observations": 5,
+        "median": null,
+        "p90": null,
+        "note": "Fewer than 5 observations. The median and p90 are not computed.",
+        "pull_requests": 1,
+        "excluded_pull_requests": 1,
+        "runs_without_pull_request": 2,
+        "label": "synced pull requests of DONE runs"
+      },
+      "note": "Tool time is the wall time of the commands the tool ran on its own before the run ended: sync, setup, the review command, the contract planner, the shadow review of `review compare`, the baseline check, lint, test, and merge-back. The push is not timed. A run recorded before command timing has no tool time. A pull request sums the tool time of its synced `DONE` runs, and is left out when any of them has no tool time."
+    },
+    "hosted": {
+      "synced": {
+        "runs": {
+          "value": 0.25,
+          "numerator": 2,
+          "denominator": 8,
+          "denominator_label": "runs"
+        },
+        "green_checks_failed": {
+          "value": 0.0,
+          "numerator": 0,
+          "denominator": 2,
+          "denominator_label": "synced runs with settled checks"
+        },
+        "checks_excluded_runs": 0,
+        "pull_request_found": {
+          "value": 1.0,
+          "numerator": 2,
+          "denominator": 2,
+          "denominator_label": "synced runs whose commit GitHub knew"
+        },
+        "commit_unknown_runs": 0,
+        "merged": {
+          "value": 1.0,
+          "numerator": 2,
+          "denominator": 2,
+          "denominator_label": "synced runs with a pull request"
+        },
+        "pr_states": {
+          "closed": 2
+        },
+        "checks_conclusions": {
+          "success": 2
+        },
+        "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
+      }
+    },
+    "orphaned_reasons": {
+      "replaced by a new start": 1,
+      "unknown": 1
+    },
+    "abort_reasons": {
+      "runs": 2,
+      "by_reason": {
+        "unspecified": 2
+      },
+      "by_state": {
+        "TEST_GREEN": 1,
+        "unknown": 1
+      }
+    },
+    "events": {
+      "runs_observed": 6,
+      "excluded_runs": 2,
+      "counts": {
+        "review_coverage_invalidated": {
+          "total": 0,
+          "runs": {
+            "value": 0.0,
+            "numerator": 0,
+            "denominator": 6,
+            "denominator_label": "runs with event counts"
+          }
+        },
+        "test_interrupted": {
+          "total": 0,
+          "runs": {
+            "value": 0.0,
+            "numerator": 0,
+            "denominator": 6,
+            "denominator_label": "runs with event counts"
+          }
+        },
+        "sync_conflict": {
+          "total": 0,
+          "runs": {
+            "value": 0.0,
+            "numerator": 0,
+            "denominator": 6,
+            "denominator_label": "runs with event counts"
+          }
+        },
+        "stage_reused": {
+          "total": 0,
+          "runs": {
+            "value": 0.0,
+            "numerator": 0,
+            "denominator": 6,
+            "denominator_label": "runs with event counts"
+          }
+        }
+      }
+    }
+  },
+  "by_repo": [
+    {
+      "key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "label": "widget",
+      "name": "widget",
+      "remote": "github.com/owner/widget",
+      "root_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "metrics": {
+        "runs": 4,
+        "states": {
+          "DONE": 3,
+          "ABORTED": 1,
+          "ORPHANED": 0
+        },
+        "completion_rate": {
+          "value": 0.75,
+          "numerator": 3,
+          "denominator": 4,
+          "denominator_label": "runs"
+        },
+        "findings": {
+          "runs_observed": 3,
+          "excluded_runs": 1,
+          "total": 3,
+          "by_stage": {
+            "docs": 1,
+            "review": 2
+          },
+          "by_severity": {
+            "critical": 1,
+            "high": 1,
+            "low": 1
+          },
+          "by_status": {
+            "dismissed": 1,
+            "fixed": 2
+          },
+          "by_action": {
+            "auto_fix": 3
+          },
+          "blocking": {
+            "total": 0,
+            "runs_observed": 3,
+            "excluded_runs": 1,
+            "fixed": {
+              "min": 0,
+              "max": 0,
+              "exact": true
+            },
+            "fixed_share": {
+              "min": null,
+              "max": null,
+              "numerator_min": 0,
+              "numerator_max": 0,
+              "denominator": 0,
+              "denominator_label": "blocking findings"
+            },
+            "note": "A summary counts blocking findings and finding statuses separately. The fixed count is exact only for runs where every finding or no finding is blocking. Otherwise it is a range."
+          },
+          "review_findings_per_100_units": {
+            "value": 8.7,
+            "numerator": 2,
+            "numerator_label": "review-stage findings",
+            "denominator": 23,
+            "denominator_label": "review units",
+            "runs_observed": 3,
+            "excluded_runs": 1
+          }
+        },
+        "finding_responses": {
+          "runs_observed": 1,
+          "excluded_runs": 3,
+          "by_reason": {
+            "unspecified": 1
+          },
+          "responses": 3,
+          "unspecified": {
+            "value": 1.0,
+            "numerator": 1,
+            "denominator": 1,
+            "denominator_label": "dismissed or accepted findings"
+          },
+          "perceived_false_positive_share": {
+            "value": 0.0,
+            "numerator": 0,
+            "denominator": 3,
+            "denominator_label": "findings with a recorded response",
+            "max": 0.3333,
+            "numerator_max": 1,
+            "exact": false
+          },
+          "note": "The perceived false-positive share counts the findings that the agent dismissed or accepted as `false_positive`, over every finding with a recorded response. A dismissal or acceptance without a reason counts as `unspecified`. While any are unspecified, the share is a range."
+        },
+        "fix_commits": {
+          "runs_with_any": {
+            "value": 0.25,
+            "numerator": 1,
+            "denominator": 4,
+            "denominator_label": "runs with a fix-commit count"
+          },
+          "total": 2,
+          "excluded_runs": 0
+        },
+        "validation_restarts": {
+          "runs_with_any": {
+            "value": 0.3333,
+            "numerator": 1,
+            "denominator": 3,
+            "denominator_label": "runs with a validation-restart count"
+          },
+          "total": 1,
+          "excluded_runs": 1
+        },
+        "stages": {
+          "review": {
+            "runs": 3,
+            "statuses": {
+              "green": 3
+            },
+            "attempts_at_least_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 3,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 3,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 0,
+            "reused": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 3,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 0,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 3,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          },
+          "docs": {
+            "runs": 1,
+            "statuses": {
+              "green": 1
+            },
+            "attempts_at_least_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 0,
+            "reused": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 0,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 1,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          },
+          "lint": {
+            "runs": 4,
+            "statuses": {
+              "green": 4
+            },
+            "attempts_at_least_one": {
+              "value": 0.25,
+              "numerator": 1,
+              "denominator": 4,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 4,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 0,
+            "reused": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 3,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 1,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 4,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          },
+          "test": {
+            "runs": 4,
+            "statuses": {
+              "green": 3,
+              "skipped": 1
+            },
+            "attempts_at_least_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 4,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 4,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 0,
+            "reused": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 3,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 1,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 4,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          }
+        },
+        "duration_seconds": {
+          "observations": 4,
+          "excluded_runs": 0,
+          "minimum_observations": 5,
+          "median": null,
+          "p90": null,
+          "note": "Fewer than 5 observations. The median and p90 are not computed."
+        },
+        "time_in_stages": {
+          "runs_observed": 3,
+          "excluded_runs": 1,
+          "total_seconds": 330.0,
+          "review_share": {
+            "value": 0.1212,
+            "numerator": 40.0,
+            "denominator": 330.0,
+            "denominator_label": "seconds in runs with a complete transition history"
+          },
+          "shell_share": {
+            "value": 0.7879,
+            "numerator": 260.0,
+            "denominator": 330.0,
+            "denominator_label": "seconds in runs with a complete transition history"
+          },
+          "note": "Review time covers the review and docs states. Shell time covers the lint and test states. Only runs with a complete transition history are counted."
+        },
+        "caught": {
+          "done_runs": 3,
+          "runs_with_any_catch": {
+            "value": 1.0,
+            "numerator": 1,
+            "denominator": 1,
+            "denominator_label": "DONE runs with every catch source known or a known catch"
+          },
+          "excluded_runs": 2,
+          "by_source": {
+            "review_blocking_fixed": {
+              "runs_with_any": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 1,
+                "denominator_label": "DONE runs with a known review blocking fixed value"
+              },
+              "total": 0,
+              "excluded_runs": 2
+            },
+            "docs_blocking_fixed": {
+              "runs_with_any": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 2,
+                "denominator_label": "DONE runs with a known docs blocking fixed value"
+              },
+              "total": 0,
+              "excluded_runs": 1
+            },
+            "lint_red_then_green": {
+              "runs_with_any": {
+                "value": 0.5,
+                "numerator": 1,
+                "denominator": 2,
+                "denominator_label": "DONE runs with a known lint red then green value"
+              },
+              "total": null,
+              "excluded_runs": 1
+            },
+            "test_red_then_green": {
+              "runs_with_any": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 2,
+                "denominator_label": "DONE runs with a known test red then green value"
+              },
+              "total": null,
+              "excluded_runs": 1
+            }
+          },
+          "note": "A catch is something the gate stopped before the push: a blocking review or docs finding that was fixed, or a lint or test stage that failed and later passed in the same run. It is not proof that hosted checks or a reviewer would have missed it."
+        },
+        "tool_time": {
+          "per_run": {
+            "observations": 1,
+            "excluded_runs": 2,
+            "minimum_observations": 5,
+            "median": null,
+            "p90": null,
+            "note": "Fewer than 5 observations. The median and p90 are not computed."
+          },
+          "per_run_label": "DONE runs",
+          "total_seconds": 12.5,
+          "per_pull_request": {
+            "observations": 0,
+            "minimum_observations": 5,
+            "median": null,
+            "p90": null,
+            "note": "Fewer than 5 observations. The median and p90 are not computed.",
+            "pull_requests": 1,
+            "excluded_pull_requests": 1,
+            "runs_without_pull_request": 1,
+            "label": "synced pull requests of DONE runs"
+          },
+          "note": "Tool time is the wall time of the commands the tool ran on its own before the run ended: sync, setup, the review command, the contract planner, the shadow review of `review compare`, the baseline check, lint, test, and merge-back. The push is not timed. A run recorded before command timing has no tool time. A pull request sums the tool time of its synced `DONE` runs, and is left out when any of them has no tool time."
+        },
+        "hosted": {
+          "synced": {
+            "runs": {
+              "value": 0.5,
+              "numerator": 2,
+              "denominator": 4,
+              "denominator_label": "runs"
+            },
+            "green_checks_failed": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 2,
+              "denominator_label": "synced runs with settled checks"
+            },
+            "checks_excluded_runs": 0,
+            "pull_request_found": {
+              "value": 1.0,
+              "numerator": 2,
+              "denominator": 2,
+              "denominator_label": "synced runs whose commit GitHub knew"
+            },
+            "commit_unknown_runs": 0,
+            "merged": {
+              "value": 1.0,
+              "numerator": 2,
+              "denominator": 2,
+              "denominator_label": "synced runs with a pull request"
+            },
+            "pr_states": {
+              "closed": 2
+            },
+            "checks_conclusions": {
+              "success": 2
+            },
+            "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
+          }
+        },
+        "orphaned_reasons": {},
+        "abort_reasons": {
+          "runs": 1,
+          "by_reason": {
+            "unspecified": 1
+          },
+          "by_state": {
+            "TEST_GREEN": 1
+          }
+        },
+        "events": {
+          "runs_observed": 3,
+          "excluded_runs": 1,
+          "counts": {
+            "review_coverage_invalidated": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 3,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "test_interrupted": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 3,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "sync_conflict": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 3,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "stage_reused": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 3,
+                "denominator_label": "runs with event counts"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "label": "gadget",
+      "name": "gadget",
+      "remote": "gitlab.example/team/gadget",
+      "root_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "metrics": {
+        "runs": 3,
+        "states": {
+          "DONE": 1,
+          "ABORTED": 0,
+          "ORPHANED": 2
+        },
+        "completion_rate": {
+          "value": 0.3333,
+          "numerator": 1,
+          "denominator": 3,
+          "denominator_label": "runs"
+        },
+        "findings": {
+          "runs_observed": 2,
+          "excluded_runs": 1,
+          "total": 0,
+          "by_stage": {},
+          "by_severity": {},
+          "by_status": {},
+          "by_action": {},
+          "blocking": {
+            "total": 0,
+            "runs_observed": 2,
+            "excluded_runs": 1,
+            "fixed": {
+              "min": 0,
+              "max": 0,
+              "exact": true
+            },
+            "fixed_share": {
+              "min": null,
+              "max": null,
+              "numerator_min": 0,
+              "numerator_max": 0,
+              "denominator": 0,
+              "denominator_label": "blocking findings"
+            },
+            "note": "A summary counts blocking findings and finding statuses separately. The fixed count is exact only for runs where every finding or no finding is blocking. Otherwise it is a range."
+          },
+          "review_findings_per_100_units": {
+            "value": 0.0,
+            "numerator": 0,
+            "numerator_label": "review-stage findings",
+            "denominator": 20,
+            "denominator_label": "review units",
+            "runs_observed": 2,
+            "excluded_runs": 1
+          }
+        },
+        "finding_responses": {
+          "runs_observed": 0,
+          "excluded_runs": 3,
+          "by_reason": {},
+          "responses": null,
+          "unspecified": {
+            "value": null,
+            "numerator": 0,
+            "denominator": 0,
+            "denominator_label": "dismissed or accepted findings"
+          },
+          "perceived_false_positive_share": {
+            "value": null,
+            "numerator": 0,
+            "denominator": 0,
+            "denominator_label": "findings with a recorded response",
+            "max": null,
+            "numerator_max": 0,
+            "exact": true
+          },
+          "note": "The perceived false-positive share counts the findings that the agent dismissed or accepted as `false_positive`, over every finding with a recorded response. A dismissal or acceptance without a reason counts as `unspecified`. While any are unspecified, the share is a range."
+        },
+        "fix_commits": {
+          "runs_with_any": {
+            "value": 0.0,
+            "numerator": 0,
+            "denominator": 2,
+            "denominator_label": "runs with a fix-commit count"
+          },
+          "total": 0,
+          "excluded_runs": 1
+        },
+        "validation_restarts": {
+          "runs_with_any": {
+            "value": 0.0,
+            "numerator": 0,
+            "denominator": 2,
+            "denominator_label": "runs with a validation-restart count"
+          },
+          "total": 0,
+          "excluded_runs": 1
+        },
+        "stages": {
+          "review": {
+            "runs": 2,
+            "statuses": {
+              "green": 2
+            },
+            "attempts_at_least_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 2,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 2,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 0,
+            "reused": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 2,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 0,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 2,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          },
+          "lint": {
+            "runs": 2,
+            "statuses": {
+              "green": 2
+            },
+            "attempts_at_least_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 2,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 2,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 0,
+            "reused": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 2,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 0,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 2,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          },
+          "test": {
+            "runs": 1,
+            "statuses": {
+              "skipped": 1
+            },
+            "attempts_at_least_one": {
+              "value": null,
+              "numerator": 0,
+              "denominator": 0,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": null,
+              "numerator": 0,
+              "denominator": 0,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 1,
+            "reused": {
+              "value": null,
+              "numerator": 0,
+              "denominator": 0,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 1,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 1,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          }
+        },
+        "duration_seconds": {
+          "observations": 2,
+          "excluded_runs": 1,
+          "minimum_observations": 5,
+          "median": null,
+          "p90": null,
+          "note": "Fewer than 5 observations. The median and p90 are not computed."
+        },
+        "time_in_stages": {
+          "runs_observed": 0,
+          "excluded_runs": 3,
+          "total_seconds": null,
+          "review_share": {
+            "value": null,
+            "numerator": 0,
+            "denominator": 0,
+            "denominator_label": "seconds in runs with a complete transition history"
+          },
+          "shell_share": {
+            "value": null,
+            "numerator": 0,
+            "denominator": 0,
+            "denominator_label": "seconds in runs with a complete transition history"
+          },
+          "note": "Review time covers the review and docs states. Shell time covers the lint and test states. Only runs with a complete transition history are counted."
+        },
+        "caught": {
+          "done_runs": 1,
+          "runs_with_any_catch": {
+            "value": null,
+            "numerator": 0,
+            "denominator": 0,
+            "denominator_label": "DONE runs with every catch source known or a known catch"
+          },
+          "excluded_runs": 1,
+          "by_source": {
+            "review_blocking_fixed": {
+              "runs_with_any": {
+                "value": null,
+                "numerator": 0,
+                "denominator": 0,
+                "denominator_label": "DONE runs with a known review blocking fixed value"
+              },
+              "total": null,
+              "excluded_runs": 1
+            },
+            "docs_blocking_fixed": {
+              "runs_with_any": {
+                "value": null,
+                "numerator": 0,
+                "denominator": 0,
+                "denominator_label": "DONE runs with a known docs blocking fixed value"
+              },
+              "total": null,
+              "excluded_runs": 1
+            },
+            "lint_red_then_green": {
+              "runs_with_any": {
+                "value": null,
+                "numerator": 0,
+                "denominator": 0,
+                "denominator_label": "DONE runs with a known lint red then green value"
+              },
+              "total": null,
+              "excluded_runs": 1
+            },
+            "test_red_then_green": {
+              "runs_with_any": {
+                "value": null,
+                "numerator": 0,
+                "denominator": 0,
+                "denominator_label": "DONE runs with a known test red then green value"
+              },
+              "total": null,
+              "excluded_runs": 1
+            }
+          },
+          "note": "A catch is something the gate stopped before the push: a blocking review or docs finding that was fixed, or a lint or test stage that failed and later passed in the same run. It is not proof that hosted checks or a reviewer would have missed it."
+        },
+        "tool_time": {
+          "per_run": {
+            "observations": 0,
+            "excluded_runs": 1,
+            "minimum_observations": 5,
+            "median": null,
+            "p90": null,
+            "note": "Fewer than 5 observations. The median and p90 are not computed."
+          },
+          "per_run_label": "DONE runs",
+          "total_seconds": null,
+          "per_pull_request": {
+            "observations": 0,
+            "minimum_observations": 5,
+            "median": null,
+            "p90": null,
+            "note": "Fewer than 5 observations. The median and p90 are not computed.",
+            "pull_requests": 0,
+            "excluded_pull_requests": 0,
+            "runs_without_pull_request": 1,
+            "label": "synced pull requests of DONE runs"
+          },
+          "note": "Tool time is the wall time of the commands the tool ran on its own before the run ended: sync, setup, the review command, the contract planner, the shadow review of `review compare`, the baseline check, lint, test, and merge-back. The push is not timed. A run recorded before command timing has no tool time. A pull request sums the tool time of its synced `DONE` runs, and is left out when any of them has no tool time."
+        },
+        "hosted": {
+          "synced": {
+            "runs": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 3,
+              "denominator_label": "runs"
+            },
+            "green_checks_failed": {
+              "value": null,
+              "numerator": 0,
+              "denominator": 0,
+              "denominator_label": "synced runs with settled checks"
+            },
+            "checks_excluded_runs": 0,
+            "pull_request_found": {
+              "value": null,
+              "numerator": 0,
+              "denominator": 0,
+              "denominator_label": "synced runs whose commit GitHub knew"
+            },
+            "commit_unknown_runs": 0,
+            "merged": {
+              "value": null,
+              "numerator": 0,
+              "denominator": 0,
+              "denominator_label": "synced runs with a pull request"
+            },
+            "pr_states": {},
+            "checks_conclusions": {},
+            "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
+          }
+        },
+        "orphaned_reasons": {
+          "replaced by a new start": 1,
+          "unknown": 1
+        },
+        "abort_reasons": {
+          "runs": 0,
+          "by_reason": {},
+          "by_state": {}
+        },
+        "events": {
+          "runs_observed": 2,
+          "excluded_runs": 1,
+          "counts": {
+            "review_coverage_invalidated": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 2,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "test_interrupted": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 2,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "sync_conflict": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 2,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "stage_reused": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 2,
+                "denominator_label": "runs with event counts"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "path:/repos/widget",
+      "label": "widget",
+      "name": "widget",
+      "remote": "github.com/owner/widget",
+      "root_commit": null,
+      "metrics": {
+        "runs": 1,
+        "states": {
+          "DONE": 0,
+          "ABORTED": 1,
+          "ORPHANED": 0
+        },
+        "completion_rate": {
+          "value": 0.0,
+          "numerator": 0,
+          "denominator": 1,
+          "denominator_label": "runs"
+        },
+        "findings": {
+          "runs_observed": 1,
+          "excluded_runs": 0,
+          "total": 4,
+          "by_stage": {
+            "docs": 2,
+            "review": 2
+          },
+          "by_severity": {
+            "critical": 1,
+            "high": 1,
+            "low": 1,
+            "medium": 1
+          },
+          "by_status": {
+            "accepted": 1,
+            "dismissed": 1,
+            "fixed": 1,
+            "open": 1
+          },
+          "by_action": {
+            "ask_user": 1,
+            "auto_fix": 1,
+            "no_op": 2
+          },
+          "blocking": {
+            "total": 2,
+            "runs_observed": 1,
+            "excluded_runs": 0,
+            "fixed": {
+              "min": 0,
+              "max": 1,
+              "exact": false
+            },
+            "fixed_share": {
+              "min": 0.0,
+              "max": 0.5,
+              "numerator_min": 0,
+              "numerator_max": 1,
+              "denominator": 2,
+              "denominator_label": "blocking findings"
+            },
+            "note": "A summary counts blocking findings and finding statuses separately. The fixed count is exact only for runs where every finding or no finding is blocking. Otherwise it is a range."
+          },
+          "review_findings_per_100_units": {
+            "value": 66.67,
+            "numerator": 2,
+            "numerator_label": "review-stage findings",
+            "denominator": 3,
+            "denominator_label": "review units",
+            "runs_observed": 1,
+            "excluded_runs": 0
+          }
+        },
+        "finding_responses": {
+          "runs_observed": 1,
+          "excluded_runs": 0,
+          "by_reason": {
+            "unspecified": 2
+          },
+          "responses": 3,
+          "unspecified": {
+            "value": 1.0,
+            "numerator": 2,
+            "denominator": 2,
+            "denominator_label": "dismissed or accepted findings"
+          },
+          "perceived_false_positive_share": {
+            "value": 0.0,
+            "numerator": 0,
+            "denominator": 3,
+            "denominator_label": "findings with a recorded response",
+            "max": 0.6667,
+            "numerator_max": 2,
+            "exact": false
+          },
+          "note": "The perceived false-positive share counts the findings that the agent dismissed or accepted as `false_positive`, over every finding with a recorded response. A dismissal or acceptance without a reason counts as `unspecified`. While any are unspecified, the share is a range."
+        },
+        "fix_commits": {
+          "runs_with_any": {
+            "value": 1.0,
+            "numerator": 1,
+            "denominator": 1,
+            "denominator_label": "runs with a fix-commit count"
+          },
+          "total": 2,
+          "excluded_runs": 0
+        },
+        "validation_restarts": {
+          "runs_with_any": {
+            "value": 1.0,
+            "numerator": 1,
+            "denominator": 1,
+            "denominator_label": "runs with a validation-restart count"
+          },
+          "total": 1,
+          "excluded_runs": 0
+        },
+        "stages": {
+          "review": {
+            "runs": 1,
+            "statuses": {
+              "green": 1
+            },
+            "attempts_at_least_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 0,
+            "reused": {
+              "value": 1.0,
+              "numerator": 1,
+              "denominator": 1,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 0,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 1,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          },
+          "lint": {
+            "runs": 1,
+            "statuses": {
+              "red": 1
+            },
+            "attempts_at_least_one": {
+              "value": 1.0,
+              "numerator": 1,
+              "denominator": 1,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 1.0,
+              "numerator": 1,
+              "denominator": 1,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 0,
+            "reused": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 0,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 1,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          }
+        },
+        "duration_seconds": {
+          "observations": 1,
+          "excluded_runs": 0,
+          "minimum_observations": 5,
+          "median": null,
+          "p90": null,
+          "note": "Fewer than 5 observations. The median and p90 are not computed."
+        },
+        "time_in_stages": {
+          "runs_observed": 0,
+          "excluded_runs": 1,
+          "total_seconds": null,
+          "review_share": {
+            "value": null,
+            "numerator": 0,
+            "denominator": 0,
+            "denominator_label": "seconds in runs with a complete transition history"
+          },
+          "shell_share": {
+            "value": null,
+            "numerator": 0,
+            "denominator": 0,
+            "denominator_label": "seconds in runs with a complete transition history"
+          },
+          "note": "Review time covers the review and docs states. Shell time covers the lint and test states. Only runs with a complete transition history are counted."
+        },
+        "caught": {
+          "done_runs": 0,
+          "runs_with_any_catch": {
+            "value": null,
+            "numerator": 0,
+            "denominator": 0,
+            "denominator_label": "DONE runs with every catch source known or a known catch"
+          },
+          "excluded_runs": 0,
+          "by_source": {
+            "review_blocking_fixed": {
+              "runs_with_any": {
+                "value": null,
+                "numerator": 0,
+                "denominator": 0,
+                "denominator_label": "DONE runs with a known review blocking fixed value"
+              },
+              "total": null,
+              "excluded_runs": 0
+            },
+            "docs_blocking_fixed": {
+              "runs_with_any": {
+                "value": null,
+                "numerator": 0,
+                "denominator": 0,
+                "denominator_label": "DONE runs with a known docs blocking fixed value"
+              },
+              "total": null,
+              "excluded_runs": 0
+            },
+            "lint_red_then_green": {
+              "runs_with_any": {
+                "value": null,
+                "numerator": 0,
+                "denominator": 0,
+                "denominator_label": "DONE runs with a known lint red then green value"
+              },
+              "total": null,
+              "excluded_runs": 0
+            },
+            "test_red_then_green": {
+              "runs_with_any": {
+                "value": null,
+                "numerator": 0,
+                "denominator": 0,
+                "denominator_label": "DONE runs with a known test red then green value"
+              },
+              "total": null,
+              "excluded_runs": 0
+            }
+          },
+          "note": "A catch is something the gate stopped before the push: a blocking review or docs finding that was fixed, or a lint or test stage that failed and later passed in the same run. It is not proof that hosted checks or a reviewer would have missed it."
+        },
+        "tool_time": {
+          "per_run": {
+            "observations": 0,
+            "excluded_runs": 0,
+            "minimum_observations": 5,
+            "median": null,
+            "p90": null,
+            "note": "Fewer than 5 observations. The median and p90 are not computed."
+          },
+          "per_run_label": "DONE runs",
+          "total_seconds": null,
+          "per_pull_request": {
+            "observations": 0,
+            "minimum_observations": 5,
+            "median": null,
+            "p90": null,
+            "note": "Fewer than 5 observations. The median and p90 are not computed.",
+            "pull_requests": 0,
+            "excluded_pull_requests": 0,
+            "runs_without_pull_request": 0,
+            "label": "synced pull requests of DONE runs"
+          },
+          "note": "Tool time is the wall time of the commands the tool ran on its own before the run ended: sync, setup, the review command, the contract planner, the shadow review of `review compare`, the baseline check, lint, test, and merge-back. The push is not timed. A run recorded before command timing has no tool time. A pull request sums the tool time of its synced `DONE` runs, and is left out when any of them has no tool time."
+        },
+        "hosted": {
+          "synced": {
+            "runs": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs"
+            },
+            "green_checks_failed": {
+              "value": null,
+              "numerator": 0,
+              "denominator": 0,
+              "denominator_label": "synced runs with settled checks"
+            },
+            "checks_excluded_runs": 0,
+            "pull_request_found": {
+              "value": null,
+              "numerator": 0,
+              "denominator": 0,
+              "denominator_label": "synced runs whose commit GitHub knew"
+            },
+            "commit_unknown_runs": 0,
+            "merged": {
+              "value": null,
+              "numerator": 0,
+              "denominator": 0,
+              "denominator_label": "synced runs with a pull request"
+            },
+            "pr_states": {},
+            "checks_conclusions": {},
+            "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
+          }
+        },
+        "orphaned_reasons": {},
+        "abort_reasons": {
+          "runs": 1,
+          "by_reason": {
+            "unspecified": 1
+          },
+          "by_state": {
+            "unknown": 1
+          }
+        },
+        "events": {
+          "runs_observed": 1,
+          "excluded_runs": 0,
+          "counts": {
+            "review_coverage_invalidated": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 1,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "test_interrupted": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 1,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "sync_conflict": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 1,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "stage_reused": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 1,
+                "denominator_label": "runs with event counts"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "by_client": [
+    {
+      "label": "unknown",
+      "client": "unknown",
+      "metrics": {
+        "runs": 7,
+        "states": {
+          "DONE": 3,
+          "ABORTED": 2,
+          "ORPHANED": 2
+        },
+        "completion_rate": {
+          "value": 0.4286,
+          "numerator": 3,
+          "denominator": 7,
+          "denominator_label": "runs"
+        },
+        "findings": {
+          "runs_observed": 5,
+          "excluded_runs": 2,
+          "total": 7,
+          "by_stage": {
+            "docs": 3,
+            "review": 4
+          },
+          "by_severity": {
+            "critical": 2,
+            "high": 2,
+            "low": 2,
+            "medium": 1
+          },
+          "by_status": {
+            "accepted": 1,
+            "dismissed": 2,
+            "fixed": 3,
+            "open": 1
+          },
+          "by_action": {
+            "ask_user": 1,
+            "auto_fix": 4,
+            "no_op": 2
+          },
+          "blocking": {
+            "total": 2,
+            "runs_observed": 5,
+            "excluded_runs": 2,
+            "fixed": {
+              "min": 0,
+              "max": 1,
+              "exact": false
+            },
+            "fixed_share": {
+              "min": 0.0,
+              "max": 0.5,
+              "numerator_min": 0,
+              "numerator_max": 1,
+              "denominator": 2,
+              "denominator_label": "blocking findings"
+            },
+            "note": "A summary counts blocking findings and finding statuses separately. The fixed count is exact only for runs where every finding or no finding is blocking. Otherwise it is a range."
+          },
+          "review_findings_per_100_units": {
+            "value": 11.11,
+            "numerator": 4,
+            "numerator_label": "review-stage findings",
+            "denominator": 36,
+            "denominator_label": "review units",
+            "runs_observed": 5,
+            "excluded_runs": 2
+          }
+        },
+        "finding_responses": {
+          "runs_observed": 2,
+          "excluded_runs": 5,
+          "by_reason": {
+            "unspecified": 3
+          },
+          "responses": 6,
+          "unspecified": {
+            "value": 1.0,
+            "numerator": 3,
+            "denominator": 3,
+            "denominator_label": "dismissed or accepted findings"
+          },
+          "perceived_false_positive_share": {
+            "value": 0.0,
+            "numerator": 0,
+            "denominator": 6,
+            "denominator_label": "findings with a recorded response",
+            "max": 0.5,
+            "numerator_max": 3,
+            "exact": false
+          },
+          "note": "The perceived false-positive share counts the findings that the agent dismissed or accepted as `false_positive`, over every finding with a recorded response. A dismissal or acceptance without a reason counts as `unspecified`. While any are unspecified, the share is a range."
+        },
+        "fix_commits": {
+          "runs_with_any": {
+            "value": 0.3333,
+            "numerator": 2,
+            "denominator": 6,
+            "denominator_label": "runs with a fix-commit count"
+          },
+          "total": 4,
+          "excluded_runs": 1
+        },
+        "validation_restarts": {
+          "runs_with_any": {
+            "value": 0.4,
+            "numerator": 2,
+            "denominator": 5,
+            "denominator_label": "runs with a validation-restart count"
+          },
+          "total": 2,
+          "excluded_runs": 2
+        },
+        "stages": {
+          "review": {
+            "runs": 5,
+            "statuses": {
+              "green": 5
+            },
+            "attempts_at_least_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 5,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 5,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 0,
+            "reused": {
+              "value": 0.2,
+              "numerator": 1,
+              "denominator": 5,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 0,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 5,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          },
+          "docs": {
+            "runs": 1,
+            "statuses": {
+              "green": 1
+            },
+            "attempts_at_least_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 0,
+            "reused": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 0,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 1,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          },
+          "lint": {
+            "runs": 6,
+            "statuses": {
+              "green": 5,
+              "red": 1
+            },
+            "attempts_at_least_one": {
+              "value": 0.3333,
+              "numerator": 2,
+              "denominator": 6,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.1667,
+              "numerator": 1,
+              "denominator": 6,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 0,
+            "reused": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 5,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 1,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 6,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          },
+          "test": {
+            "runs": 5,
+            "statuses": {
+              "green": 3,
+              "skipped": 2
+            },
+            "attempts_at_least_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 4,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 4,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 1,
+            "reused": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 3,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 2,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 5,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          }
+        },
+        "duration_seconds": {
+          "observations": 6,
+          "excluded_runs": 1,
+          "minimum_observations": 5,
+          "median": 900.0,
+          "p90": 417171.0,
+          "note": null
+        },
+        "time_in_stages": {
+          "runs_observed": 3,
+          "excluded_runs": 4,
+          "total_seconds": 330.0,
+          "review_share": {
+            "value": 0.1212,
+            "numerator": 40.0,
+            "denominator": 330.0,
+            "denominator_label": "seconds in runs with a complete transition history"
+          },
+          "shell_share": {
+            "value": 0.7879,
+            "numerator": 260.0,
+            "denominator": 330.0,
+            "denominator_label": "seconds in runs with a complete transition history"
+          },
+          "note": "Review time covers the review and docs states. Shell time covers the lint and test states. Only runs with a complete transition history are counted."
+        },
+        "caught": {
+          "done_runs": 3,
+          "runs_with_any_catch": {
+            "value": 1.0,
+            "numerator": 1,
+            "denominator": 1,
+            "denominator_label": "DONE runs with every catch source known or a known catch"
+          },
+          "excluded_runs": 2,
+          "by_source": {
+            "review_blocking_fixed": {
+              "runs_with_any": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 1,
+                "denominator_label": "DONE runs with a known review blocking fixed value"
+              },
+              "total": 0,
+              "excluded_runs": 2
+            },
+            "docs_blocking_fixed": {
+              "runs_with_any": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 2,
+                "denominator_label": "DONE runs with a known docs blocking fixed value"
+              },
+              "total": 0,
+              "excluded_runs": 1
+            },
+            "lint_red_then_green": {
+              "runs_with_any": {
+                "value": 0.5,
+                "numerator": 1,
+                "denominator": 2,
+                "denominator_label": "DONE runs with a known lint red then green value"
+              },
+              "total": null,
+              "excluded_runs": 1
+            },
+            "test_red_then_green": {
+              "runs_with_any": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 2,
+                "denominator_label": "DONE runs with a known test red then green value"
+              },
+              "total": null,
+              "excluded_runs": 1
+            }
+          },
+          "note": "A catch is something the gate stopped before the push: a blocking review or docs finding that was fixed, or a lint or test stage that failed and later passed in the same run. It is not proof that hosted checks or a reviewer would have missed it."
+        },
+        "tool_time": {
+          "per_run": {
+            "observations": 1,
+            "excluded_runs": 2,
+            "minimum_observations": 5,
+            "median": null,
+            "p90": null,
+            "note": "Fewer than 5 observations. The median and p90 are not computed."
+          },
+          "per_run_label": "DONE runs",
+          "total_seconds": 12.5,
+          "per_pull_request": {
+            "observations": 0,
+            "minimum_observations": 5,
+            "median": null,
+            "p90": null,
+            "note": "Fewer than 5 observations. The median and p90 are not computed.",
+            "pull_requests": 1,
+            "excluded_pull_requests": 1,
+            "runs_without_pull_request": 1,
+            "label": "synced pull requests of DONE runs"
+          },
+          "note": "Tool time is the wall time of the commands the tool ran on its own before the run ended: sync, setup, the review command, the contract planner, the shadow review of `review compare`, the baseline check, lint, test, and merge-back. The push is not timed. A run recorded before command timing has no tool time. A pull request sums the tool time of its synced `DONE` runs, and is left out when any of them has no tool time."
+        },
+        "hosted": {
+          "synced": {
+            "runs": {
+              "value": 0.2857,
+              "numerator": 2,
+              "denominator": 7,
+              "denominator_label": "runs"
+            },
+            "green_checks_failed": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 2,
+              "denominator_label": "synced runs with settled checks"
+            },
+            "checks_excluded_runs": 0,
+            "pull_request_found": {
+              "value": 1.0,
+              "numerator": 2,
+              "denominator": 2,
+              "denominator_label": "synced runs whose commit GitHub knew"
+            },
+            "commit_unknown_runs": 0,
+            "merged": {
+              "value": 1.0,
+              "numerator": 2,
+              "denominator": 2,
+              "denominator_label": "synced runs with a pull request"
+            },
+            "pr_states": {
+              "closed": 2
+            },
+            "checks_conclusions": {
+              "success": 2
+            },
+            "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
+          }
+        },
+        "orphaned_reasons": {
+          "replaced by a new start": 1,
+          "unknown": 1
+        },
+        "abort_reasons": {
+          "runs": 2,
+          "by_reason": {
+            "unspecified": 2
+          },
+          "by_state": {
+            "TEST_GREEN": 1,
+            "unknown": 1
+          }
+        },
+        "events": {
+          "runs_observed": 5,
+          "excluded_runs": 2,
+          "counts": {
+            "review_coverage_invalidated": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 5,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "test_interrupted": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 5,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "sync_conflict": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 5,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "stage_reused": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 5,
+                "denominator_label": "runs with event counts"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "label": "claude-code",
+      "client": "claude-code",
+      "metrics": {
+        "runs": 1,
+        "states": {
+          "DONE": 1,
+          "ABORTED": 0,
+          "ORPHANED": 0
+        },
+        "completion_rate": {
+          "value": 1.0,
+          "numerator": 1,
+          "denominator": 1,
+          "denominator_label": "runs"
+        },
+        "findings": {
+          "runs_observed": 1,
+          "excluded_runs": 0,
+          "total": 0,
+          "by_stage": {},
+          "by_severity": {},
+          "by_status": {},
+          "by_action": {},
+          "blocking": {
+            "total": 0,
+            "runs_observed": 1,
+            "excluded_runs": 0,
+            "fixed": {
+              "min": 0,
+              "max": 0,
+              "exact": true
+            },
+            "fixed_share": {
+              "min": null,
+              "max": null,
+              "numerator_min": 0,
+              "numerator_max": 0,
+              "denominator": 0,
+              "denominator_label": "blocking findings"
+            },
+            "note": "A summary counts blocking findings and finding statuses separately. The fixed count is exact only for runs where every finding or no finding is blocking. Otherwise it is a range."
+          },
+          "review_findings_per_100_units": {
+            "value": 0.0,
+            "numerator": 0,
+            "numerator_label": "review-stage findings",
+            "denominator": 10,
+            "denominator_label": "review units",
+            "runs_observed": 1,
+            "excluded_runs": 0
+          }
+        },
+        "finding_responses": {
+          "runs_observed": 0,
+          "excluded_runs": 1,
+          "by_reason": {},
+          "responses": null,
+          "unspecified": {
+            "value": null,
+            "numerator": 0,
+            "denominator": 0,
+            "denominator_label": "dismissed or accepted findings"
+          },
+          "perceived_false_positive_share": {
+            "value": null,
+            "numerator": 0,
+            "denominator": 0,
+            "denominator_label": "findings with a recorded response",
+            "max": null,
+            "numerator_max": 0,
+            "exact": true
+          },
+          "note": "The perceived false-positive share counts the findings that the agent dismissed or accepted as `false_positive`, over every finding with a recorded response. A dismissal or acceptance without a reason counts as `unspecified`. While any are unspecified, the share is a range."
+        },
+        "fix_commits": {
+          "runs_with_any": {
+            "value": 0.0,
+            "numerator": 0,
+            "denominator": 1,
+            "denominator_label": "runs with a fix-commit count"
+          },
+          "total": 0,
+          "excluded_runs": 0
+        },
+        "validation_restarts": {
+          "runs_with_any": {
+            "value": 0.0,
+            "numerator": 0,
+            "denominator": 1,
+            "denominator_label": "runs with a validation-restart count"
+          },
+          "total": 0,
+          "excluded_runs": 0
+        },
+        "stages": {
+          "review": {
+            "runs": 1,
+            "statuses": {
+              "green": 1
+            },
+            "attempts_at_least_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 0,
+            "reused": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 0,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 1,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          },
+          "lint": {
+            "runs": 1,
+            "statuses": {
+              "green": 1
+            },
+            "attempts_at_least_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 0,
+            "reused": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 0,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 1,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          }
+        },
+        "duration_seconds": {
+          "observations": 1,
+          "excluded_runs": 0,
+          "minimum_observations": 5,
+          "median": null,
+          "p90": null,
+          "note": "Fewer than 5 observations. The median and p90 are not computed."
+        },
+        "time_in_stages": {
+          "runs_observed": 0,
+          "excluded_runs": 1,
+          "total_seconds": null,
+          "review_share": {
+            "value": null,
+            "numerator": 0,
+            "denominator": 0,
+            "denominator_label": "seconds in runs with a complete transition history"
+          },
+          "shell_share": {
+            "value": null,
+            "numerator": 0,
+            "denominator": 0,
+            "denominator_label": "seconds in runs with a complete transition history"
+          },
+          "note": "Review time covers the review and docs states. Shell time covers the lint and test states. Only runs with a complete transition history are counted."
+        },
+        "caught": {
+          "done_runs": 1,
+          "runs_with_any_catch": {
+            "value": null,
+            "numerator": 0,
+            "denominator": 0,
+            "denominator_label": "DONE runs with every catch source known or a known catch"
+          },
+          "excluded_runs": 1,
+          "by_source": {
+            "review_blocking_fixed": {
+              "runs_with_any": {
+                "value": null,
+                "numerator": 0,
+                "denominator": 0,
+                "denominator_label": "DONE runs with a known review blocking fixed value"
+              },
+              "total": null,
+              "excluded_runs": 1
+            },
+            "docs_blocking_fixed": {
+              "runs_with_any": {
+                "value": null,
+                "numerator": 0,
+                "denominator": 0,
+                "denominator_label": "DONE runs with a known docs blocking fixed value"
+              },
+              "total": null,
+              "excluded_runs": 1
+            },
+            "lint_red_then_green": {
+              "runs_with_any": {
+                "value": null,
+                "numerator": 0,
+                "denominator": 0,
+                "denominator_label": "DONE runs with a known lint red then green value"
+              },
+              "total": null,
+              "excluded_runs": 1
+            },
+            "test_red_then_green": {
+              "runs_with_any": {
+                "value": null,
+                "numerator": 0,
+                "denominator": 0,
+                "denominator_label": "DONE runs with a known test red then green value"
+              },
+              "total": null,
+              "excluded_runs": 1
+            }
+          },
+          "note": "A catch is something the gate stopped before the push: a blocking review or docs finding that was fixed, or a lint or test stage that failed and later passed in the same run. It is not proof that hosted checks or a reviewer would have missed it."
+        },
+        "tool_time": {
+          "per_run": {
+            "observations": 0,
+            "excluded_runs": 1,
+            "minimum_observations": 5,
+            "median": null,
+            "p90": null,
+            "note": "Fewer than 5 observations. The median and p90 are not computed."
+          },
+          "per_run_label": "DONE runs",
+          "total_seconds": null,
+          "per_pull_request": {
+            "observations": 0,
+            "minimum_observations": 5,
+            "median": null,
+            "p90": null,
+            "note": "Fewer than 5 observations. The median and p90 are not computed.",
+            "pull_requests": 0,
+            "excluded_pull_requests": 0,
+            "runs_without_pull_request": 1,
+            "label": "synced pull requests of DONE runs"
+          },
+          "note": "Tool time is the wall time of the commands the tool ran on its own before the run ended: sync, setup, the review command, the contract planner, the shadow review of `review compare`, the baseline check, lint, test, and merge-back. The push is not timed. A run recorded before command timing has no tool time. A pull request sums the tool time of its synced `DONE` runs, and is left out when any of them has no tool time."
+        },
+        "hosted": {
+          "synced": {
+            "runs": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs"
+            },
+            "green_checks_failed": {
+              "value": null,
+              "numerator": 0,
+              "denominator": 0,
+              "denominator_label": "synced runs with settled checks"
+            },
+            "checks_excluded_runs": 0,
+            "pull_request_found": {
+              "value": null,
+              "numerator": 0,
+              "denominator": 0,
+              "denominator_label": "synced runs whose commit GitHub knew"
+            },
+            "commit_unknown_runs": 0,
+            "merged": {
+              "value": null,
+              "numerator": 0,
+              "denominator": 0,
+              "denominator_label": "synced runs with a pull request"
+            },
+            "pr_states": {},
+            "checks_conclusions": {},
+            "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
+          }
+        },
+        "orphaned_reasons": {},
+        "abort_reasons": {
+          "runs": 0,
+          "by_reason": {},
+          "by_state": {}
+        },
+        "events": {
+          "runs_observed": 1,
+          "excluded_runs": 0,
+          "counts": {
+            "review_coverage_invalidated": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 1,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "test_interrupted": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 1,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "sync_conflict": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 1,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "stage_reused": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 1,
+                "denominator_label": "runs with event counts"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "by_model": [
+    {
+      "label": "unknown",
+      "reported_model": "unknown",
+      "metrics": {
+        "runs": 8,
+        "states": {
+          "DONE": 4,
+          "ABORTED": 2,
+          "ORPHANED": 2
+        },
+        "completion_rate": {
+          "value": 0.5,
+          "numerator": 4,
+          "denominator": 8,
+          "denominator_label": "runs"
+        },
+        "findings": {
+          "runs_observed": 6,
+          "excluded_runs": 2,
+          "total": 7,
+          "by_stage": {
+            "docs": 3,
+            "review": 4
+          },
+          "by_severity": {
+            "critical": 2,
+            "high": 2,
+            "low": 2,
+            "medium": 1
+          },
+          "by_status": {
+            "accepted": 1,
+            "dismissed": 2,
+            "fixed": 3,
+            "open": 1
+          },
+          "by_action": {
+            "ask_user": 1,
+            "auto_fix": 4,
+            "no_op": 2
+          },
+          "blocking": {
+            "total": 2,
+            "runs_observed": 6,
+            "excluded_runs": 2,
+            "fixed": {
+              "min": 0,
+              "max": 1,
+              "exact": false
+            },
+            "fixed_share": {
+              "min": 0.0,
+              "max": 0.5,
+              "numerator_min": 0,
+              "numerator_max": 1,
+              "denominator": 2,
+              "denominator_label": "blocking findings"
+            },
+            "note": "A summary counts blocking findings and finding statuses separately. The fixed count is exact only for runs where every finding or no finding is blocking. Otherwise it is a range."
+          },
+          "review_findings_per_100_units": {
+            "value": 8.7,
+            "numerator": 4,
+            "numerator_label": "review-stage findings",
+            "denominator": 46,
+            "denominator_label": "review units",
+            "runs_observed": 6,
+            "excluded_runs": 2
+          }
+        },
+        "finding_responses": {
+          "runs_observed": 2,
+          "excluded_runs": 6,
+          "by_reason": {
+            "unspecified": 3
+          },
+          "responses": 6,
+          "unspecified": {
+            "value": 1.0,
+            "numerator": 3,
+            "denominator": 3,
+            "denominator_label": "dismissed or accepted findings"
+          },
+          "perceived_false_positive_share": {
+            "value": 0.0,
+            "numerator": 0,
+            "denominator": 6,
+            "denominator_label": "findings with a recorded response",
+            "max": 0.5,
+            "numerator_max": 3,
+            "exact": false
+          },
+          "note": "The perceived false-positive share counts the findings that the agent dismissed or accepted as `false_positive`, over every finding with a recorded response. A dismissal or acceptance without a reason counts as `unspecified`. While any are unspecified, the share is a range."
+        },
+        "fix_commits": {
+          "runs_with_any": {
+            "value": 0.2857,
+            "numerator": 2,
+            "denominator": 7,
+            "denominator_label": "runs with a fix-commit count"
+          },
+          "total": 4,
+          "excluded_runs": 1
+        },
+        "validation_restarts": {
+          "runs_with_any": {
+            "value": 0.3333,
+            "numerator": 2,
+            "denominator": 6,
+            "denominator_label": "runs with a validation-restart count"
+          },
+          "total": 2,
+          "excluded_runs": 2
+        },
+        "stages": {
+          "review": {
+            "runs": 6,
+            "statuses": {
+              "green": 6
+            },
+            "attempts_at_least_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 6,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 6,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 0,
+            "reused": {
+              "value": 0.1667,
+              "numerator": 1,
+              "denominator": 6,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 0,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 6,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          },
+          "docs": {
+            "runs": 1,
+            "statuses": {
+              "green": 1
+            },
+            "attempts_at_least_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 0,
+            "reused": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 1,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 0,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 1,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          },
+          "lint": {
+            "runs": 7,
+            "statuses": {
+              "green": 6,
+              "red": 1
+            },
+            "attempts_at_least_one": {
+              "value": 0.2857,
+              "numerator": 2,
+              "denominator": 7,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.1429,
+              "numerator": 1,
+              "denominator": 7,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 0,
+            "reused": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 6,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 1,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 7,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          },
+          "test": {
+            "runs": 5,
+            "statuses": {
+              "green": 3,
+              "skipped": 2
+            },
+            "attempts_at_least_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 4,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_above_one": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 4,
+              "denominator_label": "runs with an attempt count for this stage"
+            },
+            "attempts_excluded_runs": 1,
+            "reused": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 3,
+              "denominator_label": "runs with a reuse value for this stage"
+            },
+            "reused_excluded_runs": 2,
+            "duration_seconds": {
+              "observations": 0,
+              "excluded_runs": 5,
+              "minimum_observations": 5,
+              "median": null,
+              "p90": null,
+              "note": "Fewer than 5 observations. The median and p90 are not computed."
+            }
+          }
+        },
+        "duration_seconds": {
+          "observations": 7,
+          "excluded_runs": 1,
+          "minimum_observations": 5,
+          "median": 600.0,
+          "p90": 334819.2,
+          "note": null
+        },
+        "time_in_stages": {
+          "runs_observed": 3,
+          "excluded_runs": 5,
+          "total_seconds": 330.0,
+          "review_share": {
+            "value": 0.1212,
+            "numerator": 40.0,
+            "denominator": 330.0,
+            "denominator_label": "seconds in runs with a complete transition history"
+          },
+          "shell_share": {
+            "value": 0.7879,
+            "numerator": 260.0,
+            "denominator": 330.0,
+            "denominator_label": "seconds in runs with a complete transition history"
+          },
+          "note": "Review time covers the review and docs states. Shell time covers the lint and test states. Only runs with a complete transition history are counted."
+        },
+        "caught": {
+          "done_runs": 4,
+          "runs_with_any_catch": {
+            "value": 1.0,
+            "numerator": 1,
+            "denominator": 1,
+            "denominator_label": "DONE runs with every catch source known or a known catch"
+          },
+          "excluded_runs": 3,
+          "by_source": {
+            "review_blocking_fixed": {
+              "runs_with_any": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 1,
+                "denominator_label": "DONE runs with a known review blocking fixed value"
+              },
+              "total": 0,
+              "excluded_runs": 3
+            },
+            "docs_blocking_fixed": {
+              "runs_with_any": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 2,
+                "denominator_label": "DONE runs with a known docs blocking fixed value"
+              },
+              "total": 0,
+              "excluded_runs": 2
+            },
+            "lint_red_then_green": {
+              "runs_with_any": {
+                "value": 0.5,
+                "numerator": 1,
+                "denominator": 2,
+                "denominator_label": "DONE runs with a known lint red then green value"
+              },
+              "total": null,
+              "excluded_runs": 2
+            },
+            "test_red_then_green": {
+              "runs_with_any": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 2,
+                "denominator_label": "DONE runs with a known test red then green value"
+              },
+              "total": null,
+              "excluded_runs": 2
+            }
+          },
+          "note": "A catch is something the gate stopped before the push: a blocking review or docs finding that was fixed, or a lint or test stage that failed and later passed in the same run. It is not proof that hosted checks or a reviewer would have missed it."
+        },
+        "tool_time": {
+          "per_run": {
+            "observations": 1,
+            "excluded_runs": 3,
+            "minimum_observations": 5,
+            "median": null,
+            "p90": null,
+            "note": "Fewer than 5 observations. The median and p90 are not computed."
+          },
+          "per_run_label": "DONE runs",
+          "total_seconds": 12.5,
+          "per_pull_request": {
+            "observations": 0,
+            "minimum_observations": 5,
+            "median": null,
+            "p90": null,
+            "note": "Fewer than 5 observations. The median and p90 are not computed.",
+            "pull_requests": 1,
+            "excluded_pull_requests": 1,
+            "runs_without_pull_request": 2,
+            "label": "synced pull requests of DONE runs"
+          },
+          "note": "Tool time is the wall time of the commands the tool ran on its own before the run ended: sync, setup, the review command, the contract planner, the shadow review of `review compare`, the baseline check, lint, test, and merge-back. The push is not timed. A run recorded before command timing has no tool time. A pull request sums the tool time of its synced `DONE` runs, and is left out when any of them has no tool time."
+        },
+        "hosted": {
+          "synced": {
+            "runs": {
+              "value": 0.25,
+              "numerator": 2,
+              "denominator": 8,
+              "denominator_label": "runs"
+            },
+            "green_checks_failed": {
+              "value": 0.0,
+              "numerator": 0,
+              "denominator": 2,
+              "denominator_label": "synced runs with settled checks"
+            },
+            "checks_excluded_runs": 0,
+            "pull_request_found": {
+              "value": 1.0,
+              "numerator": 2,
+              "denominator": 2,
+              "denominator_label": "synced runs whose commit GitHub knew"
+            },
+            "commit_unknown_runs": 0,
+            "merged": {
+              "value": 1.0,
+              "numerator": 2,
+              "denominator": 2,
+              "denominator_label": "synced runs with a pull request"
+            },
+            "pr_states": {
+              "closed": 2
+            },
+            "checks_conclusions": {
+              "success": 2
+            },
+            "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
+          }
+        },
+        "orphaned_reasons": {
+          "replaced by a new start": 1,
+          "unknown": 1
+        },
+        "abort_reasons": {
+          "runs": 2,
+          "by_reason": {
+            "unspecified": 2
+          },
+          "by_state": {
+            "TEST_GREEN": 1,
+            "unknown": 1
+          }
+        },
+        "events": {
+          "runs_observed": 6,
+          "excluded_runs": 2,
+          "counts": {
+            "review_coverage_invalidated": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 6,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "test_interrupted": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 6,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "sync_conflict": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 6,
+                "denominator_label": "runs with event counts"
+              }
+            },
+            "stage_reused": {
+              "total": 0,
+              "runs": {
+                "value": 0.0,
+                "numerator": 0,
+                "denominator": 6,
+                "denominator_label": "runs with event counts"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "hook_decisions": {
+    "source": {
+      "path": "/data/hook-decisions.jsonl",
+      "exists": true,
+      "error": null,
+      "lines": 4,
+      "rows": 3,
+      "malformed": 1,
+      "malformed_by_reason": {
+        "invalid_json": 1
+      },
+      "malformed_lines": [
+        {
+          "line": 4,
+          "reason": "invalid_json"
+        }
+      ],
+      "enabled": true
+    },
+    "scope": "all",
+    "filtered_out": {
+      "scope": 0,
+      "repo": 0,
+      "since": 0,
+      "until": 0,
+      "time_unknown": 0,
+      "total": 0
+    },
+    "overall": {
+      "decisions": 3,
+      "allowed": 2,
+      "blocked": 1,
+      "blocked_share": {
+        "value": 0.3333,
+        "numerator": 1,
+        "denominator": 3,
+        "denominator_label": "hook decisions"
+      },
+      "allowed_by_reason": {
+        "attested": 2
+      },
+      "blocked_by_reason": {
+        "missing_attestation": 1
+      }
+    },
+    "by_repo": [
+      {
+        "key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "label": "widget",
+        "name": "widget",
+        "remote": "github.com/owner/widget",
+        "root_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "metrics": {
+          "decisions": 2,
+          "allowed": 1,
+          "blocked": 1,
+          "blocked_share": {
+            "value": 0.5,
+            "numerator": 1,
+            "denominator": 2,
+            "denominator_label": "hook decisions"
+          },
+          "allowed_by_reason": {
+            "attested": 1
+          },
+          "blocked_by_reason": {
+            "missing_attestation": 1
+          }
+        }
+      },
+      {
+        "key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "label": "gadget",
+        "name": "gadget",
+        "remote": "gitlab.example/team/gadget",
+        "root_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "metrics": {
+          "decisions": 1,
+          "allowed": 1,
+          "blocked": 0,
+          "blocked_share": {
+            "value": 0.0,
+            "numerator": 0,
+            "denominator": 1,
+            "denominator_label": "hook decisions"
+          },
+          "allowed_by_reason": {
+            "attested": 1
+          },
+          "blocked_by_reason": {}
+        }
+      }
+    ],
+    "note": "Each row is one pre-push hook decision, not one push. Git can still fail an allowed push, and a blocked push is often retried. The state filter does not apply to hook decisions."
+  },
+  "limits": [
+    "The counts measure use and how findings were resolved. They do not measure reviewer recall or the defect escape rate.",
+    "A run with no findings can be a clean change or a missed defect. The data cannot tell these apart.",
+    "The mirror holds only runs that reached a terminal state after mirroring was enabled, or that `telemetry rebuild` added.",
+    "Producer identity is partly self-reported by the agent. Runs without a client or a model are grouped as `unknown`.",
+    "A duration is the wall-clock time from run creation to the terminal commit. It includes the agent's own working time.",
+    "An orphaned run can be a replaced attempt, not a failure.",
+    "A null value is unknown, not zero. Each statistic leaves out null values and reports how many runs it left out.",
+    "Finding response reasons and abort reasons are labels that the agent chose. They record the agent's judgment, not a verified cause. The perceived false-positive share is not a measured false-positive rate.",
+    "Stage and state times are wall-clock seconds from recorded transitions, with one-second granularity. They include the agent's working time and any wait for the user. Reused and skipped stages, and runs without a complete transition history, have no time.",
+    "`git push --no-verify` skips the pre-push hook, so a bypassed push leaves no hook decision.",
+    "A push that the installed hook allowed because `agentic-preflight` was not on `PATH` is not logged. Neither is a decision whose log write failed or did not finish in time.",
+    "A failed hosted check is not proof of an escaped defect. The check can be flaky, or fail for a reason unrelated to the change.",
+    "Synced hosted outcomes count only the runs that `telemetry sync-hosted` fetched, as GitHub reported them at the fetch time. Runs that were not synced are not in them."
+  ],
+  "markdown": null,
+  "rows": [
+    {
+      "kind": "agentic-preflight-run-summary",
+      "schema_version": 1,
+      "written_at": "2026-11-01T00:00:00+00:00",
+      "run_id": "r_0000000001",
+      "state": "DONE",
+      "record_schema_version": 1,
+      "repo": {
+        "root_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "remote": "github.com/owner/widget",
+        "name": "widget",
+        "source_worktree_path": "/repos/widget"
+      },
+      "branch": "docs/readme",
+      "base_ref": "main",
+      "head_sha": "2222222222222222222222222222222222222222",
+      "pushed_sha": "2222222222222222222222222222222222222222",
+      "intent_sha256": "b67f267309187edb114e1bffeb060435f1e834d835bd99338af6f138916ab562",
+      "intent_source": "user",
+      "created_at": "2026-07-29T03:54:13+00:00",
+      "finished_at": "2026-07-29T05:24:25+00:00",
+      "duration_seconds": 5412.0,
+      "timing": null,
+      "producer": null,
+      "risk": null,
+      "review": null,
+      "stages": {
+        "lint": {
+          "attempts": 0,
+          "duration_seconds": null,
+          "finished_at": "2026-07-29T03:54:41+00:00",
+          "reason": null,
+          "red_then_green": null,
+          "reused": null,
+          "started_at": null,
+          "status": "green"
+        },
+        "test": {
+          "attempts": 0,
+          "duration_seconds": null,
+          "finished_at": "2026-07-29T03:54:23+00:00",
+          "reason": "changes are limited to documentation and CI configuration",
+          "red_then_green": null,
+          "reused": null,
+          "started_at": null,
+          "status": "skipped"
+        }
+      },
+      "findings": {
+        "blocking": null,
+        "by_action": null,
+        "by_response_reason": null,
+        "by_severity": null,
+        "by_stage": null,
+        "by_status": null,
+        "docs_blocking_fixed": null,
+        "review_blocking_fixed": null,
+        "total": null
+      },
+      "fix_commits": 0,
+      "validation_restarts": null,
+      "event_counts": null,
+      "terminal": {
+        "abort_reason": null,
+        "aborted_forced": null,
+        "aborted_from_state": null,
+        "orphaned_reason": null
+      },
+      "hosted": {
+        "checks_conclusion": null,
+        "fetched_at": null,
+        "merged": null,
+        "pr_number": null,
+        "pr_state": null
+      },
+      "worktree_mode": "in_place",
+      "pr_mode": null,
+      "config_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "kind": "agentic-preflight-run-summary",
+      "schema_version": 1,
+      "written_at": "2026-10-01T00:00:00+00:00",
+      "run_id": "r_0000000003",
+      "state": "ORPHANED",
+      "record_schema_version": 2,
+      "repo": {
+        "root_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "remote": "gitlab.example/team/gadget",
+        "name": "gadget",
+        "source_worktree_path": "/repos/gadget"
+      },
+      "branch": "feature/x",
+      "base_ref": "main",
+      "head_sha": "1111111111111111111111111111111111111111",
+      "pushed_sha": null,
+      "intent_sha256": null,
+      "intent_source": "user",
+      "created_at": "2026-10-01T00:00:00+00:00",
+      "finished_at": "2026-10-01T00:10:00+00:00",
+      "duration_seconds": null,
+      "timing": null,
+      "producer": null,
+      "risk": null,
+      "review": null,
+      "stages": {
+        "test": {
+          "attempts": null,
+          "finished_at": null,
+          "reason": null,
+          "reused": null,
+          "status": "skipped"
+        }
+      },
+      "findings": {
+        "blocking": null,
+        "by_action": null,
+        "by_response_reason": null,
+        "by_severity": null,
+        "by_stage": null,
+        "by_status": null,
+        "docs_blocking_fixed": null,
+        "review_blocking_fixed": null,
+        "total": null
+      },
+      "fix_commits": null,
+      "validation_restarts": null,
+      "event_counts": null,
+      "terminal": {
+        "aborted_forced": null,
+        "orphaned_reason": "replaced by a new start"
+      },
+      "hosted": {
+        "fetched_at": null
+      },
+      "worktree_mode": "in_place",
+      "pr_mode": "auto",
+      "config_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "kind": "agentic-preflight-run-summary",
+      "schema_version": 1,
+      "written_at": "2026-10-01T00:00:00+00:00",
+      "run_id": "r_0000000004",
+      "state": "DONE",
+      "record_schema_version": 2,
+      "repo": {
+        "root_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "remote": "gitlab.example/team/gadget",
+        "name": "gadget",
+        "source_worktree_path": "/repos/gadget"
+      },
+      "branch": "feature/x",
+      "base_ref": "main",
+      "head_sha": "1111111111111111111111111111111111111111",
+      "pushed_sha": null,
+      "intent_sha256": null,
+      "intent_source": "user",
+      "created_at": "2026-10-01T00:00:00+00:00",
+      "finished_at": "2026-10-01T00:10:00+00:00",
+      "duration_seconds": 400.0,
+      "timing": null,
+      "producer": {
+        "client": "claude-code",
+        "client_source": "flag",
+        "reported_model": null,
+        "reported_model_source": null,
+        "tool_version": "9.9.9"
+      },
+      "risk": null,
+      "review": {
+        "cited_count": 0,
+        "clean_count": 10,
+        "excluded_count": 0,
+        "executor": "in_harness",
+        "total_units": 10
+      },
+      "stages": {
+        "lint": {
+          "attempts": 0,
+          "finished_at": null,
+          "reason": null,
+          "reused": false,
+          "status": "green"
+        },
+        "review": {
+          "attempts": 0,
+          "finished_at": null,
+          "reason": null,
+          "reused": false,
+          "status": "green"
+        }
+      },
+      "findings": {
+        "blocking": 0,
+        "by_action": {},
+        "by_severity": {},
+        "by_stage": {},
+        "by_status": {},
+        "total": 0
+      },
+      "fix_commits": 0,
+      "validation_restarts": 0,
+      "event_counts": {
+        "state_transition": 4
+      },
+      "terminal": {
+        "aborted_forced": null,
+        "orphaned_reason": null
+      },
+      "hosted": {
+        "fetched_at": null
+      },
+      "worktree_mode": "in_place",
+      "pr_mode": "auto",
+      "config_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "kind": "agentic-preflight-run-summary",
+      "schema_version": 1,
+      "written_at": "2026-10-01T00:00:00+00:00",
+      "run_id": "r_0000000020",
+      "state": "DONE",
+      "record_schema_version": 2,
+      "repo": {
+        "root_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "remote": "github.com/owner/widget",
+        "name": "widget",
+        "source_worktree_path": "/repos/widget"
+      },
+      "branch": "feature/x",
+      "base_ref": "main",
+      "head_sha": "1111111111111111111111111111111111111111",
+      "pushed_sha": null,
+      "intent_sha256": null,
+      "intent_source": "user",
+      "created_at": "2026-10-01T00:00:00+00:00",
+      "finished_at": "2026-10-01T00:10:00+00:00",
+      "duration_seconds": 600.0,
+      "timing": {
+        "agent_seconds": null,
+        "complete": true,
+        "review_wall_seconds": 0.0,
+        "shell_wall_seconds": 0.0,
+        "states": {},
+        "tool_seconds": 12.5
+      },
+      "producer": null,
+      "risk": null,
+      "review": {
+        "cited_count": 0,
+        "clean_count": 10,
+        "excluded_count": 0,
+        "executor": "in_harness",
+        "total_units": 10
+      },
+      "stages": {
+        "lint": {
+          "attempts": 0,
+          "finished_at": null,
+          "reason": null,
+          "red_then_green": true,
+          "reused": false,
+          "status": "green"
+        },
+        "review": {
+          "attempts": 0,
+          "finished_at": null,
+          "reason": null,
+          "red_then_green": null,
+          "reused": false,
+          "status": "green"
+        },
+        "test": {
+          "attempts": 0,
+          "finished_at": null,
+          "reason": null,
+          "red_then_green": false,
+          "reused": false,
+          "status": "green"
+        }
+      },
+      "findings": {
+        "blocking": 0,
+        "by_action": {},
+        "by_severity": {},
+        "by_stage": {},
+        "by_status": {},
+        "docs_blocking_fixed": 0,
+        "review_blocking_fixed": 0,
+        "total": 0
+      },
+      "fix_commits": 0,
+      "validation_restarts": 0,
+      "event_counts": {
+        "state_transition": 4
+      },
+      "terminal": {
+        "aborted_forced": null,
+        "orphaned_reason": null
+      },
+      "hosted": {
+        "checks_conclusion": "success",
+        "fetched_at": "2026-10-02T00:00:00+00:00",
+        "merged": true,
+        "pr_number": 3,
+        "pr_state": "closed"
+      },
+      "worktree_mode": "in_place",
+      "pr_mode": "auto",
+      "config_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "kind": "agentic-preflight-run-summary",
+      "schema_version": 1,
+      "written_at": "2026-10-01T00:00:00+00:00",
+      "run_id": "r_0000000021",
+      "state": "DONE",
+      "record_schema_version": 2,
+      "repo": {
+        "root_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "remote": "github.com/owner/widget",
+        "name": "widget",
+        "source_worktree_path": "/repos/widget"
+      },
+      "branch": "feature/x",
+      "base_ref": "main",
+      "head_sha": "1111111111111111111111111111111111111111",
+      "pushed_sha": null,
+      "intent_sha256": null,
+      "intent_source": "user",
+      "created_at": "2026-10-01T00:00:00+00:00",
+      "finished_at": "2026-10-01T00:10:00+00:00",
+      "duration_seconds": 600.0,
+      "timing": {
+        "agent_seconds": null,
+        "complete": true,
+        "review_wall_seconds": 0.0,
+        "shell_wall_seconds": 0.0,
+        "states": {},
+        "tool_seconds": null
+      },
+      "producer": null,
+      "risk": null,
+      "review": {
+        "cited_count": 0,
+        "clean_count": 10,
+        "excluded_count": 0,
+        "executor": "in_harness",
+        "total_units": 10
+      },
+      "stages": {
+        "lint": {
+          "attempts": 0,
+          "finished_at": null,
+          "reason": null,
+          "red_then_green": false,
+          "reused": false,
+          "status": "green"
+        },
+        "review": {
+          "attempts": 0,
+          "finished_at": null,
+          "reason": null,
+          "red_then_green": null,
+          "reused": false,
+          "status": "green"
+        },
+        "test": {
+          "attempts": 0,
+          "finished_at": null,
+          "reason": null,
+          "red_then_green": false,
+          "reused": false,
+          "status": "green"
+        }
+      },
+      "findings": {
+        "blocking": 0,
+        "by_action": {},
+        "by_severity": {},
+        "by_stage": {},
+        "by_status": {},
+        "docs_blocking_fixed": 0,
+        "review_blocking_fixed": null,
+        "total": 0
+      },
+      "fix_commits": 0,
+      "validation_restarts": 0,
+      "event_counts": {
+        "state_transition": 4
+      },
+      "terminal": {
+        "aborted_forced": null,
+        "orphaned_reason": null
+      },
+      "hosted": {
+        "checks_conclusion": "success",
+        "fetched_at": "2026-10-02T00:00:00+00:00",
+        "merged": true,
+        "pr_number": 3,
+        "pr_state": "closed"
+      },
+      "worktree_mode": "in_place",
+      "pr_mode": "auto",
+      "config_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "kind": "agentic-preflight-run-summary",
+      "schema_version": 1,
+      "written_at": "2026-10-01T00:00:00+00:00",
+      "run_id": "r_0000000022",
+      "state": "ORPHANED",
+      "record_schema_version": 2,
+      "repo": {
+        "root_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "remote": "gitlab.example/team/gadget",
+        "name": "gadget",
+        "source_worktree_path": "/repos/gadget"
+      },
+      "branch": "feature/x",
+      "base_ref": "main",
+      "head_sha": "1111111111111111111111111111111111111111",
+      "pushed_sha": null,
+      "intent_sha256": null,
+      "intent_source": "user",
+      "created_at": "2026-10-01T00:00:00+00:00",
+      "finished_at": "2026-10-01T00:10:00+00:00",
+      "duration_seconds": 600.0,
+      "timing": null,
+      "producer": null,
+      "risk": null,
+      "review": {
+        "cited_count": 0,
+        "clean_count": 10,
+        "excluded_count": 0,
+        "executor": "in_harness",
+        "total_units": 10
+      },
+      "stages": {
+        "lint": {
+          "attempts": 0,
+          "finished_at": null,
+          "reason": null,
+          "reused": false,
+          "status": "green"
+        },
+        "review": {
+          "attempts": 0,
+          "finished_at": null,
+          "reason": null,
+          "reused": false,
+          "status": "green"
+        }
+      },
+      "findings": {
+        "blocking": 0,
+        "by_action": {},
+        "by_severity": {},
+        "by_stage": {},
+        "by_status": {},
+        "total": 0
+      },
+      "fix_commits": 0,
+      "validation_restarts": 0,
+      "event_counts": {
+        "state_transition": 4
+      },
+      "terminal": {
+        "aborted_forced": null,
+        "orphaned_reason": null
+      },
+      "hosted": {
+        "fetched_at": null
+      },
+      "worktree_mode": "in_place",
+      "pr_mode": "auto",
+      "config_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "kind": "agentic-preflight-run-summary",
+      "schema_version": 1,
+      "written_at": "2026-11-01T00:00:00+00:00",
+      "run_id": "r_0000000009",
+      "state": "ABORTED",
+      "record_schema_version": 2,
+      "repo": {
+        "root_commit": null,
+        "remote": "github.com/owner/widget",
+        "name": "widget",
+        "source_worktree_path": "/repos/widget"
+      },
+      "branch": "feature/widget",
+      "base_ref": "main",
+      "head_sha": "4444444444444444444444444444444444444444",
+      "pushed_sha": null,
+      "intent_sha256": "b67f267309187edb114e1bffeb060435f1e834d835bd99338af6f138916ab562",
+      "intent_source": "user",
+      "created_at": "2026-10-11T19:50:00+00:00",
+      "finished_at": "2026-10-11T20:10:00+00:00",
+      "duration_seconds": 1200.0,
+      "timing": null,
+      "producer": null,
+      "risk": {
+        "level": "high",
+        "requires_human_review": true,
+        "verdict": "needs_human"
+      },
+      "review": {
+        "cited_count": 1,
+        "clean_count": 2,
+        "excluded_count": 1,
+        "executor": "command",
+        "total_units": 3
+      },
+      "stages": {
+        "lint": {
+          "attempts": 2,
+          "duration_seconds": null,
+          "finished_at": "2026-10-11T19:57:28+00:00",
+          "reason": null,
+          "red_then_green": null,
+          "reused": false,
+          "started_at": null,
+          "status": "red"
+        },
+        "review": {
+          "attempts": 0,
+          "duration_seconds": null,
+          "finished_at": "2026-10-11T19:57:19+00:00",
+          "reason": null,
+          "red_then_green": null,
+          "reused": true,
+          "started_at": null,
+          "status": "green"
+        }
+      },
+      "findings": {
+        "blocking": 2,
+        "by_action": {
+          "ask_user": 1,
+          "auto_fix": 1,
+          "no_op": 2
+        },
+        "by_response_reason": {
+          "unspecified": 2
+        },
+        "by_severity": {
+          "critical": 1,
+          "high": 1,
+          "low": 1,
+          "medium": 1
+        },
+        "by_stage": {
+          "docs": 2,
+          "review": 2
+        },
+        "by_status": {
+          "accepted": 1,
+          "dismissed": 1,
+          "fixed": 1,
+          "open": 1
+        },
+        "docs_blocking_fixed": 0,
+        "review_blocking_fixed": 0,
+        "total": 4
+      },
+      "fix_commits": 2,
+      "validation_restarts": 1,
+      "event_counts": {},
+      "terminal": {
+        "abort_reason": null,
+        "aborted_forced": null,
+        "aborted_from_state": null,
+        "orphaned_reason": null
+      },
+      "hosted": {
+        "checks_conclusion": null,
+        "fetched_at": null,
+        "merged": null,
+        "pr_number": null,
+        "pr_state": null
+      },
+      "worktree_mode": "reusable",
+      "pr_mode": "manual",
+      "config_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    {
+      "kind": "agentic-preflight-run-summary",
+      "schema_version": 1,
+      "written_at": "2026-11-01T00:00:00+00:00",
+      "run_id": "r_0000000002",
+      "state": "ABORTED",
+      "record_schema_version": 2,
+      "repo": {
+        "root_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "remote": "github.com/owner/widget",
+        "name": "widget",
+        "source_worktree_path": "/repos/widget"
+      },
+      "branch": "feature/widget",
+      "base_ref": "main",
+      "head_sha": "4444444444444444444444444444444444444444",
+      "pushed_sha": null,
+      "intent_sha256": "b67f267309187edb114e1bffeb060435f1e834d835bd99338af6f138916ab562",
+      "intent_source": "user",
+      "created_at": "2026-10-11T19:50:00+00:00",
+      "finished_at": "2026-10-21T10:05:30+00:00",
+      "duration_seconds": 828930.0,
+      "timing": {
+        "agent_seconds": 200.25,
+        "complete": true,
+        "review_wall_seconds": 40.0,
+        "shell_wall_seconds": 260.0,
+        "states": {
+          "CREATED": {
+            "seconds": 30.0,
+            "visits": 1
+          },
+          "DOCS_GREEN": {
+            "seconds": 10.0,
+            "visits": 1
+          },
+          "LINT_GREEN": {
+            "seconds": 0.0,
+            "visits": 1
+          },
+          "LINT_RED": {
+            "seconds": 40.0,
+            "visits": 1
+          },
+          "LINT_RUNNING": {
+            "seconds": 20.0,
+            "visits": 2
+          },
+          "REVIEW_AWAITING_FINDINGS": {
+            "seconds": 30.0,
+            "visits": 1
+          },
+          "REVIEW_GREEN": {
+            "seconds": 0.0,
+            "visits": 1
+          },
+          "SYNC_GREEN": {
+            "seconds": 0.0,
+            "visits": 1
+          },
+          "TEST_GREEN": {
+            "seconds": 80.0,
+            "visits": 1
+          },
+          "TEST_RUNNING": {
+            "seconds": 120.0,
+            "visits": 1
+          }
+        },
+        "tool_seconds": 129.75
+      },
+      "producer": null,
+      "risk": {
+        "level": "high",
+        "requires_human_review": true,
+        "verdict": "needs_human"
+      },
+      "review": {
+        "cited_count": 1,
+        "clean_count": 2,
+        "excluded_count": 1,
+        "executor": null,
+        "total_units": 3
+      },
+      "stages": {
+        "docs": {
+          "attempts": 0,
+          "duration_seconds": null,
+          "finished_at": null,
+          "reason": null,
+          "red_then_green": null,
+          "reused": false,
+          "started_at": null,
+          "status": "green"
+        },
+        "lint": {
+          "attempts": 1,
+          "duration_seconds": null,
+          "finished_at": null,
+          "reason": null,
+          "red_then_green": true,
+          "reused": false,
+          "started_at": null,
+          "status": "green"
+        },
+        "review": {
+          "attempts": 0,
+          "duration_seconds": null,
+          "finished_at": null,
+          "reason": null,
+          "red_then_green": null,
+          "reused": false,
+          "started_at": null,
+          "status": "green"
+        },
+        "test": {
+          "attempts": 0,
+          "duration_seconds": null,
+          "finished_at": null,
+          "reason": null,
+          "red_then_green": false,
+          "reused": false,
+          "started_at": null,
+          "status": "green"
+        }
+      },
+      "findings": {
+        "blocking": 0,
+        "by_action": {
+          "auto_fix": 3
+        },
+        "by_response_reason": {
+          "unspecified": 1
+        },
+        "by_severity": {
+          "critical": 1,
+          "high": 1,
+          "low": 1
+        },
+        "by_stage": {
+          "docs": 1,
+          "review": 2
+        },
+        "by_status": {
+          "dismissed": 1,
+          "fixed": 2
+        },
+        "docs_blocking_fixed": 0,
+        "review_blocking_fixed": 0,
+        "total": 3
+      },
+      "fix_commits": 2,
+      "validation_restarts": 1,
+      "event_counts": {
+        "run_created": 1,
+        "state_transition": 12,
+        "tool_command_finished": 4,
+        "tool_command_started": 4
+      },
+      "terminal": {
+        "abort_reason": null,
+        "aborted_forced": null,
+        "aborted_from_state": "TEST_GREEN",
+        "orphaned_reason": null
+      },
+      "hosted": {
+        "checks_conclusion": null,
+        "fetched_at": null,
+        "merged": null,
+        "pr_number": null,
+        "pr_state": null
+      },
+      "worktree_mode": "reusable",
+      "pr_mode": "manual",
+      "config_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    }
+  ]
+}
