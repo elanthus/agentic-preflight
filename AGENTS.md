@@ -39,6 +39,9 @@ See [docs/maintainers/approval-readiness.md](docs/maintainers/approval-readiness
   review, stages, merge-back, and the publish gate.
 - `agentic_preflight/stages/`: the docs, lint, and test stage implementations and change
   scope detection.
+- `agentic_preflight/reviewers/`: the packaged command reviewer behind
+  `agentic-preflight reviewer run` (`cli_reviewer.py`). It shells out to the `claude` or
+  `codex` CLI and imports no model SDK; see `docs/adr/0003-ship-a-packaged-reviewer.md`.
 - There is no templates directory. `agentic_preflight/initcmd.py` writes the starter
   configuration and the pre-push hook; `agentic_preflight/stages/docs.py` holds the
   documentation surface and CI-configuration path rules.

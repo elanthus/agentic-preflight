@@ -605,6 +605,7 @@ The required check keeps its name, and `approval-check`, its outputs, and the at
 `agentic-preflight reviewer run --provider claude|codex` is a new command.
 Like `hook-check`, it prints no JSON envelope and keeps Click's usage output and exit code 2 on a usage error.
 Its stdout, stderr, exit codes, and `AP_*` environment variables are those of the former example wrappers.
+Unlike them, it reads stdin and writes stdout and stderr as UTF-8 rather than in the locale encoding, which matters on Windows. Like them, it does not need Git.
 The example wrappers in `docs/examples/reviewers/` are deprecated pointers to it for one release.
 A configured command that runs a pointer needs an interpreter that can import `agentic_preflight`.
 The configuration file, the review submission, and the attestation schema are unchanged.

@@ -52,6 +52,8 @@ The removal is listed in the [compatibility removal plan](../maintainers/compati
 
 The first step changes no behavior.
 The prompts, the provider CLI arguments, the environment variables, the defaults, the events file, and the output are the same as in the wrappers.
+The command does not check the Git version, because the reviewer does not run Git.
+It reads and writes its standard streams as UTF-8, as every other command does; the wrappers used the locale encoding.
 
 ## Consequences
 

@@ -18,6 +18,8 @@ from .cli_telemetry import register as register_telemetry
 from .envelope import ExitCode
 
 RUN_ID_PATTERN = re.compile(r"r_[0-9a-f]{10}")
+#: Top-level commands that run without the Git version check.
+NO_GIT_CHECK = frozenset({"reviewer"})
 
 
 def _use_utf8_streams() -> None:
@@ -47,12 +49,19 @@ def _use_utf8_streams() -> None:
 @click.option("--run", "run_id", default=None, help="Operate on a specific stored run.")
 @click.pass_context
 def main(ctx: click.Context, run_id: str | None) -> None:
-    """Agent-driven quality gate. Every command prints one JSON object."""
+    """Agent-driven quality gate. Every command prints one JSON object.
+
+    The exceptions are hook-check, which Git consumes, and reviewer run, whose stdout
+    review run reads as the review submission.
+    """
     _use_utf8_streams()
-    try:
-        gitx.require_minimum_version()
-    except gitx.GitVersionError as exc:
-        fail(as_error("unsupported_git_version", str(exc), ExitCode.ERROR))
+    # The reviewer never runs Git, and a version envelope on its stdout would be read as
+    # the review submission, so it keeps the example wrappers' independence from Git.
+    if ctx.invoked_subcommand not in NO_GIT_CHECK:
+        try:
+            gitx.require_minimum_version()
+        except gitx.GitVersionError as exc:
+            fail(as_error("unsupported_git_version", str(exc), ExitCode.ERROR))
     if run_id is not None and RUN_ID_PATTERN.fullmatch(run_id) is None:
         fail(
             as_error(

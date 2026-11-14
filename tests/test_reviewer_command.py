@@ -441,6 +441,25 @@ def test_reviewer_appears_in_the_root_help():
     assert "reviewer" in result.output
 
 
+def test_reviewer_run_skips_the_git_version_check(tmp_path, monkeypatch, clean_reviewer_env):
+    # An old Git must not put an `unsupported_git_version` envelope where the submission goes.
+    from agentic_preflight import gitx
+
+    def too_old() -> None:
+        raise gitx.GitVersionError("git 2.30.0 is older than 2.38")
+
+    monkeypatch.setattr(gitx, "require_minimum_version", too_old)
+    fake = install_fake(tmp_path / "bin" / "claude")
+
+    reviewed = invoke("claude", CONTEXT, AP_CLAUDE_BIN=str(fake))
+    other = CliRunner().invoke(main, ["status"])
+
+    assert reviewed.exit_code == 0, reviewed.output
+    assert json.loads(reviewed.stdout)["coverage"]["examined"] == "all"
+    assert other.exit_code == ExitCode.ERROR
+    assert json.loads(other.stdout)["error"]["code"] == "unsupported_git_version"
+
+
 # -- the installed command, as a subprocess --------------------------------------
 
 
@@ -471,6 +490,34 @@ def test_reviewer_run_finds_the_provider_cli_on_path(tmp_path, clean_reviewer_en
 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["coverage"] == {"manifest": "a" * 64, "examined": "all"}
+
+
+@pytest.mark.skipif(PLATFORM == "win32", reason="CreateProcess does not resolve .cmd on PATH")
+def test_reviewer_run_works_without_git_on_path(tmp_path, clean_reviewer_env):
+    bin_dir = tmp_path / "bin"
+    install_fake(bin_dir / "claude")
+    env = {**os.environ, "PATH": str(bin_dir)}
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-m",
+            "agentic_preflight",
+            "reviewer",
+            "run",
+            "--provider",
+            "claude",
+        ],
+        input=json.dumps(CONTEXT),
+        text=True,
+        capture_output=True,
+        cwd=tmp_path,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["findings"] == []
 
 
 def test_toml_command_line_round_trips_windows_paths():
