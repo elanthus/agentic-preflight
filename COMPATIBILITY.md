@@ -650,6 +650,16 @@ Deletions, tags, the attestation notes ref, evidence refs, and pushes of a commi
 The exit codes, the reason codes, and the hook decision lines are unchanged. Behavior in a SHA-1 repository is unchanged.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
+## Unreleased: packaged command reviewer
+
+`agentic-preflight reviewer run --provider claude|codex` is a new command.
+Like `hook-check`, it prints no JSON envelope and keeps Click's usage output and exit code 2 on a usage error.
+Its stdout, stderr, exit codes, and `AP_*` environment variables are those of the former example wrappers.
+Unlike them, it reads its own stdin and writes its own stdout and stderr as UTF-8 rather than in the locale encoding, which matters on Windows. The packaged reviewer and the current example wrappers also send the prompt to the provider CLI as UTF-8 and decode its output as UTF-8, replacing undecodable bytes, where earlier wrappers used the locale encoding. An unwritable `AP_REVIEWER_EVENTS_FILE` now fails the review with the one-line diagnostic instead of a traceback. Like them, it does not need Git: commands in the `reviewer` group skip the Git version check.
+It passes the same provider CLI options as the example wrappers, including `--safe-mode` and `--setting-sources user` for Claude and `project_doc_max_bytes=0` and `--ignore-rules` for Codex.
+The example wrappers in `docs/examples/reviewers/` stay as deprecated standard-library copies for one release. A test keeps them identical to the packaged reviewer, and they still run with `python3 -S -B`.
+The configuration file, the review submission, and the attestation schema are unchanged.
+
 ## Unreleased: review patches no longer depend on Git configuration
 
 The review digest hashes the patch text of the change, and a verifier accepts a note only when it can rebuild that text.
@@ -684,7 +694,7 @@ What changes at upgrade:
   The other settings above are fixed to Git's default for that text too, and the note does not record the producer's values, so they cannot be restored.
   A producer that set one of those settings to another value may therefore have written a note that fails, even on the machine that wrote it, if the value changed the patch. For example, `diff.context = 5` adds context lines to a hunk that has more unchanged lines around it, but leaves a one-line file's patch unchanged.
   The verifier builds the abbreviated text with Git's default length, whatever its own `core.abbrev` says.
-  The verifier tries that text for any note, not only for notes from 0.8.1 and earlier. Until the fallback goes in 0.10.0 (row 11 of [the removal plan](docs/maintainers/compatibility-removal-plan.md)), a file-level patch in that format, such as a binary change, binds its content only by an abbreviated object ID. Hunks carry their full content, so they are not affected. A verifier clone that holds both blobs disambiguates them, because Git lengthens an abbreviation until it is unique.
+  The verifier tries that text for any note, not only for notes from 0.8.1 and earlier. Until the fallback goes in 0.10.0 (row 12 of [the removal plan](docs/maintainers/compatibility-removal-plan.md)), a file-level patch in that format, such as a binary change, binds its content only by an abbreviated object ID. Hunks carry their full content, so they are not affected. A verifier clone that holds both blobs disambiguates them, because Git lengthens an abbreviation until it is unique.
   Git picks that default length from the number of objects in the clone, so the note can fail in a clone whose object count gives a different length, even when its producer used every default.
   A note for a change whose committed `.gitmodules` set `submodule.<name>.ignore = all` on a changed submodule fails on every machine, because 0.8.1 left that pointer change out of the patch and both texts now include it.
   When verification fails for any of these reasons, validate the commit again to replace the note.
