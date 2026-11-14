@@ -39,7 +39,21 @@ AMBIENT_SETTINGS = [
     ("diff.ignoreSubmodules", "all"),
     ("diff.suppressBlankEmpty", "true"),
     ("diff.relative", "true"),
+    ("core.bigFileThreshold", "10"),
+    ("diff.default.binary", "true"),
 ]
+
+#: Settings that leave the fixture's text alone when Git runs from the repository
+#: root, as every caller does. ``diff.mnemonicPrefix`` changes only diffs against
+#: the index or the work tree; ``diff.relative`` is tested from a subdirectory.
+_NO_EFFECT_FROM_THE_ROOT = {"diff.mnemonicPrefix", "diff.relative"}
+
+#: Myers and histogram split this change differently.
+_REORDER_BEFORE = "a\nb\nc\na\nb\nc\nd\ne\nx\ny\nz\n"
+_REORDER_AFTER = "c\na\nb\nd\na\nb\nc\ne\nx\nY\nz\n"
+#: The indent heuristic moves the inserted block of this change.
+_BRACES_BEFORE = "    y\n{\n}\nx\n    y\n    y\n}\n"
+_BRACES_AFTER = "    y\n{\n}\n    return 1\n{\n}\nx\n    y\n    y\n}\n"
 
 #: The command 0.8.1 ran for one path, before any option was pinned.
 _EARLIER_DIFF = ["git", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames"]
@@ -62,8 +76,11 @@ def varied_repo(tmp_repo: Path) -> tuple[Path, str]:
     """A branch whose diff has every patch shape the settings above can alter.
 
     Two hunks in one file, blank context lines, a non-ASCII path, a binary file,
-    and a submodule pointer. Returns the repository and the base commit.
+    a submodule pointer, and changes that the diff algorithm and the indent
+    heuristic each render differently. Returns the repository and the base commit.
     """
+    write(tmp_repo, "docs/reorder.txt", _REORDER_BEFORE)
+    write(tmp_repo, "src/braces.c", _BRACES_BEFORE)
     write(tmp_repo, "src/calc.py", "def a():\n    return 1\n\n\ndef b():\n    return 2\n" * 3)
     write(tmp_repo, "docs/guide.md", "one\n\ntwo\n\nthree\nfour\nfive\nsix\nseven\neight\nnine\n")
     write(tmp_repo, "café.txt", "before\n")
@@ -77,6 +94,8 @@ def varied_repo(tmp_repo: Path) -> tuple[Path, str]:
     write(tmp_repo, "src/calc.py", "def a():\n    return 10\n\n\ndef b():\n    return 2\n" * 3)
     write(tmp_repo, "docs/guide.md", "one\n\ntwo!\n\nthree\nfour\nfive\nsix\nseven\neight\nnine!\n")
     write(tmp_repo, "café.txt", "after\n")
+    write(tmp_repo, "docs/reorder.txt", _REORDER_AFTER)
+    write(tmp_repo, "src/braces.c", _BRACES_AFTER)
     (tmp_repo / "logo.bin").write_bytes(b"\x00\x01\x03")
     git("add", "-A", cwd=tmp_repo)
     _gitlink(tmp_repo, "2" * 40)
@@ -264,7 +283,116 @@ def test_the_varied_fixture_covers_every_patch_shape(varied_repo):
     assert sorted(gitx.changed_files(repo, base, "HEAD")) == [
         "café.txt",
         "docs/guide.md",
+        "docs/reorder.txt",
         "logo.bin",
+        "src/braces.c",
         "src/calc.py",
         "vendor/sub",
     ]
+
+
+def _plain_git_diff(repo: Path, base: str, *config: str) -> bytes:
+    return subprocess.run(
+        ["git", *config, *_EARLIER_DIFF[1:], f"{base}...HEAD"],
+        cwd=repo,
+        capture_output=True,
+        check=True,
+    ).stdout
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [item for item in AMBIENT_SETTINGS if item[0] not in _NO_EFFECT_FROM_THE_ROOT],
+    ids=[k for k, _ in AMBIENT_SETTINGS if k not in _NO_EFFECT_FROM_THE_ROOT],
+)
+def test_each_setting_changes_an_unpinned_diff_of_the_fixture(varied_repo, key, value):
+    """Guard the fixture: a setting it cannot show would pass the test above vacuously."""
+    repo, base = varied_repo
+
+    assert _plain_git_diff(repo, base, "-c", f"{key}={value}") != _plain_git_diff(repo, base)
+
+
+def test_the_review_snapshot_ignores_git_diff_opts(varied_repo, monkeypatch):
+    """``GIT_DIFF_OPTS`` sets the context length after the command line is read."""
+    repo, base = varied_repo
+    expected = _snapshot(repo, base)
+
+    monkeypatch.setenv("GIT_DIFF_OPTS", "-u7")
+
+    assert _snapshot(repo, base) == expected
+
+
+def test_the_review_snapshot_ignores_replacement_objects(varied_repo):
+    """A replacement exists in one clone only and shows content the commit lacks."""
+    repo, base = varied_repo
+    expected = _snapshot(repo, base)
+    # The base side: Git may read the head side from the checkout instead.
+    blob = git("rev-parse", f"{base}:src/calc.py", cwd=repo)
+    fake = (
+        subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"],
+            cwd=repo,
+            input=b"def a():\n    return 'replaced'\n",
+            capture_output=True,
+            check=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
+    git("replace", blob, fake, cwd=repo)
+    assert b"replaced" in _plain_git_diff(repo, base)
+
+    assert _snapshot(repo, base) == expected
+
+
+def test_a_committed_gitmodules_entry_cannot_hide_a_submodule_change(varied_repo):
+    """``submodule.<name>.ignore`` in a committed ``.gitmodules`` used to drop the path."""
+    repo, base = varied_repo
+    write(
+        repo,
+        ".gitmodules",
+        '[submodule "sub"]\n\tpath = vendor/sub\n\turl = ./sub\n\tignore = all\n',
+    )
+    git("add", ".gitmodules", cwd=repo)
+    git("commit", "-m", "ignore the submodule", cwd=repo)
+    assert "vendor/sub" not in git("diff", "--name-only", f"{base}...HEAD", cwd=repo)
+
+    assert "vendor/sub" in gitx.changed_files(repo, base, "HEAD")
+    assert "vendor/sub" in diff.build_bundle(repo, base, "HEAD").files
+
+
+def test_a_decomposed_path_builds_under_precompose_unicode(tmp_repo):
+    """macOS sets ``core.precomposeUnicode`` at ``git init``; it rewrote the pathspec."""
+    base = git("rev-parse", "HEAD", cwd=tmp_repo)
+    # Off while the tree is written, or Git would store the precomposed name.
+    git("config", "--local", "core.precomposeUnicode", "false", cwd=tmp_repo)
+    name = "cafe\u0301.txt"  # "e" followed by a combining accent
+    blob = (
+        subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"],
+            cwd=tmp_repo,
+            input=b"decomposed\n",
+            capture_output=True,
+            check=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
+    git("update-index", "--add", "--cacheinfo", f"100644,{blob},{name}", cwd=tmp_repo)
+    git("commit", "-m", "decomposed name", cwd=tmp_repo)
+    expected = _snapshot(tmp_repo, base)
+    assert expected[0] == [name]
+
+    git("config", "--local", "core.precomposeUnicode", "true", cwd=tmp_repo)
+
+    assert _snapshot(tmp_repo, base) == expected
+
+
+def test_the_abbreviated_format_ignores_the_verifiers_abbreviation_setting(varied_repo):
+    """0.8.1 notes were written with Git's default length; the verifier's own does not apply."""
+    repo, base = varied_repo
+    expected = diff.build_bundle(repo, base, "HEAD", full_index=False).per_file
+
+    git("config", "--local", "core.abbrev", "12", cwd=repo)
+
+    assert diff.build_bundle(repo, base, "HEAD", full_index=False).per_file == expected

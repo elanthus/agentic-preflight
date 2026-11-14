@@ -13,7 +13,7 @@ import re
 import secrets
 import subprocess
 import tempfile
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from functools import cache
 from pathlib import Path
@@ -117,9 +117,9 @@ def run(
     return result
 
 
-def _run_bytes(cwd: Path | str, *args: str) -> bytes:
+def _run_bytes(cwd: Path | str, *args: str, env: Mapping[str, str] | None = None) -> bytes:
     """Run a git command and return its raw stdout, without newline translation."""
-    result = subprocess.run([_git_executable(), *args], cwd=str(cwd), capture_output=True)
+    result = subprocess.run([_git_executable(), *args], cwd=str(cwd), capture_output=True, env=env)
     if result.returncode != 0:
         raise GitError(
             list(args), result.returncode, result.stderr.decode("utf-8", errors=_DECODE_ERRORS)
@@ -686,18 +686,36 @@ _NO_RENAMES = "--no-renames"
 # text as before. ``/dev/null`` is the spelling Git documents for "no file" and
 # resolves itself on Windows.
 #
-# Not fixed: attributes in the checkout, in ``$GIT_DIR/info/attributes``, or
-# system-wide, and the ``diff.<driver>.*`` definition of a driver they name.
+# Not fixed: attributes in the checkout, in ``$GIT_DIR/info/attributes``, from
+# ``attr.tree`` or ``GIT_ATTR_SOURCE``, or system-wide, and the ``diff.<driver>.*``
+# definition of a driver they name; and ``diff.default.xfuncname`` and
+# ``diff.default.funcname``, which shape hunk headers and have no reset value.
 #
-# Settings with no command-line option. The attributes file is the user-level one.
+# Replacement objects (``refs/replace``) exist in one clone only and would show
+# content that the commits do not hold, so they are ignored. Settings with no
+# command-line option follow. ``diff.default.*`` configures the driver that every
+# path without a ``diff`` attribute uses; ``auto`` restores its binary detection.
+# ``core.bigFileThreshold`` turns a larger file's patch into a binary marker.
+# ``core.precomposeUnicode``, which macOS sets at ``git init``, rewrites a
+# decomposed pathspec so that it no longer matches the path in the tree. The
+# attributes file is the user-level one.
 _PINNED_DIFF_CONFIG = (
+    "--no-replace-objects",
     "-c",
     "core.quotePath=true",
     "-c",
     "diff.suppressBlankEmpty=false",
     "-c",
     "core.attributesFile=/dev/null",
+    "-c",
+    "core.bigFileThreshold=512m",
+    "-c",
+    "core.precomposeUnicode=false",
+    "-c",
+    "diff.default.binary=auto",
 )
+# The abbreviated form of 0.8.1 and earlier, with Git's default length.
+_LEGACY_ABBREV_CONFIG = ("-c", "core.abbrev=auto")
 # Which paths a diff lists, and in which order.
 _PINNED_INVENTORY_OPTIONS = (
     "--no-ext-diff",
@@ -971,11 +989,18 @@ def _finish_streamed_diff(
 
 
 def _streamed_diff_text_by_path(
-    cwd: Path | str, args: tuple[str, ...], requested: set[str]
+    cwd: Path | str,
+    args: tuple[str, ...],
+    requested: set[str],
+    env: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     with tempfile.TemporaryFile() as errors:
         process = subprocess.Popen(
-            [_git_executable(), *args], cwd=str(cwd), stdout=subprocess.PIPE, stderr=errors
+            [_git_executable(), *args],
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=errors,
+            env=env,
         )
         stream = process.stdout
         if stream is None:
@@ -1014,19 +1039,23 @@ def diff_text_by_path(
     stream the full diff once and retain only requested raw inventory entries.
 
     The pinned options above keep ``core.*`` and ``diff.*`` configuration out of
-    the text; attributes still shape it. ``full_index=False`` reproduces the
-    patches of 0.8.1 and earlier releases, whose ``index`` lines abbreviate object
-    IDs to a length that grows with the clone. It exists to verify notes those
-    releases wrote and is the one form that still varies between clones.
+    the text; attributes still shape it. ``GIT_DIFF_OPTS`` would override the
+    context length, so it is removed from Git's environment. ``full_index=False``
+    reproduces the patches of 0.8.1 and earlier releases, whose ``index`` lines
+    abbreviate object IDs to Git's default length, which grows with the clone. It
+    exists to verify notes those releases wrote and is the one form that still
+    varies between clones.
     """
     unfiltered = _WINDOWS_PATH_ARGUMENTS and any(
         "\udc80" <= char <= "\udcff" for path in paths for char in path
     )
     batches = [list(paths)] if unfiltered else _path_batches(paths)
+    env = {name: value for name, value in os.environ.items() if name != "GIT_DIFF_OPTS"}
     per_file: dict[str, str] = {}
     for batch in batches:
         args = (
             *_PINNED_DIFF_CONFIG,
+            *(() if full_index else _LEGACY_ABBREV_CONFIG),
             "diff",
             *_PINNED_PATCH_OPTIONS,
             *(("--full-index",) if full_index else ()),
@@ -1038,9 +1067,9 @@ def diff_text_by_path(
             *(f":(literal){path}" for path in batch if not unfiltered),
         )
         if unfiltered:
-            parsed = _streamed_diff_text_by_path(cwd, args, set(batch))
+            parsed = _streamed_diff_text_by_path(cwd, args, set(batch), env)
         else:
-            parsed = _parse_raw_patch_output(_run_bytes(cwd, *args))
+            parsed = _parse_raw_patch_output(_run_bytes(cwd, *args, env=env))
         missing = [path for path in batch if path not in parsed]
         if missing:
             raise ValueError("git diff omitted requested changed paths: " + ", ".join(missing))

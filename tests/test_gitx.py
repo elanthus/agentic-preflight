@@ -402,10 +402,10 @@ def test_diff_text_by_path_batches_many_files(tmp_repo, monkeypatch):
         calls += 1
         return real_run(cwd, *args, **kwargs)
 
-    def recording_run_bytes(cwd, *args):
+    def recording_run_bytes(cwd, *args, **kwargs):
         nonlocal calls
         calls += 1
-        return real_run_bytes(cwd, *args)
+        return real_run_bytes(cwd, *args, **kwargs)
 
     monkeypatch.setattr(gitx, "run", recording_run)
     monkeypatch.setattr(gitx, "_run_bytes", recording_run_bytes)
