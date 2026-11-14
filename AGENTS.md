@@ -40,6 +40,9 @@ See [docs/maintainers/approval-readiness.md](docs/maintainers/approval-readiness
   review, stages, merge-back, and the publish gate.
 - `agentic_preflight/stages/`: the docs, lint, and test stage implementations and change
   scope detection.
+- `agentic_preflight/reviewers/`: the packaged command reviewer behind
+  `agentic-preflight reviewer run` (`cli_reviewer.py`). It shells out to the `claude` or
+  `codex` CLI and imports no model SDK; see `docs/adr/0003-ship-a-packaged-reviewer.md`.
 - `agentic_preflight/report/`: the usage report. `reading.py` parses the mirror and the
   hook log and summarizes a clone's records, `aggregation.py` filters and counts, and
   `markdown.py` renders. `build_report` and `render_markdown` are importable from

@@ -5,9 +5,10 @@ This reference describes command behavior; it does not grant publication or merg
 authorization. See the [CLI walkthrough](workflow.md) for a worked sequence.
 
 Every agent-facing workflow command prints exactly one JSON object to stdout. Human
-prose goes to stderr. Parse that stdout blindly; every key is always present. The sole
-exception is `hook-check`: Git consumes its exit status and stderr, so it emits no JSON
-envelope and is not an agent-facing command.
+prose goes to stderr. Parse that stdout blindly; every key is always present. There are
+two exceptions, and neither is an agent-facing command, so neither emits a JSON envelope:
+`hook-check`, whose exit status and stderr Git consumes, and `reviewer run`, whose stdout
+`review run` reads as the review submission.
 
 ```json
 {"ok": true, "run_id": "r_...", "state": "REVIEW_AWAITING_FINDINGS", "stage": "review",
@@ -25,8 +26,8 @@ hyphens, such as `stage-run.json`). The schemas are generated from the models in
 hand. Every field is optional because `data` differs by outcome.
 
 `agentic-preflight --version` prints the installed version and exits 0. Every other
-command first checks the Git version and exits 1 with `unsupported_git_version` when Git
-is older than 2.38.
+command outside the `reviewer` group (whose only command is `reviewer run`) first checks
+the Git version and exits 1 with `unsupported_git_version` when Git is older than 2.38.
 
 Place `--run RUN_ID` before any workflow command to select a stored run explicitly.
 A `RUN_ID` other than `r_` followed by 10 lowercase hex digits exits 6 with
@@ -967,6 +968,29 @@ output is still one JSON envelope. `--rows` includes the filtered summary rows i
 but cannot be read exits 1 with error code `telemetry_mirror_unreadable` and its path in
 `data`. See [Read the report](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md#read-the-report).
 
+## Command reviewer
+
+### `agentic-preflight reviewer run --provider claude|codex`
+The packaged independent reviewer. Configure it as `[review] command` (and, for contract
+checks, `[review.contracts] planner_command`); `review run` and `review compare` then
+start it. Not for you to call in a workflow — follow `next.command` instead.
+
+It reads the review `context` data object as JSON on stdin and shells out to the
+provider CLI: `claude -p --output-format stream-json` or `codex exec --json`. It prints
+one strict `ReviewSubmission` JSON line on stdout, or, when the context has `section:
+"contracts"`, one contract plan. It prints no JSON envelope. It exits 0 on success. On
+any failure (invalid context, provider CLI missing, non-zero exit, timeout, or no
+findings object in the output) it exits 1 with one `independent reviewer failed: ...`
+line on stderr. A usage error, such as a missing or unknown `--provider`, keeps Click's
+usage message and exits 2.
+
+Environment variables: `AP_CLAUDE_BIN` or `AP_CODEX_BIN` (the provider executable,
+default `claude` or `codex`), `AP_REVIEWER_MODEL` (default `claude-sonnet-5` or
+`gpt-5.3-codex`), `AP_REVIEWER_EFFORT` (default `high` or `medium`),
+`AP_REVIEWER_TIMEOUT` (seconds, default 600), and `AP_REVIEWER_EVENTS_FILE` (an absolute
+path that receives the provider CLI's stdout, with `<path>.status.json` beside it). See
+[Independent review and agreement](https://github.com/elanthus/agentic-preflight/blob/main/docs/independent-review.md).
+
 ## Exit codes
 
 | Code | Meaning | What to do |
@@ -983,7 +1007,8 @@ but cannot be read exits 1 with error code `telemetry_mirror_unreadable` and its
 A command-line usage error (unknown option, missing argument, bad choice, unknown
 command) prints one envelope with error code `usage_error`, Click's message in
 `error.message`, and the command's `--help` invocation in `next.command`, then exits 6.
-`hook-check` is the exception and keeps Click's own usage output and exit code.
+`hook-check` and `reviewer run` are the exceptions and keep Click's own usage output and
+exit code 2.
 Running `agentic-preflight` with no arguments prints the root help as plain text and
 exits 0.
 

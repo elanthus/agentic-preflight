@@ -649,3 +649,13 @@ A rewind to a commit the remote already has is still refused as a force push unl
 Deletions, tags, the attestation notes ref, evidence refs, and pushes of a commit the remote already has are allowed as in a SHA-1 repository.
 The exit codes, the reason codes, and the hook decision lines are unchanged. Behavior in a SHA-1 repository is unchanged.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Unreleased: packaged command reviewer
+
+`agentic-preflight reviewer run --provider claude|codex` is a new command.
+Like `hook-check`, it prints no JSON envelope and keeps Click's usage output and exit code 2 on a usage error.
+Its stdout, stderr, exit codes, and `AP_*` environment variables are those of the former example wrappers.
+Unlike them, it reads its own stdin and writes its own stdout and stderr as UTF-8 rather than in the locale encoding, which matters on Windows. The packaged reviewer and the current example wrappers also send the prompt to the provider CLI as UTF-8 and decode its output as UTF-8, replacing undecodable bytes, where earlier wrappers used the locale encoding. An unwritable `AP_REVIEWER_EVENTS_FILE` now fails the review with the one-line diagnostic instead of a traceback. Like them, it does not need Git: commands in the `reviewer` group skip the Git version check.
+It passes the same provider CLI options as the example wrappers, including `--safe-mode` and `--setting-sources user` for Claude and `project_doc_max_bytes=0` and `--ignore-rules` for Codex.
+The example wrappers in `docs/examples/reviewers/` stay as deprecated standard-library copies for one release. A test keeps them identical to the packaged reviewer, and they still run with `python3 -S -B`.
+The configuration file, the review submission, and the attestation schema are unchanged.

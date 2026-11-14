@@ -496,7 +496,7 @@ class ReportData(CommandData):
     error: str | None = None
 
 
-#: Every agent-facing command, keyed by its CLI path. ``hook-check`` emits no envelope.
+#: Every agent-facing command, keyed by its CLI path. The ``NO_ENVELOPE`` commands are not here.
 COMMAND_MODELS: dict[str, type[BaseModel]] = {
     "init": InitData,
     "integrations install": IntegrationsData,
@@ -527,8 +527,9 @@ COMMAND_MODELS: dict[str, type[BaseModel]] = {
     "report": ReportData,
 }
 
-#: Commands that print no JSON envelope.
-NO_ENVELOPE = frozenset({"hook-check"})
+#: Commands that print no JSON envelope. Git consumes ``hook-check``; ``review run`` reads
+#: the strict submission that ``reviewer run`` prints.
+NO_ENVELOPE = frozenset({"hook-check", "reviewer run"})
 
 
 def schema_filename(command: str) -> str:

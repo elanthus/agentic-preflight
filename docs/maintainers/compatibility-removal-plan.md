@@ -31,6 +31,7 @@ Under this rule, 0.8.0 must read 0.7.0 records, notes, and snapshots. It need no
 | 8 | `REMOVED_CONFIG_KEYS` entries removed in 0.7.0 | 0.7.0 | 0.6.0 snapshots and config files | 0.10.0 |
 | 9 | `LEGACY_DIRNAME`, `legacy_worktrees`, runner reclamation at the old root | 0.7.0 | worktrees created before 0.7.0 | 0.10.0 |
 | 10 | `record.get("producer")` raw fallback in `telemetry._producer` | after v0.7.0 | 0.7.0 records without the key | 0.10.0 |
+| 11 | `docs/examples/reviewers/` wrapper copies | 0.9.0 | review commands that still run an example wrapper path | 0.10.0 |
 
 Run schema 2, attestation schema 7, and fingerprint version 2 do not change in any stage.
 No stage rewrites saved data or deletes user work. Rejected records keep the existing
@@ -191,6 +192,27 @@ the honest value for "unknown", and the summary keeps reporting it as such.
 What does expire is the missing key. Every record 0.8.0 writes carries the key, so in
 0.10.0 the `record.get("producer")` fallback in `telemetry._producer`, which exists for
 raw records without it, can go. The model field stays `Producer | None`.
+
+### 11. Reviewer example copies
+
+Issue #364 moved the example reviewer wrappers into `agentic_preflight/reviewers/` behind
+`agentic-preflight reviewer run --provider claude|codex`. The three files in
+`docs/examples/reviewers/` stay for one release as standard-library copies, which
+`test_example_wrappers_stay_in_sync_with_the_packaged_reviewer` in
+`tests/test_reviewer_examples.py` keeps identical to the package, so that a configured
+`python3 -S -B docs/examples/reviewers/<provider>_review.py` command keeps working. In 0.10.0:
+
+- Before the removal, switch the callers that still run a copy: this repository's
+  `[review] command` in `.agentic-preflight.toml` (a human-review path; update
+  `human_review_paths` accordingly), the example configurations, and `evals/run.py`, whose
+  real mode sets `AP_EVAL_EXECUTOR` to the copy.
+- Delete `docs/examples/reviewers/` and the tests in `tests/test_reviewer_examples.py` that
+  run or compare the copies.
+- Decide whether `docs/examples/reviewers/**` stays in the `init` template's
+  `human_review_paths` (`agentic_preflight/initcmd.py`), in `docs/configuration.md`, and in
+  the example configurations. It then protects only wrappers that users copied before
+  0.10.0. `tests/test_hook.py` and `tests/test_reviewer_examples.py` pin those entries.
+- Update `docs/independent-review.md`, and add a `removed` changelog fragment.
 
 ## Guardrail: keep this from growing back
 
