@@ -211,7 +211,9 @@ def _kill_start(agent, feature_repo, monkeypatch, mode, point):
 
     ``before_checkout`` dies before any Git call; ``mid_create`` dies after
     `git worktree add` and before the run branch exists; ``after_checkout`` dies
-    once the checkout is on the run branch but before the record names it.
+    once the checkout is on the run branch but before the record names it; and
+    ``after_recording_checkout`` dies once the record names the checkout, before
+    the validation worktree's ownership alias is claimed.
     """
     from agentic_preflight import gitx, worktree
     from agentic_preflight.machine import State
