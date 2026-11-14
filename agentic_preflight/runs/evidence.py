@@ -494,7 +494,9 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
         imported = item.model_copy(
             update={
                 "fingerprint": current[stage],
-                "refreshed_at": datetime.now(UTC),
+                # A clock stepped back behind the original execution must not
+                # produce evidence that predates its origin, which the loader rejects.
+                "refreshed_at": max(datetime.now(UTC), item.origin.finished_at),
                 "derivation_reason": "equivalent_inputs",
             }
         )
