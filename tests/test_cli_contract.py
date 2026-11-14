@@ -129,8 +129,6 @@ EMITTED_NOT_DOCUMENTED: dict[str, set[str]] = {
     # emitted but undocumented
     "integrations update": {"integrations", "scope"},
     # emitted but undocumented
-    "logs": {"log_path", "output", "stage"},
-    # emitted but undocumented
     "mergeback": {
         "affected_paths",
         "applied",

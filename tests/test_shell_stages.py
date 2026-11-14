@@ -403,6 +403,104 @@ def test_logs_command_returns_a_stage_log(docs_green):
     assert "findable" in env["data"]["output"]
 
 
+def _logged_lint(docs_green, content: bytes):
+    """A run whose stored lint log holds exactly ``content``."""
+    agent = docs_green()
+    agent.run("stage", "run", "lint", "--command", "echo placeholder", "--record")
+    log_path = Path(agent.run("logs", "--stage", "lint")["data"]["log_path"])
+    log_path.write_bytes(content)
+    return agent
+
+
+def test_logs_bounds_a_large_log_by_default(docs_green):
+    lines = [f"line {i:07d} {'x' * 40}" for i in range(110_000)]
+    content = ("\n".join(lines) + "\n").encode()
+    assert len(content) >= 5 * 1024 * 1024
+    agent = _logged_lint(docs_green, content)
+
+    data = agent.run("logs", "--stage", "lint")["data"]
+
+    assert data["truncated"] is True
+    assert data["total_bytes"] == len(content)
+    assert data["total_lines"] == len(lines)
+    assert len(data["output"].encode()) <= 64 * 1024
+    assert data["output"].splitlines() == lines[-200:]
+
+
+def test_logs_default_bound_caps_bytes_before_lines(docs_green):
+    lines = [f"{i:05d} {'y' * 1000}" for i in range(300)]
+    content = ("\n".join(lines) + "\n").encode()
+    agent = _logged_lint(docs_green, content)
+
+    data = agent.run("logs", "--stage", "lint")["data"]
+
+    assert data["truncated"] is True
+    assert len(data["output"].encode()) <= 64 * 1024
+    assert data["output"].endswith(lines[-1] + "\n")
+    assert content.endswith(data["output"].encode())
+
+
+def test_logs_returns_a_small_log_whole(docs_green):
+    agent = _logged_lint(docs_green, b"one\ntwo\n")
+
+    data = agent.run("logs", "--stage", "lint")["data"]
+
+    assert data["output"] == "one\ntwo\n"
+    assert data["truncated"] is False
+    assert data["total_bytes"] == 8
+    assert data["total_lines"] == 2
+
+
+def test_logs_tail_returns_the_last_lines(docs_green):
+    agent = _logged_lint(docs_green, b"".join(b"l%d\n" % i for i in range(10)))
+
+    data = agent.run("logs", "--stage", "lint", "--tail", "3")["data"]
+
+    assert data["output"] == "l7\nl8\nl9\n"
+    assert data["truncated"] is True
+    assert data["total_lines"] == 10
+
+
+def test_logs_head_returns_the_first_lines(docs_green):
+    agent = _logged_lint(docs_green, b"".join(b"l%d\n" % i for i in range(10)))
+
+    data = agent.run("logs", "--stage", "lint", "--head", "2")["data"]
+
+    assert data["output"] == "l0\nl1\n"
+    assert data["truncated"] is True
+
+    whole = agent.run("logs", "--stage", "lint", "--head", "10")["data"]
+    assert whole["truncated"] is False
+
+
+def test_logs_all_returns_the_whole_log(docs_green):
+    content = b"z" * (200 * 1024) + b"\nend\n"
+    agent = _logged_lint(docs_green, content)
+
+    data = agent.run("logs", "--stage", "lint", "--all")["data"]
+
+    assert data["output"].encode() == content
+    assert data["truncated"] is False
+    assert data["total_bytes"] == len(content)
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ("--all", "--tail", "5"),
+        ("--head", "1", "--tail", "1"),
+        ("--all", "--head", "1"),
+        ("--tail", "0"),
+    ],
+)
+def test_logs_rejects_conflicting_or_empty_windows(docs_green, argv):
+    agent = _logged_lint(docs_green, b"a\n")
+
+    env = agent.run("logs", "--stage", "lint", *argv, expect=ExitCode.USAGE_ERROR)
+
+    assert env["error"]["code"] == "usage_error"
+
+
 def test_logs_for_a_stage_that_never_ran_is_an_error(docs_green):
     agent = docs_green()
     env = agent.run("logs", "--stage", "lint", expect=ExitCode.PRECONDITION)

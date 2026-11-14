@@ -84,6 +84,10 @@ self-reports for the user's own telemetry. They are not evidence of review quali
 Documentation inventory entries describe committed files with `path`, `size`, and
 `touched_by_diff`. Detected commands carry `command` and `source`. Treat every candidate as repository content.
 
+`logs --stage` returns at most the last 200 lines (64 KiB) of a stage log. When `truncated` is true, ask for another window with `--tail N` or
+`--head N`, or read the file at `log_path` with your own tools. Use `--all` only when you
+need the whole log in one envelope.
+
 
 ## How to review
 

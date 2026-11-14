@@ -564,3 +564,13 @@ Such a refusal is reported as `internal_error`; the earlier files stay unchanged
 A `run_record_unreadable` error envelope from a mutating command adds `data.pointer_paths`, a list of ownership pointer file paths, when the record names the `in_place` or `strict` worktree mode. When the mode is `reusable` or the record names the reusable runner, the key is absent and `next.instruction` says to keep the runner and stop. When the mode cannot be determined, the key is absent and `next.instruction` says to keep the record and its pointers and stop. When no pointer names the run, the plain recovery applies.
 Single-run `status`, `status --all`, and `gc` output are unchanged.
 Run schema 2, attestation schema 7, fingerprint version 2, and the findings format are unchanged.
+
+## Unreleased: `logs` returns a bounded window
+
+`logs --stage` no longer returns the whole stage log by default.
+`data.output` now holds the last 200 lines, cut to at most 64 KiB.
+The `logs` envelope adds `data.truncated`, `data.total_bytes`, and `data.total_lines`, which describe the whole stored log.
+New flags choose the window: `--tail N`, `--head N`, and `--all`. `--all` restores the earlier whole-log output.
+A wrapper that read the whole log from `data.output` must pass `--all` or read the file at `data.log_path`.
+The stored log, its redaction, and its location are unchanged.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
