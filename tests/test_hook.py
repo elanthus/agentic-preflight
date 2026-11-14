@@ -797,6 +797,20 @@ def test_a_rewriting_push_in_a_sha256_repository_says_it_is_unsupported():
     assert "force push" not in decision.message
 
 
+def test_a_rewind_in_a_sha256_repository_is_still_a_force_push():
+    """A rewind publishes nothing new, so allow_force_push is a fix that helps."""
+    local, remote = "a" * 64, "b" * 64
+    update = hook.RefUpdate("refs/heads/main", local, "refs/heads/main", remote)
+    decision = hook.evaluate(
+        [update],
+        is_ancestor=lambda a, b: (a, b) == (local, remote),
+        has_attestation=lambda _: False,
+    )
+    assert decision.allowed is False
+    assert decision.reason == hook.FORCE_PUSH_REFUSED
+    assert "SHA-256" not in decision.message
+
+
 def test_a_commit_the_remote_already_has_in_a_sha256_repository_is_allowed():
     local, remote = "a" * 64, "b" * 64
     update = hook.RefUpdate("refs/heads/main", local, "refs/heads/main", remote)

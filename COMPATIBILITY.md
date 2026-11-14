@@ -608,7 +608,8 @@ The required check keeps its name, and `approval-check`, its outputs, and the at
 `hook-check` now treats Git's 64-character zero object ID as a ref that does not exist, as it treats the 40-character one.
 In a SHA-256 repository it no longer blocks every new branch as a force push.
 It blocks a branch push that needs an attestation with the reason code `missing_attestation` and a message that says SHA-256 repositories are not supported.
-It gives that message, not the force-push message, for a push that rewrites a remote branch there.
+It gives that message, not the force-push message, for a push that rewrites a remote branch there with a commit the remote does not have.
+A rewind to a commit the remote already has is still refused as a force push unless `[hook] allow_force_push = true`.
 Deletions, tags, the attestation notes ref, evidence refs, and pushes of a commit the remote already has are allowed as in a SHA-1 repository.
 The exit codes, the reason codes, and the hook decision lines are unchanged. Behavior in a SHA-1 repository is unchanged.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.

@@ -26,7 +26,8 @@ A push of an evidence object to a branch still requires valid publication eviden
 
 Repositories that use the SHA-256 object format are not supported.
 In such a repository the hook blocks a branch update that needs an attestation, and its message says that SHA-256 repositories are not supported.
-It gives that message instead of a force-push message, because no fix for a force push can help there.
+When such an update rewrites history with a commit the remote does not have, it gives that message instead of a force-push message, because no fix for a force push can help there.
+A rewind to a commit the remote already has is still refused as a force push unless `[hook] allow_force_push = true`.
 The exempt updates above, including a push of a commit the remote already has, are still allowed.
 See [COMPATIBILITY.md](../COMPATIBILITY.md).
 
