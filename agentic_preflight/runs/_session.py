@@ -462,7 +462,7 @@ def _assess(session: Session, changed_files: list[str], findings: list[Finding])
         changed_files,
         findings,
         policy=session.config.policy,
-        review_blocking_severities=session.config.review.blocking_severities,
+        review=session.config.review,
         docs_blocking_severities=session.config.docs.blocking_severities,
     )
 

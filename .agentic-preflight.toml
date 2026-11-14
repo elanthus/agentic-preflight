@@ -34,6 +34,10 @@ human_review_paths = [
   ".github/workflows/**",
   ".github/scripts/verify_dependabot.py",
   "SECURITY.md",
+  # The configured reviewer runs from the worktree under review; see [review] command.
+  "docs/examples/reviewers/**",
+  # `uv run` puts the repository root on sys.path, so Python imports this into the reviewer.
+  "sitecustomize.py",
   # Approval, attestation verification, hook, and publication decisions.
   "agentic_preflight/approval.py",
   "agentic_preflight/attestation.py",

@@ -46,6 +46,8 @@ Run `agentic-preflight init` in your clone to install the pre-push hook. The com
 Complete a run before you push.
 The committed configuration reviews every run with an independent Claude Code reviewer.
 `agentic-preflight review run` starts the example wrapper with `uv run`, and the wrapper calls the `claude` CLI with `claude-opus-5-5` at low effort.
+Under `uv run`, the editable install puts the repository root on `sys.path`, so Python imports a root `sitecustomize.py` into the reviewer at startup. That file is a human-review path.
+It also synchronizes the environment from `pyproject.toml` and `uv.lock`. Changes to those files rely on the required dependency audit, not on owner review.
 Install [Claude Code](https://docs.claude.com/en/docs/claude-code/setup) and sign in to an account that can use that model.
 Each review uses that account's quota: a Claude subscription's usage limits, or API billing when `ANTHROPIC_API_KEY` is set.
 See [Independent review and agreement](docs/independent-review.md) for the wrapper and its environment variables.
@@ -95,7 +97,8 @@ Another rule can still classify them as human review, for example a high or crit
 The current branch rules make `high-risk human approval` a required check, so a high-risk pull request cannot merge until the configured owner approves its exact content, unless someone uses the ruleset bypass.
 
 The explicit `human_review_paths` in `.agentic-preflight.toml` cover the decision points:
-policy and ownership, CI workflows, merge approval, attestation verification, the pre-push hook, publication gates, and security guidance.
+policy and ownership, CI workflows, merge approval, attestation verification, the pre-push hook, publication gates, security guidance, and the reviewer wrappers that `[review] command` runs.
+The tool also treats the files that `[review] command` names as human-review paths; see [Review independence](docs/configuration.md#review-independence-review).
 Dependency manifest and lockfile changes rely on the required automated dependency audit.
 Keep `.github/CODEOWNERS` aligned with that list.
 A blanket package owner would restore mandatory human review when Code Owner review is enforced.
