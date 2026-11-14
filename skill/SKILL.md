@@ -135,6 +135,8 @@ why the valid finding is not worth fixing. `--commit` cites the repair for the a
 record; in isolated modes every commit in the validation worktree merges back in commit
 order, cited or not. A green-stage repair changes the reviewed
 snapshot and returns the run to review; a note-only disposition leaves it green.
+The CLI enforces this: `context --section docs` and `stage run lint` exit 3 with
+`open_findings` while such a finding is open, because `respond` is not legal later.
 
 Always pass `--reason` when you dismiss or accept a finding, and when you abort a run.
 Choose the closest term from the closed list, and `other` when none fits. Put the

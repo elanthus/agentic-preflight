@@ -215,7 +215,10 @@ rejected. Copied caches are inputs to the run, never part of the change.
 ### `agentic-preflight context [--section review|docs]`
 Returns the material for the active stage. Review context can be fetched repeatedly.
 Docs context opens the docs stage from `REVIEW_GREEN` and snapshots its inputs; if
-review coverage is stale, it reopens review instead.
+review coverage is stale, it reopens review instead. It refuses to open the docs stage
+while a review finding is an open `auto_fix` finding (exit 3, `open_findings`).
+`data.finding_ids` and `blocking` list those findings, `next` names the `respond` command
+for the first one, and the run stays at `REVIEW_GREEN`.
 
 - Both sections: `diff`, `changed_files`, `excluded_files`, `worktree_path`.
 - Review adds `review_coverage`: a snapshot-bound `manifest`, the exact `head`, and
@@ -438,7 +441,11 @@ comments do not revoke an Approve review. The check counts the account, not the 
 a review posted with the reviewer's credentials counts as theirs, whoever posted it.
 
 ### `agentic-preflight stage run lint|test [--command CMD] [--record] [--baseline]`
-Stages run in the fixed order docs → lint → test after review becomes green. Running lint
+Stages run in the fixed order docs → lint → test after review becomes green. From
+`DOCS_GREEN`, `stage run lint` refuses to start while a review or docs finding is an open
+`auto_fix` finding (exit 3, `open_findings`), with the same `data.finding_ids`,
+`blocking`, and `respond` hint as docs context, because `respond` is not legal after
+docs. Running lint
 before the potentially expensive test command means a committed mechanical lint repair
 cannot invalidate an already-green test result. After lint the CLI automatically skips
 the software test command when every changed path is documentation or standard CI
@@ -531,6 +538,13 @@ snapshot and returns the active run to review before any stage can be trusted ag
 On success: compares the branch tree against the worktree tree. `tree_equivalent: true`
 means the verified content is byte-identical and a Git-note attestation is written for
 the exact commit. False returns to review with all snapshot-bound stage evidence cleared.
+
+A run that reaches `mergeback` with a blocking or open `auto_fix` review or docs finding,
+which an earlier release allowed, cannot attest it. `mergeback` refuses it with exit 3 and
+`open_findings` before it records an attempt, changes the source branch, or writes a note.
+`data.finding_ids` lists the findings and `data.fix_commits` the recorded fix commits;
+`next` is `abort`, because `respond` is no longer legal. Fix or decide each finding, then
+start a fresh run.
 
 A run that an earlier release started has no record of which configuration sections came
 from the user file. `mergeback` refuses it with exit 4 and `needs_human`, giving the reason

@@ -33,6 +33,7 @@ from ._session import (
     findings_next_hint,
     load_current,
     require_finding_stage,
+    require_findings_resolved,
     require_state,
     require_worktree,
     stage_blocking_severities,
@@ -124,6 +125,9 @@ def context(session: Session, *, section: str = "review") -> Envelope:
             command="context --section docs",
         )
         if run.state is State.REVIEW_GREEN:
+            require_findings_resolved(
+                session, run, stages=(Stage.REVIEW,), command="context --section docs"
+            )
             run = _open_docs_stage(session, run)
     else:
         require_state(

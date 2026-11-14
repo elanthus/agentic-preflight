@@ -13,6 +13,7 @@ from ..errors import (
     DirtyTree,
     MergebackConflictError,
     NeedsHuman,
+    OpenFindings,
     StaleRun,
 )
 from ..errors import (
@@ -32,6 +33,7 @@ from ._session import (
     load_current,
     require_state,
     require_worktree,
+    unresolved_findings,
     worktree_mode,
 )
 from .fix_commits import derive_fix_commits
@@ -319,6 +321,39 @@ def require_known_provenance(run: RunDoc, *, command: str) -> None:
     )
 
 
+def require_resolved_findings(session: Session, run: RunDoc) -> None:
+    """Refuse a run whose review or docs findings an attestation would reject.
+
+    The review and docs stages now refuse to hand off such a finding, but a run that
+    an earlier release advanced can still carry one here. `respond` is no longer
+    legal, so the run cannot repair itself; say so before anything is recorded.
+    """
+    pending = unresolved_findings(session, run, (Stage.REVIEW, Stage.DOCS))
+    if not pending:
+        return
+    ids = [finding.id for finding in pending]
+    keep = (
+        " Keep the recorded fix commits in data.fix_commits by cherry-picking them onto "
+        "your branch before you abort, because `abort --force` discards them."
+        if run.fix_commits
+        else ""
+    )
+    raise OpenFindings(
+        "the run left review with findings that still need a disposition, and "
+        f"`respond` is no longer legal: {', '.join(ids)}",
+        state=run.state.value,
+        run_id=run.run_id,
+        stage=pending[0].stage.value,
+        data={"finding_ids": ids, "fix_commits": list(run.fix_commits)},
+        blocking=[finding.model_dump(mode="json") for finding in pending],
+        next_instruction=(
+            "Do not retry `mergeback`. Abort this run, fix or decide each listed "
+            f"finding, and start a fresh run.{keep}"
+        ),
+        next_command="agentic-preflight abort",
+    )
+
+
 def mergeback(session: Session) -> Envelope:
     """Attest in-place validation or merge isolated fixes onto the source branch."""
     run = load_current(session)
@@ -333,6 +368,7 @@ def mergeback(session: Session) -> Envelope:
             run_id=run.run_id,
         )
     require_known_provenance(run, command="mergeback")
+    require_resolved_findings(session, run)
 
     retrying_conflict = run.state is State.MERGEBACK_CONFLICT or (
         run.state is State.MERGEBACK_PENDING

@@ -28,6 +28,7 @@ from ._session import (
     envelope_for,
     is_in_place,
     load_current,
+    require_findings_resolved,
     require_state,
     require_worktree,
     start_command,
@@ -360,6 +361,10 @@ def run_stage(
                 next_command="agentic-preflight context",
             )
     require_state(run, *_STAGE_READY_STATES[stage_name], command=f"stage run {stage_name}")
+    if run.state is State.DOCS_GREEN:
+        require_findings_resolved(
+            session, run, stages=(Stage.REVIEW, Stage.DOCS), command=f"stage run {stage_name}"
+        )
     run = _recover_interrupted_stage(session, run, stage, spec)
     record_entry = run.stages.get(stage) or StageRecord()
     worktree_path = require_worktree(run)

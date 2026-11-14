@@ -19,6 +19,7 @@ from ..envelope import Envelope
 from ..errors import (
     MaxRestarts,
     NoRun,
+    OpenFindings,
     StaleRun,
     WrongState,
 )
@@ -485,8 +486,57 @@ def findings_next_hint(
         envelope.next_instruction = blocking_instruction
         envelope.next_command = _respond_command(blocking[0].id)
     elif actionable:
-        envelope.next_instruction = (
-            "This stage is green, but an auto-fix finding is still open. Fix it, "
-            "or record why it is not worth fixing with `--action accepted --note`."
-        )
+        envelope.next_instruction = OPEN_AUTO_FIX_INSTRUCTION
         envelope.next_command = _respond_command(actionable[0].id)
+
+
+OPEN_AUTO_FIX_INSTRUCTION = (
+    "This stage is green, but an auto-fix finding is still open. Fix it, "
+    "or record why it is not worth fixing with `--action accepted --note`."
+)
+
+
+def unresolved_findings(session: Session, run: RunDoc, stages: Sequence[Stage]) -> list[Finding]:
+    """Findings in ``stages`` that block, or that are open auto-fix findings.
+
+    This is the set an attestation refuses, so a run must clear it before it leaves
+    the stage that recorded it.
+    """
+    stored = session.store.load_findings(run.run_id)
+    result: list[Finding] = []
+    seen: set[str] = set()
+    for stage in stages:
+        stage_findings = [finding for finding in stored if finding.stage is stage]
+        blocking = findingsmod.blocking(
+            stage_findings, blocking_severities=stage_blocking_severities(session, stage)
+        )
+        for finding in [*blocking, *findingsmod.actionable(stage_findings)]:
+            if finding.id not in seen:
+                seen.add(finding.id)
+                result.append(finding)
+    return result
+
+
+def require_findings_resolved(
+    session: Session, run: RunDoc, *, stages: Sequence[Stage], command: str
+) -> None:
+    """Refuse to leave a finding stage while one of its findings needs a disposition.
+
+    `respond` is legal only in the review and docs states. A run that moved on with
+    an open auto-fix finding could never resolve it, and `mergeback` would refuse to
+    attest it.
+    """
+    pending = unresolved_findings(session, run, stages)
+    if not pending:
+        return
+    ids = [finding.id for finding in pending]
+    raise OpenFindings(
+        f"`{command}` cannot continue while findings still need a disposition: {', '.join(ids)}",
+        state=run.state.value,
+        run_id=run.run_id,
+        stage=pending[0].stage.value,
+        data={"finding_ids": ids},
+        blocking=[finding.model_dump(mode="json") for finding in pending],
+        next_instruction=OPEN_AUTO_FIX_INSTRUCTION,
+        next_command=_respond_command(pending[0].id),
+    )

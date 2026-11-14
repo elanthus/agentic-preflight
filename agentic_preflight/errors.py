@@ -214,6 +214,13 @@ class InvalidResponse(AgenticError):
     exit_code = ExitCode.PRECONDITION
 
 
+class OpenFindings(AgenticError):
+    """A stage still holds findings that need a disposition before the run moves on."""
+
+    code = "open_findings"
+    exit_code = ExitCode.PRECONDITION
+
+
 class UnmergedWork(AgenticError):
     """Destroying work is the one outcome nobody can undo, so it needs a yes."""
 

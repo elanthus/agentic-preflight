@@ -649,3 +649,11 @@ A rewind to a commit the remote already has is still refused as a force push unl
 Deletions, tags, the attestation notes ref, evidence refs, and pushes of a commit the remote already has are allowed as in a SHA-1 repository.
 The exit codes, the reason codes, and the hook decision lines are unchanged. Behavior in a SHA-1 repository is unchanged.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Unreleased: an open auto-fix finding stops the run at its stage
+
+`context --section docs` and `stage run lint` now refuse, with exit 3 and the new error code `open_findings`, to leave a green review or docs stage while one of its findings is an open `auto_fix` finding.
+Earlier releases continued to lint, test, and `mergeback`, where `respond` was no longer legal and `mergeback` failed with `internal_error` after moving the run to `MERGEBACK_PENDING`.
+`mergeback` now refuses such a run, from an earlier release, with exit 3 and `open_findings` before it records an attempt, and its `next` is `abort`.
+A run that resolves each auto-fix finding with `respond`, as `next` already said, is unaffected.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
