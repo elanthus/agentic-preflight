@@ -181,12 +181,17 @@ def _interrupted_checkouts(session: Session, run: RunDoc) -> list[Path]:
     return owned
 
 
+def _is_disposable(run: RunDoc, path: Path) -> bool:
+    """Whether ``path`` is gone, or clean at the head ``run`` started from."""
+    return not path.exists() or (
+        gitx.is_clean(path) and gitx.rev_parse(path, "HEAD") == run.head_sha
+    )
+
+
 def _require_disposable(run: RunDoc, checkouts: list[Path]) -> None:
     """Refuse to reclaim a checkout that holds anything beyond the run's start."""
     for path in checkouts:
-        if not path.exists():
-            continue
-        if gitx.is_clean(path) and gitx.rev_parse(path, "HEAD") == run.head_sha:
+        if _is_disposable(run, path):
             continue
         raise NeedsHuman(
             f"run {run.run_id} was interrupted during start and left validation checkout "
@@ -207,31 +212,33 @@ def _require_disposable(run: RunDoc, checkouts: list[Path]) -> None:
         )
 
 
-def _reclaim_interrupted_checkouts(session: Session, run: RunDoc) -> list[Path]:
-    """Release what an interrupted ``start`` provisioned for ``run``.
+def _reclaim_interrupted_checkouts(
+    session: Session, run: RunDoc, checkouts: list[Path]
+) -> list[Path]:
+    """Release the ``checkouts`` an interrupted ``start`` provisioned for ``run``.
 
-    The caller has checked that every checkout is disposable. A reusable runner
-    is reset and detached so the next run can lease it; a strict checkout is
-    removed. The run's ``ap/`` branch is deleted only while it still points at
-    the head the run started from. A failure raises ``needs_human`` so the
-    caller leaves the run as it was and a later ``start`` can retry.
+    The caller has checked that each one is disposable. A reusable runner is
+    reset and detached so the next run can lease it; a strict checkout is
+    removed. The run's ``ap/`` branch is deleted afterwards, atomically and only
+    while it still points at the head the run started from and no checkout has
+    it checked out, so commits made on it are never lost. A failure raises
+    ``needs_human`` so the caller leaves the run as it was for a retry.
     """
-    branch = f"ap/{run.run_id}"
+    ref = f"refs/heads/ap/{run.run_id}"
     reclaimed: list[Path] = []
     try:
-        for path in _interrupted_checkouts(session, run):
-            reclaimed.append(path)
+        for path in checkouts:
             if path.name == run.run_id:
-                worktree.remove(session.repo_root, path, branch=branch)
+                worktree.remove(session.repo_root, path)
             else:
                 worktree.release_reusable(
-                    session.repo_root, path, branch=branch, copied_files=run.copied_files
+                    session.repo_root, path, branch=None, copied_files=run.copied_files
                 )
-        probe = gitx.run(
-            session.repo_root, "rev-parse", "--verify", "-q", f"refs/heads/{branch}", check=False
-        )
-        if probe.returncode == 0 and probe.stdout.strip() == run.head_sha:
-            gitx.run(session.repo_root, "branch", "-D", branch, check=False)
+            reclaimed.append(path)
+        if not any(
+            record.get("branch") == ref for record in gitx.list_worktrees(session.repo_root)
+        ):
+            gitx.run(session.repo_root, "update-ref", "-d", ref, run.head_sha, check=False)
     except (worktree.WorktreeError, gitx.GitError, OSError, subprocess.SubprocessError) as exc:
         session.store.append_event(
             run.run_id, {"event": "interrupted_checkout_release_failed", "error": str(exc)[:500]}
@@ -266,9 +273,11 @@ def _reclaim_checkouts_from_ended_runs(session: Session) -> None:
     ``ap/<run_id>`` branch or, detached, by its directory. It is reclaimed only
     when that run is terminal, recorded no fix commits, holds no unreleased
     recorded checkout, is idle, and the checkout is clean at the run's head.
-    A runner that fails those checks is refused with ``needs_human``: a reusable
-    run must lease it, and a strict run must remove it first, so a new run in
-    either mode cannot proceed past it. A strict checkout is left in place.
+    Only the checked checkout is reclaimed. A runner that fails those checks
+    is refused with ``needs_human``: a reusable run must lease it, and a strict
+    run must remove it first, so a new run in either mode cannot proceed past
+    it. A strict checkout that fails them, or cannot be removed (for example
+    because it is locked), is left in place, since it blocks nothing.
     """
     root = session.store.worktrees_dir.resolve()
     runner = (session.store.worktrees_dir / "runner").resolve()
@@ -304,11 +313,12 @@ def _reclaim_checkouts_from_ended_runs(session: Session) -> None:
                 continue
             if resolved == runner:
                 _require_disposable(run, [path])
-            elif path.exists() and not (
-                gitx.is_clean(path) and gitx.rev_parse(path, "HEAD") == run.head_sha
-            ):
-                continue
-            _reclaim_interrupted_checkouts(session, run)
+                _reclaim_interrupted_checkouts(session, run, [path])
+            elif _is_disposable(run, path):
+                try:
+                    _reclaim_interrupted_checkouts(session, run, [path])
+                except NeedsHuman:
+                    continue  # recorded as an event; a strict leftover blocks nothing
 
 
 def _orphan(
@@ -336,8 +346,9 @@ def _orphan(
             )
         released = False
         if interrupted_start:
-            _require_disposable(run, _interrupted_checkouts(session, run))
-            reclaimed = _reclaim_interrupted_checkouts(session, run)
+            checkouts = _interrupted_checkouts(session, run)
+            _require_disposable(run, checkouts)
+            reclaimed = _reclaim_interrupted_checkouts(session, run, checkouts)
             # Only a recorded checkout that was reclaimed, or is gone, is released;
             # one outside the current worktrees root stays leased for `gc`.
             if run.worktree_path:

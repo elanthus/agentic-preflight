@@ -399,6 +399,57 @@ def test_start_reclaims_a_strict_checkout_left_by_an_aborted_interrupted_run(
         assert git("branch", "--list", f"ap/{dead_run_id}", cwd=feature_repo) == ""
 
 
+def test_reclaiming_never_deletes_a_run_branch_that_moved_past_its_head(
+    agent, feature_repo, monkeypatch
+):
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "strict", "mid_create")
+    session = runs.open_session(feature_repo)
+    dead_checkout = session.store.worktrees_dir / dead_run_id
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=dead_checkout) == "HEAD"
+    extra = git(
+        "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "work on the run branch", cwd=feature_repo
+    )
+    git("branch", f"ap/{dead_run_id}", extra, cwd=feature_repo)
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert not dead_checkout.exists()
+    assert git("rev-parse", f"refs/heads/ap/{dead_run_id}", cwd=feature_repo) == extra
+
+
+def test_a_locked_strict_leftover_does_not_block_start(agent, feature_repo, monkeypatch):
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "strict", "after_checkout")
+    session = runs.open_session(feature_repo)
+    dead_checkout = session.store.worktrees_dir / dead_run_id
+    assert agent.run("abort", "--force")["state"] == "ABORTED"
+    git("worktree", "lock", "--reason", "kept by the user", str(dead_checkout), cwd=feature_repo)
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert dead_checkout.exists()
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=dead_checkout) == f"ap/{dead_run_id}"
+
+
+def test_reclaiming_a_runner_leaves_another_dirty_checkout_of_the_run_alone(
+    agent, feature_repo, monkeypatch
+):
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "reusable", "after_checkout")
+    session = runs.open_session(feature_repo)
+    runner = session.store.worktrees_dir / "runner"
+    assert agent.run("abort", "--force")["state"] == "ABORTED"
+    named_for_run = session.store.worktrees_dir / dead_run_id
+    git("worktree", "add", "--detach", str(named_for_run), "HEAD", cwd=feature_repo)
+    write(named_for_run, "notes.txt", "keep me\n")
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=runner) == f"ap/{env['run_id']}"
+    assert (named_for_run / "notes.txt").read_text(encoding="utf-8") == "keep me\n"
+
+
 def test_an_aborted_interrupted_run_does_not_leave_the_runner_leased_forever(
     agent, feature_repo, monkeypatch
 ):
