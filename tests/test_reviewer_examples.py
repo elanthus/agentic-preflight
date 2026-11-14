@@ -299,6 +299,10 @@ def test_example_configs_parse_without_expanding_configuration_sections(tmp_path
         (tmp_path / ".agentic-preflight.toml").write_text(config.read_text(), encoding="utf-8")
         loaded = load_config(tmp_path)
         assert loaded.review.executor == "command"
+        # The wrapper the configuration runs, and code ownership, need human review.
+        assert {"docs/examples/reviewers/**", "docs/CODEOWNERS", ".github/CODEOWNERS"} <= set(
+            loaded.policy.human_review_paths
+        )
 
     configuration = (ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
     documented = set(re.findall(r"^\[([a-z]+)\]$", configuration, re.MULTILINE))

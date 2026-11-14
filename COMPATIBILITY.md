@@ -574,3 +574,28 @@ New flags choose the window: `--tail N`, `--head N`, and `--all`. `--all` restor
 A wrapper that read the whole log from `data.output` must pass `--all` or read the file at `data.log_path`.
 The stored log, its redaction, and its location are unchanged.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Unreleased: grounding reads the merge base
+
+`data.grounding` now reads `docs/**`, `AGENTS.md`, `CLAUDE.md`, the files that `[context] extra_paths` selects, and the `[context]` section itself from `.agentic-preflight.toml` at the run's merge base.
+Earlier releases read them from the branch head and the working-tree configuration.
+When the merge base sets no `[context]` section, the user file's section applies.
+A branch's edits to those files reach the reviewer only through the diff, and a branch's `[context]` change applies to later runs after it merges.
+For a branch that edits those files or `[context]`, the grounding and `grounding_sha256` change, so review and docs evidence recorded for that branch before the upgrade is not reused and those stages run again.
+For other branches the grounding is unchanged.
+Run schema 2, attestation schema 7, fingerprint version 2, and the configuration digest are unchanged.
+
+## Unreleased: hook path names a symlink, not its target
+
+`init` now replaces a symlink at the pre-push hook path with a regular file instead of writing through it.
+A dangling link, or a link to exactly the current hook script, is replaced without `--force`. Any other link to an existing file is judged by that file's content, as before.
+`data.hook_path` from `init` and the hook path that `status` reports now name the hook path itself, without following a symlink there.
+Earlier releases reported the link's target, or the missing target of a dangling link.
+The hooks directory, including `core.hooksPath`, is still resolved to an absolute path.
+
+## Unreleased: hosted workflow hardening
+
+The `high-risk human approval` job now fails unless the policy job reports `requires_approval` as exactly `true` or `false`.
+The checkouts in `attestation.yml` and `human-approval.yml` set `persist-credentials: false`. A private repository that copies them must authenticate the later `git fetch` itself; see [Portable attestations and CI enforcement](docs/attestations-and-ci.md#required-github-check).
+`human-approval-rerun.yml` now has an `authorize` job and a `rerun` job, and re-runs the policy only for a review from an owner, member, or collaborator, an action by a user with write access, or an action by a bot account that has dismissed an owner, member, or collaborator review of the pull request. When a lookup that decides this fails, it re-runs the policy with a warning instead of skipping it. A project that copied the companion should copy the new version.
+The required check keeps its name, and `approval-check`, its outputs, and the attestation schema are unchanged.

@@ -83,6 +83,9 @@ human_review_paths = [
   ".github/workflows/**",
   ".github/CODEOWNERS",
   "CODEOWNERS",
+  "docs/CODEOWNERS",
+  # Command reviewer wrappers decide what a review reports.
+  "docs/examples/reviewers/**",
 ]
 # Every high-risk result requires human merge approval; medium risk does not.
 high_risk_paths = ["db/migrations/**", "infra/**"]
@@ -376,6 +379,7 @@ The reviewer checks that content.
 It returns that knowledge in `data.grounding`.
 The default sources are matching files under `docs/**` and the root `AGENTS.md` and `CLAUDE.md` files.
 They also include relevant findings from earlier local runs and the deterministic policy reasons for the change.
+The documentation, the convention files, and this `[context]` section are read at the run's merge base, so a branch's change to `[context]` applies to later runs after it merges.
 See [Grounded context](context-grounding.md) for the matching and ordering rules.
 
 `enabled = false` returns an explicit empty grounding block.
@@ -524,7 +528,8 @@ Ordinary code derives the verdict from the committed policy and the stored findi
 The reviewing model cannot submit or override it.
 Protect the policy file with your forge's ownership rules, so a change cannot quietly remove its own human-review rule.
 On GitHub, make the repository's `high-risk human approval` job a required status check.
-Copy `human-approval-review.yml` and `human-approval-rerun.yml` along with `human-approval.yml`, so a submitted review re-runs the check; see [how a review reaches the check](attestations-and-ci.md#how-a-review-reaches-the-check).
+Copy `human-approval-review.yml` and `human-approval-rerun.yml` along with `human-approval.yml`, so a review from an owner, member, or collaborator, or a dismissal by a user with write access, re-runs the check; see [how a review reaches the check](attestations-and-ci.md#how-a-review-reaches-the-check).
+The copied checkouts set `persist-credentials: false`, so in a private repository the later `git fetch` steps need credentials of their own; see [Required GitHub check](attestations-and-ci.md#required-github-check).
 Require Code Owner reviews for the protected paths.
 The job evaluates trusted base code.
 Its behavior depends on `[approval] mode`.
