@@ -3,6 +3,12 @@
 Grounding deliberately reads only committed files and persisted local runs. That
 keeps the bundle tied to the reviewed Git snapshot without introducing a model,
 an embedding index, a network dependency, or filesystem iteration order.
+
+Documentation and conventions, and the ``[context]`` settings that select and bound
+them, come from the run's merge base, not from the branch under review. A change
+therefore cannot rewrite the conventions its own reviewer is shown, or turn them off.
+The branch's edits to those files, including files it adds, reach the reviewer
+through the diff instead.
 """
 
 from __future__ import annotations
@@ -18,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from . import gitx
 from . import risk as riskmod
+from .config import committed_context
 from .diff import path_matches
 from .models import RunDoc
 
@@ -242,7 +249,7 @@ def _policy_entries(session: Session, changed_files: list[str]) -> list[dict[str
         changed_files,
         [],
         policy=session.config.policy,
-        review_blocking_severities=session.config.review.blocking_severities,
+        review=session.config.review,
         docs_blocking_severities=session.config.docs.blocking_severities,
     )
     return [
@@ -276,12 +283,17 @@ def _apply_total_budget(
 
 
 def assemble(session: Session, run: RunDoc, changed_files: list[str]) -> dict[str, Any]:
-    """Assemble stable, bounded repository context for one review snapshot."""
-    config = session.config.context
+    """Assemble stable, bounded repository context for one review snapshot.
+
+    Documentation and convention files, and the ``[context]`` settings that select
+    and bound them, are read from ``run.merge_base_sha``. A file that the branch adds
+    is absent there, so it appears only in the review diff.
+    """
+    repo = Path(run.worktree_path or session.repo_root)
+    config = committed_context(repo, run.merge_base_sha)
     if not config.enabled:
         return {"enabled": False, "entries": [], "dropped": {}}
 
-    repo = Path(run.worktree_path or session.repo_root)
     texts, omitted, _ = _load_sources(
         repo,
         lambda path: (
@@ -289,6 +301,7 @@ def assemble(session: Session, run: RunDoc, changed_files: list[str]) -> dict[st
             or path in _CONVENTION_PATHS
             or any(path_matches(path, pattern) for pattern in config.extra_paths)
         ),
+        revision=run.merge_base_sha,
     )
     groups = (
         ("doc", _doc_entries(texts, changed_files, config.entry_max_bytes)),
@@ -337,14 +350,16 @@ _BINARY_SUFFIXES = frozenset(
 
 
 def _load_sources(
-    repo: Path | str, select: Callable[[str], bool]
+    repo: Path | str, select: Callable[[str], bool], *, revision: str = "HEAD"
 ) -> tuple[dict[str, str], dict[str, int], set[str]]:
     """Select by metadata before one batched content read; report every omitted source.
 
-    Object IDs from ls-tree bind subsequent reads to that tree even if HEAD moves.
-    Neither staged files nor filesystem symlink targets enter the source set.
+    ``revision`` names the commit whose tree is read; review grounding passes the
+    run's merge base. Object IDs from ls-tree bind subsequent reads to that tree even
+    if HEAD moves. Neither staged files nor filesystem symlink targets enter the
+    source set.
     """
-    output = gitx.run(repo, "ls-tree", "-r", "-l", "-z", "HEAD").stdout
+    output = gitx.run(repo, "ls-tree", "-r", "-l", "-z", revision).stdout
     candidates = []
     paths = set()
     omitted: Counter[str] = Counter()

@@ -21,28 +21,29 @@ from ..models import (
     StageStatus,
 )
 from ..stages import docs as docsstage
+from ..stages import shellstage
 from . import evidence, review_compare, review_coverage, review_protocol
 from ._session import (
     Session,
-    _apply,
-    _assert_fresh,
-    _assess,
-    _blocking_severities,
-    _check_restart_limit,
-    _envelope_for,
-    _findings_next_hint,
-    _load_current,
-    _now,
-    _require_finding_stage,
-    _require_state,
-    _require_worktree,
+    apply_action,
+    assert_fresh,
+    assess_risk,
+    check_restart_limit,
+    envelope_for,
+    findings_next_hint,
+    load_current,
+    require_finding_stage,
+    require_state,
+    require_worktree,
+    stage_blocking_severities,
+    utc_now,
 )
 
 
 def _open_docs_stage(session: Session, run: RunDoc) -> RunDoc:
     """Move REVIEW_GREEN into the docs sub-machine."""
     with session.store.transaction(run.run_id) as doc:
-        _apply(doc, Action.BEGIN_DOCS)
+        apply_action(doc, Action.BEGIN_DOCS)
         return doc
 
 
@@ -63,12 +64,12 @@ def _skip_docs_if_disabled(session: Session, run: RunDoc) -> RunDoc:
         doc.stages[Stage.DOCS] = StageRecord(
             status=StageStatus.SKIPPED,
             reason="disabled by configuration",
-            finished_at=_now(),
-            head_sha=gitx.rev_parse(_require_worktree(run), "HEAD"),
+            finished_at=utc_now(),
+            head_sha=gitx.rev_parse(require_worktree(run), "HEAD"),
             fingerprint=fingerprint,
         )
         doc.evidence.pop(Stage.DOCS, None)
-        _apply(doc, Action.SKIP_DOCS)
+        apply_action(doc, Action.SKIP_DOCS)
         run = doc
     session.store.append_event(run.run_id, {"event": "docs_skipped", "reason": "disabled"})
     return run
@@ -87,12 +88,12 @@ def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
         doc.stages[Stage.TEST] = StageRecord(
             status=StageStatus.SKIPPED,
             reason=reason,
-            finished_at=_now(),
+            finished_at=utc_now(),
             head_sha=gitx.rev_parse(doc.worktree_path or session.repo_root, "HEAD"),
             fingerprint=fingerprint,
         )
         doc.evidence.pop(Stage.TEST, None)
-        _apply(doc, Action.SKIP_TEST)
+        apply_action(doc, Action.SKIP_TEST)
         run = doc
     session.store.append_event(
         run.run_id,
@@ -103,9 +104,9 @@ def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
 
 def context(session: Session, *, section: str = "review") -> Envelope:
     """Return the review or docs context for the current run."""
-    run = _load_current(session)
-    _check_restart_limit(run)
-    _assert_fresh(session, run)
+    run = load_current(session)
+    check_restart_limit(run)
+    assert_fresh(session, run)
 
     if section == "docs" and run.state in {
         State.REVIEW_GREEN,
@@ -116,7 +117,7 @@ def context(session: Session, *, section: str = "review") -> Envelope:
             return context(session, section="review")
 
     if section == "docs":
-        _require_state(
+        require_state(
             run,
             State.REVIEW_GREEN,
             State.DOCS_AWAITING_FINDINGS,
@@ -125,7 +126,7 @@ def context(session: Session, *, section: str = "review") -> Envelope:
         if run.state is State.REVIEW_GREEN:
             run = _open_docs_stage(session, run)
     else:
-        _require_state(
+        require_state(
             run,
             State.WORKTREE_READY,
             State.REVIEW_AWAITING_FINDINGS,
@@ -164,7 +165,7 @@ def context(session: Session, *, section: str = "review") -> Envelope:
             doc.stages[Stage.DOCS] = record
             run = doc
 
-    envelope = _envelope_for(run, stage=section, data=ContextData.model_validate(data))
+    envelope = envelope_for(run, stage=section, data=ContextData.model_validate(data))
     if section == "docs":
         envelope.next_instruction = (
             "Ask one question of the diff: would a reader following the current "
@@ -213,6 +214,23 @@ def _parse_stage_submission(session: Session, run: RunDoc, stage: Stage, payload
     return submissions, manifest, coverage
 
 
+def _copied_file_secrets(run: RunDoc) -> list[str]:
+    """Read copied-file values to redact finding text, failing closed like stage logs."""
+    try:
+        return shellstage.read_secrets(require_worktree(run), run.copied_files)
+    except shellstage.SecretRedactionError as exc:
+        raise InvalidFindings(
+            "findings cannot be recorded because copied-file redaction is unavailable",
+            state=run.state.value,
+            run_id=run.run_id,
+            data={"copied_file": str(exc.path)},
+            next_instruction=(
+                "Restore the reported copied file as readable text, or remove it from "
+                "[worktree] copy_files, then resubmit."
+            ),
+        ) from exc
+
+
 def submit_findings(
     session: Session,
     payload,
@@ -220,17 +238,17 @@ def submit_findings(
     _executor: review_protocol.ReviewExecutor = "in_harness",
 ) -> Envelope:
     """Record the agent's findings for the review or docs stage."""
-    run = _load_current(session)
-    _check_restart_limit(run)
-    _assert_fresh(session, run)
-    _require_state(
+    run = load_current(session)
+    check_restart_limit(run)
+    assert_fresh(session, run)
+    require_state(
         run,
         State.REVIEW_AWAITING_FINDINGS,
         State.DOCS_AWAITING_FINDINGS,
         command="submit-findings",
     )
 
-    stage = _require_finding_stage(run)
+    stage = require_finding_stage(run)
     if (
         stage is Stage.REVIEW
         and _executor == "in_harness"
@@ -246,9 +264,11 @@ def submit_findings(
             next_instruction="Run the independent reviewer for this risk level.",
             next_command="agentic-preflight review run",
         )
-    worktree_path = _require_worktree(run)
+    worktree_path = require_worktree(run)
     bundle = review_protocol.bundle_for(session, run)
     submissions, manifest, coverage = _parse_stage_submission(session, run, stage, payload, bundle)
+    if submissions:
+        submissions = findingsmod.redact_submissions(submissions, _copied_file_secrets(run))
     existing = session.store.load_findings(run.run_id)
     stage_fingerprint = evidence.fingerprint(session, run, stage)
     if stage is Stage.DOCS:
@@ -268,7 +288,7 @@ def submit_findings(
     else:
         allowed = set(bundle.files)
 
-    blocking_severities = _blocking_severities(session, stage)
+    blocking_severities = stage_blocking_severities(session, stage)
 
     try:
         accepted = findingsmod.validate_and_assign(
@@ -295,7 +315,7 @@ def submit_findings(
             combined = [*combined, injected]
     stage_findings = [f for f in combined if f.stage is stage]
     blocking = findingsmod.blocking(stage_findings, blocking_severities=blocking_severities)
-    assessment = _assess(session, run.changed_files or bundle.files, combined)
+    assessment = assess_risk(session, run.changed_files or bundle.files, combined)
 
     with session.store.transaction(run.run_id, findings=combined) as doc:
         doc.risk = assessment
@@ -304,7 +324,7 @@ def submit_findings(
             entry = doc.stages.get(Stage.REVIEW) or StageRecord()
             entry.status = StageStatus.GREEN
             entry.executor = _executor
-            entry.finished_at = _now()
+            entry.finished_at = utc_now()
             entry.head_sha = coverage.head_sha
             if _executor == "in_harness":
                 entry.command = None
@@ -315,12 +335,12 @@ def submit_findings(
         else:
             entry = doc.stages.get(Stage.DOCS) or StageRecord()
             entry.status = StageStatus.GREEN
-            entry.finished_at = _now()
+            entry.finished_at = utc_now()
             entry.head_sha = gitx.rev_parse(worktree_path, "HEAD")
             doc.stages[Stage.DOCS] = entry
         entry.fingerprint = stage_fingerprint
         doc.evidence.pop(stage, None)
-        _apply(doc, Action.SUBMIT_BLOCKING if blocking else Action.SUBMIT_CLEAN)
+        apply_action(doc, Action.SUBMIT_BLOCKING if blocking else Action.SUBMIT_CLEAN)
         run = doc
 
     if stage is Stage.REVIEW and manifest is not None and coverage is not None:
@@ -349,7 +369,7 @@ def submit_findings(
         },
     )
 
-    envelope = _envelope_for(
+    envelope = envelope_for(
         run,
         stage=stage.value,
         data=SubmitFindingsData(
@@ -360,15 +380,15 @@ def submit_findings(
         ),
         blocking=[f.model_dump(mode="json") for f in blocking],
     )
-    _findings_next_hint(envelope, blocking, actionable)
+    findings_next_hint(envelope, blocking, actionable)
     return envelope
 
 
 def verify(session: Session) -> Envelope:
     """Verify fixes for blocking review findings."""
-    run = _load_current(session)
-    _assert_fresh(session, run)
-    _require_state(
+    run = load_current(session)
+    assert_fresh(session, run)
+    require_state(
         run,
         State.REVIEW_BLOCKED,
         State.REVIEW_GREEN,
@@ -377,8 +397,8 @@ def verify(session: Session) -> Envelope:
         command="verify",
     )
 
-    stage = _require_finding_stage(run)
-    blocking_severities = _blocking_severities(session, stage)
+    stage = require_finding_stage(run)
+    blocking_severities = stage_blocking_severities(session, stage)
     stage_findings = [f for f in session.store.load_findings(run.run_id) if f.stage is stage]
     outstanding = findingsmod.blocking(stage_findings, blocking_severities=blocking_severities)
 
@@ -396,7 +416,7 @@ def verify(session: Session) -> Envelope:
 
     run, reopened = review_coverage.reopen_if_stale(session, run)
     if reopened:
-        return _envelope_for(
+        return envelope_for(
             run,
             stage=Stage.REVIEW.value,
             data=VerifyData(coverage_invalidated=True),
@@ -409,12 +429,12 @@ def verify(session: Session) -> Envelope:
 
     if run.state not in (State.REVIEW_GREEN, State.DOCS_GREEN):
         with session.store.transaction(run.run_id) as doc:
-            _apply(doc, Action.RESOLVE_GREEN)
+            apply_action(doc, Action.RESOLVE_GREEN)
             run = doc
 
     run = _skip_docs_if_disabled(session, run)
 
-    return _envelope_for(
+    return envelope_for(
         run,
         stage=stage.value,
         data=VerifyData(stage=stage.value, blocking_count=0),

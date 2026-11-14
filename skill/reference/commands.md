@@ -5,9 +5,10 @@ This reference describes command behavior; it does not grant publication or merg
 authorization. See the [CLI walkthrough](workflow.md) for a worked sequence.
 
 Every agent-facing workflow command prints exactly one JSON object to stdout. Human
-prose goes to stderr. Parse that stdout blindly; every key is always present. The sole
-exception is `hook-check`: Git consumes its exit status and stderr, so it emits no JSON
-envelope and is not an agent-facing command.
+prose goes to stderr. Parse that stdout blindly; every key is always present. There are
+two exceptions, and neither is an agent-facing command, so neither emits a JSON envelope:
+`hook-check`, whose exit status and stderr Git consumes, and `reviewer run`, whose stdout
+`review run` reads as the review submission.
 
 ```json
 {"ok": true, "run_id": "r_...", "state": "REVIEW_AWAITING_FINDINGS", "stage": "review",
@@ -25,8 +26,8 @@ hyphens, such as `stage-run.json`). The schemas are generated from the models in
 hand. Every field is optional because `data` differs by outcome.
 
 `agentic-preflight --version` prints the installed version and exits 0. Every other
-command first checks the Git version and exits 1 with `unsupported_git_version` when Git
-is older than 2.38.
+command outside the `reviewer` group (whose only command is `reviewer run`) first checks
+the Git version and exits 1 with `unsupported_git_version` when Git is older than 2.38.
 
 Place `--run RUN_ID` before any workflow command to select a stored run explicitly.
 A `RUN_ID` other than `r_` followed by 10 lowercase hex digits exits 6 with
@@ -35,6 +36,24 @@ Without it, the command resolves the run owned by the invoking Git worktree. Whe
 selected run's recorded source checkout no longer exists, inspection commands remain
 available, mutating commands exit 3 with `source_worktree_missing`, and `gc` remains the
 recovery path from another worktree in the clone.
+When the selected run's record cannot be read or validated, mutating workflow commands
+other than `status` and `gc`, including `abort --force` and `start --replace`, exit 3 with
+`run_record_unreadable` and leave the record unchanged. `data` holds the record's
+`run_id`, `path`, `reason`, and value-free `diagnostic`. `next.command` is `null`.
+When worktree ownership pointers still name the run and the raw record names the
+`in_place` or `strict` worktree mode, `data.pointer_paths` lists those pointers and
+`next.instruction` names them. If a compatible version cannot read the record either and
+the user decides to abandon the run, deleting only those files lets `start` create a
+fresh run. The old run can then no longer be resumed from that worktree. Its record,
+worktree, and branch stay in place; `gc` retains them while the record stays unreadable,
+and a version that can read it may later orphan and reclaim it. Otherwise
+`data.pointer_paths` is absent. For a `reusable` run, or a record whose `worktree_path`
+names the reusable runner, the run may still lease the clone's single runner on its own
+branch, so deleting a pointer would not let any worktree start a reusable run; the
+instruction says to keep the record, pointers, runner, and branch, and to stop for the
+user. When the mode cannot be determined, for example because the file cannot be read
+at all, the instruction says so and says to keep the record and its pointers and stop.
+Single-run `status` reports the read failure without `data.pointer_paths`.
 
 ## Setup
 
@@ -43,8 +62,11 @@ Installs the pre-push hook and writes `.agentic-preflight.toml` if absent. Refus
 replace a pre-push hook it did not write (exit 3, `hook_exists`) — `--force`
 overrides. A hook that is byte for byte one an earlier version installed is replaced
 with the current script; a hook containing the command with other edits is left as it
-is. Does not clobber an existing config. `data.hook_path` is the absolute path
-Git will execute, `data.hook_installed` confirms that installation left that path
+is. A symlink at the hook path is replaced with a regular file and never written
+through: a dangling link or a link to exactly the current script is replaced without
+`--force`, and any other link to a file is judged by that file's content. Does not clobber an existing config. `data.hook_path` is the
+absolute path Git will execute; it names a symlink at the hook itself rather than its
+target. `data.hook_installed` confirms that installation left that path
 containing `agentic-preflight hook-check`, and `data.hooks_path_overridden` reports
 whether the effective path is outside the common Git directory's `hooks/` directory.
 With `--no-hook`, the effective path and override state are still reported, while
@@ -234,8 +256,9 @@ applied; the command cannot bypass the normal findings pipeline.
 The review command inherits `[stage] timeout_seconds` and `max_attempts`. Non-zero exit,
 timeout, malformed JSON, stale coverage, or invalid findings enter
 `REVIEW_COMMAND_RED` and consume one persisted attempt. A successful command records its
-configured command, zero exit code, and SHA-256 of redacted captured output alongside
-coverage in the schema-v7 attestation. Changed review inputs require fresh command
+command, zero exit code, and SHA-256 of redacted captured output alongside coverage in
+the schema-v7 attestation. A command from a user-level `[review]` section is recorded
+there as `[redacted user-level command]`. Changed review inputs require fresh command
 review; validated derivation retains original process evidence and coverage provenance.
 
 ### `agentic-preflight review contracts --file PATH`
@@ -288,7 +311,9 @@ equal the reviewed head. A mismatch exits 3. Findings match when they cite the s
 and path and their line numbers are equal or within three lines. The command writes the
 unit counts, agreed and reviewer-only findings, severity disagreements, and agreement rate
 to `review-compare.json`, appends a `review_compared` event, and returns the summary as
-`data`. It is legal from `REVIEW_GREEN` onward and never advances the run.
+`data`. Finding titles, details, and suggestions in the summary, the event, and `data`
+have copied-file values replaced by `[redacted]`; a copied file that cannot be read for
+that redaction exits 3. It is legal from `REVIEW_GREEN` onward and never advances the run.
 
 ### `agentic-preflight submit-findings --file PATH`
 `PATH` may be `-` for stdin. Review requires
@@ -299,8 +324,13 @@ The manifest must match the current diff. Docs requires `{"findings": [...]}`; a
 Rejects (exit 3, `invalid_findings`): missing, stale, or unknown review coverage;
 agent-supplied `id` or `stage`; unknown or path-mismatched review units; paths outside
 the worktree; paths outside the changed-file set (review) or documentation allowlist
-(docs); line numbers past end of file; and batches over `[review] max_findings`.
+(docs); line numbers past end of file; batches over `[review] max_findings`; and a
+nonempty batch while a `copy_files` file cannot be read for redaction.
 All-or-nothing — one bad finding rejects the batch.
+
+Accepted finding titles, details, and suggestions have copied-file values replaced by
+`[redacted]` before they are saved or returned, as in stage logs, because the published
+attestation note includes them. Review-command findings are redacted the same way.
 
 ### `agentic-preflight respond --id F001 --action fixed|dismissed|accepted [--commit SHA] [--note TEXT] [--reason REASON]`
 - `fixed` requires `--commit`. The commit is verified four ways: it exists, it touches
@@ -308,6 +338,13 @@ All-or-nothing — one bad finding rejects the batch.
   mode it is reachable from the validation worktree's current `HEAD`, descends from the
   reviewed head, and is not that head. Citing a commit that review already covered exits 3
   with `invalid_response`.
+- `--commit` names the repair for the finding's audit record (`fix_commit`). It does not
+  choose what merges back. In `reusable` or `strict` mode the run's `fix_commits` is every
+  commit from the reviewed head to the validation worktree's `HEAD`, in commit order,
+  including commits no response cites, such as a separate regression test. Responses may
+  arrive in any order. Empty commits are left out. A merge commit in that history exits 3
+  with `nonlinear_fix_history` and names the merge commits; rebase the validation
+  worktree onto the reviewed head, as the recovery command shows, and respond again.
 - `dismissed` and `accepted` require `--note` and refuse `--commit`: passing
   `--commit` with any action other than `fixed` exits 6 with `usage_error`, and the
   Python `respond` API raises `invalid_response`.
@@ -319,6 +356,12 @@ All-or-nothing — one bad finding rejects the batch.
   `finding_resolved` event repeats it as `reason` (`null` when absent). A finding without
   a reason has no `response_reason` key. The reason is telemetry only: it never enters
   stage evidence or the attestation. Put the specifics in `--note`.
+- `--note` text has copied-file values replaced by `[redacted]` before it is saved; the
+  note is published in the attestation. A `copy_files` file that cannot be read for
+  redaction exits 3 with `invalid_response`.
+- `--note` is limited to 4,000 characters. A longer note exits 6 with `usage_error`,
+  states the limit in `error.message`, and records nothing; the Python `respond` API
+  raises `invalid_response`.
 - Unknown id exits 3 listing the valid ids. Each finding is resolved once.
 - Non-blocking findings may be resolved after their review or docs stage is green. A
   note-only disposition preserves the green state. A fix that changes the reviewed
@@ -333,7 +376,7 @@ CI. It checks the note schema, exact commit and tree binding, complete stage set
 process evidence for green lint/test stages. Fetch the notes ref before calling it in
 a fresh clone, together with the head and `refs/agentic-preflight/evidence/*`
 from the contributor remote. Schema v7 requires an explicit `verified` outcome,
-complete local stage evidence, and the full configuration snapshot. It
+complete local stage evidence, and the published configuration snapshot. It
 verifies original execution digests, Git and configuration bindings, stage applicability,
 finding dispositions, and original/current review-unit accounting.
 
@@ -362,7 +405,9 @@ and Git's merge of the head into it, so criss-cross history cannot hide a change
 covers every path touched by a non-merge commit in `base..head`, which a rebase merge
 replays, so a merge commit that cancels an earlier high-risk commit cannot hide it; a
 high-risk path changed and later reverted on the branch still counts. All three sets
-appear in `data.changed_files`. Low- and
+appear in `data.changed_files`. The repository paths that the base's `[review] command`
+and `planner_command` name, and its `[review] trusted_paths`, count as human-review
+paths and appear in `data.path_reasons` with kind `human_review_path`. Low- and
 medium-risk changes pass without a review. High-risk handling follows `[approval] mode`:
 `manual_merge` reports success while requiring the user to merge manually (the trusted
 workflow separately rejects enabled GitHub auto-merge); `environment` exits 4 until
@@ -442,7 +487,10 @@ If a lint or test process is killed or times out outside the harness, its persis
 `*_RUNNING` state is recoverable. `stage run lint|test` is the legal retry from that state:
 it first records the interrupted process as a red attempt with exit code 125 and reason
 `interrupted`, then retries normally. The interrupted attempt counts toward `[stage]`
-`max_attempts`.
+`max_attempts`. A repair committed after the interruption is registered as a fix commit
+and returns the run to review, as after any red attempt. In `reusable` or `strict` mode,
+registering a repair after a red or interrupted attempt exits 3 with
+`nonlinear_fix_history` when the validation history holds a merge commit.
 
 **A command that no-ops and exits 0 is indistinguishable from one that passed.**
 Pass/fail uses only the exit code because parsing output is brittle, but it assumes the command
@@ -464,8 +512,12 @@ a diff that touches tested code, suspect the command before trusting it.
 
 ### `agentic-preflight mergeback`
 In in-place mode, attests the already-verified current SHA without creating or
-cherry-picking a commit. The checkout must remain clean. In isolated modes, cherry-picks
-the fix commits onto the source branch; only paths those commits may overwrite are
+cherry-picking a commit. The checkout must remain clean. In isolated modes, first records
+the validated history, every commit from the reviewed head to the validation worktree's
+`HEAD`, as `fix_commits`, then cherry-picks it in commit order onto the source branch.
+Commits made after the last `respond` are included, because review, lint, and test
+validated them. Empty commits are left out, and a merge commit exits 3 with
+`nonlinear_fix_history` before the source branch changes. Only paths those commits may overwrite are
 blocked, while unrelated tracked edits and untracked files are left alone. A dirty
 submodule on one of those paths blocks merge-back even when Git config ignores it.
 
@@ -487,27 +539,61 @@ On success: compares the branch tree against the worktree tree. `tree_equivalent
 means the verified content is byte-identical and a Git-note attestation is written for
 the exact commit. False returns to review with all snapshot-bound stage evidence cleared.
 
+A run that an earlier release started has no record of which configuration sections came
+from the user file. `mergeback` refuses it with exit 4 and `needs_human`, giving the reason
+`unknown_config_provenance`, before changing the source branch or writing a note, because
+its attestation could publish user-level configuration. `gate` and `push` refuse such a
+run the same way, and their message names the `git notes ... remove` command for a note an
+earlier release already wrote. The error data lists the recorded fix commits; in isolated
+modes, cherry-pick them before aborting. Abort it and start a fresh run.
+
 A merge-back interrupted after synchronizing the source with the base but before reaching
 the recorded verified tree is stale. Follow `status` and restart preflight for the current source;
 only the unchanged source or the completed verified tree can resume a pending attempt.
 
 ### `agentic-preflight gate`
 Mints a confirmation token and summarises the remote, refspec, branch, and commits.
-The summary also includes the configured PR mode, `automated_cleanup` setting, and
+`data.published_notes` lists the listed commits that carry a local attestation note:
+the only notes the push can publish. Outside manual mode the gate does not contact the remote, so a note the
+remote already holds unchanged is listed here but not sent again. Notes on any other local
+commit, such as an aborted or never-pushed branch, stay local. In manual mode the list is
+exact: only the notes that the built commit adds or changes. The summary also includes the configured PR mode, `automated_cleanup` setting, and
 deterministic risk classification and verdict. Whether the agent may push without
 asking follows
 [push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/configuration.md#push-and-pull-request-authorization).
 Follow the skill's [PR lifecycle and cleanup](../SKILL.md#pull-request-lifecycle-and-cleanup)
 and [merge approval guidance](../SKILL.md#escalation-etiquette) for the returned policy.
 Only `[gate] mode = "manual"` exits 4 and puts the literal `git push` command in
-`data.manual_command` for a person to run; the agent must not run it.
+`data.manual_command` for a person to run; the agent must not run it. In manual mode
+the gate fetches the remote notes and builds the notes commit to publish, so the command
+names that commit's SHA and leases the remote notes ref to the tip the gate fetched
+(`--force-with-lease`; an empty expectation means the ref must not exist). If the fetch
+changed the head's stored attestation, the gate exits 2 with `attestation_failed`. No ref
+keeps that commit, so run the command promptly. If the remote notes change before it runs,
+including a deletion or a rewind, or Git has since pruned the unreferenced commit, the
+atomic push is rejected and publishes nothing; run `gate` again.
 
 ### `agentic-preflight push --confirm TOKEN [--dry-run]`
 Requires the token from `gate`. It first publishes the original-commit refs required
 by attestation evidence under `refs/agentic-preflight/evidence/<SHA>`, then atomically pushes
-the attested head SHA to `refs/heads/<branch>` and `refs/notes/agentic-preflight`. A dependency publication failure stops
+the attested head SHA to `refs/heads/<branch>` and a notes commit to `refs/notes/agentic-preflight`.
+It never pushes the local notes ref. It builds the notes commit in a temporary ref from the
+remote notes tip plus the local notes of the pushed commits, the same range the gate lists, so
+the remote keeps other clones' notes and receives no other local note. `push` works out that set
+again when it builds. When another clone updates the remote
+notes between the fetch and the push, the atomic push is rejected without landing anything, and
+`push` rebuilds the notes commit on the new tip, up to three attempts in all. The push leases
+the remote notes ref to the fetched tip, so a ref that another writer deleted or rewound in the
+meantime is also rejected and rebuilt on, never recreated or moved forward again. If the push fails
+for another reason, it reports Git's push error. After a successful push it merges the published
+notes commit into the local notes ref, keeping local notes where they differ, so the next notes
+fetch extends local history. `data.published_notes` names the SHAs whose note the push added to or
+changed on the remote. On a dry run, which does not contact the remote, it lists every pushed
+commit that carries a local note, as the gate does. Publication first deletes any temporary notes
+ref that an interrupted command left behind. A dependency publication failure stops
 before the branch push; retained evidence refs are safe to retry. Gate summaries, manual commands, and
-dry runs disclose the complete refspecs. These evidence refs survive ordinary
+dry runs disclose the complete refspecs; outside manual mode they show the notes commit as
+`<notes-commit>` and the leased tip as `<fetched-notes-tip>`, because `push` fetches and builds them. These evidence refs survive ordinary
 run/worktree cleanup. **Require user authorization before running this**, as described
 in the authorization rule linked under `gate`. The token is a non-secret, run-state nonce
 that prevents an accidental push; it is readable through `status`, grants no GitHub
@@ -519,6 +605,9 @@ substitute the gate's `data.token` only after authorization.
 Marks a pushed validation run `DONE`. It preserves the run directory and
 audit logs, clears only that run's worktree ownership pointers, and directs the next step
 to `gc`.
+A `strict` validation worktree locked with `git worktree lock` is never deleted:
+the command exits 1 with `git_error` naming the worktree, and the run keeps its state.
+Show the user the message; do not unlock it yourself.
 
 Pull-request creation, hosted CI monitoring, and cleanup are host or forge operations.
 Follow the skill's [PR lifecycle and cleanup](../SKILL.md#pull-request-lifecycle-and-cleanup)
@@ -550,8 +639,22 @@ In `MERGEBACK_CONFLICT`, it replays the stored conflict report and points back t
 legal `mergeback` retry.
 `--all` inventories stored and active runs across every linked worktree in the clone.
 
-### `agentic-preflight logs --stage review|lint|test`
-Full captured output. Copied-file contents are redacted.
+### `agentic-preflight logs --stage review|lint|test [--tail N | --head N | --all]`
+A window of the stage's captured output. Copied-file contents are redacted in the stored
+log, so every window is redacted too.
+
+By default `data.output` holds the last 200 lines of the log, cut to at most 64 KiB.
+`--tail N` returns the last N lines and `--head N` the first N lines, each also cut to
+64 KiB. `--all` returns the whole log with no size limit. Choose at most one; combining
+them, or an N below 1, exits 6 with `usage_error`. A cut never splits a UTF-8 character
+or a `[redacted]` marker: a marker the cut would split is left out. When the 64 KiB cut falls
+inside a line, `--tail` and the default window start at the next line, unless the window
+holds only that one partial line.
+
+`data.stage` names the stage. `data.truncated` is true when `data.output` is less than
+the whole stored log.
+`data.total_bytes` and `data.total_lines` describe the whole log. `data.log_path` is the
+path of the stored log, for reading it with other tools.
 
 ### `agentic-preflight events [--limit N]`
 Run history, oldest first.
@@ -560,17 +663,26 @@ including intermediate states within a transaction. Events carry `from`, `to`, `
 UTC `at`, and `monotonic_ns`; committed changes also carry the run `seq`. Creation has
 null `from` and `action`. Rolled-back transactions emit no transitions. Audit history is
 append-only and may be incomplete after an interrupted write; older histories are not
-backfilled. Monotonic timestamps are suitable for intervals within one host boot.
+backfilled. A line that is not a JSON object, such as one an interrupted write left
+unreadable, is skipped, and `skipped_lines` counts the skipped lines. Monotonic
+timestamps are suitable for intervals within one host boot.
 
 ### `agentic-preflight abort [--force] [--reason REASON]`
 Ends the run and releases the worktree. Exits 5 if unmerged fix commits would be lost;
 `--force` discards them.
+A `strict` validation worktree locked with `git worktree lock` is never deleted:
+the command exits 1 with `git_error` naming the worktree, and the run keeps its state.
+Show the user the message; do not unlock it yourself.
 `--reason` labels the abort with one of `user_cancelled`, `superseded`, `wrong_base`,
 `environment_failure`, `tool_error`, `no_longer_needed`, or `other`. It is optional. Any
 other value exits 6 with `usage_error`. The `aborted` event records `forced`, `reason`
 (`null` when absent), and `aborted_from_state`, the state that the transition left.
 
 ### `agentic-preflight gc [--force]`
+Also deletes temporary notes refs (`refs/notes/agentic-preflight-publish-*` and
+`refs/agentic-preflight/fetched-notes-*`) that an interrupted `push`, `gate`, or `start`
+left behind.
+
 Unreadable run records are retained and reported individually in `data.retained`, with
 their run ID, path, reason, and diagnostic. Collection continues for other eligible runs.
 Read failures use `unreadable` for encoding or I/O failures and `invalid` for JSON,
@@ -592,7 +704,20 @@ Reconciles run directories, git worktrees, and `ap/*` branches. For a terminal r
 each fix commit is compared by stable patch ID with commits in that run's
 post-merge-back history. Patch-equivalent cherry-picks are safe to reclaim; anything
 with no equivalent remains reported as unmerged and is never removed without
-`--force`. Run directories and their audit logs are retained until they expire:
+`--force`. Before it releases a `strict` or `reusable` validation worktree, `gc`
+also requires a checkout that is clean apart from copied files and whose `HEAD` is the
+recorded head, a recorded fix, or a commit with the tree of the recorded head or
+the last recorded fix. Otherwise it retains the run in `data.retained`
+with its `worktree_path` and reason `validation worktree has uncommitted changes`,
+`validation worktree holds unrecorded commits` (for example, a fix committed but not
+yet answered with `respond`), or `validation worktree could not be inspected`.
+`next.instruction` then says that `gc --force` discards any work they hold, and `next.command`
+is `null`. `--force` releases it anyway. A run ended with `abort --force` already discarded
+its fix commits, so they no longer count as unmerged. A `strict` worktree locked with
+`git worktree lock` is retained, even with `--force`, with reason
+`validation worktree is locked`; `next.instruction` asks you to show the user each
+`worktree_path` and ask whether to unlock it, and `next.command` is `null`. `data.orphans` lists only `ap/*` branches and worktrees
+with no run record; a live run's branch is never reported there. Run directories and their audit logs are retained until they expire:
 a reclaimed run's directory is deleted once its record last changed more than
 `[retention] run_days` days ago (default 90; 0 keeps every record), and
 `data.pruned` lists the deleted run IDs. Pruned runs leave `data.runs_known`. A run
@@ -699,7 +824,7 @@ first. GitHub does not associate a commit with a pull request that was closed wi
 merging, so when the list is empty it also reads
 `/repos/{owner}/{repo}/pulls?state=all&head={owner}:{branch}` and uses the pull request
 whose head is the commit. The check runs reduce to one conclusion: `failure` when any has
-the conclusion `failure`, `cancelled`, or `timed_out`; otherwise `pending` when any is not
+the conclusion `failure`, `cancelled`, `timed_out`, or `startup_failure`; otherwise `pending` when any is not
 complete; `none` when there are none; otherwise `success`. Commit statuses are not read.
 It writes `hosted.json` in the run directory with `fetched_at`, `sha`, `pr` (`number`,
 `url`, `state`, `merged_at`, or `null`), `checks` (`conclusion`, `total`, and the `failed`
@@ -804,6 +929,12 @@ the group `unknown`. The statistics are:
 - the median and p90 of `duration_seconds`;
 - the share of run time in the review and docs states and in the lint and test
   states, over runs with complete `timing`;
+- `caught`: the `DONE` runs where the gate stopped something before the push,
+  `runs_with_any_catch`, and for each source in `by_source` (a fixed blocking review or
+  docs finding, a lint or test stage that failed and later passed) its `runs_with_any`
+  and `excluded_runs`;
+- `tool_time`: the median and p90 of `timing.tool_seconds` per `DONE` run, and per
+  pull request (the sum over its synced `DONE` runs) under `per_pull_request`;
 - aborted runs by reason and by `aborted_from_state`;
 - hosted outcomes synced by `telemetry sync-hosted`, under `hosted.synced`, and orphaned
   reasons. The Markdown "Hosted outcomes synced" section and the two limits about hosted
@@ -843,6 +974,29 @@ output is still one JSON envelope. `--rows` includes the filtered summary rows i
 but cannot be read exits 1 with error code `telemetry_mirror_unreadable` and its path in
 `data`. See [Read the report](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md#read-the-report).
 
+## Command reviewer
+
+### `agentic-preflight reviewer run --provider claude|codex`
+The packaged independent reviewer. Configure it as `[review] command` (and, for contract
+checks, `[review.contracts] planner_command`); `review run` and `review compare` then
+start it. Not for you to call in a workflow — follow `next.command` instead.
+
+It reads the review `context` data object as JSON on stdin and shells out to the
+provider CLI: `claude -p --output-format stream-json` or `codex exec --json`. It prints
+one strict `ReviewSubmission` JSON line on stdout, or, when the context has `section:
+"contracts"`, one contract plan. It prints no JSON envelope. It exits 0 on success. On
+any failure (invalid context, provider CLI missing, non-zero exit, timeout, or no
+findings object in the output) it exits 1 with one `independent reviewer failed: ...`
+line on stderr. A usage error, such as a missing or unknown `--provider`, keeps Click's
+usage message and exits 2.
+
+Environment variables: `AP_CLAUDE_BIN` or `AP_CODEX_BIN` (the provider executable,
+default `claude` or `codex`), `AP_REVIEWER_MODEL` (default `claude-sonnet-5` or
+`gpt-5.3-codex`), `AP_REVIEWER_EFFORT` (default `high` or `medium`),
+`AP_REVIEWER_TIMEOUT` (seconds, default 600), and `AP_REVIEWER_EVENTS_FILE` (an absolute
+path that receives the provider CLI's stdout, with `<path>.status.json` beside it). See
+[Independent review and agreement](https://github.com/elanthus/agentic-preflight/blob/main/docs/independent-review.md).
+
 ## Exit codes
 
 | Code | Meaning | What to do |
@@ -854,12 +1008,13 @@ but cannot be read exits 1 with error code `telemetry_mirror_unreadable` and its
 | 4 | Human resolution required | Show recovery material; resolve only the bounded, unambiguous merge-back cases permitted by the skill, otherwise stop |
 | 5 | Confirmation required | Apply the skill's authorization rules, then re-run with the token |
 | 6 | Command-line usage error | Read `error.message`, run `next.command` for valid usage, and fix the invocation |
-| 10 | Hook blocked a push | Start a run with `agentic-preflight start --intent "..."` |
+| 10 | Hook blocked a push | Start a run with `agentic-preflight start --intent "..."`, unless the message says SHA-256 repositories are not supported: then stop and tell the user |
 
 A command-line usage error (unknown option, missing argument, bad choice, unknown
 command) prints one envelope with error code `usage_error`, Click's message in
 `error.message`, and the command's `--help` invocation in `next.command`, then exits 6.
-`hook-check` is the exception and keeps Click's own usage output and exit code.
+`hook-check` and `reviewer run` are the exceptions and keep Click's own usage output and
+exit code 2.
 Running `agentic-preflight` with no arguments prints the root help as plain text and
 exits 0.
 

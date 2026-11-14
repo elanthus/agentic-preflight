@@ -48,6 +48,7 @@
         }
       ],
       "default": null,
+      "description": "The selected window of the redacted stage log.",
       "title": "Output"
     },
     "source_worktree_path": {
@@ -94,6 +95,45 @@
       "default": null,
       "description": "Summary outcome written when this command ended a run.",
       "title": "Telemetry"
+    },
+    "total_bytes": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Size of the whole stored log in bytes.",
+      "title": "Total Bytes"
+    },
+    "total_lines": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Number of lines in the whole stored log.",
+      "title": "Total Lines"
+    },
+    "truncated": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "True when output is less than the whole stored log.",
+      "title": "Truncated"
     },
     "validation_restarts": {
       "anyOf": [

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .. import attestation as attestationmod
-from .. import gitx, worktree
+from .. import gitx, public_config, timing, worktree
 from .. import mergeback as mergebackmod
 from .. import sync as syncmod
 from ..cli_contract import MergebackData
@@ -23,17 +23,18 @@ from ..models import MergebackAttempt, RunDoc, Stage
 from . import evidence
 from ._session import (
     Session,
-    _apply,
-    _assert_fresh,
-    _assess,
-    _check_restart_limit,
-    _envelope_for,
-    _is_in_place,
-    _load_current,
-    _require_state,
-    _require_worktree,
-    _worktree_mode,
+    apply_action,
+    assert_fresh,
+    assess_risk,
+    check_restart_limit,
+    envelope_for,
+    is_in_place,
+    load_current,
+    require_state,
+    require_worktree,
+    worktree_mode,
 )
+from .fix_commits import derive_fix_commits
 from .review_coverage import invalidate_stage_result, reopen_if_stale
 
 
@@ -55,7 +56,7 @@ def _reconcile_attempt(
     attempt = run.mergeback_attempt
     if run.state is not State.MERGEBACK_PENDING or attempt is None:
         return False, None
-    wt = _require_worktree(run)
+    wt = require_worktree(run)
     repo = session.repo_root
     if (
         run.stale
@@ -95,7 +96,7 @@ def _reset_non_equivalent_merge_to_review(
     result: mergebackmod.MergebackResult,
 ) -> RunDoc:
     """Make a human-resolved source tree the new isolated review snapshot."""
-    worktree_path = _require_worktree(run)
+    worktree_path = require_worktree(run)
     worktree.assert_diff_is_clean_of(
         session.repo_root,
         run.merge_base_sha,
@@ -105,7 +106,7 @@ def _reset_non_equivalent_merge_to_review(
     worktree.assert_paths_are_ignored(session.repo_root, run.copied_files)
     gitx.run(worktree_path, "reset", "--hard", result.post_sha)
     changed = gitx.changed_files(worktree_path, run.merge_base_sha, "HEAD")
-    assessment = _assess(session, changed, session.store.load_findings(run.run_id))
+    assessment = assess_risk(session, changed, session.store.load_findings(run.run_id))
     with session.store.transaction(run.run_id) as doc:
         doc.head_sha = result.post_sha
         doc.source_head_sha = result.post_sha
@@ -116,7 +117,7 @@ def _reset_non_equivalent_merge_to_review(
         invalidate_stage_result(doc, Stage.REVIEW)
         invalidate_stage_result(doc, Stage.LINT)
         invalidate_stage_result(doc, Stage.TEST)
-        _apply(doc, Action.INVALIDATE_REVIEW)
+        apply_action(doc, Action.INVALIDATE_REVIEW)
         run = doc
     session.store.append_event(
         run.run_id,
@@ -127,7 +128,28 @@ def _reset_non_equivalent_merge_to_review(
             "resolved_tree_sha": result.local_tree_sha,
         },
     )
-    _check_restart_limit(run)
+    check_restart_limit(run)
+    return run
+
+
+def _register_validated_history(session: Session, run: RunDoc) -> RunDoc:
+    """Make the replay list the history review, lint, and test validated.
+
+    At ``TEST_GREEN`` the review coverage names the validation checkout's current
+    head, so ``head_sha..HEAD`` is exactly what was validated, including commits
+    made after the last ``respond`` or never cited by one.
+    """
+    derived = derive_fix_commits(session, run)
+    if derived == run.fix_commits:
+        return run
+    with session.store.transaction(run.run_id) as doc:
+        recorded = list(doc.fix_commits)
+        doc.fix_commits = derived
+        run = doc
+    session.store.append_event(
+        run.run_id,
+        {"event": "validated_fix_commits_registered", "recorded": recorded, "commits": derived},
+    )
     return run
 
 
@@ -170,13 +192,13 @@ def _record_attempt(session: Session, run: RunDoc, *, retrying_conflict: bool) -
     source_sha = gitx.rev_parse(repo, "HEAD")
     attempt = MergebackAttempt(
         source_sha=source_sha,
-        validation_sha=gitx.rev_parse(_require_worktree(run), "HEAD"),
-        validation_tree=gitx.tree_sha(_require_worktree(run)),
+        validation_sha=gitx.rev_parse(require_worktree(run), "HEAD"),
+        validation_tree=gitx.tree_sha(require_worktree(run)),
         retrying_conflict=retrying_conflict,
     )
     with session.store.transaction(run.run_id) as doc:
         doc.mergeback_attempt = attempt
-        _apply(doc, Action.MERGEBACK_RETRY if retrying_conflict else Action.BEGIN_MERGEBACK)
+        apply_action(doc, Action.MERGEBACK_RETRY if retrying_conflict else Action.BEGIN_MERGEBACK)
         return doc
 
 
@@ -209,7 +231,7 @@ def _perform_merge(
             local_tree_sha=tree,
             worktree_tree_sha=tree,
         )
-    worktree_path = _require_worktree(run)
+    worktree_path = require_worktree(run)
     worktree_branch = run.worktree_branch
     if worktree_branch is None:
         raise NeedsHuman(
@@ -260,10 +282,47 @@ def _perform_merge(
     )
 
 
+def require_known_provenance(run: RunDoc, *, command: str) -> None:
+    """Refuse to attest or publish a run whose user-level configuration is unknown.
+
+    A run that an earlier release started did not record which snapshot sections
+    came from the user file, so its note could publish them. ``mergeback`` and the
+    publication commands check this before they change or push anything.
+    """
+    if public_config.provenance_known(run):
+        return
+    if command == "mergeback":
+        situation = "its attestation could publish user-level configuration"
+    else:
+        situation = (
+            f"the note on {run.head_sha} may hold user-level configuration; "
+            f"remove it with `git notes --ref={attestationmod.NOTES_REF} remove "
+            f"{run.head_sha}` instead of pushing it"
+        )
+    keep = (
+        " Keep the recorded fix commits in data.fix_commits by cherry-picking them onto "
+        "your branch before you abort, because `abort --force` discards them."
+        if run.fix_commits
+        else ""
+    )
+    raise NeedsHuman(
+        "this run was started by an earlier release that did not record which "
+        f"configuration came from the user file, so {situation}",
+        state=run.state.value,
+        run_id=run.run_id,
+        data={"reason": "unknown_config_provenance", "fix_commits": list(run.fix_commits)},
+        next_instruction=(
+            f"Do not retry `{command}`. Abort this run and start a fresh one with the "
+            f"current release.{keep}"
+        ),
+        next_command="agentic-preflight abort",
+    )
+
+
 def mergeback(session: Session) -> Envelope:
     """Attest in-place validation or merge isolated fixes onto the source branch."""
-    run = _load_current(session)
-    in_place = _is_in_place(run)
+    run = load_current(session)
+    in_place = is_in_place(run)
     repo = session.repo_root
     operation = gitx.operation_in_progress(repo)
     if operation is not None:
@@ -273,6 +332,7 @@ def mergeback(session: Session) -> Envelope:
             state=run.state.value,
             run_id=run.run_id,
         )
+    require_known_provenance(run, command="mergeback")
 
     retrying_conflict = run.state is State.MERGEBACK_CONFLICT or (
         run.state is State.MERGEBACK_PENDING
@@ -281,20 +341,22 @@ def mergeback(session: Session) -> Envelope:
     )
     reconciled, recovered = _reconcile_attempt(session, run)
     if not retrying_conflict and not reconciled:
-        _assert_fresh(session, run)
+        assert_fresh(session, run)
     if run.state is State.TEST_GREEN:
         run = evidence.advance(session, run)
         if run.state is not State.TEST_GREEN:
-            return _envelope_for(run, data=MergebackData(inputs_invalidated=True))
+            return envelope_for(run, data=MergebackData(inputs_invalidated=True))
         run, reopened = reopen_if_stale(session, run)
         if reopened:
-            return _envelope_for(
+            return envelope_for(
                 run,
                 stage="review",
                 data=MergebackData(coverage_invalidated=True),
                 next_command="agentic-preflight context",
             )
-    _require_state(
+        if not in_place:
+            run = _register_validated_history(session, run)
+    require_state(
         run,
         State.TEST_GREEN,
         State.MERGEBACK_PENDING,
@@ -308,13 +370,14 @@ def mergeback(session: Session) -> Envelope:
     run = _record_attempt(session, run, retrying_conflict=retrying_conflict)
 
     try:
-        result = _perform_merge(
-            session,
-            run,
-            in_place=in_place,
-            retrying_conflict=retrying_conflict,
-            recovered=recovered,
-        )
+        with timing.timed_command(session.store, run.run_id, "mergeback"):
+            result = _perform_merge(
+                session,
+                run,
+                in_place=in_place,
+                retrying_conflict=retrying_conflict,
+                recovered=recovered,
+            )
     except gitx.OperationInProgress as exc:
         raise OperationInProgressError(
             exc.operation,
@@ -324,7 +387,7 @@ def mergeback(session: Session) -> Envelope:
         ) from exc
     except (mergebackmod.MergebackConflict, syncmod.SyncConflict) as exc:
         with session.store.transaction(run.run_id) as doc:
-            _apply(doc, Action.MERGEBACK_FAILED)
+            apply_action(doc, Action.MERGEBACK_FAILED)
             run = doc
         report = (
             exc.report.as_dict()
@@ -362,13 +425,13 @@ def mergeback(session: Session) -> Envelope:
 
     if not result.tree_equivalent:
         run = _reset_non_equivalent_merge_to_review(session, run, result)
-        return _envelope_for(
+        return envelope_for(
             run,
             stage="review",
             data=MergebackData.model_validate(
                 {
                     **result.as_dict(),
-                    "worktree_mode": _worktree_mode(run),
+                    "worktree_mode": worktree_mode(run),
                     "validation_restarted": True,
                 }
             ),
@@ -393,7 +456,7 @@ def mergeback(session: Session) -> Envelope:
     with session.store.transaction(run.run_id) as doc:
         doc.head_sha = result.post_sha
         doc.source_head_sha = result.post_sha
-        _apply(doc, Action.MERGEBACK_OK)
+        apply_action(doc, Action.MERGEBACK_OK)
         run = doc
 
     session.store.append_event(
@@ -405,10 +468,10 @@ def mergeback(session: Session) -> Envelope:
         },
     )
 
-    return _envelope_for(
+    return envelope_for(
         run,
         data=MergebackData.model_validate(
-            {**result.as_dict(), "worktree_mode": _worktree_mode(run)}
+            {**result.as_dict(), "worktree_mode": worktree_mode(run)}
         ),
     )
 

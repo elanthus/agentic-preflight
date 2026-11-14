@@ -81,7 +81,7 @@ def test_push_refspec_names_the_attested_sha_and_a_full_branch_ref():
     sha = "a" * 40
     assert publish._push_refspecs(sha, "feature/x") == [
         f"{sha}:refs/heads/feature/x",
-        f"{NOTES_REF}:{NOTES_REF}",
+        f"{publish.NOTES_COMMIT_PLACEHOLDER}:{NOTES_REF}",
     ]
 
 
@@ -165,7 +165,7 @@ def test_runner_release_failure_still_orphans_and_reports_the_lease(feature_repo
     def boom(*_args, **_kwargs):
         raise RuntimeError("simulated release failure")
 
-    monkeypatch.setattr(startmod, "_release_run_worktree", boom)
+    monkeypatch.setattr(startmod, "release_run_worktree", boom)
     env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
 
     assert "still leased" in env["error"]["message"]

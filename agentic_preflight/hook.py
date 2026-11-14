@@ -15,6 +15,7 @@ a skill trigger that loops the agent back into the gate.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,7 +24,19 @@ from . import gitx
 from .attestation import NOTES_REF
 from .evidence_transport import REF_PREFIX
 
-ZERO_SHA = "0" * 40
+#: Git's zero object ID, which names no object: 40 zeros in a SHA-1 repository and
+#: 64 in a SHA-256 one. Git sends it for a remote ref that does not exist yet and
+#: for the local side of a deletion.
+ZERO_IDS = frozenset({"0" * 40, "0" * 64})
+
+#: The length of a SHA-256 object ID in hexadecimal.
+SHA256_ID_LENGTH = 64
+
+
+def is_zero_id(value: str) -> bool:
+    """Whether ``value`` is Git's zero object ID in either object format."""
+    return value in ZERO_IDS
+
 
 #: The environment variable through which the installed hook passes Git's first
 #: pre-push argument, the remote name, to ``hook-check``. An environment variable
@@ -44,6 +57,9 @@ AGENTIC_PREFLIGHT_PUSH_REMOTE="$1"
 export AGENTIC_PREFLIGHT_PUSH_REMOTE
 exec agentic-preflight hook-check
 """
+
+#: The installed hook's mode: executable by everyone who can run Git in the clone.
+HOOK_MODE = 0o755
 
 #: Hook scripts that earlier versions installed, byte for byte. ``install``
 #: replaces one of these with :data:`HOOK_SCRIPT`; any other content is left alone.
@@ -121,7 +137,7 @@ class RefUpdate:
 
     @property
     def is_deletion(self) -> bool:
-        return set(self.local_sha) == {"0"}
+        return is_zero_id(self.local_sha)
 
     @property
     def is_attestation_note(self) -> bool:
@@ -228,9 +244,37 @@ def evaluate(
             outcomes.append(UpdateOutcome(update, exemption, None))
             continue
 
-        forced = update.remote_sha != ZERO_SHA and not is_ancestor(
+        forced = not is_zero_id(update.remote_sha) and not is_ancestor(
             update.remote_sha, update.local_sha
         )
+        # The remote already has this commit, so the push publishes nothing new.
+        already_on_remote = not is_zero_id(update.remote_sha) and is_ancestor(
+            update.local_sha, update.remote_sha
+        )
+        # Run records and attestation notes hold only SHA-1 object IDs, so no
+        # commit in a SHA-256 repository can have a valid note. Say so, rather
+        # than send the agent to a run that cannot finish. Git writes every ID on
+        # the pre-push stdin in the repository's object format, so a 64-character
+        # local ID marks a SHA-256 repository.
+        # This comes before the force-push check, whose fix cannot help here. A
+        # push of a commit the remote already has still needs no attestation.
+        if len(update.local_sha) == SHA256_ID_LENGTH and not already_on_remote:
+            outcomes.append(UpdateOutcome(update, MISSING_ATTESTATION, forced))
+            return _blocked(
+                MISSING_ATTESTATION,
+                _block_message(
+                    update.local_sha,
+                    headline="SHA-256 repositories are not supported",
+                    reason=(
+                        "attestation notes hold only SHA-1 object IDs, so no commit in a "
+                        "SHA-256 repository can have a valid one"
+                    ),
+                    fix="none in this version; stop and tell the user (see COMPATIBILITY.md)",
+                ),
+                outcomes,
+                updates[index + 1 :],
+            )
+
         if forced and not allow_force_push:
             outcomes.append(UpdateOutcome(update, FORCE_PUSH_REFUSED, True))
             return _blocked(
@@ -248,8 +292,7 @@ def evaluate(
                 updates[index + 1 :],
             )
 
-        # The remote already has this commit, so the push publishes nothing new.
-        if update.remote_sha != ZERO_SHA and is_ancestor(update.local_sha, update.remote_sha):
+        if already_on_remote:
             outcomes.append(UpdateOutcome(update, ALREADY_ON_REMOTE, forced))
             continue
 
@@ -304,6 +347,14 @@ def install(repo_root: Path | str, *, force: bool = False) -> tuple[Path, bool]:
     important to their workflow, and replacing it silently would be an
     unreviewed change to it. A hook that is byte for byte one this tool
     installed earlier is replaced with the current script.
+
+    A symlink at the hook path is replaced, never written through. Its target
+    may be a tracked file, for example when ``core.hooksPath`` points into the
+    repository, or a file outside the repository. A dangling link is not a hook
+    Git can run, so it is replaced without ``force``. A link to exactly the
+    current script is replaced with a regular file. Any other link to a file is
+    judged by that file's content like any other existing hook, so a link to a
+    composed or edited hook is left as it is.
     """
     path = gitx.hook_path(repo_root, "pre-push")
     hooks_dir = path.parent
@@ -317,13 +368,30 @@ def install(repo_root: Path | str, *, force: bool = False) -> tuple[Path, bool]:
         existing = path.read_bytes()
         if HOOK_MARKER not in existing:
             raise FileExistsError(str(path))
-        if existing not in PREVIOUS_HOOK_SCRIPTS:
+        if existing not in PREVIOUS_HOOK_SCRIPTS and not (
+            path.is_symlink() and existing == HOOK_SCRIPT.encode()
+        ):
             return path, False
+        # A link to exactly the current script is replaced too: a later change to
+        # its target could otherwise change or disable the hook.
         # Exactly a script this tool wrote earlier, so replacing it loses nothing
         # anyone added. A composed or edited hook is never rewritten.
 
+    if path.is_symlink():
+        path.unlink()
+    # O_NOFOLLOW refuses a symlink that appears after the unlink, where the
+    # platform supports it. The file is created owner-only and given its final
+    # mode through the open descriptor, so the mode never follows a path that was
+    # swapped for a symlink after the write.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags | getattr(os, "O_BINARY", 0), 0o700)
     # LF explicitly: this is a shell script executed by Git's own ``sh``, and a
     # CRLF shebang line makes the interpreter unfindable.
-    path.write_text(HOOK_SCRIPT, encoding="utf-8", newline="\n")
-    path.chmod(0o755)
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(HOOK_SCRIPT)
+        handle.flush()
+        if hasattr(os, "fchmod"):
+            os.fchmod(handle.fileno(), HOOK_MODE)
+        else:  # pragma: no cover - Windows has no fchmod; chmod sets only read-only there
+            path.chmod(HOOK_MODE)
     return path, True

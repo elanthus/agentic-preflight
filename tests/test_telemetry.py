@@ -35,6 +35,8 @@ FINDING_KEYS = (
     "by_action",
     "by_response_reason",
     "blocking",
+    "review_blocking_fixed",
+    "docs_blocking_fixed",
 )
 
 
@@ -475,6 +477,8 @@ def test_a_schema_1_record_summarizes_with_unknown_values_left_null():
         "duration_seconds": None,
         "reused": None,
         "reason": "changes are limited to documentation and CI configuration",
+        # No transitions in this log, so whether lint or test went red then green is unknown.
+        "red_then_green": None,
     }
     # No transition events in this log, so no state timing at all.
     assert row["timing"] is None
@@ -535,6 +539,9 @@ def test_a_schema_2_record_summarizes_reuse_review_findings_and_terminal_facts()
         "by_response_reason": {"unspecified": 2},
         # review blocks only critical here, docs blocks high and medium.
         "blocking": 2,
+        # Neither blocking finding was fixed.
+        "review_blocking_fixed": 0,
+        "docs_blocking_fixed": 0,
     }
     assert row["fix_commits"] == 2
     assert row["validation_restarts"] == 1
@@ -551,8 +558,13 @@ def test_a_schema_2_record_summarizes_reuse_review_findings_and_terminal_facts()
         "states": {},
         "review_wall_seconds": None,
         "shell_wall_seconds": None,
+        "tool_seconds": None,
+        "agent_seconds": None,
     }
     assert row["stages"]["lint"]["started_at"] is None
+    # The chain is broken, so a lint red could be missing from it.
+    assert row["stages"]["lint"]["red_then_green"] is None
+    assert row["stages"]["review"]["red_then_green"] is None
     assert row["stages"]["lint"]["duration_seconds"] is None
     assert row["hosted"] == NOT_SYNCED
     assert row["event_counts"] == {"stage_reused": 1, "state_transition": 2}
@@ -1060,6 +1072,20 @@ def test_rebuild_summarizes_a_run_whose_event_log_has_non_object_lines(tmp_repo)
 
     assert (result["data"]["summarized"], result["data"]["unreadable"]) == (1, 0)
     assert _summary(tmp_repo, "r_0000000002")["event_counts"]["state_transition"] == 2
+
+
+def test_rebuild_summarizes_a_run_whose_event_log_has_a_torn_line(tmp_repo):
+    run_dir = _store_record(tmp_repo, _schema_2_record())
+    good = [json.dumps(event) for event in _odd_events() if isinstance(event, dict)]
+    torn = '{"event": "trunc'
+    (run_dir / "events.jsonl").write_text(
+        "\n".join([good[0], torn + good[1], *good[2:]]) + "\n", encoding="utf-8"
+    )
+
+    result = ScriptedAgent(tmp_repo).run("telemetry", "rebuild")
+
+    assert (result["data"]["summarized"], result["data"]["unreadable"]) == (1, 0)
+    assert _summary(tmp_repo, "r_0000000002")["event_counts"]["ci_checked"] == 1
 
 
 def test_a_non_text_severity_is_counted_as_unknown_and_never_blocks():

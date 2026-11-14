@@ -8,16 +8,13 @@ import time
 import uuid
 from collections.abc import Callable, Hashable, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar
-
-from pydantic import ValidationError
 
 from .. import findings as findingsmod
 from .. import gitx, risk, telemetry, worktree
 from ..cli_contract import RunDataBase
-from ..config import Config, load_config, snapshot_run_settings
+from ..config import Config, load_config, snapshot_config, snapshot_run_settings
 from ..envelope import Envelope
 from ..errors import (
     MaxRestarts,
@@ -36,6 +33,7 @@ from ..machine import (
     recovery_hint,
 )
 from ..models import Finding, Producer, RiskAssessment, RunDoc, Stage, StageRecord
+from ..run_summary import utc_now
 from ..store import RunReadError, Store, UnknownRun
 
 STATE_DIR_NAME = "agentic-preflight"
@@ -98,10 +96,16 @@ def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) ->
     if current:
         try:
             active = store.load_run(current)
-            cfg = Config.model_validate(active.config_snapshot)
-        except (UnknownRun, RunReadError, ValidationError):
+        except (UnknownRun, RunReadError):
             # Inspection must remain available without trusting an unreadable run.
+            # The files below only shape that inspection: every command that
+            # changes the run loads it again and fails with run_record_unreadable,
+            # and status reports it as unreadable rather than quoting this config.
             pass
+        else:
+            # The same tolerant loader the store just validated this snapshot with,
+            # so a key a later release removed cannot hand the run to the files.
+            cfg = snapshot_config(active.config_snapshot)
     repo_root = caller_root
     source_worktree_available = True
     if active is not None:
@@ -133,15 +137,11 @@ def _summarize_ended_run(session: Session, run: RunDoc) -> None:
     telemetry.record_run_end(session.store, session.repo_root, run)
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
-
-
-def _new_run_id() -> str:
+def new_run_id() -> str:
     return "r_" + uuid.uuid4().hex[:10]
 
 
-def _max_restarts(run: RunDoc) -> int:
+def max_restarts(run: RunDoc) -> int:
     """Read the limit from the run's own snapshot, which an edited config cannot move."""
     return snapshot_run_settings(run.config_snapshot)[0]
 
@@ -153,14 +153,14 @@ RESTART_LIMIT_INSTRUCTION = (
 )
 
 
-def _restart_limit_reached(run: RunDoc) -> bool:
-    return run.validation_restarts >= _max_restarts(run)
+def restart_limit_reached(run: RunDoc) -> bool:
+    return run.validation_restarts >= max_restarts(run)
 
 
-def _check_restart_limit(run: RunDoc) -> None:
+def check_restart_limit(run: RunDoc) -> None:
     """Refuse to continue a run whose validation has restarted too many times."""
-    limit = _max_restarts(run)
-    if not _restart_limit_reached(run):
+    limit = max_restarts(run)
+    if not restart_limit_reached(run):
         return
     raise MaxRestarts(
         f"validation has restarted {run.validation_restarts} times "
@@ -189,7 +189,7 @@ _STAGE_BEGINS: dict[Action, Stage] = {
 }
 
 
-def _apply(run: RunDoc, action: Action) -> None:
+def apply_action(run: RunDoc, action: Action) -> None:
     """Advance the run, converting an illegal move into a typed error.
 
     Restarts are counted here because every path back to review passes through
@@ -198,7 +198,7 @@ def _apply(run: RunDoc, action: Action) -> None:
     the transition event.
     """
     if action not in CLOSING_ACTIONS:
-        _check_restart_limit(run)
+        check_restart_limit(run)
     previous = run.state
     try:
         run.state = next_state(run.state, action)
@@ -209,7 +209,7 @@ def _apply(run: RunDoc, action: Action) -> None:
             run_id=run.run_id,
         ) from exc
     moved = run.state is not previous
-    at = _now()
+    at = utc_now()
     if moved:
         run._state_events.append(
             {
@@ -234,7 +234,7 @@ def _apply(run: RunDoc, action: Action) -> None:
         run.validation_restarts += 1
 
 
-def _require_state(run: RunDoc, *allowed: State, command: str) -> None:
+def require_state(run: RunDoc, *allowed: State, command: str) -> None:
     if run.state not in allowed:
         raise WrongState(
             f"`{command}` is not legal in state {run.state.name}",
@@ -243,7 +243,7 @@ def _require_state(run: RunDoc, *allowed: State, command: str) -> None:
         )
 
 
-def _require_worktree(run: RunDoc) -> str:
+def require_worktree(run: RunDoc) -> str:
     """Return the validation worktree or report a corrupt run document."""
     if run.worktree_path is None:
         raise WrongState(
@@ -254,7 +254,7 @@ def _require_worktree(run: RunDoc) -> str:
     return run.worktree_path
 
 
-def _require_finding_stage(run: RunDoc) -> Stage:
+def require_finding_stage(run: RunDoc) -> Stage:
     """Return the finding stage implied by the current review/docs state."""
     stage = findingsmod.stage_for_state(run.state)
     if stage is None:
@@ -266,7 +266,7 @@ def _require_finding_stage(run: RunDoc) -> Stage:
     return stage
 
 
-def _next_hint(state: State) -> tuple[str | None, str | None]:
+def next_hint(state: State) -> tuple[str | None, str | None]:
     """The default next move declared beside the state's legal transitions."""
     hint = recovery_hint(state)
     return hint.instruction, hint.command
@@ -294,7 +294,7 @@ def _producer_flags(producer: Producer | None) -> list[str]:
     return flags
 
 
-def _start_command(
+def start_command(
     intent: str | None,
     *,
     base_ref: str,
@@ -318,10 +318,10 @@ def _start_command(
     return shlex.join(args)
 
 
-def _envelope_for(run: RunDoc, *, data: RunDataBase | None = None, **overrides) -> Envelope:
+def envelope_for(run: RunDoc, *, data: RunDataBase | None = None, **overrides) -> Envelope:
     """The envelope for ``run``, with the shared run keys added to ``data``."""
-    instruction, command = _next_hint(run.state)
-    stopped = run.state not in TERMINAL_STATES and _restart_limit_reached(run)
+    instruction, command = next_hint(run.state)
+    stopped = run.state not in TERMINAL_STATES and restart_limit_reached(run)
     if stopped:
         # A stopped run must never advertise the state's ordinary next move.
         instruction, command = RESTART_LIMIT_INSTRUCTION, None
@@ -343,14 +343,14 @@ def _envelope_for(run: RunDoc, *, data: RunDataBase | None = None, **overrides) 
     return Envelope(data=data, **fields)
 
 
-def _interrupted_legacy_update(session: Session, run: RunDoc) -> bool:
+def interrupted_legacy_update(session: Session, run: RunDoc) -> bool:
     return (
         run.state not in TERMINAL_STATES
         and (session.store.run_dir(run.run_id) / "pending-update.json").exists()
     )
 
 
-def _load_current(session: Session, *, allow_interrupted: bool = False) -> RunDoc:
+def load_current(session: Session, *, allow_interrupted: bool = False) -> RunDoc:
     run_id = session.active_run_id()
     if not run_id:
         raise NoRun()
@@ -358,8 +358,8 @@ def _load_current(session: Session, *, allow_interrupted: bool = False) -> RunDo
         run = session.store.load_run(run_id)
     except UnknownRun as exc:
         raise NoRun(f"current run {run_id} is missing from the store") from exc
-    if not allow_interrupted and _interrupted_legacy_update(session, run):
-        stopped = _restart_limit_reached(run)
+    if not allow_interrupted and interrupted_legacy_update(session, run):
+        stopped = restart_limit_reached(run)
         raise WrongState(
             "This run has an interrupted update from an older version; validation cannot continue.",
             state=run.state.value,
@@ -373,7 +373,7 @@ def _load_current(session: Session, *, allow_interrupted: bool = False) -> RunDo
             ),
             next_command=None
             if stopped
-            else _start_command(
+            else start_command(
                 run.intent,
                 base_ref=run.base_ref,
                 default_base_ref=session.config.general.base_ref,
@@ -383,7 +383,7 @@ def _load_current(session: Session, *, allow_interrupted: bool = False) -> RunDo
     return run
 
 
-def _head_moved(session: Session, run: RunDoc) -> str | None:
+def head_moved(session: Session, run: RunDoc) -> str | None:
     """Return the current tip if it differs from the reviewed one."""
     source = Path(run.source_worktree_path)
     try:
@@ -393,8 +393,8 @@ def _head_moved(session: Session, run: RunDoc) -> str | None:
     return None if tip == run.source_head_sha else tip
 
 
-def _assert_fresh(session: Session, run: RunDoc) -> None:
-    tip = _head_moved(session, run)
+def assert_fresh(session: Session, run: RunDoc) -> None:
+    tip = head_moved(session, run)
     if tip is None:
         return
     if not run.stale:
@@ -408,7 +408,7 @@ def _assert_fresh(session: Session, run: RunDoc) -> None:
             "Start again from the source worktree with the same intent. The stale run "
             "will be preserved as ORPHANED before the fresh run begins."
         ),
-        next_command=_start_command(
+        next_command=start_command(
             run.intent,
             base_ref=run.base_ref,
             default_base_ref=session.config.general.base_ref,
@@ -417,16 +417,16 @@ def _assert_fresh(session: Session, run: RunDoc) -> None:
     )
 
 
-def _worktree_mode(run: RunDoc) -> str:
+def worktree_mode(run: RunDoc) -> str:
     """The run's validation mode, ignoring keys a later release removed."""
     return snapshot_run_settings(run.config_snapshot)[1]
 
 
-def _is_in_place(run: RunDoc) -> bool:
-    return _worktree_mode(run) == "in_place"
+def is_in_place(run: RunDoc) -> bool:
+    return worktree_mode(run) == "in_place"
 
 
-def _worktree_completion(mode: str) -> str:
+def worktree_completion(mode: str) -> str:
     prefix = "Run complete. "
     if mode == "in_place":
         return prefix + "the in-place checkout was left intact."
@@ -435,10 +435,10 @@ def _worktree_completion(mode: str) -> str:
     return prefix + "the strict worktree was removed."
 
 
-def _release_run_worktree(session: Session, run: RunDoc) -> None:
+def release_run_worktree(session: Session, run: RunDoc) -> None:
     if not run.worktree_path or run.worktree_released:
         return
-    mode = _worktree_mode(run)
+    mode = worktree_mode(run)
     if mode == "in_place":
         return
     if mode == "reusable":
@@ -452,18 +452,20 @@ def _release_run_worktree(session: Session, run: RunDoc) -> None:
         worktree.remove(session.repo_root, run.worktree_path, branch=run.worktree_branch)
 
 
-def _assess(session: Session, changed_files: list[str], findings: list[Finding]) -> RiskAssessment:
+def assess_risk(
+    session: Session, changed_files: list[str], findings: list[Finding]
+) -> RiskAssessment:
     """Apply this run's path and finding policy consistently."""
     return risk.assess(
         changed_files,
         findings,
         policy=session.config.policy,
-        review_blocking_severities=session.config.review.blocking_severities,
+        review=session.config.review,
         docs_blocking_severities=session.config.docs.blocking_severities,
     )
 
 
-def _blocking_severities(session: Session, stage: Stage) -> Sequence[str]:
+def stage_blocking_severities(session: Session, stage: Stage) -> Sequence[str]:
     return (
         session.config.docs.blocking_severities
         if stage is Stage.DOCS
@@ -471,7 +473,7 @@ def _blocking_severities(session: Session, stage: Stage) -> Sequence[str]:
     )
 
 
-def _findings_next_hint(
+def findings_next_hint(
     envelope: Envelope,
     blocking: list[Finding],
     actionable: list[Finding],

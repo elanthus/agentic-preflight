@@ -303,7 +303,9 @@ def run_stage(
     timeout fires; killing only the direct child would strand them.
     """
     try:
-        argv = command_plan.build_argv(command_plan.plan(command, cwd=worktree_path))
+        argv = command_plan.build_argv(
+            command_plan.plan(command, cwd=worktree_path), cwd=worktree_path
+        )
     except command_plan.ShellUnavailable as exc:
         return StageResult(command=command, exit_code=EXIT_UNRUNNABLE, output=str(exc))
 

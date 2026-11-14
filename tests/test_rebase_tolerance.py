@@ -103,13 +103,13 @@ def test_unchanged_attested_commit_imports_review_docs_and_reruns_shell(
     assert original.outcome == "verified"
     agent.run("abort", "--force")
     actions = []
-    apply = evidence._apply
+    apply = evidence.apply_action
 
     def tracked(doc, action):
         actions.append(action)
         apply(doc, action)
 
-    monkeypatch.setattr(evidence, "_apply", tracked)
+    monkeypatch.setattr(evidence, "apply_action", tracked)
     env = ScriptedAgent(feature_repo).run("start")
     assert env["state"] == "DOCS_GREEN"
     assert set(env["data"]["applicability"]) == {stage.value for stage in Stage}

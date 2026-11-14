@@ -39,7 +39,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, StrictBool, ValidationError
 
-from . import filelock, fileperms, gitx, telemetry
+from . import filelock, fileperms, gitx, run_summary, telemetry
 from .config import (
     REPO_CONFIG_NAME,
     USER_CONFIG_NAME,
@@ -97,7 +97,7 @@ class HookDecisionLine(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     at: str
-    repo: telemetry.RepoIdentity
+    repo: run_summary.RepoIdentity
     #: The remote name Git passed to the hook, or a URL as host and path without
     #: credentials. ``None`` when the hook did not receive it.
     remote: str | None
@@ -127,7 +127,7 @@ def remote_label(value: str | None) -> str | None:
 def build_line(
     decision: Decision,
     *,
-    repo: telemetry.RepoIdentity,
+    repo: run_summary.RepoIdentity,
     remote: str | None,
     at: str | None = None,
 ) -> HookDecisionLine:
@@ -293,10 +293,10 @@ class Pending:
         if not value:
             return None
         if _REMOTE_NAME.fullmatch(value):
-            value = telemetry._git_output(self._root, "remote", "get-url", value) or ""
+            value = telemetry.git_output(self._root, "remote", "get-url", value) or ""
         return telemetry.normalize_remote(value)
 
-    def _excluded(self, identity: telemetry.RepoIdentity) -> bool:
+    def _excluded(self, identity: run_summary.RepoIdentity) -> bool:
         """Whether the rule keeps this repository's line out of the log.
 
         An explicit ``[telemetry] path`` opts every repository in. Otherwise the
@@ -341,13 +341,14 @@ class Pending:
 
 
 def begin(
-    *, repo_root: Path | None, config: Config | None, timeout: float = TIMEOUT_SECONDS
+    *, repo_root: Path | None, config: Config | None, timeout: float | None = None
 ) -> Pending:
     """Start logging one decision. Never raises.
 
     ``config`` is the loaded configuration, or ``None`` when it could not be loaded,
     and then :func:`fallback_section` decides. ``repo_root`` defaults to the current
-    directory, where Git runs the hook. Nothing starts when logging is off or the
+    directory, where Git runs the hook. ``timeout`` defaults to :data:`TIMEOUT_SECONDS`,
+    read at call time. Nothing starts when logging is off or the
     preference is unknown. Unless an explicit ``[telemetry] path`` opts the repository
     in, the worker decides from the repository's remote, within the same time bound,
     and writes nothing for a repository without a network remote.
@@ -364,7 +365,8 @@ def begin(
         opted_in = bool(effective.telemetry.path)
         directory = telemetry.telemetry_dir(effective)
         pending = Pending()
-        pending._start(root, directory, timeout, opted_in=opted_in)
+        limit = TIMEOUT_SECONDS if timeout is None else timeout
+        pending._start(root, directory, limit, opted_in=opted_in)
         return pending
     except Exception:  # noqa: BLE001 - a broken log must never block or alter a push
         return Pending(FAILED)
@@ -376,7 +378,7 @@ def record(
     repo_root: Path | None,
     config: Config | None,
     remote: str | None,
-    timeout: float = TIMEOUT_SECONDS,
+    timeout: float | None = None,
 ) -> str:
     """Log a decision that is already known: :func:`begin`, then :meth:`Pending.finish`."""
     pending = begin(repo_root=repo_root, config=config, timeout=timeout)

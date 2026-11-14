@@ -378,6 +378,11 @@ class RunDoc(BaseModel):
     copied_files: list[str] = Field(default_factory=list)
     config_snapshot: dict[str, Any]
     config_digest: str
+    # Sections of the snapshot that came from the user configuration file. They run
+    # locally but stay out of the published note. ``None`` means unknown: a run that
+    # an earlier release started, whose snapshot cannot be published safely. Every
+    # run started now records a list, even an empty one.
+    user_config_sections: list[str] | None = None
     changed_files: list[str] = Field(default_factory=list)
     review_coverage: ReviewCoverage | None = None
     risk: RiskAssessment | None = None
@@ -429,6 +434,20 @@ class RunDoc(BaseModel):
         if type(value) is not int or value != 2:
             raise ValueError("schema_version must be the JSON integer 2")
         return value
+
+    @model_serializer(mode="wrap")
+    def omit_unknown_user_config_sections(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        """Write a run that an earlier release started without the provenance field.
+
+        Its absence keeps marking the provenance unknown, and such a record stays
+        readable by the release that started it, which forbids unknown keys.
+        """
+        data = handler(self)
+        if self.user_config_sections is None:
+            data.pop("user_config_sections", None)
+        return data
 
 
 class AttestedStage(BaseModel):

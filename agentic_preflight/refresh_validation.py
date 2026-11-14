@@ -293,7 +293,7 @@ def verify_evidence(repo: Path | str, value: Attestation, *, policy: Config) -> 
         changed_files,
         all_findings,
         policy=cfg.policy,
-        review_blocking_severities=cfg.review.blocking_severities,
+        review=cfg.review,
         docs_blocking_severities=cfg.docs.blocking_severities,
     )
     _verify_executor_policy(value, cfg, assessment)

@@ -136,7 +136,7 @@ def test_pending_mergeback_rejects_an_interrupted_source_rebase(
 def _interrupt_persisted_retry(agent, monkeypatch):
     from agentic_preflight import store as storemod
 
-    original = storemod._atomic_write
+    original = storemod.atomic_write
 
     def interrupted(path, payload):
         original(path, payload)
@@ -147,7 +147,7 @@ def _interrupt_persisted_retry(agent, monkeypatch):
                 raise OSError("interrupted after retry transaction")
 
     with monkeypatch.context() as fault:
-        fault.setattr(storemod, "_atomic_write", interrupted)
+        fault.setattr(storemod, "atomic_write", interrupted)
         agent.run("mergeback", expect=1)
     status = agent.run("status")
     assert status["state"] == "MERGEBACK_PENDING"
@@ -165,7 +165,7 @@ def test_pending_mergeback_reconciles_completed_git_effects(
     agent, wt = ready(with_fix=True)
     before = git("rev-parse", "HEAD", cwd=feature_repo)
     original_pick = mergebackmod.cherry_pick_fixes
-    original_write = storemod._atomic_write
+    original_write = storemod.atomic_write
 
     def interrupted_pick(*args, **kwargs):
         original_pick(*args, **kwargs)
@@ -185,7 +185,7 @@ def test_pending_mergeback_reconciles_completed_git_effects(
         elif boundary == "attestation":
             fault.setattr(attestation, "write", interrupted_note)
         else:
-            fault.setattr(storemod, "_atomic_write", interrupted_record)
+            fault.setattr(storemod, "atomic_write", interrupted_record)
         agent.run("mergeback", expect=1)
 
     applied = git("rev-parse", "HEAD", cwd=feature_repo)
@@ -369,7 +369,8 @@ def test_conflict_aborts_and_restores_the_branch_exactly(
     agent.run("stage", "run", "test")
 
     # Now make the branch diverge on the same content, and re-point the run's
-    # recorded head so the staleness guard does not fire first.
+    # recorded source head so the staleness guard does not fire first. The
+    # reviewed head stays the base of the validated history.
     write(feature_repo, "src/app.py", "TOTALLY DIFFERENT BRANCH CONTENT\n")
     commit_all(feature_repo, "branch rewrite")
     new_head = git("rev-parse", "HEAD", cwd=feature_repo)
@@ -382,7 +383,6 @@ def test_conflict_aborts_and_restores_the_branch_exactly(
     )
     run_path = state_root / "runs" / run_id / "run.json"
     doc = json.loads(run_path.read_text(encoding="utf-8"))
-    doc["head_sha"] = new_head
     doc["source_head_sha"] = new_head
     run_path.write_text(json.dumps(doc))
 
@@ -462,7 +462,6 @@ def test_different_human_conflict_resolution_restarts_review(
     )
     run_path = state_root / "runs" / run_id / "run.json"
     doc = json.loads(run_path.read_text(encoding="utf-8"))
-    doc["head_sha"] = source_head
     doc["source_head_sha"] = source_head
     run_path.write_text(json.dumps(doc))
 
@@ -526,7 +525,6 @@ def test_human_conflict_resolution_cannot_adopt_a_copied_file(feature_repo, tmp_
     )
     run_path = state_root / "runs" / run_id / "run.json"
     doc = json.loads(run_path.read_text(encoding="utf-8"))
-    doc["head_sha"] = source_head
     doc["source_head_sha"] = source_head
     run_path.write_text(json.dumps(doc))
 
