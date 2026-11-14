@@ -17,12 +17,14 @@
   `pushd`, `-C`, `--directory`, `--cwd`, `--prefix`, `--project`, `--chdir`), directories
   in `PYTHONPATH` and `NODE_PATH`, the top-level package of a dotted `-m` module (or
   `name.py` and `name/**` for `-m name`), and the literal
-  path after a leading `$VAR/` or `$(...)/` expansion.
+  path after a leading `$VAR/` or `$(...)/` expansion. Control operators split the command
+  only outside quotes, so a quoted path such as `'reviewers (local)/rev.py'` stays whole.
 - The example Claude wrapper passes `--safe-mode --setting-sources user`, and the example
   Codex wrapper passes `--config project_doc_max_bytes=0 --ignore-rules`, so the branch
   under review cannot instruct or reconfigure its reviewer through `CLAUDE.md`,
   `AGENTS.md`, or `.claude/settings.json`. Codex has no option to skip a project
-  `.codex/config.toml`; list `.codex/**` in `trusted_paths`. The example configurations
+  `.codex/config.toml` or repository skills under `.agents/skills`; the Codex example
+  lists `.codex/**` and `.agents/**` in `trusted_paths`. The example configurations
   run the wrapper with `python3 -S -B`, so a branch-added `sitecustomize` module does
   not run.
 - This repository adds a root `sitecustomize.py` to `human_review_paths` and CODEOWNERS,

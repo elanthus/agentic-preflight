@@ -519,6 +519,31 @@ def test_a_branch_that_rewrites_the_base_reviewer_requires_human_approval(
     ]
 
 
+def test_a_quoted_reviewer_path_with_shell_characters_is_protected(tmp_repo, monkeypatch):
+    # Parentheses inside quotes are part of the path, not shell grammar.
+    write(
+        tmp_repo,
+        ".agentic-preflight.toml",
+        "[review]\nexecutor = 'command'\ncommand = \"python3 'reviewers (local)/rev.py'\"\n\n"
+        "[approval]\nmode = 'peer_review'\n",
+    )
+    write(tmp_repo, "reviewers (local)/rev.py", "raise SystemExit(1)\n")
+    base = commit_all(tmp_repo, "configure a quoted repository reviewer")
+    git("switch", "-c", "feature/quoted-reviewer", cwd=tmp_repo)
+    write(tmp_repo, "reviewers (local)/rev.py", "print('{}')\n")
+    head = commit_all(tmp_repo, "rewrite the reviewer")
+    _stub_attestation(
+        monkeypatch, head=head, branch="feature/quoted-reviewer", findings_summary={"open": 0}
+    )
+
+    result = evaluate(tmp_repo, base_sha=base, head_sha=head, reviews=[], pull_request_author="a")
+
+    assert result["requires_human_approval"] is True
+    assert [(reason["path"], reason["pattern"]) for reason in result["path_reasons"]] == [
+        ("reviewers (local)/rev.py", "reviewers (local)/**")
+    ]
+
+
 def test_a_branch_cannot_move_the_reviewer_to_escape_the_base_policy(tmp_repo, monkeypatch):
     # The base's command decides which paths are protected, not the branch's.
     base = _repository_reviewer(tmp_repo, "command = 'python3 reviewer/rev.py'")

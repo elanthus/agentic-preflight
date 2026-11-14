@@ -23,6 +23,7 @@ The wrapper is independent of the coding agent's session, not of the branch.
 It runs from the worktree that holds the change under review, so a branch that edits the wrapper changes its own reviewer.
 Verification compares only the configured command string.
 Instead, risk classification treats the files that the command names, and every file under the wrapper's directory, as human-review paths.
+A wrapper at the repository root protects only itself, not the files beside it. List any module that such a wrapper imports in `trusted_paths`; see [Review independence](configuration.md#review-independence-review).
 A change to the wrapper or to `_reviewer_common.py` then goes through the configured approval mode before merge.
 List any other file that the reviewer reads, such as a prompt in another directory, in `[review] trusted_paths`.
 Also list the wrapper directory in your forge's code-owner rules.
@@ -39,7 +40,8 @@ The CLI that the wrapper starts works in the worktree under review, so the wrapp
 - The Codex wrapper passes `--config project_doc_max_bytes=0`, so Codex does not read `AGENTS.md`, and `--ignore-rules`, so it does not load `.rules` files.
   Codex CLI 0.163.0 has no option to skip a project `.codex/config.toml`, which can change the model provider, tools, or instructions.
   The wrapper's `--model`, `--sandbox`, and `--config` values take precedence over that file, but nothing else does.
-  List `.codex/**` in `[review] trusted_paths` when you use the Codex wrapper.
+  Codex also discovers repository skills under `.agents/skills` in the worktree and its parent directories up to the project root, and neither option turns that off.
+  List `.codex/**` and `.agents/**` in `[review] trusted_paths` when you use the Codex wrapper, as the example configuration does.
 
 Set `AP_CODEX_BIN` or `AP_CLAUDE_BIN` if the executable is not named `codex` or `claude`.
 Set `AP_REVIEWER_MODEL` to an exact model ID.

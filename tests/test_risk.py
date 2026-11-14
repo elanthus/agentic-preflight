@@ -214,6 +214,13 @@ def test_imported_attestation_preserves_medium_and_high_finding_risk():
         # Only a shell's ``-c`` takes a command; another tool's flag is an ordinary word.
         ("reviewer -vc 'conf/my review.toml'", ["conf/**"]),
         ("node 'my tools/review.mjs' --config=conf/reviewer.json", ["my tools/**", "conf/**"]),
+        # Control operators split words only outside quotes.
+        ("python3 'reviewers (local)/rev.py'", ["reviewers (local)/**"]),
+        ('python3 "tools/a;b|c/rev.py"', ["tools/a;b|c/**"]),
+        ("python3 a.py;python3 b/c.py", ["a.py", "a.py/**", "b/**"]),
+        ("python3 a.py && python3 b/c.py", ["a.py", "a.py/**", "b/**"]),
+        ("(cd tools; python3 rev.py)", ["tools/**", "rev.py", "rev.py/**"]),
+        ("python3 tools/rev.py|tee out/log.txt", ["tools/**", "out/**"]),
         ("CONFIG=conf/review.toml reviewer", ["conf/**"]),
         ("node tools/reviewer/", ["tools/**"]),
         # Bare program names, absolute paths, escapes from the repository, and paths

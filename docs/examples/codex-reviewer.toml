@@ -24,9 +24,10 @@ command = "python3 -S -B docs/examples/reviewers/codex_review.py"
 # Alternative: keep executor = "in_harness" and require the paid command only for high risk.
 # require_command_for = ["high"]
 require_command_for = []
-# Codex reads a project .codex/config.toml from the worktree under review, and no option
-# turns that off. Protect it so a branch cannot reconfigure its own reviewer.
-trusted_paths = [".codex/**"]
+# Codex reads a project .codex/config.toml and repository skills under .agents/skills
+# from the worktree under review, and no option turns either off. Protect both so a
+# branch cannot reconfigure or instruct its own reviewer.
+trusted_paths = [".codex/**", ".agents/**"]
 
 [policy]
 human_review_paths = [

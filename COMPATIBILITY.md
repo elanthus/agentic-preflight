@@ -604,6 +604,7 @@ The required check keeps its name, and `approval-check`, its outputs, and the at
 
 Risk classification now treats the repository paths that `[review] command` and `[review.contracts] planner_command` name as human-review paths, together with every file under each named file's directory.
 Directories that a command changes to or adds to `PYTHONPATH` or `NODE_PATH`, and the top-level package of a dotted `-m` module, are protected as whole directories. `-m name` protects `name.py` and `name/**`.
+Shell control operators (`;`, `&`, `|`, `(`, `)`, `<`, `>`) split the command only outside quotes, so a quoted path such as `'reviewers (local)/rev.py'` is protected as one path.
 The new optional `[review] trusted_paths` list adds more patterns.
 This applies to local runs, to attestation verification, and to `approval-check`, which reads both from the protected base.
 A pull request that edits a configured reviewer script, or a sibling file such as the example wrappers' `_reviewer_common.py`, is now high risk and needs the configured approval. Earlier releases classified it by `[policy]` alone.

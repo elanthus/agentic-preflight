@@ -47,7 +47,8 @@ _FINDING_RISK = {
 
 # Shell control operators and redirections can join words without whitespace, as in
 # ``cd tools&&python3 review.py``. Splitting on them keeps the paths on each side.
-_SHELL_OPERATORS = re.compile(r"[;&|()<>]+")
+_SHELL_OPERATORS = frozenset(";&|()<>")
+_OPERATOR_WORD = re.compile(r"[;&|()<>]+")
 # A word with an expansion or a glob does not name one fixed path.
 _UNRESOLVED = frozenset("$`~*?[]{}")
 # A leading expansion before a slash, as in ``"$PWD/tools/review.py"`` or
@@ -82,24 +83,54 @@ def _is_shell(word: str) -> bool:
     return posixpath.basename(word.replace("\\", "/")) in _SHELLS
 
 
+def _separate_operators(command: str) -> str:
+    """``command`` with whitespace around each control operator outside quotes.
+
+    ``cd tools&&python3 review.py`` becomes ``cd tools && python3 review.py``, while
+    ``python3 'reviewers (local)/rev.py'`` keeps its quoted parentheses inside the word.
+    Quoting follows :func:`agentic_preflight.stages.command.split`: single quotes
+    suppress everything, and a backslash escapes outside single quotes where it is an
+    escape character.
+    """
+    out: list[str] = []
+    quote: str | None = None
+    escaped = False
+    for char in command:
+        if escaped:
+            escaped = False
+        elif commandmod.BACKSLASH_ESCAPES and char == "\\" and quote != "'":
+            escaped = True
+        elif quote is not None:
+            if char == quote:
+                quote = None
+        elif char in {"'", '"'}:
+            quote = char
+        elif char in _SHELL_OPERATORS:
+            out.append(f" {char} ")
+            continue
+        out.append(char)
+    return "".join(out)
+
+
 def _shell_pieces(command: str, depth: int = 0) -> Iterator[str]:
-    """Shell words of ``command``, split again on control operators.
+    """Shell words of ``command``, split on control operators outside quotes.
 
     The word after a shell's ``-c`` flag, as in ``sh -c 'python3 tools/review.py'``,
     is read again as a nested command. Any other quoted word stays whole, so a path that
-    contains a space is kept.
+    contains a space or a character such as ``(`` or ``;`` is kept.
     """
-    words = commandmod.split(command)
+    separated = _separate_operators(command)
+    words = commandmod.split(separated)
     if words is None:
-        words = command.split()
+        words = separated.split()
     previous = ""
     shell = False
     for word in words:
         if depth < _MAX_NESTING and shell and _SHELL_COMMAND_FLAG.fullmatch(previous):
             # ``-c`` and combined short flags such as ``-lc`` or ``-ec``.
             yield from _shell_pieces(word, depth + 1)
-        else:
-            yield from (piece for piece in _SHELL_OPERATORS.split(word) if piece)
+        elif not _OPERATOR_WORD.fullmatch(word):
+            yield word
         shell = shell or _is_shell(word)
         previous = word
 
