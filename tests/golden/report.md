@@ -52,18 +52,20 @@ Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs wit
 
 | Measure | Rate | Count | Denominator | Excluded runs |
 |---|---|---|---|---|
-| Runs synced | 25.0% | 2 | runs: 8 | n/a |
-| Preflight green, hosted checks failed | 0.0% | 0 | synced runs with settled checks: 2 | 0 |
-| Pull request found | 100.0% | 2 | synced runs whose commit GitHub knew: 2 | 0 |
-| Pull request merged | 100.0% | 2 | synced runs with a pull request: 2 | n/a |
+| Runs synced | 37.5% | 3 | runs: 8 | n/a |
+| Preflight green, hosted checks failed | 0.0% | 0 | synced runs with settled checks: 3 | 0 |
+| Pull request found | 100.0% | 3 | synced runs whose commit GitHub knew: 3 | 0 |
+| Pull request merged | 100.0% | 3 | synced runs with a pull request: 3 | n/a |
 
 | Hosted check conclusion | Synced runs |
 |---|---|
+| failure | 1 |
 | success | 2 |
 
 | Repository | Synced runs | Green, hosted checks failed | Share of synced runs with settled checks | Merged of synced runs with a pull request | Merged share |
 |---|---|---|---|---|---|
 | widget (github.com/owner/widget) | 2 | 0 | 0.0% | 2 of 2 | 100.0% |
+| widget (github.com/owner/widget) | 1 | 0 | 0.0% | 1 of 1 | 100.0% |
 
 ### Findings
 

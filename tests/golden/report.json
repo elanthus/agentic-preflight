@@ -399,35 +399,36 @@
     "hosted": {
       "synced": {
         "runs": {
-          "value": 0.25,
-          "numerator": 2,
+          "value": 0.375,
+          "numerator": 3,
           "denominator": 8,
           "denominator_label": "runs"
         },
         "green_checks_failed": {
           "value": 0.0,
           "numerator": 0,
-          "denominator": 2,
+          "denominator": 3,
           "denominator_label": "synced runs with settled checks"
         },
         "checks_excluded_runs": 0,
         "pull_request_found": {
           "value": 1.0,
-          "numerator": 2,
-          "denominator": 2,
+          "numerator": 3,
+          "denominator": 3,
           "denominator_label": "synced runs whose commit GitHub knew"
         },
         "commit_unknown_runs": 0,
         "merged": {
           "value": 1.0,
-          "numerator": 2,
-          "denominator": 2,
+          "numerator": 3,
+          "denominator": 3,
           "denominator_label": "synced runs with a pull request"
         },
         "pr_states": {
-          "closed": 2
+          "closed": 3
         },
         "checks_conclusions": {
+          "failure": 1,
           "success": 2
         },
         "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
@@ -1620,33 +1621,37 @@
         "hosted": {
           "synced": {
             "runs": {
-              "value": 0.0,
-              "numerator": 0,
+              "value": 1.0,
+              "numerator": 1,
               "denominator": 1,
               "denominator_label": "runs"
             },
             "green_checks_failed": {
-              "value": null,
+              "value": 0.0,
               "numerator": 0,
-              "denominator": 0,
+              "denominator": 1,
               "denominator_label": "synced runs with settled checks"
             },
             "checks_excluded_runs": 0,
             "pull_request_found": {
-              "value": null,
-              "numerator": 0,
-              "denominator": 0,
+              "value": 1.0,
+              "numerator": 1,
+              "denominator": 1,
               "denominator_label": "synced runs whose commit GitHub knew"
             },
             "commit_unknown_runs": 0,
             "merged": {
-              "value": null,
-              "numerator": 0,
-              "denominator": 0,
+              "value": 1.0,
+              "numerator": 1,
+              "denominator": 1,
               "denominator_label": "synced runs with a pull request"
             },
-            "pr_states": {},
-            "checks_conclusions": {},
+            "pr_states": {
+              "closed": 1
+            },
+            "checks_conclusions": {
+              "failure": 1
+            },
             "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
           }
         },
@@ -2066,35 +2071,36 @@
         "hosted": {
           "synced": {
             "runs": {
-              "value": 0.2857,
-              "numerator": 2,
+              "value": 0.4286,
+              "numerator": 3,
               "denominator": 7,
               "denominator_label": "runs"
             },
             "green_checks_failed": {
               "value": 0.0,
               "numerator": 0,
-              "denominator": 2,
+              "denominator": 3,
               "denominator_label": "synced runs with settled checks"
             },
             "checks_excluded_runs": 0,
             "pull_request_found": {
               "value": 1.0,
-              "numerator": 2,
-              "denominator": 2,
+              "numerator": 3,
+              "denominator": 3,
               "denominator_label": "synced runs whose commit GitHub knew"
             },
             "commit_unknown_runs": 0,
             "merged": {
               "value": 1.0,
-              "numerator": 2,
-              "denominator": 2,
+              "numerator": 3,
+              "denominator": 3,
               "denominator_label": "synced runs with a pull request"
             },
             "pr_states": {
-              "closed": 2
+              "closed": 3
             },
             "checks_conclusions": {
+              "failure": 1,
               "success": 2
             },
             "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
@@ -2871,35 +2877,36 @@
         "hosted": {
           "synced": {
             "runs": {
-              "value": 0.25,
-              "numerator": 2,
+              "value": 0.375,
+              "numerator": 3,
               "denominator": 8,
               "denominator_label": "runs"
             },
             "green_checks_failed": {
               "value": 0.0,
               "numerator": 0,
-              "denominator": 2,
+              "denominator": 3,
               "denominator_label": "synced runs with settled checks"
             },
             "checks_excluded_runs": 0,
             "pull_request_found": {
               "value": 1.0,
-              "numerator": 2,
-              "denominator": 2,
+              "numerator": 3,
+              "denominator": 3,
               "denominator_label": "synced runs whose commit GitHub knew"
             },
             "commit_unknown_runs": 0,
             "merged": {
               "value": 1.0,
-              "numerator": 2,
-              "denominator": 2,
+              "numerator": 3,
+              "denominator": 3,
               "denominator_label": "synced runs with a pull request"
             },
             "pr_states": {
-              "closed": 2
+              "closed": 3
             },
             "checks_conclusions": {
+              "failure": 1,
               "success": 2
             },
             "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
@@ -3571,7 +3578,7 @@
       "branch": "feature/widget",
       "base_ref": "main",
       "head_sha": "4444444444444444444444444444444444444444",
-      "pushed_sha": null,
+      "pushed_sha": "4444444444444444444444444444444444444444",
       "intent_sha256": "b67f267309187edb114e1bffeb060435f1e834d835bd99338af6f138916ab562",
       "intent_source": "user",
       "created_at": "2026-10-11T19:50:00+00:00",
@@ -3653,11 +3660,11 @@
         "orphaned_reason": null
       },
       "hosted": {
-        "checks_conclusion": null,
-        "fetched_at": null,
-        "merged": null,
-        "pr_number": null,
-        "pr_state": null
+        "checks_conclusion": "failure",
+        "fetched_at": "2026-11-01T00:00:00+00:00",
+        "merged": true,
+        "pr_number": 7,
+        "pr_state": "closed"
       },
       "worktree_mode": "reusable",
       "pr_mode": "manual",

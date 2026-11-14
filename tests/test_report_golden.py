@@ -42,6 +42,7 @@ def _check(name: str, actual: str) -> None:
 def _summaries() -> list[telemetry.RunSummary]:
     synced = _schema_2_record()
     synced["run_id"] = "r_0000000009"
+    synced["pushed_sha"] = synced["head_sha"]
     hosted = {
         "sha": synced["pushed_sha"],
         "fetched_at": "2026-11-01T00:00:00+00:00",
