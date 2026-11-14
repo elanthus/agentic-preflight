@@ -318,6 +318,76 @@ def test_start_refuses_to_reclaim_an_interrupted_checkout_holding_changes(
     assert session.store.load_run(dead_run_id).state is State.CREATED
     assert (runner / "notes.txt").read_text(encoding="utf-8") == "keep me\n"
     assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=runner) == f"ap/{dead_run_id}"
+    head = session.store.load_run(dead_run_id).head_sha
+    assert env["data"]["head_sha"] == head
+    assert head in env["next"]["instruction"]
+
+
+def test_an_aborted_interrupted_run_does_not_leave_the_runner_leased_forever(
+    agent, feature_repo, monkeypatch
+):
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "reusable", "after_checkout")
+    session = runs.open_session(feature_repo)
+    runner = session.store.worktrees_dir / "runner"
+    write(runner, "notes.txt", "keep me\n")
+    agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+    assert agent.run("abort", "--force")["state"] == "ABORTED"
+
+    # Still dirty: the refusal names the checkout and the head to return it to.
+    env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+    head = session.store.load_run(dead_run_id).head_sha
+    assert env["data"]["worktree_path"] == str(runner)
+    assert env["data"]["head_sha"] == head
+    assert "still leased" not in env["error"]["message"]
+    assert (runner / "notes.txt").exists()
+
+    # Once the user cleans it, the next start reclaims the runner.
+    (runner / "notes.txt").unlink()
+    env = agent.run("start")
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=runner) == f"ap/{env['run_id']}"
+    assert git("branch", "--list", f"ap/{dead_run_id}", cwd=feature_repo) == ""
+    assert session.store.load_run(dead_run_id).state is State.ABORTED
+
+
+def test_a_failed_reclaim_leaves_the_interrupted_run_for_a_retry(agent, feature_repo, monkeypatch):
+    from agentic_preflight import worktree
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "reusable", "after_checkout")
+    session = runs.open_session(feature_repo)
+
+    def refuse(*_args, **_kwargs):
+        raise worktree.WorktreeError("simulated release failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(worktree, "release_reusable", refuse)
+        env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+    assert "simulated release failure" in env["error"]["message"]
+    assert session.store.load_run(dead_run_id).state is State.CREATED
+
+    env = agent.run("start")
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert session.store.load_run(dead_run_id).state is State.ORPHANED
+
+
+def test_start_never_reclaims_a_user_worktree_outside_the_store(
+    agent, feature_repo, monkeypatch, tmp_path
+):
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "strict", "before_checkout")
+    named_for_run = tmp_path / "user" / dead_run_id
+    on_run_branch = tmp_path / "user" / "branch-checkout"
+    git("worktree", "add", "--detach", str(named_for_run), "HEAD", cwd=feature_repo)
+    git("worktree", "add", "-b", f"ap/{dead_run_id}", str(on_run_branch), "HEAD", cwd=feature_repo)
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert named_for_run.exists()
+    assert on_run_branch.exists()
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=on_run_branch) == f"ap/{dead_run_id}"
 
 
 def test_start_recovers_a_run_left_in_worktree_ready(agent, feature_repo, monkeypatch):

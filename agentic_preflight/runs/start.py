@@ -39,7 +39,7 @@ from ..machine import TERMINAL_STATES, Action, State
 from ..models import Producer, RiskAssessment, RunDoc, SetupFailure
 from ..stages import shellstage
 from ..stages.shellstage import OutputProtection
-from ..store import CurrentRunExists, UnknownRun
+from ..store import CurrentRunExists, RunReadError, UnknownRun
 from . import evidence
 from ._session import (
     Session,
@@ -162,20 +162,23 @@ def _interrupted_checkouts(session: Session, run: RunDoc) -> list[Path]:
     The run record may not name its checkout yet, so ownership comes from Git:
     a checkout on the run's own ``ap/<run_id>`` branch, or a detached strict
     checkout at a path named for the run, which `git worktree add` leaves if
-    the process dies before the branch is created.
+    the process dies before the branch is created. Only checkouts under the
+    store's worktrees directory count, so a user's own worktree is never taken.
     """
-    if _worktree_mode(run) == "in_place":
+    if worktree_mode(run) == "in_place":
         return []
+    root = session.store.worktrees_dir.resolve()
     branch_ref = f"refs/heads/ap/{run.run_id}"
-    return [
-        Path(record["worktree"])
-        for record in gitx.list_worktrees(session.repo_root)
-        if "worktree" in record
-        and (
-            record.get("branch") == branch_ref
-            or ("detached" in record and Path(record["worktree"]).name == run.run_id)
-        )
-    ]
+    owned: list[Path] = []
+    for record in gitx.list_worktrees(session.repo_root):
+        if "worktree" not in record:
+            continue
+        path = Path(record["worktree"])
+        if not path.resolve().is_relative_to(root):
+            continue
+        if record.get("branch") == branch_ref or ("detached" in record and path.name == run.run_id):
+            owned.append(path)
+    return owned
 
 
 def _require_disposable(run: RunDoc, checkouts: list[Path]) -> None:
@@ -186,25 +189,32 @@ def _require_disposable(run: RunDoc, checkouts: list[Path]) -> None:
         if gitx.is_clean(path) and gitx.rev_parse(path, "HEAD") == run.head_sha:
             continue
         raise NeedsHuman(
-            f"interrupted run {run.run_id} left validation checkout {path} with changes or "
-            "commits beyond the head it started from; refusing to reclaim it",
+            f"run {run.run_id} was interrupted during start and left validation checkout "
+            f"{path} with changes or commits beyond {run.head_sha}; refusing to reclaim it",
             state=run.state.value,
             run_id=run.run_id,
-            data={"worktree_path": str(path), "worktree_branch": f"ap/{run.run_id}"},
+            data={
+                "worktree_path": str(path),
+                "worktree_branch": f"ap/{run.run_id}",
+                "head_sha": run.head_sha,
+            },
             next_instruction=(
-                "Inspect the checkout. Keep anything you need, then discard its changes and "
-                "start again."
+                f"Show the checkout to the user. Once they have kept what they need, it must "
+                f"have no local changes and its HEAD must be {run.head_sha}. Then start "
+                "again: it reclaims the checkout."
             ),
             next_command=f"git -C {shlex.quote(str(path))} status",
         )
 
 
 def _reclaim_interrupted_checkouts(session: Session, run: RunDoc) -> None:
-    """Release what an interrupted ``start`` provisioned for an orphaned run.
+    """Release what an interrupted ``start`` provisioned for ``run``.
 
-    A reusable runner is reset and detached so the next run can lease it; a
-    strict checkout is removed. The run's ``ap/`` branch is deleted only while
-    it still points at the head the run started from.
+    The caller has checked that every checkout is disposable. A reusable runner
+    is reset and detached so the next run can lease it; a strict checkout is
+    removed. The run's ``ap/`` branch is deleted only while it still points at
+    the head the run started from. A failure raises ``needs_human`` so the
+    caller leaves the run as it was and a later ``start`` can retry.
     """
     branch = f"ap/{run.run_id}"
     try:
@@ -220,14 +230,55 @@ def _reclaim_interrupted_checkouts(session: Session, run: RunDoc) -> None:
         )
         if probe.returncode == 0 and probe.stdout.strip() == run.head_sha:
             gitx.run(session.repo_root, "branch", "-D", branch, check=False)
-    except Exception as exc:  # noqa: BLE001 - orphaning must complete regardless
+    except (worktree.WorktreeError, gitx.GitError, OSError, subprocess.SubprocessError) as exc:
         session.store.append_event(
             run.run_id, {"event": "interrupted_checkout_release_failed", "error": str(exc)[:500]}
         )
+        raise NeedsHuman(
+            f"cannot release the validation checkout of interrupted run {run.run_id}: {exc}",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction=(
+                "Fix the problem named in the error, then start again; the interrupted "
+                "run is left as it was so the release can be retried."
+            ),
+            next_command="agentic-preflight status --all",
+        ) from exc
+    session.store.append_event(run.run_id, {"event": "interrupted_checkout_reclaimed"})
+
+
+def _reclaim_runner_from_ended_run(session: Session) -> None:
+    """Free a runner still leased by an ended run whose ``start`` was interrupted.
+
+    An interrupted run that was aborted, or orphaned by an earlier version,
+    never recorded its runner, so neither ``abort`` nor ``gc`` releases it and
+    every later lease fails. The runner's ``ap/<run_id>`` branch identifies
+    the run. It is reclaimed only when that run is terminal, recorded no fix
+    commits, holds no unreleased recorded checkout, and the runner is clean at
+    the run's head; otherwise this refuses with the checkout and head named.
+    """
+    runner = session.store.worktrees_dir / "runner"
+    if not (runner / ".git").is_file():
         return
-    with session.store.transaction(run.run_id) as doc:
-        if doc.worktree_path:
-            doc.worktree_released = True
+    branch = gitx.current_branch(runner)
+    if not branch.startswith("ap/"):
+        return
+    try:
+        run = session.store.load_run(branch.removeprefix("ap/"))
+    except (UnknownRun, RunReadError):
+        return
+    if (
+        run.state not in TERMINAL_STATES
+        or run.fix_commits
+        or (run.worktree_path and not run.worktree_released)
+        or runner.resolve() not in {path.resolve() for path in _interrupted_checkouts(session, run)}
+    ):
+        return
+    with session.store.try_operation(run.run_id) as idle:
+        if not idle:
+            return
+        _require_disposable(run, [runner])
+        _reclaim_interrupted_checkouts(session, run)
 
 
 def _orphan(
@@ -241,8 +292,8 @@ def _orphan(
     """Detach an idle run without destroying its evidence or validation work.
 
     With ``interrupted_start``, the run's ``start`` died before the run was
-    synchronized; a clean checkout it provisioned is reclaimed, and a checkout
-    holding anything more is refused with ``needs_human`` before orphaning.
+    synchronized. The checkout it provisioned is reclaimed *before* the run is
+    orphaned, so a refusal or failed release leaves the run for a retry.
     """
     with session.store.try_operation(run.run_id) as idle:
         if not idle:
@@ -255,15 +306,16 @@ def _orphan(
             )
         if interrupted_start:
             _require_disposable(run, _interrupted_checkouts(session, run))
+            _reclaim_interrupted_checkouts(session, run)
         with session.store.transaction(run.run_id) as doc:
             if doc.state not in TERMINAL_STATES:
                 apply_action(doc, Action.ORPHAN)
             doc.orphaned_reason = reason
+            if interrupted_start and doc.worktree_path:
+                doc.worktree_released = True
         session.store.clear_run(run.run_id)
         session.store.append_event(run.run_id, {"event": "orphaned", "reason": reason})
-        if interrupted_start:
-            _reclaim_interrupted_checkouts(session, run)
-        else:
+        if not interrupted_start:
             _release_idle_runner(session, run)
         if discard_pending:
             (session.store.run_dir(run.run_id) / "pending-update.json").unlink()
@@ -969,6 +1021,8 @@ def _start(
     existing = _resolve_existing_run(ctx, replace=replace)
     if existing is not None:
         return existing
+    if ctx.cfg.worktree.mode != "in_place":
+        _reclaim_runner_from_ended_run(session)
     merge_base = _require_changes(ctx)
     run_id = new_run_id()
     # Hold the new run's operation lock until the run is ready for review, as
