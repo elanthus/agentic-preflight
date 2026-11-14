@@ -29,7 +29,15 @@ require_command_for = []
 trusted_paths = [".codex/**"]
 
 [policy]
-human_review_paths = [".agentic-preflight.toml", ".github/workflows/**", "CODEOWNERS"]
+human_review_paths = [
+  ".agentic-preflight.toml",
+  ".github/workflows/**",
+  ".github/CODEOWNERS",
+  "CODEOWNERS",
+  "docs/CODEOWNERS",
+  # The reviewer wrapper this configuration runs decides what a review reports.
+  "docs/examples/reviewers/**",
+]
 high_risk_paths = ["db/migrations/**", "infra/**"]
 medium_risk_paths = ["dependencies/**"]
 

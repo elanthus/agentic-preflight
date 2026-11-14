@@ -93,6 +93,17 @@ def test_loading_an_unknown_run_raises(store):
         store.load_run("r_nope")
 
 
+def test_reading_an_unknown_run_leaves_no_run_directory(store):
+    store.create_run(make_run())
+    with pytest.raises(UnknownRun):
+        store.load_run("r_nope")
+    assert store.peek("r_nope", "branch") is None
+    assert store.load_findings("r_nope") == []
+
+    assert not store.run_dir("r_nope").exists()
+    assert store.list_runs() == ["r_abc123"]
+
+
 def test_transaction_bumps_seq_and_persists_the_mutation(store):
     store.create_run(make_run())
     with store.transaction("r_abc123") as run:

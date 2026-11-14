@@ -35,8 +35,17 @@ Saved configuration snapshots ignore keys that a later release removed. Those ke
 For readable nonterminal runs, `gc` can mark a run orphaned when its source worktree or lease disappears, or when its source head moves after startup.
 It does not orphan a run while a run command is still executing.
 It keeps isolated resources that contain unmerged fixes unless you use `--force`.
+A run that `abort --force` ended has already discarded its fixes, so `gc` reclaims it.
+It also keeps a validation worktree that has uncommitted changes, or whose `HEAD` is neither the recorded head, a recorded fix, nor a commit with the tree of the recorded head or the last recorded fix, unless you use `--force`.
 In-place source commits stay intact.
-Inspect the reported path. Never delete an alias to make an unreadable run look absent.
+Inspect the reported path. Never delete the record or an alias to make an unreadable run look absent.
+For an `in_place` or `strict` run, a refused mutating command such as `abort --force` names the run's ownership pointers in `data.pointer_paths`.
+If no compatible version can read the record and you decide to abandon the run, deleting only those files lets the worktree start a fresh run.
+The old run can then no longer be resumed from that worktree.
+Its record, worktree, and branch stay. `status --all` and `gc` report it while it stays unreadable, and a version that can read it may later orphan and reclaim it.
+A `reusable` run may still lease the clone's single runner on its own branch, which can hold unmerged fixes, so deleting its pointer would not let any worktree start a reusable run.
+For such a run `data.pointer_paths` is absent. Keep the record, its pointers, the runner, and its branch, and resolve the record first.
+When the mode cannot be determined, for example because the record cannot be read at all, `data.pointer_paths` is also absent. Keep the record and its pointers.
 
 A repeated `start` with the same head, intent, base, and effective configuration resumes the matching run.
 If the source head moved, `start` marks the old run `ORPHANED` and continues.
@@ -95,6 +104,10 @@ The mode reduces local disk churn. It does nothing more.
 
 This mode creates a fresh worktree for every run and removes it afterward.
 Use it when each local validation must begin with no retained artifacts.
+
+A strict worktree that you lock with `git worktree lock` is never deleted.
+`abort` and `finish` stop with an error that names it, and `gc` retains it with the reason `validation worktree is locked`.
+If you no longer need it, unlock it with `git worktree unlock`, then retry.
 
 Remote CI must stay the clean verification boundary in both isolated modes.
 

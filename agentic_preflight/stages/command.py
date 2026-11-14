@@ -365,12 +365,25 @@ def find_shell() -> list[str] | None:
     return None
 
 
-def build_argv(command_plan: Plan) -> list[str]:
-    """The final argv to hand to ``subprocess``, raising if a shell is missing."""
+def build_argv(command_plan: Plan, *, cwd: Path | str | None = None) -> list[str]:
+    """The final argv to hand to ``subprocess``, raising if a shell is missing.
+
+    The shell is a login shell, which sources the user's profile before the
+    command runs. A profile that changes directory would move the command, so
+    with ``cwd`` the command string first changes back to it. ``command`` skips
+    any ``cd`` function the profile defines, such as a version manager's hook. ``-P`` keeps
+    ``$PWD`` the physical path the shell would have started with, and the
+    prefix shares the command's first line so reported line numbers do not move.
+    """
     if not command_plan.uses_shell:
         return command_plan.argv
 
     shell = find_shell()
     if shell is None:
         raise ShellUnavailable(command_plan.command, command_plan.reason or "requires a shell")
-    return [*shell, command_plan.command]
+    script = command_plan.command
+    if cwd is not None:
+        # The forward-slash form, ``C:/...`` on Windows, is the form every
+        # POSIX shell, Git Bash included, accepts as a directory.
+        script = f"command cd -P -- {shlex.quote(Path(cwd).as_posix())} || exit; {script}"
+    return [*shell, script]

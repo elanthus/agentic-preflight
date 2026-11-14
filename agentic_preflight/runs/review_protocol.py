@@ -51,15 +51,17 @@ def grounding_for(
 ) -> dict[str, Any]:
     """Assemble the grounding delivered with this run's snapshot once per command.
 
-    Grounding reads the committed tree at HEAD, the run's identity and branch
-    (for review history), and the effective configuration, so all of them are
-    part of the key.
+    Grounding reads documentation and conventions from the committed tree at the
+    run's merge base, the run's identity and branch (for review history), and the
+    effective configuration, so all of them are part of the key. HEAD stays in the
+    key because a command that moves HEAD can also move the merge base.
     """
     repo, head = _snapshot(session, run, head)
     key = (
         "grounding",
         repo,
         head,
+        run.merge_base_sha,
         run.run_id,
         run.branch,
         tuple(changed_files),

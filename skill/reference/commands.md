@@ -35,6 +35,24 @@ Without it, the command resolves the run owned by the invoking Git worktree. Whe
 selected run's recorded source checkout no longer exists, inspection commands remain
 available, mutating commands exit 3 with `source_worktree_missing`, and `gc` remains the
 recovery path from another worktree in the clone.
+When the selected run's record cannot be read or validated, mutating workflow commands
+other than `status` and `gc`, including `abort --force` and `start --replace`, exit 3 with
+`run_record_unreadable` and leave the record unchanged. `data` holds the record's
+`run_id`, `path`, `reason`, and value-free `diagnostic`. `next.command` is `null`.
+When worktree ownership pointers still name the run and the raw record names the
+`in_place` or `strict` worktree mode, `data.pointer_paths` lists those pointers and
+`next.instruction` names them. If a compatible version cannot read the record either and
+the user decides to abandon the run, deleting only those files lets `start` create a
+fresh run. The old run can then no longer be resumed from that worktree. Its record,
+worktree, and branch stay in place; `gc` retains them while the record stays unreadable,
+and a version that can read it may later orphan and reclaim it. Otherwise
+`data.pointer_paths` is absent. For a `reusable` run, or a record whose `worktree_path`
+names the reusable runner, the run may still lease the clone's single runner on its own
+branch, so deleting a pointer would not let any worktree start a reusable run; the
+instruction says to keep the record, pointers, runner, and branch, and to stop for the
+user. When the mode cannot be determined, for example because the file cannot be read
+at all, the instruction says so and says to keep the record and its pointers and stop.
+Single-run `status` reports the read failure without `data.pointer_paths`.
 
 ## Setup
 
@@ -43,8 +61,11 @@ Installs the pre-push hook and writes `.agentic-preflight.toml` if absent. Refus
 replace a pre-push hook it did not write (exit 3, `hook_exists`) — `--force`
 overrides. A hook that is byte for byte one an earlier version installed is replaced
 with the current script; a hook containing the command with other edits is left as it
-is. Does not clobber an existing config. `data.hook_path` is the absolute path
-Git will execute, `data.hook_installed` confirms that installation left that path
+is. A symlink at the hook path is replaced with a regular file and never written
+through: a dangling link or a link to exactly the current script is replaced without
+`--force`, and any other link to a file is judged by that file's content. Does not clobber an existing config. `data.hook_path` is the
+absolute path Git will execute; it names a symlink at the hook itself rather than its
+target. `data.hook_installed` confirms that installation left that path
 containing `agentic-preflight hook-check`, and `data.hooks_path_overridden` reports
 whether the effective path is outside the common Git directory's `hooks/` directory.
 With `--no-hook`, the effective path and override state are still reported, while
@@ -331,6 +352,9 @@ attestation note includes them. Review-command findings are redacted the same wa
 - `--note` text has copied-file values replaced by `[redacted]` before it is saved; the
   note is published in the attestation. A `copy_files` file that cannot be read for
   redaction exits 3 with `invalid_response`.
+- `--note` is limited to 4,000 characters. A longer note exits 6 with `usage_error`,
+  states the limit in `error.message`, and records nothing; the Python `respond` API
+  raises `invalid_response`.
 - Unknown id exits 3 listing the valid ids. Each finding is resolved once.
 - Non-blocking findings may be resolved after their review or docs stage is green. A
   note-only disposition preserves the green state. A fix that changes the reviewed
@@ -574,6 +598,9 @@ substitute the gate's `data.token` only after authorization.
 Marks a pushed validation run `DONE`. It preserves the run directory and
 audit logs, clears only that run's worktree ownership pointers, and directs the next step
 to `gc`.
+A `strict` validation worktree locked with `git worktree lock` is never deleted:
+the command exits 1 with `git_error` naming the worktree, and the run keeps its state.
+Show the user the message; do not unlock it yourself.
 
 Pull-request creation, hosted CI monitoring, and cleanup are host or forge operations.
 Follow the skill's [PR lifecycle and cleanup](../SKILL.md#pull-request-lifecycle-and-cleanup)
@@ -605,8 +632,22 @@ In `MERGEBACK_CONFLICT`, it replays the stored conflict report and points back t
 legal `mergeback` retry.
 `--all` inventories stored and active runs across every linked worktree in the clone.
 
-### `agentic-preflight logs --stage review|lint|test`
-Full captured output. Copied-file contents are redacted.
+### `agentic-preflight logs --stage review|lint|test [--tail N | --head N | --all]`
+A window of the stage's captured output. Copied-file contents are redacted in the stored
+log, so every window is redacted too.
+
+By default `data.output` holds the last 200 lines of the log, cut to at most 64 KiB.
+`--tail N` returns the last N lines and `--head N` the first N lines, each also cut to
+64 KiB. `--all` returns the whole log with no size limit. Choose at most one; combining
+them, or an N below 1, exits 6 with `usage_error`. A cut never splits a UTF-8 character
+or a `[redacted]` marker: a marker the cut would split is left out. When the 64 KiB cut falls
+inside a line, `--tail` and the default window start at the next line, unless the window
+holds only that one partial line.
+
+`data.stage` names the stage. `data.truncated` is true when `data.output` is less than
+the whole stored log.
+`data.total_bytes` and `data.total_lines` describe the whole log. `data.log_path` is the
+path of the stored log, for reading it with other tools.
 
 ### `agentic-preflight events [--limit N]`
 Run history, oldest first.
@@ -622,6 +663,9 @@ timestamps are suitable for intervals within one host boot.
 ### `agentic-preflight abort [--force] [--reason REASON]`
 Ends the run and releases the worktree. Exits 5 if unmerged fix commits would be lost;
 `--force` discards them.
+A `strict` validation worktree locked with `git worktree lock` is never deleted:
+the command exits 1 with `git_error` naming the worktree, and the run keeps its state.
+Show the user the message; do not unlock it yourself.
 `--reason` labels the abort with one of `user_cancelled`, `superseded`, `wrong_base`,
 `environment_failure`, `tool_error`, `no_longer_needed`, or `other`. It is optional. Any
 other value exits 6 with `usage_error`. The `aborted` event records `forced`, `reason`
@@ -653,7 +697,20 @@ Reconciles run directories, git worktrees, and `ap/*` branches. For a terminal r
 each fix commit is compared by stable patch ID with commits in that run's
 post-merge-back history. Patch-equivalent cherry-picks are safe to reclaim; anything
 with no equivalent remains reported as unmerged and is never removed without
-`--force`. Run directories and their audit logs are retained until they expire:
+`--force`. Before it releases a `strict` or `reusable` validation worktree, `gc`
+also requires a checkout that is clean apart from copied files and whose `HEAD` is the
+recorded head, a recorded fix, or a commit with the tree of the recorded head or
+the last recorded fix. Otherwise it retains the run in `data.retained`
+with its `worktree_path` and reason `validation worktree has uncommitted changes`,
+`validation worktree holds unrecorded commits` (for example, a fix committed but not
+yet answered with `respond`), or `validation worktree could not be inspected`.
+`next.instruction` then says that `gc --force` discards any work they hold, and `next.command`
+is `null`. `--force` releases it anyway. A run ended with `abort --force` already discarded
+its fix commits, so they no longer count as unmerged. A `strict` worktree locked with
+`git worktree lock` is retained, even with `--force`, with reason
+`validation worktree is locked`; `next.instruction` asks you to show the user each
+`worktree_path` and ask whether to unlock it, and `next.command` is `null`. `data.orphans` lists only `ap/*` branches and worktrees
+with no run record; a live run's branch is never reported there. Run directories and their audit logs are retained until they expire:
 a reclaimed run's directory is deleted once its record last changed more than
 `[retention] run_days` days ago (default 90; 0 keeps every record), and
 `data.pruned` lists the deleted run IDs. Pruned runs leave `data.runs_known`. A run
@@ -760,7 +817,7 @@ first. GitHub does not associate a commit with a pull request that was closed wi
 merging, so when the list is empty it also reads
 `/repos/{owner}/{repo}/pulls?state=all&head={owner}:{branch}` and uses the pull request
 whose head is the commit. The check runs reduce to one conclusion: `failure` when any has
-the conclusion `failure`, `cancelled`, or `timed_out`; otherwise `pending` when any is not
+the conclusion `failure`, `cancelled`, `timed_out`, or `startup_failure`; otherwise `pending` when any is not
 complete; `none` when there are none; otherwise `success`. Commit statuses are not read.
 It writes `hosted.json` in the run directory with `fetched_at`, `sha`, `pr` (`number`,
 `url`, `state`, `merged_at`, or `null`), `checks` (`conclusion`, `total`, and the `failed`

@@ -219,6 +219,49 @@ def test_a_protected_base_that_cannot_hold_the_head_is_a_base_mismatch(
     assert caught.value.reason == "base_mismatch"
 
 
+def test_a_branch_cannot_choose_an_older_base_through_its_own_base_ref(feature_repo, tmp_path):
+    """A branch can point ``[general] base_ref`` at an older branch it chose.
+
+    That moves the run's merge base, and with it the revision grounding reads, but the
+    hosted checks pass the pull request's real base, so verification and approval-check
+    reject the note instead of accepting evidence judged against the older base.
+    """
+    from agentic_preflight import approval
+
+    stale = git("rev-parse", "main", cwd=feature_repo)
+    git("branch", "stale-base", stale, cwd=feature_repo)
+    configure_base(feature_repo, PROTECTED_CONFIG)  # advances main past stale-base
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        PROTECTED_CONFIG + "\n[general]\nbase_ref = 'stale-base'\n",
+    )
+    commit_all(feature_repo, "point base_ref at an older branch")
+    agent = ScriptedAgent(feature_repo)
+    assert agent.run("start")["data"]["merge_base_sha"] == stale
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
+    agent.run("mergeback")
+    sha = git("rev-parse", "HEAD", cwd=feature_repo)
+    real_base = git("rev-parse", "main", cwd=feature_repo)
+    assert attestation.read(feature_repo, sha).merge_base_sha == stale
+
+    with pytest.raises(attestation.InvalidAttestation) as caught:
+        attestation.verify(feature_repo, sha, base=real_base)
+    assert caught.value.reason == "base_mismatch"
+    with pytest.raises(attestation.InvalidAttestation) as caught:
+        approval.evaluate(
+            feature_repo,
+            base_sha=real_base,
+            head_sha=sha,
+            reviews=[],
+            pull_request_author="contributor",
+        )
+    assert caught.value.reason == "base_mismatch"
+
+
 @pytest.mark.parametrize(
     ("edited", "accepted"), [("reviewer/rev.py", False), ("src/other.py", True)]
 )

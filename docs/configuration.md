@@ -86,6 +86,9 @@ human_review_paths = [
   ".github/workflows/**",
   ".github/CODEOWNERS",
   "CODEOWNERS",
+  "docs/CODEOWNERS",
+  # Command reviewer wrappers decide what a review reports.
+  "docs/examples/reviewers/**",
 ]
 # Every high-risk result requires human merge approval; medium risk does not.
 high_risk_paths = ["db/migrations/**", "infra/**"]
@@ -202,6 +205,7 @@ Each run keeps a directory under `$GIT_COMMON_DIR/agentic-preflight/runs/`.
 That directory holds its record, events, findings, stage logs, and `summary.json`.
 `gc` deletes a run's directory when the run has been reclaimed and its record last changed more than `run_days` days ago.
 A run is reclaimed when it is finished, has no unlanded fix commits, and its validation worktree is released.
+Fix commits that `abort --force` discarded do not count as unlanded.
 The default is 90. `run_days = 0` keeps every record.
 A run whose command is still executing is left for the next `gc`.
 The deleted run IDs are listed in `data.pruned`.
@@ -378,6 +382,7 @@ The reviewer checks that content.
 It returns that knowledge in `data.grounding`.
 The default sources are matching files under `docs/**` and the root `AGENTS.md` and `CLAUDE.md` files.
 They also include relevant findings from earlier local runs and the deterministic policy reasons for the change.
+The documentation, the convention files, and this `[context]` section are read at the run's merge base, so a branch's change to `[context]` applies to later runs after it merges.
 See [Grounded context](context-grounding.md) for the matching and ordering rules.
 
 `enabled = false` returns an explicit empty grounding block.
@@ -416,6 +421,9 @@ This includes the abbreviated list in the complete example above.
 To add a project-specific pattern, copy this list and append to it.
 
 ## Stage execution (`[stage]`)
+
+A stage command with shell grammar runs through a login shell, which sources your login profile first.
+The command then changes back to the validation directory, so a profile that changes directory does not move the stage.
 
 `timeout_seconds` bounds a single stage run. `max_attempts` bounds the retries.
 When a stage is still red after `max_attempts`, the run stops and asks for human resolution.
@@ -562,7 +570,8 @@ Ordinary code derives the verdict from the committed policy and the stored findi
 The reviewing model cannot submit or override it.
 Protect the policy file with your forge's ownership rules, so a change cannot quietly remove its own human-review rule.
 On GitHub, make the repository's `high-risk human approval` job a required status check.
-Copy `human-approval-review.yml` and `human-approval-rerun.yml` along with `human-approval.yml`, so a submitted review re-runs the check; see [how a review reaches the check](attestations-and-ci.md#how-a-review-reaches-the-check).
+Copy `human-approval-review.yml` and `human-approval-rerun.yml` along with `human-approval.yml`, so a review from an owner, member, or collaborator, or a dismissal by a user with write access, re-runs the check; see [how a review reaches the check](attestations-and-ci.md#how-a-review-reaches-the-check).
+The copied checkouts set `persist-credentials: false`, so in a private repository the later `git fetch` steps need credentials of their own; see [Required GitHub check](attestations-and-ci.md#required-github-check).
 Require Code Owner reviews for the protected paths.
 The job evaluates trusted base code.
 Its behavior depends on `[approval] mode`.

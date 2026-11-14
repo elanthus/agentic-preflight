@@ -1,7 +1,21 @@
 # Compatibility policy
 
-Agentic Preflight supports Python 3.11, 3.12, and 3.13 on macOS 15 or newer, on Linux, and on Windows 10 or newer.
+Agentic Preflight supports Python 3.11, 3.12, 3.13, and 3.14 on macOS 15 or newer, on Linux, and on Windows 10 or newer.
 Git 2.38 or newer is required.
+
+## Python versions
+
+The package declares `requires-python = ">=3.11,<3.15"`.
+The upper bound is the first Python minor version that CI does not test.
+The tool runs inside your pre-push hook, so a crash on an untested interpreter would block your push.
+The cap keeps installers off such an interpreter.
+`pip` and `pipx` refuse to install the package on a Python version outside the range.
+`uv tool install` picks an interpreter inside the range unless you name one with `--python`.
+A version that you name outside the range is not supported, even when the installation succeeds.
+
+A new Python minor version becomes supported in one change.
+That change adds it to the CI matrix, fixes what fails, adds its classifier, and raises the cap to the next minor version.
+`tests/test_python_support.py` keeps the classifiers, the cap, this policy, and the CI matrix in step.
 
 Windows support is native.
 It does not use WSL. It does not require a POSIX shell for ordinary use.
@@ -113,17 +127,17 @@ not assert which consumer contracts the repository supports.
 
 The supported combinations receive different validation frequencies, so pull-request feedback stays fast:
 
-- Pull requests and pushes to `main` run on `ubuntu-latest` and `macos-latest` with Python 3.13. This conserves GitHub Actions minutes while catching macOS regressions before merge.
+- Pull requests and pushes to `main` run on `ubuntu-latest` and `macos-latest` with Python 3.11, 3.13, and 3.14. Python 3.11 and Python 3.14 are the oldest and newest supported versions. Python 3.13 stays because the `main` ruleset requires its test check; dropping it needs a matching ruleset change. This conserves GitHub Actions minutes while catching version-boundary and macOS regressions before merge.
 - A scheduled regression run covers the oldest supported boundary, macOS 15 with Python 3.11, every Monday and Thursday.
-- Manual CI runs and release tags cover Python 3.11, 3.12, and 3.13 on `ubuntu-latest`, `macos-latest`, and `windows-latest`.
+- Manual CI runs and release tags cover Python 3.11, 3.12, 3.13, and 3.14 on `ubuntu-latest`, `macos-latest`, and `windows-latest`.
 
 A platform is supported even when it is not in the pull-request job.
 A failure that is specific to a supported combination is a release blocker.
 Fix it with the same priority as a pull-request CI failure.
 
-Other POSIX systems and newer Python prereleases can work.
+Other POSIX systems can work.
 They are best effort until they are added to the supported matrix.
-A successful installation on a version outside the matrix does not make that version supported.
+Python versions outside the declared range are not supported; see [Python versions](#python-versions).
 
 ## Upgrading from 0.6.0 to 0.7.0
 
@@ -541,6 +555,50 @@ Outside manual gate mode, `data.refspec`, `data.push_commands`, and `data.would_
 A wrapper that ran those strings as commands must run `push` instead.
 In manual gate mode, `gate` now fetches the remote notes, and `data.manual_command` names the notes commit's SHA.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Unreleased: run and findings records are validated before they are written
+
+The run store parses each run and findings record back through its loader before writing it, and writes neither file of a transaction when either is invalid.
+Such a refusal is reported as `internal_error`; the earlier files stay unchanged.
+`respond --note` longer than 4,000 characters now exits 6 with `usage_error`, and the Python `respond` API raises `invalid_response`. Earlier releases exited 0 and wrote a findings record that could not be read.
+A `run_record_unreadable` error envelope from a mutating command adds `data.pointer_paths`, a list of ownership pointer file paths, when the record names the `in_place` or `strict` worktree mode. When the mode is `reusable` or the record names the reusable runner, the key is absent and `next.instruction` says to keep the runner and stop. When the mode cannot be determined, the key is absent and `next.instruction` says to keep the record and its pointers and stop. When no pointer names the run, the plain recovery applies.
+Single-run `status`, `status --all`, and `gc` output are unchanged.
+Run schema 2, attestation schema 7, fingerprint version 2, and the findings format are unchanged.
+
+## Unreleased: `logs` returns a bounded window
+
+`logs --stage` no longer returns the whole stage log by default.
+`data.output` now holds the last 200 lines, cut to at most 64 KiB.
+The `logs` envelope adds `data.truncated`, `data.total_bytes`, and `data.total_lines`, which describe the whole stored log.
+New flags choose the window: `--tail N`, `--head N`, and `--all`. `--all` restores the earlier whole-log output.
+A wrapper that read the whole log from `data.output` must pass `--all` or read the file at `data.log_path`.
+The stored log, its redaction, and its location are unchanged.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Unreleased: grounding reads the merge base
+
+`data.grounding` now reads `docs/**`, `AGENTS.md`, `CLAUDE.md`, the files that `[context] extra_paths` selects, and the `[context]` section itself from `.agentic-preflight.toml` at the run's merge base.
+Earlier releases read them from the branch head and the working-tree configuration.
+When the merge base sets no `[context]` section, the user file's section applies.
+A branch's edits to those files reach the reviewer only through the diff, and a branch's `[context]` change applies to later runs after it merges.
+For a branch that edits those files or `[context]`, the grounding and `grounding_sha256` change, so review and docs evidence recorded for that branch before the upgrade is not reused and those stages run again.
+For other branches the grounding is unchanged.
+Run schema 2, attestation schema 7, fingerprint version 2, and the configuration digest are unchanged.
+
+## Unreleased: hook path names a symlink, not its target
+
+`init` now replaces a symlink at the pre-push hook path with a regular file instead of writing through it.
+A dangling link, or a link to exactly the current hook script, is replaced without `--force`. Any other link to an existing file is judged by that file's content, as before.
+`data.hook_path` from `init` and the hook path that `status` reports now name the hook path itself, without following a symlink there.
+Earlier releases reported the link's target, or the missing target of a dangling link.
+The hooks directory, including `core.hooksPath`, is still resolved to an absolute path.
+
+## Unreleased: hosted workflow hardening
+
+The `high-risk human approval` job now fails unless the policy job reports `requires_approval` as exactly `true` or `false`.
+The checkouts in `attestation.yml` and `human-approval.yml` set `persist-credentials: false`. A private repository that copies them must authenticate the later `git fetch` itself; see [Portable attestations and CI enforcement](docs/attestations-and-ci.md#required-github-check).
+`human-approval-rerun.yml` now has an `authorize` job and a `rerun` job, and re-runs the policy only for a review from an owner, member, or collaborator, an action by a user with write access, or an action by a bot account that has dismissed an owner, member, or collaborator review of the pull request. When a lookup that decides this fails, it re-runs the policy with a warning instead of skipping it. A project that copied the companion should copy the new version.
+The required check keeps its name, and `approval-check`, its outputs, and the attestation schema are unchanged.
 
 ## Unreleased: the reviewer's own files need human review
 

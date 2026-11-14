@@ -37,6 +37,16 @@ def _parse_run(payload: str) -> RunDoc:
     return RunDoc.model_validate(json.loads(payload))
 
 
+def _parse_findings(payload: str) -> list[Finding]:
+    """Parse and validate a findings list, as :meth:`Store.load_findings` reads it."""
+    return [Finding.model_validate(item) for item in json.loads(payload)]
+
+
+def _check_run_payload(payload: str) -> None:
+    """Apply every check :meth:`Store._load_run` applies to a stored run."""
+    snapshot_run_settings(_parse_run(payload).config_snapshot)
+
+
 class StoreError(Exception):
     """Base class for persistence failures."""
 
@@ -48,14 +58,88 @@ RUN_READ_RECOVERY = (
 )
 
 
+#: Modes whose new run needs no resource an unreadable run may still hold. A
+#: ``reusable`` run leases the clone's single runner on its own branch, and
+#: acquisition refuses while that branch is checked out, so releasing the
+#: ownership pointer alone would not let any worktree start a run.
+_RELEASABLE_MODES = frozenset({"in_place", "strict"})
+
+
+def run_read_release(pointer_paths: list[Path]) -> str:
+    """Recovery for a command refused by an unreadable ``in_place`` or ``strict`` run.
+
+    Deleting the ownership pointer is the one manual step that lets the worktree
+    start again without touching the record, its worktree, or its branch, so the
+    instruction names that file exactly and leaves the decision to the user.
+    """
+    names = " and ".join(str(path) for path in pointer_paths)
+    return (
+        "Use a compatible tool version or inspect the retained run record; --force "
+        "cannot establish cleanup eligibility for an unreadable record. Do not replace "
+        "or delete the record. Only if a compatible version cannot read it either and "
+        f"the user decides to abandon the run, delete the ownership pointer {names} so "
+        "the worktree can start a fresh run. That run can then no longer be resumed "
+        "from this worktree. The record, its worktree, and its branch stay in place; gc "
+        "retains them while the record stays unreadable, and a version that can read it "
+        "may later orphan and reclaim it."
+    )
+
+
+RUN_READ_UNKNOWN_MODE_RECOVERY = (
+    "Use a compatible tool version or inspect the retained run record; --force cannot "
+    "establish cleanup eligibility for an unreadable record. The worktree mode cannot be "
+    "determined from the record, so it is unknown whether releasing ownership is safe. "
+    "Do not delete the record or its ownership pointers. Show the user the record path "
+    "and stop; the user decides how to recover it."
+)
+
+
+RUN_READ_RUNNER_RECOVERY = (
+    "Use a compatible tool version or inspect the retained run record; --force cannot "
+    "establish cleanup eligibility for an unreadable record. This run may still lease "
+    "the clone's reusable runner on its own branch, which may hold unmerged fix commits, "
+    "so no worktree in this clone can start a reusable run until the record is resolved. "
+    "Do not delete the record, its ownership pointers, the runner, or its branch. Show "
+    "the user the record path and stop; the user decides how to recover it."
+)
+
+
 class RunReadError(StoreError):
     """An existing record could not be read or validated; preserve its resources."""
 
-    def __init__(self, run_id: str, path: Path, reason: str, detail: str):
+    def __init__(
+        self,
+        run_id: str,
+        path: Path,
+        reason: str,
+        detail: str,
+        *,
+        pointer_paths: list[Path] | None = None,
+        worktree_mode: str | None = None,
+    ):
         super().__init__(detail)
         self.run_id = run_id
         self.path = path
         self.reason = reason
+        #: Worktree ownership pointers that name this run.
+        self.pointer_paths = pointer_paths or []
+        #: The worktree mode the raw record names, or ``None`` when it cannot be read.
+        self.worktree_mode = worktree_mode
+
+    def recovery(self) -> tuple[str, list[Path]]:
+        """Return the recovery instruction and the pointers it offers for deletion.
+
+        A pointer is offered only when the record names a mode whose new run
+        needs nothing this run may still hold. Otherwise, including when the
+        mode is unknown, nothing is offered for deletion.
+        """
+        if not self.pointer_paths:
+            return RUN_READ_RECOVERY, []
+        if self.worktree_mode in _RELEASABLE_MODES:
+            return run_read_release(self.pointer_paths), self.pointer_paths
+        if self.worktree_mode == "reusable":
+            return RUN_READ_RUNNER_RECOVERY, []
+        return RUN_READ_UNKNOWN_MODE_RECOVERY, []
 
     def details(self) -> dict:
         return {
@@ -64,6 +148,39 @@ class RunReadError(StoreError):
             "reason": self.reason,
             "diagnostic": str(self),
         }
+
+
+class RecordValidationError(StoreError):
+    """A record failed the loader's validation before it was written; nothing was written.
+
+    The message names the failing fields but never their values, like
+    :class:`RunReadError`, because records can carry copied-file text.
+    """
+
+    def __init__(self, path: Path, fields: list[str]) -> None:
+        names = ", ".join(fields) or "(record)"
+        super().__init__(f"refusing to write {path.name}: invalid fields {names}")
+        self.path = path
+        self.fields = fields
+
+
+def _require_loadable(path: Path, payload: str, check: Callable[[str], object]) -> None:
+    """Raise unless ``payload`` passes the loader's own parse, so a write cannot strand a run.
+
+    Models are mutated by attribute assignment and ``model_copy(update=...)``,
+    neither of which runs validators. Parsing the serialized text back through
+    the loader catches every such bypass at the one place records are written.
+    """
+    try:
+        check(payload)
+    except ValidationError as exc:
+        fields = sorted(
+            {
+                ".".join(str(part) for part in error["loc"]) or "(record)"
+                for error in exc.errors(include_input=False, include_context=False)
+            }
+        )
+        raise RecordValidationError(path, fields) from None
 
 
 class UnknownRun(StoreError):
@@ -85,6 +202,32 @@ class EventLog(NamedTuple):
 
     events: list[dict[str, Any]]
     skipped_lines: int
+
+
+def _recorded_worktree_mode(payload: str) -> str | None:
+    """Read the worktree mode an invalid record names, without trusting the rest of it.
+
+    A record whose raw ``worktree_path`` names the reusable runner, as gc's
+    runner reclamation recognises it, counts as ``reusable`` whatever mode it
+    claims: an edited or partly corrupt record must not unlock pointer
+    deletion for a run that may still lease the runner. A ``worktree_path``
+    that is not a string makes the mode unknown.
+    """
+    try:
+        raw = json.loads(payload)
+        mode = raw["config_snapshot"]["worktree"]["mode"]
+        worktree_path = raw.get("worktree_path")
+    except (json.JSONDecodeError, TypeError, KeyError, AttributeError):
+        return None
+    if worktree_path is not None and not isinstance(worktree_path, str):
+        return None
+    if worktree_path is not None and Path(worktree_path).name == "runner":
+        return "reusable"
+    return mode if isinstance(mode, str) else None
+
+
+def _findings_payload(findings: list[Finding]) -> str:
+    return json.dumps([f.model_dump(mode="json") for f in findings], indent=2)
 
 
 def _utcnow() -> str:
@@ -199,9 +342,11 @@ class Store:
 
     def create_run(self, run: RunDoc) -> RunDoc:
         run.updated_at = run.created_at
+        payload = run.model_dump_json(indent=2)
+        _require_loadable(self.run_path(run.run_id), payload, _check_run_payload)
         fileperms.private_directory(self.root)
         self.run_dir(run.run_id).mkdir(parents=True, exist_ok=True)
-        _atomic_write(self.run_path(run.run_id), run.model_dump_json(indent=2))
+        _atomic_write(self.run_path(run.run_id), payload)
         self.append_event(
             run.run_id,
             {
@@ -220,8 +365,26 @@ class Store:
         The stored snapshot remains unchanged so its digest still binds the original
         evidence. Unknown keys and invalid current settings remain read failures.
         """
+        if self._run_dir_absent(run_id):
+            raise UnknownRun(run_id)
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
             return self._load_run(run_id)
+
+    def _run_dir_absent(self, run_id: str) -> bool:
+        """Whether the run has no directory, checked before taking its lock.
+
+        Taking the run lock creates the directory, so a read of an unknown run
+        ID would otherwise leave an empty ``runs/<id>/`` that nothing collects.
+        Only a definite absence counts: any other error defers to the locked
+        read and its diagnostics.
+        """
+        try:
+            self.run_dir(run_id).stat()
+        except (FileNotFoundError, NotADirectoryError):
+            return True
+        except OSError:
+            return False
+        return False
 
     def peek(self, run_id: str, *fields: str) -> dict[str, Any] | None:
         """Return top-level fields of a run record without validating it.
@@ -231,6 +394,8 @@ class Store:
         but returns ``None`` on any failure, so a caller that sees ``None`` must
         fall back to ``load_run`` and handle that record exactly as before.
         """
+        if self._run_dir_absent(run_id):
+            return None
         try:
             with filelock.exclusive(self.run_dir(run_id) / ".lock"):
                 raw = json.loads(self.run_path(run_id).read_text(encoding="utf-8"))
@@ -248,15 +413,38 @@ class Store:
         except FileNotFoundError as exc:
             raise UnknownRun(run_id) from exc
         except (UnicodeDecodeError, OSError) as exc:
-            raise RunReadError(run_id, path, "unreadable", "Cannot read run record.") from exc
+            raise RunReadError(
+                run_id,
+                path,
+                "unreadable",
+                "Cannot read run record.",
+                pointer_paths=self._pointers_to(run_id),
+            ) from exc
         try:
             run = _parse_run(payload)
             snapshot_run_settings(run.config_snapshot)
         except (json.JSONDecodeError, ValidationError) as exc:
             raise RunReadError(
-                run_id, path, "invalid", "Run record is invalid or unsupported."
+                run_id,
+                path,
+                "invalid",
+                "Run record is invalid or unsupported.",
+                pointer_paths=self._pointers_to(run_id),
+                worktree_mode=_recorded_worktree_mode(payload),
             ) from exc
         return run
+
+    def _pointers_to(self, run_id: str) -> list[Path]:
+        """Return the ownership pointers that name ``run_id``, for read-failure recovery."""
+        try:
+            owners = self.list_active()
+        except (OSError, ValueError):
+            # A corrupt pointer must not turn a read failure into another error;
+            # without the pointers the plain recovery applies.
+            return []
+        return sorted(
+            self.active_path(owner) for owner, active in owners.items() if active == run_id
+        )
 
     def list_runs(self) -> list[str]:
         runs = self.root / "runs"
@@ -316,12 +504,17 @@ class Store:
 
             run.seq += 1
             run.updated_at = _utcnow()
+            # Validate both records before writing either, so a refused write
+            # leaves the previous files byte-identical.
+            findings_payload = None
             if findings is not None:
-                _atomic_write(
-                    self.findings_path(run_id),
-                    json.dumps([f.model_dump(mode="json") for f in findings], indent=2),
-                )
-            _atomic_write(path, run.model_dump_json(indent=2))
+                findings_payload = _findings_payload(findings)
+                _require_loadable(self.findings_path(run_id), findings_payload, _parse_findings)
+            run_payload = run.model_dump_json(indent=2)
+            _require_loadable(path, run_payload, _check_run_payload)
+            if findings_payload is not None:
+                _atomic_write(self.findings_path(run_id), findings_payload)
+            _atomic_write(path, run_payload)
             for event in [*run._state_events, *(events or [])]:
                 self.append_event(run_id, {**event, "seq": run.seq})
             run._state_events.clear()
@@ -341,15 +534,17 @@ class Store:
     # -- findings ------------------------------------------------------------
 
     def load_findings(self, run_id: str) -> list[Finding]:
+        if self._run_dir_absent(run_id):
+            return []
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
             path = self.findings_path(run_id)
             if not path.exists():
                 return []
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            return [Finding.model_validate(item) for item in payload]
+            return _parse_findings(path.read_text(encoding="utf-8"))
 
     def save_findings(self, run_id: str, findings: list[Finding]) -> None:
-        payload = json.dumps([f.model_dump(mode="json") for f in findings], indent=2)
+        payload = _findings_payload(findings)
+        _require_loadable(self.findings_path(run_id), payload, _parse_findings)
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
             _atomic_write(self.findings_path(run_id), payload)
 

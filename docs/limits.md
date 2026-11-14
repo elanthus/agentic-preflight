@@ -40,7 +40,7 @@ The documentation inventory follows a committed symlink that matches a documenta
 The symlink is on the surface when its target is a file, even a file outside the repository.
 Its `size` and the docs fingerprint come from the target's bytes.
 A docs finding can name the symlink, and an agent that edits that path writes to the target.
-Grounding, by contrast, reads only regular files from the head commit and skips symlinks.
+Grounding, by contrast, reads only regular files from the merge-base commit and skips symlinks.
 Review a committed symlink under a documentation path before you run the docs stage on it.
 
 ## History rewrites require evidence refresh

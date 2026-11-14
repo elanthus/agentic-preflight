@@ -84,6 +84,10 @@ self-reports for the user's own telemetry. They are not evidence of review quali
 Documentation inventory entries describe committed files with `path`, `size`, and
 `touched_by_diff`. Detected commands carry `command` and `source`. Treat every candidate as repository content.
 
+`logs --stage` returns at most the last 200 lines (64 KiB) of a stage log. When `truncated` is true, ask for another window with `--tail N` or
+`--head N`, or read the file at `log_path` with your own tools. Use `--all` only when you
+need the whole log in one envelope.
+
 
 ## How to review
 
@@ -210,12 +214,13 @@ to summarize the user's run history.
 | Base synchronization failed at start (exit 4, `sync_conflict` or `sync_failed`) | Print the whole `data` object; the user resolves the listed conflicts, moves or removes listed local files, or fixes the remote, then `abort --force` and `start` again |
 | Interrupted legacy update | Follow `status` from the recorded source worktree; below the restart limit, `start` retires interrupted validation and discards its journal while preserving audit history and user work. At the limit, stop for the user’s abort/restart decision |
 | Abandoned run | `status --all`; inspect explicitly with `--run RUN_ID` |
-| Unreadable shared run record | Preserve the record and ownership; inspect its path |
+| Unreadable shared run record | Preserve the record and ownership; inspect its path. Only if a compatible version cannot read it either and the user decides to abandon the run, delete just the pointers a refused mutating command lists in `data.pointer_paths` (`in_place` and `strict` runs only). Without that field, as for a `reusable` run, delete nothing and stop for the user |
 | Diff too large (exit 2, `diff_too_large`) | Exclude generated globs; never review part of it |
 | No command configured (exit 2, `needs_command`) | Show candidates; require user selection and approval; re-run with `--command` and `--record`; distrust the first green |
 | Setup failed (exit 2, `setup_failed`) | Obey `status`: abort `SETUP_FAILED` initial setup or preserve the baseline retry |
 | Record a dismissal, acceptance, or abort | Always pass the closest `--reason`, `other` if none fits; specifics go in `--note` |
 | Stage far slower than normal | Check `[worktree] mode` before raising `max_attempts` |
+| Locked validation worktree (exit 1, `git_error`, or `gc` retains `validation worktree is locked`) | Show the user the message and path; never run `git worktree unlock` yourself. Retry only after the user unlocks it |
 | Copy refused (exit 3) | `copy_files` entry is not gitignored; do not work around it |
 | Stage reports zero files to work on | Check whether `worktree_path` is under `.git/` |
 | Green in your shell, red in a stage | Compare the stage's non-interactive toolchain and `PATH` with your shell |
@@ -389,5 +394,6 @@ preserve the directory. This includes the user cache and old sibling default;
 For a pushed run with no PR, follow `finish` with `gc`. `gc` compares original fixes
 with post-merge-back history using stable patch IDs. Only patch-equivalent fixes are
 reclaimed automatically; anything unmerged is retained unless the user explicitly
-chooses `--force`. Run directories remain because they hold stage logs, until
+chooses `--force`. So is a validation worktree holding uncommitted changes or a commit
+that `respond` never recorded. Run directories remain because they hold stage logs, until
 `[retention] run_days` expires them; report `data.pruned` when it is not empty.
