@@ -47,7 +47,9 @@ Keep the meaning of "the core CLI calls no model" for the workflow:
 It is not an agent-facing command, in the same way as `hook-check`.
 A usage error keeps Click's plain output and exit code 2.
 
-Keep `docs/examples/reviewers/` as thin pointers to the package for one release.
+Keep `docs/examples/reviewers/` for one release as standard-library copies of the packaged reviewer, not as code that imports the package.
+A test keeps each copy identical to its packaged counterpart, apart from the shebang, the module docstring, the import of the shared helper, and the `__main__` block.
+The copies keep running with `python3 -S -B`, which a repository reviewer script needs to stay out of the branch's Python environment.
 The removal is listed in the [compatibility removal plan](../maintainers/compatibility-removal-plan.md).
 
 The first step changes no behavior.

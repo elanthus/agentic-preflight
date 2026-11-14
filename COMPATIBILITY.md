@@ -615,9 +615,9 @@ Configuration snapshots omit `trusted_paths` when it is empty, so snapshots and 
 A snapshot that sets it cannot be read by an earlier release.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
-The packaged reviewer (see the next section) runs from the installed package, and the example reviewer configurations start it with `agentic-preflight reviewer run`. Run a wrapper copied from an earlier release with `python3 -S -B`.
-The Claude reviewer now passes `--safe-mode` and `--setting-sources user`, checked against Claude Code 2.1.292.
-The Codex reviewer now passes `--config project_doc_max_bytes=0` and `--ignore-rules`, checked against Codex CLI 0.163.0.
+The example reviewer configurations now run their wrapper with `python3 -S -B`.
+The Claude wrapper now passes `--safe-mode` and `--setting-sources user`, checked against Claude Code 2.1.292.
+The Codex wrapper now passes `--config project_doc_max_bytes=0` and `--ignore-rules`, checked against Codex CLI 0.163.0.
 An older CLI that lacks one of these options fails the review with a visible error. Update the CLI, or remove the option from your copy of the wrapper and protect the files that it would read with `trusted_paths`.
 With `--safe-mode`, the Claude reviewer also ignores your user `CLAUDE.md`, skills, hooks, and MCP servers.
 
@@ -627,6 +627,6 @@ With `--safe-mode`, the Claude reviewer also ignores your user `CLAUDE.md`, skil
 Like `hook-check`, it prints no JSON envelope and keeps Click's usage output and exit code 2 on a usage error.
 Its stdout, stderr, exit codes, and `AP_*` environment variables are those of the former example wrappers.
 Unlike them, it reads its own stdin and writes its own stdout and stderr as UTF-8 rather than in the locale encoding, which matters on Windows. The pipe to the provider CLI is unchanged and still uses the locale encoding. Like them, it does not need Git: commands in the `reviewer` group skip the Git version check.
-The example wrappers in `docs/examples/reviewers/` are deprecated pointers to it for one release.
-A configured command that runs a pointer needs an interpreter that can import `agentic_preflight`.
+It passes the same provider CLI options as the example wrappers, including `--safe-mode` and `--setting-sources user` for Claude and `project_doc_max_bytes=0` and `--ignore-rules` for Codex.
+The example wrappers in `docs/examples/reviewers/` stay as deprecated standard-library copies for one release. A test keeps them identical to the packaged reviewer, and they still run with `python3 -S -B`.
 The configuration file, the review submission, and the attestation schema are unchanged.

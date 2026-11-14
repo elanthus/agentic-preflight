@@ -71,7 +71,7 @@ trusted_paths = []            # e.g. ["tools/reviewer/**"]; changes need human r
 
 [review.contracts]
 enabled = false              # opt-in executable review evidence
-# planner_command = "agentic-preflight reviewer run --provider claude"
+# planner_command = "python3 -S -B docs/examples/reviewers/claude_review.py"
 # image = "registry.example/runtime@sha256:<64 lowercase hex characters>"
 max_checks = 8               # 1..32, three probes per check
 timeout_seconds = 10         # 1..60 per probe
@@ -491,7 +491,7 @@ Thus, risk classification treats the reviewer's own files as human-review paths,
 
 - Every repository-relative path that `command` or `[review.contracts] planner_command` names.
   A named file is protected together with every file under its directory, because interpreters load sibling modules from there.
-  Wrappers copied from earlier releases, for instance, import `_reviewer_common.py` from their own directory.
+  The example wrappers, for instance, import `_reviewer_common.py` from their own directory.
   A path at the repository root is protected as that file, or as that directory if it is one.
   Its sibling files are not protected, because that would cover the whole repository. List any module that a root-level reviewer imports in `trusted_paths`, or move the reviewer into its own directory.
 - Every pattern in `trusted_paths`. Patterns are repository-relative globs with the same matching and restrictions as `[policy]`.
@@ -517,11 +517,11 @@ List in `trusted_paths` anything else that decides what the reviewer does: a pro
 The interpreter and runner environment is a reviewer input too, and command parsing does not find it.
 `uv run`, `poetry run`, and `npm run` load or synchronize the project from its manifest and lockfile, which can run build hooks or path dependencies from the branch.
 During startup, Python imports a `sitecustomize` module from any directory on `sys.path`, and an editable install puts the repository there.
-The [example configurations](independent-review.md) start the installed `agentic-preflight reviewer run`, which runs from the installed package, not from the worktree.
-Run a repository reviewer script that needs only the standard library directly, with `python3 -S -B`. `-S` skips that startup processing.
+Run a reviewer that needs only the standard library directly, with `python3 -S -B`, as the [example configurations](independent-review.md) do. `-S` skips that startup processing.
+The installed `agentic-preflight reviewer run` runs the same reviewer from the installed package, not from the worktree.
 Otherwise, protect the runner's inputs with `trusted_paths`.
-The coding-agent CLI that a reviewer starts can also read instructions and settings from the worktree, such as `CLAUDE.md`, `AGENTS.md`, or `.claude/settings.json`.
-The packaged reviewer turns off those that the CLI lets it. Codex cannot be told to skip a project `.codex/config.toml` or repository skills under `.agents/skills`, so list `.codex/**` and `.agents/**` in `trusted_paths` when you use Codex.
+The coding-agent CLI that a wrapper starts can also read instructions and settings from the worktree, such as `CLAUDE.md`, `AGENTS.md`, or `.claude/settings.json`.
+The example wrappers turn off those that the CLI lets them. Codex cannot be told to skip a project `.codex/config.toml` or repository skills under `.agents/skills`, so list `.codex/**` and `.agents/**` in `trusted_paths` when you use Codex.
 A custom wrapper must turn these sources off too, or list them in `trusted_paths`.
 
 Command review uses `[stage] timeout_seconds` and `max_attempts`.

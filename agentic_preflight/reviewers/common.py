@@ -1,7 +1,8 @@
 """Standard-library helpers shared by the packaged reviewers.
 
-These moved unchanged from ``docs/examples/reviewers/_reviewer_common.py``. They use only
-the standard library and shell out to a provider CLI; they import no model SDK.
+``docs/examples/reviewers/_reviewer_common.py`` is a copy that
+tests/test_reviewer_examples.py keeps in sync. These helpers use only the standard library
+and shell out to a provider CLI; they import no model SDK.
 """
 
 from __future__ import annotations
@@ -166,8 +167,8 @@ def reviewer_effort(default: str) -> str:
 def run_cli(argv: list[str], prompt: str) -> subprocess.CompletedProcess[str]:
     # A file owned by the eval harness survives wrapper/CLI failures and outer
     # timeouts. Never mix telemetry into the strict findings submission.
-    # The provider pipe keeps the locale encoding (text=True without encoding=), as the
-    # example wrappers did; only the reviewer's own stdio is UTF-8. See ADR 0003.
+    # The provider pipe uses the locale encoding (text=True without encoding=); see
+    # docs/adr/0003-ship-a-packaged-reviewer.md.
     events_path = os.environ.get("AP_REVIEWER_EVENTS_FILE")
     try:
         if events_path:

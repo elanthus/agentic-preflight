@@ -18,37 +18,47 @@ The reviewer uses only the Python standard library and shells out to the provide
 It imports no model SDK. Install the provider CLI and sign in to it separately.
 [ADR 0003](adr/0003-ship-a-packaged-reviewer.md) records this dependency policy.
 
-The example [Codex configuration](examples/codex-reviewer.toml) and
-[Claude configuration](examples/claude-reviewer.toml) each set
-`command = "agentic-preflight reviewer run --provider ..."`.
-
-1. Copy one complete TOML file to `.agentic-preflight.toml`.
-2. Make sure that `agentic-preflight` and the provider CLI are on the `PATH` of the review command.
-
-Both configurations set `executor = "command"`.
-Thus, `agentic-preflight review run` launches the independent reviewer.
 `review run` sends the review context as JSON on stdin.
 `reviewer run` prints the strict submission as one JSON line on stdout. It prints no JSON envelope.
 On a failure, it exits 1 and writes one `independent reviewer failed: ...` line on stderr, which `review run` records in the review log.
 A usage error, such as a missing or unknown `--provider`, keeps Click's usage message on stderr and exits 2.
 
+For one release, `docs/examples/reviewers/` also keeps standard-library copies of the same reviewer: the
+[Codex wrapper](examples/reviewers/codex_review.py), the
+[Claude wrapper](examples/reviewers/claude_review.py), and the shared
+[_reviewer_common.py helper](examples/reviewers/_reviewer_common.py).
+A test keeps each copy identical to its packaged counterpart, apart from the shebang, the module docstring, the import of the shared helper, and the `__main__` block.
+The copies import nothing from Agentic Preflight. They are deprecated and will be removed in a later release.
+
+The example [Codex configuration](examples/codex-reviewer.toml) and
+[Claude configuration](examples/claude-reviewer.toml) run a copied wrapper.
+Each also names the packaged command in a comment.
+
+1. Copy one complete TOML file to `.agentic-preflight.toml`.
+2. Either set `command = "agentic-preflight reviewer run --provider claude"` (or `codex`), with `agentic-preflight` and the provider CLI on the `PATH` of the review command,
+   or copy the configuration's wrapper and `_reviewer_common.py` into `docs/examples/reviewers/` in your repository.
+
+Both configurations set `executor = "command"`.
+Thus, `agentic-preflight review run` launches the independent reviewer.
+
 The reviewer is independent of the coding agent's session.
-The packaged reviewer runs from the installed Agentic Preflight package, not from the worktree under review, so a branch cannot edit it.
-That holds only while the command starts an installed `agentic-preflight`. A command that runs Agentic Preflight from the repository, for example through `uv run` in a project that depends on it by path, runs the branch's copy.
-A reviewer script in the repository, such as a wrapper copied from an earlier release, also runs from the worktree that holds the change under review, so a branch that edits the script changes its own reviewer.
+The packaged reviewer runs from the installed Agentic Preflight package, not from the worktree under review.
+That holds only while the command starts an installed `agentic-preflight`. A command that runs Agentic Preflight from the repository, for example through a project runner in a project that depends on it by path, runs the branch's copy.
+A wrapper copied into the repository is independent of the coding agent's session, not of the branch.
+It runs from the worktree that holds the change under review, so a branch that edits the wrapper changes its own reviewer.
 Verification compares only the configured command string.
-Instead, risk classification treats the files that the command names, and every file under the script's directory, as human-review paths.
-A change to a copied wrapper or to its `_reviewer_common.py` then goes through the configured approval mode before merge.
-A script at the repository root protects only itself, not the files beside it, so list any module that such a script imports in `trusted_paths`.
+Instead, risk classification treats the files that the command names, and every file under the wrapper's directory, as human-review paths.
+A change to the wrapper or to `_reviewer_common.py` then goes through the configured approval mode before merge.
+A wrapper at the repository root protects only itself, not the files beside it, so list any module that such a wrapper imports in `trusted_paths`.
 List any other file that the reviewer reads, such as a prompt in another directory, in `[review] trusted_paths`.
-Also list the script's directory in your forge's code-owner rules.
+Also list the wrapper directory in your forge's code-owner rules.
 See [Review independence](configuration.md#review-independence-review).
 
-The example configurations start the installed `agentic-preflight` directly, not through a project runner such as `uv run`.
-A project runner would load the branch's manifest and lockfile, and could import a `sitecustomize` module that the branch adds to `sys.path`.
-A copied stdlib-only wrapper should run with `python3 -S -B` for the same reason. `-S` skips that startup processing.
-The deprecated pointers in `docs/examples/reviewers/` cannot run with `-S`, because they import the installed package.
-The provider CLI that the reviewer starts works in the worktree under review, so the reviewer also turns off the instructions and settings it would read there:
+The example configurations run the wrapper with `python3 -S -B`, not through a project runner such as `uv run`.
+The wrappers use only the standard library.
+`-S` stops Python from importing a `sitecustomize` module that the branch could add to `sys.path`.
+A project runner would also load the branch's manifest and lockfile.
+The CLI that the reviewer starts works in the worktree under review, so the reviewer, packaged or copied, also turns off the instructions and settings it would read there:
 
 - The Claude reviewer passes `--safe-mode`, which skips `CLAUDE.md`, skills, hooks, MCP servers, plugins, and custom agents, and `--setting-sources user`, which ignores the project's `.claude/settings.json` and `.claude/settings.local.json`.
   Your own user customizations are skipped too. Authentication and model selection work normally.
@@ -80,7 +90,7 @@ Record the actual CLI version when evaluating or diagnosing a reviewer.
 
 This repository's committed `.agentic-preflight.toml` overrides the Claude reviewer defaults:
 it requires command review for every run, using `claude-opus-5-5` at `low` effort.
-It still starts the reviewer through the `docs/examples/reviewers/claude_review.py` pointer.
+It still starts the copied `docs/examples/reviewers/claude_review.py` through `uv run`.
 Each `review run` invokes that reviewer; see [Contributing](../CONTRIBUTING.md#pull-requests) for setup.
 
 Without environment overrides, the reviewer sets these efforts explicitly.
@@ -115,20 +125,18 @@ The reviewer copies the manifest. The product CLI validates the protocol determi
 An `examined: "all"` receipt accounts for delivered units. It does not prove that the reviewer understood them.
 
 For optional behavioral evidence before final review, enable [contract checks](review-contracts.md).
-Set `review.contracts.planner_command` to the same `agentic-preflight reviewer run` command.
+Set `review.contracts.planner_command` to the same reviewer command as `[review] command`.
 The reviewer uses a planning prompt for `section: "contracts"`.
 The final reviewer receives the execution receipt that the product records.
 Planning can add one paid model invocation. It is disabled by default.
 
 ### Earlier copied wrappers
 
-Earlier releases told you to copy `claude_review.py` or `codex_review.py`, and `_reviewer_common.py`, from `docs/examples/reviewers/` into your repository.
-Those files moved into the package unchanged, as `agentic_preflight/reviewers/`.
-`docs/examples/reviewers/` now holds deprecated pointers that import the packaged reviewer.
-They need an interpreter that can import `agentic_preflight`, and they are removed after one release.
-A copy that you made earlier keeps working, but it no longer receives fixes.
-Replace its command with `agentic-preflight reviewer run --provider claude` or `--provider codex`.
-The environment variables and the output are the same. The command reads and writes its own standard streams as UTF-8, where a wrapper used the locale encoding. The pipe to the provider CLI still uses the locale encoding.
+A wrapper that you copied from an earlier release keeps working, but it does not receive later fixes, such as the CLI options above.
+Replace its command with `agentic-preflight reviewer run --provider claude` or `--provider codex`, or copy the current files again.
+The environment variables and the output are the same.
+The packaged command reads and writes its own standard streams as UTF-8, where a wrapper uses the locale encoding.
+The pipe to the provider CLI uses the locale encoding in both.
 
 ## Compare model and effort configurations
 

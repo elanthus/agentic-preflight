@@ -38,7 +38,7 @@ The runner checks that the serialized context contains none of the following:
 It also checks that the delivered intent exactly equals the case intent.
 An assertion rejects top-level scorer-label structures to prevent future additions that could expose scoring information.
 The product CLI does not emit those fields today.
-Regression tests capture actual reviewer stdin through both example pointers, which run the packaged reviewer, for both snapshots.
+Regression tests capture actual reviewer stdin through both example wrappers for both snapshots.
 
 For one representative case per selected snapshot, tests hash every file in all three trees.
 They inspect all Git objects, including unreachable objects, for blobs unique to the unselected tree.
@@ -158,7 +158,7 @@ Zero counters from a crash result do not erase earlier observations.
 Error results, missing fields, malformed streams, and interrupted CLI processes retain available evidence with partial or unknown status.
 
 The harness captures CLI stdout directly to a temporary file outside the reviewer tree.
-It uses the packaged reviewer's `AP_REVIEWER_EVENTS_FILE` interface.
+It uses the example wrappers' `AP_REVIEWER_EVENTS_FILE` interface.
 This keeps flushed events after CLI failure, wrapper timeout, or an outer review-command timeout.
 A separate completion marker distinguishes a complete invocation from an earlier completion event in a killed process.
 Findings submission stdout is unchanged.
@@ -197,7 +197,7 @@ Tests still validate every case fixture.
 
 ## Running real mode
 
-Real mode uses the example configurations in `docs/examples/` and runs the packaged reviewer (`agentic_preflight/reviewers/`) through the deprecated pointer scripts in `docs/examples/reviewers/`.
+Real mode uses the example configurations in `docs/examples/` and runs the example wrappers in `docs/examples/reviewers/`, which a test keeps identical to the packaged reviewer in `agentic_preflight/reviewers/`.
 It refuses to start unless `AP_EVAL_AUTHORIZED=1` is present.
 Each command uses 12 cases, two reviewed snapshots, and two grounding settings.
 This launches exactly `12 × 2 × 2 = 48` reviewer-wrapper invocations for the selected executor.

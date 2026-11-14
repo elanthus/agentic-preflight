@@ -1,28 +1,55 @@
 #!/usr/bin/env python3
-"""Deprecated pointer to the packaged claude reviewer.
-
-The reviewer moved into the package. Configure this instead:
-
-    command = "agentic-preflight reviewer run --provider claude"
-
-This file stays for one release so that existing commands keep working. It needs an
-interpreter that can import agentic_preflight. See docs/independent-review.md.
-"""
+"""Adapt `claude -p` output to Agentic Preflight's strict review submission."""
 
 from __future__ import annotations
 
-import sys
+import os
 
-try:
-    from agentic_preflight.reviewers.claude import main
-except ImportError as exc:
-    print(
-        "independent reviewer failed: this example now delegates to the agentic_preflight "
-        f"package, which this interpreter cannot import ({exc}); configure "
-        '"agentic-preflight reviewer run --provider claude" instead',
-        file=sys.stderr,
-    )
-    raise SystemExit(1) from None
+from _reviewer_common import (
+    ReviewerError,
+    emit_review_output,
+    read_context,
+    report_error,
+    reviewer_effort,
+    reviewer_prompt,
+    run_cli,
+)
+
+
+def main() -> int:
+    try:
+        context = read_context()
+        executable = os.environ.get("AP_CLAUDE_BIN", "claude")
+        # These flags were verified against Claude Code 2.1.292. The CLI runs in the
+        # worktree under review, so `--safe-mode` drops CLAUDE.md, skills, hooks, MCP
+        # servers, and agents, and `--setting-sources user` ignores the project's
+        # `.claude/settings*.json`. A branch cannot instruct or reconfigure its reviewer.
+        model = os.environ.get("AP_REVIEWER_MODEL", "claude-sonnet-5")
+        effort = reviewer_effort("high")
+        result = run_cli(
+            [
+                executable,
+                "-p",
+                "--safe-mode",
+                "--setting-sources",
+                "user",
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--permission-mode",
+                "plan",
+                "--model",
+                model,
+                "--effort",
+                effort,
+            ],
+            reviewer_prompt(context),
+        )
+        emit_review_output(context, result.stdout)
+    except ReviewerError as exc:
+        return report_error(exc)
+    return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
