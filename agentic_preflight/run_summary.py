@@ -38,7 +38,8 @@ TERMINAL_MARKER_EVENTS = frozenset({"finished", "aborted", "orphaned"})
 
 _TERMINAL = frozenset(state.value for state in TERMINAL_STATES)
 _STATE_VALUES = frozenset(state.value for state in State)
-_STAGE_ORDER = [stage.value for stage in Stage]
+#: The stages in workflow order, for sorting summaries and report tables.
+STAGE_ORDER = [stage.value for stage in Stage]
 _RETIRED_DELEGATED_STATES = ("TEST_DELEGATED", "PUBLICATION_READY")
 _RETIRED_DELEGATION_REASON = "CI test delegation was removed; start a new local validation run"
 _DEFAULT_BLOCKING = ("critical", "high")
@@ -372,8 +373,9 @@ def _findings_summary(
     }
 
 
-def _stage_order(name: str) -> tuple[int, str]:
-    return (_STAGE_ORDER.index(name) if name in _STAGE_ORDER else len(_STAGE_ORDER), name)
+def stage_order(name: str) -> tuple[int, str]:
+    """Sort key for a stage name: workflow order, then unknown names alphabetically."""
+    return (STAGE_ORDER.index(name) if name in STAGE_ORDER else len(STAGE_ORDER), name)
 
 
 #: Shell stages whose red state the gate can leave for green within one run.
@@ -422,7 +424,7 @@ def _stages(
     red_then_green = _red_then_green(events, complete)
     evidence = as_dict(record.get("evidence"))
     summary: dict[str, StageRow] = {}
-    for name in sorted(stages, key=_stage_order):
+    for name in sorted(stages, key=stage_order):
         stage = as_dict(stages[name]) or {}
         status = as_str(stage.get("status"))
         reused: bool | None = None

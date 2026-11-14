@@ -8,7 +8,6 @@ import time
 import uuid
 from collections.abc import Callable, Hashable, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -34,6 +33,7 @@ from ..machine import (
     recovery_hint,
 )
 from ..models import Finding, Producer, RiskAssessment, RunDoc, Stage, StageRecord
+from ..run_summary import utc_now
 from ..store import RunReadError, Store, UnknownRun
 
 STATE_DIR_NAME = "agentic-preflight"
@@ -135,10 +135,6 @@ def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) ->
 def _summarize_ended_run(session: Session, run: RunDoc) -> None:
     """Write the local summary of a run whose terminal state was just committed."""
     telemetry.record_run_end(session.store, session.repo_root, run)
-
-
-def utc_now() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def new_run_id() -> str:

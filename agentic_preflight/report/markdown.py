@@ -8,9 +8,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-from ..models import Stage
-
-_STAGE_ORDER = [stage.value for stage in Stage]
+from ..run_summary import STAGE_ORDER
 
 
 def _cell(value: Any) -> str:
@@ -404,7 +402,7 @@ def _duration_section(
             group["metrics"]["time_in_stages"]["runs_observed"],
             _percent(group["metrics"]["time_in_stages"]["review_share"]["value"]),
             _percent(group["metrics"]["time_in_stages"]["shell_share"]["value"]),
-            *(_stage_median(group["metrics"], stage) for stage in _STAGE_ORDER),
+            *(_stage_median(group["metrics"], stage) for stage in STAGE_ORDER),
         ]
         for group in repositories
     ]
@@ -413,7 +411,7 @@ def _duration_section(
         "Runs with complete timing",
         "Review and docs share",
         "Lint and test share",
-        *(f"Median {stage}" for stage in _STAGE_ORDER),
+        *(f"Median {stage}" for stage in STAGE_ORDER),
     ]
     return [
         "### Duration",

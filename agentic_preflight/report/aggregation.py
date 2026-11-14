@@ -19,8 +19,7 @@ from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 from .. import telemetry
-from ..models import Stage
-from ..run_summary import SummaryRow, as_int, as_str
+from ..run_summary import SummaryRow, as_int, as_str, stage_order
 from .markdown import render_markdown
 from .reading import UNKNOWN, Clone, HookLogRead, belongs_to_clone, finish_order, tally
 
@@ -52,9 +51,6 @@ UNSPECIFIED = "unspecified"
 
 #: Finding statuses that record a response to the finding.
 RESPONDED_STATUSES = ("fixed", "dismissed", "accepted")
-
-
-_STAGE_ORDER = [stage.value for stage in Stage]
 
 
 _FINDING_DIMENSIONS = ("by_stage", "by_severity", "by_status", "by_action")
@@ -388,10 +384,6 @@ def _any_positive(rows: Sequence[SummaryRow], key: str, label: str) -> dict[str,
     }
 
 
-def _stage_key(name: str) -> tuple[int, str]:
-    return (_STAGE_ORDER.index(name) if name in _STAGE_ORDER else len(_STAGE_ORDER), name)
-
-
 def _numbers(values: Iterable[Any]) -> list[float]:
     """The numeric values, sorted. Null and non-numeric values are left out."""
     return sorted(
@@ -449,7 +441,7 @@ def _stage(present: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 def _stages(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
     stages = [row.get("stages") or {} for row in rows]
-    names = sorted({name for item in stages for name in item}, key=_stage_key)
+    names = sorted({name for item in stages for name in item}, key=stage_order)
     return {
         name: _stage([item[name] for item in stages if isinstance(item.get(name), Mapping)])
         for name in names
