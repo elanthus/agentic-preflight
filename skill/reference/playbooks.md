@@ -37,6 +37,18 @@ worktree while the run records fix commits. The fixes change nothing, so the fin
 they claim to fix were not repaired. Do not retry `mergeback`. Tell the user, run
 `agentic-preflight abort`, and start a new run so the branch is revalidated.
 
+## Moved branch lacks recorded fixes (exit 4, `fix_commits_unmerged`)
+
+A conflict retry found commits on the source branch beyond the head merge-back left it
+at, but the branch does not carry every recorded fix commit, so adopting it as the new
+review snapshot would discard validated fixes. A recorded fix counts as carried when it
+is an ancestor of the branch or a cherry-pick of it (same author, author date, and
+subject) is. The run is back in `MERGEBACK_CONFLICT`; the validation branch and
+`fix_commits` were kept, and no note was written. Tell the user. With their agreement,
+cherry-pick the commits in `data.missing_fix_commits` onto the source branch, resolving
+any conflict under the merge-back contract, then re-run `mergeback`. To drop the fixes
+instead, the user aborts the run.
+
 ## Merge in the validation history (exit 3, `nonlinear_fix_history`)
 
 In `reusable` or `strict` mode, the validation branch holds a merge commit after the

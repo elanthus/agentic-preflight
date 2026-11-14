@@ -517,11 +517,19 @@ auto-resolves. First inspect and show the recovery block. An agent may resolve o
 the intended result is unambiguous, recoverable, and directly supported by that block;
 it must preserve unrelated edits and user-owned operations, and cannot make a
 content-sensitive choice or bypass protected merge policy. Otherwise a person must
-decide. After resolution, `mergeback` is legal again: an exact tree is attested without
+decide. After resolution, `mergeback` is legal again. Only a commit beyond the source
+head that merge-back itself produced counts as a resolution; merge-back's own rebase onto
+the recorded base does not. A retry with no such commit replays the fix commits again,
+which applies them or reports the conflict again. An exact tree is attested without
 rerunning completed stages, unless the branch never moved while the run recorded fix
 commits. That retry exits 4 with `fixes_not_landed`, because the recorded fixes never
-landed and the run needs revalidation; a different tree becomes the validation worktree's new
-snapshot and returns the active run to review before any stage can be trusted again.
+landed and the run needs revalidation. A different tree becomes the validation worktree's
+new snapshot and returns the active run to review before any stage can be trusted again,
+but only when the source branch carries every recorded fix commit, either as an ancestor
+or as a cherry-pick of it (same author, author date, and subject). Otherwise the retry
+exits 4 with `fix_commits_unmerged` and `data.missing_fix_commits`, returns the run to
+`MERGEBACK_CONFLICT`, and keeps the validation branch and `fix_commits`. Cherry-pick the
+named commits onto the source branch, resolving any conflict, then rerun `mergeback`.
 
 On success: compares the branch tree against the worktree tree. `tree_equivalent: true`
 means the verified content is byte-identical and a Git-note attestation is written for

@@ -809,3 +809,140 @@ def test_corrupt_current_evidence_preserves_source_and_reports_recovery(
     assert Path(wt).is_dir()
     assert git("rev-parse", "HEAD", cwd=wt) == validation_head
     assert json.loads(path.read_text())["evidence"] == before["evidence"]
+
+
+# -- conflict retry after the tool's own rebase (#340) ----------------------
+
+
+def _conflict_after_own_rebase(ready, feature_repo, monkeypatch, *, conflicts=1):
+    """Stop merge-back with a cherry-pick conflict after it rebased the source branch.
+
+    Merge-back rebases the source onto the run's recorded base before it replays
+    the validated history, so the source head no longer equals the head the run
+    started from. Replaying the validated history onto that rebased head is
+    normally clean, so the conflict is injected for the first ``conflicts``
+    attempts; each injected attempt leaves the branch exactly where it found it.
+    """
+    from agentic_preflight import mergeback as mergebackmod
+
+    agent, wt = ready(fresh_base=True)
+    started_from = git("rev-parse", "HEAD", cwd=feature_repo)
+    fix_commits = agent.run("status")["data"]["fix_commits"]
+    assert len(fix_commits) == 1
+    original = mergebackmod.cherry_pick_fixes
+    remaining = [conflicts]
+
+    def conflicting(repo, commits, *, worktree_branch, worktree_path):
+        if remaining[0] == 0:
+            return original(
+                repo, commits, worktree_branch=worktree_branch, worktree_path=worktree_path
+            )
+        remaining[0] -= 1
+        head = git("rev-parse", "HEAD", cwd=repo)
+        raise mergebackmod.MergebackConflict(
+            f"cherry-picking {commits[0][:8]} conflicted with the branch",
+            mergebackmod.ConflictReport(
+                pre_sha=head,
+                conflicting_commit=commits[0],
+                conflicting_files=["src/app.py"],
+                fix_commits=list(commits),
+                worktree_path=str(worktree_path),
+                restored=True,
+            ),
+        )
+
+    monkeypatch.setattr(mergebackmod, "cherry_pick_fixes", conflicting)
+    env = agent.run("mergeback", expect=ExitCode.NEEDS_HUMAN)
+    assert env["state"] == "MERGEBACK_CONFLICT"
+    assert env["next"]["command"] == "agentic-preflight mergeback"
+    rebased = git("rev-parse", "HEAD", cwd=feature_repo)
+    assert rebased != started_from
+    return agent, Path(wt), fix_commits, rebased
+
+
+def _notes(repo: Path) -> str:
+    return git("notes", "--ref=refs/notes/agentic-preflight", "list", cwd=repo).strip()
+
+
+def test_untouched_conflict_retry_replays_the_fixes_instead_of_discarding_them(
+    ready, feature_repo, monkeypatch
+):
+    agent, wt, fix_commits, rebased = _conflict_after_own_rebase(
+        ready, feature_repo, monkeypatch, conflicts=2
+    )
+    validated_head = git("rev-parse", "HEAD", cwd=wt)
+
+    # The tool's own rebase is not a human resolution: an unresolved conflict
+    # stays a conflict, and nothing is reset or forgotten.
+    still = agent.run("mergeback", expect=ExitCode.NEEDS_HUMAN)
+    assert still["state"] == "MERGEBACK_CONFLICT"
+    assert git("rev-parse", "HEAD", cwd=feature_repo) == rebased
+    assert git("rev-parse", "HEAD", cwd=wt) == validated_head
+    assert agent.run("status")["data"]["fix_commits"] == fix_commits
+    assert _notes(feature_repo) == ""
+
+    verified = agent.run("mergeback")
+
+    assert verified["state"] == "VERIFIED"
+    assert verified["data"]["applied"] == fix_commits
+    assert verified["data"]["tree_equivalent"] is True
+    assert "FIXED" in (feature_repo / "src" / "app.py").read_text(encoding="utf-8")
+    assert git("rev-parse", "HEAD", cwd=wt) == validated_head
+    assert _notes(feature_repo) != ""
+
+
+def test_conflict_retry_refuses_to_discard_fixes_missing_from_the_source(
+    ready, feature_repo, monkeypatch
+):
+    agent, wt, fix_commits, _ = _conflict_after_own_rebase(ready, feature_repo, monkeypatch)
+    validated_head = git("rev-parse", "HEAD", cwd=wt)
+
+    # A commit between attempts that does not carry the fix is not a resolution.
+    write(feature_repo, "unrelated.txt", "not the fix\n")
+    unrelated = commit_all(feature_repo, "unrelated work during the conflict")
+
+    refused = agent.run("mergeback", expect=ExitCode.NEEDS_HUMAN)
+
+    assert refused["error"]["code"] == "fix_commits_unmerged"
+    assert refused["data"]["missing_fix_commits"] == fix_commits
+    assert fix_commits[0] in refused["error"]["message"]
+    assert refused["state"] == "MERGEBACK_CONFLICT"
+    assert refused["next"]["command"] == "agentic-preflight mergeback"
+    assert git("rev-parse", "HEAD", cwd=feature_repo) == unrelated
+    assert git("rev-parse", "HEAD", cwd=wt) == validated_head
+    status = agent.run("status")
+    assert status["data"]["fix_commits"] == fix_commits
+    assert status["state"] == "MERGEBACK_CONFLICT"
+    assert _notes(feature_repo) == ""
+
+    # Applying the named commit is the recovery; the combined tree differs from
+    # the validated one, so review restarts on it with the fix in place.
+    git("cherry-pick", fix_commits[0], cwd=feature_repo)
+    restarted = agent.run("mergeback")
+    assert restarted["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert restarted["data"]["validation_restarted"] is True
+    assert "FIXED" in (wt / "src" / "app.py").read_text(encoding="utf-8")
+    assert (wt / "unrelated.txt").exists()
+
+
+def test_human_resolution_after_the_tools_rebase_restarts_review(ready, feature_repo, monkeypatch):
+    agent, wt, fix_commits, rebased = _conflict_after_own_rebase(ready, feature_repo, monkeypatch)
+
+    # The human resolves by applying the fix with different content, as a
+    # conflicted `git cherry-pick` followed by `--continue` would.
+    git("cherry-pick", "--no-commit", fix_commits[0], cwd=feature_repo)
+    write(feature_repo, "src/app.py", "HUMAN RESOLUTION\n")
+    git("add", "src/app.py", cwd=feature_repo)
+    git("commit", "--no-edit", "-C", fix_commits[0], cwd=feature_repo)
+    resolved = git("rev-parse", "HEAD", cwd=feature_repo)
+    assert resolved != rebased
+
+    restarted = agent.run("mergeback")
+
+    assert restarted["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert restarted["data"]["tree_equivalent"] is False
+    assert restarted["data"]["validation_restarted"] is True
+    assert git("rev-parse", "HEAD", cwd=wt) == resolved
+    assert (wt / "src" / "app.py").read_text(encoding="utf-8") == "HUMAN RESOLUTION\n"
+    assert agent.run("status")["data"]["fix_commits"] == []
+    assert _notes(feature_repo) == ""

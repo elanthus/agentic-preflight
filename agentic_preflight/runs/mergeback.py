@@ -209,6 +209,88 @@ class FixesNotLanded(AgenticError):
     exit_code = ExitCode.NEEDS_HUMAN
 
 
+class FixCommitsUnmerged(AgenticError):
+    """A moved source branch lacks recorded fix commits, so adopting it would discard them."""
+
+    code = "fix_commits_unmerged"
+    exit_code = ExitCode.NEEDS_HUMAN
+
+
+def _replay_identity(line: str) -> tuple[str, str] | None:
+    sha, _, identity = line.partition("\0")
+    return (sha, identity) if identity else None
+
+
+def _commit_identities(repo: str, *args: str) -> list[tuple[str, str]]:
+    """``(sha, identity)`` for each listed commit; identity survives ``git cherry-pick``.
+
+    Cherry-pick keeps the author name, email, and date and the subject, even when a
+    human resolves a conflict and continues, while the SHA, committer, and patch change.
+    """
+    listing = gitx.out(repo, "log", "--date=raw", "--format=%H%x00%an%x00%ae%x00%ad%x00%s", *args)
+    return [found for line in gitx._lines(listing) if (found := _replay_identity(line))]
+
+
+def unmerged_fix_commits(session: Session, run: RunDoc, head: str) -> list[str]:
+    """Recorded fix commits that ``head`` neither contains nor carries a replay of.
+
+    A commit counts as merged when it is an ancestor of ``head`` or when a commit
+    between the run's base and ``head`` has the same author, author date, and
+    subject, which is what ``git cherry-pick`` produces with or without a resolved
+    conflict.
+    """
+    if not run.fix_commits:
+        return []
+    repo = str(session.repo_root)
+    base = run.sync_base_sha or run.merge_base_sha
+    replayed = {identity for _, identity in _commit_identities(repo, head, "--not", base)}
+    recorded = dict(_commit_identities(repo, "--no-walk=unsorted", *run.fix_commits))
+    return [
+        sha
+        for sha in run.fix_commits
+        if not gitx.is_ancestor(repo, sha, head) and recorded.get(sha) not in replayed
+    ]
+
+
+def _refuse_unmerged_fixes(
+    session: Session, run: RunDoc, result: mergebackmod.MergebackResult
+) -> None:
+    """Keep the validation branch and fix list while the source lacks a recorded fix."""
+    missing = unmerged_fix_commits(session, run, result.post_sha)
+    if not missing:
+        return
+    with session.store.transaction(run.run_id) as doc:
+        _apply(doc, Action.MERGEBACK_FAILED)
+        run = doc
+    session.store.append_event(
+        run.run_id,
+        {
+            "event": "mergeback_fixes_unmerged",
+            "post_sha": result.post_sha,
+            "missing_fix_commits": missing,
+        },
+    )
+    raise FixCommitsUnmerged(
+        f"the source branch moved to {result.post_sha[:8]} but lacks recorded fix "
+        f"commit(s) {', '.join(missing)}; adopting it would discard validated fixes",
+        state=run.state.value,
+        run_id=run.run_id,
+        data={
+            "missing_fix_commits": missing,
+            "fix_commits": list(run.fix_commits),
+            "post_sha": result.post_sha,
+            "worktree_path": run.worktree_path,
+        },
+        next_instruction=(
+            "Tell the user. The validation branch and the recorded fix commits were kept. "
+            "Apply the missing commits to the source branch with `git cherry-pick "
+            f"{' '.join(missing)}`, resolving any conflict and continuing, then rerun "
+            "`mergeback`. To discard the fixes instead, abort the run."
+        ),
+        next_command="agentic-preflight mergeback",
+    )
+
+
 def _perform_merge(
     session: Session,
     run: RunDoc,
@@ -250,6 +332,11 @@ def _perform_merge(
                 next_command="git status",
             )
         syncmod.sync_onto(repo, sync_base)
+        # Record the tool's own rebase as the source baseline, so a later conflict
+        # retry treats only movement beyond it as a human resolution.
+        with session.store.transaction(run.run_id) as doc:
+            doc.source_head_sha = gitx.rev_parse(repo, "HEAD")
+            run = doc
     local_tree = gitx.tree_sha(repo)
     verified_tree = gitx.tree_sha(worktree_path)
     branch_moved = gitx.rev_parse(repo, "HEAD") != run.source_head_sha
@@ -423,6 +510,7 @@ def mergeback(session: Session) -> Envelope:
         summary[finding.severity.value] = summary.get(finding.severity.value, 0) + 1
 
     if not result.tree_equivalent:
+        _refuse_unmerged_fixes(session, run, result)
         run = _reset_non_equivalent_merge_to_review(session, run, result)
         return _envelope_for(
             run,

@@ -170,6 +170,11 @@ Before downgrading, finish or abort the runs that this release started. A record
 
 ## Compatibility changes
 
+`mergeback` has a new error code, `fix_commits_unmerged`, with exit 4.
+A conflict retry returns it when the source branch moved but lacks a recorded fix commit, instead of resetting the validation branch and clearing `fix_commits`.
+Its `data` holds `missing_fix_commits`, `fix_commits`, `post_sha`, and `worktree_path`, and the run returns to `MERGEBACK_CONFLICT`.
+The run record and attestation schemas are unchanged.
+
 Agentic Preflight 0.7.0 requires Click 8.2 or newer.
 Documentation inventory entries no longer contain `exists`.
 Detected command candidates no longer contain `trust`.
