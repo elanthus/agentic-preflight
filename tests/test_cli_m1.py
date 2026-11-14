@@ -697,6 +697,43 @@ def test_gc_retains_a_locked_strict_worktree_and_collects_the_rest(agent, featur
     assert env["next"]["command"] is None
 
 
+def test_gc_instruction_covers_every_retained_reason(agent, feature_repo, tmp_path):
+    """An unrecorded-work run must not hide the guidance for a locked worktree."""
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(feature_repo, "use strict validation")
+    dirty = agent.run("start")
+    dirty_wt = Path(dirty["data"]["worktree_path"])
+    write(dirty_wt, "notes/draft.txt", "half-finished fix\n")
+
+    other = tmp_path / "feature-y"
+    git("branch", "feature/y", "main", cwd=feature_repo)
+    git("worktree", "add", str(other), "feature/y", cwd=feature_repo)
+    write(other, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    write(other, "src/app.py", "def greet(name):\n    return f'hello {name}'\n")
+    commit_all(other, "change the greeting")
+    other_agent = ScriptedAgent(other)
+    locked = other_agent.run("start")
+    locked_wt = Path(locked["data"]["worktree_path"])
+    git("worktree", "lock", str(locked_wt), cwd=feature_repo)
+    # Both sources move on, so gc orphans both stale runs.
+    for source in (feature_repo, other):
+        write(source, "src/other.py", "x = 1\n")
+        commit_all(source, "unrelated source work")
+
+    env = agent.run("gc")
+
+    reasons = {item.get("run_id"): item.get("reason") for item in env["data"]["retained"]}
+    assert reasons[dirty["run_id"]] == "validation worktree has uncommitted changes"
+    assert reasons[locked["run_id"]] == "validation worktree is locked"
+    instruction = env["next"]["instruction"]
+    assert "`gc --force` discards any work they hold" in instruction
+    assert "Do not unlock it yourself." in instruction
+    assert instruction.index("gc --force") < instruction.index("Do not unlock")
+    assert env["next"]["command"] is None
+    assert dirty_wt.is_dir()
+    assert locked_wt.is_dir()
+
+
 @pytest.mark.parametrize("mode", ["strict", "reusable"])
 def test_gc_keeps_an_aborted_runs_fix_commits_without_a_forced_abort_marker(
     agent, feature_repo, tmp_path, mode

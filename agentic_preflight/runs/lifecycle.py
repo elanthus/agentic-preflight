@@ -431,19 +431,12 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
                 if (report := telemetry.take_report(run_id)) is not None
             ],
         ),
-        next_instruction=(
-            RUN_READ_RECOVERY
-            if unreadable_retained
-            else UNRECORDED_WORK_INSTRUCTION
-            if unrecorded_retained
-            else LOCKED_WORKTREE_INSTRUCTION
-            if locked_retained
-            else "Orphans were found; inspect them before removing."
-            if orphans
-            else "Validation worktrees remain at the old sibling default location; "
-            "inspect each and remove it with `git worktree remove <path>` if unneeded."
-            if legacy
-            else None
+        next_instruction=_gc_instruction(
+            unreadable=unreadable_retained,
+            unrecorded=unrecorded_retained,
+            locked=locked_retained,
+            orphans=bool(orphans),
+            legacy=bool(legacy),
         ),
         next_command=(
             "agentic-preflight gc --force"
@@ -455,6 +448,34 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
             else None
         ),
     )
+
+
+LEGACY_WORKTREES_INSTRUCTION = (
+    "Validation worktrees remain at the old sibling default location; "
+    "inspect each and remove it with `git worktree remove <path>` if unneeded."
+)
+
+
+def _gc_instruction(
+    *, unreadable: bool, unrecorded: bool, locked: bool, orphans: bool, legacy: bool
+) -> str | None:
+    """Every instruction that applies to this collection, in a fixed order.
+
+    One retained run must not hide the guidance for another, such as an
+    uncommitted-changes run hiding that a locked worktree must not be unlocked.
+    """
+    parts = [
+        text
+        for applies, text in (
+            (unreadable, RUN_READ_RECOVERY),
+            (unrecorded, UNRECORDED_WORK_INSTRUCTION),
+            (locked, LOCKED_WORKTREE_INSTRUCTION),
+            (orphans, "Orphans were found; inspect them before removing."),
+            (legacy, LEGACY_WORKTREES_INSTRUCTION),
+        )
+        if applies
+    ]
+    return " ".join(dict.fromkeys(parts)) or None
 
 
 def _retention_days(session: Session) -> int:

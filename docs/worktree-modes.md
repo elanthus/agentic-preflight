@@ -107,7 +107,7 @@ Use it when each local validation must begin with no retained artifacts.
 
 A strict worktree that you lock with `git worktree lock` is never deleted.
 `abort` and `finish` stop with an error that names it, and `gc` retains it with the reason `validation worktree is locked`.
-Unlock it with `git worktree unlock`, then retry.
+If you no longer need it, unlock it with `git worktree unlock`, then retry.
 
 Remote CI must stay the clean verification boundary in both isolated modes.
 
