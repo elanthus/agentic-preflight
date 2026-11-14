@@ -1,0 +1,176 @@
+{
+  "kind": "agentic-preflight-run-summary",
+  "schema_version": 1,
+  "written_at": "2026-11-01T00:00:00+00:00",
+  "run_id": "r_0000000002",
+  "state": "ABORTED",
+  "record_schema_version": 2,
+  "repo": {
+    "root_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "remote": "github.com/owner/widget",
+    "name": "widget",
+    "source_worktree_path": "/repos/widget"
+  },
+  "branch": "feature/widget",
+  "base_ref": "main",
+  "head_sha": "4444444444444444444444444444444444444444",
+  "pushed_sha": null,
+  "intent_sha256": "b67f267309187edb114e1bffeb060435f1e834d835bd99338af6f138916ab562",
+  "intent_source": "user",
+  "created_at": "2026-10-11T19:50:00+00:00",
+  "finished_at": "2026-10-21T10:05:30+00:00",
+  "duration_seconds": 828930.0,
+  "timing": {
+    "complete": true,
+    "states": {
+      "CREATED": {
+        "visits": 1,
+        "seconds": 30.0
+      },
+      "SYNC_GREEN": {
+        "visits": 1,
+        "seconds": 0.0
+      },
+      "REVIEW_AWAITING_FINDINGS": {
+        "visits": 1,
+        "seconds": 30.0
+      },
+      "REVIEW_GREEN": {
+        "visits": 1,
+        "seconds": 0.0
+      },
+      "DOCS_GREEN": {
+        "visits": 1,
+        "seconds": 10.0
+      },
+      "LINT_RUNNING": {
+        "visits": 2,
+        "seconds": 20.0
+      },
+      "LINT_RED": {
+        "visits": 1,
+        "seconds": 40.0
+      },
+      "LINT_GREEN": {
+        "visits": 1,
+        "seconds": 0.0
+      },
+      "TEST_RUNNING": {
+        "visits": 1,
+        "seconds": 120.0
+      },
+      "TEST_GREEN": {
+        "visits": 1,
+        "seconds": 80.0
+      }
+    },
+    "review_wall_seconds": 40.0,
+    "shell_wall_seconds": 260.0,
+    "tool_seconds": 129.75,
+    "agent_seconds": 200.25
+  },
+  "producer": null,
+  "risk": {
+    "level": "high",
+    "verdict": "needs_human",
+    "requires_human_review": true
+  },
+  "review": {
+    "total_units": 3,
+    "cited_count": 1,
+    "clean_count": 2,
+    "excluded_count": 1,
+    "executor": null
+  },
+  "stages": {
+    "review": {
+      "status": "green",
+      "attempts": 0,
+      "started_at": null,
+      "finished_at": null,
+      "duration_seconds": null,
+      "reused": false,
+      "reason": null,
+      "red_then_green": null
+    },
+    "docs": {
+      "status": "green",
+      "attempts": 0,
+      "started_at": null,
+      "finished_at": null,
+      "duration_seconds": null,
+      "reused": false,
+      "reason": null,
+      "red_then_green": null
+    },
+    "lint": {
+      "status": "green",
+      "attempts": 1,
+      "started_at": null,
+      "finished_at": null,
+      "duration_seconds": null,
+      "reused": false,
+      "reason": null,
+      "red_then_green": true
+    },
+    "test": {
+      "status": "green",
+      "attempts": 0,
+      "started_at": null,
+      "finished_at": null,
+      "duration_seconds": null,
+      "reused": false,
+      "reason": null,
+      "red_then_green": false
+    }
+  },
+  "findings": {
+    "total": 3,
+    "by_stage": {
+      "docs": 1,
+      "review": 2
+    },
+    "by_severity": {
+      "critical": 1,
+      "high": 1,
+      "low": 1
+    },
+    "by_status": {
+      "dismissed": 1,
+      "fixed": 2
+    },
+    "by_action": {
+      "auto_fix": 3
+    },
+    "by_response_reason": {
+      "unspecified": 1
+    },
+    "blocking": 0,
+    "review_blocking_fixed": 0,
+    "docs_blocking_fixed": 0
+  },
+  "fix_commits": 2,
+  "validation_restarts": 1,
+  "event_counts": {
+    "run_created": 1,
+    "state_transition": 12,
+    "tool_command_finished": 4,
+    "tool_command_started": 4
+  },
+  "terminal": {
+    "aborted_forced": null,
+    "abort_reason": null,
+    "aborted_from_state": "TEST_GREEN",
+    "orphaned_reason": null
+  },
+  "hosted": {
+    "pr_number": null,
+    "pr_state": null,
+    "merged": null,
+    "checks_conclusion": null,
+    "fetched_at": null
+  },
+  "worktree_mode": "reusable",
+  "pr_mode": "manual",
+  "config_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+}

@@ -923,6 +923,12 @@ the group `unknown`. The statistics are:
 - the median and p90 of `duration_seconds`;
 - the share of run time in the review and docs states and in the lint and test
   states, over runs with complete `timing`;
+- `caught`: the `DONE` runs where the gate stopped something before the push,
+  `runs_with_any_catch`, and for each source in `by_source` (a fixed blocking review or
+  docs finding, a lint or test stage that failed and later passed) its `runs_with_any`
+  and `excluded_runs`;
+- `tool_time`: the median and p90 of `timing.tool_seconds` per `DONE` run, and per
+  pull request (the sum over its synced `DONE` runs) under `per_pull_request`;
 - aborted runs by reason and by `aborted_from_state`;
 - hosted outcomes synced by `telemetry sync-hosted`, under `hosted.synced`, and orphaned
   reasons. The Markdown "Hosted outcomes synced" section and the two limits about hosted

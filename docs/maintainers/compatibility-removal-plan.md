@@ -106,8 +106,8 @@ and its `start`, like 0.8.0's, already orphaned any such run it met.
 
 - `agentic_preflight/models.py`: delete `retire_ci_delegation`. The states are not in
   `State`, so such a record fails validation naturally.
-- `agentic_preflight/telemetry.py`: delete `_RETIRED_DELEGATED_STATES`,
-  `_RETIRED_DELEGATION_REASON`, and the retired branch of `_effective_state`, which
+- `agentic_preflight/run_summary.py`: delete `_RETIRED_DELEGATED_STATES`,
+  `_RETIRED_DELEGATION_REASON`, and the retired branch of `effective_state`, which
   duplicates the model logic for raw records. `telemetry rebuild` then skips those records
   as unreadable, which the summary report already counts.
 - Tests: the four `test_models.py` cases at lines 352 to 378, plus the delegation cases in
@@ -121,8 +121,8 @@ the only such runs are ones nobody has started since 0.6.0. Collapse the four si
 - `agentic_preflight/store.py`: in `load_run`, treat a nonterminal record with a
   `pending-update.json` beside it as a `RunReadError` with reason `invalid` and a message
   naming 0.7.0 as the release that can finish or abort it.
-- Delete `_interrupted_legacy_update` and its callers in `runs/_session.py`
-  (`_load_current`), `runs/start.py` (the orphan-and-restart branch around line 272), and
+- Delete `interrupted_legacy_update` and its callers in `runs/_session.py`
+  (`load_current`), `runs/start.py` (the orphan-and-restart branch around line 272), and
   `runs/lifecycle.py` (the `status` branch around line 612 and the
   `interrupted_legacy_update` envelope key).
 - `runs/evidence.py`: keep the single `orphaned_reason == "interrupted legacy update"`

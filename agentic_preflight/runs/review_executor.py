@@ -17,13 +17,13 @@ from ..stages import shellstage
 from . import contracts, review_protocol
 from ._session import (
     Session,
-    _apply,
-    _assert_fresh,
-    _check_restart_limit,
-    _load_current,
-    _now,
-    _require_state,
-    _require_worktree,
+    apply_action,
+    assert_fresh,
+    check_restart_limit,
+    load_current,
+    require_state,
+    require_worktree,
+    utc_now,
 )
 from ._shell import _run_protected, _withheld_message
 from .review import submit_findings
@@ -31,10 +31,10 @@ from .review import submit_findings
 
 def run_review_command(session: Session) -> Envelope:
     """Run the configured independent reviewer over the canonical review bundle."""
-    run = _load_current(session)
-    _check_restart_limit(run)
-    _assert_fresh(session, run)
-    _require_state(
+    run = load_current(session)
+    check_restart_limit(run)
+    assert_fresh(session, run)
+    require_state(
         run,
         State.REVIEW_AWAITING_FINDINGS,
         State.REVIEW_COMMAND_RED,
@@ -261,6 +261,7 @@ def _prepare_contracts(
         separate_stderr=True,
         before_run=begin,
         capture_data={"phase": "contracts", "reviewer_invocations": 0},
+        timed_as="contracts",
     )
     result = protected.result
     reason = protected.failure_reason
@@ -341,7 +342,7 @@ def _require_attempt(session: Session, run: RunDoc) -> None:
 def _begin_review_command(session: Session, run: RunDoc) -> RunDoc:
     """Persist the running state before launching the external process."""
     with session.store.transaction(run.run_id) as doc:
-        _apply(
+        apply_action(
             doc,
             Action.RETRY_REVIEW_COMMAND
             if doc.state is State.REVIEW_COMMAND_RED
@@ -364,7 +365,7 @@ def _record_review_command(
     failed = reason is not None
     with session.store.transaction(run.run_id) as doc:
         if failed and doc.state is State.REVIEW_AWAITING_FINDINGS:
-            _apply(doc, Action.RUN_REVIEW_COMMAND)
+            apply_action(doc, Action.RUN_REVIEW_COMMAND)
         entry = doc.stages.get(Stage.REVIEW) or StageRecord()
         entry.status = StageStatus.RED if failed else StageStatus.GREEN
         if failed:
@@ -375,8 +376,8 @@ def _record_review_command(
         entry.output_sha256 = output_digest(clean_output)
         entry.log_path = log_path
         entry.reason = reason
-        entry.finished_at = _now()
-        entry.head_sha = gitx.rev_parse(_require_worktree(doc), "HEAD")
+        entry.finished_at = utc_now()
+        entry.head_sha = gitx.rev_parse(require_worktree(doc), "HEAD")
         doc.stages[Stage.REVIEW] = entry
-        _apply(doc, Action.REVIEW_COMMAND_FAILED if failed else Action.REVIEW_COMMAND_PASSED)
+        apply_action(doc, Action.REVIEW_COMMAND_FAILED if failed else Action.REVIEW_COMMAND_PASSED)
         return doc
