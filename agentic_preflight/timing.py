@@ -215,7 +215,8 @@ def tool_seconds(events: Iterable[Any]) -> float | None:
                 return None
             finished[command] += 1
             total += seconds
-    if started != finished:
+    # Finite values can still add up past the largest float.
+    if started != finished or not math.isfinite(total):
         return None
     return round(total, 3)
 

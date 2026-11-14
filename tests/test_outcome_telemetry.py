@@ -269,6 +269,15 @@ def test_agent_seconds_never_go_below_zero_from_whole_second_times():
             [*_timed_events()[:-1], *_command("mergeback", 10**400), _timed_events()[-1]],
             id="integer-too-large-for-a-float",
         ),
+        pytest.param(
+            [
+                *_timed_events()[:-1],
+                *_command("mergeback", 1e308),
+                *_command("mergeback", 1e308),
+                _timed_events()[-1],
+            ],
+            id="a-sum-too-large-for-a-float",
+        ),
     ],
 )
 def test_tool_and_agent_seconds_are_null_when_any_command_time_is_unknown(events):
