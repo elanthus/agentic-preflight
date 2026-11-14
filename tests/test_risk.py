@@ -221,6 +221,11 @@ def test_imported_attestation_preserves_medium_and_high_finding_risk():
         ("python3 a.py && python3 b/c.py", ["a.py", "a.py/**", "b/**"]),
         ("(cd tools; python3 rev.py)", ["tools/**", "rev.py", "rev.py/**"]),
         ("python3 tools/rev.py|tee out/log.txt", ["tools/**", "out/**"]),
+        # Unbalanced quoting ignores quotes and still splits on every operator.
+        (
+            "python3 tools/rev.py # don't\ncd tools2&&python3 rev2.py",
+            ["tools/**", "tools2/**", "rev2.py", "rev2.py/**"],
+        ),
         ("CONFIG=conf/review.toml reviewer", ["conf/**"]),
         ("node tools/reviewer/", ["tools/**"]),
         # Bare program names, absolute paths, escapes from the repository, and paths
@@ -282,3 +287,15 @@ def test_default_trusted_paths_stay_out_of_configuration_snapshots():
 def test_trusted_paths_must_be_repository_relative():
     with pytest.raises(ValueError, match="repo-relative"):
         ReviewSection(trusted_paths=["../reviewer/**"])
+
+
+def test_operator_commands_use_posix_quoting_even_where_backslash_is_a_separator(monkeypatch):
+    # A command with an operator runs through a POSIX shell (Git Bash on Windows),
+    # so its escaped quote must not hide the paths after it.
+    from agentic_preflight.stages import command as commandmod
+
+    monkeypatch.setattr(commandmod, "BACKSLASH_ESCAPES", False)
+    escaped = "python3 x\\' ; cd tools && python3 rev.py ; echo \\'"
+    assert command_path_patterns(escaped) == ["tools/**", "rev.py", "rev.py/**"]
+    # Without an operator, a backslash stays a Windows path separator.
+    assert command_path_patterns("python3 tools\\rev.py") == ["tools/**"]

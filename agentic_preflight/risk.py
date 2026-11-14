@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import posixpath
 import re
+import shlex
 from collections.abc import Iterable, Iterator, Sequence
 from pathlib import PureWindowsPath
 from typing import Literal
@@ -83,22 +84,24 @@ def _is_shell(word: str) -> bool:
     return posixpath.basename(word.replace("\\", "/")) in _SHELLS
 
 
-def _separate_operators(command: str) -> str:
+def _separate_operators(command: str) -> tuple[str, bool]:
     """``command`` with whitespace around each control operator outside quotes.
 
     ``cd tools&&python3 review.py`` becomes ``cd tools && python3 review.py``, while
     ``python3 'reviewers (local)/rev.py'`` keeps its quoted parentheses inside the word.
-    Quoting follows :func:`agentic_preflight.stages.command.split`: single quotes
-    suppress everything, and a backslash escapes outside single quotes where it is an
-    escape character.
+    Single quotes suppress everything, and a backslash escapes outside single quotes.
+    That is POSIX shell quoting on every platform, because a command that contains an
+    operator always runs through a POSIX shell (Git Bash on Windows). The second value
+    says whether any operator was found.
     """
     out: list[str] = []
     quote: str | None = None
     escaped = False
+    found = False
     for char in command:
         if escaped:
             escaped = False
-        elif commandmod.BACKSLASH_ESCAPES and char == "\\" and quote != "'":
+        elif char == "\\" and quote != "'":
             escaped = True
         elif quote is not None:
             if char == quote:
@@ -107,9 +110,21 @@ def _separate_operators(command: str) -> str:
             quote = char
         elif char in _SHELL_OPERATORS:
             out.append(f" {char} ")
+            found = True
             continue
         out.append(char)
-    return "".join(out)
+    return "".join(out), found
+
+
+def _posix_split(command: str) -> list[str] | None:
+    """Word-split ``command`` as a POSIX shell would, or ``None`` on unbalanced quotes."""
+    lexer = shlex.shlex(command, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        return list(lexer)
+    except ValueError:
+        return None
 
 
 def _shell_pieces(command: str, depth: int = 0) -> Iterator[str]:
@@ -119,10 +134,14 @@ def _shell_pieces(command: str, depth: int = 0) -> Iterator[str]:
     is read again as a nested command. Any other quoted word stays whole, so a path that
     contains a space or a character such as ``(`` or ``;`` is kept.
     """
-    separated = _separate_operators(command)
-    words = commandmod.split(separated)
+    separated, has_operator = _separate_operators(command)
+    # A command with an operator runs through a POSIX shell on every platform; one
+    # without may run directly, so it is split by the platform's own rules.
+    words = _posix_split(separated) if has_operator else commandmod.split(separated)
     if words is None:
-        words = separated.split()
+        # Unbalanced quoting, for example an apostrophe in a ``#`` comment. Ignore
+        # quotes and split on every operator, so that no path after it is hidden.
+        words = [piece for word in command.split() for piece in _OPERATOR_WORD.split(word) if piece]
     previous = ""
     shell = False
     for word in words:
