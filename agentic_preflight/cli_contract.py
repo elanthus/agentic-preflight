@@ -401,7 +401,20 @@ class StatusData(RunDataBase):
 class LogsData(RunDataBase):
     stage: str | None = None
     log_path: str | None = None
-    output: str | None = None
+    output: str | None = Field(
+        default=None,
+        description="The selected window of the redacted stage log.",
+    )
+    truncated: bool | None = Field(
+        default=None,
+        description="True when output is less than the whole stored log.",
+    )
+    total_bytes: int | None = Field(
+        default=None, description="Size of the whole stored log in bytes."
+    )
+    total_lines: int | None = Field(
+        default=None, description="Number of lines in the whole stored log."
+    )
 
 
 class EventsData(RunDataBase):

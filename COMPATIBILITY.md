@@ -565,6 +565,16 @@ A `run_record_unreadable` error envelope from a mutating command adds `data.poin
 Single-run `status`, `status --all`, and `gc` output are unchanged.
 Run schema 2, attestation schema 7, fingerprint version 2, and the findings format are unchanged.
 
+## Unreleased: `logs` returns a bounded window
+
+`logs --stage` no longer returns the whole stage log by default.
+`data.output` now holds the last 200 lines, cut to at most 64 KiB.
+The `logs` envelope adds `data.truncated`, `data.total_bytes`, and `data.total_lines`, which describe the whole stored log.
+New flags choose the window: `--tail N`, `--head N`, and `--all`. `--all` restores the earlier whole-log output.
+A wrapper that read the whole log from `data.output` must pass `--all` or read the file at `data.log_path`.
+The stored log, its redaction, and its location are unchanged.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
 ## Unreleased: grounding reads the merge base
 
 `data.grounding` now reads `docs/**`, `AGENTS.md`, `CLAUDE.md`, the files that `[context] extra_paths` selects, and the `[context]` section itself from `.agentic-preflight.toml` at the run's merge base.
