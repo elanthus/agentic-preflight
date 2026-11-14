@@ -166,6 +166,8 @@ def reviewer_effort(default: str) -> str:
 def run_cli(argv: list[str], prompt: str) -> subprocess.CompletedProcess[str]:
     # A file owned by the eval harness survives wrapper/CLI failures and outer
     # timeouts. Never mix telemetry into the strict findings submission.
+    # The provider pipe keeps the locale encoding (text=True without encoding=), as the
+    # example wrappers did; only the reviewer's own stdio is UTF-8. See ADR 0003.
     events_path = os.environ.get("AP_REVIEWER_EVENTS_FILE")
     try:
         if events_path:
