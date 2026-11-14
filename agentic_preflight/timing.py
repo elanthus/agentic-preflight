@@ -162,15 +162,17 @@ def _total(states: Mapping[str, Mapping[str, Any]], prefixes: tuple[str, ...]) -
 
 
 def _seconds(value: Any) -> float | None:
-    # json.loads accepts NaN and Infinity, which are not times.
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int | float)
-        or not math.isfinite(value)
-        or value < 0
-    ):
+    if isinstance(value, bool) or not isinstance(value, int | float):
         return None
-    return float(value)
+    # json.loads accepts NaN, Infinity, and integers too large for a float;
+    # none of them is a time.
+    try:
+        seconds = float(value)
+    except (OverflowError, ValueError, TypeError):
+        return None
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    return seconds
 
 
 def tool_seconds(events: Iterable[Any]) -> float | None:
