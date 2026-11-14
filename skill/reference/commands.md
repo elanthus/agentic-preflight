@@ -35,6 +35,24 @@ Without it, the command resolves the run owned by the invoking Git worktree. Whe
 selected run's recorded source checkout no longer exists, inspection commands remain
 available, mutating commands exit 3 with `source_worktree_missing`, and `gc` remains the
 recovery path from another worktree in the clone.
+When the selected run's record cannot be read or validated, mutating workflow commands
+other than `status` and `gc`, including `abort --force` and `start --replace`, exit 3 with
+`run_record_unreadable` and leave the record unchanged. `data` holds the record's
+`run_id`, `path`, `reason`, and value-free `diagnostic`. `next.command` is `null`.
+When worktree ownership pointers still name the run and the raw record names the
+`in_place` or `strict` worktree mode, `data.pointer_paths` lists those pointers and
+`next.instruction` names them. If a compatible version cannot read the record either and
+the user decides to abandon the run, deleting only those files lets `start` create a
+fresh run. The old run can then no longer be resumed from that worktree. Its record,
+worktree, and branch stay in place; `gc` retains them while the record stays unreadable,
+and a version that can read it may later orphan and reclaim it. Otherwise
+`data.pointer_paths` is absent. For a `reusable` run, or a record whose `worktree_path`
+names the reusable runner, the run may still lease the clone's single runner on its own
+branch, so deleting a pointer would not let any worktree start a reusable run; the
+instruction says to keep the record, pointers, runner, and branch, and to stop for the
+user. When the mode cannot be determined, for example because the file cannot be read
+at all, the instruction says so and says to keep the record and its pointers and stop.
+Single-run `status` reports the read failure without `data.pointer_paths`.
 
 ## Setup
 
@@ -334,6 +352,9 @@ attestation note includes them. Review-command findings are redacted the same wa
 - `--note` text has copied-file values replaced by `[redacted]` before it is saved; the
   note is published in the attestation. A `copy_files` file that cannot be read for
   redaction exits 3 with `invalid_response`.
+- `--note` is limited to 4,000 characters. A longer note exits 6 with `usage_error`,
+  states the limit in `error.message`, and records nothing; the Python `respond` API
+  raises `invalid_response`.
 - Unknown id exits 3 listing the valid ids. Each finding is resolved once.
 - Non-blocking findings may be resolved after their review or docs stage is green. A
   note-only disposition preserves the green state. A fix that changes the reviewed

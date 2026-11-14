@@ -15,6 +15,7 @@ from .cli_support import (
     open_cli_session,
     read_json_file,
 )
+from .findings import RESPONSE_NOTE_LIMIT
 from .models import ABORT_REASONS, RESPONSE_REASONS, AbortReason, ResponseReason
 from .runs.start import normalize_client, normalize_model
 
@@ -181,6 +182,13 @@ def respond(
         fail_usage(
             click.UsageError(
                 "--reason is only valid with --action dismissed or accepted, not --action fixed",
+                ctx=click.get_current_context(),
+            )
+        )
+    if note is not None and len(note) > RESPONSE_NOTE_LIMIT:
+        fail_usage(
+            click.UsageError(
+                f"--note is {len(note)} characters; the limit is {RESPONSE_NOTE_LIMIT}",
                 ctx=click.get_current_context(),
             )
         )

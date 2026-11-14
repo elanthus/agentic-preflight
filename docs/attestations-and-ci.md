@@ -94,7 +94,7 @@ Notes with any other schema are rejected.
 These are example steps for a GitHub Actions job with `contents: read` permissions.
 The checkout selects the attested head and its repository, including for forks.
 It does not install or execute that source.
-Install Python 3.11 through 3.13 and `pipx` on the runner first.
+Install Python 3.11 through 3.14 and `pipx` on the runner first.
 The pinned package must be published before this example can run.
 
 ```yaml
@@ -165,6 +165,9 @@ A read-only GitHub API inspection on 2026-11-01 found this repository's active [
 
 - Pull requests and protection against branch deletion are required on `main`.
 - The required checks are `test / test (ubuntu-latest, py3.13)`, `built wheel smoke test`, `trusted preflight attestation`, `CodeQL (Python)`, `dependency vulnerability audit`, and `high-risk human approval`.
+  Pull requests run the test job on Python 3.11, 3.13, and 3.14, so the required `py3.13` check still reports.
+  The ruleset does not yet require the `py3.11` and `py3.14` legs.
+  Removing the `py3.13` leg from pull requests needs a ruleset change first, which only a repository administrator can make.
 - Zero approving reviews are required. Code Owner review, last-push approval, review-thread resolution, and strict up-to-date checks are disabled.
 - `high-risk human approval` became a required check on 2026-11-01. Until then the workflow reported it without blocking merge.
   The job fails until an eligible review covers the current head. A review from an owner, member, or collaborator, or a dismissal by a user with write access, re-runs the head's policy runs, which replaces each failed result in place; see [how a review reaches the check](#how-a-review-reaches-the-check).
