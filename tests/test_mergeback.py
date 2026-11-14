@@ -1108,7 +1108,9 @@ def _commit_at(repo: Path, message: str, date: str) -> str:
     return git("rev-parse", "HEAD", cwd=repo)
 
 
-def _multi_fix_conflict(feature_repo, tmp_path, monkeypatch, fixes, *, same_date=False):
+def _multi_fix_conflict(
+    feature_repo, tmp_path, monkeypatch, fixes, *, same_date=False, respond_with=-1, deletions=None
+):
     """Validate ``fixes`` (message, {path: content}) as separate commits, then conflict.
 
     Each fix gets a distinct author date unless ``same_date`` is set. The first merge-back rebases the source onto
@@ -1134,9 +1136,11 @@ def _multi_fix_conflict(feature_repo, tmp_path, monkeypatch, fixes, *, same_date
     for index, (message, files) in enumerate(fixes):
         for path, content in files.items():
             write(wt, path, content)
+        for path in (deletions or {}).get(index, []):
+            (wt / path).unlink()
         day = 1 if same_date else index + 1
         commits.append(_commit_at(wt, message, f"2001-01-0{day}T00:00:00+0000"))
-    agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", commits[-1])
+    agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", commits[respond_with])
     agent.run("verify")
     agent.run("context")
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
@@ -1278,3 +1282,31 @@ def test_clean_pick_identity_cannot_vouch_for_a_twin_fix(feature_repo, tmp_path,
 
     assert refused["error"]["code"] == "fix_commits_unmerged"
     assert refused["data"]["missing_fix_commits"] == [twin]
+
+
+def test_commit_vouching_for_one_fix_cannot_vouch_for_another(feature_repo, tmp_path, monkeypatch):
+    agent, _, (fix, add, delete, readd) = _multi_fix_conflict(
+        feature_repo,
+        tmp_path,
+        monkeypatch,
+        [
+            ("fix app", {"src/app.py": "def greet(name):\n    return 'FIXED'\n"}),
+            ("add x", {"x.txt": "X\n"}),
+            ("delete x", {}),
+            ("add x again", {"x.txt": "X\n"}),
+        ],
+        respond_with=0,
+        deletions={2: ["x.txt"]},
+    )
+
+    # The original first three fixes reach the branch; the last fix's change, the same
+    # patch as "add x", does not: x.txt gets other content under another identity.
+    git("merge", "--no-edit", delete, cwd=feature_repo)
+    write(feature_repo, "x.txt", "OTHER\n")
+    commit_all(feature_repo, "unrelated x.txt")
+
+    refused = agent.run("mergeback", expect=ExitCode.NEEDS_HUMAN)
+
+    assert refused["error"]["code"] == "fix_commits_unmerged"
+    assert refused["data"]["missing_fix_commits"] == [readd]
+    assert agent.run("status")["data"]["fix_commits"] == [fix, add, delete, readd]

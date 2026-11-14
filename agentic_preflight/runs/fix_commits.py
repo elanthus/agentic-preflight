@@ -86,19 +86,27 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
     return commits
 
 
-def patch_matches(repo: Path | str, fix_commits: list[str], base: str, head: str) -> dict[str, str]:
+def patch_matches(
+    repo: Path | str,
+    fix_commits: list[str],
+    base: str,
+    head: str,
+    *,
+    exclude: frozenset[str] = frozenset(),
+) -> dict[str, str]:
     """Pair each fix commit with a distinct patch-equivalent commit in ``base..head``.
 
     Merge-back cherry-picks, so SHA ancestry cannot prove that a fix landed. A stable
     patch ID ignores commit metadata, so a clean cherry-pick, including a reworded one,
-    compares equal to its source. Each landed commit accounts for one fix, and an empty
-    fix has no patch ID and is never matched.
+    compares equal to its source. Each landed commit accounts for one fix, commits in
+    ``exclude`` (already accounted for) are never matched, and an empty fix has no
+    patch ID and is never matched.
     """
     if not fix_commits:
         return {}
     pool: dict[str, list[str]] = {}
     for sha, patch_id in gitx.patch_ids(repo, base, head).items():
-        if patch_id is not None:
+        if patch_id is not None and sha not in exclude:
             pool.setdefault(patch_id, []).append(sha)
     matches: dict[str, str] = {}
     for sha in fix_commits:

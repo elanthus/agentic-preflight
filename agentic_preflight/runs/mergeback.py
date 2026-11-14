@@ -256,9 +256,9 @@ def unmerged_fix_commits(session: Session, run: RunDoc, head: str) -> list[str]:
     - Exact content: every path the fix changes is validated.
     - Provenance and changed content: a commit since the run's base is the fix itself,
       has the same stable patch ID, or was cherry-picked from it (same author, author
-      date, and subject). Each such commit vouches for one fix: the fix itself and
-      patch matches are paired first, so a clean pick cannot also vouch for another
-      fix with the same identity. In addition, every path the fix changes is
+      date, and subject). Each such commit vouches for at most one fix, allocated in
+      that order, so a commit that already vouches for one fix by SHA or patch ID
+      cannot also vouch for another. In addition, every path the fix changes is
       validated or changed, so a replay whose resolution kept the content from before
       the fix is not accepted, even when an earlier fix changed the same path.
     """
@@ -267,14 +267,21 @@ def unmerged_fix_commits(session: Session, run: RunDoc, head: str) -> list[str]:
     repo = str(session.repo_root)
     base = run.sync_base_sha or run.merge_base_sha
     validated = gitx.rev_parse(require_worktree(run), "HEAD")
+    # One allocation of the commits since the base: each vouches for at most one fix,
+    # first as the fix itself, then by patch ID, then by cherry-pick identity.
     pool = dict(_replay_identities(repo, head, "--not", base))
     vouched: set[str] = set()
     for sha in run.fix_commits:
         if sha in pool:  # the fix itself is on the branch
             del pool[sha]
             vouched.add(sha)
+    consumed = frozenset(vouched)
     for sha, landed in patch_matches(
-        repo, [sha for sha in run.fix_commits if sha not in vouched], base, head
+        repo,
+        [sha for sha in run.fix_commits if sha not in vouched],
+        base,
+        head,
+        exclude=consumed,
     ).items():
         pool.pop(landed, None)
         vouched.add(sha)
