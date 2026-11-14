@@ -38,7 +38,7 @@ from .fix_commits import derive_fix_commits, record_fix_commits
 from .log_window import DEFAULT_TAIL_LINES, read_log_window
 from .review import _skip_test_if_not_applicable
 from .review_coverage import invalidate_stage_result, reopen_if_stale
-from .stage_baseline import check_baseline
+from .stage_baseline import BaselineOutcome, check_baseline, cleanup_instruction
 
 
 class _StageSpec(TypedDict):
@@ -299,7 +299,7 @@ def _stage_failure(
     data: dict,
     redaction_failure_reason: str | None,
     redaction_error,
-    baseline_red,
+    baseline: BaselineOutcome | None,
 ) -> NoReturn:
     """Raise the failure variant selected by output protection and baseline status."""
     message = f"the {stage_name} stage failed (exit {result.exit_code})"
@@ -310,7 +310,7 @@ def _stage_failure(
             "Restore every copied file to its intended contents, then retry the stage. "
             "Commands must not rewrite [worktree] copy_files."
         )
-    elif baseline_red:
+    elif baseline is not None and baseline.red:
         message = (
             f"the {stage_name} stage failed, but the base commit fails it too — "
             f"this is pre-existing, not caused by the diff"
@@ -319,6 +319,8 @@ def _stage_failure(
             "The base commit already fails this stage, so the change under review is "
             "not responsible. Tell the user rather than trying to fix it here."
         )
+    if baseline is not None and baseline.cleanup_failure:
+        instruction += " " + cleanup_instruction(baseline.cleanup_failure)
     raise StageFailed(
         message,
         state=run.state.value,
@@ -389,11 +391,11 @@ def run_stage(
 
     _check_attempt_limit(session, run, stage, record_entry)
     resolved = _resolve_command(session, run, stage_name, command)
-    baseline_red = None
+    baseline_outcome: BaselineOutcome | None = None
     input_fingerprint = None
 
     def begin() -> None:
-        nonlocal run, baseline_red, input_fingerprint
+        nonlocal run, baseline_outcome, input_fingerprint
         with session.store.transaction(run.run_id) as doc:
             _apply(doc, spec["retry"] if doc.state is spec["red"] else spec["run"])
             doc.setup_failure = None
@@ -402,7 +404,7 @@ def run_stage(
             entry.head_sha = gitx.rev_parse(worktree_path, "HEAD")
             doc.stages[stage] = entry
             run = doc
-        baseline_red = (
+        baseline_outcome = (
             check_baseline(session, run, stage, resolved, failure_action=spec["failed"])
             if baseline
             else None
@@ -467,8 +469,10 @@ def run_stage(
         data["copied_file"] = str(redaction_error.path)
     if result.copied_files_changed:
         data["copied_files"] = run.copied_files
-    if baseline_red is not None:
-        data["baseline_red"] = baseline_red
+    if baseline_outcome is not None:
+        data["baseline_red"] = baseline_outcome.red
+        if baseline_outcome.cleanup_failure:
+            data["baseline_cleanup_failed"] = baseline_outcome.cleanup_failure
 
     if result.passed:
         if stage is Stage.LINT:
@@ -483,7 +487,7 @@ def run_stage(
         data,
         redaction_failure_reason,
         redaction_error,
-        baseline_red,
+        baseline_outcome,
     )
 
 

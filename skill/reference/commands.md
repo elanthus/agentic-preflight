@@ -501,11 +501,20 @@ is reported rather than blamed on the diff. The base commit is checked out in a 
 worktree, `<run-id>-baseline` on branch `ap/<run-id>-baseline`, under the validation
 worktree root (the user cache by default, or `[worktree] root`). This holds in every
 mode, `in_place` included, so the baseline never runs inside `.git`. The scratch
-worktree and its branch are removed afterwards, also when the command fails. If the
-scratch worktree was locked, it is left without its branch, the baseline result still
-stands, and the event log records `baseline_cleanup_failed`. It is also the cheapest way to see the
-command produce two different outcomes — if base and head are byte-identical greens on
-a diff that touches tested code, suspect the command before trusting it.
+worktree and its branch are removed afterwards, also when the command fails.
+
+If the scratch worktree was locked, it is left in place without its branch and the
+baseline result still stands. The envelope reports `data.baseline_cleanup_failed`
+(`worktree_path`, `branch`, `detail`), and the event log records the same. A later
+`--baseline` check fails with `setup_failed` and a `next.instruction` that names the
+locked path. Show the user the path. Never run `git worktree unlock` yourself; retry only
+after the user unlocks it, and the retry removes the leftover first. If the branch
+`ap/<run-id>-baseline` already exists before the check, the check refuses to reuse it
+and leaves it in place.
+
+`--baseline` is also the cheapest way to see the command produce two different
+outcomes — if base and head are byte-identical greens on a diff that touches tested
+code, suspect the command before trusting it.
 
 ### `agentic-preflight mergeback`
 In in-place mode, attests the already-verified current SHA without creating or

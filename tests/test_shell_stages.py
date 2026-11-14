@@ -1123,12 +1123,85 @@ def test_a_locked_baseline_worktree_keeps_the_baseline_result_and_drops_its_bran
 
     assert env["error"]["code"] == "stage_failed"
     assert env["data"]["baseline_red"] is True
+    leftover = env["data"]["baseline_cleanup_failed"]
+    assert leftover["worktree_path"].endswith(f"{run_id}-baseline")
+    assert leftover["branch"] == f"ap/{run_id}-baseline"
+    assert "locked" in leftover["detail"]
+    assert leftover["worktree_path"] in env["next"]["instruction"]
+    assert "do not unlock" in env["next"]["instruction"]
+    assert Path(leftover["worktree_path"]).exists()
     assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) == ""
     events = agent.run("events")["data"]["events"]
     cleanup = [event for event in events if event["event"] == "baseline_cleanup_failed"]
     assert len(cleanup) == 1
-    assert cleanup[0]["worktree_path"].endswith(f"{run_id}-baseline")
+    assert cleanup[0]["worktree_path"] == leftover["worktree_path"]
     assert "locked" in cleanup[0]["detail"]
+
+
+def test_a_locked_baseline_leftover_is_named_until_the_user_unlocks_it(docs_green, feature_repo):
+    """The retry names the lock instead of a bare git error, and recovers after unlock."""
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    lock = 'case "$PWD" in *-baseline) git worktree lock --reason held "$PWD";; esac; exit 1'
+    first = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        lock,
+        "--record",
+        "--baseline",
+        expect=ExitCode.STAGE_FAILED,
+    )
+    scratch = first["data"]["baseline_cleanup_failed"]["worktree_path"]
+    retry = ["stage", "run", "lint", "--command", "exit 1", "--record", "--baseline"]
+
+    blocked = agent.run(*retry, expect=ExitCode.STAGE_FAILED)
+
+    assert blocked["error"]["code"] == "setup_failed"
+    assert blocked["data"]["setup"]["kind"] == "worktree"
+    assert blocked["data"]["worktree_path"] == scratch
+    assert "baseline_red" not in blocked["data"]
+    assert "is locked (held)" in blocked["error"]["message"]
+    assert "do not unlock it yourself" in blocked["next"]["instruction"]
+    assert "Fix the setup environment" not in blocked["next"]["instruction"]
+    assert "--baseline" in blocked["next"]["command"]
+    assert Path(scratch).exists()
+
+    git("worktree", "unlock", scratch, cwd=feature_repo)
+    recovered = agent.run(*retry, expect=ExitCode.STAGE_FAILED)
+
+    assert recovered["error"]["code"] == "stage_failed"
+    assert recovered["data"]["baseline_red"] is True
+    assert "baseline_cleanup_failed" not in recovered["data"]
+    assert not Path(scratch).exists()
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) == ""
+
+
+def test_a_locked_baseline_does_not_replace_a_baseline_setup_failure(docs_green, feature_repo):
+    agent = docs_green(
+        "[docs]\nenabled = false\n\n"
+        "[worktree]\n"
+        'setup_command = \'case "$PWD" in *-baseline) git worktree lock "$PWD"; exit 9;; esac\'\n'
+    )
+    run_id = agent.run("status")["run_id"]
+
+    env = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "exit 1",
+        "--record",
+        "--baseline",
+        expect=ExitCode.STAGE_FAILED,
+    )
+
+    assert env["error"]["code"] == "setup_failed"
+    assert env["data"]["setup"]["exit_code"] == 9
+    assert env["data"]["baseline_cleanup_failed"]["worktree_path"] == env["data"]["worktree_path"]
+    assert env["data"]["worktree_path"] in env["next"]["instruction"]
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) == ""
 
 
 def test_an_in_place_baseline_root_inside_the_repository_is_a_setup_failure(
@@ -1182,6 +1255,8 @@ def test_a_baseline_worktree_that_cannot_be_prepared_is_not_reported_as_a_passin
     assert env["data"]["setup"]["kind"] == "worktree"
     assert "already exists" in env["error"]["message"]
     assert "--baseline" in env["next"]["command"]
+    # The check refused to reuse the branch, so it did not create it and leaves it alone.
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) != ""
     status = agent.run("status")
     assert status["data"]["stages"]["lint"]["reason"] == "baseline worktree could not be prepared"
     assert status["data"]["setup_failure"]["scope"] == "baseline"

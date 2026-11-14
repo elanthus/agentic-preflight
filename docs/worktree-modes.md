@@ -125,7 +125,10 @@ Set `[worktree] root` to select another location. It must be outside the reposit
 The scratch worktree for a `--baseline` stage is the `<run-id>-baseline` entry in the same directory, in every mode, including `in_place`.
 It is on the branch `ap/<run-id>-baseline`. Both are removed when the baseline check ends, whether the command passed or failed.
 If someone locks the scratch worktree with `git worktree lock` while it runs, it is left in place without its branch.
-The baseline result still stands, and the run's event log records a `baseline_cleanup_failed` event that names the path.
+The baseline result still stands. The stage envelope reports `data.baseline_cleanup_failed` with the path, and the run's event log records a `baseline_cleanup_failed` event.
+Until the worktree is unlocked, a later `--baseline` check fails with `setup_failed` and names the locked path.
+Unlock it with `git worktree unlock <path>` when you no longer need it, then retry. The retry removes the leftover before it checks out the base.
+If the branch `ap/<run-id>-baseline` already exists before the check, the check refuses to reuse it and leaves it in place.
 
 ### Migrating from the sibling default
 
