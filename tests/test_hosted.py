@@ -219,6 +219,15 @@ def _mirror_rows() -> dict[str, dict]:
             [_check("t", "failure"), _check("t", "failure"), {"conclusion": "failure"}],
             {"conclusion": "failure", "total": 3, "failed": ["t", "unnamed"]},
         ),
+        (
+            # A workflow that could not start did not pass.
+            [_check("a"), _check("s", "startup_failure")],
+            {"conclusion": "failure", "total": 2, "failed": ["s"]},
+        ),
+        (
+            [_check("a"), _check("r", "action_required"), _check("o", "stale")],
+            {"conclusion": "success", "total": 3, "failed": []},
+        ),
     ],
 )
 def test_check_runs_reduce_to_one_conclusion(runs, expected):

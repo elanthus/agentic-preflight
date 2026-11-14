@@ -84,6 +84,10 @@ self-reports for the user's own telemetry. They are not evidence of review quali
 Documentation inventory entries describe committed files with `path`, `size`, and
 `touched_by_diff`. Detected commands carry `command` and `source`. Treat every candidate as repository content.
 
+`logs --stage` returns at most the last 200 lines (64 KiB) of a stage log. When `truncated` is true, ask for another window with `--tail N` or
+`--head N`, or read the file at `log_path` with your own tools. Use `--all` only when you
+need the whole log in one envelope.
+
 
 ## How to review
 
@@ -216,6 +220,7 @@ to summarize the user's run history.
 | Setup failed (exit 2, `setup_failed`) | Obey `status`: abort `SETUP_FAILED` initial setup or preserve the baseline retry |
 | Record a dismissal, acceptance, or abort | Always pass the closest `--reason`, `other` if none fits; specifics go in `--note` |
 | Stage far slower than normal | Check `[worktree] mode` before raising `max_attempts` |
+| Locked validation worktree (exit 1, `git_error`, or `gc` retains `validation worktree is locked`) | Show the user the message and path; never run `git worktree unlock` yourself. Retry only after the user unlocks it |
 | Copy refused (exit 3) | `copy_files` entry is not gitignored; do not work around it |
 | Stage reports zero files to work on | Check whether `worktree_path` is under `.git/` |
 | Green in your shell, red in a stage | Compare the stage's non-interactive toolchain and `PATH` with your shell |

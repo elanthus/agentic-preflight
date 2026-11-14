@@ -267,9 +267,9 @@ The check runs give one conclusion:
 
 | Conclusion | Meaning |
 |---|---|
-| `failure` | One or more check runs failed, were cancelled, or timed out. |
+| `failure` | One or more check runs failed, were cancelled, timed out, or could not start. |
 | `pending` | No check run failed, and one or more check runs are not complete. |
-| `success` | All check runs are complete, and none failed. Only the conclusions `failure`, `cancelled`, and `timed_out` are failures. For example, `skipped`, `neutral`, `action_required`, and `stale` are not. |
+| `success` | All check runs are complete, and none failed. Only the conclusions `failure`, `cancelled`, `timed_out`, and `startup_failure` are failures. For example, `skipped`, `neutral`, `action_required`, and `stale` are not. |
 | `none` | The commit has no check runs. |
 
 The command does not read commit statuses from the older status API.
