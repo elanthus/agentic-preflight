@@ -71,7 +71,7 @@ def user_telemetry_guard(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
-def deterministic_git_env(monkeypatch, tmp_path_factory):
+def deterministic_git_env(monkeypatch, tmp_path_factory, git_only_bin):
     for key, value in DETERMINISTIC_ENV.items():
         monkeypatch.setenv(key, value)
     # Isolated runs default to a worktree under the user cache. Point it at a
@@ -88,23 +88,28 @@ def deterministic_git_env(monkeypatch, tmp_path_factory):
     # running pytest so an unrelated user installation cannot test older code.
     python_bin = str(Path(sys.executable).parent)
     current_path = os.environ.get("PATH", "")
-    parts = (python_bin, _developer_git_dir(), current_path)
-    monkeypatch.setenv("PATH", os.pathsep.join(part for part in parts if part))
+    parts = (python_bin, git_only_bin, current_path)
+    monkeypatch.setenv("PATH", os.pathsep.join(str(part) for part in parts if part))
 
 
-@functools.cache
-def _developer_git_dir() -> str | None:
-    """The directory of the Git that macOS's ``/usr/bin/git`` stub would run, if any.
+@pytest.fixture(scope="session")
+def git_only_bin(tmp_path_factory) -> Path | None:
+    """A ``bin`` directory holding only the Git that macOS's ``/usr/bin/git`` stub runs.
 
     On macOS ``/usr/bin/git`` is a stub that asks ``xcrun`` for the selected
     developer directory on every call and then runs the Git found there. The
     lookup costs more than twice what Git itself takes to start, and nearly every
-    test starts Git dozens or hundreds of times. Putting the selected Git's own
-    directory on ``PATH`` runs the very binary the stub would have run, without
-    the lookup. It holds only Apple's developer tools, whose ``/usr/bin`` entries
-    are the same kind of stub, and it comes after the test environment's own
-    ``bin`` so that environment's ``python`` still wins. Elsewhere, and when
-    ``git`` on ``PATH`` is not the stub, this is ``None`` and ``PATH`` is unchanged.
+    test starts Git dozens or hundreds of times. Putting this directory on
+    ``PATH`` runs the very binary the stub would have run, without the lookup.
+
+    The directory holds nothing but ``git``, so no other program on ``PATH``
+    changes. ``git`` is a symlink to the selected binary, and the directory's
+    siblings (``libexec``, ``share`` and the rest) are symlinks to the selected
+    prefix's own. Apple's Git finds its helpers and templates relative to the
+    path it was started from, so that layout gives it the same exec path and
+    templates it has when the stub starts it; a lone symlink would not.
+    Elsewhere, and when ``git`` on ``PATH`` is not the stub, this is ``None``
+    and ``PATH`` is unchanged.
     """
     if sys.platform != "darwin" or shutil.which("git") != "/usr/bin/git":
         return None
@@ -114,7 +119,18 @@ def _developer_git_dir() -> str | None:
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return None
-    return str(Path(found).parent) if found and Path(found).is_file() else None
+    if not found or not Path(found).is_file():
+        return None
+    binary = Path(found)
+    prefix = binary.parent.parent
+    mirror = tmp_path_factory.mktemp("git-prefix")
+    for entry in prefix.iterdir():
+        if entry.name != "bin":
+            (mirror / entry.name).symlink_to(entry)
+    bin_dir = mirror / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "git").symlink_to(binary)
+    return bin_dir
 
 
 #: The hook log's time bound in tests. The product's two seconds bound a push on an
@@ -454,7 +470,11 @@ def repo_templates(tmp_path_factory) -> Iterator[dict[str, Path]]:
 
 
 def _repo_snapshot(repo: Path) -> tuple[str, str, str]:
-    """The refs, checked-out branch and working-tree status of a repository."""
+    """The refs, checked-out branch and working-tree status of a repository.
+
+    A guard against the likely accidents, not a full digest: it does not cover
+    ``.git/config``, hooks, ``info/exclude``, or objects no ref reaches.
+    """
     return (
         git("for-each-ref", "--format=%(refname) %(objectname)", cwd=repo),
         git("symbolic-ref", "HEAD", cwd=repo),
