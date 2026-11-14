@@ -49,7 +49,7 @@ from .run_summary import (
     summarize,
     utc_now,
 )
-from .store import Store, _atomic_write
+from .store import Store, atomic_write
 
 SUMMARY_NAME = "summary.json"
 MIRROR_NAME = "runs.jsonl"
@@ -291,7 +291,7 @@ def write_summary(
     errors: list[str] = []
     try:
         path = Path(run_dir) / SUMMARY_NAME
-        _atomic_write(path, summary.model_dump_json(indent=2) + "\n")
+        atomic_write(path, summary.model_dump_json(indent=2) + "\n")
         status["summary_path"] = str(path)
     except Exception as exc:  # noqa: BLE001 - telemetry must never fail the caller
         errors.append(f"summary: {describe_error(exc)}")
@@ -564,7 +564,7 @@ def _rewrite_mirror(
             text = ""
         # Split on newlines only, so preserved rows keep their exact text.
         lines, mine, preserved = _merge_mirror(text.split("\n"), fresh, root_commit)
-        _atomic_write(target, "".join(f"{line}\n" for line in lines))
+        atomic_write(target, "".join(f"{line}\n" for line in lines))
     return mine, preserved
 
 
@@ -694,7 +694,7 @@ def rebuild(store: Store, repo_root: Path | str, config: Config) -> dict[str, An
         fresh.append(summary)
         try:
             path = store.run_dir(run_id) / SUMMARY_NAME
-            _atomic_write(path, summary.model_dump_json(indent=2) + "\n")
+            atomic_write(path, summary.model_dump_json(indent=2) + "\n")
         except OSError as exc:
             write_failures.append({"run_id": run_id, "error": describe_error(exc)})
 

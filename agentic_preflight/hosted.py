@@ -30,7 +30,7 @@ from urllib.parse import quote
 from . import gitx, run_summary, telemetry
 from .config import Config
 from .stages.command import resolve_on_path
-from .store import Store, _atomic_write
+from .store import Store, atomic_write
 
 DEFAULT_LIMIT = 50
 SOURCE = "gh"
@@ -457,7 +457,7 @@ def resummarize(
         fresh.append(summary)
         try:
             path = store.run_dir(run_id) / telemetry.SUMMARY_NAME
-            _atomic_write(path, summary.model_dump_json(indent=2) + "\n")
+            atomic_write(path, summary.model_dump_json(indent=2) + "\n")
         except OSError as exc:
             write_failures.append({"run_id": run_id, "error": telemetry.describe_error(exc)})
     return {
@@ -499,7 +499,7 @@ def _fetch_all(
             continue
         try:
             path = store.run_dir(candidate.run_id) / telemetry.HOSTED_NAME
-            _atomic_write(path, json.dumps(document, indent=2) + "\n")
+            atomic_write(path, json.dumps(document, indent=2) + "\n")
         except OSError as exc:
             data["stopped"] = GhError("write_failed", telemetry.describe_error(exc)).describe(
                 candidate.run_id

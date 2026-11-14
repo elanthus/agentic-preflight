@@ -42,18 +42,18 @@ from ..store import CurrentRunExists, UnknownRun
 from . import evidence
 from ._session import (
     Session,
-    _apply,
-    _assess,
-    _check_restart_limit,
-    _envelope_for,
-    _interrupted_legacy_update,
-    _new_run_id,
-    _next_hint,
-    _now,
-    _release_run_worktree,
-    _start_command,
-    _worktree_mode,
+    apply_action,
+    assess_risk,
+    check_restart_limit,
+    envelope_for,
+    interrupted_legacy_update,
+    new_run_id,
+    next_hint,
+    release_run_worktree,
+    start_command,
+    utc_now,
     worktree_identity,
+    worktree_mode,
 )
 
 # Lower-case harness names. Integration ids are accepted as aliases, so
@@ -138,7 +138,7 @@ def _release_idle_runner(session: Session, run: RunDoc) -> None:
     reviewed head. Otherwise, or on any failure, the runner stays leased for
     ``gc`` and a later start reports it as before.
     """
-    if run.fix_commits or run.worktree_released or _worktree_mode(run) != "reusable":
+    if run.fix_commits or run.worktree_released or worktree_mode(run) != "reusable":
         return
     path = run.worktree_path
     if not path or not Path(path).exists():
@@ -146,7 +146,7 @@ def _release_idle_runner(session: Session, run: RunDoc) -> None:
     try:
         if not gitx.is_clean(path) or gitx.rev_parse(path, "HEAD") != run.head_sha:
             return
-        _release_run_worktree(session, run)
+        release_run_worktree(session, run)
         with session.store.transaction(run.run_id) as doc:
             doc.worktree_released = True
     except Exception as exc:  # noqa: BLE001 - orphaning must complete regardless
@@ -168,7 +168,7 @@ def _orphan(session: Session, run: RunDoc, *, reason: str, discard_pending: bool
             )
         with session.store.transaction(run.run_id) as doc:
             if doc.state not in TERMINAL_STATES:
-                _apply(doc, Action.ORPHAN)
+                apply_action(doc, Action.ORPHAN)
             doc.orphaned_reason = reason
         session.store.clear_run(run.run_id)
         session.store.append_event(run.run_id, {"event": "orphaned", "reason": reason})
@@ -348,8 +348,8 @@ def _resolve_existing_run(ctx: _StartContext, *, replace: bool) -> Envelope | No
                         next_instruction="Run `start` from the recorded source worktree.",
                         next_command="agentic-preflight status",
                     )
-                if _interrupted_legacy_update(session, existing):
-                    _check_restart_limit(existing)
+                if interrupted_legacy_update(session, existing):
+                    check_restart_limit(existing)
                     _orphan(
                         session, existing, reason="interrupted legacy update", discard_pending=True
                     )
@@ -372,7 +372,7 @@ def _resolve_existing_run(ctx: _StartContext, *, replace: bool) -> Envelope | No
                 elif replace:
                     _orphan(session, existing, reason="replaced by a new start")
                 else:
-                    command = _start_command(
+                    command = start_command(
                         ctx.intent,
                         base_ref=ctx.base_ref,
                         default_base_ref=ctx.cfg.general.base_ref,
@@ -434,7 +434,7 @@ def _create_run_record(ctx: _StartContext, run_id: str, merge_base: str) -> tupl
         config_digest=ctx.config_digest,
         user_config_sections=ctx.user_config_sections,
         producer=ctx.producer,
-        created_at=_now(),
+        created_at=utc_now(),
     )
     # Persist the intent *before* the git call, so a crash mid-create leaves a
     # record for `gc` to reconcile rather than an orphan nobody knows about.
@@ -443,7 +443,7 @@ def _create_run_record(ctx: _StartContext, run_id: str, merge_base: str) -> tupl
         ctx.session.store.claim_active(ctx.session.owner_id, run_id)
     except CurrentRunExists as exc:
         with ctx.session.store.transaction(run_id) as doc:
-            _apply(doc, Action.ABORT)
+            apply_action(doc, Action.ABORT)
             doc.worktree_released = True
         raise WrongState(
             f"run {exc.run_id} is already active in this worktree",
@@ -507,7 +507,7 @@ def _provision_validation_checkout(
             )
     except worktree.WorktreeError as exc:
         with ctx.session.store.transaction(run_id) as doc:
-            _apply(doc, Action.ABORT)
+            apply_action(doc, Action.ABORT)
             doc.worktree_released = True
         ctx.session.store.clear_run(run_id)
         raise NeedsHuman(
@@ -529,7 +529,7 @@ def _provision_validation_checkout(
         _claim_alias(ctx.session, validation_owner, run_id)
     except CurrentRunExists as exc:
         with ctx.session.store.transaction(run_id) as doc:
-            _apply(doc, Action.ABORT)
+            apply_action(doc, Action.ABORT)
             doc.worktree_released = False
         ctx.session.store.clear_run(run_id)
         raise NeedsHuman(
@@ -543,8 +543,8 @@ def _provision_validation_checkout(
     with ctx.session.store.transaction(run_id) as doc:
         if validation_owner not in doc.owner_ids:
             doc.owner_ids.append(validation_owner)
-        _apply(doc, Action.CREATE_WORKTREE)
-        _apply(doc, Action.BEGIN_SYNC)
+        apply_action(doc, Action.CREATE_WORKTREE)
+        apply_action(doc, Action.BEGIN_SYNC)
 
 
 def _synchronize(
@@ -559,7 +559,7 @@ def _synchronize(
             sync_result = syncmod.synchronize(ctx.repo, wt_path, base_ref=ctx.base_ref)
     except syncmod.OperationInProgress as exc:
         with ctx.session.store.transaction(run_id) as doc:
-            _apply(doc, Action.SYNC_FAILED)
+            apply_action(doc, Action.SYNC_FAILED)
             run = doc
         report: dict[str, object] = {"operation": exc.operation, "path": exc.path}
         ctx.session.store.append_event(run_id, {"event": "sync_refused", **report})
@@ -573,7 +573,7 @@ def _synchronize(
         with ctx.session.store.transaction(run_id) as doc:
             doc.sync_base_sha = exc.base_sha
             doc.sync_base_ref = exc.base_ref
-            _apply(doc, Action.SYNC_FAILED)
+            apply_action(doc, Action.SYNC_FAILED)
             run = doc
         report = {
             "base_ref": exc.base_ref,
@@ -597,7 +597,7 @@ def _synchronize(
         ) from exc
     except (gitx.GitError, subprocess.TimeoutExpired, OSError) as exc:
         with ctx.session.store.transaction(run_id) as doc:
-            _apply(doc, Action.SYNC_FAILED)
+            apply_action(doc, Action.SYNC_FAILED)
             run = doc
         report = {
             "base_ref": ctx.base_ref,
@@ -627,7 +627,7 @@ def _synchronize(
         else:
             worktree.remove(ctx.repo, wt_path, branch=wt_branch)
         with ctx.session.store.transaction(run_id) as doc:
-            _apply(doc, Action.ABORT)
+            apply_action(doc, Action.ABORT)
             doc.worktree_released = True
         ctx.session.store.clear_run(run_id)
         raise EmptyDiff(
@@ -697,7 +697,7 @@ def _run_setup_command(
         if ctx.cfg.worktree.mode == "in_place"
         else worktree.copy_files(ctx.repo, wt_path, ctx.cfg.worktree.copy_files)
     )
-    assessment = _assess(ctx.session, changed, [])
+    assessment = assess_risk(ctx.session, changed, [])
 
     # Persist copied paths before setup so an abort after a failed command still
     # removes secret-bearing copies from a reusable runner.
@@ -732,7 +732,7 @@ def _run_setup_command(
             with ctx.session.store.transaction(run_id) as doc:
                 doc.risk = assessment
                 doc.setup_failure = failure
-                _apply(doc, Action.SETUP_FAILED)
+                apply_action(doc, Action.SETUP_FAILED)
             ctx.session.store.append_event(
                 run_id,
                 {
@@ -774,8 +774,8 @@ def _prime_review(
         doc.worktree_path = str(wt_path)
         doc.worktree_branch = wt_branch
         doc.risk = assessment
-        _apply(doc, Action.SYNC_PASSED)
-        _apply(doc, Action.BEGIN_REVIEW)
+        apply_action(doc, Action.SYNC_PASSED)
+        apply_action(doc, Action.BEGIN_REVIEW)
         run = doc
 
     ctx.session.store.append_event(
@@ -791,14 +791,14 @@ def _prime_review(
 
     run = evidence.advance(ctx.session, evidence.discover(ctx.session, run))
 
-    return _envelope_for(
+    return envelope_for(
         run,
         next_instruction="Fetch the diff before judging it."
         if run.state is State.REVIEW_AWAITING_FINDINGS
-        else _next_hint(run.state)[0],
+        else next_hint(run.state)[0],
         next_command="agentic-preflight context"
         if run.state is State.REVIEW_AWAITING_FINDINGS
-        else _next_hint(run.state)[1],
+        else next_hint(run.state)[1],
         data=StartData(
             worktree_path=str(wt_path),
             worktree_branch=wt_branch,
@@ -860,7 +860,7 @@ def _start(
     if existing is not None:
         return existing
     merge_base = _require_changes(ctx)
-    run_id = _new_run_id()
+    run_id = new_run_id()
     # Hold the new run's operation lock until the run is ready for review, as
     # every other mutating command does. Released earlier, a concurrent
     # `start --replace`, `gc`, or `abort` sees an idle run and can orphan it

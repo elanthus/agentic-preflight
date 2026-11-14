@@ -18,7 +18,7 @@ from ..machine import State
 from ..models import FindingSubmission, RunDoc, Stage
 from ..stages import shellstage
 from . import review_coverage, review_protocol
-from ._session import Session, _envelope_for, _load_current, _require_state, _require_worktree
+from ._session import Session, envelope_for, load_current, require_state, require_worktree
 from ._shell import _run_protected, _withheld_message
 
 COMPARABLE_STATES = (
@@ -378,12 +378,12 @@ def _redact_findings(run: RunDoc, worktree: str, *submissions: dict[str, Any]) -
 
 def compare_reviews(session: Session, payload: Any | None = None) -> Envelope:
     """Compare accepted evidence with a supplied or shadow submission in place."""
-    run = _load_current(session)
-    _require_state(run, *COMPARABLE_STATES, command="review compare")
+    run = load_current(session)
+    require_state(run, *COMPARABLE_STATES, command="review compare")
     coverage = run.review_coverage
     if coverage is None:
         raise _refusal("the run has no accepted review coverage to compare", run)
-    worktree = _require_worktree(run)
+    worktree = require_worktree(run)
     current_head = gitx.rev_parse(worktree, "HEAD")
     if current_head != coverage.head_sha:
         raise _refusal(
@@ -448,6 +448,6 @@ def compare_reviews(session: Session, payload: Any | None = None) -> Envelope:
     summary_path = session.store.run_dir(run.run_id) / "review-compare.json"
     summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8", newline="\n")
     session.store.append_event(run.run_id, {"event": "review_compared", **summary})
-    return _envelope_for(
+    return envelope_for(
         run, stage=Stage.REVIEW.value, data=ReviewCompareData.model_validate(summary)
     )
