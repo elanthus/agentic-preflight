@@ -11,5 +11,7 @@
   diff, the changed-file list, or risk classification.
 - `diff.submodule = log` or `diff` no longer stops `context` with an internal error when a
   change moves a submodule pointer.
-- Notes written by 0.8.1 and earlier still verify. `COMPATIBILITY.md` lists what changes
-  at upgrade.
+- Notes written by 0.8.1 and earlier still verify when their producer left these settings
+  at Git's default. A note written with another value, such as `diff.context = 5`, fails
+  verification even on the machine that wrote it; validate the commit again to replace it.
+  `COMPATIBILITY.md` lists what changes at upgrade.
