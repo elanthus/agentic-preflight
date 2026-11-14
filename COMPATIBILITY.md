@@ -608,6 +608,7 @@ The new optional `[review] trusted_paths` list adds more patterns.
 This applies to local runs, to attestation verification, and to `approval-check`, which reads both from the protected base.
 A pull request that edits a configured reviewer script, or a sibling file such as the example wrappers' `_reviewer_common.py`, is now high risk and needs the configured approval. Earlier releases classified it by `[policy]` alone.
 Such paths appear in `data.path_reasons` with the existing kind `human_review_path`. No envelope field or reason kind is new.
+They also appear in the policy entries of `data.grounding`. For a branch whose changed files match a newly derived pattern, the grounding and `grounding_sha256` change, so review and docs evidence recorded for that branch before the upgrade is not reused and those stages run again.
 Earlier releases reject a configuration file that sets `trusted_paths`, as an unknown key. Upgrade the protected-base verifier and every machine that shares a clone before you set it.
 Configuration snapshots omit `trusted_paths` when it is empty, so snapshots and configuration digests for existing configurations are unchanged.
 A snapshot that sets it cannot be read by an earlier release.
