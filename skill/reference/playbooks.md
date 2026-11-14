@@ -287,6 +287,24 @@ you debug the code — a native module built for another ABI fails as missing bi
 not as a version error. A repo with no `.nvmrc` (or equivalent) has nothing pinning it,
 so this bites fresh clones and CI too, not just stages.
 
+## No merge base in a shallow clone (exit 3, `empty_diff`)
+
+When the `empty_diff` message says `cannot find a merge base`, check
+`git rev-parse --is-shallow-repository`. If it prints `true`, the history is too short
+to hold the merge base of the branch and the base. Tell the user, and ask before you
+run `git fetch --unshallow`: in a large repository it downloads the whole history.
+Then start again. See [repository shapes](https://github.com/elanthus/agentic-preflight/blob/main/docs/repository-shapes.md#shallow-clones).
+
+## Existing pre-push hook (exit 3, `hook_exists`)
+
+`init` found a pre-push hook that it did not write and left it unchanged. Show the user
+the hook path. Do not run `init --force` without the user's decision: it replaces the
+hook and removes what it did. Git LFS writes such a hook, and replacing it stops pushes
+from uploading LFS objects. To keep both, the user adds `agentic-preflight hook-check`
+to the existing hook so that each command gets its own copy of standard input, as
+[repository shapes](https://github.com/elanthus/agentic-preflight/blob/main/docs/repository-shapes.md#git-lfs)
+shows.
+
 ## Summarize preflight history
 
 Use this entry when the user asks how well Agentic Preflight works for them, or asks

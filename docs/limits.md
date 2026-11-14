@@ -83,6 +83,11 @@ A nonzero exit is reported as a setup failure.
 
 Use `--baseline` so that a pre-existing failure is reported and not attributed to your diff.
 
+## Unusual repository shapes
+
+Shallow and partial clones, sparse checkouts, submodules, Git LFS, very large trees, SHA-256 repositories, and bare repositories each have limits.
+[Repository shapes](repository-shapes.md) describes what works in each one, the error you see when it does not, and what helps.
+
 ## What a green run does and does not prove
 
 A green run proves what the stages reported:

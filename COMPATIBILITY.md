@@ -78,6 +78,24 @@ The CLI creates a separate process group, so the child does not receive the cons
 Cleanup uses the existing bounded `taskkill` helper.
 POSIX signal handling is unchanged.
 
+## Repository shapes
+
+[Repository shapes](docs/repository-shapes.md) gives the details and the tests behind each statement here.
+
+These shapes are supported:
+
+- Full clones, linked worktrees, and linked worktrees of a bare repository. Commands do not run in a bare directory itself.
+- Shallow clones whose history contains the merge base of the branch and the base.
+- Blobless partial clones (`--filter=blob:none`) whose promisor remote is reachable during a run.
+- Submodules, reviewed as pointer changes. Submodule contents are not reviewed.
+- Git LFS files, reviewed as pointer files. The LFS pre-push hook must be composed with `agentic-preflight hook-check`.
+
+Sparse checkouts are supported with one limit: the docs stage sees only the documentation files in the sparse set.
+
+Repositories that use the SHA-256 object format are not supported.
+Run records and attestation notes hold only SHA-1 object IDs, so no commit in such a repository can have a valid attestation.
+See [issue #351](https://github.com/elanthus/agentic-preflight/issues/351).
+
 ## Evaluation report compatibility
 
 The eval report method is now `public-smoke-v6`.
