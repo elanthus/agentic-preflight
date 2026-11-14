@@ -631,6 +631,7 @@ A reader must count a missing key as `null`, as for earlier summary additions.
 
 The run event log can contain the new `tool_command_started` and `tool_command_finished` events, and the `run_created` event adds `command_timing`.
 The events never bind evidence. No fingerprint, evidence digest, configuration digest, or attestation reads them.
+They count against `events --limit` like other events, so the same limit shows fewer state transitions than before.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
 In `agentic-preflight report`, each group of statistics adds `caught` and `tool_time`, and the Markdown has two new sections, "Caught before push" and "Tool time".

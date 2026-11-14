@@ -841,7 +841,7 @@ def _tool_time(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             **per_pr,
             "pull_requests": len(pull_requests),
             "excluded_pull_requests": excluded_pull_requests,
-            "unsynced_runs": unsynced,
+            "runs_without_pull_request": unsynced,
             "label": "synced pull requests of DONE runs",
         },
         "note": TOOL_TIME_NOTE,

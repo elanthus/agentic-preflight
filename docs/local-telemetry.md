@@ -221,12 +221,14 @@ The time comes from the monotonic clock of the one process that runs the command
 The finish event is written even when the command fails or raises an error.
 A failure to write either event never fails the command. The time is then unknown.
 The `run_created` event of a run that times its commands has `command_timing: 1`.
+The two events count against `events --limit` like any other event, so a limit shows fewer state transitions than before.
 
-`timing.tool_seconds` is the sum of the `seconds` values.
+`timing.tool_seconds` is the sum of the `seconds` values of the events before the run entered its terminal state.
+A command that runs after the run ended, for example `review compare` on a `DONE` run, still writes its events, but it does not count. Thus, `telemetry rebuild` gives the same value as the summary written when the run ended.
 It is `null` in these cases:
 
 - The `run_created` event has no `command_timing` marker. The run was recorded by an earlier version, which did not time its commands.
-- A `tool_command_started` event has no matching `tool_command_finished` event. The process stopped during the command.
+- A `tool_command_started` event before the terminal state has no matching `tool_command_finished` event before it. The process stopped during the command, or the run ended while the command ran.
 - A `tool_command_finished` event has no `seconds`, or a negative value.
 
 `timing.agent_seconds` is the time from creation to the terminal state, less `tool_seconds`.
@@ -461,7 +463,7 @@ Some values need care:
 - "Tool time" gives the median and p90 of `timing.tool_seconds` per `DONE` run.
   It also gives them per pull request, for the `DONE` runs that `telemetry sync-hosted` joined to a pull request.
   A pull request can span several runs, so its time is the sum over its runs, grouped by repository and `hosted.pr_number`.
-  A pull request is left out when any of its runs has no tool time. `per_pull_request.unsynced_runs` counts the `DONE` runs without a pull request number.
+  A pull request is left out when any of its runs has no tool time. `per_pull_request.runs_without_pull_request` counts the `DONE` runs without a pull request number.
   The report makes no network request for this.
 
 Every report ends with `data.limits`. The Markdown repeats them.

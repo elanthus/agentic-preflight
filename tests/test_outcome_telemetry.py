@@ -440,7 +440,7 @@ def test_report_sums_tool_seconds_per_synced_pull_request():
     assert per_pr["observations"] == 5
     assert per_pr["excluded_pull_requests"] == 1
     assert per_pr["median"] == 40.0
-    assert per_pr["unsynced_runs"] == 1
+    assert per_pr["runs_without_pull_request"] == 1
 
 
 def test_markdown_shows_the_caught_and_tool_time_sections():
@@ -512,3 +512,85 @@ def test_rebuild_adds_the_new_fields_to_an_earlier_run(tmp_repo):
     assert summary["timing"]["complete"] is True
     assert summary["timing"]["tool_seconds"] is None
     assert summary["timing"]["agent_seconds"] is None
+
+
+def test_a_command_after_the_terminal_state_does_not_count():
+    # `review compare` can run on a DONE run and append timed events after the end.
+    events = [*_timed_events(), *_command("review_compare", 60.0)]
+
+    row = _summary(_aborted_record(), [], events)
+
+    assert row["timing"]["tool_seconds"] == 129.75
+    assert row["timing"]["agent_seconds"] == 200.25
+
+
+def test_a_command_still_running_when_the_run_ended_makes_tool_time_unknown():
+    started, finished = _command("lint", 5.0)
+    events = [*_timed_events()[:-1], started, _timed_events()[-1], finished]
+
+    row = _summary(_aborted_record(), [], events)
+
+    assert row["timing"]["tool_seconds"] is None
+
+
+# -- the timing context manager ----------------------------------------------------------
+
+
+class _Store:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.events: list[dict[str, Any]] = []
+        self.fail = fail
+
+    def append_event(self, run_id: str, event: dict[str, Any]) -> None:
+        if self.fail:
+            raise OSError("event log is not writable")
+        self.events.append(event)
+
+
+def test_the_finish_event_is_written_when_the_command_raises():
+    store = _Store()
+
+    with pytest.raises(RuntimeError), timing.timed_command(store, "r_1", "lint"):  # type: ignore[arg-type]
+        raise RuntimeError("the command failed")
+
+    assert [event["event"] for event in store.events] == [
+        timing.COMMAND_STARTED_EVENT,
+        timing.COMMAND_FINISHED_EVENT,
+    ]
+    assert store.events[1]["command"] == "lint"
+    assert store.events[1]["seconds"] >= 0
+
+
+def test_an_unwritable_event_log_never_affects_the_command():
+    store = _Store(fail=True)
+    ran = []
+
+    with timing.timed_command(store, "r_1", "test"):  # type: ignore[arg-type]
+        ran.append(True)
+
+    assert ran == [True]
+
+
+def test_an_unknown_command_name_runs_the_command_untimed():
+    store = _Store()
+    ran = []
+
+    with timing.timed_command(store, "r_1", "a-future-stage"):  # type: ignore[arg-type]
+        ran.append(True)
+
+    assert ran == [True]
+    assert store.events == []
+
+
+def test_malformed_event_values_never_break_the_summary():
+    events = [
+        *_timed_events()[:-1],
+        {"event": "state_transition", "from": None, "to": ["not", "a", "state"]},
+        {"event": timing.COMMAND_STARTED_EVENT, "command": ["x"]},
+        {"event": timing.COMMAND_FINISHED_EVENT, "command": ["x"], "seconds": 1.0},
+        _timed_events()[-1],
+    ]
+
+    row = _summary(_aborted_record(), [], events)
+
+    assert row["timing"]["tool_seconds"] == 130.75

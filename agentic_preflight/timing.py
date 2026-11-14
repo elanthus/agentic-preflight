@@ -91,10 +91,12 @@ def timed_command(store: Store, run_id: str, command: str) -> Iterator[None]:
     """Record the wall time of one external command in the run's event log.
 
     The finish event is written even when the command raises, so only a process
-    that stops mid-command leaves a start without a finish.
+    that stops mid-command leaves a start without a finish. A name outside
+    :data:`TIMED_COMMANDS` is not timed: telemetry never fails the real command.
     """
     if command not in TIMED_COMMANDS:
-        raise ValueError(f"unknown timed command: {command}")
+        yield
+        return
     _append_quietly(store, run_id, {"event": COMMAND_STARTED_EVENT, "command": command})
     started = time.monotonic()
     try:
@@ -163,8 +165,23 @@ def _seconds(value: Any) -> float | None:
 
 
 def tool_seconds(events: Iterable[Any]) -> float | None:
-    """Total seconds of the run's timed commands, or ``None`` when any is unknown."""
+    """Total seconds of the run's timed commands, or ``None`` when any is unknown.
+
+    Only events before the first transition into a terminal state count. A
+    command that runs after the run ended, such as ``review compare`` on a
+    ``DONE`` run, is not time the tool added to that run, and leaving it out
+    keeps a rebuilt summary equal to the one written when the run ended.
+    """
     items = [event for event in events if isinstance(event, Mapping)]
+    for index, event in enumerate(items):
+        target = event.get("to")
+        if (
+            event.get("event") == "state_transition"
+            and isinstance(target, str)
+            and target in _TERMINAL_STATES
+        ):
+            items = items[:index]
+            break
     marked = any(
         event.get("event") == "run_created"
         and event.get(COMMAND_TIMING_MARKER) == COMMAND_TIMING_VERSION
@@ -177,13 +194,15 @@ def tool_seconds(events: Iterable[Any]) -> float | None:
     total = 0.0
     for event in items:
         name = event.get("event")
+        # A malformed command name is still paired, as an unnamed command.
+        command = event.get("command") if isinstance(event.get("command"), str) else None
         if name == COMMAND_STARTED_EVENT:
-            started[event.get("command")] += 1
+            started[command] += 1
         elif name == COMMAND_FINISHED_EVENT:
             seconds = _seconds(event.get("seconds"))
             if seconds is None:
                 return None
-            finished[event.get("command")] += 1
+            finished[command] += 1
             total += seconds
     if started != finished:
         return None
