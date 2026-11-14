@@ -9,8 +9,8 @@ from typing import Literal
 
 from pydantic import ValidationError
 
-from . import gitx
-from .config import committed_config, snapshot_config
+from . import gitx, public_config
+from .config import committed_config
 from .digests import sha256_text
 from .fingerprints import intent_digest
 from .models import Attestation, AttestedStage, RunDoc, Stage, StageStatus
@@ -78,7 +78,7 @@ def build(
         Stage.REVIEW: AttestedStage(
             status="green",
             executor=review_record.executor,
-            command=review_record.command,
+            command=public_config.published_command(run, Stage.REVIEW, review_record.command),
             exit_code=review_record.exit_code,
             output_sha256=review_record.output_sha256,
             coverage=run.review_coverage,
@@ -101,11 +101,17 @@ def build(
             raise InvalidAttestation(f"{stage.value} stage is not green")
         stages[stage] = AttestedStage(
             status="green",
-            command=record.command,
+            command=public_config.published_command(run, stage, record.command),
             exit_code=record.exit_code,
             output_sha256=record.output_sha256,
         )
     from .refresh_validation import rebound_coverage, verify_evidence
+
+    if not public_config.provenance_known(run):
+        raise InvalidAttestation(
+            "the run was started by an earlier release that did not record which "
+            "configuration came from the user file; start a fresh run to publish"
+        )
 
     required_evidence = set(Stage)
     if run.worktree_path is None:
@@ -127,19 +133,20 @@ def build(
         base_ref=run.base_ref,
         merge_base_sha=run.merge_base_sha,
         intent_sha256=intent_digest(run.intent or ""),
-        config_sha256=run.config_digest,
+        config_sha256=public_config.published_config_digest(run),
         run_id=run.run_id,
         green_at=datetime.now(UTC).isoformat(timespec="seconds"),
         stages=stages,
         findings_summary=findings_summary,
         evidence=run.evidence,
-        config_snapshot=run.config_snapshot,
+        # User-level configuration stays local; see ``public_config``.
+        config_snapshot=public_config.published_snapshot(run),
     )
     for item in value.evidence.values():
         item.verify_origin()
     # Building checks the evidence is internally consistent. The protected base
     # policy applies when a verifier reads the note (see ``verify_value``).
-    verify_evidence(run.worktree_path, value, policy=snapshot_config(run.config_snapshot))
+    verify_evidence(run.worktree_path, value, policy=public_config.local_policy(run))
     return value
 
 

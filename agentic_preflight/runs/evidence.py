@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from pydantic import ValidationError
 
-from .. import findings, gitx
+from .. import findings, gitx, public_config
 from ..digests import json_digest, sha256_text
 from ..errors import STAGE_EVIDENCE_RECOVERY, StageEvidenceInvalid
 from ..fingerprints import (
@@ -20,6 +20,8 @@ from ..fingerprints import (
     classify_review,
     compute_docs_fingerprint,
     compute_review_fingerprint,
+    docs_relevant_config,
+    review_relevant_config,
     shell_config_digest,
 )
 from ..machine import Action, State
@@ -34,6 +36,7 @@ from ..models import (
     StageStatus,
 )
 from ..refresh_validation import verify_stage
+from ..stages import shellstage
 from ..store import RunReadError, UnknownRun
 from . import review_protocol
 from ._session import (
@@ -62,13 +65,20 @@ def fingerprint(
     """
     wt = _require_worktree(run)
     head = gitx.rev_parse(wt, "HEAD")
-    snapshot = run.config_snapshot
+    # The note carries the published snapshot and commands, and a verifier
+    # recomputes these digests from it. A user-level command digests as its
+    # marker, so two such commands share a shell fingerprint. That is safe because
+    # shell fingerprints are only compared for the same recorded command: before
+    # and after one execution, and against the record's own command when inputs
+    # are rechecked. Shell evidence is never reused across runs.
+    snapshot = public_config.published_snapshot(run)
     if stage in {Stage.LINT, Stage.TEST}:
         configured = getattr(session.config.commands, stage.value)
+        ran = command if command is not None else configured or ""
         return ShellFingerprint(
             base_tree_sha=gitx.tree_sha(wt, run.merge_base_sha),
             head_tree_sha=gitx.tree_sha(wt, head),
-            command_sha256=sha256_text(command if command is not None else configured or ""),
+            command_sha256=sha256_text(public_config.published_command(run, stage, ran) or ""),
             config_sha256=shell_config_digest(snapshot, stage.value),
         )
     bundle = review_protocol.bundle_for(session, run, head=head)
@@ -150,7 +160,7 @@ def archive(session: Session, run: RunDoc) -> RunDoc:
         result = AttestedStage(
             status="green" if record.status is StageStatus.GREEN else "skipped",
             executor=record.executor,
-            command=record.command,
+            command=public_config.published_command(run, stage, record.command),
             exit_code=record.exit_code,
             output_sha256=record.output_sha256,
             reason=record.reason,
@@ -164,8 +174,8 @@ def archive(session: Session, run: RunDoc) -> RunDoc:
             base_sha=run.merge_base_sha,
             branch=run.branch,
             base_ref=run.base_ref,
-            config_sha256=run.config_digest,
-            config_snapshot=run.config_snapshot,
+            config_sha256=public_config.published_config_digest(run),
+            config_snapshot=public_config.published_snapshot(run),
             finished_at=datetime.fromisoformat(record.finished_at),
             result=result,
             fingerprint=record.fingerprint,
@@ -234,6 +244,65 @@ def _prior_runs(session: Session, run: RunDoc) -> list[RunDoc]:
     return prior_runs
 
 
+def _same_withheld_config(old: RunDoc, run: RunDoc, stage: Stage) -> bool:
+    """Compare the user-level settings a stage depends on, which fingerprints omit.
+
+    Fingerprints bind the published snapshot, so a change to a user-level
+    section would otherwise go unseen when evidence is reused locally.
+    """
+    relevant = review_relevant_config if stage is Stage.REVIEW else docs_relevant_config
+    return relevant(public_config.withheld_snapshot(old)) == relevant(
+        public_config.withheld_snapshot(run)
+    )
+
+
+def _copied_file_secrets(run: RunDoc) -> list[str] | None:
+    """Copied-file values for checking reused findings, or None when unreadable."""
+    try:
+        return shellstage.read_secrets(_require_worktree(run), run.copied_files)
+    except shellstage.SecretRedactionError:
+        return None
+
+
+def _publishable(item: StageEvidence, run: RunDoc, secrets: list[str] | None) -> bool:
+    """Whether reused evidence would publish nothing this run withholds or redacts.
+
+    A record that an earlier release wrote embeds its full configuration snapshot,
+    user-level sections included, and its findings as they were submitted. Such
+    evidence must not carry those into this run's note.
+    """
+    origin = item.origin
+    withheld = public_config.withheld_sections(run)
+    if withheld & set(origin.config_snapshot):
+        return False
+    if secrets is None:
+        return False
+    return all(
+        shellstage.redact(value, secrets) == value
+        for finding in origin.findings
+        for value in (finding.title, finding.detail, finding.suggestion, finding.response_note)
+        if value
+    )
+
+
+def _admissible(
+    old: RunDoc, run: RunDoc, stage: Stage, item: StageEvidence, secrets: list[str] | None
+) -> bool:
+    """Whether a prior run's evidence may become a candidate for this run."""
+    if item.origin.source_worktree_id != run.source_worktree_id:
+        return False
+    if not _same_withheld_config(old, run, stage):
+        return False
+    if not old.user_config_sections and (
+        item.origin.config_snapshot != public_config.published_snapshot(run)
+    ):
+        # An earlier release wrote such a record with its full snapshot, user-level
+        # sections included, and the record cannot say which those were. Reusable
+        # evidence comes from identical trees, so the repository configuration matches.
+        return False
+    return _publishable(item, run, secrets)
+
+
 def _select_candidates(
     session: Session, run: RunDoc, prior_runs: list[RunDoc]
 ) -> dict[Stage, StageEvidence]:
@@ -254,11 +323,12 @@ def _select_candidates(
                 current[stage] = None
         return current[stage]
 
+    secrets = _copied_file_secrets(run) if prior_runs else None
     for old in prior_runs:
         for stage, item in old.evidence.items():
             if stage in {Stage.LINT, Stage.TEST}:
                 continue
-            if item.origin.source_worktree_id != run.source_worktree_id:
+            if not _admissible(old, run, stage, item, secrets):
                 continue
             if stage in settled:
                 continue
@@ -381,16 +451,18 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
         return run
     run = reopen_changed_inputs(session, run, clean=True)
     decisions: dict[Stage, Classification] = {}
+    secrets = _copied_file_secrets(run) if run.reuse_candidates else None
     current: dict[Stage, StageFingerprint] = {}
     for stage in Stage:
         if (boundary := _execution_boundary(session, stage)) is not None:
             decisions[stage] = boundary
             continue
         item = run.reuse_candidates.get(stage)
-        if item is None:
-            decisions[stage] = Classification(
-                disposition=Disposition.UNKNOWN, reasons=(ReasonCode.FINGERPRINT_MISSING,)
+        if item is None or not _publishable(item, run, secrets):
+            reason = (
+                ReasonCode.FINGERPRINT_MISSING if item is None else ReasonCode.PROVENANCE_INVALID
             )
+            decisions[stage] = Classification(disposition=Disposition.UNKNOWN, reasons=(reason,))
             continue
         try:
             new = fingerprint(session, run, stage, clean=True)
@@ -422,7 +494,9 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
         imported = item.model_copy(
             update={
                 "fingerprint": current[stage],
-                "refreshed_at": datetime.now(UTC),
+                # A clock stepped back behind the original execution must not
+                # produce evidence that predates its origin, which the loader rejects.
+                "refreshed_at": max(datetime.now(UTC), item.origin.finished_at),
                 "derivation_reason": "equivalent_inputs",
             }
         )

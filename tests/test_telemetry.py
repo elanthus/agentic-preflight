@@ -1062,6 +1062,20 @@ def test_rebuild_summarizes_a_run_whose_event_log_has_non_object_lines(tmp_repo)
     assert _summary(tmp_repo, "r_0000000002")["event_counts"]["state_transition"] == 2
 
 
+def test_rebuild_summarizes_a_run_whose_event_log_has_a_torn_line(tmp_repo):
+    run_dir = _store_record(tmp_repo, _schema_2_record())
+    good = [json.dumps(event) for event in _odd_events() if isinstance(event, dict)]
+    torn = '{"event": "trunc'
+    (run_dir / "events.jsonl").write_text(
+        "\n".join([good[0], torn + good[1], *good[2:]]) + "\n", encoding="utf-8"
+    )
+
+    result = ScriptedAgent(tmp_repo).run("telemetry", "rebuild")
+
+    assert (result["data"]["summarized"], result["data"]["unreadable"]) == (1, 0)
+    assert _summary(tmp_repo, "r_0000000002")["event_counts"]["ci_checked"] == 1
+
+
 def test_a_non_text_severity_is_counted_as_unknown_and_never_blocks():
     findings = _findings()
     findings[1] = {**findings[1], "severity": ["critical"]}

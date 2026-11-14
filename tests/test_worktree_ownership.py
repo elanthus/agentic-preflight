@@ -251,7 +251,7 @@ def test_gc_orphans_an_abandoned_run_whose_snapshot_holds_a_removed_config_key(
     """A key a later release removed must not pin an abandoned run forever.
 
     Reproduces run records written before ``hook.enabled`` was removed: the
-    strict read rejects the snapshot, but the run's source worktree is gone,
+    snapshot keeps the retired key, but the run's source worktree is gone,
     so gc must still orphan it and release its worktree, branch, and pointers.
     """
     source_repo = _second_feature_worktree(feature_repo, tmp_path)

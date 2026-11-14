@@ -43,21 +43,30 @@ Review binds these inputs:
 The `[stage]` section governs command-review timeouts and retries.
 
 The included diff bytes are the patch text that Git prints for the merge base and the head.
-The tool fixes the `core.*` and `diff.*` settings that shape that text, and each patch names full object IDs.
+The tool fixes the `core.*` and `diff.*` settings that shape that text, removes `GIT_DIFF_OPTS`, ignores replacement objects, and each patch names full object IDs.
 Thus, two machines whose Git configuration differs in those settings build the same bytes from the same commits.
 Git attributes do not shape the text either.
 Git runs without `.gitattributes` files, the index, `attr.tree`, `GIT_ATTR_SOURCE`, and the user and system attributes files.
 Text files are diffed with `--text`.
 A file is binary when either side is larger than 512 MiB or has a NUL byte in its first 8,000 bytes, which is Git's own default rule.
 Its patch is Git's `Binary files ... differ` line, and its content is never printed.
+`diff.default.xfuncname` and `diff.default.funcname` still set the hunk headers of every file.
 Git always reads `$GIT_DIR/info/attributes`.
 `-diff` there has no effect.
 A diff driver there with a hunk-header pattern, or `diff` set on a binary file, stops the command with `review_diff_attribute`, because the text would differ on this machine only.
 Notes from 0.8.1 and earlier hash patches with abbreviated object IDs, whose length depends on the clone, and whose text followed the checkout's attributes.
 A verifier builds that text only when the current text does not reproduce a note's digest.
+It fixes the other settings to Git's default for that text too, so a note whose producer changed one of them does not verify.
 It rejects the note when that text marks a file whose content is text as binary.
 See [the compatibility entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-configuration)
 and [the attributes entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-attributes).
+
+Configuration digests cover the published configuration snapshot, because a verifier recomputes them from the note.
+That snapshot leaves out sections from the user configuration file, except `[diff]`.
+Local discovery also compares those user-level sections in the prior run record, so a change to one still prevents reuse.
+A shell-command digest covers the command as the note publishes it.
+Every command from a user-level `[commands]` section therefore has the same digest.
+This does not weaken freshness: shell fingerprints are compared only for the same recorded command, and shell evidence is never reused across runs.
 
 Intent and shell-command digests hash the exact UTF-8 text bytes.
 They do not normalize whitespace or Unicode.

@@ -34,6 +34,10 @@ def _step_script(workflow, label):
     return textwrap.dedent("\n".join(lines))
 
 
+# When GitHub created the relay run in the bot tests.
+RELAY_AT = "2026-11-13T12:00:00Z"
+
+
 OWNER_REVIEW = {
     "data": {"approval_mode": "owner_review", "requires_human_approval": True, "base_sha": BASE}
 }
@@ -62,6 +66,17 @@ def _run(
     }
 
 
+def _review(login="owner-login", association="OWNER", *, state="COMMENTED", body="approved"):
+    return {
+        "id": 1,
+        "user": {"login": login, "type": "User"},
+        "author_association": association,
+        "state": state,
+        "body": body,
+        "commit_id": HEAD,
+    }
+
+
 def _pull_request(*, state="open", head_sha=HEAD, base_sha=BASE, head_repo=None):
     if head_repo is None:
         head_repo = {"full_name": "contributor/project"}
@@ -77,8 +92,18 @@ def rerun(tmp_path):
     bash = shutil.which("bash")
     if bash is None or shutil.which("jq") is None:
         pytest.skip("Bash and jq are required to execute the workflow step")
-    script = _step_script(
-        _read("human-approval-rerun.yml"), "Re-run the trusted policy run for the reviewed head"
+    companion = _read("human-approval-rerun.yml")
+    authorize = _step_script(companion, "Authorize the review for the reviewed head")
+    rerun_step = _step_script(companion, "Re-run the trusted policy run for the reviewed head")
+    # The two jobs run in order; the re-run job runs only when authorize allows it,
+    # with the pull request number from authorize's outputs.
+    script = (
+        ": > github-output.txt\n(\n"
+        + authorize
+        + "\n)\nif grep -qx 'allowed=true' github-output.txt; then\n"
+        + "  PR_NUMBER=$(sed -n 's/^pr_number=//p' github-output.txt)\n(\n"
+        + rerun_step
+        + "\n)\nfi\n"
     )
 
     def run(
@@ -94,11 +119,26 @@ def rerun(tmp_path):
         rerun_error="HTTP 403: boom",
         run_status="completed",
         status_exit=0,
+        actor="owner-login",
+        reviews=None,
+        permission="read",
+        permission_exit=0,
+        permission_error="Server Error (HTTP 500)",
+        events=None,
+        events_exit=0,
+        reviews_exit=0,
+        pr_fail_first=0,
+        runs_fail_first=0,
+        relay_created_at=RELAY_AT,
     ):
         (tmp_path / "pr-fixture.json").write_text(json.dumps(pull_request or _pull_request()))
         (tmp_path / "relay.txt").write_text(relay)
         (tmp_path / "policy-fixture.json").write_text(json.dumps(policy))
         (tmp_path / "runs.json").write_text(json.dumps(runs if runs is not None else _runs()))
+        (tmp_path / "reviews.json").write_text(
+            json.dumps([reviews if reviews is not None else [_review()]])
+        )
+        (tmp_path / "events.json").write_text(json.dumps([events or []]))
         harness = r"""
 gh() {
   printf '%s\n' "$*" >> gh-calls.txt
@@ -121,10 +161,39 @@ gh() {
       [ "$TEST_RERUN_EXIT" = 0 ] || echo "gh: $TEST_RERUN_ERROR" >&2
       return "$TEST_RERUN_EXIT"
       ;;
-    "api --paginate") cat runs.json ;;
+    "api --paginate")
+      case "$4" in
+        */reviews*)
+          [ "$TEST_REVIEWS_EXIT" = 0 ] || return "$TEST_REVIEWS_EXIT"
+          cat reviews.json
+          ;;
+        */events*)
+          [ "$TEST_EVENTS_EXIT" = 0 ] || return "$TEST_EVENTS_EXIT"
+          cat events.json
+          ;;
+        *)
+          runs_attempts=$(( $(cat runs-attempts.txt 2>/dev/null || echo 0) + 1 ))
+          echo "$runs_attempts" > runs-attempts.txt
+          [ "$runs_attempts" -gt "$TEST_RUNS_FAIL_FIRST" ] || return 1
+          cat runs.json
+          ;;
+      esac
+      ;;
     api*)
       case "$2" in
-        */pulls/*) cat pr-fixture.json ;;
+        */pulls/*)
+          pr_attempts=$(( $(cat pr-attempts.txt 2>/dev/null || echo 0) + 1 ))
+          echo "$pr_attempts" > pr-attempts.txt
+          [ "$pr_attempts" -gt "$TEST_PR_FAIL_FIRST" ] || return 1
+          cat pr-fixture.json
+          ;;
+        */collaborators/*)
+          if [ "$TEST_PERMISSION_EXIT" != 0 ]; then
+            echo "gh: $TEST_PERMISSION_ERROR" >&2
+            return "$TEST_PERMISSION_EXIT"
+          fi
+          echo "$TEST_PERMISSION"
+          ;;
         */actions/runs/*)
           [ "$TEST_STATUS_EXIT" = 0 ] || return "$TEST_STATUS_EXIT"
           echo "$TEST_RUN_STATUS"
@@ -135,6 +204,7 @@ gh() {
 }
 sleep() { echo slept >> sleeps.txt; }
 RUNNER_TEMP=.
+GITHUB_OUTPUT=github-output.txt
 """
         result = subprocess.run(
             [bash, "--noprofile", "--norc", "-e", "-u", "-o", "pipefail", "-c", harness + script],
@@ -152,6 +222,15 @@ RUNNER_TEMP=.
                 "TEST_RERUN_ERROR": rerun_error,
                 "TEST_RUN_STATUS": run_status,
                 "TEST_STATUS_EXIT": str(status_exit),
+                "TRIGGERING_ACTOR": actor,
+                "TEST_PERMISSION": permission,
+                "TEST_PERMISSION_EXIT": str(permission_exit),
+                "TEST_PERMISSION_ERROR": permission_error,
+                "TEST_EVENTS_EXIT": str(events_exit),
+                "TEST_REVIEWS_EXIT": str(reviews_exit),
+                "TEST_PR_FAIL_FIRST": str(pr_fail_first),
+                "TEST_RUNS_FAIL_FIRST": str(runs_fail_first),
+                "RELAY_CREATED_AT": relay_created_at,
             },
             capture_output=True,
             text=True,
@@ -384,6 +463,381 @@ def test_companion_shows_github_reason_when_a_rerun_is_refused(rerun):
     assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
 
 
+def test_companion_reruns_for_the_owners_own_approved_comment_review(rerun):
+    result, calls = rerun(runs=_runs(_run(1, 5)), actor="Owner-Login")
+    assert result.returncode == 0, result.stderr
+    assert "api --paginate --slurp /repos/owner/project/pulls/17/reviews?per_page=100" in calls
+    assert not any("/collaborators/" in call for call in calls)
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+@pytest.mark.parametrize("association", ["MEMBER", "COLLABORATOR"])
+def test_companion_reruns_for_other_associated_reviewers(rerun, association):
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="peer",
+        reviews=[_review("peer", association, state="APPROVED", body="")],
+    )
+    assert result.returncode == 0, result.stderr
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+@pytest.mark.parametrize("association", ["NONE", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR"])
+def test_companion_ignores_reviews_from_unassociated_users(rerun, association):
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="drive-by",
+        reviews=[_review(), _review("drive-by", association, body="spam")],
+    )
+    assert result.returncode == 0, result.stderr
+    assert "api /repos/owner/project/collaborators/drive-by/permission --jq .permission" in calls
+    assert "drive-by is not an owner, member, or collaborator" in result.stdout
+    assert _reruns(calls) == []
+    assert not any("actions/workflows" in call for call in calls)
+
+
+def test_companion_ignores_an_actor_who_matches_only_another_users_review(rerun):
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="drive-by",
+        reviews=[
+            _review(),
+            _review("drive-by", "OWNER") | {"user": {"login": "x", "type": "User"}},
+        ],
+    )
+    assert result.returncode == 0, result.stderr
+    assert _reruns(calls) == []
+
+
+@pytest.mark.parametrize("permission", ["admin", "write"])
+def test_companion_reruns_for_a_dismissal_by_a_user_with_write_access(rerun, permission):
+    result, calls = rerun(runs=_runs(_run(1, 5)), actor="maintainer", permission=permission)
+    assert result.returncode == 0, result.stderr
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+@pytest.mark.parametrize(
+    "error", ["Server Error (HTTP 500)", "API rate limit exceeded (HTTP 403)", "timeout"]
+)
+def test_companion_reruns_when_the_permission_lookup_fails(rerun, error):
+    # A failed lookup must not leave a stale success after a dismissal; the re-run
+    # policy job reads the reviews itself.
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)), actor="maintainer", permission_exit=1, permission_error=error
+    )
+    assert result.returncode == 0, result.stderr
+    assert "::warning::Could not read the repository permission of maintainer" in result.stdout
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_treats_a_permission_404_as_no_access(rerun):
+    # A 404 is a definite answer, so a drive-by reviewer is still not authorized.
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="drive-by",
+        reviews=[_review(), _review("drive-by", "NONE", body="spam")],
+        permission_exit=1,
+        permission_error="drive-by is not a user (HTTP 404)",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "::warning::" not in result.stdout
+    assert "drive-by is not an owner, member, or collaborator" in result.stdout
+    assert _reruns(calls) == []
+
+
+@pytest.mark.parametrize("actor", ["owner-login", "drive-by", "review-app[bot]"])
+def test_companion_reruns_when_the_reviews_are_unreadable(rerun, actor):
+    result, calls = rerun(runs=_runs(_run(1, 5)), actor=actor, reviews_exit=1)
+    assert result.returncode == 0, result.stderr
+    assert "::warning::Could not read the reviews" in result.stdout
+    assert not any("/collaborators/" in call or "/events" in call for call in calls)
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+@pytest.mark.parametrize("actor", ["owner-login", "review-app[bot]"])
+def test_companion_reruns_when_the_reviews_are_malformed(rerun, actor):
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)), actor=actor, reviews=["not a review"], events=[_dismissed()]
+    )
+    assert result.returncode == 0, result.stderr
+    assert "::warning::Could not read" in result.stdout
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_reruns_when_the_pull_request_lookup_fails_in_authorize(rerun):
+    # The rerun job fetches the pull request again and checks its head before re-running.
+    result, calls = rerun(runs=_runs(_run(1, 5)), pr_fail_first=1)
+    assert result.returncode == 0, result.stderr
+    assert "::warning::Could not read the pull request for pull request 17" in result.stdout
+    assert calls.count("api /repos/owner/project/pulls/17") == 2
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+@pytest.mark.parametrize("actor", ["", "a/b", "x[bot]y"])
+def test_companion_rejects_a_malformed_login_before_any_lookup_can_authorize(rerun, actor):
+    result, calls = rerun(runs=_runs(_run(1, 5)), actor=actor, pr_fail_first=1)
+    assert result.returncode == 0, result.stderr
+    assert "not started by a repository user" in result.stdout
+    assert not any(call.startswith("api ") for call in calls)
+    assert _reruns(calls) == []
+
+
+def test_companion_reruns_the_reviewed_head_when_the_pull_request_stays_unreadable(rerun):
+    # Every pull request lookup fails: authorize allows the run, and the rerun job
+    # re-runs the policy runs for the reviewed head instead of stopping.
+    result, calls = rerun(runs=_runs(_run(1, 5)), pr_fail_first=99)
+    assert result.returncode == 0, result.stderr
+    assert calls.count("api /repos/owner/project/pulls/17") == 4
+    assert (
+        f"Could not read pull request 17; re-running the policy runs for the reviewed head {HEAD}"
+        in (result.stdout)
+    )
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_reruns_the_reviewed_head_when_the_pull_request_is_malformed(rerun):
+    # A response that cannot be parsed is not a verdict that the pull request moved on.
+    result, calls = rerun(runs=_runs(_run(1, 5)), pull_request="not a pull request")
+    assert result.returncode == 0, result.stderr
+    assert "::warning::Could not read the pull request for pull request 17" in result.stdout
+    assert "Could not read pull request 17; re-running the policy runs" in result.stdout
+    assert "closed or no longer has the reviewed head" not in result.stdout
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_retries_listing_the_policy_runs(rerun):
+    result, calls = rerun(runs=_runs(_run(1, 5)), runs_fail_first=2)
+    assert result.returncode == 0, result.stderr
+    assert sum("actions/workflows/human-approval.yml/runs" in call for call in calls) == 3
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_fails_visibly_when_the_policy_runs_stay_unlistable(rerun):
+    result, calls = rerun(runs=_runs(_run(1, 5)), runs_fail_first=99)
+    assert result.returncode == 1
+    assert "::error::Could not list the Human approval policy runs" in result.stderr
+    assert "by hand" in result.stderr
+    assert _reruns(calls) == []
+
+
+def test_companion_still_checks_the_head_after_an_unverified_authorization(rerun):
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)), pull_request=_pull_request(state="closed"), pr_fail_first=1
+    )
+    assert result.returncode == 0, result.stderr
+    assert "closed or no longer has the reviewed head" in result.stdout
+    assert _reruns(calls) == []
+
+
+@pytest.mark.parametrize(
+    "actor",
+    [
+        "",
+        "a/b",
+        "x y",
+        "[bot]",
+        "a/b[bot]",
+        "x[bot]y",
+        "a_b_c",
+        "_octo",
+        "mona_",
+        "mona_cat/x",
+        "a%2Fb",
+        "a" * 40,
+        "_[bot]",
+    ],
+)
+def test_companion_does_not_look_up_an_actor_that_is_not_a_user_login(rerun, actor):
+    result, calls = rerun(runs=_runs(_run(1, 5)), actor=actor)
+    assert result.returncode == 0, result.stderr
+    assert "not started by a repository user" in result.stdout
+    assert not any("/reviews" in call or "/collaborators/" in call for call in calls)
+    assert _reruns(calls) == []
+
+
+@pytest.mark.parametrize("association", ["OWNER", "MEMBER", "COLLABORATOR"])
+def test_companion_reruns_for_an_enterprise_managed_user_reviewer(rerun, association):
+    # Enterprise Managed User logins end in an underscore and the enterprise shortcode.
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="mona-cat_octo",
+        reviews=[_review("mona-cat_octo", association, state="APPROVED", body="")],
+    )
+    assert result.returncode == 0, result.stderr
+    assert not any("/collaborators/" in call for call in calls)
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_reruns_for_an_enterprise_managed_user_dismisser(rerun):
+    # A managed maintainer with write access and no review of their own dismissed one.
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="mona-cat_octo",
+        reviews=[_dismissed_approval()],
+        permission="write",
+    )
+    assert result.returncode == 0, result.stderr
+    assert (
+        "api /repos/owner/project/collaborators/mona-cat_octo/permission --jq .permission" in calls
+    )
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_accepts_a_39_character_login(rerun):
+    login = "a" * 34 + "_octo"
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor=login,
+        reviews=[_review(login, "OWNER", state="APPROVED", body="")],
+    )
+    assert result.returncode == 0, result.stderr
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def _dismissed(actor="review-app[bot]", review_id=1, at="2026-11-13T11:59:50Z"):
+    return {
+        "event": "review_dismissed",
+        "actor": {"login": actor},
+        "created_at": at,
+        "dismissed_review": {"review_id": review_id},
+    }
+
+
+def _bot_review(at, login="review-app[bot]", review_id=9):
+    return {
+        "id": review_id,
+        "user": {"login": login, "type": "Bot"},
+        "author_association": "NONE",
+        "state": "COMMENTED",
+        "body": "summary",
+        "commit_id": HEAD,
+        "submitted_at": at,
+    }
+
+
+def _dismissed_approval(association="OWNER"):
+    return _review("approver", association, state="DISMISSED", body="")
+
+
+@pytest.mark.parametrize("association", ["OWNER", "MEMBER", "COLLABORATOR"])
+def test_companion_reruns_when_a_bot_dismisses_an_eligible_approval(rerun, association):
+    # The reviewer approved, then a GitHub App dismissed that approval through the API.
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="review-app[bot]",
+        reviews=[_dismissed_approval(association)],
+        events=[_dismissed("Review-App[bot]")],
+    )
+    assert result.returncode == 0, result.stderr
+    assert "api --paginate --slurp /repos/owner/project/issues/17/events?per_page=100" in calls
+    assert not any("/collaborators/" in call for call in calls)
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_allows_a_minute_of_clock_skew_on_a_bot_dismissal(rerun):
+    # GitHub may stamp the dismissal a little after the relay run it caused.
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="review-app[bot]",
+        reviews=[_dismissed_approval()],
+        events=[_dismissed(at="2026-11-13T12:00:45Z")],
+    )
+    assert result.returncode == 0, result.stderr
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_reruns_for_later_activity_by_a_bot_that_dismissed_an_approval(rerun):
+    # An old dismissal by the bot, then a later, different review action by the same bot.
+    # This run is authorized too, and that is harmless by construction: only authorized
+    # runs reach the rerun job's concurrency group, and every one of them re-runs all
+    # policy runs for the current head against the current reviews, so a replaced pending
+    # run loses nothing. The cost is a redundant re-run, bounded to a bot that really
+    # dismissed an eligible review on this pull request.
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="review-app[bot]",
+        reviews=[_dismissed_approval(), _bot_review("2026-11-13T11:59:58Z")],
+        events=[_dismissed(at="2026-11-13T09:00:00Z")],
+    )
+    assert result.returncode == 0, result.stderr
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+@pytest.mark.parametrize(
+    ("events", "reviews"),
+    [
+        ([_dismissed("maintainer")], [_dismissed_approval()]),
+        ([_dismissed(review_id=2)], [_dismissed_approval()]),
+        ([_dismissed(at="2026-11-13T12:01:01Z")], [_dismissed_approval()]),
+        ([], [_dismissed_approval()]),
+        ([{**_dismissed(), "event": "review_requested"}], [_dismissed_approval()]),
+        ([_dismissed()], [_review()]),
+        ([_dismissed()], [_review("approver", "OWNER", state="APPROVED", body="")]),
+        ([_dismissed()], [_review("drive-by", "NONE", state="DISMISSED", body="")]),
+        (
+            [_dismissed()],
+            [
+                {
+                    **_review("owner-app[bot]", "OWNER", state="DISMISSED", body=""),
+                    "user": {"login": "owner-app[bot]", "type": "Bot"},
+                }
+            ],
+        ),
+    ],
+    ids=[
+        "dismissed-by-another-account",
+        "dismissed-another-review",
+        "dismissed-after-the-relay-run",
+        "no-events",
+        "other-event",
+        "review-not-dismissed",
+        "review-still-approved",
+        "unassociated-review",
+        "bot-type-review",
+    ],
+)
+def test_companion_ignores_a_bot_that_did_not_dismiss_an_eligible_review(rerun, events, reviews):
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="review-app[bot]",
+        reviews=reviews,
+        events=events,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "is a bot account that had not dismissed" in result.stdout
+    assert not any("/collaborators/" in call for call in calls)
+    assert _reruns(calls) == []
+    assert not any("actions/workflows" in call for call in calls)
+
+
+@pytest.mark.parametrize("relay_created_at", ["", "not-a-time"])
+def test_companion_reruns_a_bot_relay_whose_dismissal_cannot_be_evaluated(rerun, relay_created_at):
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="review-app[bot]",
+        reviews=[_dismissed_approval()],
+        events=[_dismissed()],
+        relay_created_at=relay_created_at,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "::warning::Could not read the dismissed review" in result.stdout
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
+def test_companion_reruns_for_a_bot_when_the_issue_events_are_unreadable(rerun):
+    # Skipping here could leave a stale success after a dismissal. A re-run cannot make
+    # the policy pass wrongly, because the policy job reads the reviews itself.
+    result, calls = rerun(
+        runs=_runs(_run(1, 5)),
+        actor="review-app[bot]",
+        reviews=[_dismissed_approval()],
+        events_exit=1,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "::warning::Could not read the issue events" in result.stdout
+    assert _reruns(calls) == ["run rerun 1 --repo owner/project"]
+
+
 @pytest.fixture
 def enforce(tmp_path):
     bash = shutil.which("bash")
@@ -419,7 +873,8 @@ def test_waiting_approval_names_the_head_and_the_rerun(enforce):
     result = enforce(APPROVED="false")
     assert result.returncode == 1
     assert f"Waiting for an eligible owner_review review of head {HEAD}" in result.stdout
-    assert "A submitted review re-runs this check" in result.stdout
+    assert "A review from an owner, member, or collaborator" in result.stdout
+    assert "with write access, re-runs this check" in result.stdout
 
 
 def test_recorded_approval_names_the_approved_head(enforce):
@@ -432,6 +887,20 @@ def test_recorded_approval_without_an_approved_head_names_the_current_head(enfor
     result = enforce(APPROVED="true", APPROVED_HEAD="")
     assert result.returncode == 0, result.stderr
     assert f"recorded for head {HEAD}." in result.stdout
+
+
+def test_explicit_false_is_the_only_result_that_skips_approval(enforce):
+    result = enforce(REQUIRES_APPROVAL="false", APPROVED="false")
+    assert result.returncode == 0, result.stderr
+    assert "No high-risk approval is required." in result.stdout
+
+
+@pytest.mark.parametrize("requires", ["", "null", "False", "0", "yes"])
+def test_a_missing_or_malformed_approval_result_fails_closed(enforce, requires):
+    result = enforce(REQUIRES_APPROVAL=requires, APPROVED="false")
+    assert result.returncode == 1
+    assert "No high-risk approval is required" not in result.stdout
+    assert f"requires_approval='{requires}'" in result.stderr
 
 
 def test_policy_workflow_runs_only_on_the_protected_base_event():
@@ -451,6 +920,15 @@ def test_policy_workflow_runs_only_on_the_protected_base_event():
     assert "if: always()" in record
     assert "name: human-approval-policy path: ${{ runner.temp }}/approval-policy.json" in record
     assert "overwrite: true" in record
+
+
+def test_docs_do_not_claim_the_required_check_name_cannot_be_imitated():
+    """Required checks match on name, so the docs state the real guarantee."""
+    docs = " ".join((ROOT / "docs/attestations-and-ci.md").read_text().split())
+    assert "cannot be satisfied that way" not in docs
+    assert "A required check matches on the check name" in docs
+    assert "Select **GitHub Actions** as the expected source of each required check" in docs
+    assert "requires the workflow itself to pass, pinned to a protected ref" in docs
 
 
 def test_review_relay_has_no_permissions_and_no_check_of_its_own():
@@ -482,15 +960,42 @@ def test_companion_runs_from_the_default_branch_with_rerun_permission_only():
     ]
     assert "actions/checkout" not in companion
     assert "name: high-risk human approval" not in companion
-    job = " ".join(_job(companion, "rerun").split())
+    # No workflow-level concurrency: an ineligible review must never enter the group.
+    assert "\nconcurrency:" not in companion
+    # Only the rerun job holds a concurrency group; it re-runs every policy run for the
+    # head (test_companion_reruns_every_policy_run_for_the_reviewed_head_oldest_first).
+    assert companion.count("concurrency:") == 1
+    authorize = _job(companion, "authorize", "rerun")
+    flat_authorize = " ".join(authorize.split())
     assert (
         "if: >- github.event.workflow_run.event == 'pull_request_review' && "
         "github.event.workflow_run.conclusion == 'success'"
-    ) in job
-    concurrency = companion.split("\nconcurrency:\n", 1)[1].split("\n\n", 1)[0]
-    assert concurrency.split() == [
-        "group:",
-        "agentic-preflight-human-approval-rerun-${{",
-        "github.event.workflow_run.head_sha",
-        "}}",
-    ]
+    ) in flat_authorize
+    assert "concurrency:" not in authorize
+    assert (
+        "TRIGGERING_ACTOR: ${{ github.event.workflow_run.triggering_actor.login }}"
+        in flat_authorize
+    )
+    # The bot path is tied to the relay run by its trusted creation time.
+    assert "RELAY_CREATED_AT: ${{ github.event.workflow_run.created_at }}" in flat_authorize
+    assert "allowed: ${{ steps.authorize.outputs.allowed }}" in flat_authorize
+    assert "pr_number: ${{ steps.authorize.outputs.pr_number }}" in flat_authorize
+    assert "gh run rerun" not in authorize
+    rerun = _job(companion, "rerun")
+    flat_rerun = " ".join(rerun.split())
+    # The re-run job is skipped, never queued, unless authorize allowed it, and only
+    # then takes the per-head concurrency slot.
+    assert (
+        "needs: authorize if: needs.authorize.outputs.allowed == 'true' runs-on: ubuntu-latest"
+        in flat_rerun
+    )
+    assert (
+        "concurrency: group: agentic-preflight-human-approval-rerun-"
+        "${{ needs.authorize.outputs.pr_number }}-${{ github.event.workflow_run.head_sha }} #"
+        in flat_rerun
+    )
+    assert flat_rerun.index("if: needs.authorize") < flat_rerun.index("concurrency:")
+    assert "cancel-in-progress" not in rerun
+    assert "PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}" in flat_rerun
+    assert "TRIGGERING_ACTOR" not in rerun
+    assert 'gh run download "$RELAY_RUN_ID"' not in rerun

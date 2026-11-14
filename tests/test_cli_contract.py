@@ -78,7 +78,6 @@ EMITTED_NOT_DOCUMENTED: dict[str, set[str]] = {
         "head_sha",
         "manual_merge_required",
         "notes_ref",
-        "path_reasons",
         "reason",
         "requires_human_approval",
         "risk_level",
@@ -129,8 +128,6 @@ EMITTED_NOT_DOCUMENTED: dict[str, set[str]] = {
     # emitted but undocumented
     "integrations update": {"integrations", "scope"},
     # emitted but undocumented
-    "logs": {"log_path", "output", "stage"},
-    # emitted but undocumented
     "mergeback": {
         "affected_paths",
         "applied",
@@ -140,7 +137,6 @@ EMITTED_NOT_DOCUMENTED: dict[str, set[str]] = {
         "conflicting_commit",
         "conflicting_files",
         "coverage_invalidated",
-        "fix_commits",
         "green_transferred",
         "inputs_invalidated",
         "local_tree_sha",

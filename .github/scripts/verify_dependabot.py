@@ -2,6 +2,9 @@
 
 Run this script from the protected base checkout, never from the proposed branch.
 The caller must fetch the exact event head and obtain both JSON files through gh.
+It must also pass the event name and the event payload file. Commit metadata shows
+only that GitHub created a commit, not who placed it at the head; the payload's sender
+names the account whose action produced the event. A re-run replays that payload.
 This verifies provenance only; it does not replace attestation or CI validation.
 """
 
@@ -16,6 +19,14 @@ from typing import Any
 from agentic_preflight import gitx
 
 OID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+BOT_LOGIN = "dependabot[bot]"
+# The numeric id of GitHub's dependabot[bot] account (GET /users/dependabot%5Bbot%5D).
+BOT_ID = 49699333
+# Only these pull_request_target actions name the account that set the current head as
+# their sender. Any other action, such as reopened, ready_for_review, or an auto-merge
+# toggle, names whoever performed that action, and the head may have changed while the
+# pull request was closed, so the account that set the head cannot be established.
+HEAD_SETTING_ACTIONS = frozenset({"opened", "synchronize"})
 
 
 def _pages(value: object) -> list[dict[str, Any]]:
@@ -29,9 +40,38 @@ def _pages(value: object) -> list[dict[str, Any]]:
     return result
 
 
+def _head_actor_reason(event_name: str, event: object, head: str, base: str) -> str | None:
+    """Fail closed unless Dependabot itself set the exact head through this event."""
+    if event_name != "pull_request_target" or not isinstance(event, dict):
+        return "head_actor_unknown"
+    action = event.get("action")
+    if action not in HEAD_SETTING_ACTIONS:
+        return "head_actor_unknown"
+    pr = event["pull_request"]
+    if pr["head"]["sha"] != head or pr["base"]["sha"] != base:
+        return "event_mismatch"
+    # A synchronize event's after SHA is the head that the sender's push produced.
+    if action == "synchronize" and event["after"] != head:
+        return "event_mismatch"
+    # The result is judged against the base at event time, and a later retarget does
+    # not re-run this workflow, so only a pull request into the default branch qualifies.
+    default_branch = event["repository"]["default_branch"]
+    if not isinstance(default_branch, str) or pr["base"]["ref"] != default_branch:
+        return "base_not_default_branch"
+    sender = event["sender"]
+    if (
+        sender["login"] != BOT_LOGIN
+        or sender["type"] != "Bot"
+        or type(sender["id"]) is not int
+        or sender["id"] != BOT_ID
+    ):
+        return "head_set_by_other_actor"
+    return None
+
+
 def _snapshot_matches(pr: dict[str, Any], repository: str, head: str, base: str) -> bool:
     return (
-        pr["user"]["login"] == "dependabot[bot]"
+        pr["user"]["login"] == BOT_LOGIN
         and pr["user"]["type"] == "Bot"
         and pr["head"]["repo"]["full_name"] == repository
         and pr["base"]["repo"]["full_name"] == repository
@@ -50,7 +90,7 @@ def _commit_reason(repo: Path, commit: dict[str, Any], base: str) -> str | None:
         committer = commit.get("committer") or {}
         verification = commit["commit"]["verification"]
         if (
-            author.get("login") != "dependabot[bot]"
+            author.get("login") != BOT_LOGIN
             or author.get("type") != "Bot"
             or committer.get("login") != "web-flow"
             or verification["verified"] is not True
@@ -78,12 +118,21 @@ def verify(
     repository: str,
     head: str,
     base: str,
+    event_name: str,
+    event: object,
 ) -> dict[str, Any]:
-    """Fail closed unless every PR contribution is signed bot work or a clean base merge."""
+    """Fail closed unless Dependabot set the head and every contribution is bot work.
+
+    Every non-merge commit must be signed bot work, and every merge commit must be a
+    clean merge of the protected base.
+    """
     result = {"verified": False, "head_sha": head, "base_sha": base}
     try:
         if not OID.fullmatch(head) or not OID.fullmatch(base) or not isinstance(pr, dict):
             return {**result, "reason": "invalid_input"}
+        actor_reason = _head_actor_reason(event_name, event, head, base)
+        if actor_reason is not None:
+            return {**result, "reason": actor_reason}
         if not _snapshot_matches(pr, repository, head, base):
             return {**result, "reason": "snapshot_mismatch"}
         items = _pages(commits)
@@ -116,6 +165,8 @@ def main() -> None:
     parser.add_argument("--repository", required=True)
     parser.add_argument("--head", required=True)
     parser.add_argument("--base", required=True)
+    parser.add_argument("--event-name", required=True)
+    parser.add_argument("--event-file", type=Path, required=True)
     args = parser.parse_args()
     print(
         json.dumps(
@@ -126,6 +177,8 @@ def main() -> None:
                 repository=args.repository,
                 head=args.head,
                 base=args.base,
+                event_name=args.event_name,
+                event=json.loads(args.event_file.read_text()),
             )
         )
     )

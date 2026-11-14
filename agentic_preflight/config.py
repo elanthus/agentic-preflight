@@ -118,13 +118,19 @@ class ReviewSection(_Section):
     executor: Literal["in_harness", "command"] = "in_harness"
     command: str | None = None
     require_command_for: list[RiskName] = Field(default_factory=list)
+    trusted_paths: list[RepoRelativePattern] = Field(default_factory=list)
+    """Paths the reviewer depends on. A change to one needs human review."""
     contracts: ReviewContractsSection = Field(default_factory=ReviewContractsSection)
 
     @model_serializer(mode="wrap")
-    def omit_default_contracts(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+    def omit_defaults(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # Omitting default values keeps snapshots, and the digests over them, identical
+        # to those that releases without these keys wrote.
         data = handler(self)
         if self.contracts == ReviewContractsSection():
             data.pop("contracts", None)
+        if not self.trusted_paths:
+            data.pop("trusted_paths", None)
         return data
 
 
@@ -411,6 +417,23 @@ def load_config(
     stale key in a repository file does not keep the user from their own telemetry.
     Workflow commands keep the strict default: an unknown key there is an error.
     """
+    return load_config_layers(
+        repo_root, user_config_dir=user_config_dir, tolerate_removed_keys=tolerate_removed_keys
+    )[0]
+
+
+def load_config_layers(
+    repo_root: Path | str,
+    *,
+    user_config_dir: Path | str | None = None,
+    tolerate_removed_keys: bool = False,
+) -> tuple[Config, list[str]]:
+    """Load configuration as :func:`load_config` does, and name the user-level sections.
+
+    The second value lists, sorted, the sections in force that came from the user
+    configuration file because the repository file has no section of that name.
+    A published attestation leaves them out (:mod:`agentic_preflight.public_config`).
+    """
     repo_root = Path(repo_root)
     if user_config_dir is None:
         user_config_dir = Path.home() / ".config" / "agentic-preflight"
@@ -418,6 +441,7 @@ def load_config(
 
     merged: dict[str, Any] = {}
     sources: dict[str, Path] = {}
+    user_sections: set[str] = set()
 
     user_file = user_config_dir / USER_CONFIG_NAME
     repo_file = repo_root / REPO_CONFIG_NAME
@@ -448,13 +472,17 @@ def load_config(
                             sources[f"{section}.{name}"] = user_file
             merged[section] = values
             sources[section] = path
+            if path == user_file:
+                user_sections.add(section)
+            else:
+                user_sections.discard(section)
 
     try:
         cfg = Config.model_validate(merged)
     except ValidationError as exc:
         raise ConfigError(_describe(exc, sources, repo_file)) from exc
 
-    return cfg
+    return cfg, sorted(user_sections)
 
 
 def committed_config(repo: Path | str, revision: str) -> Config:
@@ -472,3 +500,33 @@ def committed_config(repo: Path | str, revision: str) -> Config:
         return Config.model_validate(policy)
     except ValueError as exc:
         raise ValueError(f"invalid protected policy: {exc}") from exc
+
+
+def committed_context(
+    repo: Path | str, revision: str, *, user_config_dir: Path | str | None = None
+) -> ContextSection:
+    """Return ``[context]`` as :func:`load_config` merges it, reading the repository file at ``revision``.
+
+    Review grounding passes the run's merge base, so a branch cannot disable or shrink
+    the grounding delivered for its own review. As in :func:`load_config`, a repository
+    section replaces the user section, and a section only the user file sets applies.
+    """
+    from . import gitx
+
+    section: Any = None
+    if gitx.out(repo, "ls-tree", "--name-only", revision, "--", REPO_CONFIG_NAME):
+        try:
+            committed = tomllib.loads(gitx.out(repo, "show", f"{revision}:{REPO_CONFIG_NAME}"))
+        except tomllib.TOMLDecodeError as exc:
+            raise ConfigError(f"{REPO_CONFIG_NAME} at {revision} is not valid TOML: {exc}") from exc
+        section = committed.get("context")
+    if section is None:
+        if user_config_dir is None:
+            user_config_dir = Path.home() / ".config" / "agentic-preflight"
+        user_file = Path(user_config_dir) / USER_CONFIG_NAME
+        if user_file.exists():
+            section = _read_toml(user_file).get("context")
+    try:
+        return ContextSection.model_validate(section if section is not None else {})
+    except ValidationError as exc:
+        raise ConfigError(f"invalid [context] configuration at {revision}: {exc}") from exc

@@ -32,6 +32,9 @@ human_review_paths = [
   ".github/workflows/**",
   ".github/CODEOWNERS",
   "CODEOWNERS",
+  "docs/CODEOWNERS",
+  # Command reviewer wrappers decide what a review reports.
+  "docs/examples/reviewers/**",
 ]
 # high_risk_paths = ["db/migrations/**", "infra/**"]
 # medium_risk_paths = ["dependencies/**"]

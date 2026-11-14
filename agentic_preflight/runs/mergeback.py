@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .. import attestation as attestationmod
-from .. import gitx, worktree
+from .. import gitx, public_config, worktree
 from .. import mergeback as mergebackmod
 from .. import sync as syncmod
 from ..cli_contract import MergebackData
@@ -34,6 +34,7 @@ from ._session import (
     _require_worktree,
     _worktree_mode,
 )
+from .fix_commits import derive_fix_commits
 from .review_coverage import invalidate_stage_result, reopen_if_stale
 
 
@@ -128,6 +129,27 @@ def _reset_non_equivalent_merge_to_review(
         },
     )
     _check_restart_limit(run)
+    return run
+
+
+def _register_validated_history(session: Session, run: RunDoc) -> RunDoc:
+    """Make the replay list the history review, lint, and test validated.
+
+    At ``TEST_GREEN`` the review coverage names the validation checkout's current
+    head, so ``head_sha..HEAD`` is exactly what was validated, including commits
+    made after the last ``respond`` or never cited by one.
+    """
+    derived = derive_fix_commits(session, run)
+    if derived == run.fix_commits:
+        return run
+    with session.store.transaction(run.run_id) as doc:
+        recorded = list(doc.fix_commits)
+        doc.fix_commits = derived
+        run = doc
+    session.store.append_event(
+        run.run_id,
+        {"event": "validated_fix_commits_registered", "recorded": recorded, "commits": derived},
+    )
     return run
 
 
@@ -260,6 +282,43 @@ def _perform_merge(
     )
 
 
+def require_known_provenance(run: RunDoc, *, command: str) -> None:
+    """Refuse to attest or publish a run whose user-level configuration is unknown.
+
+    A run that an earlier release started did not record which snapshot sections
+    came from the user file, so its note could publish them. ``mergeback`` and the
+    publication commands check this before they change or push anything.
+    """
+    if public_config.provenance_known(run):
+        return
+    if command == "mergeback":
+        situation = "its attestation could publish user-level configuration"
+    else:
+        situation = (
+            f"the note on {run.head_sha} may hold user-level configuration; "
+            f"remove it with `git notes --ref={attestationmod.NOTES_REF} remove "
+            f"{run.head_sha}` instead of pushing it"
+        )
+    keep = (
+        " Keep the recorded fix commits in data.fix_commits by cherry-picking them onto "
+        "your branch before you abort, because `abort --force` discards them."
+        if run.fix_commits
+        else ""
+    )
+    raise NeedsHuman(
+        "this run was started by an earlier release that did not record which "
+        f"configuration came from the user file, so {situation}",
+        state=run.state.value,
+        run_id=run.run_id,
+        data={"reason": "unknown_config_provenance", "fix_commits": list(run.fix_commits)},
+        next_instruction=(
+            f"Do not retry `{command}`. Abort this run and start a fresh one with the "
+            f"current release.{keep}"
+        ),
+        next_command="agentic-preflight abort",
+    )
+
+
 def mergeback(session: Session) -> Envelope:
     """Attest in-place validation or merge isolated fixes onto the source branch."""
     run = _load_current(session)
@@ -273,6 +332,7 @@ def mergeback(session: Session) -> Envelope:
             state=run.state.value,
             run_id=run.run_id,
         )
+    require_known_provenance(run, command="mergeback")
 
     retrying_conflict = run.state is State.MERGEBACK_CONFLICT or (
         run.state is State.MERGEBACK_PENDING
@@ -294,6 +354,8 @@ def mergeback(session: Session) -> Envelope:
                 data=MergebackData(coverage_invalidated=True),
                 next_command="agentic-preflight context",
             )
+        if not in_place:
+            run = _register_validated_history(session, run)
     _require_state(
         run,
         State.TEST_GREEN,

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 import subprocess
 import tempfile
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -253,9 +254,15 @@ def git_dir(cwd: Path | str) -> Path:
 
 
 def hook_path(cwd: Path | str, name: str) -> Path:
-    """Return the hook path Git will execute, including ``core.hooksPath``."""
-    raw = out(cwd, "rev-parse", "--path-format=absolute", "--git-path", f"hooks/{name}")
-    return Path(raw)
+    """Return the hook path Git will execute, including ``core.hooksPath``.
+
+    Only the hooks directory is resolved. ``--path-format=absolute`` resolves
+    symlinks, including a symlink at the hook itself, which would hand callers
+    the link's target, even a target that does not exist, instead of the link.
+    """
+    # Strip only the line terminator: a configured hooks directory may end in a space.
+    raw = run(cwd, "rev-parse", "--path-format=absolute", "--git-path", "hooks").stdout
+    return Path(raw.removesuffix("\n").removesuffix("\r")) / name
 
 
 def git_path(cwd: Path | str, name: str) -> Path:
@@ -510,19 +517,27 @@ def patch_ids(cwd: Path | str, base: str, head: str) -> dict[str, str | None]:
 # -- attestations -----------------------------------------------------------
 
 
-def read_note(cwd: Path | str, notes_ref: str, sha: str) -> str | None:
-    # A successful list with no matching entry establishes absence; a failed
-    # `notes show` alone cannot distinguish a missing note from a read failure.
-    """Return the note on a commit under a notes ref, or None."""
-    resolved = rev_parse(cwd, sha)
-    listing = out(cwd, "notes", f"--ref={notes_ref}", "list")
-    for line in listing.splitlines():
+def note_blobs(cwd: Path | str, notes_ref: str) -> dict[str, str]:
+    """Map each annotated commit under a notes ref to its note blob.
+
+    A successful list with no matching entry establishes absence; a failed
+    `notes show` alone cannot distinguish a missing note from a read failure.
+    """
+    notes: dict[str, str] = {}
+    for line in out(cwd, "notes", f"--ref={notes_ref}", "list").splitlines():
         fields = line.split()
         if len(fields) != 2:
             raise GitError(["notes", "list"], 1, "unexpected notes listing")
-        if fields[1] == resolved:
-            return run(cwd, "cat-file", "blob", fields[0]).stdout.rstrip("\n")
-    return None
+        notes[fields[1]] = fields[0]
+    return notes
+
+
+def read_note(cwd: Path | str, notes_ref: str, sha: str) -> str | None:
+    """Return the note on a commit under a notes ref, or None."""
+    blob = note_blobs(cwd, notes_ref).get(rev_parse(cwd, sha))
+    if blob is None:
+        return None
+    return run(cwd, "cat-file", "blob", blob).stdout.rstrip("\n")
 
 
 def write_note(cwd: Path | str, notes_ref: str, sha: str, payload: str) -> None:
@@ -530,18 +545,29 @@ def write_note(cwd: Path | str, notes_ref: str, sha: str, payload: str) -> None:
     run(cwd, "notes", f"--ref={notes_ref}", "add", "-f", "-m", payload, sha)
 
 
-def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> bool:
-    """Reconcile remote notes without discarding locally-created attestations."""
-    fetched_ref = f"refs/agentic-preflight/fetched-notes-{os.getpid()}"
+#: Temporary refs that notes synchronization and publication create and delete.
+#: An interrupted process can leave one behind; see ``sweep_notes_staging_refs``.
+_FETCHED_NOTES_PREFIX = "refs/agentic-preflight/fetched-notes-"
+_PUBLISH_NOTES_PREFIX = "refs/notes/agentic-preflight-publish-"
+
+
+def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> str | None:
+    """Reconcile remote notes without discarding locally-created attestations.
+
+    Return the remote notes tip that was reconciled, or ``None`` when the remote
+    has no notes ref yet.
+    """
+    fetched_ref = f"{_FETCHED_NOTES_PREFIX}{os.getpid()}"
     result = run(cwd, "fetch", remote, f"+{notes_ref}:{fetched_ref}", check=False)
     if result.returncode != 0:
         if "couldn't find remote ref" in result.stderr.lower():
-            return False
+            return None
         raise GitError(
             ["fetch", remote, f"+{notes_ref}:{fetched_ref}"], result.returncode, result.stderr
         )
 
     try:
+        fetched = rev_parse(cwd, fetched_ref)
         local = run(cwd, "rev-parse", "--verify", notes_ref, check=False)
         if local.returncode != 0:
             run(cwd, "update-ref", notes_ref, fetched_ref)
@@ -568,9 +594,86 @@ def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> bool:
                     merged.returncode,
                     merged.stderr,
                 )
-        return True
+        return fetched
     finally:
         run(cwd, "update-ref", "-d", fetched_ref, check=False)
+
+
+def remote_ref_tip(cwd: Path | str, remote: str, ref: str) -> str | None:
+    """Return the object a remote ref names now, or ``None`` when it does not exist."""
+    for line in out(cwd, "ls-remote", remote, ref).splitlines():
+        fields = line.split()
+        if len(fields) == 2 and fields[1] == ref:
+            return fields[0]
+    return None
+
+
+def sweep_notes_staging_refs(cwd: Path | str) -> list[str]:
+    """Delete temporary notes refs that an interrupted fetch or publication left.
+
+    Call it only while holding the clone's ``notes`` resource lock: every
+    command that creates these refs holds that lock, so none is in use.
+    """
+    listing = out(
+        cwd,
+        "for-each-ref",
+        "--format=%(refname)",
+        f"{_FETCHED_NOTES_PREFIX}*",
+        f"{_PUBLISH_NOTES_PREFIX}*",
+    )
+    stale = [
+        ref
+        for ref in listing.splitlines()
+        if ref.startswith((_FETCHED_NOTES_PREFIX, _PUBLISH_NOTES_PREFIX))
+    ]
+    for ref in stale:
+        run(cwd, "update-ref", "-d", ref)
+    return stale
+
+
+@contextmanager
+def notes_publication(
+    cwd: Path | str, notes_ref: str, base: str | None, commits: Iterable[str]
+) -> Iterator[tuple[str | None, list[str]]]:
+    """Stage a notes commit that adds only the given commits' local notes to ``base``.
+
+    ``base`` is the remote notes tip, or ``None`` when the remote has no notes
+    ref. The commit is built in a temporary notes ref, so notes on other local
+    commits never enter it. Yields that ref, or ``None`` when it would be empty,
+    and the commits whose note it adds to or changes on ``base``, oldest first.
+    The ref is deleted on exit.
+    """
+    staging = f"{_PUBLISH_NOTES_PREFIX}{os.getpid()}-{secrets.token_hex(4)}"
+    local = note_blobs(cwd, notes_ref)
+    try:
+        published: dict[str, str] = {}
+        if base is not None:
+            run(cwd, "update-ref", staging, base, "")
+            published = note_blobs(cwd, staging)
+        changed = [sha for sha in commits if sha in local and published.get(sha) != local[sha]]
+        for sha in changed:
+            run(cwd, "notes", f"--ref={staging}", "add", "-f", "-C", local[sha], sha)
+        exists = run(cwd, "rev-parse", "--verify", "--quiet", staging, check=False)
+        yield (staging if exists.returncode == 0 else None), changed
+    finally:
+        run(cwd, "update-ref", "-d", staging, check=False)
+
+
+def fold_published_notes(cwd: Path | str, notes_ref: str, published_ref: str) -> bool:
+    """Merge a published notes commit into the local notes ref, keeping local notes.
+
+    Afterwards the local ref descends from what the remote holds, so the next
+    ``fetch_notes`` fast-forwards or keeps local history instead of attempting a
+    three-way merge that a locally rewritten note would fail. Best effort: on
+    failure the local ref is left as it was and ``False`` is returned.
+    """
+    merged = run(
+        cwd, "notes", f"--ref={notes_ref}", "merge", "-q", "-s", "ours", published_ref, check=False
+    )
+    if merged.returncode != 0:
+        run(cwd, "notes", f"--ref={notes_ref}", "merge", "--abort", check=False)
+        return False
+    return True
 
 
 # -- diff -------------------------------------------------------------------
@@ -593,15 +696,31 @@ _NO_RENAMES = "--no-renames"
 #
 # Attributes are handled by ``diff_text_by_path`` below.
 #
-# Settings with no command-line option. The attributes file is the user-level one.
+# Replacement objects (``refs/replace``) exist in one clone only and would show
+# content that the commits do not hold, so they are ignored. Settings with no
+# command-line option follow. ``diff.default.*`` configures the driver that every
+# path without a ``diff`` attribute uses; ``auto`` restores its binary detection.
+# ``core.bigFileThreshold`` turns a larger file's patch into a binary marker.
+# ``core.precomposeUnicode``, which macOS sets at ``git init``, rewrites a
+# decomposed pathspec so that it no longer matches the path in the tree. The
+# attributes file is the user-level one.
 _PINNED_DIFF_CONFIG = (
+    "--no-replace-objects",
     "-c",
     "core.quotePath=true",
     "-c",
     "diff.suppressBlankEmpty=false",
     "-c",
     "core.attributesFile=/dev/null",
+    "-c",
+    "core.bigFileThreshold=512m",
+    "-c",
+    "core.precomposeUnicode=false",
+    "-c",
+    "diff.default.binary=auto",
 )
+# The abbreviated form of 0.8.1 and earlier, with Git's default length.
+_LEGACY_ABBREV_CONFIG = ("-c", "core.abbrev=auto")
 # Which paths a diff lists, and in which order.
 _PINNED_INVENTORY_OPTIONS = (
     "--no-ext-diff",
@@ -1152,9 +1271,14 @@ def _binary_blobs(
     return binary
 
 
+def _patch_environment() -> dict[str, str]:
+    """Copy the environment without ``GIT_DIFF_OPTS``, which overrides ``--unified``."""
+    return {name: value for name, value in os.environ.items() if name != "GIT_DIFF_OPTS"}
+
+
 def _absolute_repository_variables(cwd: Path | str) -> dict[str, str]:
-    """Copy the environment with repository paths resolved against ``cwd``."""
-    env = dict(os.environ)
+    """Copy the patch environment with repository paths resolved against ``cwd``."""
+    env = _patch_environment()
     base = Path(cwd).resolve()
     for name in _REPOSITORY_PATH_VARIABLES:
         if env.get(name):
@@ -1314,16 +1438,16 @@ def diff_text_by_path(
     ``paths`` and the returned keys are raw paths from :func:`changed_files_raw`.
 
     The text depends only on the two commits. The pinned options above keep
-    ``core.*`` and ``diff.*`` configuration out of it, and Git runs without
-    attributes. Text files are diffed with ``--text``; a file is binary when
+    ``core.*`` and ``diff.*`` configuration out of it, ``GIT_DIFF_OPTS`` is removed
+    from Git's environment, and Git runs without attributes. Text files are diffed with ``--text``; a file is binary when
     either side is binary by Git's own heuristic, and its patch is Git's
     "Binary files ... differ" marker. A ``diff`` attribute in
     ``$GIT_DIR/info/attributes``, which Git always reads, raises
     :class:`ReviewDiffError` when it would still change the text.
 
     ``legacy=True`` reproduces the patches of 0.8.1 and earlier releases, whose
-    ``index`` lines abbreviate object IDs to a length that grows with the clone
-    and whose text follows the checkout's attributes. It exists to verify notes
+    ``index`` lines abbreviate object IDs to Git's default length, which grows with
+    the clone, and whose text follows the checkout's attributes. It exists to verify notes
     those releases wrote. It raises :class:`ReviewDiffError` when such text marks
     a text file as binary, so a note cannot rely on an attribute to hide content.
     """
@@ -1362,7 +1486,9 @@ def diff_text_by_path(
 def _legacy_diff_text_by_path(
     cwd: Path | str, base: str, head: str, paths: Sequence[str]
 ) -> dict[str, str]:
-    per_file = _patches(cwd, base, head, paths)
+    per_file = _patches(
+        cwd, base, head, paths, config=_LEGACY_ABBREV_CONFIG, env=_patch_environment()
+    )
     marked = [path for path in paths if any(map(_has_binary_marker, per_file[path]))]
     if marked:
         entries = _raw_inventory(cwd, base, head, marked)

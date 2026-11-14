@@ -37,12 +37,21 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
+      # Pin uv itself so a new uv release cannot change how this job installs.
+      # Bump it by hand; see docs/attestations-and-ci.md.
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.8"
 
-      - name: Install the trusted policy checker
-        run: uv tool install --python 3.11 .
+      # Install only the runtime dependencies pinned in uv.lock. With
+      # --no-install-project nothing is built, so no build backend or build
+      # dependency runs here. The checker runs from this base checkout with
+      # `python -m agentic_preflight`, and --no-sync keeps uv run from installing.
+      - name: Install the trusted policy checker dependencies from the lock file
+        run: uv sync --locked --no-dev --no-install-project --python 3.11
 
       - name: Evaluate approval policy for the exact head
         id: policy
@@ -69,7 +78,8 @@ jobs:
             "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews?per_page=100" \
             > "$reviews_file"
           policy_exit=0
-          agentic-preflight approval-check "$HEAD_SHA" \
+          uv run --locked --no-dev --no-sync --python 3.11 \
+            python -m agentic_preflight approval-check "$HEAD_SHA" \
             --base "$BASE_SHA" \
             --reviews-file "$reviews_file" \
             --author "$PR_AUTHOR" \
@@ -137,18 +147,30 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          # The project is not installed, so the script imports agentic_preflight
+          # from the base checkout.
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           # The checkout and script are from the protected base. PR code is
           # inspected only as Git objects, after normal attestation verification.
+          # Commit metadata does not show who placed a commit at the head, so the
+          # script also reads this event's payload: only an opened or synchronize
+          # event sent by dependabot[bot] for this exact head, into the default branch,
+          # can exempt it. Retargeting (edited) is not a trigger, so a result stays
+          # bound to the base this event named. A re-run,
+          # including one a review triggers, replays the original payload, so its
+          # sender stays the account that set the head, not the account that re-ran.
           commits_file="$RUNNER_TEMP/dependabot-approval-commits.json"
           pr_file="$RUNNER_TEMP/dependabot-approval-pr.json"
           result_file="$RUNNER_TEMP/dependabot-approval.json"
           gh api --paginate --slurp \
             "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100" > "$commits_file"
           gh api "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$pr_file"
-          uv run --locked --no-dev --python 3.11 python .github/scripts/verify_dependabot.py \
+          uv run --locked --no-dev --no-sync --python 3.11 python .github/scripts/verify_dependabot.py \
             --repository "$GITHUB_REPOSITORY" --head "$HEAD_SHA" --base "$BASE_SHA" \
-            --pr-file "$pr_file" --commits-file "$commits_file" > "$result_file"
+            --pr-file "$pr_file" --commits-file "$commits_file" \
+            --event-name "$EVENT_NAME" --event-file "$GITHUB_EVENT_PATH" > "$result_file"
           cat "$result_file"
           echo "verified=$(jq -r '.verified' "$result_file")" >> "$GITHUB_OUTPUT"
 
@@ -190,8 +212,13 @@ jobs:
           test "$POLICY_RESULT" = "success"
           if [ "${DEPENDABOT_EXEMPT:-false}" = "true" ]; then
             echo "Verified Dependabot contributions; human review is not required."
-          elif [ "$REQUIRES_APPROVAL" != "true" ]; then
+          elif [ "$REQUIRES_APPROVAL" = "false" ]; then
             echo "No high-risk approval is required."
+          elif [ "$REQUIRES_APPROVAL" != "true" ]; then
+            # Fail closed: a missing, empty, or null result is not a verdict.
+            echo "::error::The policy job reported requires_approval='$REQUIRES_APPROVAL'," \
+              "not true or false." >&2
+            exit 1
           elif [ "$APPROVAL_MODE" = "manual_merge" ]; then
             echo "High-risk change verified; a person must perform the merge manually."
           elif [ "$APPROVAL_MODE" = "environment" ]; then
@@ -203,7 +230,8 @@ jobs:
               # A review re-runs this run through human-approval-rerun.yml, so the failed
               # result is replaced in place rather than left beside a passing one.
               echo "::error::Waiting for an eligible $APPROVAL_MODE review of head $HEAD_SHA." \
-                "A submitted review re-runs this check. An approval of an earlier head counts" \
+                "A review from an owner, member, or collaborator, or a dismissal by a user" \
+                "with write access, re-runs this check. An approval of an earlier head counts" \
                 "only while the branch content is unchanged."
               exit 1
             fi

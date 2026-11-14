@@ -369,7 +369,8 @@ def test_conflict_aborts_and_restores_the_branch_exactly(
     agent.run("stage", "run", "test")
 
     # Now make the branch diverge on the same content, and re-point the run's
-    # recorded head so the staleness guard does not fire first.
+    # recorded source head so the staleness guard does not fire first. The
+    # reviewed head stays the base of the validated history.
     write(feature_repo, "src/app.py", "TOTALLY DIFFERENT BRANCH CONTENT\n")
     commit_all(feature_repo, "branch rewrite")
     new_head = git("rev-parse", "HEAD", cwd=feature_repo)
@@ -382,7 +383,6 @@ def test_conflict_aborts_and_restores_the_branch_exactly(
     )
     run_path = state_root / "runs" / run_id / "run.json"
     doc = json.loads(run_path.read_text(encoding="utf-8"))
-    doc["head_sha"] = new_head
     doc["source_head_sha"] = new_head
     run_path.write_text(json.dumps(doc))
 
@@ -462,7 +462,6 @@ def test_different_human_conflict_resolution_restarts_review(
     )
     run_path = state_root / "runs" / run_id / "run.json"
     doc = json.loads(run_path.read_text(encoding="utf-8"))
-    doc["head_sha"] = source_head
     doc["source_head_sha"] = source_head
     run_path.write_text(json.dumps(doc))
 
@@ -526,7 +525,6 @@ def test_human_conflict_resolution_cannot_adopt_a_copied_file(feature_repo, tmp_
     )
     run_path = state_root / "runs" / run_id / "run.json"
     doc = json.loads(run_path.read_text(encoding="utf-8"))
-    doc["head_sha"] = source_head
     doc["source_head_sha"] = source_head
     run_path.write_text(json.dumps(doc))
 

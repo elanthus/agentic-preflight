@@ -40,7 +40,7 @@ The documentation inventory follows a committed symlink that matches a documenta
 The symlink is on the surface when its target is a file, even a file outside the repository.
 Its `size` and the docs fingerprint come from the target's bytes.
 A docs finding can name the symlink, and an agent that edits that path writes to the target.
-Grounding, by contrast, reads only regular files from the head commit and skips symlinks.
+Grounding, by contrast, reads only regular files from the merge-base commit and skips symlinks.
 Review a committed symlink under a documentation path before you run the docs stage on it.
 
 ## History rewrites require evidence refresh
@@ -103,6 +103,44 @@ Treat the attestation as an audit trail.
 It does not replace CI or a human reviewer.
 It is not a signature. Anyone with permission to update the notes ref can replace it.
 
+## What a published note reveals
+
+`push` publishes the attestation notes of the commits it pushes to the remote with the branch.
+[Portable attestations](attestations-and-ci.md) lists every field.
+The note includes the text of every finding and response note, after copied-file values are redacted, and the commands that ran.
+It includes the configuration from the repository file, which the repository already publishes.
+It leaves out the sections of the user configuration file, except `[diff]`.
+It records `[redacted user-level command]` in place of a command that depends on a user-level `[review]` or `[commands]` section.
+
+Redaction narrows what the note can reveal. It is not a secret scanner:
+
+- Finding text and response notes are redacted only for exact values from `[worktree] copy_files` files.
+  A reviewer that paraphrases, encodes, or splits a value, or that quotes another file, can still place it in the note.
+- Short copied values are redacted too. A `.env` line such as `DEBUG=1` replaces every `1` in finding text with `[redacted]`.
+  The note is public, so the tool redacts too much rather than publish a short credential.
+  Keep unrelated short values out of `copy_files` files to keep findings readable.
+- A command in the repository file and a `stage run --command` override when the repository file sets `[commands]`, or when neither file sets it, are published as written.
+- The source worktree ID is an unsalted SHA-256 digest of the local path of the worktree's Git directory.
+  A reader who guesses the path, for example from a user name and a common layout, can confirm the guess.
+- The local run record keeps the full user configuration, because the run executes it.
+
+Notes that earlier releases wrote keep whatever they contained.
+A run that an earlier release started cannot publish: `mergeback`, `gate`, and `push` refuse it because the run did not record which sections came from the user file. Abort it and start a fresh run.
+Other notes in the local notes ref, such as one an earlier release wrote for a run you later aborted, are published only when `push` publishes their commit, or when someone pushes the whole ref by hand, as the next section describes. Remove them before then if they may hold user-level configuration.
+Evidence reuse refuses evidence from a record without user-level sections, such as one that an earlier release wrote, unless its configuration snapshot matches what the current run publishes.
+Rewriting a published note does not remove it from clones or forks that already fetched it.
+
+## Published notes are visible to everyone who can fetch them
+
+A note holds the branch name, the finding titles and details, the file paths, and the published configuration snapshot described above.
+`push` publishes the notes of the commits it pushes, and the gate lists them in `published_notes`.
+Notes on commits that were never pushed stay in the local `refs/notes/agentic-preflight`.
+The scope is per commit, not per branch. A pushed commit's note is published even when a run on another branch wrote it, for example an aborted branch that pointed at the same commit, and that note names the other branch.
+This scope covers `push` and the manual gate command only.
+A hand-run `git push origin refs/notes/agentic-preflight` sends every local note, including those of unpushed commits.
+Releases before this scoping pushed the whole local notes ref, so the remote may already hold such notes.
+Removing them requires rewriting the remote notes ref.
+
 ## Attestations are not signatures
 
 Anyone with permission to update `refs/notes/agentic-preflight` can replace an attestation.
@@ -116,12 +154,25 @@ Otherwise it is the note's `base_ref`, resolved to `refs/remotes/origin/<branch>
 A fully qualified `base_ref` must already be under one of those namespaces. A tag fails with `base_mismatch`.
 The note's `merge_base_sha` must be the only merge base of that base and the head.
 Policy comes from the `.agentic-preflight.toml` committed at the trusted base.
-The note's configuration snapshot records what ran. It does not decide what was required.
+The note's configuration snapshot records the published part of what ran. It does not decide what was required.
 
 Thus, with a trusted base, a branch cannot relax the policy that judges it.
-It cannot skip docs that the base enables, or replace a configured lint, test, or review command.
+It cannot skip docs that the base enables, or change the command string of a configured lint, test, or review command.
 It cannot exclude review files that the base includes, or avoid a command review that the base requires.
 A run can do more than the base requires. For example, it can run docs that the base disables.
+
+Verification compares command strings, not the programs that they run.
+Every command runs in the worktree that holds the change, so a command that names a script in the repository runs the branch's copy.
+A branch can therefore change what a lint, test, review, or planner command does without changing its string.
+Lint and test commands run the branch's own code by design.
+For the reviewer, the path that the base's `[review] command` or `planner_command` names, the files under its directory, and the base's `[review] trusted_paths` count as human-review paths.
+A branch that edits them, including one that rewrites the reviewer to report nothing, still passes `verify`, unless the base's `require_command_for` includes `high`. Then `verify` requires a command review.
+The change is high risk, so the hosted approval check applies the configured `[approval] mode`: an owner or peer approval, an Environment release, or a manual merge.
+Finding the paths in a command is approximate. A reviewer file that the command does not name, outside the named script's directory, is protected only if `trusted_paths` or `[policy] human_review_paths` lists it.
+For a script at the repository root, that includes every module beside it.
+The reviewer's runtime environment is also an input that path rules do not find on their own: a project runner such as `uv run` and its manifest and lockfile, `sitecustomize` modules on `sys.path`, and instruction or settings files that the coding-agent CLI reads from the worktree.
+When the base sets no `[review] command`, for example because only a user configuration file sets it, the base names no reviewer paths at all.
+See [Review independence](configuration.md#review-independence-review).
 
 These checks narrow what a forged note can claim. They do not authenticate the note.
 A writer of the notes ref can still record stage results that never ran, if those results satisfy the base policy.
@@ -162,3 +213,34 @@ If the approval must come from a person the agent cannot impersonate, keep the a
 - Run the agent under its own GitHub account, so that it opens pull requests as that account and never holds the reviewer's token. The reviewer then submits an **Approve** review on another author's pull request.
 
 Each choice protects the approval only while the agent cannot reach the approving account's credentials.
+
+## The Dependabot exemption trusts GitHub's event sender
+
+This repository's hosted workflows waive owner review for verified Dependabot pull requests, and auto-merge a narrower class of them.
+See [Dependabot and other bot-authored pull requests](attestations-and-ci.md#dependabot-and-other-bot-authored-pull-requests).
+That exemption rests on two checks of GitHub-supplied data:
+
+- Every non-merge commit is attributed to `dependabot[bot]`, committed by `web-flow`, and has a valid signature.
+  This shows that GitHub created the commit. It does not show that Dependabot wrote its content.
+- The event that set the current head was an `opened` or `synchronize` event whose sender is the `dependabot[bot]` Bot account (login, type, and account id `49699333`), and a `synchronize` event reports that exact head as the result of its push.
+  This shows that Dependabot, not a person, placed the commit at the head.
+  The pull request must also target the default branch.
+
+The second check exists because a person with write access might obtain a GitHub-signed commit attributed to Dependabot, for example from a squash merge of a Dependabot pull request that carries their own commits, and push it to another Dependabot branch.
+Whether GitHub attributes such a squash commit to Dependabot was not tested; the check does not depend on the answer.
+A head pushed by a person, including a clean merge from **Update branch**, does not receive the exemption, and neither does a head whose actor the event cannot establish.
+`reopened`, `ready_for_review`, and auto-merge events name whoever performed that action, and a branch can change while its pull request is closed, so those runs fail closed.
+Such a pull request follows the ordinary policy: it needs a preflight attestation for its head and owner approval where the approval policy requires it.
+Alternatively, ask Dependabot to rebase or recreate the pull request, which restores the exemption with a new Dependabot-set head.
+A re-run replays the original event, so a review-triggered re-run keeps the original sender.
+
+The result is bound to the base named by the event that produced it.
+Retargeting a pull request does not re-run the workflow, because an `edited` event cannot establish who set the head and would fail every edit closed.
+Requiring the default branch means a run judged against another base cannot be carried to the default branch by a retarget.
+A pull request retargeted away from the default branch keeps its earlier result; protect other branches with their own rules if that matters.
+
+The guarantee is therefore: GitHub reported that Dependabot set this head on a pull request into the default branch, and every commit since the base is either GitHub-signed bot work or a merge whose tree equals Git's clean merge of its parents, with the second parent in the protected base.
+The event check covers only the account that set the current head. It does not establish who pushed an earlier clean base merge in the history below that head; such a merge adds no content beyond the base and the bot commits.
+It is not a review of the content, and it trusts GitHub's attribution of both the commits and the event.
+For an `opened` event, it also trusts that the branch still held Dependabot's push when Dependabot opened the pull request.
+The exemption still applies to every file that Dependabot changes, including GitHub Actions workflows.

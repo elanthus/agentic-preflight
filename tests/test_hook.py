@@ -2,6 +2,7 @@
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -12,21 +13,59 @@ import pytest
 from agentic_preflight import attestation, gitx, hook
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.stages import command as command_plan
-from tests.conftest import git, write
+from tests.conftest import HOOK_LOG_TIMEOUT_SECONDS, git, write
 from tests.driver import ScriptedAgent, green_run
 
+#: Runs the CLI's ``hook-check`` as ``python -m agentic_preflight hook-check`` does, with
+#: the hook log's time bound set to ``sys.argv[1]`` seconds first.
+_HOOK_CHECK = """\
+import sys
+from agentic_preflight import hooklog
+hooklog.TIMEOUT_SECONDS = float(sys.argv[1])
+from agentic_preflight.cli import main
+main(["hook-check"], prog_name="agentic-preflight")
+"""
 
-def hook_check(repo, stdin_text, extra_env=None):
-    """Invoke hook-check exactly as the hook does: a real subprocess with stdin."""
+
+def hook_check(repo, stdin_text, extra_env=None, *, log_timeout=HOOK_LOG_TIMEOUT_SECONDS):
+    """Invoke hook-check as the hook does: a real subprocess with stdin.
+
+    The one difference is the hook log's time bound, ``log_timeout`` seconds, so that a
+    loaded machine cannot turn a test's expected log line into a ``timed_out`` write.
+    """
     env = {**os.environ, **(extra_env or {})}
     return subprocess.run(
-        [sys.executable, "-m", "agentic_preflight", "hook-check"],
+        [sys.executable, "-c", _HOOK_CHECK, str(log_timeout)],
         cwd=repo,
         input=stdin_text,
         capture_output=True,
         text=True,
         env=env,
     )
+
+
+def bound_hook_log_on_path(directory, monkeypatch, *, log_timeout=HOOK_LOG_TIMEOUT_SECONDS):
+    """Put an ``agentic-preflight`` first on ``PATH`` that runs hook-check like ``hook_check``.
+
+    A real ``git push`` runs the installed hook, which finds ``agentic-preflight`` on
+    ``PATH``. Git prepends only its own exec path, which holds no such program, so this
+    shim runs instead of the installed CLI and sets the same hook-log time bound. The
+    shim is a ``sh`` script, so on Windows the push uses the installed CLI and the
+    product's bound.
+    """
+    if sys.platform == "win32":
+        return
+    directory.mkdir(parents=True, exist_ok=True)
+    script = directory / "hook_check.py"
+    script.write_text(_HOOK_CHECK, encoding="utf-8")
+    shim = directory / "agentic-preflight"
+    shim.write_text(
+        "#!/bin/sh\n"
+        f'exec {shlex.quote(sys.executable)} {shlex.quote(str(script))} {log_timeout} "$@"\n',
+        encoding="utf-8",
+    )
+    shim.chmod(0o755)
+    monkeypatch.setenv("PATH", os.pathsep.join((str(directory), os.environ["PATH"])))
 
 
 ZERO = "0" * 40
@@ -52,6 +91,27 @@ def test_init_writes_a_config_file_if_absent(feature_repo):
     assert "[pr]" in config
     assert 'mode = "auto"' in config
     assert "automated_cleanup = false" in config
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".agentic-preflight.toml",
+        ".github/workflows/ci.yml",
+        ".github/CODEOWNERS",
+        "CODEOWNERS",
+        "docs/CODEOWNERS",
+        "docs/examples/reviewers/claude_review.py",
+        "docs/examples/reviewers/_reviewer_common.py",
+    ],
+)
+def test_init_template_sends_ownership_and_reviewer_changes_to_human_review(feature_repo, path):
+    from agentic_preflight.config import load_config
+    from agentic_preflight.diff import path_matches
+
+    ScriptedAgent(feature_repo).run("init")
+    config = load_config(feature_repo, user_config_dir=Path(feature_repo) / "no-user-config")
+    assert any(path_matches(path, pattern) for pattern in config.policy.human_review_paths)
 
 
 def test_init_does_not_clobber_an_existing_config(feature_repo):
@@ -159,6 +219,133 @@ def test_hook_installer_directly_refuses_and_then_replaces_a_foreign_hook(featur
     installed, written = hook.install(feature_repo)
     assert installed == path
     assert written is False
+
+
+def _symlink_or_skip(link: Path, target: Path) -> None:
+    link.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        link.symlink_to(target)
+    except OSError as exc:  # Windows without symlink privilege
+        pytest.skip(f"symlinks are unavailable: {exc}")
+
+
+def test_hook_installer_replaces_a_dangling_symlink_instead_of_creating_its_target(
+    feature_repo, tmp_path
+):
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    target = tmp_path / "outside" / "pre-push"
+    target.parent.mkdir()
+    _symlink_or_skip(path, target)
+
+    installed, written = hook.install(feature_repo)
+
+    assert installed == path
+    assert written is True
+    assert not path.is_symlink()
+    assert "agentic-preflight hook-check" in path.read_text(encoding="utf-8")
+    assert not target.exists()
+
+
+def test_hook_installer_with_force_replaces_a_symlink_and_leaves_its_target_alone(
+    feature_repo,
+):
+    # core.hooksPath pointing into the repository makes the link's target a tracked file.
+    git("config", "core.hooksPath", ".githooks", cwd=feature_repo)
+    tracked = write(feature_repo, "scripts/team-pre-push", "#!/bin/sh\necho team hook\n")
+    path = Path(feature_repo) / ".githooks" / "pre-push"
+    _symlink_or_skip(path, Path("..") / "scripts" / "team-pre-push")
+
+    with pytest.raises(FileExistsError):
+        hook.install(feature_repo)
+    assert path.is_symlink()
+
+    installed, written = hook.install(feature_repo, force=True)
+
+    assert installed.resolve() == path.resolve()
+    assert written is True
+    assert not path.is_symlink()
+    assert "agentic-preflight hook-check" in path.read_text(encoding="utf-8")
+    assert tracked.read_text(encoding="utf-8") == "#!/bin/sh\necho team hook\n"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+def test_hook_installer_sets_the_final_mode_through_the_open_file(feature_repo, monkeypatch):
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text("#!/bin/sh\necho existing\n")
+    path.chmod(0o644)
+    created_modes = []
+    real_open = os.open
+
+    def recording_open(file, flags, *args, **kwargs):
+        # Record the mode the installer passes, without supplying one of our own.
+        created_modes.append(args[0] if args else kwargs.get("mode"))
+        return real_open(file, flags, *args, **kwargs)
+
+    monkeypatch.setattr(hook.os, "open", recording_open)
+    # A chmod by path would follow a symlink swapped in after the write.
+    monkeypatch.setattr(Path, "chmod", lambda *_a, **_k: pytest.fail("chmod by path"))
+
+    hook.install(feature_repo, force=True)
+
+    assert created_modes == [0o700]
+    assert path.stat().st_mode & 0o777 == hook.HOOK_MODE == 0o755
+
+
+def test_hook_installer_replaces_a_symlink_to_an_earlier_hook_of_its_own(feature_repo, tmp_path):
+    previous = next(iter(hook.PREVIOUS_HOOK_SCRIPTS))
+    target = tmp_path / "shared-pre-push"
+    target.write_bytes(previous)
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    _symlink_or_skip(path, target)
+
+    _, written = hook.install(feature_repo)
+
+    assert written is True
+    assert not path.is_symlink()
+    assert target.read_bytes() == previous
+
+
+def test_hook_installer_replaces_a_symlink_to_the_current_script(feature_repo, tmp_path):
+    # A later change to the link's target could otherwise change or disable the hook.
+    target = tmp_path / "current-pre-push"
+    target.write_text(hook.HOOK_SCRIPT, encoding="utf-8", newline="\n")
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    _symlink_or_skip(path, target)
+
+    _, written = hook.install(feature_repo)
+
+    assert written is True
+    assert not path.is_symlink()
+    assert path.read_text(encoding="utf-8") == hook.HOOK_SCRIPT
+    assert target.read_text(encoding="utf-8") == hook.HOOK_SCRIPT
+
+
+def test_hook_installer_leaves_a_symlink_to_a_composed_hook_alone(feature_repo, tmp_path):
+    composed = "#!/bin/sh\necho team checks\n" + hook.HOOK_SCRIPT.split("\n", 1)[1]
+    target = tmp_path / "team-pre-push"
+    target.write_text(composed, encoding="utf-8", newline="\n")
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    _symlink_or_skip(path, target)
+
+    _, written = hook.install(feature_repo)
+
+    assert written is False
+    assert path.is_symlink()
+    assert target.read_text(encoding="utf-8") == composed
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows paths cannot end in a space")
+def test_hook_path_keeps_a_trailing_space_in_core_hooks_path(feature_repo):
+    git("config", "core.hooksPath", ".githooks ", cwd=feature_repo)
+    expected = (Path(feature_repo) / ".githooks " / "pre-push").resolve()
+
+    assert gitx.hook_path(feature_repo, "pre-push") == expected
+    installed, written = hook.install(feature_repo)
+    assert written is True
+    assert installed == expected
+    assert (Path(feature_repo) / ".githooks " / "pre-push").is_file()
+    assert not (Path(feature_repo) / ".githooks").exists()
 
 
 def test_hook_installer_rejects_a_non_repository_directory(tmp_path):

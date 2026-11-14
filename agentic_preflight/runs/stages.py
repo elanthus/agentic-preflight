@@ -5,7 +5,7 @@ from __future__ import annotations
 import shlex
 from typing import NoReturn, TypedDict
 
-from .. import gitx, worktree
+from .. import gitx
 from ..attestation import output_digest
 from ..cli_contract import LogsData, StageRunData
 from ..envelope import Envelope
@@ -34,6 +34,8 @@ from ._session import (
     _start_command,
 )
 from ._shell import _run_protected, _withheld_message
+from .fix_commits import derive_fix_commits, record_fix_commits
+from .log_window import DEFAULT_TAIL_LINES, read_log_window
 from .review import _skip_test_if_not_applicable
 from .review_coverage import invalidate_stage_result, reopen_if_stale
 from .stage_baseline import check_baseline
@@ -90,7 +92,10 @@ def _recover_interrupted_stage(
         entry.output_sha256 = None
         entry.log_path = None
         entry.finished_at = _now()
-        entry.head_sha = gitx.rev_parse(_require_worktree(doc), "HEAD")
+        # Keep the head the attempt began from, so a repair committed after the
+        # interruption is registered rather than mistaken for the tested tree.
+        if entry.head_sha is None:
+            entry.head_sha = gitx.rev_parse(_require_worktree(doc), "HEAD")
         doc.stages[stage] = entry
         _apply(doc, spec["failed"])
         run = doc
@@ -130,13 +135,9 @@ def _register_stage_fix_commits(
                     producer=run.producer,
                 ),
             )
-        commits = gitx.commits_between(wt, record_entry.head_sha, current_head)
-        for commit in commits:
-            worktree.assert_commit_is_clean_of(wt, commit, run.copied_files)
+        derived = derive_fix_commits(session, run)
         with session.store.transaction(run.run_id) as doc:
-            for commit in commits:
-                if commit not in doc.fix_commits:
-                    doc.fix_commits.append(commit)
+            commits = record_fix_commits(doc, derived)
             entry = doc.stages.get(stage) or StageRecord()
             entry.head_sha = None
             doc.stages[stage] = entry
@@ -343,7 +344,9 @@ def run_stage(
     stage = Stage(stage_name)
     record_entry = run.stages.get(stage) or StageRecord()
     accepting_repair = (
-        _is_in_place(run) and run.state is spec["red"] and record_entry.head_sha is not None
+        _is_in_place(run)
+        and run.state in (spec["red"], spec["running"])
+        and record_entry.head_sha is not None
     )
     if not accepting_repair:
         _assert_fresh(session, run)
@@ -394,6 +397,10 @@ def run_stage(
         with session.store.transaction(run.run_id) as doc:
             _apply(doc, spec["retry"] if doc.state is spec["red"] else spec["run"])
             doc.setup_failure = None
+            # Interrupted-stage recovery compares this with the head it finds.
+            entry = doc.stages.get(stage) or StageRecord()
+            entry.head_sha = gitx.rev_parse(worktree_path, "HEAD")
+            doc.stages[stage] = entry
             run = doc
         baseline_red = (
             check_baseline(session, run, stage, resolved, failure_action=spec["failed"])
@@ -480,8 +487,20 @@ def run_stage(
     )
 
 
-def logs(session: Session, *, stage_name: str) -> Envelope:
-    """Return the captured log for a stage of the current run."""
+def logs(
+    session: Session,
+    *,
+    stage_name: str,
+    head: int | None = None,
+    tail: int | None = None,
+    whole: bool = False,
+) -> Envelope:
+    """Return a bounded window of the captured log for a stage of the current run.
+
+    By default the window is the last :data:`DEFAULT_TAIL_LINES` lines; ``head`` or
+    ``tail`` choose another line count. Either is cut to :data:`.log_window.MAX_WINDOW_BYTES`.
+    ``whole`` returns the entire log.
+    """
     run = _load_current(session)
     log_path = session.store.logs_dir(run.run_id) / f"{stage_name}.txt"
     if not log_path.exists():
@@ -497,12 +516,21 @@ def logs(session: Session, *, stage_name: str) -> Envelope:
             next_instruction="Run the stage first.",
             next_command=next_command,
         )
+    if whole:
+        window = read_log_window(log_path, max_bytes=None)
+    elif head is not None:
+        window = read_log_window(log_path, head=head)
+    else:
+        window = read_log_window(log_path, tail=DEFAULT_TAIL_LINES if tail is None else tail)
     return _envelope_for(
         run,
         stage=stage_name,
         data=LogsData(
             stage=stage_name,
             log_path=str(log_path),
-            output=log_path.read_text(encoding="utf-8"),
+            output=window.output,
+            truncated=window.truncated,
+            total_bytes=window.total_bytes,
+            total_lines=window.total_lines,
         ),
     )

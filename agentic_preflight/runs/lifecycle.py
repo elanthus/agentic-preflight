@@ -42,10 +42,14 @@ from ._session import (
 def events(session: Session, *, limit: int | None = None) -> Envelope:
     """Return the current run's event history."""
     run = _load_current(session)
-    history = session.store.load_events(run.run_id)
+    log = session.store.read_events(run.run_id)
+    history = log.events
     if limit:
         history = history[-limit:]
-    return _envelope_for(run, data=EventsData(events=history, count=len(history)))
+    return _envelope_for(
+        run,
+        data=EventsData(events=history, count=len(history), skipped_lines=log.skipped_lines),
+    )
 
 
 def abort(session: Session, *, force: bool = False, reason: AbortReason | None = None) -> Envelope:
@@ -131,10 +135,14 @@ def _inventory(session: Session):
         for record in gitx.list_worktrees(repo)
         if "worktree" in record and record.get("branch", "").startswith("refs/heads/ap/")
     }
+    # ``for-each-ref`` prints bare names. ``git branch`` decorates the current
+    # branch with ``*`` and one checked out in a linked worktree with ``+``.
     ap_branches = {
-        line.strip().lstrip("* ").strip()
-        for line in gitx.out(repo, "branch", "--list", "ap/*").splitlines()
-        if line.strip()
+        line
+        for line in gitx.out(
+            repo, "for-each-ref", "--format=%(refname:short)", "refs/heads/ap/"
+        ).splitlines()
+        if line
     }
     return known_runs, active, active_run_ids, live_worktrees, ap_branches
 
@@ -213,27 +221,149 @@ def _collect_run(
             }
         return False, retained, False
     store.clear_run(run_id)
-    if run.fix_commits and not force and not _is_in_place(run):
-        unlanded = (
-            _unlanded_fix_commits(session.repo_root, run)
-            if run.state is State.DONE
-            else list(run.fix_commits)
+    unlanded = [] if force else _unlanded_terminal_fixes(session, run)
+    if unlanded:
+        return (
+            False,
+            {
+                "run_id": run_id,
+                "reason": "unmerged fix commits",
+                "fix_commits": unlanded,
+            },
+            False,
         )
-        if unlanded:
+    if not run.worktree_released and run.worktree_path and Path(run.worktree_path).exists():
+        if not force and not _is_in_place(run):
+            unrecorded = _unrecorded_work(run, run.worktree_path)
+            if unrecorded is not None:
+                return (
+                    False,
+                    {"run_id": run_id, "reason": unrecorded, "worktree_path": run.worktree_path},
+                    False,
+                )
+        try:
+            _release_run_worktree(session, run)
+        except worktree.WorktreeLocked:
             return (
                 False,
                 {
                     "run_id": run_id,
-                    "reason": "unmerged fix commits",
-                    "fix_commits": unlanded,
+                    "reason": LOCKED_WORKTREE,
+                    "worktree_path": run.worktree_path,
                 },
                 False,
             )
-    if not run.worktree_released and run.worktree_path and Path(run.worktree_path).exists():
-        _release_run_worktree(session, run)
         with store.transaction(run_id) as doc:
             doc.worktree_released = True
     return True, None, False
+
+
+LOCKED_WORKTREE = "validation worktree is locked"
+LOCKED_WORKTREE_INSTRUCTION = (
+    "A validation worktree is locked with `git worktree lock`, so it was retained; "
+    "show the user each `worktree_path` in `data.retained` and ask whether to unlock it. "
+    "Do not unlock it yourself."
+)
+
+
+def _unlanded_terminal_fixes(session: Session, run: RunDoc) -> list[str]:
+    """The fix commits of a terminal isolated run that collection would lose."""
+    if not run.fix_commits or _is_in_place(run):
+        return []
+    if run.state is State.DONE:
+        return _unlanded_fix_commits(session.repo_root, run)
+    if _fix_commits_discarded(session.store, run):
+        return []
+    return list(run.fix_commits)
+
+
+def _fix_commits_discarded(store: Store, run: RunDoc) -> bool:
+    """Whether ``abort --force`` already discarded this run's fix commits.
+
+    That abort records its decision as an ``aborted`` event with ``forced``
+    true. An unreadable event log, or a run that ended any other way, keeps the
+    commits retained.
+    """
+    if run.state is not State.ABORTED:
+        return False
+    try:
+        events = store.load_events(run.run_id)
+    except OSError:
+        return False
+    for event in reversed(events):
+        if event.get("event") == "aborted":
+            return event.get("forced") is True
+    return False
+
+
+UNCOMMITTED_CHANGES = "validation worktree has uncommitted changes"
+UNRECORDED_COMMITS = "validation worktree holds unrecorded commits"
+UNINSPECTABLE_WORKTREE = "validation worktree could not be inspected"
+UNRECORDED_WORK_REASONS = frozenset(
+    {UNCOMMITTED_CHANGES, UNRECORDED_COMMITS, UNINSPECTABLE_WORKTREE}
+)
+UNRECORDED_WORK_INSTRUCTION = (
+    "Validation worktrees that hold uncommitted changes or commits that `respond` never "
+    "recorded, or that could not be inspected, were retained; inspect each "
+    "`worktree_path` in `data.retained`. `gc --force` discards any work they hold."
+)
+
+
+def _unrecorded_work(run: RunDoc, path: str) -> str | None:
+    """Name the work that releasing a validation checkout would discard, if any.
+
+    ``fix_commits`` lists only fixes answered with ``respond``. A commit made but
+    not yet answered, or an uncommitted file, lives only in the checkout, and
+    releasing it removes the worktree and branch or resets and cleans the
+    runner. The checkout is releasable only when it is clean apart from copied
+    files and its HEAD is the recorded head, a recorded fix, or a commit with
+    the tree of the recorded head or the last recorded fix.
+    """
+    try:
+        status = gitx.run(
+            path,
+            "status",
+            "--porcelain",
+            "-z",
+            "--untracked-files=all",
+            "--ignore-submodules=none",
+        ).stdout
+        head = gitx.rev_parse(path, "HEAD")
+    except (gitx.GitError, OSError):
+        # OSError: Git could not start, for example in a directory it cannot enter.
+        return UNINSPECTABLE_WORKTREE
+    copied = [entry.rstrip("/") for entry in run.copied_files]
+    if any(
+        not any(changed == entry or changed.startswith(entry + "/") for entry in copied)
+        for changed in _porcelain_paths(status)
+    ):
+        return UNCOMMITTED_CHANGES
+    if head == run.head_sha or head in run.fix_commits:
+        return None
+    # A sync that rewrote commits, a tree-equivalent merge-back, or an empty
+    # commit after the last fix can leave HEAD on a different commit with the
+    # recorded head's or last fix's tree: no work is lost.
+    try:
+        recorded = {gitx.tree_sha(path, ref) for ref in (run.head_sha, *run.fix_commits[-1:])}
+        if gitx.tree_sha(path, head) in recorded:
+            return None
+    except (gitx.GitError, OSError):
+        pass
+    return UNRECORDED_COMMITS
+
+
+def _porcelain_paths(status: str) -> list[str]:
+    """Return every path in NUL-separated ``git status --porcelain`` output."""
+    paths: list[str] = []
+    entries = iter(status.split("\0"))
+    for entry in entries:
+        if len(entry) < 4:
+            continue
+        paths.append(entry[3:])
+        if "R" in entry[:2] or "C" in entry[:2]:
+            # A rename or copy is followed by its original path.
+            paths.append(next(entries, ""))
+    return paths
 
 
 def gc(session: Session, *, force: bool = False) -> Envelope:
@@ -278,6 +408,11 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
     known_runs.difference_update(pruned)
 
     legacy = worktree.legacy_worktrees(session.repo_root, session.config.worktree.root)
+    unrecorded_retained = any(item.get("reason") in UNRECORDED_WORK_REASONS for item in retained)
+    locked_retained = any(item.get("reason") == LOCKED_WORKTREE for item in retained)
+    # An interrupted notes fetch or publication can leave its temporary ref.
+    with store.resource("notes"):
+        gitx.sweep_notes_staging_refs(session.repo_root)
 
     return Envelope(
         data=GcData(
@@ -296,22 +431,51 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
                 if (report := telemetry.take_report(run_id)) is not None
             ],
         ),
-        next_instruction=(
-            RUN_READ_RECOVERY
-            if unreadable_retained
-            else "Orphans were found; inspect them before removing."
-            if orphans
-            else "Validation worktrees remain at the old sibling default location; "
-            "inspect each and remove it with `git worktree remove <path>` if unneeded."
-            if legacy
-            else None
+        next_instruction=_gc_instruction(
+            unreadable=unreadable_retained,
+            unrecorded=unrecorded_retained,
+            locked=locked_retained,
+            orphans=bool(orphans),
+            legacy=bool(legacy),
         ),
         next_command=(
             "agentic-preflight gc --force"
-            if orphans and not force and not unreadable_retained
+            if orphans
+            and not force
+            and not unreadable_retained
+            and not unrecorded_retained
+            and not locked_retained
             else None
         ),
     )
+
+
+LEGACY_WORKTREES_INSTRUCTION = (
+    "Validation worktrees remain at the old sibling default location; "
+    "inspect each and remove it with `git worktree remove <path>` if unneeded."
+)
+
+
+def _gc_instruction(
+    *, unreadable: bool, unrecorded: bool, locked: bool, orphans: bool, legacy: bool
+) -> str | None:
+    """Every instruction that applies to this collection, in a fixed order.
+
+    One retained run must not hide the guidance for another, such as an
+    uncommitted-changes run hiding that a locked worktree must not be unlocked.
+    """
+    parts = [
+        text
+        for applies, text in (
+            (unreadable, RUN_READ_RECOVERY),
+            (unrecorded, UNRECORDED_WORK_INSTRUCTION),
+            (locked, LOCKED_WORKTREE_INSTRUCTION),
+            (orphans, "Orphans were found; inspect them before removing."),
+            (legacy, LEGACY_WORKTREES_INSTRUCTION),
+        )
+        if applies
+    ]
+    return " ".join(dict.fromkeys(parts)) or None
 
 
 def _retention_days(session: Session) -> int:
