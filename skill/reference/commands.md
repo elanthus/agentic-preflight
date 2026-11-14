@@ -529,7 +529,7 @@ but only when every recorded fix commit counts as merged. A fix counts as merged
 path it changes holds the fix's or the validated tree's content. It also counts when the
 fix is an ancestor of the branch, a commit since the run's base has its stable patch ID, or
 a commit was cherry-picked from it (same author, author date, and subject), provided every
-path the fix changes differs from the source head merge-back left. This check covers fix
+path the fix changes holds that content or differs from the fix's parent commit. This check covers fix
 provenance and changed paths; it does not prove that a differing resolution is correct,
 which the restarted review decides. Otherwise the retry exits 4 with `fix_commits_unmerged`
 and `data.missing_fix_commits`, returns the run to `MERGEBACK_CONFLICT`, and keeps the

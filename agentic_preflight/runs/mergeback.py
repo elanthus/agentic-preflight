@@ -249,16 +249,17 @@ def _path_entries(repo: str, rev: str, paths: list[str]) -> dict[str, str]:
 def unmerged_fix_commits(session: Session, run: RunDoc, head: str) -> list[str]:
     """Recorded fix commits whose provenance or content ``head`` does not carry.
 
+    Each path a fix changes is *validated* at ``head`` when it matches the fix commit
+    or the validated tree, and *changed* when it differs from the fix's own parent.
     A recorded fix counts as merged when either holds:
 
-    - Exact content: at ``head``, every path the fix changes matches the fix commit or
-      the validated tree.
+    - Exact content: every path the fix changes is validated.
     - Provenance and changed content: the fix is an ancestor of ``head``, a commit
       since the run's base has the same stable patch ID, or such a commit was
       cherry-picked from it (same author, author date, and subject; each replay
-      accounts for one fix). In addition, every path the fix changes must differ at
-      ``head`` from the source head merge-back started from, so a replay whose
-      resolution put back the unfixed content is not accepted.
+      accounts for one fix). In addition, every path the fix changes is validated or
+      changed, so a replay whose resolution kept the content from before the fix is
+      not accepted, even when an earlier fix changed the same path.
     """
     if not run.fix_commits:
         return []
@@ -271,13 +272,17 @@ def unmerged_fix_commits(session: Session, run: RunDoc, head: str) -> list[str]:
     missing: list[str] = []
     for sha in run.fix_commits:
         paths = gitx.commit_files(repo, sha)
+        if not paths:
+            missing.append(sha)  # an empty fix has no content to find
+            continue
         now = _path_entries(repo, head, paths)
         fixed = _path_entries(repo, sha, paths)
         final = _path_entries(repo, validated, paths)
-        if all(now.get(path) in (fixed.get(path), final.get(path)) for path in paths):
+        exact = {path for path in paths if now.get(path) in (fixed.get(path), final.get(path))}
+        if len(exact) == len(paths):
             continue
-        started = _path_entries(repo, run.source_head_sha, paths)
-        if not paths or any(now.get(path) == started.get(path) for path in paths):
+        parent = _path_entries(repo, f"{sha}^", paths)
+        if any(path not in exact and now.get(path) == parent.get(path) for path in paths):
             missing.append(sha)
             continue
         if gitx.is_ancestor(repo, sha, head) or sha not in patch_missing:

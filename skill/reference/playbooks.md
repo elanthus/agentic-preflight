@@ -48,7 +48,7 @@ at, but at least one recorded fix commit does not count as merged, so adopting t
 as the new review snapshot would discard validated fixes. A fix counts as merged when every
 path it changes holds the fix's or the validated content, or when the branch has the fix
 by ancestry, stable patch ID, or a cherry-pick of it (same author, author date, and subject)
-and every path the fix changes differs from where merge-back left the branch. The run is
+and every path the fix changes holds that content or differs from the fix's parent. The run is
 back in `MERGEBACK_CONFLICT`; the validation branch and `fix_commits` were kept, and no
 note was written. Tell the user. With their agreement, cherry-pick the commits in
 `data.missing_fix_commits` onto the source branch, resolving any conflict under the
