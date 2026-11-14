@@ -141,7 +141,11 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> BaselineOut
     try:
         root = worktree.resolve_root(session.repo_root, configured)
     except worktree.WorktreeError as exc:
-        intended = str(Path(configured or "") / f"{run.run_id}-baseline")
+        # Name the absolute location that was refused, as resolve_root computed it.
+        repo = Path(session.repo_root).resolve()
+        refused = Path(configured).expanduser() if configured else worktree.default_root(repo)
+        refused = refused if refused.is_absolute() else repo.parent / refused
+        intended = str(refused.resolve() / f"{run.run_id}-baseline")
         raise _worktree_failure(branch, intended, str(exc)) from exc
     scratch = root / f"{run.run_id}-baseline"
     _reclaim_leftovers(session, run, scratch, branch)

@@ -1213,6 +1213,7 @@ def test_an_in_place_baseline_root_inside_the_repository_is_a_setup_failure(
         "[docs]\nenabled = false\n\n"
         f"[worktree]\nmode = 'in_place'\nroot = '{feature_repo.name}/scratch'\n"
     )
+    run_id = agent.run("status")["run_id"]
 
     env = agent.run(
         "stage",
@@ -1228,6 +1229,9 @@ def test_an_in_place_baseline_root_inside_the_repository_is_a_setup_failure(
     assert env["error"]["code"] == "setup_failed"
     assert env["data"]["setup"]["kind"] == "worktree"
     assert "outside the repository" in env["error"]["message"]
+    assert env["data"]["worktree_path"] == str(
+        feature_repo.resolve() / "scratch" / f"{run_id}-baseline"
+    )
     assert "baseline_red" not in env["data"]
     assert not (feature_repo / "scratch").exists()
 
