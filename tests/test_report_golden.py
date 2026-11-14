@@ -167,3 +167,17 @@ def test_typed_rows_name_every_key_a_summary_writes():
             assert set(row["risk"]) == set(run_summary.RiskRow.__annotations__)
         if row["timing"] is not None:
             assert set(row["timing"]) == set(run_summary.TimingRow.__annotations__)
+
+
+@pytest.mark.parametrize("repo", [None, "missing"])
+def test_a_row_without_a_repository_is_grouped_by_its_key(repo):
+    """The report's public functions tolerate unvalidated rows, as before the split."""
+    row = make_row("r_0000000030")
+    if repo == "missing":
+        del row["repo"]
+    else:
+        row["repo"] = repo
+
+    groups = report.by_repo([row])
+
+    assert [(group["key"], group["label"]) for group in groups] == [("path:None", "path:None")]

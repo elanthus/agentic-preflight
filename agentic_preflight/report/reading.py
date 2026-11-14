@@ -99,8 +99,9 @@ def _keep_newest(
     return list(kept.values())
 
 
-def _same_run(_: int, row: SummaryRow) -> tuple[Any, ...]:
-    return (row["run_id"], row.get("created_at"), row["repo"].get("source_worktree_path"))
+def _same_run(_: int, row: Mapping[str, Any]) -> tuple[Any, ...]:
+    repo = row.get("repo") or {}
+    return (row["run_id"], row.get("created_at"), repo.get("source_worktree_path"))
 
 
 def _dedupe(rows: Sequence[SummaryRow]) -> tuple[list[SummaryRow], int]:

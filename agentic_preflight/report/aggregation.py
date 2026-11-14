@@ -726,7 +726,9 @@ def by_repo(rows: Sequence[SummaryRow]) -> list[dict[str, Any]]:
     """One group per repository, named by its most recently finished run."""
     result = []
     for key, members in _groups(rows, repo_key).items():
-        repo = max(members, key=finish_order)["repo"]
+        # Public callers may pass unvalidated rows, so a missing repository is tolerated.
+        latest: Mapping[str, Any] = max(members, key=finish_order)
+        repo = latest.get("repo") or {}
         result.append(
             {
                 "key": key,
