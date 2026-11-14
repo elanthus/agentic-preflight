@@ -46,6 +46,12 @@ def _validate_response(
     reason: str | None = None,
 ) -> str | None:
     """Validate action-specific evidence and normalize the fix commit."""
+    if note is not None and len(note) > findingsmod.RESPONSE_NOTE_LIMIT:
+        raise InvalidResponse(
+            f"--note is {len(note)} characters; the limit is {findingsmod.RESPONSE_NOTE_LIMIT}",
+            state=run.state.value,
+            run_id=run.run_id,
+        )
     if reason is not None and action == "fixed":
         raise InvalidResponse(
             f"--reason is only valid when resolving {finding_id} as dismissed or accepted, "

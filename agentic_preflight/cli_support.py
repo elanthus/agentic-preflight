@@ -16,7 +16,7 @@ from .config import ConfigError
 from .envelope import Envelope, ExitCode, emit
 from .errors import AgenticError, SourceWorktreeMissing
 from .gitx import GitError
-from .store import RUN_READ_RECOVERY, RunReadError
+from .store import RunReadError
 from .worktree import CopiedFileInCommit, CopyRefused, WorktreeError
 
 
@@ -155,8 +155,12 @@ def command(fn):
         except AgenticError as exc:
             fail(exc)
         except RunReadError as exc:
+            data = exc.details()
+            instruction, offered = exc.recovery()
+            if offered:
+                data["pointer_paths"] = [str(path) for path in offered]
             error = AgenticError(
-                str(exc), run_id=exc.run_id, data=exc.details(), next_instruction=RUN_READ_RECOVERY
+                str(exc), run_id=exc.run_id, data=data, next_instruction=instruction
             )
             error.code = "run_record_unreadable"
             error.exit_code = ExitCode.PRECONDITION
