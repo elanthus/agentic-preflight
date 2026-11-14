@@ -624,6 +624,227 @@ def test_gc_never_deletes_unmerged_work_without_force(blocked, feature_repo):
     assert Path(wt).exists()
 
 
+def _blocked_isolated_run(agent, feature_repo, tmp_path, mode):
+    write(feature_repo, ".agentic-preflight.toml", f"[worktree]\nmode = '{mode}'\n")
+    commit_all(feature_repo, f"use {mode} validation")
+    env = agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, BLOCKING))
+    return env["run_id"], Path(env["data"]["worktree_path"])
+
+
+@pytest.mark.parametrize("mode", ["strict", "reusable"])
+def test_gc_reclaims_and_prunes_a_force_aborted_run_whose_fixes_were_discarded(
+    agent, feature_repo, tmp_path, mode
+):
+    """`abort --force` already chose to discard the fix commits; gc must not keep them."""
+    run_id, wt = _blocked_isolated_run(agent, feature_repo, tmp_path, mode)
+    sha = fix_commit(wt)
+    agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", sha)
+    aborted = agent.run("abort", "--force")
+    assert aborted["data"]["discarded_fix_commits"] == [sha]
+
+    env = agent.run("gc")
+
+    assert run_id in env["data"]["removed"]
+    assert [item for item in env["data"]["retained"] if item.get("run_id") == run_id] == []
+    _last_changed_days_ago(feature_repo, run_id, 91)
+    assert agent.run("gc")["data"]["pruned"] == [run_id]
+    assert not _run_dir(feature_repo, run_id).exists()
+
+
+def test_abort_reports_a_locked_strict_worktree_and_keeps_it(agent, feature_repo):
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(feature_repo, "use strict validation")
+    started = agent.run("start")
+    wt = Path(started["data"]["worktree_path"])
+    git("worktree", "lock", str(wt), cwd=feature_repo)
+
+    env = agent.run("abort", expect=ExitCode.ERROR)
+
+    assert "locked" in env["error"]["message"]
+    assert "do not unlock it yourself" in env["error"]["message"]
+    assert wt.is_dir()
+    assert agent.run("status")["state"] == started["state"]
+
+    git("worktree", "unlock", str(wt), cwd=feature_repo)
+    assert agent.run("abort")["state"] == "ABORTED"
+    assert not wt.exists()
+
+
+def test_gc_retains_a_locked_strict_worktree_and_collects_the_rest(agent, feature_repo):
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(feature_repo, "use strict validation")
+    started = agent.run("start")
+    run_id = started["run_id"]
+    wt = Path(started["data"]["worktree_path"])
+    git("worktree", "lock", str(wt), cwd=feature_repo)
+    # The user moves the source branch, so gc orphans the stale run.
+    write(feature_repo, "src/other.py", "x = 1\n")
+    commit_all(feature_repo, "unrelated source work")
+
+    env = agent.run("gc", "--force")
+
+    assert env["ok"] is True
+    assert run_id not in env["data"]["removed"]
+    assert {
+        "run_id": run_id,
+        "reason": "validation worktree is locked",
+        "worktree_path": str(wt),
+    } in env["data"]["retained"]
+    assert wt.is_dir()
+    assert "ask whether to unlock it" in env["next"]["instruction"]
+    assert env["next"]["command"] is None
+
+
+def test_gc_instruction_covers_every_retained_reason(agent, feature_repo, tmp_path):
+    """An unrecorded-work run must not hide the guidance for a locked worktree."""
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(feature_repo, "use strict validation")
+    dirty = agent.run("start")
+    dirty_wt = Path(dirty["data"]["worktree_path"])
+    write(dirty_wt, "notes/draft.txt", "half-finished fix\n")
+
+    other = tmp_path / "feature-y"
+    git("branch", "feature/y", "main", cwd=feature_repo)
+    git("worktree", "add", str(other), "feature/y", cwd=feature_repo)
+    write(other, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    write(other, "src/app.py", "def greet(name):\n    return f'hello {name}'\n")
+    commit_all(other, "change the greeting")
+    other_agent = ScriptedAgent(other)
+    locked = other_agent.run("start")
+    locked_wt = Path(locked["data"]["worktree_path"])
+    git("worktree", "lock", str(locked_wt), cwd=feature_repo)
+    # Both sources move on, so gc orphans both stale runs.
+    for source in (feature_repo, other):
+        write(source, "src/other.py", "x = 1\n")
+        commit_all(source, "unrelated source work")
+
+    env = agent.run("gc")
+
+    reasons = {item.get("run_id"): item.get("reason") for item in env["data"]["retained"]}
+    assert reasons[dirty["run_id"]] == "validation worktree has uncommitted changes"
+    assert reasons[locked["run_id"]] == "validation worktree is locked"
+    instruction = env["next"]["instruction"]
+    assert "`gc --force` discards any work they hold" in instruction
+    assert "Do not unlock it yourself." in instruction
+    assert instruction.index("gc --force") < instruction.index("Do not unlock")
+    assert env["next"]["command"] is None
+    assert dirty_wt.is_dir()
+    assert locked_wt.is_dir()
+
+
+@pytest.mark.parametrize("mode", ["strict", "reusable"])
+def test_gc_keeps_an_aborted_runs_fix_commits_without_a_forced_abort_marker(
+    agent, feature_repo, tmp_path, mode
+):
+    """Only a recorded forced abort discards fixes; anything else stays retained."""
+    run_id, wt = _blocked_isolated_run(agent, feature_repo, tmp_path, mode)
+    sha = fix_commit(wt)
+    agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", sha)
+    agent.run("abort", "--force")
+    events = _run_dir(feature_repo, run_id) / "events.jsonl"
+    kept = [
+        line
+        for line in events.read_text(encoding="utf-8").splitlines()
+        if json.loads(line).get("event") != "aborted"
+    ]
+    events.write_text("\n".join(kept) + "\n", encoding="utf-8")
+
+    env = agent.run("gc")
+
+    assert run_id not in env["data"]["removed"]
+    assert {
+        "run_id": run_id,
+        "reason": "unmerged fix commits",
+        "fix_commits": [sha],
+    } in env["data"]["retained"]
+
+
+@pytest.mark.parametrize("mode", ["strict", "reusable"])
+@pytest.mark.parametrize("work", ["unresponded_commit", "uncommitted_file"])
+def test_gc_retains_a_validation_worktree_holding_unrecorded_work(
+    agent, feature_repo, tmp_path, mode, work
+):
+    """Work that `respond` never recorded is still work: gc must not discard it."""
+    run_id, wt = _blocked_isolated_run(agent, feature_repo, tmp_path, mode)
+    if work == "unresponded_commit":
+        sha = fix_commit(wt)
+    else:
+        write(wt, "notes/draft.txt", "half-finished fix\n")
+    # The user moves the source branch, so gc orphans the stale run.
+    write(feature_repo, "src/other.py", "x = 1\n")
+    commit_all(feature_repo, "unrelated source work")
+
+    env = agent.run("gc")
+
+    assert run_id not in env["data"]["removed"]
+    retained = [item for item in env["data"]["retained"] if item.get("run_id") == run_id]
+    assert retained == [
+        {
+            "run_id": run_id,
+            "reason": (
+                "validation worktree holds unrecorded commits"
+                if work == "unresponded_commit"
+                else "validation worktree has uncommitted changes"
+            ),
+            "worktree_path": str(wt),
+        }
+    ]
+    assert wt.exists()
+    if work == "unresponded_commit":
+        assert git("rev-parse", "HEAD", cwd=wt) == sha
+        assert git("rev-parse", f"ap/{run_id}", cwd=feature_repo) == sha
+    else:
+        assert (wt / "notes" / "draft.txt").read_text(encoding="utf-8") == "half-finished fix\n"
+    record = Store(_run_dir(feature_repo, run_id).parent.parent).load_run(run_id)
+    assert record.state is State.ORPHANED
+    assert record.worktree_released is False
+    assert "`gc --force` discards any work they hold" in env["next"]["instruction"]
+    assert env["next"]["command"] is None
+
+    forced = agent.run("gc", "--force")
+    assert run_id in forced["data"]["removed"]
+
+
+@pytest.mark.parametrize("mode", ["strict", "reusable"])
+def test_gc_releases_a_validation_worktree_whose_head_has_the_recorded_tree(
+    agent, feature_repo, tmp_path, mode
+):
+    """A rewritten commit with the recorded head's tree holds no work to keep."""
+    run_id, wt = _blocked_isolated_run(agent, feature_repo, tmp_path, mode)
+    recorded = git("rev-parse", "HEAD", cwd=wt)
+    git("commit", "--amend", "-m", "rewritten without changing the tree", cwd=wt)
+    assert git("rev-parse", "HEAD", cwd=wt) != recorded
+    write(feature_repo, "src/other.py", "x = 1\n")
+    commit_all(feature_repo, "unrelated source work")
+
+    env = agent.run("gc")
+
+    assert run_id in env["data"]["removed"]
+    assert [item for item in env["data"]["retained"] if item.get("run_id") == run_id] == []
+
+
+@pytest.mark.parametrize("mode", ["strict", "reusable"])
+def test_a_healthy_isolated_run_is_not_reported_as_an_orphan(agent, feature_repo, mode):
+    """A branch checked out in a linked worktree is listed by git with a `+` mark."""
+    write(feature_repo, ".agentic-preflight.toml", f"[worktree]\nmode = '{mode}'\n")
+    commit_all(feature_repo, f"use {mode} validation")
+    run_id = agent.run("start")["run_id"]
+
+    env = agent.run("gc")
+
+    assert env["data"]["orphans"] == []
+    assert env["data"]["removed"] == []
+    assert (env.get("next") or {}).get("command") is None
+    inventory = agent.run("status", "--all")
+    (summary,) = [item for item in inventory["data"]["runs"] if item["run_id"] == run_id]
+    assert summary["active"] is True
+    assert summary["state"] != "ORPHANED"
+    assert summary["orphaned_reason"] is None
+    assert agent.run("status")["run_id"] == run_id
+
+
 def test_gc_reconciles_a_worktree_with_no_run_directory(agent, feature_repo):
     """An orphan: git knows about the worktree, the store no longer does."""
     import shutil
@@ -673,6 +894,7 @@ def test_gc_retains_unreadable_resources_and_collects_other_runs(
         git("worktree", "add", "-b", f"ap/{run_id}", str(wt), "main", cwd=feature_repo)
         run = make_run(run_id)
         run.state = State.DONE
+        run.head_sha = run.source_head_sha = git("rev-parse", "main", cwd=feature_repo)
         run.pushed_sha = run.head_sha
         run.worktree_path = str(wt)
         run.worktree_branch = f"ap/{run_id}"
@@ -741,3 +963,42 @@ def test_gc_cleanup_failures_still_surface(feature_repo, monkeypatch):
     result = ScriptedAgent(feature_repo).run("gc", expect=1)
     assert result["error"]["code"] == "internal_error"
     assert store.load_run(run.run_id).worktree_released is False
+
+
+@pytest.mark.parametrize("failing", ["status", "tree"])
+def test_gc_survives_git_failing_to_start_in_the_validation_worktree(
+    tmp_path, monkeypatch, failing
+):
+    """`subprocess` raises OSError, not GitError, when Git cannot start in the checkout."""
+    import subprocess
+
+    from agentic_preflight import gitx
+    from agentic_preflight.runs.lifecycle import (
+        UNINSPECTABLE_WORKTREE,
+        UNRECORDED_COMMITS,
+        _unrecorded_work,
+    )
+    from tests.conftest import make_run
+
+    def denied(cwd, *args, **kwargs):
+        raise PermissionError(13, "Permission denied", str(cwd))
+
+    if failing == "status":
+        monkeypatch.setattr(gitx, "run", denied)
+    else:
+        clean = subprocess.CompletedProcess(["git"], 0, stdout="", stderr="")
+        monkeypatch.setattr(gitx, "run", lambda cwd, *args, **kwargs: clean)
+        monkeypatch.setattr(gitx, "rev_parse", lambda cwd, ref: "c" * 40)
+        monkeypatch.setattr(gitx, "tree_sha", denied)
+
+    assert _unrecorded_work(make_run(), str(tmp_path)) == (
+        UNINSPECTABLE_WORKTREE if failing == "status" else UNRECORDED_COMMITS
+    )
+
+
+def test_gc_reads_every_path_of_a_porcelain_status_including_rename_sources():
+    from agentic_preflight.runs.lifecycle import _porcelain_paths
+
+    status = " M src/app.py\0R  new.py\0old.py\0?? notes/a b.txt\0"
+    assert _porcelain_paths(status) == ["src/app.py", "new.py", "old.py", "notes/a b.txt"]
+    assert _porcelain_paths("") == []

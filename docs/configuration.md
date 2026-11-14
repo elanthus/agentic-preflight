@@ -10,6 +10,8 @@ A section in the repository file replaces the whole matching user section.
 `[telemetry]` is the exception. A repository section can only turn telemetry off. See [Local run telemetry](#local-run-telemetry-telemetry).
 Keys are not merged across the two files.
 A section that only the user file sets still applies.
+The published attestation note leaves out such a section, except `[diff]`. See [Portable attestations](attestations-and-ci.md).
+A run that an earlier release started must be restarted before it can publish a note.
 Unknown keys are errors that name the key. They are not ignored.
 The retired `[ci]` and `[reuse]` sections are the exception. File loading ignores them with a warning.
 Removed individual keys, including `[hook] enabled`, still fail file loading. Remove them from both files.
@@ -28,6 +30,8 @@ A base commit with no such file uses the defaults.
 Thus, the base policy decides what verification and the hosted approval check require, whatever the user file or the branch sets.
 A relaxed setting fails verification only when the run's evidence falls short of the base policy.
 For example, verification rejects a note whose run skipped docs that the base enables, ran a lint, test, or review command other than the one the base configures, or excluded review files that the base does not exclude.
+Verification compares those commands as strings. A branch can still edit a script that a command runs from the repository.
+For the review and planner commands, such an edit makes the change high risk; see [Review independence](#review-independence-review).
 See [what verification trusts](limits.md#attestations-are-not-signatures).
 
 > **Warning: the configuration executes committed code.**
@@ -63,10 +67,11 @@ max_findings = 50
 executor = "in_harness"       # default; or "command"
 # command = "reviewer --json" # receives review context JSON on stdin
 require_command_for = []      # e.g. ["high"] to require independence by risk
+trusted_paths = []            # e.g. ["tools/reviewer/**"]; changes need human review
 
 [review.contracts]
 enabled = false              # opt-in executable review evidence
-# planner_command = "python3 -B docs/examples/reviewers/claude_review.py"
+# planner_command = "python3 -S -B docs/examples/reviewers/claude_review.py"
 # image = "registry.example/runtime@sha256:<64 lowercase hex characters>"
 max_checks = 8               # 1..32, three probes per check
 timeout_seconds = 10         # 1..60 per probe
@@ -81,6 +86,9 @@ human_review_paths = [
   ".github/workflows/**",
   ".github/CODEOWNERS",
   "CODEOWNERS",
+  "docs/CODEOWNERS",
+  # Command reviewer wrappers decide what a review reports.
+  "docs/examples/reviewers/**",
 ]
 # Every high-risk result requires human merge approval; medium risk does not.
 high_risk_paths = ["db/migrations/**", "infra/**"]
@@ -197,6 +205,7 @@ Each run keeps a directory under `$GIT_COMMON_DIR/agentic-preflight/runs/`.
 That directory holds its record, events, findings, stage logs, and `summary.json`.
 `gc` deletes a run's directory when the run has been reclaimed and its record last changed more than `run_days` days ago.
 A run is reclaimed when it is finished, has no unlanded fix commits, and its validation worktree is released.
+Fix commits that `abort --force` discarded do not count as unlanded.
 The default is 90. `run_days = 0` keeps every record.
 A run whose command is still executing is left for the next `gc`.
 The deleted run IDs are listed in `data.pruned`.
@@ -302,14 +311,22 @@ GitHub plan restrictions can limit required reviewers for private repositories.
 
 `mode = "peer_review"` keeps the original pull-request-review policy.
 An eligible repository owner, member, or collaborator other than the author must approve the current head or an equivalent earlier head.
+Only each reviewer's latest decisive review counts, whichever head they submitted it on.
+A later changes-requested review or dismissal on any head revokes the approval, and a later approval of a head with different content replaces it.
+Returning the branch to an approved commit does not restore a revoked approval.
+A revoking review still counts when GitHub no longer reports the commit it was submitted on.
+A comment does not revoke a peer approval.
 
 `mode = "owner_review"` requires the human GitHub login in `reviewer` to review the current head or an equivalent earlier head.
 They must be a repository owner, member, or collaborator.
 On another author's pull request, they submit an **Approve** review.
 On their own pull request, they submit a **Comment** review whose trimmed body is exactly `approved` in lowercase.
 An ordinary PR conversation comment does not count.
-A dismissal or a later changes-requested review on any head revokes the approval.
-An edit or replacement of a self-review with other text also removes its approval.
+As in `peer_review`, only the reviewer's latest decisive review counts: a dismissal or a later changes-requested review on any head revokes the approval, and a later approval of a head with different content replaces it.
+An edit of a self-review to other text, or a later self-review Comment with other text on any head, also removes its approval.
+On their own pull request, replying to a review thread creates a Comment review with an empty body, so a reply also removes the self-approval, even on another head.
+Post replies before the final `approved` Comment review, or approve again afterwards.
+On another author's pull request, the reviewer's Comment reviews and replies do not revoke an Approve review.
 Bots and other reviewers cannot satisfy this mode.
 
 The self-approval proves only that the reviewer's account posted it.
@@ -365,6 +382,7 @@ The reviewer checks that content.
 It returns that knowledge in `data.grounding`.
 The default sources are matching files under `docs/**` and the root `AGENTS.md` and `CLAUDE.md` files.
 They also include relevant findings from earlier local runs and the deterministic policy reasons for the change.
+The documentation, the convention files, and this `[context]` section are read at the run's merge base, so a branch's change to `[context]` applies to later runs after it merges.
 See [Grounded context](context-grounding.md) for the matching and ordering rules.
 
 `enabled = false` returns an explicit empty grounding block.
@@ -403,6 +421,9 @@ This includes the abbreviated list in the complete example above.
 To add a project-specific pattern, copy this list and append to it.
 
 ## Stage execution (`[stage]`)
+
+A stage command with shell grammar runs through a login shell, which sources your login profile first.
+The command then changes back to the validation directory, so a profile that changes directory does not move the stage.
 
 `timeout_seconds` bounds a single stage run. `max_attempts` bounds the retries.
 When a stage is still red after `max_attempts`, the run stops and asks for human resolution.
@@ -464,11 +485,51 @@ Verification compares the attested review command only with a `command` committe
 When the base requires command review but sets no `command`, a note from any review command passes, as lint and test commands do when the base sets none.
 Commit `command` to control which reviewer satisfies the requirement.
 
+Verification compares the command string, not the program that it runs.
+`command` runs in the worktree that holds the change under review, so a script that it names in the repository is the branch's copy of that script.
+Thus, risk classification treats the reviewer's own files as human-review paths, in addition to `[policy] human_review_paths`:
+
+- Every repository-relative path that `command` or `[review.contracts] planner_command` names.
+  A named file is protected together with every file under its directory, because interpreters load sibling modules from there.
+  The example wrappers, for instance, import `_reviewer_common.py` from their own directory.
+  A path at the repository root is protected as that file, or as that directory if it is one.
+  Its sibling files are not protected, because that would cover the whole repository. List any module that a root-level reviewer imports in `trusted_paths`, or move the reviewer into its own directory.
+- Every pattern in `trusted_paths`. Patterns are repository-relative globs with the same matching and restrictions as `[policy]`.
+
+A change to any of these paths is high risk, so it goes through the configured `[approval] mode` before merge.
+The hosted approval check and attestation verification use the `[review]` section committed at the protected base, so a branch cannot point the command elsewhere to escape the rule.
+A local run classifies risk with the branch's own configuration. Its verdict is advisory.
+When the base sets no `command`, for example because the command comes only from a user configuration file, the base names no reviewer paths. Protect that reviewer with `[policy] human_review_paths` committed at the base. A committed `[review]` section that sets only `trusted_paths` would replace the user's whole `[review]` section, including its `command`, so set `trusted_paths` there only together with the command.
+
+Reading paths from a command is approximate:
+
+- A word counts as a path when it contains `/` or `.`, after the value of a `--option=value` or `NAME=value` word is taken.
+- Control operators (`;`, `&`, `|`, `(`, `)`, `<`, `>`) separate words only outside quotes, so a quoted path such as `'reviewers (local)/rev.py'` stays one path.
+- The word after a shell's `-c` flag, as in `sh -c '...'` or `bash -lc '...'`, is read as a command too.
+- A directory that the command changes to is protected as `DIR/**`: the argument of `cd` or `pushd`, and the value of `-C`, `--directory`, `--cwd`, `--prefix`, `--project`, or `--chdir` (also `--option=DIR` and `-CDIR`). Later relative paths are protected both as written and under `DIR`.
+- Each directory in a `PYTHONPATH=` or `NODE_PATH=` value is protected as `DIR/**`. A root entry such as `.` is not, because that would cover the whole repository; list the root modules that the reviewer imports in `trusted_paths`.
+- `-m a.b` protects the top-level package `a/**`, whose `__init__.py` runs first. `-m reviewer` protects `reviewer.py` and `reviewer/**`. A flag cluster such as `-Bm a.b` and the attached form `-ma.b` count too.
+- A leading `$VAR/`, `${VAR}/`, `$(...)/`, or backtick expansion before a slash is dropped, and the literal path after it is kept.
+- Bare program names, absolute paths, paths outside the repository, and other words with a shell expansion or a glob are skipped.
+
+List in `trusted_paths` anything else that decides what the reviewer does: a prompt or configuration file in another directory, a path that the command computes, or a file that the program reads on its own.
+
+The interpreter and runner environment is a reviewer input too, and command parsing does not find it.
+`uv run`, `poetry run`, and `npm run` load or synchronize the project from its manifest and lockfile, which can run build hooks or path dependencies from the branch.
+During startup, Python imports a `sitecustomize` module from any directory on `sys.path`, and an editable install puts the repository there.
+Run a reviewer that needs only the standard library directly, with `python3 -S -B`, as the [example configurations](independent-review.md) do. `-S` skips that startup processing.
+Otherwise, protect the runner's inputs with `trusted_paths`.
+The coding-agent CLI that a wrapper starts can also read instructions and settings from the worktree, such as `CLAUDE.md`, `AGENTS.md`, or `.claude/settings.json`.
+The example wrappers turn off those that the CLI lets them. Codex cannot be told to skip a project `.codex/config.toml` or repository skills under `.agents/skills`, so list `.codex/**` and `.agents/**` in `trusted_paths` when you use Codex.
+A custom wrapper must turn these sources off too, or list them in `trusted_paths`.
+
 Command review uses `[stage] timeout_seconds` and `max_attempts`.
 Attempts persist across process restarts.
 Every repair invalidates the prior executor and coverage evidence.
 Attestation schema v7 records `executor` and per-stage provenance for every review.
 Command reviews also record the configured command, the exit code, and the redacted output digest.
+A command from a user-level `[review]` section is recorded as `[redacted user-level command]`.
+The local check that builds the note still derives reviewer paths from the real command.
 
 See [Independent review and agreement](independent-review.md) for worked Codex and Claude configurations and the two-reviewer comparison report.
 
@@ -480,6 +541,7 @@ It never makes a small change safe or a large change dangerous.
 `[policy]` classifies the paths that the branch changes:
 
 - `human_review_paths` marks ownership-sensitive paths as high risk. It records the specific policy match for reviewers.
+  The paths of the configured reviewer count as human-review paths too; see [Review independence](#review-independence-review).
 - `high_risk_paths` assigns high risk. Every high-risk result uses the configured approval mode before merge. It does not require a person to perform the push.
 - `medium_risk_paths` assigns medium risk. Unmatched changes start at low risk.
 
@@ -509,7 +571,8 @@ Ordinary code derives the verdict from the committed policy and the stored findi
 The reviewing model cannot submit or override it.
 Protect the policy file with your forge's ownership rules, so a change cannot quietly remove its own human-review rule.
 On GitHub, make the repository's `high-risk human approval` job a required status check.
-Copy `human-approval-review.yml` and `human-approval-rerun.yml` along with `human-approval.yml`, so a submitted review re-runs the check; see [how a review reaches the check](attestations-and-ci.md#how-a-review-reaches-the-check).
+Copy `human-approval-review.yml` and `human-approval-rerun.yml` along with `human-approval.yml`, so a review from an owner, member, or collaborator, or a dismissal by a user with write access, re-runs the check; see [how a review reaches the check](attestations-and-ci.md#how-a-review-reaches-the-check).
+The copied checkouts set `persist-credentials: false`, so in a private repository the later `git fetch` steps need credentials of their own; see [Required GitHub check](attestations-and-ci.md#required-github-check).
 Require Code Owner reviews for the protected paths.
 The job evaluates trusted base code.
 Its behavior depends on `[approval] mode`.

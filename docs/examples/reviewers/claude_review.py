@@ -20,13 +20,19 @@ def main() -> int:
     try:
         context = read_context()
         executable = os.environ.get("AP_CLAUDE_BIN", "claude")
-        # These flags were verified against Claude Code 2.1.236.
+        # These flags were verified against Claude Code 2.1.292. The CLI runs in the
+        # worktree under review, so `--safe-mode` drops CLAUDE.md, skills, hooks, MCP
+        # servers, and agents, and `--setting-sources user` ignores the project's
+        # `.claude/settings*.json`. A branch cannot instruct or reconfigure its reviewer.
         model = os.environ.get("AP_REVIEWER_MODEL", "claude-sonnet-5")
         effort = reviewer_effort("high")
         result = run_cli(
             [
                 executable,
                 "-p",
+                "--safe-mode",
+                "--setting-sources",
+                "user",
                 "--output-format",
                 "stream-json",
                 "--verbose",

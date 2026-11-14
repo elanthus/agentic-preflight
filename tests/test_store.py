@@ -93,6 +93,17 @@ def test_loading_an_unknown_run_raises(store):
         store.load_run("r_nope")
 
 
+def test_reading_an_unknown_run_leaves_no_run_directory(store):
+    store.create_run(make_run())
+    with pytest.raises(UnknownRun):
+        store.load_run("r_nope")
+    assert store.peek("r_nope", "branch") is None
+    assert store.load_findings("r_nope") == []
+
+    assert not store.run_dir("r_nope").exists()
+    assert store.list_runs() == ["r_abc123"]
+
+
 def test_transaction_bumps_seq_and_persists_the_mutation(store):
     store.create_run(make_run())
     with store.transaction("r_abc123") as run:
@@ -324,14 +335,34 @@ def test_a_torn_final_event_line_is_dropped(store):
         "one",
         "two",
     ]
+    assert store.read_events("r_abc123").skipped_lines == 1
 
 
-def test_a_torn_earlier_event_line_is_a_read_error(store):
+def test_a_torn_earlier_event_line_is_skipped_and_counted(store):
     store.create_run(make_run())
     store.events_path("r_abc123").write_text('{"event": "on\n{"event": "two"}\n', encoding="utf-8")
-    with pytest.raises(RunReadError) as caught:
-        store.load_events("r_abc123")
-    assert caught.value.reason == "invalid"
+    log = store.read_events("r_abc123")
+    assert [event["event"] for event in log.events] == ["two"]
+    assert log.skipped_lines == 1
+
+
+def test_an_append_after_a_torn_line_starts_a_new_line(store):
+    store.create_run(make_run())
+    store.append_event("r_abc123", {"event": "one"})
+    with open(store.events_path("r_abc123"), "a", encoding="utf-8") as handle:
+        handle.write('{"event": "tw')
+    store.append_event("r_abc123", {"event": "three"})
+    store.append_event("r_abc123", {"event": "four"})
+
+    log = store.read_events("r_abc123")
+    assert [event["event"] for event in log.events] == [
+        "state_transition",
+        "one",
+        "three",
+        "four",
+    ]
+    assert log.skipped_lines == 1
+    assert store.events_path("r_abc123").read_bytes().count(b'{"event": "tw\n') == 1
 
 
 def test_a_final_event_line_cut_inside_a_multibyte_character_is_dropped(store):
@@ -347,12 +378,21 @@ def test_a_final_event_line_cut_inside_a_multibyte_character_is_dropped(store):
     ]
 
 
-def test_invalid_utf8_on_an_earlier_event_line_is_a_read_error(store):
+@pytest.mark.parametrize("payload", ["7", "null", '"text"', "[]"])
+def test_an_event_line_that_is_not_an_object_is_skipped_and_counted(store, payload):
+    store.create_run(make_run())
+    store.events_path("r_abc123").write_text(payload + '\n{"event": "two"}\n', encoding="utf-8")
+    log = store.read_events("r_abc123")
+    assert log.events == [{"event": "two"}]
+    assert log.skipped_lines == 1
+
+
+def test_invalid_utf8_on_an_earlier_event_line_is_skipped_and_counted(store):
     store.create_run(make_run())
     store.events_path("r_abc123").write_bytes(b'{"event": "\xff"}\n{"event": "two"}\n')
-    with pytest.raises(RunReadError) as caught:
-        store.load_events("r_abc123")
-    assert caught.value.reason == "invalid"
+    log = store.read_events("r_abc123")
+    assert [event["event"] for event in log.events] == ["two"]
+    assert log.skipped_lines == 1
 
 
 def test_append_event_waits_for_the_events_lock(store):

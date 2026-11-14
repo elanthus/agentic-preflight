@@ -306,6 +306,7 @@ class GateData(RunDataBase):
     automated_cleanup: bool | None = None
     approval_mode: str | None = None
     commits: list[Obj] | None = None
+    published_notes: list[str] | None = None
     risk: Obj | None = None
     token: str | None = None
     push_commands: list[str] | None = None
@@ -322,6 +323,7 @@ class PushData(RunDataBase):
     base_ref: str | None = None
     pr_mode: str | None = None
     automated_cleanup: bool | None = None
+    published_notes: list[str] | None = None
 
 
 class FinishData(RunDataBase):
@@ -399,12 +401,29 @@ class StatusData(RunDataBase):
 class LogsData(RunDataBase):
     stage: str | None = None
     log_path: str | None = None
-    output: str | None = None
+    output: str | None = Field(
+        default=None,
+        description="The selected window of the redacted stage log.",
+    )
+    truncated: bool | None = Field(
+        default=None,
+        description="True when output is less than the whole stored log.",
+    )
+    total_bytes: int | None = Field(
+        default=None, description="Size of the whole stored log in bytes."
+    )
+    total_lines: int | None = Field(
+        default=None, description="Number of lines in the whole stored log."
+    )
 
 
 class EventsData(RunDataBase):
     events: list[Obj] | None = None
     count: int | None = None
+    skipped_lines: int | None = Field(
+        default=None,
+        description="Event log lines skipped because they are not JSON objects, such as a torn append.",
+    )
 
 
 class AbortData(RunDataBase):

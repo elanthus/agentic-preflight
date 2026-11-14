@@ -15,6 +15,7 @@ from .cli_support import (
     open_cli_session,
     read_json_file,
 )
+from .findings import RESPONSE_NOTE_LIMIT
 from .models import ABORT_REASONS, RESPONSE_REASONS, AbortReason, ResponseReason
 from .runs.start import normalize_client, normalize_model
 
@@ -184,6 +185,13 @@ def respond(
                 ctx=click.get_current_context(),
             )
         )
+    if note is not None and len(note) > RESPONSE_NOTE_LIMIT:
+        fail_usage(
+            click.UsageError(
+                f"--note is {len(note)} characters; the limit is {RESPONSE_NOTE_LIMIT}",
+                ctx=click.get_current_context(),
+            )
+        )
     finish_locked(
         lambda session: runs.respond(
             session,
@@ -257,11 +265,34 @@ def stage_run(name: str, command_str: str | None, record: bool, baseline: bool) 
 
 @click.command()
 @click.option("--stage", "stage_name", required=True, type=click.Choice(["review", "lint", "test"]))
+@click.option(
+    "--tail",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Return the last N lines (default 200), at most 64 KiB.",
+)
+@click.option(
+    "--head",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Return the first N lines, at most 64 KiB.",
+)
+@click.option("--all", "whole", is_flag=True, help="Return the whole log, with no size limit.")
 @command
-def logs(stage_name: str) -> None:
-    """The full captured output of a stage."""
+def logs(stage_name: str, tail: int | None, head: int | None, whole: bool) -> None:
+    """A bounded window of the captured output of a stage."""
+    chosen = [
+        flag for flag, value in (("--tail", tail), ("--head", head), ("--all", whole)) if value
+    ]
+    if len(chosen) > 1:
+        fail_usage(
+            click.UsageError(
+                f"choose one of --tail, --head, or --all, not {' and '.join(chosen)}",
+                ctx=click.get_current_context(),
+            )
+        )
     session = open_cli_session()
-    finish(runs.logs(session, stage_name=stage_name))
+    finish(runs.logs(session, stage_name=stage_name, head=head, tail=tail, whole=whole))
 
 
 @click.command()

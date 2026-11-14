@@ -29,6 +29,7 @@ from .models import (
     Severity,
     Stage,
 )
+from .stages import shellstage
 
 
 class FindingRejected(Exception):
@@ -140,6 +141,54 @@ def validate_and_assign(
         running.append(finding)
 
     return assigned
+
+
+#: The length caps ``FindingSubmission`` and ``Finding`` place on free text.
+_TEXT_LIMITS = {"title": 200, "detail": 4000, "suggestion": 4000}
+RESPONSE_NOTE_LIMIT = 4000
+
+
+def redact_text(value: str, secrets: list[str], *, limit: int) -> str:
+    """Remove copied-file values from finding text, keeping the field's length cap.
+
+    A ``[redacted]`` marker can be longer than the value it replaces, so the
+    result is cut back to ``limit``, dropping a marker that the cut would split.
+    Cutting after redaction cannot restore a secret.
+    """
+    text = shellstage.redact(value, secrets)
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    start = cut.rfind("[")
+    if (
+        start != -1
+        and cut[start:] != shellstage.REDACTED
+        and (shellstage.REDACTED.startswith(cut[start:]))
+    ):
+        cut = cut[:start]
+    return cut
+
+
+def redact_submissions(
+    submissions: list[FindingSubmission], secrets: list[str]
+) -> list[FindingSubmission]:
+    """Apply stage-log redaction to the free text of each submitted finding.
+
+    Findings are persisted in ``findings.json`` and embedded in the published
+    attestation note, so a reviewer that quotes a copied file must not carry the
+    value past this point.
+    """
+    if not secrets:
+        return submissions
+    redacted: list[FindingSubmission] = []
+    for submission in submissions:
+        update = {
+            name: redact_text(value, secrets, limit=limit)
+            for name, limit in _TEXT_LIMITS.items()
+            if (value := getattr(submission, name)) is not None
+        }
+        redacted.append(submission.model_copy(update=update))
+    return redacted
 
 
 def blocking(

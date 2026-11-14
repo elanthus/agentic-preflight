@@ -3,7 +3,7 @@ name = "agentic-preflight"
 version = "0.8.1"
 description = "Stops your coding agent from pushing unverified work. Your agent does the reviewing; a state machine records the result per-commit and gates the push."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.15"
 license = { file = "LICENSE" }
 authors = [{ name = "elanthus", email = "tokenmagic33@gmail.com" }]
 keywords = ["cli", "git", "state-machine", "quality-gate", "agent", "pre-push", "code-review"]
@@ -19,6 +19,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Quality Assurance",
     "Topic :: Software Development :: Version Control :: Git",
     "Typing :: Typed",
@@ -47,7 +48,10 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+# Pinned so builds do not pick up a new backend release at build time; uv.lock
+# does not record the build backend. The trusted pull_request_target workflows
+# do not build the package at all (they sync with --no-install-project).
+requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.sdist]

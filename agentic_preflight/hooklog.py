@@ -341,13 +341,14 @@ class Pending:
 
 
 def begin(
-    *, repo_root: Path | None, config: Config | None, timeout: float = TIMEOUT_SECONDS
+    *, repo_root: Path | None, config: Config | None, timeout: float | None = None
 ) -> Pending:
     """Start logging one decision. Never raises.
 
     ``config`` is the loaded configuration, or ``None`` when it could not be loaded,
     and then :func:`fallback_section` decides. ``repo_root`` defaults to the current
-    directory, where Git runs the hook. Nothing starts when logging is off or the
+    directory, where Git runs the hook. ``timeout`` defaults to :data:`TIMEOUT_SECONDS`,
+    read at call time. Nothing starts when logging is off or the
     preference is unknown. Unless an explicit ``[telemetry] path`` opts the repository
     in, the worker decides from the repository's remote, within the same time bound,
     and writes nothing for a repository without a network remote.
@@ -364,7 +365,8 @@ def begin(
         opted_in = bool(effective.telemetry.path)
         directory = telemetry.telemetry_dir(effective)
         pending = Pending()
-        pending._start(root, directory, timeout, opted_in=opted_in)
+        limit = TIMEOUT_SECONDS if timeout is None else timeout
+        pending._start(root, directory, limit, opted_in=opted_in)
         return pending
     except Exception:  # noqa: BLE001 - a broken log must never block or alter a push
         return Pending(FAILED)
@@ -376,7 +378,7 @@ def record(
     repo_root: Path | None,
     config: Config | None,
     remote: str | None,
-    timeout: float = TIMEOUT_SECONDS,
+    timeout: float | None = None,
 ) -> str:
     """Log a decision that is already known: :func:`begin`, then :meth:`Pending.finish`."""
     pending = begin(repo_root=repo_root, config=config, timeout=timeout)

@@ -52,6 +52,13 @@ Notes from 0.8.1 and earlier hash patches with abbreviated object IDs, whose len
 A verifier builds that text only when the current text does not reproduce a note's digest.
 See [the compatibility entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-configuration).
 
+Configuration digests cover the published configuration snapshot, because a verifier recomputes them from the note.
+That snapshot leaves out sections from the user configuration file, except `[diff]`.
+Local discovery also compares those user-level sections in the prior run record, so a change to one still prevents reuse.
+A shell-command digest covers the command as the note publishes it.
+Every command from a user-level `[commands]` section therefore has the same digest.
+This does not weaken freshness: shell fingerprints are compared only for the same recorded command, and shell evidence is never reused across runs.
+
 Intent and shell-command digests hash the exact UTF-8 text bytes.
 They do not normalize whitespace or Unicode.
 Configuration and documentation-surface digests hash JSON with sorted keys and compact separators.

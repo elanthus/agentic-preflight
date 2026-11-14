@@ -207,14 +207,16 @@ def test_user_test_command_change_reuses_review_docs_and_reruns_shell(
 def test_docs_evidence_survives_a_pending_review_and_restart(feature_repo, tmp_path, monkeypatch):
     home = tmp_path / "home"
     set_home(monkeypatch, home)
+    user_config = home / ".config/agentic-preflight/config.toml"
+    user_config.parent.mkdir(parents=True)
+    # Both runs have a user-level [review], so the docs evidence carries none of it.
+    user_config.write_text("[review]\nmax_findings = 52\n")
     _prepare(feature_repo)
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     _finish(agent, tmp_path)
     original = attestation.verify(feature_repo, "HEAD")
     agent.run("abort", "--force")
-    user_config = home / ".config/agentic-preflight/config.toml"
-    user_config.parent.mkdir(parents=True)
     user_config.write_text("[review]\nmax_findings = 51\n")
     agent = ScriptedAgent(feature_repo)
     result = agent.run("start")
@@ -622,13 +624,15 @@ def test_import_rechecks_candidates_edited_after_discovery(
 ):
     home = tmp_path / "home"
     set_home(monkeypatch, home)
+    user_config = home / ".config/agentic-preflight/config.toml"
+    user_config.parent.mkdir(parents=True)
+    # Both runs have a user-level [review], so the docs evidence carries none of it.
+    user_config.write_text("[review]\nmax_findings = 52\n")
     _prepare(feature_repo)
     agent = ScriptedAgent(feature_repo)
     agent.run("start")
     _finish(agent, tmp_path)
     agent.run("abort", "--force")
-    user_config = home / ".config/agentic-preflight/config.toml"
-    user_config.parent.mkdir(parents=True)
     user_config.write_text("[review]\nmax_findings = 51\n")
     agent = ScriptedAgent(feature_repo)
     started = agent.run("start")

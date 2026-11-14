@@ -37,11 +37,22 @@ worktree while the run records fix commits. The fixes change nothing, so the fin
 they claim to fix were not repaired. Do not retry `mergeback`. Tell the user, run
 `agentic-preflight abort`, and start a new run so the branch is revalidated.
 
+## Merge in the validation history (exit 3, `nonlinear_fix_history`)
+
+In `reusable` or `strict` mode, the validation branch holds a merge commit after the
+reviewed head. Merge-back replays repairs with cherry-pick and cannot apply a merge.
+`respond`, `stage run lint|test`, or `mergeback` refused before changing anything, and the
+error names the merge commits. Remove the merge from the validation branch, keeping only
+your own repairs as linear commits on the reviewed head; the recovery command rebases onto
+it. Do not keep commits the merge brought in from another branch: they would become fix
+commits. Then rerun the refused command. The changed history returns the run to review.
+
 ## Stage red after max attempts (exit 4)
 
 Stop retrying — you have already tried `max_attempts` times and the tool is telling
 you the loop is not converging. For a stage failure, show the user
-`agentic-preflight logs --stage <name>` output and ask how to proceed. For a baseline
+`agentic-preflight logs --stage <name>` output (the last 200 lines by default; see
+`data.truncated`) and ask how to proceed. For a baseline
 setup failure, no stage log exists; show `data.setup_failure` and obey the returned
 `agentic-preflight abort --force` command, with `--reason environment_failure`.
 
@@ -148,13 +159,32 @@ in `data.retained`, and continues collecting understood runs. An unknown field a
 means the schema is invalid or unsupported; it does not prove a newer producer or
 corruption. `--force` does not authorize deleting these records or their resources.
 
-Use the reported path to inspect the record. Keep its JSON, worktree, branch, and
-active aliases intact. Both forms of `status` report
-unreadable records; single-run status preserves ownership and reports `has_run: true`
-and `readable: false`. Do not start a replacement run as if the record were missing.
-Mutating commands reject unreadable records with `run_record_unreadable` (exit 3).
-Only a confirmed missing file permits compare-and-clear pointer recovery. A global
-inventory or cleanup failure still fails the command and must be investigated.
+Use the reported path to inspect the record. Keep its JSON, worktree, and branch
+intact, and keep its active aliases unless the user decides otherwise. Both forms of
+`status` report unreadable records; single-run status preserves ownership and reports
+`has_run: true` and `readable: false`. Do not start a replacement run as if the record
+were missing. Mutating commands, including `abort --force` and `start --replace`, reject
+unreadable records with `run_record_unreadable` (exit 3). The tool itself clears a
+pointer only when the record is confirmed missing.
+
+For an `in_place` or `strict` run, a refused mutating command such as `abort --force`
+or `start --replace` lists the run's ownership pointers in `data.pointer_paths`; `status`
+does not. When a compatible tool version cannot read the record either and the user
+decides to abandon the run, delete only those files. `start` then creates a fresh run,
+and the old run can no longer be resumed from that worktree. The record, its worktree,
+and its branch stay in place. `gc` keeps reporting the record in `data.retained` while it
+stays unreadable, and a version that can read it may later orphan and reclaim it.
+
+For a `reusable` run, `data.pointer_paths` is absent. The run may still lease the
+clone's single runner on its own branch, and that branch may hold unmerged fix commits,
+so no worktree in the clone can start a reusable run until the record is resolved. Do
+not delete the record, its pointers, the runner, or its branch; show the user the record
+path and stop. When the record's worktree mode cannot be determined, `data.pointer_paths`
+is also absent and the instruction says so: keep the record and its pointers, show the
+user the record path, and stop.
+
+Never delete a pointer on your own initiative, and never delete the record itself. A
+global inventory or cleanup failure still fails the command and must be investigated.
 
 ## Diff too large (exit 2, `diff_too_large`)
 
@@ -220,6 +250,14 @@ verdict, or the attestation, so never choose one to make a run look better.
 
 Check `[worktree] mode` and follow the [worktree setup and cache guidance](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/worktree-modes.md#when-a-stage-is-much-slower-than-expected).
 Do not raise `[stage] max_attempts` to paper over missing preparation.
+
+## Locked validation worktree (exit 1, `git_error`, or `gc` retains `validation worktree is locked`)
+
+Someone locked the strict validation worktree with `git worktree lock`, usually to keep
+it. `abort` and `finish` stop without removing it, and `gc` retains the run with the
+worktree path, even with `--force`. Show the user the message and the path. Never run
+`git worktree unlock` yourself: unlocking lets the next command delete the worktree.
+Retry the command only after the user unlocks it.
 
 ## Copy refused (exit 3)
 

@@ -3,7 +3,7 @@
 [![CI](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml/badge.svg)](https://github.com/elanthus/agentic-preflight/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/agentic-preflight)](https://pypi.org/project/agentic-preflight/)
 [![Coverage](https://raw.githubusercontent.com/elanthus/agentic-preflight/badges/coverage.svg)](https://github.com/elanthus/agentic-preflight/tree/badges)
-[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/pyproject.toml)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/pyproject.toml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/LICENSE)
 
 **Check your coding agent's work before a push.**
@@ -32,7 +32,7 @@ The [changelog](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/CHANGE
 You need the following:
 
 - Git 2.38+
-- Python 3.11 through 3.13 on a macOS, Linux, or Windows version from the
+- Python 3.11 through 3.14 on a macOS, Linux, or Windows version from the
   [compatibility policy](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/COMPATIBILITY.md)
 - [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
 - `gh` if the agent will create pull requests, inspect hosted checks, or verify merges
