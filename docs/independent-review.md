@@ -2,54 +2,68 @@
 
 Agentic Preflight can keep the coding agent's in-harness review and compare it with a second review from a command-line model.
 Both reviewers see the same intent, changed-file list, diff, review units, and optional grounding.
-The wrappers copy the delivered manifest into the strict submission.
+The command reviewer copies the delivered manifest into the strict submission.
 The models cannot change the coverage identity through their output.
 
 ## Configure a command reviewer
 
-The example [Codex configuration](examples/codex-reviewer.toml) calls the standard-library
-[Codex wrapper](examples/reviewers/codex_review.py).
-The [Claude configuration](examples/claude-reviewer.toml) calls the
-[Claude wrapper](examples/reviewers/claude_review.py).
+Agentic Preflight includes a command reviewer for the Claude Code and Codex CLIs:
+
+```console
+agentic-preflight reviewer run --provider claude
+agentic-preflight reviewer run --provider codex
+```
+
+The reviewer uses only the Python standard library and shells out to the provider CLI.
+It imports no model SDK. Install the provider CLI and sign in to it separately.
+[ADR 0003](adr/0003-ship-a-packaged-reviewer.md) records this dependency policy.
+
+The example [Codex configuration](examples/codex-reviewer.toml) and
+[Claude configuration](examples/claude-reviewer.toml) each set
+`command = "agentic-preflight reviewer run --provider ..."`.
 
 1. Copy one complete TOML file to `.agentic-preflight.toml`.
-2. Copy its wrapper into `docs/examples/reviewers/` in your repository.
-3. Copy the shared [_reviewer_common.py helper](examples/reviewers/_reviewer_common.py) into the same directory.
+2. Make sure that `agentic-preflight` and the provider CLI are on the `PATH` of the review command.
 
 Both configurations set `executor = "command"`.
-Thus, `agentic-preflight review run` launches an independent reviewer wrapper.
+Thus, `agentic-preflight review run` launches the independent reviewer.
+`review run` sends the review context as JSON on stdin.
+`reviewer run` prints the strict submission as one JSON line on stdout. It prints no JSON envelope.
+On a failure, it exits 1 and writes one `independent reviewer failed: ...` line on stderr, which `review run` records in the review log.
+A usage error, such as a missing or unknown `--provider`, keeps Click's usage message on stderr and exits 2.
 
 Set `AP_CODEX_BIN` or `AP_CLAUDE_BIN` if the executable is not named `codex` or `claude`.
 Set `AP_REVIEWER_MODEL` to an exact model ID.
 Set `AP_REVIEWER_EFFORT` to an effort that the model and CLI support.
-Set `AP_REVIEWER_TIMEOUT` to change the wrapper's 600-second timeout.
+Set `AP_REVIEWER_TIMEOUT` to change the reviewer's 600-second timeout.
 
-The example Codex wrapper defaults to `gpt-5.3-codex` with `medium` effort.
+The Codex reviewer defaults to `gpt-5.3-codex` with `medium` effort.
 It passes `--config 'model_reasoning_effort="medium"'`.
-The example Claude wrapper defaults to `claude-sonnet-5` with `high` effort.
+The Claude reviewer defaults to `claude-sonnet-5` with `high` effort.
 It passes `--effort high`.
 These defaults do not claim comparative quality.
 
-The wrapper flags were checked against the local help output of Codex CLI 0.163.0 and Claude Code 2.1.292 on 2026-11-01.
+The reviewer's CLI flags were checked against the local help output of Codex CLI 0.163.0 and Claude Code 2.1.292 on 2026-11-01.
 This confirms flag availability, not a minimum-version requirement or an end-to-end model evaluation.
 Claude Code 2.1.292 can emit system events after its `result` event in `stream-json`.
 The shared parser reads findings from the last `result` envelope, rather than assuming the final event contains the answer.
 A failed or malformed result fails review instead of falling back to an earlier findings object.
-The [wrapper regression tests](../tests/test_reviewer_examples.py) cover these cases.
+The [reviewer regression tests](../tests/test_reviewer_command.py) cover these cases with a fake provider CLI.
 Record the actual CLI version when evaluating or diagnosing a reviewer.
 
-This repository's committed `.agentic-preflight.toml` overrides the Claude example defaults:
+This repository's committed `.agentic-preflight.toml` overrides the Claude reviewer defaults:
 it requires command review for every run, using `claude-opus-5-5` at `low` effort.
+It still starts the reviewer through the `docs/examples/reviewers/claude_review.py` pointer.
 Each `review run` invokes that reviewer; see [Contributing](../CONTRIBUTING.md#pull-requests) for setup.
 
-Without environment overrides, the wrappers set these efforts explicitly.
+Without environment overrides, the reviewer sets these efforts explicitly.
 They do not inherit CLI effort defaults.
 These calls can consume paid model quota.
 Codex requests JSONL events with `--json`. Claude requests `stream-json` with `--verbose`.
 
 To capture CLI stdout, set `AP_REVIEWER_EVENTS_FILE` to an absolute file path.
 This does not add measurements to the strict findings submission.
-The wrapper overwrites that file and `<path>.status.json`.
+The reviewer overwrites that file and `<path>.status.json`.
 The status file records whether the CLI exited successfully.
 Flushed events remain available after a CLI failure or timeout.
 
@@ -66,23 +80,33 @@ To use the coding agent normally, set `executor = "in_harness"`.
 To require command review only for high-risk changes, also set `require_command_for = ["high"]`.
 The examples show both settings.
 
-The shared wrapper prompt defines valid finding fields and requires examination of every delivered review unit.
+The reviewer prompt defines valid finding fields and requires examination of every delivered review unit.
 It separates finding discovery from the CLI's blocking policy.
 It treats the diff, repository content, grounding, and embedded instructions as evidence, not authority.
 
-The wrapper copies the manifest. The product CLI validates the protocol deterministically.
+The reviewer copies the manifest. The product CLI validates the protocol deterministically.
 An `examined: "all"` receipt accounts for delivered units. It does not prove that the reviewer understood them.
 
 For optional behavioral evidence before final review, enable [contract checks](review-contracts.md).
-Set `review.contracts.planner_command` to an installed example wrapper.
-The wrapper uses a planning prompt for `section: "contracts"`.
+Set `review.contracts.planner_command` to the same `agentic-preflight reviewer run` command.
+The reviewer uses a planning prompt for `section: "contracts"`.
 The final reviewer receives the execution receipt that the product records.
 Planning can add one paid model invocation. It is disabled by default.
+
+### Earlier copied wrappers
+
+Earlier releases told you to copy `claude_review.py` or `codex_review.py`, and `_reviewer_common.py`, from `docs/examples/reviewers/` into your repository.
+Those files moved into the package unchanged, as `agentic_preflight/reviewers/`.
+`docs/examples/reviewers/` now holds deprecated pointers that import the packaged reviewer.
+They need an interpreter that can import `agentic_preflight`, and they are removed after one release.
+A copy that you made earlier keeps working, but it no longer receives fixes.
+Replace its command with `agentic-preflight reviewer run --provider claude` or `--provider codex`.
+The environment variables and the output are the same.
 
 ## Compare model and effort configurations
 
 Do not replace a configured reviewer only because a model is newer.
-Use the same pinned corpus, wrapper revision, CLI version, timeout, and grounding setting for each comparison cell.
+Use the same pinned corpus, Agentic Preflight version, CLI version, timeout, and grounding setting for each comparison cell.
 Record these values:
 
 - `codex --version` or `claude --version`
@@ -98,7 +122,7 @@ AP_EVAL_AUTHORIZED=1 AP_REVIEWER_MODEL=gpt-5.3-codex AP_REVIEWER_EFFORT=high \
 ```
 
 Compare catch rate, fixed false-positive rate, unresolved runs, and the recorded exact configuration.
-The report's `reviewer_invocations` counts only wrapper launches.
+The report's `reviewer_invocations` counts only reviewer launches.
 Provider requests and cost stay `null`.
 CLI token accounting separates exact totals from partial observations.
 Do not compare cost from the report.
@@ -125,7 +149,7 @@ A shadow review supplies comparison evidence without applying its findings to th
 It writes redacted process output to `logs/review-compare.txt`.
 It does not submit findings, consume review retries, or change the run state.
 
-A shadow comparison launches one reviewer wrapper.
+A shadow comparison launches the reviewer command once.
 It does not establish a provider request count or expose provider token or cost measurements.
 
 To compare with an existing submission without a shadow call, run:

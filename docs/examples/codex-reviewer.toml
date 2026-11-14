@@ -1,6 +1,6 @@
 # Complete repository configuration using Codex as an independent reviewer.
-# Each `review run` or shadow `review compare` invokes the reviewer wrapper once. The
-# wrapper can capture CLI token events with AP_REVIEWER_EVENTS_FILE; request counts
+# Each `review run` or shadow `review compare` invokes the packaged reviewer once. The
+# reviewer can capture CLI token events with AP_REVIEWER_EVENTS_FILE; request counts
 # and cost remain unknown. Defaults: `gpt-5.3-codex` at explicit `medium` effort
 # (via `-c model_reasoning_effort=...`).
 [general]
@@ -11,7 +11,7 @@ lint = "ruff check ."
 test = "pytest"
 
 [stage]
-# The wrapper defaults to 600 seconds; leave it time to report its own timeout cleanly.
+# The reviewer defaults to 600 seconds; leave it time to report its own timeout cleanly.
 timeout_seconds = 660
 max_attempts = 5
 
@@ -19,7 +19,7 @@ max_attempts = 5
 blocking_severities = ["critical", "high"]
 max_findings = 50
 executor = "command"
-command = "python3 -B docs/examples/reviewers/codex_review.py"
+command = "agentic-preflight reviewer run --provider codex"
 # Set AP_REVIEWER_MODEL and AP_REVIEWER_EFFORT to exact values supported by your Codex CLI.
 # Alternative: keep executor = "in_harness" and require the paid command only for high risk.
 # require_command_for = ["high"]
@@ -32,7 +32,7 @@ human_review_paths = [
   ".github/CODEOWNERS",
   "CODEOWNERS",
   "docs/CODEOWNERS",
-  # The reviewer wrapper this configuration runs decides what a review reports.
+  # A reviewer wrapper copied from an earlier release decides what a review reports.
   "docs/examples/reviewers/**",
 ]
 high_risk_paths = ["db/migrations/**", "infra/**"]

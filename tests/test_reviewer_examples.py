@@ -1,4 +1,7 @@
-"""Worked independent-review examples execute as documented."""
+"""Worked independent-review examples, and the deprecated wrapper pointers, run as documented.
+
+The packaged reviewer itself is covered by tests/test_reviewer_command.py.
+"""
 
 from __future__ import annotations
 
@@ -6,86 +9,21 @@ import json
 import re
 import runpy
 import shlex
-import stat
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
 import pytest
 
 from agentic_preflight.config import Config, load_config
-from agentic_preflight.envelope import ExitCode
-from agentic_preflight.models import FindingAction, Severity
+from agentic_preflight.reviewers import common
 from agentic_preflight.runs._session import open_session
 from tests.conftest import commit_all, write
 from tests.driver import ScriptedAgent
+from tests.test_reviewer_command import install_fake, toml_command_line
 
 ROOT = Path(__file__).parent.parent
 EXAMPLES = ROOT / "docs" / "examples"
-PLATFORM = sys.platform
-
-FAKE_REVIEWER = """\
-#!{python}
-import json
-import os
-import sys
-import time
-
-prompt = sys.stdin.read()
-if os.environ.get("FAKE_SLEEP"):
-    time.sleep(2)
-if os.environ.get("FAKE_CAPTURE"):
-    open(os.environ["FAKE_CAPTURE"], "w", encoding="utf-8").write(prompt)
-if os.environ.get("FAKE_ARGUMENTS"):
-    open(os.environ["FAKE_ARGUMENTS"], "w", encoding="utf-8").write(json.dumps(sys.argv[1:]))
-if os.environ.get("FAKE_NO_JSON"):
-    print("review completed without a structured response")
-elif os.environ.get("FAKE_CONTRACT_PLAN"):
-    print(os.environ["FAKE_CONTRACT_PLAN"])
-else:
-    findings = []
-    if os.environ.get("FAKE_FINDING"):
-        findings.append({{
-            "unit": "U0002",
-            "path": "src/app.py",
-            "line": 1,
-            "severity": "high",
-            "action": "auto_fix",
-            "title": "Synthetic independent finding"
-        }})
-    print("review preface")
-    print(json.dumps({{"findings": findings}}))
-    print("review suffix")
-"""
-
-
-def install_fake(path: Path) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fake = path.parent / "fake_reviewer.py" if PLATFORM == "win32" else path
-    fake.write_text(FAKE_REVIEWER.format(python=sys.executable), encoding="utf-8")
-    if PLATFORM == "win32":
-        shim = path.with_suffix(".cmd")
-        shim.write_text(f'@"{sys.executable}" "{fake}" %*\n', encoding="utf-8")
-        return shim
-    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
-    return fake
-
-
-@pytest.mark.parametrize("reviewer", ["codex", "claude"])
-def test_install_fake_writes_windows_command_shim(tmp_path, monkeypatch, reviewer):
-    monkeypatch.setattr(sys.modules[__name__], "PLATFORM", "win32")
-
-    shim = install_fake(tmp_path / "bin with spaces" / reviewer)
-
-    fake = shim.parent / "fake_reviewer.py"
-    assert shim == fake.with_name(f"{reviewer}.cmd")
-    assert shim.read_text(encoding="utf-8") == f'@"{sys.executable}" "{fake}" %*\n'
-
-
-def toml_command_line(command: str) -> str:
-    value = f"'{command}'" if "'" not in command else json.dumps(command)
-    return f"command = {value}"
 
 
 def configure_example(repo: Path, reviewer: str) -> None:
@@ -102,121 +40,34 @@ def configure_example(repo: Path, reviewer: str) -> None:
     commit_all(repo, f"configure {reviewer} reviewer example")
 
 
-def test_toml_command_line_round_trips_windows_paths():
-    command = (
-        "'C:\\Users\\me\\python.exe' -B 'C:\\repo\\docs\\examples\\reviewers\\codex_review.py'"
-    )
+def test_common_pointer_re_exports_the_packaged_helpers():
+    pointer = runpy.run_path(str(EXAMPLES / "reviewers" / "_reviewer_common.py"))
 
-    parsed = tomllib.loads(f"[review]\n{toml_command_line(command)}\n")
-
-    assert parsed["review"]["command"] == command
-
-
-def test_shared_reviewer_contract_values_match_the_product_protocol():
-    contract = runpy.run_path(EXAMPLES / "reviewers" / "_reviewer_common.py")
-
-    assert contract["SEVERITIES"] == tuple(member.value for member in Severity)
-    assert contract["ACTIONS"] == tuple(member.value for member in FindingAction)
-
-
-def test_findings_are_extracted_before_trailing_stream_events():
-    # Claude Code 2.1.292 emits system events after the `result` event in stream-json.
-    common = runpy.run_path(EXAMPLES / "reviewers" / "_reviewer_common.py")
-    stream = "\n".join(
-        json.dumps(event)
-        for event in [
-            {"type": "system", "subtype": "init"},
-            {"type": "result", "subtype": "success", "result": '{"findings":[{"title":"x"}]}'},
-            {"type": "system", "subtype": "post_turn_summary"},
-            {"type": "system", "subtype": "task_summary", "detail": None},
-        ]
-    )
-
-    assert common["extract_findings"](stream) == [{"title": "x"}]
-    with pytest.raises(common["ReviewerError"]):
-        common["extract_findings"](json.dumps({"type": "system", "subtype": "task_summary"}))
-
-
-@pytest.mark.parametrize(
-    "result",
-    [
-        {"type": "result", "subtype": "error_max_turns", "is_error": True, "result": ""},
-        {"type": "result", "subtype": "success", "result": "no structured answer"},
-    ],
-)
-def test_a_failed_result_envelope_never_falls_back_to_an_earlier_findings_object(result):
-    common = runpy.run_path(EXAMPLES / "reviewers" / "_reviewer_common.py")
-    stream = "\n".join(
-        json.dumps(event)
-        for event in [
-            {"type": "user", "echo": {"findings": []}},
-            result,
-            {"type": "system", "subtype": "task_summary", "detail": None},
-        ]
-    )
-
-    with pytest.raises(common["ReviewerError"]):
-        common["extract_findings"](stream)
+    for name in pointer["__all__"]:
+        assert pointer[name] is getattr(common, name)
 
 
 @pytest.mark.parametrize("reviewer", ["codex", "claude"])
-def test_native_wrapper_returns_a_code_bound_contract_plan(tmp_path, monkeypatch, reviewer):
-    fake = install_fake(tmp_path / "bin" / reviewer)
-    capture = tmp_path / "prompt.txt"
-    monkeypatch.setenv(f"AP_{reviewer.upper()}_BIN", str(fake))
-    monkeypatch.setenv("FAKE_CAPTURE", str(capture))
-    plan = {
-        "units": [
-            {
-                "unit": "U0001",
-                "disposition": "unverified",
-                "checks": [],
-                "reason": "Consumer is unavailable.",
-            }
-        ],
-        "checks": [],
-    }
-    monkeypatch.setenv("FAKE_CONTRACT_PLAN", json.dumps(plan))
-    context = {
-        "section": "contracts",
-        "diff": "diff --git a/count.py b/count.py",
-        "review_coverage": {"manifest": "a" * 64, "units": [{"id": "U0001"}]},
-        "contract_checks": {
-            "max_checks": 8,
-            "execution": {
-                "installed_packages": {
-                    "status": "available",
-                    "packages": [{"name": "python-dotenv", "version": "1.0.1"}],
-                }
-            },
-        },
-    }
+def test_pointer_without_the_package_names_the_replacement_command(tmp_path, reviewer):
+    # -I and -S keep the checkout and site-packages off sys.path, so the import fails.
     result = subprocess.run(
-        [sys.executable, "-B", str(EXAMPLES / "reviewers" / f"{reviewer}_review.py")],
-        input=json.dumps(context),
+        [sys.executable, "-I", "-S", "-B", str(EXAMPLES / "reviewers" / f"{reviewer}_review.py")],
+        input="{}",
         text=True,
         capture_output=True,
         cwd=tmp_path,
     )
-    assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {"schema_version": "2", "manifest": "a" * 64, **plan}
-    prompt = capture.read_text()
-    assert "Do not execute probes yourself" in prompt
-    assert "independent oracle" in prompt
-    assert "installed_packages" in prompt
-    assert "real consumer" in prompt
-    assert "substitute" in prompt
-    assert "python-dotenv" in prompt
-    assert "oracle_provenance" in prompt
-    assert "inventory" in prompt
-    assert context["diff"] in prompt
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert f"agentic-preflight reviewer run --provider {reviewer}" in result.stderr
 
 
 @pytest.mark.parametrize("reviewer", ["codex", "claude"])
 @pytest.mark.parametrize(
     ("finding", "expected_state"), [(False, "REVIEW_GREEN"), (True, "REVIEW_BLOCKED")]
 )
-def test_reviewer_wrapper_runs_end_to_end(
+def test_deprecated_pointer_runs_end_to_end(
     feature_repo, tmp_path, monkeypatch, reviewer, finding, expected_state
 ):
     fake = install_fake(tmp_path / "bin" / reviewer)
@@ -262,35 +113,6 @@ def test_reviewer_wrapper_runs_end_to_end(
     )
     assert persisted["manifest"] == context["data"]["review_coverage"]["manifest"]
     assert persisted["head_sha"] == context["data"]["review_coverage"]["head"]
-
-
-@pytest.mark.parametrize("reviewer", ["codex", "claude"])
-@pytest.mark.parametrize("failure", ["missing", "no_json", "timeout"])
-def test_reviewer_wrapper_failures_are_visible_in_review_log(
-    feature_repo, tmp_path, monkeypatch, reviewer, failure
-):
-    fake = install_fake(tmp_path / "bin" / reviewer)
-    configure_example(feature_repo, reviewer)
-    if failure == "missing":
-        monkeypatch.setenv(f"AP_{reviewer.upper()}_BIN", str(tmp_path / "does-not-exist"))
-        expected = "not found"
-    elif failure == "no_json":
-        monkeypatch.setenv(f"AP_{reviewer.upper()}_BIN", str(fake))
-        monkeypatch.setenv("FAKE_NO_JSON", "1")
-        expected = "no JSON"
-    else:
-        monkeypatch.setenv(f"AP_{reviewer.upper()}_BIN", str(fake))
-        monkeypatch.setenv("FAKE_SLEEP", "1")
-        monkeypatch.setenv("AP_REVIEWER_TIMEOUT", "1")
-        expected = "timed out"
-    agent = ScriptedAgent(feature_repo)
-    agent.run("start")
-
-    result = agent.run("review", "run", expect=ExitCode.STAGE_FAILED)
-
-    assert result["state"] == "REVIEW_COMMAND_RED"
-    logged = Path(result["data"]["log_path"]).read_text(encoding="utf-8")
-    assert expected in logged
 
 
 def test_example_configs_parse_without_expanding_configuration_sections(tmp_path):

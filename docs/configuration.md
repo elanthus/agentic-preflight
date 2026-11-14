@@ -68,7 +68,7 @@ require_command_for = []      # e.g. ["high"] to require independence by risk
 
 [review.contracts]
 enabled = false              # opt-in executable review evidence
-# planner_command = "python3 -B docs/examples/reviewers/claude_review.py"
+# planner_command = "agentic-preflight reviewer run --provider claude"
 # image = "registry.example/runtime@sha256:<64 lowercase hex characters>"
 max_checks = 8               # 1..32, three probes per check
 timeout_seconds = 10         # 1..60 per probe

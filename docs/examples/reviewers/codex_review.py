@@ -1,57 +1,28 @@
 #!/usr/bin/env python3
-"""Adapt `codex exec` output to Agentic Preflight's strict review submission."""
+"""Deprecated pointer to the packaged codex reviewer.
+
+The reviewer moved into the package. Configure this instead:
+
+    command = "agentic-preflight reviewer run --provider codex"
+
+This file stays for one release so that existing commands keep working. It needs an
+interpreter that can import agentic_preflight. See docs/independent-review.md.
+"""
 
 from __future__ import annotations
 
-import os
-import tempfile
-from pathlib import Path
+import sys
 
-from _reviewer_common import (
-    ReviewerError,
-    emit_review_output,
-    read_context,
-    read_optional,
-    report_error,
-    reviewer_effort,
-    reviewer_prompt,
-    run_cli,
-)
-
-
-def main() -> int:
-    try:
-        context = read_context()
-        executable = os.environ.get("AP_CODEX_BIN", "codex")
-        # These flags were verified against Codex CLI 0.153.0. The model and
-        # medium-effort default preserve a balanced example configuration.
-        model = os.environ.get("AP_REVIEWER_MODEL", "gpt-5.3-codex")
-        effort = reviewer_effort("medium")
-        with tempfile.TemporaryDirectory(prefix="ap-codex-review-") as directory:
-            output_path = Path(directory) / "final.txt"
-            argv = [
-                executable,
-                "exec",
-                "--json",
-                "--ephemeral",
-                "--sandbox",
-                "read-only",
-                "--model",
-                model,
-                "--config",
-                f'model_reasoning_effort="{effort}"',
-                "-C",
-                str(context.get("worktree_path", ".")),
-                "-o",
-                str(output_path),
-                "-",
-            ]
-            result = run_cli(argv, reviewer_prompt(context))
-            emit_review_output(context, result.stdout, read_optional(output_path))
-    except ReviewerError as exc:
-        return report_error(exc)
-    return 0
-
+try:
+    from agentic_preflight.reviewers.codex import main
+except ImportError:
+    print(
+        "independent reviewer failed: this example now delegates to the agentic_preflight "
+        "package, which this interpreter cannot import; configure "
+        '"agentic-preflight reviewer run --provider codex" instead',
+        file=sys.stderr,
+    )
+    raise SystemExit(1) from None
 
 if __name__ == "__main__":
     raise SystemExit(main())

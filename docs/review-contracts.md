@@ -129,18 +129,18 @@ Keep the affected input class unverified when no independent oracle remains.
 
 ## Command reviewers
 
-The worked Claude and Codex wrappers support both planning and final review.
-To use one, set `planner_command` to the same installed wrapper as `[review] command`:
+The packaged Claude and Codex reviewers support both planning and final review.
+To use one, set `planner_command` to the same reviewer command as `[review] command`:
 
 ```toml
 [review.contracts]
 enabled = true
-planner_command = "python3 -B docs/examples/reviewers/claude_review.py"
+planner_command = "agentic-preflight reviewer run --provider claude"
 # image = "registry.example/review-runtime@sha256:<64 lowercase hex characters>"
 ```
 
 On the first `review run` for a snapshot, Agentic Preflight sends a canonical context with `section: "contracts"` to the planner.
-The wrapper requests only unit dispositions and checks.
+The reviewer requests only unit dispositions and checks.
 It copies the manifest itself.
 Agentic Preflight validates the whole plan, runs its probes, and sends `contract_checks` evidence to the final reviewer.
 Planning does not receive a first reviewer's finding list.

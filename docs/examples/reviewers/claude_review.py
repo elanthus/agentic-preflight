@@ -1,49 +1,28 @@
 #!/usr/bin/env python3
-"""Adapt `claude -p` output to Agentic Preflight's strict review submission."""
+"""Deprecated pointer to the packaged claude reviewer.
+
+The reviewer moved into the package. Configure this instead:
+
+    command = "agentic-preflight reviewer run --provider claude"
+
+This file stays for one release so that existing commands keep working. It needs an
+interpreter that can import agentic_preflight. See docs/independent-review.md.
+"""
 
 from __future__ import annotations
 
-import os
+import sys
 
-from _reviewer_common import (
-    ReviewerError,
-    emit_review_output,
-    read_context,
-    report_error,
-    reviewer_effort,
-    reviewer_prompt,
-    run_cli,
-)
-
-
-def main() -> int:
-    try:
-        context = read_context()
-        executable = os.environ.get("AP_CLAUDE_BIN", "claude")
-        # These flags were verified against Claude Code 2.1.236.
-        model = os.environ.get("AP_REVIEWER_MODEL", "claude-sonnet-5")
-        effort = reviewer_effort("high")
-        result = run_cli(
-            [
-                executable,
-                "-p",
-                "--output-format",
-                "stream-json",
-                "--verbose",
-                "--permission-mode",
-                "plan",
-                "--model",
-                model,
-                "--effort",
-                effort,
-            ],
-            reviewer_prompt(context),
-        )
-        emit_review_output(context, result.stdout)
-    except ReviewerError as exc:
-        return report_error(exc)
-    return 0
-
+try:
+    from agentic_preflight.reviewers.claude import main
+except ImportError:
+    print(
+        "independent reviewer failed: this example now delegates to the agentic_preflight "
+        "package, which this interpreter cannot import; configure "
+        '"agentic-preflight reviewer run --provider claude" instead',
+        file=sys.stderr,
+    )
+    raise SystemExit(1) from None
 
 if __name__ == "__main__":
     raise SystemExit(main())
