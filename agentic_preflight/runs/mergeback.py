@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .. import attestation as attestationmod
-from .. import gitx, public_config, worktree
+from .. import gitx, public_config, timing, worktree
 from .. import mergeback as mergebackmod
 from .. import sync as syncmod
 from ..cli_contract import MergebackData
@@ -370,13 +370,14 @@ def mergeback(session: Session) -> Envelope:
     run = _record_attempt(session, run, retrying_conflict=retrying_conflict)
 
     try:
-        result = _perform_merge(
-            session,
-            run,
-            in_place=in_place,
-            retrying_conflict=retrying_conflict,
-            recovered=recovered,
-        )
+        with timing.timed_command(session.store, run.run_id, "mergeback"):
+            result = _perform_merge(
+                session,
+                run,
+                in_place=in_place,
+                retrying_conflict=retrying_conflict,
+                recovered=recovered,
+            )
     except gitx.OperationInProgress as exc:
         raise OperationInProgressError(
             exc.operation,

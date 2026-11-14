@@ -621,6 +621,21 @@ The Codex wrapper now passes `--config project_doc_max_bytes=0` and `--ignore-ru
 An older CLI that lacks one of these options fails the review with a visible error. Update the CLI, or remove the option from your copy of the wrapper and protect the files that it would read with `trusted_paths`.
 With `--safe-mode`, the Claude reviewer also ignores your user `CLAUDE.md`, skills, hooks, and MCP servers.
 
+## Unreleased: outcome fields in run summaries and the report
+
+The run summary keeps `schema_version = 1`. The new keys are inside objects that the summary already has:
+`findings.review_blocking_fixed`, `findings.docs_blocking_fixed`, `stages.<name>.red_then_green`, `timing.tool_seconds`, and `timing.agent_seconds`.
+Earlier tool versions validate the top level of a summary strictly but read these objects as open maps, so they read the new summaries and ignore the new keys.
+A reader must count a missing key as `null`, as for earlier summary additions.
+`telemetry rebuild` adds the keys to every summary of the clone. `timing.tool_seconds` and `timing.agent_seconds` stay `null` for runs that an earlier version recorded.
+
+The run event log can contain the new `tool_command_started` and `tool_command_finished` events, and the `run_created` event adds `command_timing`.
+The events never bind evidence. No fingerprint, evidence digest, configuration digest, or attestation reads them.
+They count against `events --limit` like other events, so the same limit shows fewer state transitions than before.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+In `agentic-preflight report`, each group of statistics adds `caught` and `tool_time`, and the Markdown has two new sections, "Caught before push" and "Tool time".
+
 ## Unreleased: review patches no longer depend on Git configuration
 
 The review digest hashes the patch text of the change, and a verifier accepts a note only when it can rebuild that text.
@@ -645,12 +660,13 @@ What changes at upgrade:
 
 - `diff_sha256`, the review manifest, and the digest of each file-level review unit change for every diff that has an `index` line, because that line changed. A diff with only mode changes or an empty diff is unchanged.
   A file-level unit is a patch without hunks, such as a binary change. Hunk unit digests are unchanged.
-- A note that 0.8.1 or an earlier release wrote still verifies when its producer left each setting above at Git's default.
+- A note that 0.8.1 or an earlier release wrote still verifies when its producer left each setting above at Git's default, or when a setting it changed did not change that note's patch text.
   When the full-ID text does not reproduce a note's digest, the verifier also builds the abbreviated text and accepts the note if that text matches.
   The other settings above are fixed to Git's default for that text too, and the note does not record the producer's values, so they cannot be restored.
-  Such a note fails, even on the machine that wrote it, when its producer set one of those settings to another value, for example `diff.context = 5`.
+  A producer that set one of those settings to another value may therefore have written a note that fails, even on the machine that wrote it, if the value changed the patch. For example, `diff.context = 5` adds context lines to a hunk that has more unchanged lines around it, but leaves a one-line file's patch unchanged.
   The verifier builds the abbreviated text with Git's default length, whatever its own `core.abbrev` says.
-  The note still fails in a clone where that default length differs from the producer's, because the clone holds a different number of objects. In either case, validate the commit again to replace it.
+  The verifier tries that text for any note, not only for notes from 0.8.1 and earlier. Until the fallback goes in 0.10.0 (row 11 of [the removal plan](docs/maintainers/compatibility-removal-plan.md)), a file-level patch in that format, such as a binary change, binds its content only by an abbreviated object ID. Hunks carry their full content, so they are not affected. A verifier clone that holds both blobs disambiguates them, because Git lengthens an abbreviation until it is unique.
+  The note still fails in a clone where that default length differs from the producer's, because the clone holds a different number of objects. When verification fails for either reason, validate the commit again to replace the note.
 - Review evidence that an earlier release recorded does not carry to a new head. The review runs again.
 - A run that an earlier release reviewed and that is still open reopens review at its next command.
   The shell stages run again after the new review.

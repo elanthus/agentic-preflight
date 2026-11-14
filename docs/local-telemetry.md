@@ -123,12 +123,12 @@ An unknown value is `null`. It is never `0`. Older run records do not have many 
 | `branch`, `base_ref`, `head_sha`, `pushed_sha` | The validated branch, its base, the validated head, and the pushed commit. |
 | `intent_sha256`, `intent_source` | The SHA-256 digest of the intent, and where the intent came from. |
 | `created_at`, `finished_at`, `duration_seconds` | The start time, the terminal commit time, and the time between them. |
-| `timing` | The wall-clock time in each state, from the `state_transition` events. See [Stage and state timing](#stage-and-state-timing). `null` when the event log has no transitions. |
+| `timing` | The wall-clock time in each state, from the `state_transition` events, and the time of the tool's own commands, `tool_seconds` and `agent_seconds`. See [Stage and state timing](#stage-and-state-timing) and [Time the tool adds](#time-the-tool-adds). `null` when the event log has no transitions. |
 | `producer` | The tool and agent identity that `start` recorded, when the record has one. |
 | `risk` | `level`, `verdict`, and `requires_human_review`. |
 | `review` | `total_units`, `cited_count`, `clean_count`, `excluded_count`, and `executor`. |
-| `stages` | For each stage: `status`, `attempts`, `started_at`, `finished_at`, `duration_seconds`, `reused`, and `reason`. `started_at` is when the stage last began. `duration_seconds` is the time from `started_at` to `finished_at`. `reused` is true when the stage evidence was carried from an equivalent earlier run. `reason` is the recorded reason for a skipped stage only. |
-| `findings` | `total`, counts `by_stage`, `by_severity`, `by_status`, `by_action`, and `by_response_reason`, and `blocking`. `by_response_reason` counts the reasons of the `dismissed` and `accepted` findings. A finding without a reason counts as `unspecified`. `blocking` counts the findings at a blocking severity for their stage, whatever their status. A severity that is not text counts as `unknown` in `by_severity` and never as blocking. These values are `null` when the run has no findings file, or when the file is not a list of objects. |
+| `stages` | For each stage: `status`, `attempts`, `started_at`, `finished_at`, `duration_seconds`, `reused`, and `reason`. `started_at` is when the stage last began. `duration_seconds` is the time from `started_at` to `finished_at`. `reused` is true when the stage evidence was carried from an equivalent earlier run. `reason` is the recorded reason for a skipped stage only. `red_then_green`, for `lint` and `test` only: `true` when the stage failed and later passed in the same run, `false` when it did not. It is `null` for `review` and `docs`, and when the transition history is not complete. See [What the gate caught](#what-the-gate-caught). |
+| `findings` | `total`, counts `by_stage`, `by_severity`, `by_status`, `by_action`, and `by_response_reason`, and `blocking`. `by_response_reason` counts the reasons of the `dismissed` and `accepted` findings. A finding without a reason counts as `unspecified`. `blocking` counts the findings at a blocking severity for their stage, whatever their status. A severity that is not text counts as `unknown` in `by_severity` and never as blocking. `review_blocking_fixed` and `docs_blocking_fixed` count the blocking findings of the review stage and of the docs stage whose status is `fixed`. They are also `null` when the run's blocking severities are not readable. These values are `null` when the run has no findings file, or when the file is not a list of objects. |
 | `fix_commits`, `validation_restarts` | The number of repair commits, and the number of returns to review. |
 | `event_counts` | The number of events of each name. An event line that is not an object with a text name is not counted. The `finished`, `aborted`, and `orphaned` markers repeat `state`, and the summary events describe the summary itself. These are not counted. |
 | `terminal` | For an aborted run: `aborted_forced`, `abort_reason`, and `aborted_from_state`, the state that the run left. For an orphaned run: `orphaned_reason`. |
@@ -188,6 +188,8 @@ It does not use `monotonic_ns`, because that clock is valid only within one boot
 | `states` | For each state that the run entered: `visits`, and the total `seconds` in that state. The terminal state is not included. |
 | `review_wall_seconds` | The seconds in the `REVIEW_*` and `DOCS_*` states. `null` unless `complete` is `true`. |
 | `shell_wall_seconds` | The seconds in the `LINT_*` and `TEST_*` states. `null` unless `complete` is `true`. |
+| `tool_seconds` | The seconds of the commands that the tool ran on its own. See [Time the tool adds](#time-the-tool-adds). |
+| `agent_seconds` | The seconds in every state, less `tool_seconds`. `null` unless `complete` is `true` and `tool_seconds` is known. |
 
 When the transitions do not connect, `complete` is `false` and the count stops at the gap.
 A visit whose end is unknown has `null` seconds, and its state then has `null` seconds.
@@ -195,7 +197,62 @@ A state that the run entered and left in the same second has `0` seconds. That i
 `timing` is `null` when the event log is missing or has no transitions.
 Records from before transition events have no transitions.
 
-Times include the agent's working time and any wait for the user.
+State times include the agent's working time and any wait for the user.
+`tool_seconds` separates the time of the tool's own commands from them.
+
+### Time the tool adds
+
+The tool times each external command that it runs on its own:
+
+| `command` | What runs |
+|---|---|
+| `sync` | The synchronization with the fresh remote base, in `start`. |
+| `setup` | `[worktree] setup_command`, in `start`. |
+| `review` | `[review] command`, in `review run`. |
+| `contracts` | `[review.contracts] planner_command`, in `review run`. |
+| `review_compare` | The shadow reviewer of `review compare`. |
+| `baseline` | The base-commit check of `stage run --baseline`. |
+| `lint`, `test` | The stage command, in `stage run`. |
+| `mergeback` | The merge of the validated result into the source branch, in `mergeback`. |
+
+Before a command, the tool appends a `tool_command_started` event with `command`.
+After it, the tool appends a `tool_command_finished` event with `command` and `seconds`, the wall time of the command.
+The time comes from the monotonic clock of the one process that runs the command, so it is not rounded to whole seconds.
+The finish event is written even when the command fails or raises an error.
+A failure to write either event never fails the command. The time is then unknown.
+The `run_created` event of a run that times its commands has `command_timing: 1`.
+The two events count against `events --limit` like any other event, so a limit shows fewer state transitions than before.
+
+`timing.tool_seconds` is the sum of the `seconds` values of the events before the run entered its terminal state.
+A command that runs after the run ended, for example `review compare` on a `DONE` run, still writes its events, but it does not count. Thus, `telemetry rebuild` gives the same value as the summary written when the run ended.
+It is `null` in these cases:
+
+- The `run_created` event has no `command_timing` marker. The run was recorded by an earlier version, which did not time its commands.
+- A `tool_command_started` event before the terminal state has no matching `tool_command_finished` event before it. The process stopped during the command, or the run ended while the command ran.
+- A `tool_command_finished` event has no `seconds`, or a value that is not a finite, non-negative number (for example a negative number, `NaN`, `Infinity`, or `true`).
+
+`timing.agent_seconds` is the time from creation to the terminal state, less `tool_seconds`.
+It is the agent's working time, the waits for the user, and the tool's own bookkeeping between commands.
+The state times have one-second granularity, so a short run can measure less wall time than its commands took. `agent_seconds` is then `0`.
+The push is not timed. Its time is part of `agent_seconds`.
+
+## What the gate caught
+
+A catch is something that the gate stopped before the push.
+A summary records four sources:
+
+- `findings.review_blocking_fixed`: blocking review findings that were fixed.
+- `findings.docs_blocking_fixed`: blocking docs findings that were fixed.
+- `stages.lint.red_then_green`: the lint stage failed and later passed in the same run.
+- `stages.test.red_then_green`: the same for the test stage.
+
+`stages.<name>.attempts` counts failed attempts, but it does not show whether a later attempt passed.
+Thus, `red_then_green` comes from the `state_transition` events: a visit to `LINT_RED` or `TEST_RED` before a later visit to `LINT_GREEN` or `TEST_GREEN`.
+A red state that the tool recorded for an interrupted command, which the `lint_interrupted` or `test_interrupted` event follows, is not a failure of the change.
+`red_then_green` is `null` when the transition history is not `complete`, because a gap can hide a red state.
+
+A catch is not proof that hosted checks or a reviewer would have missed the problem.
+A stage can also fail for a reason that the change did not cause, for example a flaky test.
 
 ## What a summary does not contain
 
@@ -221,6 +278,9 @@ A record that the command cannot read is reported in `data.unreadable_runs`.
 Its earlier summary and mirror row stay. The command does not treat that record as absent.
 Runs that are not finished are counted as `skipped`.
 `summary.json` is derived data. You can delete it, and `rebuild` writes it again.
+
+`rebuild` adds the fields of [What the gate caught](#what-the-gate-caught) to earlier runs, from their findings file and their transitions.
+It cannot add `timing.tool_seconds` or `timing.agent_seconds` to a run that an earlier version recorded, because that version did not time its commands. They stay `null`.
 
 `telemetry rebuild`, `telemetry sync-hosted`, and `report` read only derived data.
 Thus, they ignore a configuration key that a later release removed, such as `[hook] enabled`, and print a warning that names the file and the key.
@@ -396,6 +456,15 @@ Some values need care:
   A run whose checks were pending, or whose commit GitHub did not know, is left out and counted as excluded.
   The merged share counts the synced runs that have a pull request.
 - A failed hosted check is not proof of an escaped defect. The check can be flaky, or fail for a reason that is not related to the change.
+- "Caught before push" counts the `DONE` runs with a catch, over the `DONE` runs whose catch is known.
+  A run with any known catch counts as caught. A run without a known catch counts only when all four sources are known. Other runs are excluded.
+  The table gives the same share for each source, over the `DONE` runs that know that source, and the totals of fixed blocking findings.
+  See [What the gate caught](#what-the-gate-caught).
+- "Tool time" gives the median and p90 of `timing.tool_seconds` per `DONE` run.
+  It also gives them per pull request, for the `DONE` runs that `telemetry sync-hosted` joined to a pull request.
+  A pull request can span several runs, so its time is the sum over its runs, grouped by repository and `hosted.pr_number`.
+  A pull request is left out when any of its runs has no tool time. `per_pull_request.runs_without_pull_request` counts the `DONE` runs without a pull request number.
+  The report makes no network request for this.
 
 Every report ends with `data.limits`. The Markdown repeats them.
 The two limits about hosted checks are listed only when at least one run in the report was synced.
@@ -412,6 +481,7 @@ Older records do not have some fields. Those values are `null`, so count them as
 Response and abort reasons are labels that the agent chose. They tell you what the agent judged, not what was true.
 The perceived false-positive share is not a measured false-positive rate.
 Stage and state times include the agent's working time and any wait for the user.
+A catch is something that the gate stopped. It is not proof that a later check would have missed it.
 
 ## Hook decisions
 

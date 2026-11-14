@@ -102,6 +102,20 @@ TIMING_NOTE = (
     "Review time covers the review and docs states. Shell time covers the lint and test states. "
     "Only runs with a complete transition history are counted."
 )
+CATCH_NOTE = (
+    "A catch is something the gate stopped before the push: a blocking review or docs "
+    "finding that was fixed, or a lint or test stage that failed and later passed in the "
+    "same run. It is not proof that hosted checks or a reviewer would have missed it."
+)
+TOOL_TIME_NOTE = (
+    "Tool time is the wall time of the commands the tool ran on its own before the run "
+    "ended: sync, setup, the review command, the contract planner, the shadow review of "
+    "`review compare`, the baseline check, lint, test, and merge-back. "
+    "The push is not timed. "
+    "A run recorded before command timing has no tool time. "
+    "A pull request sums the tool time of its synced `DONE` runs, and is left out "
+    "when any of them has no tool time."
+)
 BLOCKING_NOTE = (
     "A summary counts blocking findings and finding statuses separately. "
     "The fixed count is exact only for runs where every finding or no finding is blocking. "
@@ -733,6 +747,110 @@ def _time_split(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
+#: The catch sources of a summary: where the value is, and whether it is a count.
+_CATCH_SOURCES: tuple[tuple[str, str, str, bool], ...] = (
+    ("review_blocking_fixed", "findings", "review_blocking_fixed", True),
+    ("docs_blocking_fixed", "findings", "docs_blocking_fixed", True),
+    ("lint_red_then_green", "lint", "red_then_green", False),
+    ("test_red_then_green", "test", "red_then_green", False),
+)
+
+
+def _catch_value(row: Mapping[str, Any], section: str, key: str, count: bool) -> int | bool | None:
+    """One catch source of one run, or ``None`` when the summary does not know it."""
+    if section == "findings":
+        holder = row.get("findings")
+    else:
+        stages = row.get("stages")
+        holder = stages.get(section) if isinstance(stages, Mapping) else None
+    value = holder.get(key) if isinstance(holder, Mapping) else None
+    if count:
+        return _int(value)
+    return value if isinstance(value, bool) else None
+
+
+def _caught(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """``DONE`` runs where the gate stopped something before the push, by source.
+
+    A run with any known catch counts as caught. A run with no known catch counts
+    as not caught only when every source is known; otherwise it is excluded.
+    """
+    done = [row for row in rows if row.get("state") == "DONE"]
+    values = [
+        {
+            name: _catch_value(row, section, key, count)
+            for name, section, key, count in _CATCH_SOURCES
+        }
+        for row in done
+    ]
+    with_catch = sum(1 for item in values if any(item.values()))
+    known = sum(1 for item in values if any(item.values()) or None not in item.values())
+    by_source: dict[str, Any] = {}
+    for name, _, _, count in _CATCH_SOURCES:
+        observed = [value for item in values if (value := item[name]) is not None]
+        label = f"DONE runs with a known {name.replace('_', ' ')} value"
+        by_source[name] = {
+            "runs_with_any": ratio(sum(1 for value in observed if value), len(observed), label),
+            "total": sum([int(value) for value in observed]) if count and observed else None,
+            "excluded_runs": len(done) - len(observed),
+        }
+    return {
+        "done_runs": len(done),
+        "runs_with_any_catch": ratio(
+            with_catch, known, "DONE runs with every catch source known or a known catch"
+        ),
+        "excluded_runs": len(done) - known,
+        "by_source": by_source,
+        "note": CATCH_NOTE,
+    }
+
+
+def _tool_seconds(row: Mapping[str, Any]) -> float | None:
+    timing = row.get("timing")
+    values = _numbers([timing.get("tool_seconds")]) if isinstance(timing, Mapping) else []
+    return values[0] if values else None
+
+
+def _tool_time(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Median and p90 tool seconds per ``DONE`` run, and per synced pull request.
+
+    A pull request can span several runs, so its time is the sum over its synced
+    ``DONE`` runs, grouped by repository and ``hosted.pr_number``. Only outcomes
+    that ``telemetry sync-hosted`` already joined are used.
+    """
+    done = [row for row in rows if row.get("state") == "DONE"]
+    per_run = [value for value in (_tool_seconds(row) for row in done) if value is not None]
+    pull_requests: dict[tuple[str, int], list[float | None]] = {}
+    unsynced = 0
+    for row in done:
+        hosted = row.get("hosted")
+        number = _int(hosted.get("pr_number")) if isinstance(hosted, Mapping) else None
+        if number is None:
+            unsynced += 1
+            continue
+        pull_requests.setdefault((repo_key(row), number), []).append(_tool_seconds(row))
+    sums = sorted(
+        sum(value for value in times if value is not None)
+        for times in pull_requests.values()
+        if None not in times
+    )
+    per_pr = _quantiles(sums, len(pull_requests))
+    excluded_pull_requests = per_pr.pop("excluded_runs")
+    return {
+        "per_run": _quantiles(sorted(per_run), len(done)),
+        "per_run_label": "DONE runs",
+        "total_seconds": round(sum(per_run), 3) if per_run else None,
+        "per_pull_request": {
+            **per_pr,
+            "pull_requests": len(pull_requests),
+            "excluded_pull_requests": excluded_pull_requests,
+            "runs_without_pull_request": unsynced,
+            "label": "synced pull requests of DONE runs",
+        },
+        "note": TOOL_TIME_NOTE,
+    }
+
+
 def _hosted(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """Hosted outcomes that ``telemetry sync-hosted`` joined."""
     return {"synced": _hosted_synced(rows)}
@@ -825,6 +943,8 @@ def aggregate(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "stages": _stages(rows),
         "duration_seconds": _durations(rows),
         "time_in_stages": _time_split(rows),
+        "caught": _caught(rows),
+        "tool_time": _tool_time(rows),
         "hosted": _hosted(rows),
         "orphaned_reasons": _orphaned_reasons(rows),
         "abort_reasons": _abort_reasons(rows),
@@ -1223,6 +1343,69 @@ def _runs_section(metrics: Mapping[str, Any]) -> list[str]:
     ]
     rate_table = _table(["Measure", "Rate", "Count", "Denominator", "Excluded runs"], rates)
     return ["### Runs", "", *states, *rate_table]
+
+
+_CATCH_LABELS = {
+    "review_blocking_fixed": "Blocking review finding fixed",
+    "docs_blocking_fixed": "Blocking docs finding fixed",
+    "lint_red_then_green": "Lint failed, then passed",
+    "test_red_then_green": "Test failed, then passed",
+}
+
+
+def _caught_section(metrics: Mapping[str, Any]) -> list[str]:
+    caught = metrics["caught"]
+    rows = [
+        _rate_row("Runs with any catch", caught["runs_with_any_catch"], caught["excluded_runs"]),
+        *(
+            _rate_row(
+                label,
+                caught["by_source"][name]["runs_with_any"],
+                caught["by_source"][name]["excluded_runs"],
+            )
+            for name, label in _CATCH_LABELS.items()
+        ),
+    ]
+    totals = [
+        [_CATCH_LABELS[name], caught["by_source"][name]["total"]]
+        for name in ("review_blocking_fixed", "docs_blocking_fixed")
+    ]
+    return [
+        "### Caught before push",
+        "",
+        caught["note"],
+        "",
+        *_table(["Measure", "Rate", "Count", "Denominator", "Excluded runs"], rows),
+        *_table(["Findings", "Total"], totals),
+    ]
+
+
+def _tool_time_section(metrics: Mapping[str, Any]) -> list[str]:
+    cost = metrics["tool_time"]
+    per_run, per_pr = cost["per_run"], cost["per_pull_request"]
+    rows = [
+        [
+            f"Per run ({cost['per_run_label']})",
+            per_run["observations"],
+            per_run["excluded_runs"],
+            _quantile_cell(per_run, "median"),
+            _quantile_cell(per_run, "p90"),
+        ],
+        [
+            f"Per pull request ({per_pr['label']})",
+            per_pr["observations"],
+            per_pr["excluded_pull_requests"],
+            _quantile_cell(per_pr, "median"),
+            _quantile_cell(per_pr, "p90"),
+        ],
+    ]
+    return [
+        "### Tool time",
+        "",
+        cost["note"],
+        "",
+        *_table(["Group", "Observations", "Excluded", "Median", "p90"], rows),
+    ]
 
 
 def _hosted_sync_section(
@@ -1667,11 +1850,13 @@ def render_markdown(data: Mapping[str, Any]) -> str:
         "",
         *_source_section(data),
         *_runs_section(overall),
+        *_caught_section(overall),
         *_hosted_sync_section(overall, repositories),
         *_findings_section(overall),
         *_finding_responses_section(overall, repositories),
         *_stages_section(overall),
         *_duration_section(overall, repositories),
+        *_tool_time_section(overall),
         *_events_section(overall),
         *_abort_reasons_section(overall),
         *_group_section("By repository", "Repository", repositories),

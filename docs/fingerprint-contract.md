@@ -56,7 +56,8 @@ Git always reads `$GIT_DIR/info/attributes`.
 A diff driver there with a hunk-header pattern, or `diff` set on a binary file, stops the command with `review_diff_attribute`, because the text would differ on this machine only.
 Notes from 0.8.1 and earlier hash patches with abbreviated object IDs, whose length depends on the clone, and whose text followed the checkout's attributes.
 A verifier builds that text only when the current text does not reproduce a note's digest.
-It fixes the other settings to Git's default for that text too, so a note whose producer changed one of them does not verify.
+It fixes the other settings to Git's default for that text too, so a note whose producer changed one of them may not verify, if the change altered the patch.
+In that text a file-level patch, such as a binary change, names its blobs only by abbreviated object IDs, which a clone that holds both blobs disambiguates.
 It rejects the note when that text marks a file whose content is text as binary.
 See [the compatibility entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-configuration)
 and [the attributes entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-attributes).

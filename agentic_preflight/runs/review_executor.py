@@ -261,6 +261,7 @@ def _prepare_contracts(
         separate_stderr=True,
         before_run=begin,
         capture_data={"phase": "contracts", "reviewer_invocations": 0},
+        timed_as="contracts",
     )
     result = protected.result
     reason = protected.failure_reason
