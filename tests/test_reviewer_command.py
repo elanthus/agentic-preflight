@@ -425,6 +425,14 @@ def test_reviewer_run_sends_a_non_ascii_prompt_as_utf8_under_an_ascii_locale(
     assert context["intent"] in capture.read_text(encoding="utf-8")
 
 
+def test_undecodable_codex_final_output_is_replaced_not_fatal(tmp_path):
+    final = tmp_path / "final.txt"
+    final.write_bytes(b'{"findings": []}\xff\n')
+
+    assert common.read_optional(final) == '{"findings": []}\ufffd\n'
+    assert common.read_optional(tmp_path / "missing.txt") == ""
+
+
 @pytest.mark.parametrize("provider", ["codex", "claude"])
 @pytest.mark.parametrize("target", ["missing_directory", "a_directory"])
 def test_reviewer_run_reports_an_unwritable_events_file(

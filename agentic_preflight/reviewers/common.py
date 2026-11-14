@@ -312,6 +312,6 @@ def report_error(exc: ReviewerError) -> int:
 
 def read_optional(path: Path) -> str:
     try:
-        return path.read_text(encoding="utf-8")
+        return path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
         return ""
