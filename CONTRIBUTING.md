@@ -46,11 +46,12 @@ Run `agentic-preflight init` in your clone to install the pre-push hook. The com
 Complete a run before you push.
 The committed configuration reviews every run with an independent Claude Code reviewer.
 `agentic-preflight review run` starts the example wrapper with `uv run`, and the wrapper calls the `claude` CLI with `claude-opus-5-5` at low effort.
+The wrapper is a copy of the packaged reviewer that `tests/test_reviewer_examples.py` keeps in sync.
 Under `uv run`, the editable install puts the repository root on `sys.path`, so Python imports a root `sitecustomize.py` into the reviewer at startup. That file is a human-review path.
 It also synchronizes the environment from `pyproject.toml` and `uv.lock`. Changes to those files rely on the required dependency audit, not on owner review.
 Install [Claude Code](https://docs.claude.com/en/docs/claude-code/setup) and sign in to an account that can use that model.
 Each review uses that account's quota: a Claude subscription's usage limits, or API billing when `ANTHROPIC_API_KEY` is set.
-See [Independent review and agreement](docs/independent-review.md) for the wrapper and its environment variables.
+See [Independent review and agreement](docs/independent-review.md) for the reviewer and its environment variables.
 The push publishes the attestation with your branch.
 The `trusted preflight attestation` CI job verifies the attestation on the pull-request head.
 See [Portable attestations and CI enforcement](docs/attestations-and-ci.md#required-github-check).

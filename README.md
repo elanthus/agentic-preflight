@@ -16,7 +16,8 @@ It records each result with a fingerprint of those inputs.
 The pre-push hook blocks a normal push if this evidence is missing or no longer matches the commit.
 It works with Codex, Claude Code, Cursor, OpenCode, and Amp.
 
-- **Use your current agent.** The core CLI calls no model and needs no model API key.
+- **Use your current agent.** The workflow commands call no model and need no model API key.
+  An optional packaged reviewer, `agentic-preflight reviewer run`, calls the `claude` or `codex` CLI that you install.
 - **Inspect each stage.** The run record includes skipped stages, failures, findings, and approvals.
 - **Keep results with their inputs.** A changed commit, configuration, or intent cannot use unrelated evidence.
 
@@ -262,6 +263,7 @@ flowchart LR
 | What repository context reaches review, and how is untrusted content bounded? | [Grounded context](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/context-grounding.md) |
 | Where does responsibility pass between the coding agent, CLI, and shell commands? | [ADR 0001: orchestration boundaries](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/adr/0001-orchestration-boundaries.md) |
 | How can linked worktrees run independently and safely? | [ADR 0002: worktree-scoped run ownership](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/adr/0002-scope-run-ownership-to-worktrees.md) |
+| Why does the package ship a reviewer, and which model dependencies does it allow? | [ADR 0003: packaged command reviewer](https://github.com/elanthus/agentic-preflight/blob/main/docs/adr/0003-ship-a-packaged-reviewer.md) |
 | How does this workflow compare with its inspiration? | [Prior art and differentiation](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/prior-art.md) |
 | Which scripted cases guard workflow behavior? | [Public regression eval](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/regression-eval.md) |
 | Where are the pre-registered evaluation results and the immutable evidence ledgers published? | [elanthus/preflight-eval-results](https://github.com/elanthus/preflight-eval-results) |
