@@ -85,11 +85,11 @@ $ agentic-preflight mergeback
  "next":{"command":"agentic-preflight gate"}}
 
 $ agentic-preflight gate
-{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"a1b2c3d4","pr_mode":"auto","automated_cleanup":true,"commits":[...]},
+{"ok":true,"state":"AWAITING_PUSH_CONFIRM","data":{"token":"a1b2c3d4","pr_mode":"auto","automated_cleanup":true,"commits":[...],"published_notes":[...]},
  "next":{"instruction":"Substitute data.token for <token> only after user authorization.",
          "command":"agentic-preflight push --confirm <token>"}}
 
-# Show the remote, branch, and commits. Apply non-negotiable 5: push without asking
+# Show the remote, branch, commits, and published_notes. Apply non-negotiable 5: push without asking
 # again when the summary matches the authorization; otherwise STOP and ask.
 # Once authorized, substitute data.token:
 $ agentic-preflight push --confirm <token>

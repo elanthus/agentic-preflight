@@ -110,6 +110,44 @@ Treat the attestation as an audit trail.
 It does not replace CI or a human reviewer.
 It is not a signature. Anyone with permission to update the notes ref can replace it.
 
+## What a published note reveals
+
+`push` publishes the attestation notes of the commits it pushes to the remote with the branch.
+[Portable attestations](attestations-and-ci.md) lists every field.
+The note includes the text of every finding and response note, after copied-file values are redacted, and the commands that ran.
+It includes the configuration from the repository file, which the repository already publishes.
+It leaves out the sections of the user configuration file, except `[diff]`.
+It records `[redacted user-level command]` in place of a command that depends on a user-level `[review]` or `[commands]` section.
+
+Redaction narrows what the note can reveal. It is not a secret scanner:
+
+- Finding text and response notes are redacted only for exact values from `[worktree] copy_files` files.
+  A reviewer that paraphrases, encodes, or splits a value, or that quotes another file, can still place it in the note.
+- Short copied values are redacted too. A `.env` line such as `DEBUG=1` replaces every `1` in finding text with `[redacted]`.
+  The note is public, so the tool redacts too much rather than publish a short credential.
+  Keep unrelated short values out of `copy_files` files to keep findings readable.
+- A command in the repository file and a `stage run --command` override when the repository file sets `[commands]`, or when neither file sets it, are published as written.
+- The source worktree ID is an unsalted SHA-256 digest of the local path of the worktree's Git directory.
+  A reader who guesses the path, for example from a user name and a common layout, can confirm the guess.
+- The local run record keeps the full user configuration, because the run executes it.
+
+Notes that earlier releases wrote keep whatever they contained.
+A run that an earlier release started cannot publish: `mergeback`, `gate`, and `push` refuse it because the run did not record which sections came from the user file. Abort it and start a fresh run.
+Other notes in the local notes ref, such as one an earlier release wrote for a run you later aborted, are published only when `push` publishes their commit, or when someone pushes the whole ref by hand, as the next section describes. Remove them before then if they may hold user-level configuration.
+Evidence reuse refuses evidence from a record without user-level sections, such as one that an earlier release wrote, unless its configuration snapshot matches what the current run publishes.
+Rewriting a published note does not remove it from clones or forks that already fetched it.
+
+## Published notes are visible to everyone who can fetch them
+
+A note holds the branch name, the finding titles and details, the file paths, and the published configuration snapshot described above.
+`push` publishes the notes of the commits it pushes, and the gate lists them in `published_notes`.
+Notes on commits that were never pushed stay in the local `refs/notes/agentic-preflight`.
+The scope is per commit, not per branch. A pushed commit's note is published even when a run on another branch wrote it, for example an aborted branch that pointed at the same commit, and that note names the other branch.
+This scope covers `push` and the manual gate command only.
+A hand-run `git push origin refs/notes/agentic-preflight` sends every local note, including those of unpushed commits.
+Releases before this scoping pushed the whole local notes ref, so the remote may already hold such notes.
+Removing them requires rewriting the remote notes ref.
+
 ## Attestations are not signatures
 
 Anyone with permission to update `refs/notes/agentic-preflight` can replace an attestation.
@@ -123,7 +161,7 @@ Otherwise it is the note's `base_ref`, resolved to `refs/remotes/origin/<branch>
 A fully qualified `base_ref` must already be under one of those namespaces. A tag fails with `base_mismatch`.
 The note's `merge_base_sha` must be the only merge base of that base and the head.
 Policy comes from the `.agentic-preflight.toml` committed at the trusted base.
-The note's configuration snapshot records what ran. It does not decide what was required.
+The note's configuration snapshot records the published part of what ran. It does not decide what was required.
 
 Thus, with a trusted base, a branch cannot relax the policy that judges it.
 It cannot skip docs that the base enables, or replace a configured lint, test, or review command.

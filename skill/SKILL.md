@@ -127,7 +127,9 @@ quiet while code verifies that no delivered unit disappears.
 A low- or medium-severity `auto_fix` finding does not make the stage red, but it still
 needs an explicit disposition before following the normal stage continuation. Use
 `fixed --commit <sha>` to register the repair, or `accepted --note <reason>` to record
-why the valid finding is not worth fixing. A green-stage repair changes the reviewed
+why the valid finding is not worth fixing. `--commit` cites the repair for the audit
+record; in isolated modes every commit in the validation worktree merges back in commit
+order, cited or not. A green-stage repair changes the reviewed
 snapshot and returns the run to review; a note-only disposition leaves it green.
 
 Always pass `--reason` when you dismiss or accept a finding, and when you abort a run.
@@ -197,16 +199,18 @@ to summarize the user's run history.
 | Git operation already in progress (exit 3, `operation_in_progress`) | Stop; the user must finish or abort it |
 | Merge-back conflict (exit 4, isolated modes only) | Inspect and show `data.resolution`; resolve only an unambiguous, recoverable result permitted by the merge-back contract, then re-run `mergeback`, or stop |
 | Recorded fixes never landed (exit 4, `fixes_not_landed`) | Do not retry `mergeback`; tell the user, `abort`, and start a new run to revalidate |
+| Run started by an earlier release (exit 4, `needs_human`, `data.reason` `unknown_config_provenance`) | Do not retry `mergeback`, `gate`, or `push`; show the message to the user. Keep `data.fix_commits` before any `abort --force`, then start a new run so the note leaves out user-level configuration |
 | Stage red after max attempts (exit 4) | Stop retrying; show a stage log, or abort if baseline setup never produced one |
 | Validation restarted too many times (exit 4, `max_restarts`) | Stop repairing; show `status` and wait for the user. Never abort and restart on your own to reset the counter |
 | Hosted attestation fetch or verification failure | Inspect source fetch failures; read the offline verifier reason and restore exact-head evidence |
 | Push rejects the note against the protected base policy (exit 2, `attestation_failed`) | Stop; a branch cannot relax or replace the base's commands, docs, or exclusions. Tell the user a human must push and merge that policy change |
 | Hosted CI failed | Inspect the failure; unchanged-source CI reruns preserve local evidence, while source repairs revalidate affected stages |
+| Merge in the validation history (exit 3, `nonlinear_fix_history`) | Remove the named merge commits from the validation branch, keeping your own repairs as linear commits on the reviewed head, then rerun the command |
 | Stale head (exit 3, `stale_run`) | Run `start` again; it preserves the old run as `ORPHANED` |
 | Base synchronization failed at start (exit 4, `sync_conflict` or `sync_failed`) | Print the whole `data` object; the user resolves the listed conflicts, moves or removes listed local files, or fixes the remote, then `abort --force` and `start` again |
 | Interrupted legacy update | Follow `status` from the recorded source worktree; below the restart limit, `start` retires interrupted validation and discards its journal while preserving audit history and user work. At the limit, stop for the user’s abort/restart decision |
 | Abandoned run | `status --all`; inspect explicitly with `--run RUN_ID` |
-| Unreadable shared run record | Preserve the record and ownership; inspect its path |
+| Unreadable shared run record | Preserve the record and ownership; inspect its path. Only if a compatible version cannot read it either and the user decides to abandon the run, delete just the pointers a refused mutating command lists in `data.pointer_paths` (`in_place` and `strict` runs only). Without that field, as for a `reusable` run, delete nothing and stop for the user |
 | Diff too large (exit 2, `diff_too_large`) | Exclude generated globs; never review part of it |
 | No command configured (exit 2, `needs_command`) | Show candidates; require user selection and approval; re-run with `--command` and `--record`; distrust the first green |
 | Setup failed (exit 2, `setup_failed`) | Obey `status`: abort `SETUP_FAILED` initial setup or preserve the baseline retry |
@@ -385,5 +389,6 @@ preserve the directory. This includes the user cache and old sibling default;
 For a pushed run with no PR, follow `finish` with `gc`. `gc` compares original fixes
 with post-merge-back history using stable patch IDs. Only patch-equivalent fixes are
 reclaimed automatically; anything unmerged is retained unless the user explicitly
-chooses `--force`. Run directories remain because they hold stage logs, until
+chooses `--force`. So is a validation worktree holding uncommitted changes or a commit
+that `respond` never recorded. Run directories remain because they hold stage logs, until
 `[retention] run_days` expires them; report `data.pruned` when it is not empty.

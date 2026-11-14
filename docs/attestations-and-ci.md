@@ -2,15 +2,63 @@
 
 A successful merge-back writes a schema version 7 JSON attestation as a Git note on the exact commit.
 Every note includes an explicit `outcome`. `verified` means that all local validation is complete.
-A note includes the run identity and the commit and tree hashes.
-It includes dedicated SHA-256 bindings for the user intent and for the complete effective configuration snapshot.
-It also includes the finding totals, the stage fingerprints, and the original execution provenance.
-A green shell stage includes its command, exit code, and redacted-output digest.
-A skipped stage records why it was skipped.
 Any other schema version is rejected.
+`push` publishes the note, so anyone who can read the remote can read it.
+
+A note contains these fields:
+
+- The kind, schema version, outcome, and the time that local validation went green.
+- The run ID, the branch, the base branch, and the commit, tree, and merge-base hashes.
+- A SHA-256 digest of the intent. The intent text itself is not included.
+- The published configuration snapshot and its SHA-256 digest.
+- For each stage, its status, a reason when it was skipped, and its process evidence.
+  A command review and a green lint or test stage carry the command, the exit code, and a SHA-256 digest of the redacted output.
+  The output itself is not included.
+  Review also records its executor and its coverage: the manifest and grounding digests, the reviewed head, the unit count, the cited and clean unit IDs, the excluded file paths, and a contract-plan digest when contract checks are enabled.
+- The totals of findings by status and severity.
+- For each stage, its evidence: a version, a digest of the original execution, the current fingerprint, and, for evidence reused from an earlier run, the refresh time and the derivation reason.
+- For each stage, the original execution:
+  - The original run ID, stage, commits, branch, base branch, and finish time.
+  - The source worktree ID, an unsalted SHA-256 digest of the local path of the worktree's Git directory.
+  - The published configuration snapshot and its digest, and the stage result as above.
+  - The original fingerprint.
+  - Every finding from that stage in full: ID, stage, whether code owns it, path, line, unit, severity, action, title, detail, suggestion, status, fix commit, and response note.
+    The `respond --reason` label is not included.
+- A fingerprint holds a version, tree hashes, and SHA-256 digests.
+  A review fingerprint also holds the excluded file paths, the executor, and whether the configuration was supported.
+  A docs fingerprint also holds whether the configuration was supported.
+  A shell fingerprint also holds why its inputs were unavailable, when they were.
+
+The published configuration snapshot leaves out every section that came from the user configuration file, `~/.config/agentic-preflight/config.toml`.
+Those sections apply to the run, but they describe one machine.
+A run that an earlier release started did not record which sections came from that file, so `mergeback`, `gate`, and `push` refuse it. Abort it and start a fresh run before it can publish.
+`[diff]` is the exception. Verification rebuilds the review diff from its exclusions, so it is published from either file.
+A section that the repository file sets is published as written.
+
+The review command depends on `[review]`, and the lint and test commands depend on `[commands]`, including a `stage run --command` override.
+When that section came from the user file, the note records `[redacted user-level command]` in place of the command.
+The shell-command digest in the fingerprint covers that marker, not the command, so the note cannot confirm a guessed command.
+Otherwise the command is published as written, so a verifier can compare it with the protected policy.
+
+Evidence reused from an earlier run is held to the same rule.
+Reuse refuses evidence whose configuration snapshot holds a section that the current run withholds.
+It also refuses evidence from a run record without user-level sections, such as one that an earlier release wrote, unless that snapshot equals the one the current run publishes.
+Reuse also refuses evidence with finding text that the current copied-file values would redact.
+
+Finding text and response notes are redacted before they are saved, in the same way as stage logs.
+A value from a `[worktree] copy_files` file that appears verbatim becomes `[redacted]`.
+This covers findings from a review command, from `submit-findings`, and from `review compare`, and the `respond --note` text.
+See [the limits of exact-value redaction](worktree-modes.md#secrets-in-worktrees) and [what a published note reveals](limits.md#what-a-published-note-reveals).
 
 `agentic-preflight push` first publishes the original-commit refs that the attestation evidence needs.
-Then it pushes the branch and `refs/notes/agentic-preflight` atomically.
+Then it pushes the branch and a notes commit to `refs/notes/agentic-preflight` atomically.
+The notes commit is the remote notes tip plus the local notes of the pushed commits: the run's commits from its merge base to the attested head.
+Notes on other local commits, such as those of an aborted or never-pushed branch, stay local.
+The gate summary lists the pushed commits that carry a local note in `published_notes`. The push result lists the notes that it added or changed on the remote.
+If another clone updates the remote notes first, the atomic push is rejected and nothing lands.
+`push` then rebuilds the notes commit on the new remote tip, so both clones' notes reach the remote.
+The push leases the remote notes ref to the fetched tip, so a deleted or rewound ref is never recreated or moved forward again.
+After the push, the published notes commit is merged into the local notes ref, so later fetches extend local history.
 If the publication of an original fails, the branch push does not start.
 An interrupted publication can leave retained evidence refs that are ready for a retry.
 Git does not fetch notes in an ordinary checkout.

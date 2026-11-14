@@ -306,6 +306,7 @@ class GateData(RunDataBase):
     automated_cleanup: bool | None = None
     approval_mode: str | None = None
     commits: list[Obj] | None = None
+    published_notes: list[str] | None = None
     risk: Obj | None = None
     token: str | None = None
     push_commands: list[str] | None = None
@@ -322,6 +323,7 @@ class PushData(RunDataBase):
     base_ref: str | None = None
     pr_mode: str | None = None
     automated_cleanup: bool | None = None
+    published_notes: list[str] | None = None
 
 
 class FinishData(RunDataBase):
@@ -405,6 +407,10 @@ class LogsData(RunDataBase):
 class EventsData(RunDataBase):
     events: list[Obj] | None = None
     count: int | None = None
+    skipped_lines: int | None = Field(
+        default=None,
+        description="Event log lines skipped because they are not JSON objects, such as a torn append.",
+    )
 
 
 class AbortData(RunDataBase):

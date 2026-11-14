@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 from hypothesis import settings
 
+from agentic_preflight import hooklog
 from agentic_preflight.machine import State
 from agentic_preflight.models import RunDoc
 from tests import telemetry_guard
@@ -86,6 +87,24 @@ def deterministic_git_env(monkeypatch, tmp_path_factory):
     python_bin = str(Path(sys.executable).parent)
     current_path = os.environ.get("PATH", "")
     monkeypatch.setenv("PATH", os.pathsep.join(part for part in (python_bin, current_path) if part))
+
+
+#: The hook log's time bound in tests. The product's two seconds bound a push on an
+#: ordinary machine, but a loaded test machine can take longer for the log's few Git
+#: calls, and the write then returns ``timed_out`` instead of its result. Tests whose
+#: subject is the bound pass their own short ``timeout`` and a step held open on purpose.
+HOOK_LOG_TIMEOUT_SECONDS = 60.0
+#: The product's bound, read before any test replaces it.
+PRODUCT_HOOK_LOG_TIMEOUT_SECONDS = hooklog.TIMEOUT_SECONDS
+
+
+@pytest.fixture(autouse=True)
+def generous_hook_log_timeout(monkeypatch):
+    """Give in-process hook-log writes :data:`HOOK_LOG_TIMEOUT_SECONDS`.
+
+    ``hook-check`` subprocesses get the same bound from ``tests.test_hook.hook_check``.
+    """
+    monkeypatch.setattr(hooklog, "TIMEOUT_SECONDS", HOOK_LOG_TIMEOUT_SECONDS)
 
 
 @pytest.fixture
