@@ -328,6 +328,8 @@ def require_resolved_findings(session: Session, run: RunDoc) -> None:
     an earlier release advanced can still carry one here. `respond` is no longer
     legal, so the run cannot repair itself; say so before anything is recorded.
     """
+    if run.state not in (State.TEST_GREEN, State.MERGEBACK_PENDING, State.MERGEBACK_CONFLICT):
+        return
     pending = unresolved_findings(session, run, (Stage.REVIEW, Stage.DOCS))
     if not pending:
         return
@@ -344,7 +346,7 @@ def require_resolved_findings(session: Session, run: RunDoc) -> None:
         state=run.state.value,
         run_id=run.run_id,
         stage=pending[0].stage.value,
-        data={"finding_ids": ids, "fix_commits": list(run.fix_commits)},
+        data={"fix_commits": list(run.fix_commits)},
         blocking=[finding.model_dump(mode="json") for finding in pending],
         next_instruction=(
             "Do not retry `mergeback`. Abort this run, fix or decide each listed "

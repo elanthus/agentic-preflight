@@ -535,7 +535,6 @@ def require_findings_resolved(
         state=run.state.value,
         run_id=run.run_id,
         stage=pending[0].stage.value,
-        data={"finding_ids": ids},
         blocking=[finding.model_dump(mode="json") for finding in pending],
         next_instruction=OPEN_AUTO_FIX_INSTRUCTION,
         next_command=_respond_command(pending[0].id),

@@ -67,7 +67,6 @@ def test_docs_stage_refuses_to_open_while_a_review_auto_fix_finding_is_open(feat
     env = agent.run("context", "--section", "docs", expect=ExitCode.PRECONDITION)
 
     assert env["error"]["code"] == "open_findings"
-    assert env["data"]["finding_ids"] == ["F001"]
     assert [item["id"] for item in env["blocking"]] == ["F001"]
     assert env["next"]["command"].startswith("agentic-preflight respond --id F001")
     assert agent.run("status")["state"] == "REVIEW_GREEN"
@@ -109,7 +108,7 @@ def test_lint_refuses_to_start_while_a_docs_auto_fix_finding_is_open(feature_rep
     env = agent.run("stage", "run", "lint", expect=ExitCode.PRECONDITION)
 
     assert env["error"]["code"] == "open_findings"
-    assert env["data"]["finding_ids"] == ["F001"]
+    assert [item["id"] for item in env["blocking"]] == ["F001"]
     assert env["stage"] == "docs"
     assert env["next"]["command"].startswith("agentic-preflight respond --id F001")
     assert agent.run("status")["state"] == "DOCS_GREEN"
@@ -148,7 +147,7 @@ def test_mergeback_refuses_an_open_finding_without_an_internal_error(
     env = agent.run("mergeback", expect=ExitCode.PRECONDITION)
 
     assert env["error"]["code"] == "open_findings"
-    assert env["data"]["finding_ids"] == ["F001"]
+    assert [item["id"] for item in env["blocking"]] == ["F001"]
     assert env["next"]["command"] == "agentic-preflight abort"
     assert agent.run("status")["state"] == "TEST_GREEN"
     assert _notes(feature_repo) == ""
