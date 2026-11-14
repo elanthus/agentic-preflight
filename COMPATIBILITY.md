@@ -600,6 +600,27 @@ The checkouts in `attestation.yml` and `human-approval.yml` set `persist-credent
 `human-approval-rerun.yml` now has an `authorize` job and a `rerun` job, and re-runs the policy only for a review from an owner, member, or collaborator, an action by a user with write access, or an action by a bot account that has dismissed an owner, member, or collaborator review of the pull request. When a lookup that decides this fails, it re-runs the policy with a warning instead of skipping it. A project that copied the companion should copy the new version.
 The required check keeps its name, and `approval-check`, its outputs, and the attestation schema are unchanged.
 
+## Unreleased: the reviewer's own files need human review
+
+Risk classification now treats the repository paths that `[review] command` and `[review.contracts] planner_command` name as human-review paths, together with every file under each named file's directory.
+Directories that a command changes to or adds to `PYTHONPATH` or `NODE_PATH`, and the top-level package of a dotted `-m` module, are protected as whole directories. `-m name` protects `name.py` and `name/**`.
+Shell control operators (`;`, `&`, `|`, `(`, `)`, `<`, `>`) split the command only outside quotes, so a quoted path such as `'reviewers (local)/rev.py'` is protected as one path.
+The new optional `[review] trusted_paths` list adds more patterns.
+This applies to local runs, to attestation verification, and to `approval-check`, which reads both from the protected base.
+A pull request that edits a configured reviewer script, or a sibling file such as the example wrappers' `_reviewer_common.py`, is now high risk and needs the configured approval. Earlier releases classified it by `[policy]` alone.
+Such paths appear in `data.path_reasons` with the existing kind `human_review_path`. No envelope field or reason kind is new.
+They also appear in the policy entries of `data.grounding`. For a branch whose changed files match a newly derived pattern, the grounding and `grounding_sha256` change, so review and docs evidence recorded for that branch before the upgrade is not reused and those stages run again.
+Earlier releases reject a configuration file that sets `trusted_paths`, as an unknown key. Upgrade the protected-base verifier and every machine that shares a clone before you set it.
+Configuration snapshots omit `trusted_paths` when it is empty, so snapshots and configuration digests for existing configurations are unchanged.
+A snapshot that sets it cannot be read by an earlier release.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+The packaged reviewer (see the next section) runs from the installed package, and the example reviewer configurations start it with `agentic-preflight reviewer run`. Run a wrapper copied from an earlier release with `python3 -S -B`.
+The Claude reviewer now passes `--safe-mode` and `--setting-sources user`, checked against Claude Code 2.1.292.
+The Codex reviewer now passes `--config project_doc_max_bytes=0` and `--ignore-rules`, checked against Codex CLI 0.163.0.
+An older CLI that lacks one of these options fails the review with a visible error. Update the CLI, or remove the option from your copy of the wrapper and protect the files that it would read with `trusted_paths`.
+With `--safe-mode`, the Claude reviewer also ignores your user `CLAUDE.md`, skills, hooks, and MCP servers.
+
 ## Unreleased: packaged command reviewer
 
 `agentic-preflight reviewer run --provider claude|codex` is a new command.

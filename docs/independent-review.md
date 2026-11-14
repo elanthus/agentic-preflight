@@ -32,6 +32,33 @@ Thus, `agentic-preflight review run` launches the independent reviewer.
 On a failure, it exits 1 and writes one `independent reviewer failed: ...` line on stderr, which `review run` records in the review log.
 A usage error, such as a missing or unknown `--provider`, keeps Click's usage message on stderr and exits 2.
 
+The reviewer is independent of the coding agent's session.
+The packaged reviewer runs from the installed Agentic Preflight package, not from the worktree under review, so a branch cannot edit it.
+That holds only while the command starts an installed `agentic-preflight`. A command that runs Agentic Preflight from the repository, for example through `uv run` in a project that depends on it by path, runs the branch's copy.
+A reviewer script in the repository, such as a wrapper copied from an earlier release, also runs from the worktree that holds the change under review, so a branch that edits the script changes its own reviewer.
+Verification compares only the configured command string.
+Instead, risk classification treats the files that the command names, and every file under the script's directory, as human-review paths.
+A change to a copied wrapper or to its `_reviewer_common.py` then goes through the configured approval mode before merge.
+A script at the repository root protects only itself, not the files beside it, so list any module that such a script imports in `trusted_paths`.
+List any other file that the reviewer reads, such as a prompt in another directory, in `[review] trusted_paths`.
+Also list the script's directory in your forge's code-owner rules.
+See [Review independence](configuration.md#review-independence-review).
+
+The example configurations start the installed `agentic-preflight` directly, not through a project runner such as `uv run`.
+A project runner would load the branch's manifest and lockfile, and could import a `sitecustomize` module that the branch adds to `sys.path`.
+A copied stdlib-only wrapper should run with `python3 -S -B` for the same reason. `-S` skips that startup processing.
+The deprecated pointers in `docs/examples/reviewers/` cannot run with `-S`, because they import the installed package.
+The provider CLI that the reviewer starts works in the worktree under review, so the reviewer also turns off the instructions and settings it would read there:
+
+- The Claude reviewer passes `--safe-mode`, which skips `CLAUDE.md`, skills, hooks, MCP servers, plugins, and custom agents, and `--setting-sources user`, which ignores the project's `.claude/settings.json` and `.claude/settings.local.json`.
+  Your own user customizations are skipped too. Authentication and model selection work normally.
+- The Codex reviewer passes `--config project_doc_max_bytes=0`, so Codex does not read `AGENTS.md`, and `--ignore-rules`, so it does not load `.rules` files.
+  Codex CLI 0.163.0 has no option to skip a project `.codex/config.toml`, which can change the model provider, tools, or instructions.
+  The reviewer's `--model`, `--sandbox`, and `--config` values take precedence over that file, but nothing else does.
+  Codex also discovers repository skills under `.agents/skills` in the worktree and its parent directories up to the project root, and neither option turns that off.
+  List `.codex/**` and `.agents/**` in `[review] trusted_paths` when you use the Codex reviewer, as the example configuration does.
+  That includes the Agentic Preflight skill, if you installed it under `.agents/skills`: updating it then needs human approval.
+
 Set `AP_CODEX_BIN` or `AP_CLAUDE_BIN` if the executable is not named `codex` or `claude`.
 Set `AP_REVIEWER_MODEL` to an exact model ID.
 Set `AP_REVIEWER_EFFORT` to an effort that the model and CLI support.

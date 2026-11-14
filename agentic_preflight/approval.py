@@ -305,7 +305,7 @@ def evaluate_value(
         changed_files,
         [],
         policy=cfg.policy,
-        review_blocking_severities=cfg.review.blocking_severities,
+        review=cfg.review,
         docs_blocking_severities=cfg.docs.blocking_severities,
     )
     severe_findings = sum(

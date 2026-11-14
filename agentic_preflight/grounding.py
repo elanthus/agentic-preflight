@@ -249,7 +249,7 @@ def _policy_entries(session: Session, changed_files: list[str]) -> list[dict[str
         changed_files,
         [],
         policy=session.config.policy,
-        review_blocking_severities=session.config.review.blocking_severities,
+        review=session.config.review,
         docs_blocking_severities=session.config.docs.blocking_severities,
     )
     return [

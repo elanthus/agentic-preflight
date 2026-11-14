@@ -252,10 +252,16 @@ def test_reviewer_run_emits_the_strict_submission(tmp_path, clean_reviewer_env, 
         assert argv[argv.index("--model") + 1] == "gpt-5.3-codex"
         assert argv[argv.index("--config") + 1] == 'model_reasoning_effort="medium"'
         assert argv[argv.index("-C") + 1] == "."
+        # The branch under review must not instruct its own reviewer.
+        assert "project_doc_max_bytes=0" in argv
+        assert "--ignore-rules" in argv
         assert argv[-1] == "-"
     else:
         assert argv == [
             "-p",
+            "--safe-mode",
+            "--setting-sources",
+            "user",
             "--output-format",
             "stream-json",
             "--verbose",
