@@ -118,7 +118,7 @@ the next `start`, with or without `--replace`, orphans it and creates a fresh ru
 (`wrong_state`) while that run's `start` still holds its operation lock. A clean validation
 checkout that the interrupted run provisioned is reclaimed; one holding changes or commits
 beyond the run's starting head makes `start` exit 4 (`needs_human`) with its path in
-`data.worktree_path` and that head in `data.head_sha`, and leaves the run in place. A later
+`data.worktree_path`, names that head in `next.instruction`, and leaves the run in place. A later
 `start` reclaims the checkout once it is clean at that head, even if the interrupted run
 was aborted in between.
 A nonterminal run with a legacy `pending-update.json` is instead orphaned at the next
