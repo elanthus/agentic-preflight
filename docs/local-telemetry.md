@@ -229,7 +229,7 @@ It is `null` in these cases:
 
 - The `run_created` event has no `command_timing` marker. The run was recorded by an earlier version, which did not time its commands.
 - A `tool_command_started` event before the terminal state has no matching `tool_command_finished` event before it. The process stopped during the command, or the run ended while the command ran.
-- A `tool_command_finished` event has no `seconds`, or a negative value.
+- A `tool_command_finished` event has no `seconds`, or a value that is not a finite, non-negative number (for example a negative number, `NaN`, `Infinity`, or `true`).
 
 `timing.agent_seconds` is the time from creation to the terminal state, less `tool_seconds`.
 It is the agent's working time, the waits for the user, and the tool's own bookkeeping between commands.

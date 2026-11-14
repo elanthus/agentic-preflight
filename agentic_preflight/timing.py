@@ -22,8 +22,10 @@ never zero.
 * Review and shell totals are ``None`` unless the chain is complete, because a
   broken chain can hide later visits.
 
-The tool also times each external command it runs on its own (sync, setup, the
-review command, lint, test, merge-back). :func:`timed_command` brackets
+The tool also times each external command it runs on its own (the names in
+:data:`TIMED_COMMANDS`: sync, setup, the review command, the contract planner,
+the ``review compare`` shadow reviewer, the baseline check, lint, test, and
+merge-back). :func:`timed_command` brackets
 one with a ``tool_command_started`` and a ``tool_command_finished`` event; the
 second carries ``seconds`` from the monotonic clock, which is valid here because
 both ends are read in one process. The sum is ``tool_seconds``:
