@@ -664,12 +664,12 @@ What changes at upgrade:
 
 - `diff_sha256`, the review manifest, and the digest of each file-level review unit change for every diff that has an `index` line, because that line changed. A diff with only mode changes or an empty diff is unchanged.
   A file-level unit is a patch without hunks, such as a binary change. Hunk unit digests are unchanged.
-- A note that 0.8.1 or an earlier release wrote still verifies when its producer left each setting above at Git's default.
+- A note that 0.8.1 or an earlier release wrote still verifies when its producer left each setting above at Git's default, or when a setting it changed did not change that note's patch text.
   When the full-ID text does not reproduce a note's digest, the verifier also builds the abbreviated text and accepts the note if that text matches.
   The other settings above are fixed to Git's default for that text too, and the note does not record the producer's values, so they cannot be restored.
-  Such a note fails, even on the machine that wrote it, when its producer set one of those settings to another value, for example `diff.context = 5`.
+  A producer that set one of those settings to another value may therefore have written a note that fails, even on the machine that wrote it, if the value changed the patch. For example, `diff.context = 5` adds context lines to a hunk that has more unchanged lines around it, but leaves a one-line file's patch unchanged.
   The verifier builds the abbreviated text with Git's default length, whatever its own `core.abbrev` says.
-  The note still fails in a clone where that default length differs from the producer's, because the clone holds a different number of objects. In either case, validate the commit again to replace it.
+  The note still fails in a clone where that default length differs from the producer's, because the clone holds a different number of objects. When verification fails for either reason, validate the commit again to replace the note.
 - Review evidence that an earlier release recorded does not carry to a new head. The review runs again.
 - A run that an earlier release reviewed and that is still open reopens review at its next command.
   The shell stages run again after the new review.

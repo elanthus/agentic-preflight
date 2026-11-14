@@ -20,7 +20,8 @@
 - `core.precomposeUnicode`, which Git on macOS sets at `git init`, no longer stops `context`
   with an internal error for a path stored in decomposed Unicode.
 - Notes written by 0.8.1 and earlier still verify when their producer left these settings
-  at Git's default. A note written with another value, such as `diff.context = 5`, fails
-  verification even on the machine that wrote it; validate the commit again to replace it.
+  at Git's default. A note written with another value, such as `diff.context = 5`, may fail
+  verification, even on the machine that wrote it, when that value changed the patch. If
+  verification fails, validate the commit again to replace the note.
   The verifier's own `core.abbrev` no longer matters for such a note.
   `COMPATIBILITY.md` lists what changes at upgrade.
