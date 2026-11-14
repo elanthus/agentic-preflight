@@ -162,33 +162,47 @@ def reviewer_effort(default: str) -> str:
 def run_cli(argv: list[str], prompt: str) -> subprocess.CompletedProcess[str]:
     # A file owned by the eval harness survives wrapper/CLI failures and outer
     # timeouts. Never mix telemetry into the strict findings submission.
-    # The provider pipe uses the locale encoding (text=True without encoding=); see
+    # The provider pipe is UTF-8 whatever the locale, with errors="replace", so a
+    # non-ASCII diff or undecodable CLI output cannot crash the reviewer; see
     # docs/adr/0003-ship-a-packaged-reviewer.md.
     events_path = os.environ.get("AP_REVIEWER_EVENTS_FILE")
     try:
         if events_path:
             status_path = Path(events_path + ".status.json")
-            status_path.write_text('{"completed":false}\n', encoding="utf-8")
-            with open(events_path, "w", encoding="utf-8") as events:
+            try:
+                status_path.write_text('{"completed":false}\n', encoding="utf-8")
+                events = open(events_path, "w", encoding="utf-8")  # noqa: SIM115
+            except OSError as exc:
+                raise ReviewerError(
+                    f"cannot write AP_REVIEWER_EVENTS_FILE {events_path}: {exc}"
+                ) from exc
+            with events:
                 result = subprocess.run(
                     argv,
                     input=prompt,
                     stdout=events,
                     stderr=subprocess.PIPE,
-                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=timeout_seconds(),
                     check=False,
                 )
-            result.stdout = Path(events_path).read_text(encoding="utf-8", errors="replace")
-            status_path.write_text(
-                json.dumps({"completed": result.returncode == 0}) + "\n", encoding="utf-8"
-            )
+            try:
+                result.stdout = Path(events_path).read_text(encoding="utf-8", errors="replace")
+                status_path.write_text(
+                    json.dumps({"completed": result.returncode == 0}) + "\n", encoding="utf-8"
+                )
+            except OSError as exc:
+                raise ReviewerError(
+                    f"cannot write AP_REVIEWER_EVENTS_FILE {events_path}: {exc}"
+                ) from exc
         else:
             result = subprocess.run(
                 argv,
                 input=prompt,
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout_seconds(),
                 check=False,
             )
@@ -198,6 +212,8 @@ def run_cli(argv: list[str], prompt: str) -> subprocess.CompletedProcess[str]:
         raise ReviewerError(
             f"reviewer CLI timed out after {timeout_seconds()} seconds: {argv[0]}"
         ) from exc
+    except UnicodeError as exc:
+        raise ReviewerError(f"reviewer CLI input or output is not valid text: {exc}") from exc
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip() or "no diagnostic output"
         raise ReviewerError(f"reviewer CLI exited {result.returncode}: {detail}")

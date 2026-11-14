@@ -641,7 +641,7 @@ In `agentic-preflight report`, each group of statistics adds `caught` and `tool_
 `agentic-preflight reviewer run --provider claude|codex` is a new command.
 Like `hook-check`, it prints no JSON envelope and keeps Click's usage output and exit code 2 on a usage error.
 Its stdout, stderr, exit codes, and `AP_*` environment variables are those of the former example wrappers.
-Unlike them, it reads its own stdin and writes its own stdout and stderr as UTF-8 rather than in the locale encoding, which matters on Windows. The pipe to the provider CLI is unchanged and still uses the locale encoding. Like them, it does not need Git: commands in the `reviewer` group skip the Git version check.
+Unlike them, it reads its own stdin and writes its own stdout and stderr as UTF-8 rather than in the locale encoding, which matters on Windows. The packaged reviewer and the current example wrappers also send the prompt to the provider CLI as UTF-8 and decode its output as UTF-8, replacing undecodable bytes, where earlier wrappers used the locale encoding. An unwritable `AP_REVIEWER_EVENTS_FILE` now fails the review with the one-line diagnostic instead of a traceback. Like them, it does not need Git: commands in the `reviewer` group skip the Git version check.
 It passes the same provider CLI options as the example wrappers, including `--safe-mode` and `--setting-sources user` for Claude and `project_doc_max_bytes=0` and `--ignore-rules` for Codex.
 The example wrappers in `docs/examples/reviewers/` stay as deprecated standard-library copies for one release. A test keeps them identical to the packaged reviewer, and they still run with `python3 -S -B`.
 The configuration file, the review submission, and the attestation schema are unchanged.

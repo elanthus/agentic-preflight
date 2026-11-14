@@ -56,7 +56,12 @@ The first step changes no behavior.
 The prompts, the provider CLI arguments, the environment variables, the defaults, the events file, and the output are the same as in the wrappers.
 Commands in the `reviewer` group do not check the Git version, because the reviewer does not run Git.
 It reads and writes its own standard streams as UTF-8, as every other command does; the wrappers used the locale encoding.
-The pipe to the provider CLI keeps the locale encoding in this step.
+
+One deliberate fix to the moved code: the pipe to the provider CLI is UTF-8 with `errors="replace"`, in the package and in the example copies.
+The provider CLIs read and write UTF-8 regardless of the locale, so the locale encoding was wrong under an ASCII, C, or cp1252 locale, and a non-ASCII diff crashed the reviewer.
+`errors="replace"` means that a lone surrogate in the prompt becomes `?`, and undecodable CLI output becomes U+FFFD.
+The reviewer only parses that output for a JSON object, so a replaced byte at worst makes the output unparseable, which fails the review visibly.
+Strict decoding would instead fail the whole review for one bad byte in an unrelated event.
 
 ## Consequences
 

@@ -136,7 +136,7 @@ A wrapper that you copied from an earlier release keeps working, but it does not
 Replace its command with `agentic-preflight reviewer run --provider claude` or `--provider codex`, or copy the current files again.
 The environment variables and the output are the same.
 The packaged command reads and writes its own standard streams as UTF-8, where a wrapper uses the locale encoding.
-The pipe to the provider CLI uses the locale encoding in both.
+The packaged reviewer and the current example wrappers send the prompt to the provider CLI as UTF-8, where earlier wrappers used the locale encoding.
 
 ## Compare model and effort configurations
 

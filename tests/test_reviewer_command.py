@@ -400,6 +400,56 @@ def test_reviewer_run_failures_exit_1_with_a_stderr_diagnostic(
     assert expected in result.stderr
 
 
+@pytest.mark.parametrize("provider", ["codex", "claude"])
+def test_reviewer_run_sends_a_non_ascii_prompt_as_utf8_under_an_ascii_locale(
+    tmp_path, monkeypatch, clean_reviewer_env, provider
+):
+    # Without an explicit encoding, subprocess encodes text pipes with the locale
+    # encoding (or UTF-8 in UTF-8 mode); force an ASCII locale either way.
+    import locale
+
+    monkeypatch.setattr(locale, "getencoding", lambda: "ascii")
+    if hasattr(subprocess, "_text_encoding"):
+        monkeypatch.setattr(subprocess, "_text_encoding", lambda: "ascii")
+    fake = install_fake(tmp_path / "bin" / provider)
+    capture = tmp_path / "prompt.txt"
+    context = {**CONTEXT, "intent": "Handle caf\u00e9 names \u2713 and \u4e2d\u6587 paths"}
+
+    result = invoke(
+        provider,
+        context,
+        **{f"AP_{provider.upper()}_BIN": str(fake), "FAKE_CAPTURE": str(capture)},
+    )
+
+    assert result.exit_code == 0, result.stderr
+    assert context["intent"] in capture.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("provider", ["codex", "claude"])
+@pytest.mark.parametrize("target", ["missing_directory", "a_directory"])
+def test_reviewer_run_reports_an_unwritable_events_file(
+    tmp_path, clean_reviewer_env, provider, target
+):
+    fake = install_fake(tmp_path / "bin" / provider)
+    if target == "missing_directory":
+        events = tmp_path / "no-such-directory" / "events.jsonl"
+    else:
+        events = tmp_path / "events-dir"
+        events.mkdir()
+
+    result = invoke(
+        provider,
+        CONTEXT,
+        **{f"AP_{provider.upper()}_BIN": str(fake), "AP_REVIEWER_EVENTS_FILE": str(events)},
+    )
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("independent reviewer failed: ")
+    assert "AP_REVIEWER_EVENTS_FILE" in result.stderr
+    assert "not found" not in result.stderr
+
+
 @pytest.mark.parametrize(
     ("payload", "expected"),
     [
