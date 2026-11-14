@@ -2,9 +2,9 @@
   Before, `core.abbrev`, `core.quotePath`, `core.bigFileThreshold`, `core.precomposeUnicode`,
   `diff.noprefix`, `diff.srcPrefix`, `diff.dstPrefix`, `diff.algorithm`, `diff.context`,
   `diff.interHunkContext`, `diff.indentHeuristic`, `diff.suppressBlankEmpty`,
-  `diff.submodule`, `diff.orderFile`, `diff.default.binary`, the `GIT_DIFF_OPTS` environment
-  variable, and the user-level attributes file each changed the patch text that the review
-  digest hashes. `verify`, `push`, and the pre-push hook then rejected a valid note with
+  `diff.submodule`, `diff.relative`, `diff.orderFile`, `diff.default.binary`, the
+  `GIT_DIFF_OPTS` environment variable, and the user-level attributes file each changed
+  the patch text that the review digest hashes. `verify`, `push`, and the pre-push hook then rejected a valid note with
   "review fingerprint does not match the Git diff" on any machine whose settings differed
   from the producer's. Git also lengthens abbreviated object IDs as a clone gains objects, so
   a fresh CI clone could reject a note that verified locally. Review patches now carry full
@@ -13,8 +13,9 @@
   `COMPATIBILITY.md` lists them.
 - Replacement objects under `refs/replace` no longer change the review diff. They exist in
   one clone only.
-- `diff.ignoreSubmodules = all` no longer hides a submodule pointer change from the review
-  diff, the changed-file list, or risk classification.
+- `diff.ignoreSubmodules = all`, and `submodule.<name>.ignore = all` in local configuration,
+  no longer hide a submodule pointer change from the review diff, the changed-file list, or
+  risk classification.
 - `diff.submodule = log` or `diff` no longer stops `context` with an internal error when a
   change moves a submodule pointer.
 - `core.precomposeUnicode`, which Git on macOS sets at `git init`, no longer stops `context`
