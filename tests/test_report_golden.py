@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from agentic_preflight import report, telemetry
+from agentic_preflight import report, run_summary, telemetry
 from tests.test_outcome_telemetry import _aborted_record, _caught_row, _finding, _timed_events
 from tests.test_report import OTHER_REPO, _mixed_rows, make_row
 from tests.test_telemetry import _findings, _identity, _schema_1_record, _schema_2_record
@@ -147,3 +147,22 @@ def test_report_data_matches_its_golden(output_format):
         # Apart from the rendering, the data is the JSON report's.
         data = {**data, "format": "json", "markdown": None}
     _check("report.json", json.dumps(data, indent=2) + "\n")
+
+
+def test_typed_rows_name_every_key_a_summary_writes():
+    """``SummaryRow`` and its parts list exactly the keys that ``summarize`` writes."""
+    assert set(run_summary.SummaryRow.__annotations__) == set(run_summary.RunSummary.model_fields)
+    assert set(run_summary.RepoRow.__annotations__) == set(run_summary.RepoIdentity.model_fields)
+    for summary in _summaries():
+        row = run_summary.summary_row(summary)
+        assert set(row["findings"]) == set(run_summary.FindingCounts.__annotations__)
+        assert set(row["terminal"]) == set(run_summary.TerminalRow.__annotations__)
+        assert set(row["hosted"]) == set(run_summary.HostedRow.__annotations__)
+        for stage in row["stages"].values():
+            assert set(stage) == set(run_summary.StageRow.__annotations__)
+        if row["review"] is not None:
+            assert set(row["review"]) == set(run_summary.ReviewRow.__annotations__)
+        if row["risk"] is not None:
+            assert set(row["risk"]) == set(run_summary.RiskRow.__annotations__)
+        if row["timing"] is not None:
+            assert set(row["timing"]) == set(run_summary.TimingRow.__annotations__)

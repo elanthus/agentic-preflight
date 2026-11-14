@@ -16,13 +16,16 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypeVar
 
 from .. import telemetry
 from ..models import Stage
-from ..run_summary import as_int, as_str
+from ..run_summary import SummaryRow, as_int, as_str
 from .markdown import render_markdown
 from .reading import UNKNOWN, Clone, HookLogRead, belongs_to_clone, finish_order, tally
+
+#: A summary row or a hook decision: both name their repository under ``repo``.
+_Row = TypeVar("_Row", bound=Mapping[str, Any])
 
 REPORT_STATES = ("DONE", "ABORTED", "ORPHANED")
 
@@ -198,7 +201,7 @@ def matches_repo(row: Mapping[str, Any], wanted: str) -> bool:
     return any(isinstance(value, str) and value.casefold() in candidates for value in values)
 
 
-def _excluded_by(row: Mapping[str, Any], filters: Filters) -> str | None:
+def _excluded_by(row: SummaryRow, filters: Filters) -> str | None:
     if filters.states and row.get("state") not in filters.states:
         return "state"
     if filters.repo is not None and not matches_repo(row, filters.repo):
@@ -216,14 +219,14 @@ def _excluded_by(row: Mapping[str, Any], filters: Filters) -> str | None:
 
 
 def apply_filters(
-    rows: Iterable[dict[str, Any]], filters: Filters
-) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    rows: Iterable[SummaryRow], filters: Filters
+) -> tuple[list[SummaryRow], dict[str, int]]:
     """Return the rows that pass, and how many each filter left out.
 
     Each row left out is counted once, under the first filter that excluded it.
     """
     left_out = dict.fromkeys(("state", "repo", "since", "until", "time_unknown"), 0)
-    kept: list[dict[str, Any]] = []
+    kept: list[SummaryRow] = []
     for row in rows:
         reason = _excluded_by(row, filters)
         if reason is None:
@@ -255,13 +258,13 @@ def ratio(numerator: int, denominator: int, label: str) -> dict[str, Any]:
     }
 
 
-def _states(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+def _states(rows: Sequence[SummaryRow]) -> dict[str, int]:
     counts = Counter(as_str(row.get("state")) or UNKNOWN for row in rows)
     ordered = {state: counts.pop(state, 0) for state in REPORT_STATES}
     return {**ordered, **dict(sorted(counts.items()))}
 
 
-def _known_findings(rows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+def _known_findings(rows: Sequence[SummaryRow]) -> list[Mapping[str, Any]]:
     findings = (row.get("findings") or {} for row in rows)
     return [item for item in findings if as_int(item.get("total")) is not None]
 
@@ -273,7 +276,7 @@ def _add_counts(counter: Counter[str], counts: Any) -> None:
                 counter[str(name)] += count
 
 
-def _blocking(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def _blocking(rows: Sequence[SummaryRow]) -> dict[str, Any]:
     known = [item for item in _known_findings(rows) if as_int(item.get("blocking")) is not None]
     total = low = high = 0
     for item in known:
@@ -300,7 +303,7 @@ def _blocking(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _per_100_units(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def _per_100_units(rows: Sequence[SummaryRow]) -> dict[str, Any]:
     findings = units = observed = 0
     for row in rows:
         counts = row.get("findings") or {}
@@ -321,7 +324,7 @@ def _per_100_units(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _findings(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def _findings(rows: Sequence[SummaryRow]) -> dict[str, Any]:
     known = _known_findings(rows)
     tallies: dict[str, Counter[str]] = {name: Counter() for name in _FINDING_DIMENSIONS}
     for item in known:
@@ -337,7 +340,7 @@ def _findings(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _finding_responses(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def _finding_responses(rows: Sequence[SummaryRow]) -> dict[str, Any]:
     """Reasons for dismissed and accepted findings, and the perceived false-positive share.
 
     The share is ``false_positive`` responses over every finding with a recorded
@@ -348,16 +351,16 @@ def _finding_responses(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """
     findings = (row.get("findings") or {} for row in rows)
     known = [
-        item
+        (by_reason, by_status)
         for item in findings
-        if isinstance(item.get("by_response_reason"), Mapping)
-        and isinstance(item.get("by_status"), Mapping)
+        if isinstance(by_reason := item.get("by_response_reason"), Mapping)
+        and isinstance(by_status := item.get("by_status"), Mapping)
     ]
     reasons: Counter[str] = Counter()
     responses = 0
-    for item in known:
-        _add_counts(reasons, item["by_response_reason"])
-        responses += sum(as_int(item["by_status"].get(name)) or 0 for name in RESPONDED_STATUSES)
+    for by_reason, by_status in known:
+        _add_counts(reasons, by_reason)
+        responses += sum(as_int(by_status.get(name)) or 0 for name in RESPONDED_STATUSES)
     false_positive, unspecified = reasons["false_positive"], reasons[UNSPECIFIED]
     upper = false_positive + unspecified
     return {
@@ -376,7 +379,7 @@ def _finding_responses(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _any_positive(rows: Sequence[Mapping[str, Any]], key: str, label: str) -> dict[str, Any]:
+def _any_positive(rows: Sequence[SummaryRow], key: str, label: str) -> dict[str, Any]:
     known = [value for value in (as_int(row.get(key)) for row in rows) if value is not None]
     return {
         "runs_with_any": ratio(sum(1 for value in known if value > 0), len(known), label),
@@ -453,7 +456,7 @@ def _stages(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
     }
 
 
-def _durations(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def _durations(rows: Sequence[SummaryRow]) -> dict[str, Any]:
     return _quantiles(_numbers(row.get("duration_seconds") for row in rows), len(rows))
 
 
@@ -478,7 +481,7 @@ def _seconds_share(numerator: float, denominator: float, label: str) -> dict[str
     }
 
 
-def _time_split(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def _time_split(rows: Sequence[SummaryRow]) -> dict[str, Any]:
     """Share of run time in the review and docs states versus the lint and test states."""
     observed: list[tuple[float, float, float]] = []
     for row in rows:
@@ -513,8 +516,9 @@ _CATCH_SOURCES: tuple[tuple[str, str, str, bool], ...] = (
 )
 
 
-def _catch_value(row: Mapping[str, Any], section: str, key: str, count: bool) -> int | bool | None:
+def _catch_value(row: SummaryRow, section: str, key: str, count: bool) -> int | bool | None:
     """One catch source of one run, or ``None`` when the summary does not know it."""
+    holder: Mapping[str, Any] | None
     if section == "findings":
         holder = row.get("findings")
     else:
@@ -526,7 +530,7 @@ def _catch_value(row: Mapping[str, Any], section: str, key: str, count: bool) ->
     return value if isinstance(value, bool) else None
 
 
-def _caught(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def _caught(rows: Sequence[SummaryRow]) -> dict[str, Any]:
     """``DONE`` runs where the gate stopped something before the push, by source.
 
     A run with any known catch counts as caught. A run with no known catch counts
@@ -562,13 +566,13 @@ def _caught(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _tool_seconds(row: Mapping[str, Any]) -> float | None:
+def _tool_seconds(row: SummaryRow) -> float | None:
     timing = row.get("timing")
     values = _numbers([timing.get("tool_seconds")]) if isinstance(timing, Mapping) else []
     return values[0] if values else None
 
 
-def _tool_time(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def _tool_time(rows: Sequence[SummaryRow]) -> dict[str, Any]:
     """Median and p90 tool seconds per ``DONE`` run, and per synced pull request.
 
     A pull request can span several runs, so its time is the sum over its synced
@@ -608,12 +612,12 @@ def _tool_time(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _hosted(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def _hosted(rows: Sequence[SummaryRow]) -> dict[str, Any]:
     """Hosted outcomes that ``telemetry sync-hosted`` joined."""
     return {"synced": _hosted_synced(rows)}
 
 
-def _hosted_synced(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def _hosted_synced(rows: Sequence[SummaryRow]) -> dict[str, Any]:
     """Outcomes that ``telemetry sync-hosted`` joined. Every ratio counts synced runs only.
 
     A run whose commit GitHub did not know has no conclusion, and a run whose
@@ -652,7 +656,7 @@ def _hosted_synced(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _orphaned_reasons(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+def _orphaned_reasons(rows: Sequence[SummaryRow]) -> dict[str, int]:
     return tally(
         (row.get("terminal") or {}).get("orphaned_reason")
         for row in rows
@@ -660,7 +664,7 @@ def _orphaned_reasons(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     )
 
 
-def _abort_reasons(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def _abort_reasons(rows: Sequence[SummaryRow]) -> dict[str, Any]:
     """Aborted runs by the agent's reason and by the state the run was in."""
     aborted = [row.get("terminal") or {} for row in rows if row.get("state") == "ABORTED"]
     return {
@@ -670,8 +674,8 @@ def _abort_reasons(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _events(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    known = [row["event_counts"] for row in rows if isinstance(row.get("event_counts"), Mapping)]
+def _events(rows: Sequence[SummaryRow]) -> dict[str, Any]:
+    known = [item for row in rows if isinstance(item := row.get("event_counts"), Mapping)]
     counts: dict[str, Any] = {}
     for name in SELECTED_EVENTS:
         per_run = [as_int(item.get(name)) or 0 for item in known]
@@ -684,7 +688,7 @@ def _events(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return {"runs_observed": len(known), "excluded_runs": len(rows) - len(known), "counts": counts}
 
 
-def aggregate(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def aggregate(rows: Sequence[SummaryRow]) -> dict[str, Any]:
     """Every statistic for one group of summary rows."""
     states = _states(rows)
     return {
@@ -709,10 +713,8 @@ def aggregate(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _groups(
-    rows: Iterable[Mapping[str, Any]], key: Callable[[Mapping[str, Any]], str]
-) -> dict[str, list[Mapping[str, Any]]]:
-    groups: dict[str, list[Mapping[str, Any]]] = {}
+def _groups(rows: Iterable[_Row], key: Callable[[_Row], str]) -> dict[str, list[_Row]]:
+    groups: dict[str, list[_Row]] = {}
     for row in rows:
         groups.setdefault(key(row), []).append(row)
     return groups
@@ -728,11 +730,11 @@ def repo_key(row: Mapping[str, Any]) -> str:
     return as_str(repo.get("root_commit")) or f"path:{repo.get('source_worktree_path')}"
 
 
-def by_repo(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def by_repo(rows: Sequence[SummaryRow]) -> list[dict[str, Any]]:
     """One group per repository, named by its most recently finished run."""
     result = []
     for key, members in _groups(rows, repo_key).items():
-        repo = max(members, key=finish_order).get("repo") or {}
+        repo = max(members, key=finish_order)["repo"]
         result.append(
             {
                 "key": key,
@@ -746,14 +748,14 @@ def by_repo(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     return sorted(result, key=_by_size)
 
 
-def producer_value(row: Mapping[str, Any], name: str) -> str:
+def producer_value(row: SummaryRow, name: str) -> str:
     """One producer field, or ``unknown`` when the run did not record it."""
     producer = row.get("producer")
     value = producer.get(name) if isinstance(producer, Mapping) else None
     return value if isinstance(value, str) and value else UNKNOWN
 
 
-def by_producer(rows: Sequence[Mapping[str, Any]], name: str) -> list[dict[str, Any]]:
+def by_producer(rows: Sequence[SummaryRow], name: str) -> list[dict[str, Any]]:
     groups = _groups(rows, lambda row: producer_value(row, name))
     result = [
         {"label": value, name: value, "metrics": aggregate(members)}
@@ -763,7 +765,7 @@ def by_producer(rows: Sequence[Mapping[str, Any]], name: str) -> list[dict[str, 
 
 
 def build_report(
-    rows: Sequence[dict[str, Any]],
+    rows: Sequence[SummaryRow],
     *,
     source: dict[str, Any],
     filters: Filters,

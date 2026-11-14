@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -96,6 +96,124 @@ class RunSummary(BaseModel):
     worktree_mode: str | None
     pr_mode: str | None
     config_digest: str
+
+
+# -- typed rows ---------------------------------------------------------------
+#
+# A summary row is ``RunSummary.model_dump(mode="json")``: the form in
+# ``summary.json``, in the mirror, and in the report. ``RunSummary`` keeps its
+# nested objects as plain dictionaries so that rows from older versions, which
+# lack later keys, still validate. These types name the keys this version
+# writes, so that mypy checks every key the producer and the report use. Values
+# from older or malformed rows are still checked where they are read.
+
+
+class RepoRow(TypedDict):
+    root_commit: str | None
+    remote: str | None
+    name: str | None
+    source_worktree_path: str
+
+
+class FindingCounts(TypedDict, total=False):
+    total: int | None
+    by_stage: dict[str, int] | None
+    by_severity: dict[str, int] | None
+    by_status: dict[str, int] | None
+    by_action: dict[str, int] | None
+    by_response_reason: dict[str, int] | None
+    blocking: int | None
+    review_blocking_fixed: int | None
+    docs_blocking_fixed: int | None
+
+
+class StageRow(TypedDict, total=False):
+    status: str | None
+    attempts: int | None
+    started_at: str | None
+    finished_at: str | None
+    duration_seconds: float | None
+    reused: bool | None
+    reason: str | None
+    red_then_green: bool | None
+
+
+class RiskRow(TypedDict, total=False):
+    level: str | None
+    verdict: str | None
+    requires_human_review: bool | None
+
+
+class ReviewRow(TypedDict, total=False):
+    total_units: int | None
+    cited_count: int | None
+    clean_count: int | None
+    excluded_count: int | None
+    executor: str | None
+
+
+class TerminalRow(TypedDict, total=False):
+    aborted_forced: bool | None
+    abort_reason: str | None
+    aborted_from_state: str | None
+    orphaned_reason: str | None
+
+
+class HostedRow(TypedDict, total=False):
+    pr_number: int | None
+    pr_state: str | None
+    merged: bool | None
+    checks_conclusion: str | None
+    fetched_at: str | None
+
+
+class TimingRow(TypedDict, total=False):
+    complete: bool
+    states: dict[str, dict[str, Any]]
+    review_wall_seconds: float | None
+    shell_wall_seconds: float | None
+    tool_seconds: float | None
+    agent_seconds: float | None
+
+
+class SummaryRow(TypedDict):
+    """One :class:`RunSummary` as JSON. Every top-level key is present after validation."""
+
+    kind: str
+    schema_version: int
+    written_at: str
+    run_id: str
+    state: str
+    record_schema_version: int
+    repo: RepoRow
+    branch: str
+    base_ref: str
+    head_sha: str
+    pushed_sha: str | None
+    intent_sha256: str | None
+    intent_source: str
+    created_at: str
+    finished_at: str
+    duration_seconds: float | None
+    timing: TimingRow | None
+    producer: dict[str, Any] | None
+    risk: RiskRow | None
+    review: ReviewRow | None
+    stages: dict[str, StageRow]
+    findings: FindingCounts
+    fix_commits: int | None
+    validation_restarts: int | None
+    event_counts: dict[str, int] | None
+    terminal: TerminalRow
+    hosted: HostedRow
+    worktree_mode: str | None
+    pr_mode: str | None
+    config_digest: str
+
+
+def summary_row(summary: RunSummary) -> SummaryRow:
+    """A validated summary as a typed row."""
+    return cast(SummaryRow, summary.model_dump(mode="json"))
 
 
 # -- derivation -------------------------------------------------------------
@@ -214,22 +332,21 @@ def _response_reasons(items: Sequence[Mapping[str, Any]]) -> dict[str, int]:
 
 def _findings_summary(
     findings: Sequence[Finding | Mapping[str, Any]] | None, snapshot: Mapping[str, Any]
-) -> dict[str, Any]:
+) -> FindingCounts:
     """Finding counts. All are ``None`` without a findings file or with a malformed one."""
-    keys = (
-        "total",
-        "by_stage",
-        "by_severity",
-        "by_status",
-        "by_action",
-        "by_response_reason",
-        "blocking",
-        "review_blocking_fixed",
-        "docs_blocking_fixed",
-    )
     items = _finding_items(findings)
     if items is None:
-        return dict.fromkeys(keys)
+        return {
+            "total": None,
+            "by_stage": None,
+            "by_severity": None,
+            "by_status": None,
+            "by_action": None,
+            "by_response_reason": None,
+            "blocking": None,
+            "review_blocking_fixed": None,
+            "docs_blocking_fixed": None,
+        }
     review = _blocking_severities(snapshot, "review")
     docs = _blocking_severities(snapshot, "docs")
     blocking: int | None = None
@@ -300,11 +417,11 @@ def _stages(
     events: Sequence[Mapping[str, Any]] | None = None,
     *,
     complete: bool = False,
-) -> dict[str, dict[str, Any]]:
+) -> dict[str, StageRow]:
     stages = as_dict(record.get("stages")) or {}
     red_then_green = _red_then_green(events, complete)
     evidence = as_dict(record.get("evidence"))
-    summary: dict[str, dict[str, Any]] = {}
+    summary: dict[str, StageRow] = {}
     for name in sorted(stages, key=_stage_order):
         stage = as_dict(stages[name]) or {}
         status = as_str(stage.get("status"))
@@ -333,7 +450,7 @@ def _stages(
     return summary
 
 
-def _risk(record: Mapping[str, Any]) -> dict[str, Any] | None:
+def _risk(record: Mapping[str, Any]) -> RiskRow | None:
     risk = as_dict(record.get("risk"))
     if risk is None:
         return None
@@ -344,7 +461,7 @@ def _risk(record: Mapping[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def _review(record: Mapping[str, Any]) -> dict[str, Any] | None:
+def _review(record: Mapping[str, Any]) -> ReviewRow | None:
     coverage = as_dict(record.get("review_coverage"))
     stage = as_dict((as_dict(record.get("stages")) or {}).get("review"))
     if coverage is None and stage is None:
@@ -419,7 +536,7 @@ def _aborted_from_transition(events: Sequence[Mapping[str, Any]]) -> str | None:
 
 def _terminal(
     state: str | None, reason: str | None, events: Sequence[Mapping[str, Any]] | None
-) -> dict[str, Any]:
+) -> TerminalRow:
     """How the run ended. ``abort_reason`` is the agent's label; the rest is code-derived."""
     forced = abort_reason = aborted_from = None
     if state == "ABORTED":
@@ -441,7 +558,7 @@ def _terminal(
     }
 
 
-def _synced(record: Mapping[str, Any], hosted: Mapping[str, Any] | None) -> dict[str, Any]:
+def _synced(record: Mapping[str, Any], hosted: Mapping[str, Any] | None) -> HostedRow:
     """The keys joined from ``hosted.json``. All are ``None`` until the run is synced.
 
     A file whose ``sha`` is not the run's pushed commit describes another
@@ -461,7 +578,7 @@ def _synced(record: Mapping[str, Any], hosted: Mapping[str, Any] | None) -> dict
     }
 
 
-def _hosted(record: Mapping[str, Any], hosted: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def _hosted(record: Mapping[str, Any], hosted: Mapping[str, Any] | None = None) -> HostedRow:
     """The GitHub outcome that ``telemetry sync-hosted`` joined, or nulls before a sync."""
     return _synced(record, hosted)
 

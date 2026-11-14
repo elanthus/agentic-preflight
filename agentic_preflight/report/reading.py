@@ -20,7 +20,7 @@ from pydantic import ValidationError
 
 from .. import hooklog, run_summary, telemetry
 from ..config import Config
-from ..run_summary import as_str
+from ..run_summary import SummaryRow, as_str
 from ..store import Store
 
 #: The malformed mirror lines listed by number. All of them are counted.
@@ -49,7 +49,7 @@ class MirrorRead:
     path: str
     exists: bool
     lines: int = 0
-    rows: list[dict[str, Any]] = field(default_factory=list)
+    rows: list[SummaryRow] = field(default_factory=list)
     malformed: list[dict[str, Any]] = field(default_factory=list)
     duplicates: int = 0
 
@@ -66,7 +66,7 @@ class MirrorRead:
         }
 
 
-def _parse_line(raw: bytes) -> tuple[dict[str, Any] | None, str | None]:
+def _parse_line(raw: bytes) -> tuple[SummaryRow | None, str | None]:
     """Return a validated summary row, or the reason the line is not one."""
     try:
         text = raw.decode("utf-8")
@@ -84,14 +84,14 @@ def _parse_line(raw: bytes) -> tuple[dict[str, Any] | None, str | None]:
         summary = run_summary.RunSummary.model_validate(row)
     except ValidationError:
         return None, "invalid_summary"
-    return summary.model_dump(mode="json"), None
+    return run_summary.summary_row(summary), None
 
 
 def _keep_newest(
-    rows: Iterable[dict[str, Any]], key: Callable[[int, dict[str, Any]], Any]
-) -> list[dict[str, Any]]:
+    rows: Iterable[SummaryRow], key: Callable[[int, SummaryRow], Any]
+) -> list[SummaryRow]:
     """One row per key: the newest ``written_at``, the later row on a tie, as rebuild does."""
-    kept: dict[Any, dict[str, Any]] = {}
+    kept: dict[Any, SummaryRow] = {}
     for index, row in enumerate(rows):
         name = key(index, row)
         if name not in kept or row["written_at"] >= kept[name]["written_at"]:
@@ -99,12 +99,11 @@ def _keep_newest(
     return list(kept.values())
 
 
-def _same_run(_: int, row: Mapping[str, Any]) -> tuple[Any, ...]:
-    repo = row.get("repo") or {}
-    return (row["run_id"], row.get("created_at"), repo.get("source_worktree_path"))
+def _same_run(_: int, row: SummaryRow) -> tuple[Any, ...]:
+    return (row["run_id"], row.get("created_at"), row["repo"].get("source_worktree_path"))
 
 
-def _dedupe(rows: Sequence[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+def _dedupe(rows: Sequence[SummaryRow]) -> tuple[list[SummaryRow], int]:
     """Keep one valid row per repository and run, then one per run.
 
     Both passes match ``telemetry rebuild``. The first uses the mirror key. The
@@ -119,7 +118,7 @@ def _dedupe(rows: Sequence[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
 def parse_mirror(payload: bytes, path: Path | str) -> MirrorRead:
     """Read mirror bytes line by line. A bad line is counted, never skipped silently."""
     result = MirrorRead(path=str(path), exists=True)
-    rows: list[dict[str, Any]] = []
+    rows: list[SummaryRow] = []
     for number, raw in enumerate(payload.split(b"\n"), start=1):
         if not raw.strip():
             continue
@@ -156,7 +155,7 @@ class Clone:
     #: counts every finished run as one the rebuild mirrors.
     config: Config | None = None
 
-    def mirrors(self, summary: Mapping[str, Any]) -> bool:
+    def mirrors(self, summary: SummaryRow) -> bool:
         """Whether ``telemetry rebuild`` in this clone would mirror ``summary``.
 
         It would not when the clone, or the run's repository, has no network remote
@@ -182,7 +181,7 @@ class Clone:
 class CloneScan:
     """Summaries made in memory from a clone's run records, as rebuild makes them."""
 
-    summaries: list[dict[str, Any]] = field(default_factory=list)
+    summaries: list[SummaryRow] = field(default_factory=list)
     skipped: int = 0
     unreadable_runs: list[dict[str, str]] = field(default_factory=list)
 
@@ -217,7 +216,7 @@ def summarize_clone(
         if summary is None:
             scan.skipped += 1
         else:
-            scan.summaries.append(summary.model_dump(mode="json"))
+            scan.summaries.append(run_summary.summary_row(summary))
     scan.summaries.sort(key=finish_order)
     return scan
 
@@ -240,7 +239,7 @@ def belongs_to_clone(
 
 def collect(
     mirror: MirrorRead, clone: Clone | None, *, all_repos: bool
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[SummaryRow], dict[str, Any]]:
     """Select the rows to report and describe where they came from.
 
     With ``all_repos`` every mirror row is used. Otherwise the rows of ``clone``
