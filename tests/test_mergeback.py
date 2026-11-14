@@ -1,6 +1,7 @@
 """M4 merge-back: cherry-pick, the clean-abort contract, tree-equivalence."""
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -1103,7 +1104,7 @@ def _commit_at(repo: Path, message: str, date: str) -> str:
         ["git", "commit", "-q", "-m", message],
         cwd=repo,
         check=True,
-        env={**__import__("os").environ, "GIT_AUTHOR_DATE": date},
+        env={**os.environ, "GIT_AUTHOR_DATE": date},
     )
     return git("rev-parse", "HEAD", cwd=repo)
 
