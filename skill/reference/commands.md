@@ -593,6 +593,9 @@ substitute the gate's `data.token` only after authorization.
 Marks a pushed validation run `DONE`. It preserves the run directory and
 audit logs, clears only that run's worktree ownership pointers, and directs the next step
 to `gc`.
+A `strict` validation worktree locked with `git worktree lock` is never deleted:
+the command exits 1 with `git_error` naming the worktree, and the run keeps its state.
+Show the user the message; do not unlock it yourself.
 
 Pull-request creation, hosted CI monitoring, and cleanup are host or forge operations.
 Follow the skill's [PR lifecycle and cleanup](../SKILL.md#pull-request-lifecycle-and-cleanup)
@@ -655,6 +658,9 @@ timestamps are suitable for intervals within one host boot.
 ### `agentic-preflight abort [--force] [--reason REASON]`
 Ends the run and releases the worktree. Exits 5 if unmerged fix commits would be lost;
 `--force` discards them.
+A `strict` validation worktree locked with `git worktree lock` is never deleted:
+the command exits 1 with `git_error` naming the worktree, and the run keeps its state.
+Show the user the message; do not unlock it yourself.
 `--reason` labels the abort with one of `user_cancelled`, `superseded`, `wrong_base`,
 `environment_failure`, `tool_error`, `no_longer_needed`, or `other`. It is optional. Any
 other value exits 6 with `usage_error`. The `aborted` event records `forced`, `reason`
@@ -694,7 +700,11 @@ with its `worktree_path` and reason `validation worktree has uncommitted changes
 `validation worktree holds unrecorded commits` (for example, a fix committed but not
 yet answered with `respond`), or `validation worktree could not be inspected`.
 `next.instruction` then says that `gc --force` discards any work they hold, and `next.command`
-is `null`. `--force` releases it anyway. `data.orphans` lists only `ap/*` branches and worktrees
+is `null`. `--force` releases it anyway. A run ended with `abort --force` already discarded
+its fix commits, so they no longer count as unmerged. A `strict` worktree locked with
+`git worktree lock` is retained, even with `--force`, with reason
+`validation worktree is locked`; `next.instruction` asks you to show the user each
+`worktree_path` and ask whether to unlock it, and `next.command` is `null`. `data.orphans` lists only `ap/*` branches and worktrees
 with no run record; a live run's branch is never reported there. Run directories and their audit logs are retained until they expire:
 a reclaimed run's directory is deleted once its record last changed more than
 `[retention] run_days` days ago (default 90; 0 keeps every record), and
@@ -802,7 +812,7 @@ first. GitHub does not associate a commit with a pull request that was closed wi
 merging, so when the list is empty it also reads
 `/repos/{owner}/{repo}/pulls?state=all&head={owner}:{branch}` and uses the pull request
 whose head is the commit. The check runs reduce to one conclusion: `failure` when any has
-the conclusion `failure`, `cancelled`, or `timed_out`; otherwise `pending` when any is not
+the conclusion `failure`, `cancelled`, `timed_out`, or `startup_failure`; otherwise `pending` when any is not
 complete; `none` when there are none; otherwise `success`. Commit statuses are not read.
 It writes `hosted.json` in the run directory with `fetched_at`, `sha`, `pr` (`number`,
 `url`, `state`, `merged_at`, or `null`), `checks` (`conclusion`, `total`, and the `failed`

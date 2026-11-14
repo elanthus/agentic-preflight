@@ -199,6 +199,7 @@ Each run keeps a directory under `$GIT_COMMON_DIR/agentic-preflight/runs/`.
 That directory holds its record, events, findings, stage logs, and `summary.json`.
 `gc` deletes a run's directory when the run has been reclaimed and its record last changed more than `run_days` days ago.
 A run is reclaimed when it is finished, has no unlanded fix commits, and its validation worktree is released.
+Fix commits that `abort --force` discarded do not count as unlanded.
 The default is 90. `run_days = 0` keeps every record.
 A run whose command is still executing is left for the next `gc`.
 The deleted run IDs are listed in `data.pruned`.
@@ -413,6 +414,9 @@ This includes the abbreviated list in the complete example above.
 To add a project-specific pattern, copy this list and append to it.
 
 ## Stage execution (`[stage]`)
+
+A stage command with shell grammar runs through a login shell, which sources your login profile first.
+The command then changes back to the validation directory, so a profile that changes directory does not move the stage.
 
 `timeout_seconds` bounds a single stage run. `max_attempts` bounds the retries.
 When a stage is still red after `max_attempts`, the run stops and asks for human resolution.

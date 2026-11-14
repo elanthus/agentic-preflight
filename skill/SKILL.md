@@ -220,6 +220,7 @@ to summarize the user's run history.
 | Setup failed (exit 2, `setup_failed`) | Obey `status`: abort `SETUP_FAILED` initial setup or preserve the baseline retry |
 | Record a dismissal, acceptance, or abort | Always pass the closest `--reason`, `other` if none fits; specifics go in `--note` |
 | Stage far slower than normal | Check `[worktree] mode` before raising `max_attempts` |
+| Locked validation worktree (exit 1, `git_error`, or `gc` retains `validation worktree is locked`) | Show the user the message and path; never run `git worktree unlock` yourself. Retry only after the user unlocks it |
 | Copy refused (exit 3) | `copy_files` entry is not gitignored; do not work around it |
 | Stage reports zero files to work on | Check whether `worktree_path` is under `.git/` |
 | Green in your shell, red in a stage | Compare the stage's non-interactive toolchain and `PATH` with your shell |

@@ -251,6 +251,14 @@ verdict, or the attestation, so never choose one to make a run look better.
 Check `[worktree] mode` and follow the [worktree setup and cache guidance](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/worktree-modes.md#when-a-stage-is-much-slower-than-expected).
 Do not raise `[stage] max_attempts` to paper over missing preparation.
 
+## Locked validation worktree (exit 1, `git_error`, or `gc` retains `validation worktree is locked`)
+
+Someone locked the strict validation worktree with `git worktree lock`, usually to keep
+it. `abort` and `finish` stop without removing it, and `gc` retains the run with the
+worktree path, even with `--force`. Show the user the message and the path. Never run
+`git worktree unlock` yourself: unlocking lets the next command delete the worktree.
+Retry the command only after the user unlocks it.
+
 ## Copy refused (exit 3)
 
 A `copy_files` entry is not gitignored. Do not work around it — tell the user to
