@@ -101,7 +101,7 @@ Those files moved into the package unchanged, as `agentic_preflight/reviewers/`.
 They need an interpreter that can import `agentic_preflight`, and they are removed after one release.
 A copy that you made earlier keeps working, but it no longer receives fixes.
 Replace its command with `agentic-preflight reviewer run --provider claude` or `--provider codex`.
-The environment variables and the output are the same. The command reads and writes its standard streams as UTF-8, where a wrapper used the locale encoding.
+The environment variables and the output are the same. The command reads and writes its own standard streams as UTF-8, where a wrapper used the locale encoding. The pipe to the provider CLI still uses the locale encoding.
 
 ## Compare model and effort configurations
 
