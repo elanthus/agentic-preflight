@@ -174,7 +174,7 @@ def report(
             ExitCode.ERROR,
             "Make the mirror file readable, then run the report again.",
         )
-        error.data = {"path": str(path), "error": telemetry._describe(exc)}
+        error.data = {"path": str(path), "error": telemetry.describe_error(exc)}
         raise error from exc
     rows, source = reportmod.collect(mirror, clone, all_repos=all_repos)
     source["mirror"]["enabled"] = config.telemetry.mirror

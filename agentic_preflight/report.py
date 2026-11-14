@@ -1,6 +1,6 @@
 """Aggregate local run summaries into a usage report.
 
-The report reads :class:`~agentic_preflight.telemetry.RunSummary` rows, from the
+The report reads :class:`~agentic_preflight.run_summary.RunSummary` rows, from the
 user-level mirror or from one clone's run records, and counts them. Everything
 here is pure apart from reading the mirror file and the run store, so the
 aggregation can be tested without the CLI.
@@ -28,7 +28,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from . import hooklog, telemetry
+from . import hooklog, run_summary, telemetry
 from .config import Config
 from .models import Stage
 from .store import Store
@@ -160,12 +160,12 @@ def _parse_line(raw: bytes) -> tuple[dict[str, Any] | None, str | None]:
         row = json.loads(text)
     except json.JSONDecodeError:
         return None, "invalid_json"
-    if not isinstance(row, dict) or row.get("kind") != telemetry.SUMMARY_KIND:
+    if not isinstance(row, dict) or row.get("kind") != run_summary.SUMMARY_KIND:
         return None, "not_a_summary"
     if row.get("schema_version") != 1:
         return None, "unsupported_schema"
     try:
-        summary = telemetry.RunSummary.model_validate(row)
+        summary = run_summary.RunSummary.model_validate(row)
     except ValidationError:
         return None, "invalid_summary"
     return summary.model_dump(mode="json"), None
@@ -199,7 +199,7 @@ def _dedupe(rows: Sequence[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
     second joins one run that was mirrored under two keys, for example once
     without a root commit: the same run ID, start time, and source worktree.
     """
-    by_key = _keep_newest(rows, lambda index, row: telemetry._row_key(row) or ("line", index))
+    by_key = _keep_newest(rows, lambda index, row: telemetry.row_key(row) or ("line", index))
     unique = sorted(_keep_newest(by_key, _same_run), key=_finish_order)
     return unique, len(rows) - len(unique)
 
@@ -238,7 +238,7 @@ class Clone:
     """The clone the command runs in: its run store, identity, and worktree paths."""
 
     store: Store
-    identity: telemetry.RepoIdentity
+    identity: run_summary.RepoIdentity
     worktree_paths: frozenset[str]
     #: The ``[telemetry]`` preference that ``telemetry rebuild`` would apply. ``None``
     #: counts every finished run as one the rebuild mirrors.
@@ -277,7 +277,7 @@ class CloneScan:
 
 def summarize_clone(
     store: Store,
-    identity: telemetry.RepoIdentity,
+    identity: run_summary.RepoIdentity,
     run_ids: Iterable[str] | None = None,
     *,
     written_at: str | None = None,
@@ -288,11 +288,11 @@ def summarize_clone(
     exactly as ``telemetry rebuild`` reports it, and never fails the scan.
     """
     scan = CloneScan()
-    stamp = written_at or telemetry._now()
+    stamp = written_at or run_summary.utc_now()
     for run_id in store.list_runs() if run_ids is None else run_ids:
         try:
-            summary = telemetry._summarize_stored_run_safely(store, run_id, identity, stamp)
-        except telemetry._Unreadable as exc:
+            summary = telemetry.summarize_stored_run_safely(store, run_id, identity, stamp)
+        except telemetry.UnreadableRecord as exc:
             scan.unreadable_runs.append(
                 {
                     "run_id": run_id,
@@ -1132,7 +1132,9 @@ def read_hook_log(path: Path) -> HookLogRead:
             except FileNotFoundError:
                 continue
             except OSError as exc:
-                return HookLogRead(path=str(candidate), exists=True, error=telemetry._describe(exc))
+                return HookLogRead(
+                    path=str(candidate), exists=True, error=telemetry.describe_error(exc)
+                )
             payloads.append(payload if payload.endswith(b"\n") else payload + b"\n")
     if not payloads:
         return HookLogRead(path=str(path), exists=False)
