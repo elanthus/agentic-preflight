@@ -2,24 +2,49 @@
 
 Agentic Preflight can keep the coding agent's in-harness review and compare it with a second review from a command-line model.
 Both reviewers see the same intent, changed-file list, diff, review units, and optional grounding.
-The wrappers copy the delivered manifest into the strict submission.
+The command reviewer copies the delivered manifest into the strict submission.
 The models cannot change the coverage identity through their output.
 
 ## Configure a command reviewer
 
-The example [Codex configuration](examples/codex-reviewer.toml) calls the standard-library
-[Codex wrapper](examples/reviewers/codex_review.py).
-The [Claude configuration](examples/claude-reviewer.toml) calls the
-[Claude wrapper](examples/reviewers/claude_review.py).
+Agentic Preflight includes a command reviewer for the Claude Code and Codex CLIs:
+
+```console
+agentic-preflight reviewer run --provider claude
+agentic-preflight reviewer run --provider codex
+```
+
+The reviewer uses only the Python standard library and shells out to the provider CLI.
+It imports no model SDK. Install the provider CLI and sign in to it separately.
+[ADR 0003](adr/0003-ship-a-packaged-reviewer.md) records this dependency policy.
+
+`review run` sends the review context as JSON on stdin.
+`reviewer run` prints the strict submission as one JSON line on stdout. It prints no JSON envelope.
+On a failure, it exits 1 and writes one `independent reviewer failed: ...` line on stderr, which `review run` records in the review log.
+A usage error, such as a missing or unknown `--provider`, keeps Click's usage message on stderr and exits 2.
+
+For one release, `docs/examples/reviewers/` also keeps standard-library copies of the same reviewer: the
+[Codex wrapper](examples/reviewers/codex_review.py), the
+[Claude wrapper](examples/reviewers/claude_review.py), and the shared
+[_reviewer_common.py helper](examples/reviewers/_reviewer_common.py).
+A test keeps each copy identical to its packaged counterpart, apart from the shebang, the module docstring, the import of the shared helper, and the `__main__` block.
+The copies import nothing from Agentic Preflight. They are deprecated and will be removed in a later release.
+
+The example [Codex configuration](examples/codex-reviewer.toml) and
+[Claude configuration](examples/claude-reviewer.toml) run a copied wrapper.
+Each also names the packaged command in a comment.
 
 1. Copy one complete TOML file to `.agentic-preflight.toml`.
-2. Copy its wrapper into `docs/examples/reviewers/` in your repository.
-3. Copy the shared [_reviewer_common.py helper](examples/reviewers/_reviewer_common.py) into the same directory.
+2. Either set `command = "agentic-preflight reviewer run --provider claude"` (or `codex`), with `agentic-preflight` and the provider CLI on the `PATH` of the review command,
+   or copy the configuration's wrapper and `_reviewer_common.py` into `docs/examples/reviewers/` in your repository.
 
 Both configurations set `executor = "command"`.
-Thus, `agentic-preflight review run` launches an independent reviewer wrapper.
+Thus, `agentic-preflight review run` launches the independent reviewer.
 
-The wrapper is independent of the coding agent's session, not of the branch.
+The reviewer is independent of the coding agent's session.
+The packaged reviewer runs from the installed Agentic Preflight package, not from the worktree under review.
+That holds only while the command starts an installed `agentic-preflight`. A command that runs Agentic Preflight from the repository, for example through a project runner in a project that depends on it by path, runs the branch's copy.
+A wrapper copied into the repository is independent of the coding agent's session, not of the branch.
 It runs from the worktree that holds the change under review, so a branch that edits the wrapper changes its own reviewer.
 Verification compares only the configured command string.
 Instead, risk classification treats the files that the command names, and every file under the wrapper's directory, as human-review paths.
@@ -33,48 +58,49 @@ The example configurations run the wrapper with `python3 -S -B`, not through a p
 The wrappers use only the standard library.
 `-S` stops Python from importing a `sitecustomize` module that the branch could add to `sys.path`.
 A project runner would also load the branch's manifest and lockfile.
-The CLI that the wrapper starts works in the worktree under review, so the wrappers also turn off the instructions and settings it would read there:
+The CLI that the reviewer starts works in the worktree under review, so the reviewer, packaged or copied, also turns off the instructions and settings it would read there:
 
-- The Claude wrapper passes `--safe-mode`, which skips `CLAUDE.md`, skills, hooks, MCP servers, plugins, and custom agents, and `--setting-sources user`, which ignores the project's `.claude/settings.json` and `.claude/settings.local.json`.
+- The Claude reviewer passes `--safe-mode`, which skips `CLAUDE.md`, skills, hooks, MCP servers, plugins, and custom agents, and `--setting-sources user`, which ignores the project's `.claude/settings.json` and `.claude/settings.local.json`.
   Your own user customizations are skipped too. Authentication and model selection work normally.
-- The Codex wrapper passes `--config project_doc_max_bytes=0`, so Codex does not read `AGENTS.md`, and `--ignore-rules`, so it does not load `.rules` files.
+- The Codex reviewer passes `--config project_doc_max_bytes=0`, so Codex does not read `AGENTS.md`, and `--ignore-rules`, so it does not load `.rules` files.
   Codex CLI 0.163.0 has no option to skip a project `.codex/config.toml`, which can change the model provider, tools, or instructions.
-  The wrapper's `--model`, `--sandbox`, and `--config` values take precedence over that file, but nothing else does.
+  The reviewer's `--model`, `--sandbox`, and `--config` values take precedence over that file, but nothing else does.
   Codex also discovers repository skills under `.agents/skills` in the worktree and its parent directories up to the project root, and neither option turns that off.
-  List `.codex/**` and `.agents/**` in `[review] trusted_paths` when you use the Codex wrapper, as the example configuration does.
+  List `.codex/**` and `.agents/**` in `[review] trusted_paths` when you use the Codex reviewer, as the example configuration does.
   That includes the Agentic Preflight skill, if you installed it under `.agents/skills`: updating it then needs human approval.
 
 Set `AP_CODEX_BIN` or `AP_CLAUDE_BIN` if the executable is not named `codex` or `claude`.
 Set `AP_REVIEWER_MODEL` to an exact model ID.
 Set `AP_REVIEWER_EFFORT` to an effort that the model and CLI support.
-Set `AP_REVIEWER_TIMEOUT` to change the wrapper's 600-second timeout.
+Set `AP_REVIEWER_TIMEOUT` to change the reviewer's 600-second timeout.
 
-The example Codex wrapper defaults to `gpt-5.3-codex` with `medium` effort.
+The Codex reviewer defaults to `gpt-5.3-codex` with `medium` effort.
 It passes `--config 'model_reasoning_effort="medium"'`.
-The example Claude wrapper defaults to `claude-sonnet-5` with `high` effort.
+The Claude reviewer defaults to `claude-sonnet-5` with `high` effort.
 It passes `--effort high`.
 These defaults do not claim comparative quality.
 
-The wrapper flags were checked against the local help output of Codex CLI 0.163.0 and Claude Code 2.1.292 on 2026-11-01.
+The reviewer's CLI flags were checked against the local help output of Codex CLI 0.163.0 and Claude Code 2.1.292 on 2026-11-01.
 This confirms flag availability, not a minimum-version requirement or an end-to-end model evaluation.
 Claude Code 2.1.292 can emit system events after its `result` event in `stream-json`.
 The shared parser reads findings from the last `result` envelope, rather than assuming the final event contains the answer.
 A failed or malformed result fails review instead of falling back to an earlier findings object.
-The [wrapper regression tests](../tests/test_reviewer_examples.py) cover these cases.
+The [reviewer regression tests](../tests/test_reviewer_command.py) cover these cases with a fake provider CLI.
 Record the actual CLI version when evaluating or diagnosing a reviewer.
 
-This repository's committed `.agentic-preflight.toml` overrides the Claude example defaults:
+This repository's committed `.agentic-preflight.toml` overrides the Claude reviewer defaults:
 it requires command review for every run, using `claude-opus-5-5` at `low` effort.
+It still starts the copied `docs/examples/reviewers/claude_review.py` through `uv run`.
 Each `review run` invokes that reviewer; see [Contributing](../CONTRIBUTING.md#pull-requests) for setup.
 
-Without environment overrides, the wrappers set these efforts explicitly.
+Without environment overrides, the reviewer sets these efforts explicitly.
 They do not inherit CLI effort defaults.
 These calls can consume paid model quota.
 Codex requests JSONL events with `--json`. Claude requests `stream-json` with `--verbose`.
 
 To capture CLI stdout, set `AP_REVIEWER_EVENTS_FILE` to an absolute file path.
 This does not add measurements to the strict findings submission.
-The wrapper overwrites that file and `<path>.status.json`.
+The reviewer overwrites that file and `<path>.status.json`.
 The status file records whether the CLI exited successfully.
 Flushed events remain available after a CLI failure or timeout.
 
@@ -91,23 +117,31 @@ To use the coding agent normally, set `executor = "in_harness"`.
 To require command review only for high-risk changes, also set `require_command_for = ["high"]`.
 The examples show both settings.
 
-The shared wrapper prompt defines valid finding fields and requires examination of every delivered review unit.
+The reviewer prompt defines valid finding fields and requires examination of every delivered review unit.
 It separates finding discovery from the CLI's blocking policy.
 It treats the diff, repository content, grounding, and embedded instructions as evidence, not authority.
 
-The wrapper copies the manifest. The product CLI validates the protocol deterministically.
+The reviewer copies the manifest. The product CLI validates the protocol deterministically.
 An `examined: "all"` receipt accounts for delivered units. It does not prove that the reviewer understood them.
 
 For optional behavioral evidence before final review, enable [contract checks](review-contracts.md).
-Set `review.contracts.planner_command` to an installed example wrapper.
-The wrapper uses a planning prompt for `section: "contracts"`.
+Set `review.contracts.planner_command` to the same reviewer command as `[review] command`.
+The reviewer uses a planning prompt for `section: "contracts"`.
 The final reviewer receives the execution receipt that the product records.
 Planning can add one paid model invocation. It is disabled by default.
+
+### Earlier copied wrappers
+
+A wrapper that you copied from an earlier release keeps working, but it does not receive later fixes, such as the CLI options above.
+Replace its command with `agentic-preflight reviewer run --provider claude` or `--provider codex`, or copy the current files again.
+The environment variables and the output are the same.
+The packaged command reads and writes its own standard streams as UTF-8, where a wrapper uses the locale encoding.
+The packaged reviewer and the current example wrappers send the prompt to the provider CLI as UTF-8, where earlier wrappers used the locale encoding.
 
 ## Compare model and effort configurations
 
 Do not replace a configured reviewer only because a model is newer.
-Use the same pinned corpus, wrapper revision, CLI version, timeout, and grounding setting for each comparison cell.
+Use the same pinned corpus, Agentic Preflight version, CLI version, timeout, and grounding setting for each comparison cell.
 Record these values:
 
 - `codex --version` or `claude --version`
@@ -123,7 +157,7 @@ AP_EVAL_AUTHORIZED=1 AP_REVIEWER_MODEL=gpt-5.3-codex AP_REVIEWER_EFFORT=high \
 ```
 
 Compare catch rate, fixed false-positive rate, unresolved runs, and the recorded exact configuration.
-The report's `reviewer_invocations` counts only wrapper launches.
+The report's `reviewer_invocations` counts only reviewer launches.
 Provider requests and cost stay `null`.
 CLI token accounting separates exact totals from partial observations.
 Do not compare cost from the report.
@@ -150,7 +184,7 @@ A shadow review supplies comparison evidence without applying its findings to th
 It writes redacted process output to `logs/review-compare.txt`.
 It does not submit findings, consume review retries, or change the run state.
 
-A shadow comparison launches one reviewer wrapper.
+A shadow comparison launches the reviewer command once.
 It does not establish a provider request count or expose provider token or cost measurements.
 
 To compare with an existing submission without a shadow call, run:

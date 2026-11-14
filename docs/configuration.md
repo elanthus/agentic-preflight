@@ -518,6 +518,7 @@ The interpreter and runner environment is a reviewer input too, and command pars
 `uv run`, `poetry run`, and `npm run` load or synchronize the project from its manifest and lockfile, which can run build hooks or path dependencies from the branch.
 During startup, Python imports a `sitecustomize` module from any directory on `sys.path`, and an editable install puts the repository there.
 Run a reviewer that needs only the standard library directly, with `python3 -S -B`, as the [example configurations](independent-review.md) do. `-S` skips that startup processing.
+The installed `agentic-preflight reviewer run` runs the same reviewer from the installed package, not from the worktree.
 Otherwise, protect the runner's inputs with `trusted_paths`.
 The coding-agent CLI that a wrapper starts can also read instructions and settings from the worktree, such as `CLAUDE.md`, `AGENTS.md`, or `.claude/settings.json`.
 The example wrappers turn off those that the CLI lets them. Codex cannot be told to skip a project `.codex/config.toml` or repository skills under `.agents/skills`, so list `.codex/**` and `.agents/**` in `trusted_paths` when you use Codex.

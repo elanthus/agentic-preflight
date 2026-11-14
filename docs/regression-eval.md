@@ -38,7 +38,7 @@ The runner checks that the serialized context contains none of the following:
 It also checks that the delivered intent exactly equals the case intent.
 An assertion rejects top-level scorer-label structures to prevent future additions that could expose scoring information.
 The product CLI does not emit those fields today.
-Regression tests capture actual reviewer-wrapper stdin through both example wrappers for both snapshots.
+Regression tests capture actual reviewer stdin through both example wrappers for both snapshots.
 
 For one representative case per selected snapshot, tests hash every file in all three trees.
 They inspect all Git objects, including unreachable objects, for blobs unique to the unselected tree.
@@ -197,7 +197,7 @@ Tests still validate every case fixture.
 
 ## Running real mode
 
-Real mode uses the example configurations and standard-library wrappers in `docs/examples/`.
+Real mode uses the example configurations in `docs/examples/` and runs the example wrappers in `docs/examples/reviewers/`, which a test keeps identical to the packaged reviewer in `agentic_preflight/reviewers/`.
 It refuses to start unless `AP_EVAL_AUTHORIZED=1` is present.
 Each command uses 12 cases, two reviewed snapshots, and two grounding settings.
 This launches exactly `12 × 2 × 2 = 48` reviewer-wrapper invocations for the selected executor.

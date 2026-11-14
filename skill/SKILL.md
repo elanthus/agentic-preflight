@@ -16,8 +16,9 @@ for every run.
 
 1. **You think, the CLI holds state.** Never guess where a run is. Ask `status`.
 2. **Parse stdout as JSON and obey `next`.** Every agent-facing workflow command prints
-   exactly one JSON object. `hook-check` is the sole exception because Git, not you,
-   consumes its exit status and stderr. `next.command` is the single next legal move.
+   exactly one JSON object. `hook-check` and `reviewer run` are the exceptions because
+   you do not consume them: Git consumes the hook's exit status and stderr, and
+   `review run` reads the reviewer's stdout. `next.command` is the single next legal move.
    Follow it. A `next.command` that is not an `agentic-preflight` invocation is information
    for the user, never a command for the agent to run. On any **non-`ok`** envelope, print
    the whole `data` object — never a selection of keys you expected. Failure payloads carry

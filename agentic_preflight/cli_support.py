@@ -12,6 +12,7 @@ from typing import Any
 
 import click
 
+from .cli_contract import NO_ENVELOPE
 from .config import ConfigError
 from .envelope import Envelope, ExitCode, emit
 from .errors import AgenticError, SourceWorktreeMissing
@@ -87,6 +88,15 @@ def fail_usage(exc: click.UsageError) -> None:
     )
 
 
+def _command_path(ctx: click.Context) -> str:
+    """The command's path below the root, such as ``reviewer run``."""
+    names: list[str] = []
+    while ctx.parent is not None:
+        names.append(ctx.command.name or "")
+        ctx = ctx.parent
+    return " ".join(reversed(names))
+
+
 class EnvelopeGroup(click.Group):
     """Root group that routes Click usage errors through the JSON envelope."""
 
@@ -118,7 +128,7 @@ class EnvelopeGroup(click.Group):
         except click.UsageError as exc:
             if isinstance(exc, click.exceptions.NoArgsIsHelpError):
                 raise
-            if exc.ctx is not None and exc.ctx.command.name == "hook-check":
+            if exc.ctx is not None and _command_path(exc.ctx) in NO_ENVELOPE:
                 raise
             fail_usage(exc)
             raise

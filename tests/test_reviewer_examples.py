@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import runpy
@@ -359,3 +360,40 @@ def test_agreement_summarizer_aggregates_synthetic_reports(tmp_path):
     assert "2" in result.stdout
     assert "0.750" in result.stdout
     assert re.search(r"\b2\s+3\s+3\b", result.stdout)
+
+
+def _comparable(source: str) -> str:
+    """The module body without its documented differences from the packaged copy.
+
+    The example copies may differ from ``agentic_preflight/reviewers/`` only in the
+    shebang, the module docstring, the sibling versus relative import of the shared
+    helpers, and the ``__main__`` block.
+    """
+    tree = ast.parse(source)
+    body = tree.body
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        body = body[1:]
+    last = body[-1] if body else None
+    if isinstance(last, ast.If) and ast.unparse(last.test) == "__name__ == '__main__'":
+        body = body[:-1]
+    start = body[0].lineno if body else 1
+    end = body[-1].end_lineno if body else 0
+    lines = source.splitlines()[start - 1 : end]
+    return "\n".join(lines).replace("from _reviewer_common import (", "from .common import (")
+
+
+@pytest.mark.parametrize(
+    ("example", "packaged"),
+    [
+        ("_reviewer_common.py", "common.py"),
+        ("claude_review.py", "claude.py"),
+        ("codex_review.py", "codex.py"),
+    ],
+)
+def test_example_wrappers_stay_in_sync_with_the_packaged_reviewer(example, packaged):
+    copy = (EXAMPLES / "reviewers" / example).read_text(encoding="utf-8")
+    original = (ROOT / "agentic_preflight" / "reviewers" / packaged).read_text(encoding="utf-8")
+
+    assert _comparable(copy) == _comparable(original)
+    # The copies import nothing from the package, so `python3 -S -B` can run them.
+    assert "agentic_preflight" not in copy

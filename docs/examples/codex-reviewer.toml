@@ -20,6 +20,8 @@ blocking_severities = ["critical", "high"]
 max_findings = 50
 executor = "command"
 command = "python3 -S -B docs/examples/reviewers/codex_review.py"
+# With Agentic Preflight installed, the packaged copy of this reviewer runs from the
+# installed package instead: command = "agentic-preflight reviewer run --provider codex"
 # Set AP_REVIEWER_MODEL and AP_REVIEWER_EFFORT to exact values supported by your Codex CLI.
 # Alternative: keep executor = "in_harness" and require the paid command only for high risk.
 # require_command_for = ["high"]
