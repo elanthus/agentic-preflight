@@ -93,6 +93,17 @@ def test_loading_an_unknown_run_raises(store):
         store.load_run("r_nope")
 
 
+def test_reading_an_unknown_run_leaves_no_run_directory(store):
+    store.create_run(make_run())
+    with pytest.raises(UnknownRun):
+        store.load_run("r_nope")
+    assert store.peek("r_nope", "branch") is None
+    assert store.load_findings("r_nope") == []
+
+    assert not store.run_dir("r_nope").exists()
+    assert store.list_runs() == ["r_abc123"]
+
+
 def test_transaction_bumps_seq_and_persists_the_mutation(store):
     store.create_run(make_run())
     with store.transaction("r_abc123") as run:
@@ -132,14 +143,14 @@ def test_findings_transaction_preserves_each_record_across_write_failure(
         action=FindingAction.AUTO_FIX,
         title="incorrect result",
     )
-    original_write = store_module._atomic_write
+    original_write = store_module.atomic_write
 
     def interrupted_write(path, payload):
         if path.name == boundary:
             raise OSError("interrupted replacement")
         original_write(path, payload)
 
-    monkeypatch.setattr(store_module, "_atomic_write", interrupted_write)
+    monkeypatch.setattr(store_module, "atomic_write", interrupted_write)
     if boundary:
         with (
             pytest.raises(OSError, match="interrupted replacement"),

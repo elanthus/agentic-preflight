@@ -246,9 +246,15 @@ def git_dir(cwd: Path | str) -> Path:
 
 
 def hook_path(cwd: Path | str, name: str) -> Path:
-    """Return the hook path Git will execute, including ``core.hooksPath``."""
-    raw = out(cwd, "rev-parse", "--path-format=absolute", "--git-path", f"hooks/{name}")
-    return Path(raw)
+    """Return the hook path Git will execute, including ``core.hooksPath``.
+
+    Only the hooks directory is resolved. ``--path-format=absolute`` resolves
+    symlinks, including a symlink at the hook itself, which would hand callers
+    the link's target, even a target that does not exist, instead of the link.
+    """
+    # Strip only the line terminator: a configured hooks directory may end in a space.
+    raw = run(cwd, "rev-parse", "--path-format=absolute", "--git-path", "hooks").stdout
+    return Path(raw.removesuffix("\n").removesuffix("\r")) / name
 
 
 def git_path(cwd: Path | str, name: str) -> Path:

@@ -6,7 +6,7 @@ import json
 
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.machine import Action
-from agentic_preflight.runs._session import _apply, open_session
+from agentic_preflight.runs._session import apply_action, open_session
 from tests.conftest import commit_all, write
 from tests.driver import ScriptedAgent
 
@@ -48,7 +48,7 @@ def _force_running(repo, action: Action) -> None:
     run_id = session.active_run_id()
     assert run_id is not None
     with session.store.transaction(run_id) as run:
-        _apply(run, action)
+        apply_action(run, action)
 
 
 def test_interrupted_lint_is_recorded_before_retry(feature_repo, tmp_path):

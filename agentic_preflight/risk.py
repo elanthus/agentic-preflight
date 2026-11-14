@@ -3,15 +3,26 @@
 Diff size is deliberately absent. ``[diff] max_bytes`` is an attention budget:
 it decides whether the complete diff fits in review context. Risk instead comes
 from repository-owned path policy and the findings the review recorded.
+
+The reviewer is part of that policy. ``[review] command`` and
+``[review.contracts] planner_command`` usually run a script committed in the
+repository, and they run it from the worktree that holds the change under review.
+A branch that edits that script would choose its own reviewer while the command
+string stayed the same. So every path that the configured commands name, and every
+``[review] trusted_paths`` pattern, counts as a human-review path.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import posixpath
+import re
+import shlex
+from collections.abc import Iterable, Iterator, Sequence
+from pathlib import PureWindowsPath
 from typing import Literal
 
 from . import findings as findingsmod
-from .config import PolicySection
+from .config import PolicySection, ReviewSection
 from .diff import path_matches
 from .models import (
     Finding,
@@ -22,6 +33,7 @@ from .models import (
     Stage,
     Verdict,
 )
+from .stages import command as commandmod
 
 RiskReasonKind = Literal["human_review_path", "high_risk_path", "medium_risk_path", "finding"]
 
@@ -32,6 +44,266 @@ _FINDING_RISK = {
     Severity.HIGH: RiskLevel.HIGH,
     Severity.CRITICAL: RiskLevel.HIGH,
 }
+
+
+# Shell control operators and redirections can join words without whitespace, as in
+# ``cd tools&&python3 review.py``. Splitting on them keeps the paths on each side.
+_SHELL_OPERATORS = frozenset(";&|()<>")
+_OPERATOR_WORD = re.compile(r"[;&|()<>]+")
+# A word with an expansion or a glob does not name one fixed path.
+_UNRESOLVED = frozenset("$`~*?[]{}")
+# A leading expansion before a slash, as in ``"$PWD/tools/review.py"`` or
+# ``$(git rev-parse --show-toplevel)/tools/review.py``, usually names the repository
+# root. Dropping it keeps the literal path after it.
+_EXPANSION_PREFIX = re.compile(r"(?:\$\{\w+\}|\$\w+|\$\([^()]*\)|`[^`]*`)/")
+# Tool options that change the directory later words are resolved against:
+# ``uv run --project tools``, ``make -C tools``, ``env --chdir=tools``.
+_DIRECTORY_FLAGS = frozenset({"-C", "--directory", "--cwd", "--prefix", "--project", "--chdir"})
+_CHANGE_DIRECTORY = _DIRECTORY_FLAGS | {"cd", "pushd"}
+_DIRECTORY_OPTIONS = tuple(f"{flag}=" for flag in _DIRECTORY_FLAGS if flag.startswith("--"))
+# Variables whose value is a list of directories that code is loaded from.
+_SEARCH_PATH_VARIABLES = frozenset({"PYTHONPATH", "NODE_PATH"})
+_MODULE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
+# ``-m``, a short-flag cluster that ends in it (``-Bm``), or the attached ``-mNAME``.
+_MODULE_FLAG = re.compile(r"-[A-Za-z]*m")
+_ATTACHED_MODULE = re.compile(r"-m(?P<module>[A-Za-z_].*)")
+# ``sh -c 'cd tools && python3 review.py'`` nests a command inside one quoted word.
+_MAX_NESTING = 3
+
+
+def _unique(patterns: Iterable[str]) -> list[str]:
+    return list(dict.fromkeys(patterns))
+
+
+_SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
+_SHELL_COMMAND_FLAG = re.compile(r"-[A-Za-z]*c[A-Za-z]*")
+
+
+def _is_shell(word: str) -> bool:
+    """``sh``, ``bash``, or a path to one, such as ``/bin/bash``."""
+    return posixpath.basename(word.replace("\\", "/")) in _SHELLS
+
+
+def _separate_operators(command: str) -> tuple[str, bool]:
+    """``command`` with whitespace around each control operator outside quotes.
+
+    ``cd tools&&python3 review.py`` becomes ``cd tools && python3 review.py``, while
+    ``python3 'reviewers (local)/rev.py'`` keeps its quoted parentheses inside the word.
+    Single quotes suppress everything, and a backslash escapes outside single quotes.
+    That is POSIX shell quoting on every platform, because a command that contains an
+    operator always runs through a POSIX shell (Git Bash on Windows). The second value
+    says whether any operator was found.
+    """
+    out: list[str] = []
+    quote: str | None = None
+    escaped = False
+    found = False
+    for char in command:
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote is not None:
+            if char == quote:
+                quote = None
+        elif char in {"'", '"'}:
+            quote = char
+        elif char in _SHELL_OPERATORS:
+            out.append(f" {char} ")
+            found = True
+            continue
+        out.append(char)
+    return "".join(out), found
+
+
+def _posix_split(command: str) -> list[str] | None:
+    """Word-split ``command`` as a POSIX shell would, or ``None`` on unbalanced quotes."""
+    lexer = shlex.shlex(command, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        return list(lexer)
+    except ValueError:
+        return None
+
+
+def _shell_pieces(command: str, depth: int = 0) -> Iterator[str]:
+    """Shell words of ``command``, split on control operators outside quotes.
+
+    The word after a shell's ``-c`` flag, as in ``sh -c 'python3 tools/review.py'``,
+    is read again as a nested command. Any other quoted word stays whole, so a path that
+    contains a space or a character such as ``(`` or ``;`` is kept.
+    """
+    separated, has_operator = _separate_operators(command)
+    # A command with an operator runs through a POSIX shell on every platform; one
+    # without may run directly, so it is split by the platform's own rules.
+    words = _posix_split(separated) if has_operator else commandmod.split(separated)
+    if words is None:
+        # Unbalanced quoting, for example an apostrophe in a ``#`` comment. Ignore
+        # quotes and split on every operator, so that no path after it is hidden.
+        words = [piece for word in command.split() for piece in _OPERATOR_WORD.split(word) if piece]
+    previous = ""
+    shell = False
+    for word in words:
+        if depth < _MAX_NESTING and shell and _SHELL_COMMAND_FLAG.fullmatch(previous):
+            # ``-c`` and combined short flags such as ``-lc`` or ``-ec``.
+            yield from _shell_pieces(word, depth + 1)
+        elif not _OPERATOR_WORD.fullmatch(word):
+            yield word
+        shell = shell or _is_shell(word)
+        previous = word
+
+
+def _word_value(word: str) -> str | None:
+    """The part of one shell word that could be a path."""
+    if word.startswith("-"):
+        # ``--script=tools/review.py`` names a path; a bare flag does not.
+        _, separator, value = word.partition("=")
+        return value if separator else None
+    name, separator, value = word.partition("=")
+    if separator and name.isidentifier():
+        # ``VAR=tools/config.json`` before a program, or as an ``env`` argument.
+        return value
+    return word
+
+
+def _repo_relative(directory: str, value: str) -> str | None:
+    """``value`` resolved against repository ``directory``, if it stays inside."""
+    value = value.replace("\\", "/")
+    if not value or any(char in _UNRESOLVED for char in value):
+        return None
+    if value.startswith("/") or PureWindowsPath(value).drive:
+        return None
+    normalized = posixpath.normpath(posixpath.join(directory, value))
+    if normalized in {".", ".."} or normalized.startswith("../"):
+        return None
+    return normalized
+
+
+def _looks_like_path(value: str) -> bool:
+    """A word with a directory separator or a dot, which is how a script is named.
+
+    Bare words such as ``python``, ``uv``, or ``run`` are program names or
+    subcommands, which the shell finds on ``PATH`` rather than in the worktree.
+    """
+    return "/" in value or "\\" in value or "." in value
+
+
+def _directory_target(piece: str, *, after_flag: bool) -> str | None:
+    """The directory that ``piece`` changes to, if it is a directory argument."""
+    if after_flag:
+        return piece
+    if piece.startswith(_DIRECTORY_OPTIONS):
+        return piece.partition("=")[2]
+    if piece.startswith("-C") and len(piece) > 2:
+        # The attached short form, ``-Ctools``.
+        return piece[2:]
+    return None
+
+
+def _file_patterns(path: str) -> list[str]:
+    parent = posixpath.dirname(path)
+    return [f"{parent}/**"] if parent else [path, f"{path}/**"]
+
+
+def _attached_module(piece: str) -> str | None:
+    """The module of an attached ``-mNAME``."""
+    attached = _ATTACHED_MODULE.fullmatch(piece)
+    return attached["module"] if attached else None
+
+
+def _module_patterns(directory: str, module: str) -> list[str]:
+    """``python -m a.b.c`` runs ``a/b/c.py`` after importing ``a/__init__.py``."""
+    if not _MODULE_NAME.fullmatch(module):
+        return []
+    top, _, rest = module.partition(".")
+    path = _repo_relative(directory, top)
+    if path is None:
+        return []
+    return [f"{path}/**"] if rest else [f"{path}.py", f"{path}/**"]
+
+
+def command_path_patterns(command: str) -> list[str]:
+    """Human-review patterns for the repository paths that ``command`` names.
+
+    This is a best-effort reading of shell words, not a shell. A named file is
+    protected together with its directory, because interpreters load sibling modules
+    from the script's directory (the example wrappers import ``_reviewer_common``).
+    A path at the repository root is protected as a file and as a directory, but not
+    with its siblings, which would cover the whole repository.
+
+    A directory that the command changes to (``cd DIR``, ``pushd DIR``, ``-C DIR``,
+    ``--directory``, ``--cwd``, ``--prefix``, ``--project``, ``--chdir``) or adds to
+    ``PYTHONPATH`` or ``NODE_PATH`` is protected as ``DIR/**``, and later relative
+    paths are resolved against both the repository root and ``DIR``. ``-m a.b`` protects
+    the top-level package ``a/**``. A leading ``$VAR/`` or ``$(...)/`` is dropped and
+    the literal path after it is kept. Other computed paths, files that the program
+    reads on its own, the modules beside a root-level script or under a root search-path
+    entry such as ``PYTHONPATH=.``, and the interpreter's environment are not detected;
+    list those in ``[review] trusted_paths``.
+    """
+    directories = [""]
+    patterns: list[str] = []
+    after_directory_flag = False
+    after_change_directory = False
+    after_module_flag = False
+    for piece in _shell_pieces(_EXPANSION_PREFIX.sub("", command)):
+        attached = _attached_module(piece)
+        module = piece if after_module_flag else attached
+        after_module_flag = False
+        found = [p for d in directories for p in _module_patterns(d, module)] if module else []
+        if found:
+            patterns.extend(found)
+            continue
+        # A value that is not a module name, as in ``reviewer -vm prompts/review.txt``
+        # or ``-mprompts/review.txt``, is checked as an ordinary word below.
+        piece = attached or piece
+        if after_change_directory and piece.startswith("-") and piece != "-":
+            # ``cd -P tools`` and ``cd -- tools``: options come before the directory.
+            continue
+        after_change_directory = piece in {"cd", "pushd"}
+        target = _directory_target(piece, after_flag=after_directory_flag)
+        after_directory_flag = piece in _CHANGE_DIRECTORY
+        name, separator, value = piece.partition("=")
+        if target is None and separator and name in _SEARCH_PATH_VARIABLES:
+            targets, changes_directory = value.split(":"), False
+        elif target is not None:
+            targets, changes_directory = [target], True
+        else:
+            targets, changes_directory = [], False
+        if targets:
+            found = [
+                path
+                for directory in directories
+                for entry in targets
+                if (path := _repo_relative(directory, entry))
+            ]
+            patterns.extend(f"{path}/**" for path in found)
+            if changes_directory:
+                directories = _unique([*directories, *found])
+            continue
+        if after_directory_flag:
+            continue
+        if _MODULE_FLAG.fullmatch(piece):
+            after_module_flag = True
+            continue
+        word = _word_value(piece)
+        if word is None or not _looks_like_path(word):
+            continue
+        for directory in directories:
+            path = _repo_relative(directory, word)
+            if path is not None:
+                patterns.extend(_file_patterns(path))
+    return _unique(patterns)
+
+
+def reviewer_patterns(review: ReviewSection) -> list[str]:
+    """Patterns whose change could alter the configured reviewer or planner."""
+    patterns = list(review.trusted_paths)
+    for command in (review.command, review.contracts.planner_command):
+        if command:
+            patterns.extend(command_path_patterns(command))
+    return _unique(patterns)
 
 
 def _path_reasons(paths: list[str], patterns: list[str], *, kind: RiskReasonKind, level: RiskLevel):
@@ -46,14 +318,19 @@ def assess(
     findings: list[Finding],
     *,
     policy: PolicySection,
-    review_blocking_severities: Sequence[str],
+    review: ReviewSection,
     docs_blocking_severities: Sequence[str],
 ) -> RiskAssessment:
-    """Return the explainable policy verdict for one exact reviewed change."""
+    """Return the explainable policy verdict for one exact reviewed change.
+
+    ``review`` supplies the review blocking severities and the reviewer paths that
+    count as human-review paths. Pass the same configuration that ``policy`` comes
+    from, so a verifier judges a branch by the reviewer its protected base names.
+    """
     reasons = [
         *_path_reasons(
             changed_files,
-            policy.human_review_paths,
+            _unique([*policy.human_review_paths, *reviewer_patterns(review)]),
             kind="human_review_path",
             level=RiskLevel.HIGH,
         ),
@@ -86,7 +363,7 @@ def assess(
         )
 
     configured_blocking = {
-        Stage.REVIEW: review_blocking_severities,
+        Stage.REVIEW: review.blocking_severities,
         Stage.DOCS: docs_blocking_severities,
     }
     has_open_blocker = any(

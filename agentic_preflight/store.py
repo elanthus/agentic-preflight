@@ -271,7 +271,7 @@ def _replace_with_retry(tmp: Path, path: Path) -> None:
             time.sleep(0.005)
 
 
-def _atomic_write(path: Path, payload: str) -> None:
+def atomic_write(path: Path, payload: str) -> None:
     """Write via a same-directory temp file and rename.
 
     Same directory matters: ``os.replace`` is only atomic within a filesystem.
@@ -346,7 +346,7 @@ class Store:
         _require_loadable(self.run_path(run.run_id), payload, _check_run_payload)
         fileperms.private_directory(self.root)
         self.run_dir(run.run_id).mkdir(parents=True, exist_ok=True)
-        _atomic_write(self.run_path(run.run_id), payload)
+        atomic_write(self.run_path(run.run_id), payload)
         self.append_event(
             run.run_id,
             {
@@ -365,8 +365,26 @@ class Store:
         The stored snapshot remains unchanged so its digest still binds the original
         evidence. Unknown keys and invalid current settings remain read failures.
         """
+        if self._run_dir_absent(run_id):
+            raise UnknownRun(run_id)
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
             return self._load_run(run_id)
+
+    def _run_dir_absent(self, run_id: str) -> bool:
+        """Whether the run has no directory, checked before taking its lock.
+
+        Taking the run lock creates the directory, so a read of an unknown run
+        ID would otherwise leave an empty ``runs/<id>/`` that nothing collects.
+        Only a definite absence counts: any other error defers to the locked
+        read and its diagnostics.
+        """
+        try:
+            self.run_dir(run_id).stat()
+        except (FileNotFoundError, NotADirectoryError):
+            return True
+        except OSError:
+            return False
+        return False
 
     def peek(self, run_id: str, *fields: str) -> dict[str, Any] | None:
         """Return top-level fields of a run record without validating it.
@@ -376,6 +394,8 @@ class Store:
         but returns ``None`` on any failure, so a caller that sees ``None`` must
         fall back to ``load_run`` and handle that record exactly as before.
         """
+        if self._run_dir_absent(run_id):
+            return None
         try:
             with filelock.exclusive(self.run_dir(run_id) / ".lock"):
                 raw = json.loads(self.run_path(run_id).read_text(encoding="utf-8"))
@@ -493,8 +513,8 @@ class Store:
             run_payload = run.model_dump_json(indent=2)
             _require_loadable(path, run_payload, _check_run_payload)
             if findings_payload is not None:
-                _atomic_write(self.findings_path(run_id), findings_payload)
-            _atomic_write(path, run_payload)
+                atomic_write(self.findings_path(run_id), findings_payload)
+            atomic_write(path, run_payload)
             for event in [*run._state_events, *(events or [])]:
                 self.append_event(run_id, {**event, "seq": run.seq})
             run._state_events.clear()
@@ -514,6 +534,8 @@ class Store:
     # -- findings ------------------------------------------------------------
 
     def load_findings(self, run_id: str) -> list[Finding]:
+        if self._run_dir_absent(run_id):
+            return []
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
             path = self.findings_path(run_id)
             if not path.exists():
@@ -524,7 +546,7 @@ class Store:
         payload = _findings_payload(findings)
         _require_loadable(self.findings_path(run_id), payload, _parse_findings)
         with filelock.exclusive(self.run_dir(run_id) / ".lock"):
-            _atomic_write(self.findings_path(run_id), payload)
+            atomic_write(self.findings_path(run_id), payload)
 
     # -- events --------------------------------------------------------------
 
@@ -591,7 +613,7 @@ class Store:
         if run_id is None:
             path.unlink(missing_ok=True)
             return
-        _atomic_write(path, run_id + "\n")
+        atomic_write(path, run_id + "\n")
 
     def set_active(self, owner_id: str, run_id: str | None) -> None:
         with self._active_lock(owner_id):

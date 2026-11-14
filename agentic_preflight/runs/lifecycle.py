@@ -24,30 +24,30 @@ from ..store import RUN_READ_RECOVERY, RunReadError, Store, StoreError, UnknownR
 from ._session import (
     RESTART_LIMIT_INSTRUCTION,
     Session,
-    _apply,
-    _assess,
-    _envelope_for,
-    _head_moved,
-    _interrupted_legacy_update,
-    _is_in_place,
-    _load_current,
-    _max_restarts,
-    _release_run_worktree,
-    _restart_limit_reached,
-    _start_command,
-    _worktree_mode,
+    apply_action,
+    assess_risk,
+    envelope_for,
+    head_moved,
+    interrupted_legacy_update,
+    is_in_place,
+    load_current,
+    max_restarts,
+    release_run_worktree,
+    restart_limit_reached,
+    start_command,
+    worktree_mode,
 )
 from .fix_commits import patch_unlanded
 
 
 def events(session: Session, *, limit: int | None = None) -> Envelope:
     """Return the current run's event history."""
-    run = _load_current(session)
+    run = load_current(session)
     log = session.store.read_events(run.run_id)
     history = log.events
     if limit:
         history = history[-limit:]
-    return _envelope_for(
+    return envelope_for(
         run,
         data=EventsData(events=history, count=len(history), skipped_lines=log.skipped_lines),
     )
@@ -65,9 +65,9 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
     """
     if reason is not None and reason not in ABORT_REASONS:
         raise ValueError(f"abort reason must be one of {', '.join(ABORT_REASONS)}, not {reason!r}")
-    run = _load_current(session, allow_interrupted=True)
+    run = load_current(session, allow_interrupted=True)
 
-    isolated = not _is_in_place(run)
+    isolated = not is_in_place(run)
     if isolated and run.fix_commits and not force:
         raise UnmergedWork(
             f"this run has {len(run.fix_commits)} fix commit(s) that were never merged "
@@ -82,7 +82,7 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
             next_command="agentic-preflight abort --force",
         )
 
-    _release_run_worktree(session, run)
+    release_run_worktree(session, run)
 
     # The marker commits with the transition, so the run summary written at the
     # terminal commit can record whether the abort was forced, why, and from where.
@@ -90,20 +90,20 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
     with session.store.transaction(run.run_id, events=[marker]) as doc:
         # The state the transition leaves: the ``from`` of its state_transition event.
         marker["aborted_from_state"] = doc.state.value
-        _apply(doc, Action.ABORT)
+        apply_action(doc, Action.ABORT)
         doc.worktree_released = True
         run = doc
 
     session.store.clear_run(run.run_id)
 
-    return _envelope_for(
+    return envelope_for(
         run,
         data=AbortData(
             discarded_fix_commits=run.fix_commits if isolated and force else [],
             preserved_in_place_commits=run.fix_commits if not isolated else [],
         ),
         next_instruction="Run aborted. Start a fresh one when ready.",
-        next_command=_start_command(
+        next_command=start_command(
             run.intent,
             base_ref=run.base_ref,
             default_base_ref=session.config.general.base_ref,
@@ -162,7 +162,7 @@ def _classify_abandoned(
         return "source worktree disappeared"
     if active.get(run.source_worktree_id) != run.run_id:
         return "source worktree lease disappeared"
-    if not start_in_progress and _head_moved(session, run) is not None:
+    if not start_in_progress and head_moved(session, run) is not None:
         return "source worktree moved"
     if run.run_id not in active_ids:
         return "run has no active worktree lease"
@@ -206,7 +206,7 @@ def _collect_run(
                         False,
                     )
                 with store.transaction(run_id) as doc:
-                    _apply(doc, Action.ORPHAN)
+                    apply_action(doc, Action.ORPHAN)
                     doc.orphaned_reason = abandoned_reason
                     run = doc
                 store.clear_run(run_id)
@@ -222,24 +222,19 @@ def _collect_run(
             }
         return False, retained, False
     store.clear_run(run_id)
-    if run.fix_commits and not force and not _is_in_place(run):
-        unlanded = (
-            _unlanded_fix_commits(session.repo_root, run)
-            if run.state is State.DONE
-            else list(run.fix_commits)
+    unlanded = [] if force else _unlanded_terminal_fixes(session, run)
+    if unlanded:
+        return (
+            False,
+            {
+                "run_id": run_id,
+                "reason": "unmerged fix commits",
+                "fix_commits": unlanded,
+            },
+            False,
         )
-        if unlanded:
-            return (
-                False,
-                {
-                    "run_id": run_id,
-                    "reason": "unmerged fix commits",
-                    "fix_commits": unlanded,
-                },
-                False,
-            )
     if not run.worktree_released and run.worktree_path and Path(run.worktree_path).exists():
-        if not force and not _is_in_place(run):
+        if not force and not is_in_place(run):
             unrecorded = _unrecorded_work(run, run.worktree_path)
             if unrecorded is not None:
                 return (
@@ -247,10 +242,59 @@ def _collect_run(
                     {"run_id": run_id, "reason": unrecorded, "worktree_path": run.worktree_path},
                     False,
                 )
-        _release_run_worktree(session, run)
+        try:
+            release_run_worktree(session, run)
+        except worktree.WorktreeLocked:
+            return (
+                False,
+                {
+                    "run_id": run_id,
+                    "reason": LOCKED_WORKTREE,
+                    "worktree_path": run.worktree_path,
+                },
+                False,
+            )
         with store.transaction(run_id) as doc:
             doc.worktree_released = True
     return True, None, False
+
+
+LOCKED_WORKTREE = "validation worktree is locked"
+LOCKED_WORKTREE_INSTRUCTION = (
+    "A validation worktree is locked with `git worktree lock`, so it was retained; "
+    "show the user each `worktree_path` in `data.retained` and ask whether to unlock it. "
+    "Do not unlock it yourself."
+)
+
+
+def _unlanded_terminal_fixes(session: Session, run: RunDoc) -> list[str]:
+    """The fix commits of a terminal isolated run that collection would lose."""
+    if not run.fix_commits or is_in_place(run):
+        return []
+    if run.state is State.DONE:
+        return _unlanded_fix_commits(session.repo_root, run)
+    if _fix_commits_discarded(session.store, run):
+        return []
+    return list(run.fix_commits)
+
+
+def _fix_commits_discarded(store: Store, run: RunDoc) -> bool:
+    """Whether ``abort --force`` already discarded this run's fix commits.
+
+    That abort records its decision as an ``aborted`` event with ``forced``
+    true. An unreadable event log, or a run that ended any other way, keeps the
+    commits retained.
+    """
+    if run.state is not State.ABORTED:
+        return False
+    try:
+        events = store.load_events(run.run_id)
+    except OSError:
+        return False
+    for event in reversed(events):
+        if event.get("event") == "aborted":
+            return event.get("forced") is True
+    return False
 
 
 UNCOMMITTED_CHANGES = "validation worktree has uncommitted changes"
@@ -366,6 +410,7 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
 
     legacy = worktree.legacy_worktrees(session.repo_root, session.config.worktree.root)
     unrecorded_retained = any(item.get("reason") in UNRECORDED_WORK_REASONS for item in retained)
+    locked_retained = any(item.get("reason") == LOCKED_WORKTREE for item in retained)
     # An interrupted notes fetch or publication can leave its temporary ref.
     with store.resource("notes"):
         gitx.sweep_notes_staging_refs(session.repo_root)
@@ -387,24 +432,51 @@ def gc(session: Session, *, force: bool = False) -> Envelope:
                 if (report := telemetry.take_report(run_id)) is not None
             ],
         ),
-        next_instruction=(
-            RUN_READ_RECOVERY
-            if unreadable_retained
-            else UNRECORDED_WORK_INSTRUCTION
-            if unrecorded_retained
-            else "Orphans were found; inspect them before removing."
-            if orphans
-            else "Validation worktrees remain at the old sibling default location; "
-            "inspect each and remove it with `git worktree remove <path>` if unneeded."
-            if legacy
-            else None
+        next_instruction=_gc_instruction(
+            unreadable=unreadable_retained,
+            unrecorded=unrecorded_retained,
+            locked=locked_retained,
+            orphans=bool(orphans),
+            legacy=bool(legacy),
         ),
         next_command=(
             "agentic-preflight gc --force"
-            if orphans and not force and not unreadable_retained and not unrecorded_retained
+            if orphans
+            and not force
+            and not unreadable_retained
+            and not unrecorded_retained
+            and not locked_retained
             else None
         ),
     )
+
+
+LEGACY_WORKTREES_INSTRUCTION = (
+    "Validation worktrees remain at the old sibling default location; "
+    "inspect each and remove it with `git worktree remove <path>` if unneeded."
+)
+
+
+def _gc_instruction(
+    *, unreadable: bool, unrecorded: bool, locked: bool, orphans: bool, legacy: bool
+) -> str | None:
+    """Every instruction that applies to this collection, in a fixed order.
+
+    One retained run must not hide the guidance for another, such as an
+    uncommitted-changes run hiding that a locked worktree must not be unlocked.
+    """
+    parts = [
+        text
+        for applies, text in (
+            (unreadable, RUN_READ_RECOVERY),
+            (unrecorded, UNRECORDED_WORK_INSTRUCTION),
+            (locked, LOCKED_WORKTREE_INSTRUCTION),
+            (orphans, "Orphans were found; inspect them before removing."),
+            (legacy, LEGACY_WORKTREES_INSTRUCTION),
+        )
+        if applies
+    ]
+    return " ".join(dict.fromkeys(parts)) or None
 
 
 def _retention_days(session: Session) -> int:
@@ -666,8 +738,8 @@ def _try_advance_evidence(session: Session, run: RunDoc, findings):
             State.DOCS_GREEN,
             State.LINT_GREEN,
         }
-        or _head_moved(session, run) is not None
-        or _restart_limit_reached(run)
+        or head_moved(session, run) is not None
+        or restart_limit_reached(run)
     ):
         return run, findings, reuse_error
     from . import evidence
@@ -701,7 +773,7 @@ def _set_status_next(
             "run `gc` from another worktree in this clone to reconcile the abandoned run."
         )
         envelope.next_command = "agentic-preflight gc"
-    elif _restart_limit_reached(run):
+    elif restart_limit_reached(run):
         # Ahead of the stale hint: starting again would reset the counter, and
         # that is the person's decision, not the default next move.
         envelope.next_instruction = RESTART_LIMIT_INSTRUCTION
@@ -712,7 +784,7 @@ def _set_status_next(
             "source worktree, start again with the same intent; the stale run will be "
             "preserved as ORPHANED."
         )
-        envelope.next_command = _start_command(
+        envelope.next_command = start_command(
             run.intent,
             base_ref=run.base_ref,
             default_base_ref=session.config.general.base_ref,
@@ -791,9 +863,9 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             next_command=START_COMMAND,
         )
 
-    if _interrupted_legacy_update(session, run):
-        stopped = _restart_limit_reached(run)
-        return _envelope_for(
+    if interrupted_legacy_update(session, run):
+        stopped = restart_limit_reached(run)
+        return envelope_for(
             run,
             data=StatusData(
                 has_run=True,
@@ -810,7 +882,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             ),
             next_command=None
             if stopped
-            else _start_command(
+            else start_command(
                 run.intent,
                 base_ref=run.base_ref,
                 default_base_ref=session.config.general.base_ref,
@@ -831,7 +903,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
                 evidence_failure={"code": exc.code, **exc.data},
                 hook=hook_status,
             )
-            envelope = _envelope_for(
+            envelope = envelope_for(
                 run,
                 data=data,
                 next_instruction=exc.next_instruction,
@@ -846,9 +918,9 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
     summary = {status.value: 0 for status in FindingStatus}
     for finding in findings:
         summary[finding.status.value] += 1
-    assessment = _assess(session, run.changed_files, findings)
+    assessment = assess_risk(session, run.changed_files, findings)
 
-    tip = _head_moved(session, run)
+    tip = head_moved(session, run)
     pending_mergeback = run.state is State.MERGEBACK_PENDING and run.mergeback_attempt is not None
     stale = run.state is not State.MERGEBACK_CONFLICT and (
         run.stale or (not pending_mergeback and tip is not None)
@@ -878,7 +950,7 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
         source_worktree_available=session.source_worktree_available,
         owner_ids=run.owner_ids,
         worktree_branch=run.worktree_branch,
-        worktree_mode=_worktree_mode(run),
+        worktree_mode=worktree_mode(run),
         worktree_released=run.worktree_released,
         config_digest=run.config_digest,
         pr_mode=session.config.pr.mode,
@@ -888,8 +960,8 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
         pushed_sha=run.pushed_sha,
         fix_commits=run.fix_commits,
         validation_restarts=run.validation_restarts,
-        max_restarts=_max_restarts(run),
-        needs_human=_restart_limit_reached(run),
+        max_restarts=max_restarts(run),
+        needs_human=restart_limit_reached(run),
         mergeback_attempt=(
             run.mergeback_attempt.model_dump(mode="json") if run.mergeback_attempt else None
         ),
@@ -913,6 +985,6 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
     )
     if reuse_error is not None:
         status_data.reuse_error = reuse_error
-    envelope = _envelope_for(run, data=status_data)
+    envelope = envelope_for(run, data=status_data)
     _set_status_next(session, run, envelope, status_data, stale=stale)
     return envelope

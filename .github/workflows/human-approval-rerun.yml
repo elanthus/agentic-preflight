@@ -22,26 +22,37 @@ permissions:
   contents: read
   pull-requests: read
 
-concurrency:
-  group: agentic-preflight-human-approval-rerun-${{ github.event.workflow_run.head_sha }}
-
 jobs:
-  rerun:
-    name: re-run the approval policy for the reviewed head
+  # Eligibility is decided here, before the re-run job enters its concurrency group.
+  # A queued job replaces any pending job in its group. If an ineligible review's run
+  # took the pending slot, it would cancel an owner's waiting re-run and then exit at
+  # the actor check, so the owner's approval would never be counted. This job has no
+  # concurrency group, and the re-run job is skipped, not queued, unless it allows.
+  authorize:
+    name: authorize the review that started the relay
     if: >-
       github.event.workflow_run.event == 'pull_request_review' &&
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    # The waits share a twenty-minute budget; leave time to explain why.
-    timeout-minutes: 30
+    timeout-minutes: 5
+    outputs:
+      allowed: ${{ steps.authorize.outputs.allowed }}
+      pr_number: ${{ steps.authorize.outputs.pr_number }}
     steps:
       # No checkout. The relay artifact supplies only a pull request number.
-      - name: Re-run the trusted policy run for the reviewed head
+      - name: Authorize the review for the reviewed head
+        id: authorize
         env:
           GH_TOKEN: ${{ github.token }}
           RELAY_RUN_ID: ${{ github.event.workflow_run.id }}
           RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           RUN_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          # GitHub sets this to the user who submitted, edited, or dismissed the review,
+          # or who re-ran the relay. The pull request cannot change it.
+          TRIGGERING_ACTOR: ${{ github.event.workflow_run.triggering_actor.login }}
+          # When GitHub created the relay run, which follows the review event within
+          # seconds. A re-run of the relay keeps this time.
+          RELAY_CREATED_AT: ${{ github.event.workflow_run.created_at }}
         run: |
           relay_dir="$RUNNER_TEMP/human-approval-review"
           gh run download "$RELAY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
@@ -53,23 +64,232 @@ jobs:
               exit 1
               ;;
           esac
+          # Any GitHub user can submit a Comment review on a public pull request. Only a
+          # review that approval-check can count, from an owner, member, or collaborator,
+          # re-runs the policy, so other reviews cannot queue re-runs at will. A dismissal
+          # is recorded on the dismissed review, not under the person who dismissed it,
+          # so someone with write access to the repository also qualifies.
+          # GitHub logins contain only letters, digits, and hyphens. An Enterprise Managed
+          # User login adds one underscore and the enterprise shortcode, such as
+          # mona-cat_octo. Anything else, including characters that could change the
+          # API path below, is not a repository user.
+          valid_login() {
+            case "$1" in
+              '' | *[!A-Za-z0-9_-]* | _* | *_ | *_*_*) return 1 ;;
+            esac
+            [ "${#1}" -le 39 ]
+          }
+          not_a_user() {
+            echo "The review relay was not started by a repository user. Nothing to re-run."
+            exit 0
+          }
+          actor_kind=user
+          case "$TRIGGERING_ACTOR" in
+            *'[bot]')
+              # A GitHub App or other bot account, for example one that dismisses an
+              # approval through the API. It has no repository permission to look up.
+              valid_login "${TRIGGERING_ACTOR%'[bot]'}" || not_a_user
+              actor_kind=bot
+              ;;
+            *) valid_login "$TRIGGERING_ACTOR" || not_a_user ;;
+          esac
+          # When a lookup that decides authorization fails, authorize the re-run instead
+          # of skipping it. Skipping could leave a stale passing check after a dismissal.
+          # A re-run cannot make the policy pass wrongly: the policy job reads the reviews
+          # itself and fails if it cannot. The rerun job checks the pull request again.
+          authorize_unverified() {
+            echo "::warning::Could not read $1 for pull request $pr_number, so the action by" \
+              "$TRIGGERING_ACTOR re-runs the policy without that check."
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+            echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
           pr_file="$RUNNER_TEMP/pull-request.json"
-          gh api "/repos/$GITHUB_REPOSITORY/pulls/$pr_number" > "$pr_file"
-          if ! jq -e --arg head "$RUN_HEAD_SHA" --arg repository "$RUN_HEAD_REPOSITORY" '
+          if ! gh api "/repos/$GITHUB_REPOSITORY/pulls/$pr_number" > "$pr_file"; then
+            authorize_unverified "the pull request"
+          fi
+          pr_status=0
+          jq -e --arg head "$RUN_HEAD_SHA" --arg repository "$RUN_HEAD_REPOSITORY" '
             .state == "open" and
             .head.sha == $head and
             .head.repo.full_name == $repository and
             (.base.sha | test("^[0-9a-f]{40}$"))
-          ' "$pr_file" > /dev/null; then
-            echo "Pull request $pr_number is closed or no longer has the reviewed head."
-            echo "The run for its current head reports the check."
-            exit 0
+          ' "$pr_file" > /dev/null || pr_status=$?
+          case "$pr_status" in
+            0) ;;
+            1)
+              echo "Pull request $pr_number is closed or no longer has the reviewed head."
+              echo "The run for its current head reports the check."
+              exit 0
+              ;;
+            *) authorize_unverified "the pull request" ;;
+          esac
+          reviews_file="$RUNNER_TEMP/pull-request-reviews.json"
+          if ! gh api --paginate --slurp \
+            "/repos/$GITHUB_REPOSITORY/pulls/$pr_number/reviews?per_page=100" > "$reviews_file"; then
+            authorize_unverified "the reviews"
           fi
-          head_sha=$(jq -r '.head.sha' "$pr_file")
+          if [ "$actor_kind" = bot ]; then
+            # A bot's review never counts, but a dismissal it performs can revoke an
+            # approval that does. Neither the workflow_run payload nor the Actions API
+            # names the review action that started the relay, and the relay artifact is
+            # untrusted, so this bot qualifies once the issue events show it dismissed an
+            # owner, member, or collaborator review of this pull request no later than
+            # GitHub created this relay run, with a minute allowed for clock skew between
+            # the two records. A later review by the same bot then also
+            # re-runs the policy. That is harmless: only authorized runs reach the rerun
+            # job's concurrency group, and each of them re-runs every policy run for the
+            # current head against the current reviews, so a replaced pending run loses
+            # nothing. Missing a dismissal would leave a stale success instead.
+            events_file="$RUNNER_TEMP/pull-request-events.json"
+            if ! gh api --paginate --slurp \
+              "/repos/$GITHUB_REPOSITORY/issues/$pr_number/events?per_page=100" > "$events_file"; then
+              authorize_unverified "the issue events"
+            fi
+            # jq exits 1 when the data was read and shows no qualifying dismissal, and
+            # another non-zero status when the data could not be read.
+            dismissal_status=0
+            jq -e --arg actor "$TRIGGERING_ACTOR" --arg relay "$RELAY_CREATED_AT" \
+              --slurpfile events "$events_file" '
+                ($relay | fromdateiso8601) as $relay_at
+                | ($actor | ascii_downcase) as $bot
+                | [.[][]?] as $reviews
+                | any($events[0][][]?;
+                    .event == "review_dismissed" and
+                    ((.actor.login // "") | ascii_downcase) == $bot and
+                    (.created_at | fromdateiso8601) <= $relay_at + 60 and
+                    (.dismissed_review.review_id as $id
+                      | any($reviews[];
+                          .id == $id and
+                          .state == "DISMISSED" and
+                          .user.type == "User" and
+                          (.author_association | IN("OWNER", "MEMBER", "COLLABORATOR")))))
+              ' "$reviews_file" > /dev/null || dismissal_status=$?
+            case "$dismissal_status" in
+              0) ;;
+              1)
+                echo "$TRIGGERING_ACTOR is a bot account that had not dismissed an owner, member," \
+                  "or collaborator review of pull request $pr_number when this relay run was" \
+                  "created. Nothing to re-run."
+                exit 0
+                ;;
+              *) authorize_unverified "the dismissed review" ;;
+            esac
+          else
+            review_status=0
+            jq -e --arg actor "$TRIGGERING_ACTOR" '
+              [.[][]?] | any(.[];
+                .user.type == "User" and
+                ((.user.login // "") | ascii_downcase) == ($actor | ascii_downcase) and
+                (.author_association | IN("OWNER", "MEMBER", "COLLABORATOR")))
+            ' "$reviews_file" > /dev/null || review_status=$?
+            case "$review_status" in
+              0) ;;
+              1)
+                permission_error="$RUNNER_TEMP/permission-error.txt"
+                if ! permission=$(gh api \
+                  "/repos/$GITHUB_REPOSITORY/collaborators/$TRIGGERING_ACTOR/permission" \
+                  --jq '.permission' 2> "$permission_error"); then
+                  # A 404 is a definite answer: no such collaborator or user. Any other
+                  # failure, such as a rate limit or a server error, is a failed lookup.
+                  if grep -q '(HTTP 404)' "$permission_error"; then
+                    permission=none
+                  else
+                    cat "$permission_error" >&2
+                    authorize_unverified "the repository permission of $TRIGGERING_ACTOR"
+                  fi
+                fi
+                case "$permission" in
+                  admin | write) ;;
+                  *)
+                    echo "$TRIGGERING_ACTOR is not an owner, member, or collaborator with a review" \
+                      "on pull request $pr_number, or a user with write access. Nothing to re-run."
+                    exit 0
+                    ;;
+                esac
+                ;;
+              *) authorize_unverified "the reviews" ;;
+            esac
+          fi
+          echo "allowed=true" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+
+  rerun:
+    name: re-run the approval policy for the reviewed head
+    needs: authorize
+    if: needs.authorize.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    # Only authorized runs reach this group, so a newer one replaces an older pending
+    # one; either re-runs every policy run for the pull request's current head. The
+    # group names the pull request as well as the head, because another pull request
+    # with the same head selects different policy runs.
+    concurrency:
+      group: agentic-preflight-human-approval-rerun-${{ needs.authorize.outputs.pr_number }}-${{ github.event.workflow_run.head_sha }}
+    # The waits share a twenty-minute budget; leave time to explain why.
+    timeout-minutes: 30
+    steps:
+      - name: Re-run the trusted policy run for the reviewed head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+        run: |
+          pr_number=$PR_NUMBER
+          case "$pr_number" in
+            '' | 0* | *[!0-9]*)
+              echo "The authorize job did not name a pull request number." >&2
+              exit 1
+              ;;
+          esac
+          # A failed lookup here must not quietly leave a stale passing check, so each
+          # one is retried, and a pull request that cannot be read does not stop the job.
+          gh_retry() {
+            output=$1
+            shift
+            for attempt in 1 2 3; do
+              gh "$@" > "$output" && return 0
+              [ "$attempt" -eq 3 ] || sleep 10
+            done
+            return 1
+          }
+          # The head can move while this job waits for its concurrency slot.
+          pr_file="$RUNNER_TEMP/pull-request.json"
+          head_sha=$RUN_HEAD_SHA
+          pr_readable=false
+          if gh_retry "$pr_file" api "/repos/$GITHUB_REPOSITORY/pulls/$pr_number"; then
+            # jq exits 1 for a readable pull request that is closed or moved on, and
+            # another non-zero status when the response could not be parsed.
+            pr_status=0
+            jq -e --arg head "$RUN_HEAD_SHA" --arg repository "$RUN_HEAD_REPOSITORY" '
+              .state == "open" and
+              .head.sha == $head and
+              .head.repo.full_name == $repository and
+              (.base.sha | test("^[0-9a-f]{40}$"))
+            ' "$pr_file" > /dev/null || pr_status=$?
+            case "$pr_status" in
+              0) pr_readable=true ;;
+              1)
+                echo "Pull request $pr_number is closed or no longer has the reviewed head."
+                echo "The run for its current head reports the check."
+                exit 0
+                ;;
+            esac
+          fi
+          if [ "$pr_readable" != true ]; then
+            # Re-running the policy for the reviewed head is safe even if the pull
+            # request moved on: each policy run evaluates its own head and reviews.
+            echo "::warning::Could not read pull request $pr_number; re-running the policy" \
+              "runs for the reviewed head $RUN_HEAD_SHA."
+          fi
           runs_file="$RUNNER_TEMP/policy-runs.json"
-          gh api --paginate --slurp \
-            "/repos/$GITHUB_REPOSITORY/actions/workflows/human-approval.yml/runs?event=pull_request_target&head_sha=$head_sha&per_page=100" \
-            > "$runs_file"
+          if ! gh_retry "$runs_file" api --paginate --slurp \
+            "/repos/$GITHUB_REPOSITORY/actions/workflows/human-approval.yml/runs?event=pull_request_target&head_sha=$head_sha&per_page=100"; then
+            echo "::error::Could not list the Human approval policy runs for head $head_sha," \
+              "so none was re-run and an earlier result may be stale. Re-run the policy run" \
+              "for pull request $pr_number by hand." >&2
+            exit 1
+          fi
           # Several events can start a policy run for one head, for example opening a
           # draft and then marking it ready. Each of those runs reports the required
           # check, so every one that reads reviews is re-run, oldest first. A run that

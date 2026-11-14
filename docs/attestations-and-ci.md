@@ -136,6 +136,9 @@ It runs the verifier from the same checkout.
 Then it fetches the proposed commit and its note from the contributor's remote as data, without checking them out or running anything from them.
 A pull request can still change the workflow, the verifier, or its scripts, but those changes take effect only after merge; they never judge the pull request that proposes them.
 The workflow token is read-only.
+Every checkout in a `pull_request_target` workflow sets `persist-credentials: false`, so the token is not left in the checkout's Git configuration for later steps.
+This repository is public, so the fetches that follow work without credentials.
+A private repository must authenticate those fetches; pass the read-only token to the fetch command alone rather than persisting it for the whole job.
 A `pull_request` trigger would not give this guarantee: it runs the workflow file from the pull request's merge ref, so the pull request could rewrite the job itself.
 Governance paths are also listed in `.github/CODEOWNERS`.
 That file requests reviewers.
@@ -167,7 +170,7 @@ A read-only GitHub API inspection on 2026-11-01 found this repository's active [
   Removing the `py3.13` leg from pull requests needs a ruleset change first, which only a repository administrator can make.
 - Zero approving reviews are required. Code Owner review, last-push approval, review-thread resolution, and strict up-to-date checks are disabled.
 - `high-risk human approval` became a required check on 2026-11-01. Until then the workflow reported it without blocking merge.
-  The job fails until an eligible review covers the current head. A review re-runs the head's policy runs, which replaces each failed result in place; see [how a review reaches the check](#how-a-review-reaches-the-check).
+  The job fails until an eligible review covers the current head. A review from an owner, member, or collaborator, or a dismissal by a user with write access, re-runs the head's policy runs, which replaces each failed result in place; see [how a review reaches the check](#how-a-review-reaches-the-check).
   Contributor instructions still require owner approval for substantive authorization, approval-enforcement, or bypass-rule changes.
 - `elanthus` has a pull-request-only ruleset bypass.
   Repository auto-merge is disabled. The merge, squash, and rebase merge methods are enabled.
@@ -245,7 +248,7 @@ Run the workflow again after you correct the cause.
 A separate `pull_request_target` workflow enforces high-risk merge handling.
 It also runs its policy checker from the protected base with the dependencies pinned in that commit's `uv.lock`. It never executes proposed branch content.
 It runs again when the head changes.
-In the review modes, a submitted, edited, or dismissed review re-runs it; see [how a review reaches the check](#how-a-review-reaches-the-check).
+In the review modes, a submitted, edited, or dismissed review re-runs it when it comes from an owner, member, or collaborator, or from a user with write access; see [how a review reaches the check](#how-a-review-reaches-the-check).
 
 The default `manual_merge` mode reports success only while GitHub auto-merge is disabled.
 It instructs the agent never to merge or enable auto-merge.
@@ -266,7 +269,7 @@ Three workflows cooperate so that it does, and only one of them is trusted:
 
 - `human-approval.yml` runs only on `pull_request_target`, from the protected base. Its `high-risk human approval` job is the required check.
 - `human-approval-review.yml` runs on `pull_request_review`. A review event executes the workflow file from the pull request's merge ref, with a read-only token for forks, so this workflow has no permissions and does nothing but record the reviewed pull request number in an artifact.
-- `human-approval-rerun.yml` runs on `workflow_run`, always from the default branch, with `actions: write` and no checkout. It reads the number, requires the pull request to be open with the reviewed head and repository, and selects every `pull_request_target` policy run for that head. For each run, oldest first, it reads the evaluation that run recorded in its `human-approval-policy` artifact once its policy job has written it. When that record shows `peer_review` or `owner_review` mode and a required human approval, it waits for the run to finish and re-runs it.
+- `human-approval-rerun.yml` runs on `workflow_run`, always from the default branch, with `actions: write` and no checkout. It reads the number, requires the pull request to be open with the reviewed head and repository, and checks who started the relay. Any GitHub user can submit a Comment review on a public pull request, so it continues only for a user with an owner, member, or collaborator review on the pull request, which are the reviews that `approval-check` can count, or for a user with write access, who may have dismissed a review. A GitHub App or other bot account has no review that counts and no repository permission to look up. Neither the `workflow_run` payload nor the Actions API names the review action that started the relay, and the relay artifact is untrusted. So a bot qualifies once the pull request's issue events show that it dismissed an owner, member, or collaborator review, no later than a minute after GitHub created the relay run, to allow for clock skew between the two records. The dismissed review must still be dismissed and must come from a person. A later review or comment by the same bot then also re-runs the check. That is deliberate. Only authorized runs enter the `rerun` job's concurrency group, which is keyed by the pull request and its head, and every authorized run re-runs all of that pull request's policy runs for the current head against the current reviews. When a later authorized run replaces a pending one, no evaluation is lost. Over-authorizing costs only redundant re-runs, and only for a bot that has dismissed an eligible review on that pull request. Under-authorizing would leave a stale success, which is the failure this check exists to prevent. If a lookup that decides authorization fails, the job authorizes the re-run and logs a warning that names the lookup. That covers the pull request, its reviews, its issue events, a bot's dismissed review, and a person's repository permission. A 404 from the permission lookup is a definite answer, not a failure, so a reviewer who is not a collaborator is still not authorized. Skipping instead could leave a stale success after a dismissal, and this repository requires no approving reviews beyond this check. A re-run cannot make the policy pass wrongly: the re-run policy job reads the reviews itself and fails if it cannot. The `rerun` job fetches the pull request again and checks its head before it re-runs anything. It retries that lookup and the listing of policy runs. If the pull request still cannot be read, it re-runs the policy runs for the reviewed head anyway, since each one evaluates its own head and reviews. If the policy runs cannot be listed, the job fails with an error asking for a manual re-run. No workflow can re-run a check while GitHub's API stays unavailable, so a failed `rerun` job is the signal to re-run the policy run by hand. The relay artifact and a pull request number are still required; without them the job fails. The one remaining miss is a bot dismissal that GitHub stamps more than a minute after the relay run it caused. GitHub supplies the user, and the reviews come from the repository API, not from the pull request. This check runs in an `authorize` job with no concurrency group. The `rerun` job runs only when `authorize` allows it, and only then joins the concurrency group for the pull request and head, so an ineligible review cannot replace an eligible re-run that is waiting there. The `rerun` job checks again that the pull request still has the reviewed head, because the head can move while it waits. Then it selects every `pull_request_target` policy run for that head. For each run, oldest first, it reads the evaluation that run recorded in its `human-approval-policy` artifact once its policy job has written it. When that record shows `peer_review` or `owner_review` mode and a required human approval, it waits for the run to finish and re-runs it.
 
 Each re-run replaces the earlier `high-risk human approval` result inside the same run.
 That matters because GitHub counts every run of a required check name on a head: a new run that passed beside an old run that failed would still block merge.
@@ -275,7 +278,19 @@ A run that lists no pull requests, such as one from a fork, counts when it comes
 All waits share one twenty-minute budget, so the job stays inside its timeout however many runs a head has.
 The check is deliberately not a commit status.
 Any workflow with the repository's Actions token can write a commit status, and a ruleset cannot tell one workflow from another, so a branch workflow could mark a high-risk pull request approved.
-A job of the protected-base run cannot be satisfied that way.
+A job of the protected-base run is harder to imitate, but it is not proof against imitation.
+The pull request cannot change that job, because GitHub runs it from the base.
+A required check matches on the check name, though, and every workflow in the repository reports through the same GitHub Actions app.
+A `pull_request` workflow that the pull request adds could therefore report a passing job with the same name.
+The real job still reports its own result for that name on the same head.
+The behavior described above suggests that a failing real result keeps blocking the merge.
+This project has not tested a same-name job from another workflow, so it does not rely on that.
+Such a pull request changes `.github/workflows/**`, so the policy requires approval, but the imitation targets that very check.
+To enforce the check by its source rather than by its name, an administrator should:
+
+- Select **GitHub Actions** as the expected source of each required check in the branch ruleset. A commit status or another app then cannot satisfy the name, although another Actions workflow still can.
+- Where the plan offers it, use a ruleset that requires the workflow itself to pass, pinned to a protected ref, instead of a required check name. GitHub then runs the workflow file from that ref.
+
 `manual_merge` and `environment` modes do not read reviews, and a re-run in `environment` mode would discard a granted Environment approval, so the companion leaves those runs alone.
 The recorded mode, not the current base's configuration, decides, because a re-run replays the original event and base; a run from before the artifact existed is not re-run automatically.
 GitHub permits a re-run for 30 days after the original run; after that, push the branch again to start a new one.

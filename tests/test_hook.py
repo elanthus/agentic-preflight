@@ -69,6 +69,8 @@ def bound_hook_log_on_path(directory, monkeypatch, *, log_timeout=HOOK_LOG_TIMEO
 
 
 ZERO = "0" * 40
+#: Git's zero object ID in a repository that uses the SHA-256 object format.
+ZERO_SHA256 = "0" * 64
 
 
 # -- init -------------------------------------------------------------------
@@ -91,6 +93,27 @@ def test_init_writes_a_config_file_if_absent(feature_repo):
     assert "[pr]" in config
     assert 'mode = "auto"' in config
     assert "automated_cleanup = false" in config
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".agentic-preflight.toml",
+        ".github/workflows/ci.yml",
+        ".github/CODEOWNERS",
+        "CODEOWNERS",
+        "docs/CODEOWNERS",
+        "docs/examples/reviewers/claude_review.py",
+        "docs/examples/reviewers/_reviewer_common.py",
+    ],
+)
+def test_init_template_sends_ownership_and_reviewer_changes_to_human_review(feature_repo, path):
+    from agentic_preflight.config import load_config
+    from agentic_preflight.diff import path_matches
+
+    ScriptedAgent(feature_repo).run("init")
+    config = load_config(feature_repo, user_config_dir=Path(feature_repo) / "no-user-config")
+    assert any(path_matches(path, pattern) for pattern in config.policy.human_review_paths)
 
 
 def test_init_does_not_clobber_an_existing_config(feature_repo):
@@ -198,6 +221,133 @@ def test_hook_installer_directly_refuses_and_then_replaces_a_foreign_hook(featur
     installed, written = hook.install(feature_repo)
     assert installed == path
     assert written is False
+
+
+def _symlink_or_skip(link: Path, target: Path) -> None:
+    link.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        link.symlink_to(target)
+    except OSError as exc:  # Windows without symlink privilege
+        pytest.skip(f"symlinks are unavailable: {exc}")
+
+
+def test_hook_installer_replaces_a_dangling_symlink_instead_of_creating_its_target(
+    feature_repo, tmp_path
+):
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    target = tmp_path / "outside" / "pre-push"
+    target.parent.mkdir()
+    _symlink_or_skip(path, target)
+
+    installed, written = hook.install(feature_repo)
+
+    assert installed == path
+    assert written is True
+    assert not path.is_symlink()
+    assert "agentic-preflight hook-check" in path.read_text(encoding="utf-8")
+    assert not target.exists()
+
+
+def test_hook_installer_with_force_replaces_a_symlink_and_leaves_its_target_alone(
+    feature_repo,
+):
+    # core.hooksPath pointing into the repository makes the link's target a tracked file.
+    git("config", "core.hooksPath", ".githooks", cwd=feature_repo)
+    tracked = write(feature_repo, "scripts/team-pre-push", "#!/bin/sh\necho team hook\n")
+    path = Path(feature_repo) / ".githooks" / "pre-push"
+    _symlink_or_skip(path, Path("..") / "scripts" / "team-pre-push")
+
+    with pytest.raises(FileExistsError):
+        hook.install(feature_repo)
+    assert path.is_symlink()
+
+    installed, written = hook.install(feature_repo, force=True)
+
+    assert installed.resolve() == path.resolve()
+    assert written is True
+    assert not path.is_symlink()
+    assert "agentic-preflight hook-check" in path.read_text(encoding="utf-8")
+    assert tracked.read_text(encoding="utf-8") == "#!/bin/sh\necho team hook\n"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+def test_hook_installer_sets_the_final_mode_through_the_open_file(feature_repo, monkeypatch):
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text("#!/bin/sh\necho existing\n")
+    path.chmod(0o644)
+    created_modes = []
+    real_open = os.open
+
+    def recording_open(file, flags, *args, **kwargs):
+        # Record the mode the installer passes, without supplying one of our own.
+        created_modes.append(args[0] if args else kwargs.get("mode"))
+        return real_open(file, flags, *args, **kwargs)
+
+    monkeypatch.setattr(hook.os, "open", recording_open)
+    # A chmod by path would follow a symlink swapped in after the write.
+    monkeypatch.setattr(Path, "chmod", lambda *_a, **_k: pytest.fail("chmod by path"))
+
+    hook.install(feature_repo, force=True)
+
+    assert created_modes == [0o700]
+    assert path.stat().st_mode & 0o777 == hook.HOOK_MODE == 0o755
+
+
+def test_hook_installer_replaces_a_symlink_to_an_earlier_hook_of_its_own(feature_repo, tmp_path):
+    previous = next(iter(hook.PREVIOUS_HOOK_SCRIPTS))
+    target = tmp_path / "shared-pre-push"
+    target.write_bytes(previous)
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    _symlink_or_skip(path, target)
+
+    _, written = hook.install(feature_repo)
+
+    assert written is True
+    assert not path.is_symlink()
+    assert target.read_bytes() == previous
+
+
+def test_hook_installer_replaces_a_symlink_to_the_current_script(feature_repo, tmp_path):
+    # A later change to the link's target could otherwise change or disable the hook.
+    target = tmp_path / "current-pre-push"
+    target.write_text(hook.HOOK_SCRIPT, encoding="utf-8", newline="\n")
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    _symlink_or_skip(path, target)
+
+    _, written = hook.install(feature_repo)
+
+    assert written is True
+    assert not path.is_symlink()
+    assert path.read_text(encoding="utf-8") == hook.HOOK_SCRIPT
+    assert target.read_text(encoding="utf-8") == hook.HOOK_SCRIPT
+
+
+def test_hook_installer_leaves_a_symlink_to_a_composed_hook_alone(feature_repo, tmp_path):
+    composed = "#!/bin/sh\necho team checks\n" + hook.HOOK_SCRIPT.split("\n", 1)[1]
+    target = tmp_path / "team-pre-push"
+    target.write_text(composed, encoding="utf-8", newline="\n")
+    path = Path(feature_repo) / ".git" / "hooks" / "pre-push"
+    _symlink_or_skip(path, target)
+
+    _, written = hook.install(feature_repo)
+
+    assert written is False
+    assert path.is_symlink()
+    assert target.read_text(encoding="utf-8") == composed
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows paths cannot end in a space")
+def test_hook_path_keeps_a_trailing_space_in_core_hooks_path(feature_repo):
+    git("config", "core.hooksPath", ".githooks ", cwd=feature_repo)
+    expected = (Path(feature_repo) / ".githooks " / "pre-push").resolve()
+
+    assert gitx.hook_path(feature_repo, "pre-push") == expected
+    installed, written = hook.install(feature_repo)
+    assert written is True
+    assert installed == expected
+    assert (Path(feature_repo) / ".githooks " / "pre-push").is_file()
+    assert not (Path(feature_repo) / ".githooks").exists()
 
 
 def test_hook_installer_rejects_a_non_repository_directory(tmp_path):
@@ -594,3 +744,130 @@ def test_a_new_branch_commit_without_attestation_is_still_blocked():
     )
     assert decision.allowed is False
     assert decision.reason == hook.MISSING_ATTESTATION
+
+
+# -- SHA-256 repositories -----------------------------------------------------
+
+
+@pytest.mark.parametrize("value", [ZERO, ZERO_SHA256])
+def test_the_zero_id_of_either_object_format_is_recognized(value):
+    assert hook.is_zero_id(value) is True
+
+
+@pytest.mark.parametrize("value", ["a" * 64, "0" * 39, "0" * 63, "0" * 65, ""])
+def test_other_values_are_not_the_zero_id(value):
+    assert hook.is_zero_id(value) is False
+
+
+@pytest.mark.parametrize(
+    ("local_sha", "expected"), [(ZERO, True), (ZERO_SHA256, True), ("0" * 7, False)]
+)
+def test_a_deletion_is_the_zero_id_of_either_object_format(local_sha, expected):
+    update = hook.RefUpdate("(delete)", local_sha, "refs/heads/x", "a" * 40)
+    assert update.is_deletion is expected
+
+
+def test_a_new_branch_in_a_sha256_repository_is_not_reported_as_a_force_push():
+    """Git sends a 64-character zero ID for a remote ref that does not exist yet."""
+    update = hook.RefUpdate("refs/heads/feature/x", "a" * 64, "refs/heads/feature/x", ZERO_SHA256)
+
+    def unexpected_ancestry(*_):
+        pytest.fail("A new branch has no remote tip to compare")
+
+    decision = hook.evaluate(
+        [update], is_ancestor=unexpected_ancestry, has_attestation=lambda _: False
+    )
+    assert decision.allowed is False
+    assert decision.reason == hook.MISSING_ATTESTATION
+    assert decision.updates[0].force is False
+    assert "force push" not in decision.message
+    assert "SHA-256 repositories are not supported" in decision.message
+
+
+def test_a_rewriting_push_in_a_sha256_repository_says_it_is_unsupported():
+    """The force-push fix cannot help in a SHA-256 repository, so that message comes first."""
+    update = hook.RefUpdate("refs/heads/feature/x", "a" * 64, "refs/heads/feature/x", "b" * 64)
+    decision = hook.evaluate(
+        [update], is_ancestor=lambda *_: False, has_attestation=lambda _: False
+    )
+    assert decision.allowed is False
+    assert decision.reason == hook.MISSING_ATTESTATION
+    assert decision.updates[0].force is True
+    assert "SHA-256 repositories are not supported" in decision.message
+    assert "force push" not in decision.message
+
+
+def test_a_rewind_in_a_sha256_repository_is_still_a_force_push():
+    """A rewind publishes nothing new, so allow_force_push is a fix that helps."""
+    local, remote = "a" * 64, "b" * 64
+    update = hook.RefUpdate("refs/heads/main", local, "refs/heads/main", remote)
+    decision = hook.evaluate(
+        [update],
+        is_ancestor=lambda a, b: (a, b) == (local, remote),
+        has_attestation=lambda _: False,
+    )
+    assert decision.allowed is False
+    assert decision.reason == hook.FORCE_PUSH_REFUSED
+    assert "SHA-256" not in decision.message
+
+
+def test_a_commit_the_remote_already_has_in_a_sha256_repository_is_allowed():
+    local, remote = "a" * 64, "b" * 64
+    update = hook.RefUpdate("refs/heads/main", local, "refs/heads/main", remote)
+    decision = hook.evaluate(
+        [update],
+        is_ancestor=lambda a, b: (a, b) == (local, remote),
+        has_attestation=lambda _: False,
+        allow_force_push=True,
+    )
+    assert decision.allowed is True
+    assert decision.reason == hook.ALREADY_ON_REMOTE
+
+
+def test_a_deletion_in_a_sha256_repository_is_allowed():
+    update = hook.RefUpdate("(delete)", ZERO_SHA256, "refs/heads/feature/x", "a" * 64)
+    decision = hook.evaluate(
+        [update], is_ancestor=lambda *_: False, has_attestation=lambda _: False
+    )
+    assert decision.allowed is True
+    assert decision.reason == hook.DELETION
+
+
+def _sha256_repo_with_remote(tmp_path: Path) -> Path:
+    remote = tmp_path / "remote.git"
+    git("init", "--bare", "-b", "main", "--object-format=sha256", str(remote), cwd=tmp_path)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git("init", "-b", "main", "--object-format=sha256", cwd=repo)
+    write(repo, "README.md", "# demo\n")
+    git("add", "-A", cwd=repo)
+    git("commit", "-m", "base", cwd=repo)
+    git("remote", "add", "origin", str(remote), cwd=repo)
+    git("push", "origin", "main", "main:refs/heads/stale", cwd=repo)
+    return repo
+
+
+def test_a_real_push_of_a_new_branch_in_a_sha256_repository_says_it_is_unsupported(tmp_path):
+    repo = _sha256_repo_with_remote(tmp_path)
+    ScriptedAgent(repo).run("init")
+    git("switch", "-c", "feature/x", cwd=repo)
+    write(repo, "src/app.py", "x = 1\n")
+    git("add", "-A", cwd=repo)
+    git("commit", "-m", "feature", cwd=repo)
+
+    result = subprocess.run(
+        ["git", "push", "origin", "feature/x"], cwd=repo, capture_output=True, text=True
+    )
+    assert result.returncode != 0
+    assert "push blocked" in result.stderr
+    assert "SHA-256 repositories are not supported" in result.stderr
+    assert "force push" not in result.stderr
+
+
+def test_a_real_branch_deletion_in_a_sha256_repository_is_allowed(tmp_path):
+    repo = _sha256_repo_with_remote(tmp_path)
+    ScriptedAgent(repo).run("init")
+    result = subprocess.run(
+        ["git", "push", "origin", "--delete", "stale"], cwd=repo, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr

@@ -86,10 +86,17 @@ def local_policy(run: RunDoc) -> Config:
     """The run's own policy, with its review command in published form.
 
     Building a note checks it against this policy. The note carries the
-    published review command, so the policy compares the same form.
+    published review command, so the policy compares the same form. Risk still
+    comes from the real command: the reviewer paths it names stay protected as
+    ``trusted_paths`` (:func:`agentic_preflight.risk.reviewer_patterns`).
     """
+    from .risk import reviewer_patterns
+
     cfg = snapshot_config(run.config_snapshot)
     command = published_command(run, Stage.REVIEW, cfg.review.command)
     if command == cfg.review.command:
         return cfg
-    return cfg.model_copy(update={"review": cfg.review.model_copy(update={"command": command})})
+    review = cfg.review.model_copy(
+        update={"command": command, "trusted_paths": reviewer_patterns(cfg.review)}
+    )
+    return cfg.model_copy(update={"review": review})

@@ -27,10 +27,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from . import gitx, telemetry
+from . import gitx, run_summary, telemetry
 from .config import Config
 from .stages.command import resolve_on_path
-from .store import Store, _atomic_write
+from .store import Store, atomic_write
 
 DEFAULT_LIMIT = 50
 SOURCE = "gh"
@@ -39,7 +39,8 @@ GH_TIMEOUT_SECONDS = 60
 _PAGE_SIZE = 100
 #: A commit with more check runs than this has its first pages counted only.
 _MAX_CHECK_PAGES = 10
-_FAILED_CONCLUSIONS = frozenset({"failure", "cancelled", "timed_out"})
+#: ``startup_failure`` is a workflow that could not start, so it never passed.
+_FAILED_CONCLUSIONS = frozenset({"failure", "cancelled", "timed_out", "startup_failure"})
 #: Failures that concern one commit. The sync records them and goes on to older runs.
 _COMMIT_ERRORS = frozenset({"http_error", "invalid_response"})
 _SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
@@ -224,9 +225,9 @@ def _pull_request(item: Mapping[str, Any]) -> dict[str, Any]:
     number = item.get("number")
     return {
         "number": number if type(number) is int else None,
-        "url": telemetry._str(item.get("html_url")),
-        "state": telemetry._str(item.get("state")),
-        "merged_at": telemetry._str(item.get("merged_at")),
+        "url": run_summary.as_str(item.get("html_url")),
+        "state": run_summary.as_str(item.get("state")),
+        "merged_at": run_summary.as_str(item.get("merged_at")),
     }
 
 
@@ -254,15 +255,16 @@ def choose_pull_request(pulls: Any, sha: str, branch: str | None) -> dict[str, A
 def reduce_checks(check_runs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """One conclusion for a commit's check runs.
 
-    ``failure`` when any run failed, was cancelled, or timed out; otherwise
+    ``failure`` when any run failed, was cancelled, timed out, or could not
+    start; otherwise
     ``pending`` when any run is not complete; ``none`` when there are no runs;
     else ``success``.
     """
     failed = sorted(
         {
-            telemetry._str(run.get("name")) or "unnamed"
+            run_summary.as_str(run.get("name")) or "unnamed"
             for run in check_runs
-            if telemetry._str(run.get("conclusion")) in _FAILED_CONCLUSIONS
+            if run_summary.as_str(run.get("conclusion")) in _FAILED_CONCLUSIONS
         }
     )
     if failed:
@@ -368,7 +370,7 @@ def _summary_fetched_at(store: Store, run_id: str) -> Any:
     return hosted.get("fetched_at") if isinstance(hosted, dict) else None
 
 
-def _unreadable(run_id: str, exc: telemetry._Unreadable) -> dict[str, str]:
+def _unreadable(run_id: str, exc: telemetry.UnreadableRecord) -> dict[str, str]:
     return {
         "run_id": run_id,
         "path": str(exc.path),
@@ -386,25 +388,25 @@ def _candidates(
     unreadable: list[dict[str, str]] = []
     for run_id in run_ids:
         try:
-            record = telemetry._read_record(store, run_id)
-        except telemetry._Unreadable as exc:
+            record = telemetry.read_record(store, run_id)
+        except telemetry.UnreadableRecord as exc:
             unreadable.append(_unreadable(run_id, exc))
             continue
-        state, _ = telemetry._effective_state(record)
+        state, _ = run_summary.effective_state(record)
         sha = record.get("pushed_sha")
         if state != "DONE":
             left_out["not_done"] += 1
         elif not isinstance(sha, str) or not _SHA.fullmatch(sha):
             left_out["no_pushed_sha"] += 1
         else:
-            existing = telemetry._read_hosted(store, run_id)
+            existing = telemetry.read_hosted(store, run_id)
             synced = existing is not None and existing.get("sha") == sha
             eligible.append(
                 _Candidate(
                     run_id=run_id,
                     sha=sha,
-                    branch=telemetry._str(record.get("branch")),
-                    created_at=telemetry._str(record.get("created_at")) or "",
+                    branch=run_summary.as_str(record.get("branch")),
+                    created_at=run_summary.as_str(record.get("created_at")) or "",
                     synced=synced,
                     summary_stale=synced
                     and existing is not None
@@ -437,17 +439,17 @@ def _outcome(candidate: _Candidate, document: Mapping[str, Any] | None) -> dict[
 
 
 def resummarize(
-    store: Store, identity: telemetry.RepoIdentity, config: Config, run_ids: Sequence[str]
+    store: Store, identity: run_summary.RepoIdentity, config: Config, run_ids: Sequence[str]
 ) -> dict[str, Any]:
     """Regenerate the runs' ``summary.json`` and mirror rows with the rebuild's code."""
-    written_at = telemetry._now()
-    fresh: list[telemetry.RunSummary] = []
+    written_at = run_summary.utc_now()
+    fresh: list[run_summary.RunSummary] = []
     unreadable: list[dict[str, str]] = []
     write_failures: list[dict[str, str]] = []
     for run_id in run_ids:
         try:
-            summary = telemetry._summarize_stored_run_safely(store, run_id, identity, written_at)
-        except telemetry._Unreadable as exc:
+            summary = telemetry.summarize_stored_run_safely(store, run_id, identity, written_at)
+        except telemetry.UnreadableRecord as exc:
             unreadable.append(_unreadable(run_id, exc))
             continue
         if summary is None:
@@ -455,9 +457,9 @@ def resummarize(
         fresh.append(summary)
         try:
             path = store.run_dir(run_id) / telemetry.SUMMARY_NAME
-            _atomic_write(path, summary.model_dump_json(indent=2) + "\n")
+            atomic_write(path, summary.model_dump_json(indent=2) + "\n")
         except OSError as exc:
-            write_failures.append({"run_id": run_id, "error": telemetry._describe(exc)})
+            write_failures.append({"run_id": run_id, "error": telemetry.describe_error(exc)})
     return {
         "regenerated": len(fresh),
         "unreadable_runs": unreadable,
@@ -497,9 +499,9 @@ def _fetch_all(
             continue
         try:
             path = store.run_dir(candidate.run_id) / telemetry.HOSTED_NAME
-            _atomic_write(path, json.dumps(document, indent=2) + "\n")
+            atomic_write(path, json.dumps(document, indent=2) + "\n")
         except OSError as exc:
-            data["stopped"] = GhError("write_failed", telemetry._describe(exc)).describe(
+            data["stopped"] = GhError("write_failed", telemetry.describe_error(exc)).describe(
                 candidate.run_id
             )
             break

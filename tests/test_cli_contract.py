@@ -78,7 +78,6 @@ EMITTED_NOT_DOCUMENTED: dict[str, set[str]] = {
         "head_sha",
         "manual_merge_required",
         "notes_ref",
-        "path_reasons",
         "reason",
         "requires_human_approval",
         "risk_level",

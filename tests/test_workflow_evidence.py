@@ -70,6 +70,55 @@ def test_protected_workflow_configuration(filename, job, head_variable):
         assert "needs.dependabot-policy.outputs.eligible != 'true'" in trusted
 
 
+def _indent(line):
+    return len(line) - len(line.lstrip(" "))
+
+
+def _checkout_steps(workflow):
+    """Return the text of every step that uses actions/checkout."""
+    lines = workflow.splitlines()
+    steps = []
+    for index, line in enumerate(lines):
+        if "actions/checkout@" not in line or line.lstrip().startswith("#"):
+            continue
+        start = index
+        while not lines[start].lstrip().startswith("- "):
+            start -= 1
+        step_indent = _indent(lines[start])
+        end = index + 1
+        while end < len(lines) and (not lines[end].strip() or _indent(lines[end]) > step_indent):
+            end += 1
+        steps.append("\n".join(lines[start:end]))
+    return steps
+
+
+def _pull_request_target_workflows():
+    """Workflows triggered by pull_request_target and the local workflows they call."""
+    selected = set()
+    for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+        text = path.read_text()
+        events = text.split("\non:\n", 1)[1].split("\n\n", 1)[0] if "\non:\n" in text else ""
+        if "pull_request_target:" not in events:
+            continue
+        selected.add(path.name)
+        for line in text.splitlines():
+            entry = line.strip().removeprefix("- ")
+            if entry.startswith("uses: ./.github/workflows/"):
+                selected.add(entry.removeprefix("uses: ./.github/workflows/"))
+    return sorted(selected)
+
+
+def test_pull_request_target_checkouts_do_not_persist_credentials():
+    workflows = _pull_request_target_workflows()
+    assert {"attestation.yml", "human-approval.yml", "dependabot-auto-merge.yml"} <= set(workflows)
+    checked = 0
+    for name in workflows:
+        for step in _checkout_steps((ROOT / ".github/workflows" / name).read_text()):
+            checked += 1
+            assert "persist-credentials: false" in " ".join(step.split()), (name, step)
+    assert checked >= 2
+
+
 TRUSTED_WORKFLOWS = ["attestation.yml", "human-approval.yml"]
 LOCKED_SYNC = "uv sync --locked --no-dev --no-install-project --python 3.11"
 LOCKED_RUN = "uv run --locked --no-dev --no-sync --python 3.11"

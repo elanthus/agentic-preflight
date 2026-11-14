@@ -525,6 +525,46 @@ def test_the_command_runs_inside_the_worktree(docs_green):
     assert Path(log.strip()) == Path(status["data"]["worktree_path"])
 
 
+def test_a_login_profile_that_changes_directory_does_not_move_a_shell_stage(feature_repo):
+    """Shell stages run through a login shell, which sources the profile first."""
+    home = Path.home()
+    for profile in (".bash_profile", ".profile"):
+        (home / profile).write_text('cd "$HOME"\n', encoding="utf-8")
+    command = "git rev-parse --show-toplevel && exit 0"
+    assert command_plan.plan(command, cwd=feature_repo).uses_shell
+
+    result = shellstage.run_stage(feature_repo, command)
+
+    assert result.passed, result.output
+    assert Path(result.output.strip()) == Path(feature_repo)
+
+
+def test_a_login_profile_cd_function_cannot_move_a_shell_stage(feature_repo):
+    """Version managers and directory hooks often redefine ``cd`` in the profile."""
+    home = Path.home()
+    profile = 'cd() { echo "PROFILE-CD $*"; builtin cd "$HOME"; }\n'
+    for name in (".bash_profile", ".profile"):
+        (home / name).write_text(profile, encoding="utf-8")
+
+    result = shellstage.run_stage(feature_repo, "git rev-parse --show-toplevel && exit 0")
+
+    assert result.passed, result.output
+    assert "PROFILE-CD" not in result.output
+    assert Path(result.output.strip()) == Path(feature_repo)
+
+
+def test_a_shell_stage_starts_in_a_directory_whose_name_needs_quoting(tmp_path):
+    directory = tmp_path / "it's a $dir"
+    directory.mkdir()
+    python = Path(sys.executable).as_posix()
+    command = f"\"{python}\" -c 'import os; print(os.getcwd())' && exit 0"
+
+    result = shellstage.run_stage(directory, command)
+
+    assert result.passed, result.output
+    assert Path(result.output.strip()).resolve() == directory.resolve()
+
+
 def test_dotenv_values_are_parsed_including_quotes_multiline_and_short_values(tmp_path):
     write(
         tmp_path,

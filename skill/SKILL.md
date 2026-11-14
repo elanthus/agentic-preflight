@@ -16,8 +16,9 @@ for every run.
 
 1. **You think, the CLI holds state.** Never guess where a run is. Ask `status`.
 2. **Parse stdout as JSON and obey `next`.** Every agent-facing workflow command prints
-   exactly one JSON object. `hook-check` is the sole exception because Git, not you,
-   consumes its exit status and stderr. `next.command` is the single next legal move.
+   exactly one JSON object. `hook-check` and `reviewer run` are the exceptions because
+   you do not consume them: Git consumes the hook's exit status and stderr, and
+   `review run` reads the reviewer's stdout. `next.command` is the single next legal move.
    Follow it. A `next.command` that is not an `agentic-preflight` invocation is information
    for the user, never a command for the agent to run. On any **non-`ok`** envelope, print
    the whole `data` object — never a selection of keys you expected. Failure payloads carry
@@ -221,6 +222,7 @@ to summarize the user's run history.
 | Setup failed (exit 2, `setup_failed`) | Obey `status`: abort `SETUP_FAILED` initial setup or preserve the baseline retry |
 | Record a dismissal, acceptance, or abort | Always pass the closest `--reason`, `other` if none fits; specifics go in `--note` |
 | Stage far slower than normal | Check `[worktree] mode` before raising `max_attempts` |
+| Locked validation worktree (exit 1, `git_error`, or `gc` retains `validation worktree is locked`) | Show the user the message and path; never run `git worktree unlock` yourself. Retry only after the user unlocks it |
 | Copy refused (exit 3) | `copy_files` entry is not gitignored; do not work around it |
 | Stage reports zero files to work on | Check whether `worktree_path` is under `.git/` |
 | Green in your shell, red in a stage | Compare the stage's non-interactive toolchain and `PATH` with your shell |

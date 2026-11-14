@@ -136,7 +136,7 @@ def test_pending_mergeback_rejects_an_interrupted_source_rebase(
 def _interrupt_persisted_retry(agent, monkeypatch):
     from agentic_preflight import store as storemod
 
-    original = storemod._atomic_write
+    original = storemod.atomic_write
 
     def interrupted(path, payload):
         original(path, payload)
@@ -147,7 +147,7 @@ def _interrupt_persisted_retry(agent, monkeypatch):
                 raise OSError("interrupted after retry transaction")
 
     with monkeypatch.context() as fault:
-        fault.setattr(storemod, "_atomic_write", interrupted)
+        fault.setattr(storemod, "atomic_write", interrupted)
         agent.run("mergeback", expect=1)
     status = agent.run("status")
     assert status["state"] == "MERGEBACK_PENDING"
@@ -165,7 +165,7 @@ def test_pending_mergeback_reconciles_completed_git_effects(
     agent, wt = ready(with_fix=True)
     before = git("rev-parse", "HEAD", cwd=feature_repo)
     original_pick = mergebackmod.cherry_pick_fixes
-    original_write = storemod._atomic_write
+    original_write = storemod.atomic_write
 
     def interrupted_pick(*args, **kwargs):
         original_pick(*args, **kwargs)
@@ -185,7 +185,7 @@ def test_pending_mergeback_reconciles_completed_git_effects(
         elif boundary == "attestation":
             fault.setattr(attestation, "write", interrupted_note)
         else:
-            fault.setattr(storemod, "_atomic_write", interrupted_record)
+            fault.setattr(storemod, "atomic_write", interrupted_record)
         agent.run("mergeback", expect=1)
 
     applied = git("rev-parse", "HEAD", cwd=feature_repo)
