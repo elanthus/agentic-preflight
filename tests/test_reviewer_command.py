@@ -124,7 +124,7 @@ def configure(repo: Path, provider: str, command: str) -> None:
 
 
 def invoke(provider: str, context: object, **env: str):
-    payload = context if isinstance(context, str) else json.dumps(context)
+    payload = context if isinstance(context, str | bytes) else json.dumps(context)
     return CliRunner().invoke(
         main, ["reviewer", "run", "--provider", provider], input=payload, env=env
     )
@@ -400,6 +400,7 @@ def test_reviewer_run_failures_exit_1_with_a_stderr_diagnostic(
         ("not json", "review context is not valid JSON"),
         ("[]", "review context must be a JSON object"),
         ("{}", "review context has no review_coverage.manifest"),
+        (b"\xff\xfe{", "review context is not valid JSON"),
     ],
 )
 def test_reviewer_run_rejects_an_invalid_context(clean_reviewer_env, payload, expected):

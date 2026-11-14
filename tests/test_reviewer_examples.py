@@ -61,6 +61,7 @@ def test_pointer_without_the_package_names_the_replacement_command(tmp_path, rev
     assert result.returncode == 1
     assert result.stdout == ""
     assert f"agentic-preflight reviewer run --provider {reviewer}" in result.stderr
+    assert "No module named" in result.stderr
 
 
 @pytest.mark.parametrize("reviewer", ["codex", "claude"])

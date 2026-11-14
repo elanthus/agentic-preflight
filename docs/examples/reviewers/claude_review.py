@@ -15,10 +15,10 @@ import sys
 
 try:
     from agentic_preflight.reviewers.claude import main
-except ImportError:
+except ImportError as exc:
     print(
         "independent reviewer failed: this example now delegates to the agentic_preflight "
-        "package, which this interpreter cannot import; configure "
+        f"package, which this interpreter cannot import ({exc}); configure "
         '"agentic-preflight reviewer run --provider claude" instead',
         file=sys.stderr,
     )

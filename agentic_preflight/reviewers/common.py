@@ -25,7 +25,7 @@ ACTIONS = ("auto_fix", "ask_user", "no_op")
 def read_context() -> dict[str, Any]:
     try:
         payload = json.load(sys.stdin)
-    except (json.JSONDecodeError, OSError) as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
         raise ReviewerError(f"review context is not valid JSON: {exc}") from exc
     if not isinstance(payload, dict):
         raise ReviewerError("review context must be a JSON object")

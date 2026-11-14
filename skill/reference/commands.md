@@ -26,8 +26,8 @@ hyphens, such as `stage-run.json`). The schemas are generated from the models in
 hand. Every field is optional because `data` differs by outcome.
 
 `agentic-preflight --version` prints the installed version and exits 0. Every other
-command except `reviewer run` first checks the Git version and exits 1 with
-`unsupported_git_version` when Git is older than 2.38.
+command outside the `reviewer` group (whose only command is `reviewer run`) first checks
+the Git version and exits 1 with `unsupported_git_version` when Git is older than 2.38.
 
 Place `--run RUN_ID` before any workflow command to select a stored run explicitly.
 A `RUN_ID` other than `r_` followed by 10 lowercase hex digits exits 6 with
