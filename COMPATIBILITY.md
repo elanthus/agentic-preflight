@@ -576,6 +576,7 @@ The `logs` envelope adds `data.truncated`, `data.total_bytes`, and `data.total_l
 New flags choose the window: `--tail N`, `--head N`, and `--all`. `--all` restores the earlier whole-log output.
 A wrapper that read the whole log from `data.output` must pass `--all` or read the file at `data.log_path`.
 The stored log, its redaction, and its location are unchanged.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
 ## Unreleased: the pre-push hook recognizes the SHA-256 zero object ID
 
