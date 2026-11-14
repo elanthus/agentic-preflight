@@ -28,7 +28,6 @@ PLATFORM = sys.platform
 
 FAKE_REVIEWER = """\
 #!{python}
-import ast
 import json
 import os
 import sys
