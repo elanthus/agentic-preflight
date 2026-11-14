@@ -53,8 +53,10 @@ back in `MERGEBACK_CONFLICT`; the validation branch and `fix_commits` were kept,
 note was written. Tell the user. With their agreement, cherry-pick the commits in
 `data.missing_fix_commits` onto the source branch, resolving any conflict under the
 merge-back contract. If Git reports that a pick is now empty because the branch already
-holds the intended content, run `git commit --allow-empty` rather than `--skip`. Then
-re-run `mergeback`. To drop the fixes instead, the user aborts the run.
+holds the intended content, run `git commit --allow-empty` rather than `--skip`. An empty
+pick asserts that the branch already carries the fix's content; merge-back cannot verify
+that claim, and the restarted review is the only check of it, so record one only when that
+is true. Then re-run `mergeback`. To drop the fixes instead, the user aborts the run.
 
 ## Merge in the validation history (exit 3, `nonlinear_fix_history`)
 

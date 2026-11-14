@@ -36,7 +36,7 @@ from ._session import (
     require_worktree,
     worktree_mode,
 )
-from .fix_commits import derive_fix_commits, patch_unlanded
+from .fix_commits import derive_fix_commits, patch_matches
 from .review_coverage import invalidate_stage_result, reopen_if_stale
 
 
@@ -254,20 +254,31 @@ def unmerged_fix_commits(session: Session, run: RunDoc, head: str) -> list[str]:
     A recorded fix counts as merged when either holds:
 
     - Exact content: every path the fix changes is validated.
-    - Provenance and changed content: the fix is an ancestor of ``head``, a commit
-      since the run's base has the same stable patch ID, or such a commit was
-      cherry-picked from it (same author, author date, and subject; each replay
-      accounts for one fix). In addition, every path the fix changes is validated or
-      changed, so a replay whose resolution kept the content from before the fix is
-      not accepted, even when an earlier fix changed the same path.
+    - Provenance and changed content: a commit since the run's base is the fix itself,
+      has the same stable patch ID, or was cherry-picked from it (same author, author
+      date, and subject). Each such commit vouches for one fix: the fix itself and
+      patch matches are paired first, so a clean pick cannot also vouch for another
+      fix with the same identity. In addition, every path the fix changes is
+      validated or changed, so a replay whose resolution kept the content from before
+      the fix is not accepted, even when an earlier fix changed the same path.
     """
     if not run.fix_commits:
         return []
     repo = str(session.repo_root)
     base = run.sync_base_sha or run.merge_base_sha
     validated = gitx.rev_parse(require_worktree(run), "HEAD")
-    patch_missing = set(patch_unlanded(repo, list(run.fix_commits), base, head))
-    replays = Counter(identity for _, identity in _replay_identities(repo, head, "--not", base))
+    pool = dict(_replay_identities(repo, head, "--not", base))
+    vouched: set[str] = set()
+    for sha in run.fix_commits:
+        if sha in pool:  # the fix itself is on the branch
+            del pool[sha]
+            vouched.add(sha)
+    for sha, landed in patch_matches(
+        repo, [sha for sha in run.fix_commits if sha not in vouched], base, head
+    ).items():
+        pool.pop(landed, None)
+        vouched.add(sha)
+    unclaimed = Counter(pool.values())
     recorded = dict(_replay_identities(repo, "--no-walk=unsorted", *run.fix_commits))
     missing: list[str] = []
     for sha in run.fix_commits:
@@ -285,11 +296,11 @@ def unmerged_fix_commits(session: Session, run: RunDoc, head: str) -> list[str]:
         if any(path not in exact and now.get(path) == parent.get(path) for path in paths):
             missing.append(sha)
             continue
-        if gitx.is_ancestor(repo, sha, head) or sha not in patch_missing:
+        if sha in vouched:
             continue
         identity = recorded.get(sha)
-        if identity is not None and replays[identity] > 0:
-            replays[identity] -= 1
+        if identity is not None and unclaimed[identity] > 0:
+            unclaimed[identity] -= 1
             continue
         missing.append(sha)
     return missing

@@ -1108,10 +1108,10 @@ def _commit_at(repo: Path, message: str, date: str) -> str:
     return git("rev-parse", "HEAD", cwd=repo)
 
 
-def _multi_fix_conflict(feature_repo, tmp_path, monkeypatch, fixes):
+def _multi_fix_conflict(feature_repo, tmp_path, monkeypatch, fixes, *, same_date=False):
     """Validate ``fixes`` (message, {path: content}) as separate commits, then conflict.
 
-    Each fix gets a distinct author date. The first merge-back rebases the source onto
+    Each fix gets a distinct author date unless ``same_date`` is set. The first merge-back rebases the source onto
     the advanced base and stops with an injected cherry-pick conflict.
     """
     from agentic_preflight import mergeback as mergebackmod
@@ -1134,7 +1134,8 @@ def _multi_fix_conflict(feature_repo, tmp_path, monkeypatch, fixes):
     for index, (message, files) in enumerate(fixes):
         for path, content in files.items():
             write(wt, path, content)
-        commits.append(_commit_at(wt, message, f"2001-01-0{index + 1}T00:00:00+0000"))
+        day = 1 if same_date else index + 1
+        commits.append(_commit_at(wt, message, f"2001-01-0{day}T00:00:00+0000"))
     agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", commits[-1])
     agent.run("verify")
     agent.run("context")
@@ -1253,3 +1254,27 @@ def test_author_date_tells_same_subject_fixes_apart(feature_repo, tmp_path, monk
 
     assert refused["error"]["code"] == "fix_commits_unmerged"
     assert refused["data"]["missing_fix_commits"] == [one]
+
+
+def test_clean_pick_identity_cannot_vouch_for_a_twin_fix(feature_repo, tmp_path, monkeypatch):
+    agent, _, (twin, picked) = _multi_fix_conflict(
+        feature_repo,
+        tmp_path,
+        monkeypatch,
+        [
+            ("repair", {"x.txt": "X\n"}),
+            ("repair", {"src/app.py": "def greet(name):\n    return 'FIXED'\n"}),
+        ],
+        same_date=True,
+    )
+
+    # The second fix lands by a clean pick, which shares the first fix's author,
+    # author date, and subject. The first fix's path changes, but not to its content.
+    git("cherry-pick", picked, cwd=feature_repo)
+    write(feature_repo, "x.txt", "SOMETHING ELSE\n")
+    commit_all(feature_repo, "unrelated x.txt change")
+
+    refused = agent.run("mergeback", expect=ExitCode.NEEDS_HUMAN)
+
+    assert refused["error"]["code"] == "fix_commits_unmerged"
+    assert refused["data"]["missing_fix_commits"] == [twin]

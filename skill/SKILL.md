@@ -204,7 +204,7 @@ to summarize the user's run history.
 | Git operation already in progress (exit 3, `operation_in_progress`) | Stop; the user must finish or abort it |
 | Merge-back conflict (exit 4, isolated modes only) | Inspect and show `data.resolution`; resolve only an unambiguous, recoverable result permitted by the merge-back contract, then re-run `mergeback`, or stop |
 | Recorded fixes never landed (exit 4, `fixes_not_landed`) | Do not retry `mergeback`; tell the user, `abort`, and start a new run to revalidate |
-| Moved branch lacks recorded fixes (exit 4, `fix_commits_unmerged`) | Tell the user; cherry-pick `data.missing_fix_commits` onto the source branch, resolving any conflict, then re-run `mergeback`, or stop |
+| Moved branch lacks recorded fixes (exit 4, `fix_commits_unmerged`) | Tell the user; cherry-pick `data.missing_fix_commits` onto the source branch, resolving any conflict, then re-run `mergeback`, or stop. An empty pick (`git commit --allow-empty`) asserts the branch already carries that fix's content; only the restarted review checks that claim |
 | Run started by an earlier release (exit 4, `needs_human`, `data.reason` `unknown_config_provenance`) | Do not retry `mergeback`, `gate`, or `push`; show the message to the user. Keep `data.fix_commits` before any `abort --force`, then start a new run so the note leaves out user-level configuration |
 | Stage red after max attempts (exit 4) | Stop retrying; show a stage log, or abort if baseline setup never produced one |
 | Validation restarted too many times (exit 4, `max_restarts`) | Stop repairing; show `status` and wait for the user. Never abort and restart on your own to reset the counter |

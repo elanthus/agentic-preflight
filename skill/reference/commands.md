@@ -541,7 +541,9 @@ which the restarted review decides. Otherwise the retry exits 4 with `fix_commit
 and `data.missing_fix_commits`, returns the run to `MERGEBACK_CONFLICT`, and keeps the
 validation branch and `fix_commits`. Cherry-pick the named commits onto the source branch,
 resolving any conflict; if Git reports that a pick is now empty, record it with
-`git commit --allow-empty` instead of skipping it. Then rerun `mergeback`. After a
+`git commit --allow-empty` instead of skipping it. An empty pick asserts that the branch
+already carries the fix's content; merge-back cannot verify that claim, and the restarted
+review is the only check of it. Then rerun `mergeback`. After a
 base-rebase conflict (`data.mode: fresh_base_rebase_conflict`), a branch rebased by hand
 must also get the fix commits cherry-picked before the retry.
 

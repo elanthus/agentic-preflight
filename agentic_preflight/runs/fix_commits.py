@@ -86,23 +86,32 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
     return commits
 
 
-def patch_unlanded(repo: Path | str, fix_commits: list[str], base: str, head: str) -> list[str]:
-    """Return the fix commits with no patch-equivalent commit in ``base..head``.
+def patch_matches(repo: Path | str, fix_commits: list[str], base: str, head: str) -> dict[str, str]:
+    """Pair each fix commit with a distinct patch-equivalent commit in ``base..head``.
 
     Merge-back cherry-picks, so SHA ancestry cannot prove that a fix landed. A stable
     patch ID ignores commit metadata, so a clean cherry-pick, including a reworded one,
-    compares equal to its source. An empty fix has no patch ID and is never landed.
+    compares equal to its source. Each landed commit accounts for one fix, and an empty
+    fix has no patch ID and is never matched.
     """
     if not fix_commits:
-        return []
-    landed = {
-        patch_id for patch_id in gitx.patch_ids(repo, base, head).values() if patch_id is not None
-    }
-    return [
-        sha
-        for sha in fix_commits
-        if (patch_id := gitx.commit_patch_id(repo, sha)) is None or patch_id not in landed
-    ]
+        return {}
+    pool: dict[str, list[str]] = {}
+    for sha, patch_id in gitx.patch_ids(repo, base, head).items():
+        if patch_id is not None:
+            pool.setdefault(patch_id, []).append(sha)
+    matches: dict[str, str] = {}
+    for sha in fix_commits:
+        patch_id = gitx.commit_patch_id(repo, sha)
+        if patch_id is not None and pool.get(patch_id):
+            matches[sha] = pool[patch_id].pop(0)
+    return matches
+
+
+def patch_unlanded(repo: Path | str, fix_commits: list[str], base: str, head: str) -> list[str]:
+    """Return the fix commits with no patch-equivalent commit in ``base..head``."""
+    matched = patch_matches(repo, fix_commits, base, head)
+    return [sha for sha in fix_commits if sha not in matched]
 
 
 def _is_empty(checkout: str, sha: str) -> bool:
