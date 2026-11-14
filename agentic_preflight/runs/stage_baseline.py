@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shlex
 from contextlib import suppress
 from dataclasses import dataclass, replace
@@ -143,17 +144,7 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> BaselineOut
         intended = str(Path(configured or "") / f"{run.run_id}-baseline")
         raise _worktree_failure(branch, intended, str(exc)) from exc
     scratch = root / f"{run.run_id}-baseline"
-    reason = worktree.lock_reason(session.repo_root, scratch)
-    if reason is not None:
-        # A scratch checkout an earlier check could not remove. Never unlock it here.
-        message = worktree.locked_message(scratch, reason, "so the base cannot be checked out")
-        raise _worktree_failure(branch, str(scratch), message, instruction=message)
-    if scratch.exists():
-        # The same run's earlier check left it behind, and it is unlocked now.
-        try:
-            worktree.remove(session.repo_root, scratch)
-        except worktree.WorktreeError as exc:
-            raise _worktree_failure(branch, str(scratch), str(exc)) from exc
+    _reclaim_leftovers(session, run, scratch, branch)
 
     created = False
     red = False  # set by the stage run; every other path leaves ``pending`` set
@@ -190,6 +181,56 @@ def _baseline_is_red(session: Session, run: RunDoc, command: str) -> BaselineOut
     if pending is not None:
         raise replace(pending, cleanup_failure=cleanup) from pending_cause
     return BaselineOutcome(red=red, cleanup_failure=cleanup)
+
+
+def _reclaim_leftovers(session: Session, run: RunDoc, scratch: Path, branch: str) -> None:
+    """Clear what an earlier check of this run left behind, or refuse by name.
+
+    A baseline killed by a signal skips its own cleanup and leaves the scratch
+    worktree and its branch. Only a path Git has registered as a worktree is
+    removed, never an arbitrary directory, and never a locked one. The branch is
+    this run's leftover only while it still points at the run's base commit and no
+    worktree has it checked out; anything else may be someone's work.
+    """
+    repo = session.repo_root
+    target = os.path.realpath(scratch)
+    for record in gitx.list_worktrees(repo):
+        listed = record.get("worktree")
+        if listed is None or os.path.realpath(listed) != target:
+            continue
+        if "locked" in record:
+            message = worktree.locked_message(
+                scratch, record["locked"], "so the base cannot be checked out"
+            )
+            raise _worktree_failure(branch, str(scratch), message, instruction=message)
+        try:
+            # Also prunes a registration whose directory is already gone.
+            worktree.remove(repo, scratch)
+        except worktree.WorktreeError as exc:
+            raise _worktree_failure(branch, str(scratch), str(exc)) from exc
+        break
+
+    ref = f"refs/heads/{branch}"
+    if gitx.run(repo, "rev-parse", "--verify", "--quiet", ref, check=False).returncode != 0:
+        return
+    holders = [r["worktree"] for r in gitx.list_worktrees(repo) if r.get("branch") == ref]
+    tip = gitx.rev_parse(repo, ref)
+    if holders:
+        problem = f"branch {branch} already exists and is checked out in {holders[0]}"
+    elif tip != run.merge_base_sha:
+        problem = (
+            f"branch {branch} already exists at {tip[:12]}, not at this run's base commit "
+            f"{run.merge_base_sha[:12]}, so it may hold commits beyond the base"
+        )
+    else:
+        gitx.run(repo, "branch", "-D", branch)
+        return
+    message = f"{problem}; the baseline check neither reuses nor deletes it."
+    instruction = (
+        f"Show the user branch {branch}; do not delete or rename it yourself. Retry the "
+        "same stage with its baseline check only after the user removes or renames it."
+    )
+    raise _worktree_failure(branch, str(scratch), message, instruction=instruction)
 
 
 def _worktree_failure(

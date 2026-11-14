@@ -511,9 +511,18 @@ baseline result still stands. The envelope reports `data.baseline_cleanup_failed
 (`worktree_path`, `branch`, `detail`), and the event log records the same. A later
 `--baseline` check fails with `setup_failed` and a `next.instruction` that names the
 locked path. Show the user the path. Never run `git worktree unlock` yourself; retry only
-after the user unlocks it, and the retry removes the leftover first. If the branch
-`ap/<run-id>-baseline` already exists before the check, the check refuses to reuse it
-and leaves it in place.
+after the user unlocks it, and the retry removes the leftover first.
+
+A baseline that was killed, for example by SIGTERM, cannot clean up after itself. The
+next `--baseline` check removes a leftover that Git still registers as a worktree at
+the scratch path, including one whose directory is gone, and deletes a leftover
+`ap/<run-id>-baseline` branch that still points at the run's base commit. It never
+deletes an unregistered directory at that path. If the branch points anywhere else, or
+another worktree has it checked out, the check fails with `setup_failed`, names the
+branch, and leaves it alone: show the user the branch, never delete or rename it
+yourself, and retry only after the user removes or renames it. Baseline leftovers are
+not listed by the `start` housekeeping report or reclaimed by `gc`, by design; the
+stage envelope and the retry report them instead.
 
 `--baseline` is also the cheapest way to see the command produce two different
 outcomes — if base and head are byte-identical greens on a diff that touches tested

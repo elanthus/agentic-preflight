@@ -5,6 +5,7 @@ import json
 import os
 import random
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -16,6 +17,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from agentic_preflight import worktree
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.stages import command as command_plan
 from agentic_preflight.stages import shellstage
@@ -1230,36 +1232,125 @@ def test_an_in_place_baseline_root_inside_the_repository_is_a_setup_failure(
     assert not (feature_repo / "scratch").exists()
 
 
-def test_a_baseline_worktree_that_cannot_be_prepared_is_not_reported_as_a_passing_base(
-    docs_green, feature_repo
-):
-    agent = docs_green()
-    run_id = agent.run("status")["run_id"]
-    git("branch", f"ap/{run_id}-baseline", "main", cwd=feature_repo)
+def _baseline_scratch(repo, run_id):
+    return worktree.resolve_root(repo) / f"{run_id}-baseline"
 
-    env = agent.run(
+
+def _run_baseline(agent, command="exit 1"):
+    return agent.run(
         "stage",
         "run",
         "lint",
         "--command",
-        "exit 1",
+        command,
         "--record",
         "--baseline",
         expect=ExitCode.STAGE_FAILED,
     )
+
+
+def test_a_baseline_branch_with_other_commits_is_refused_by_name_and_kept(docs_green, feature_repo):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    branch = f"ap/{run_id}-baseline"
+    extra = git(
+        "commit-tree", "main^{tree}", "-p", "main", "-m", "someone's work", cwd=feature_repo
+    )
+    git("branch", branch, extra, cwd=feature_repo)
+
+    env = _run_baseline(agent)
 
     assert env["error"]["code"] == "setup_failed"
     assert env["state"] == "LINT_RED"
     assert "baseline_red" not in env["data"]
     assert env["data"]["scope"] == "baseline"
     assert env["data"]["setup"]["kind"] == "worktree"
-    assert "already exists" in env["error"]["message"]
+    assert branch in env["error"]["message"]
+    assert "commits beyond the base" in env["error"]["message"]
+    assert branch in env["next"]["instruction"]
+    assert "Fix the setup environment" not in env["next"]["instruction"]
+    assert "do not delete" in env["next"]["instruction"]
     assert "--baseline" in env["next"]["command"]
-    # The check refused to reuse the branch, so it did not create it and leaves it alone.
-    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) != ""
+    assert git("rev-parse", branch, cwd=feature_repo) == extra
     status = agent.run("status")
     assert status["data"]["stages"]["lint"]["reason"] == "baseline worktree could not be prepared"
     assert status["data"]["setup_failure"]["scope"] == "baseline"
+
+
+def test_a_killed_baselines_leftover_worktree_and_branch_are_reclaimed(docs_green, feature_repo):
+    """SIGTERM skips cleanup; the next check recognises this run's own leftovers."""
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    branch = f"ap/{run_id}-baseline"
+    scratch = _baseline_scratch(feature_repo, run_id)
+    base = git("merge-base", "main", "feature/x", cwd=feature_repo)
+    git("worktree", "add", "-b", branch, str(scratch), base, cwd=feature_repo)
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "stage_failed"
+    assert env["data"]["baseline_red"] is True
+    assert not scratch.exists()
+    assert git("branch", "--list", branch, cwd=feature_repo) == ""
+
+
+def test_a_leftover_branch_at_the_base_alone_is_reclaimed(docs_green, feature_repo):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    git("branch", f"ap/{run_id}-baseline", "main", cwd=feature_repo)
+
+    env = _run_baseline(agent)
+
+    assert env["data"]["baseline_red"] is True
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) == ""
+
+
+def test_a_registered_baseline_leftover_with_no_directory_is_reclaimed(docs_green, feature_repo):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    branch = f"ap/{run_id}-baseline"
+    scratch = _baseline_scratch(feature_repo, run_id)
+    base = git("merge-base", "main", "feature/x", cwd=feature_repo)
+    git("worktree", "add", "-b", branch, str(scratch), base, cwd=feature_repo)
+    shutil.rmtree(scratch)
+
+    env = _run_baseline(agent)
+
+    assert env["data"]["baseline_red"] is True
+    assert git("branch", "--list", branch, cwd=feature_repo) == ""
+    assert str(scratch) not in git("worktree", "list", "--porcelain", cwd=feature_repo)
+
+
+def test_an_unregistered_directory_at_the_baseline_path_is_never_deleted(docs_green, feature_repo):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    scratch = _baseline_scratch(feature_repo, run_id)
+    scratch.mkdir(parents=True)
+    (scratch / "keep.txt").write_text("not ours\n", encoding="utf-8")
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "setup_failed"
+    assert env["data"]["setup"]["kind"] == "worktree"
+    assert (scratch / "keep.txt").read_text(encoding="utf-8") == "not ours\n"
+
+
+def test_a_baseline_branch_checked_out_elsewhere_is_refused_by_name(
+    docs_green, feature_repo, tmp_path
+):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    branch = f"ap/{run_id}-baseline"
+    elsewhere = tmp_path / "elsewhere"
+    git("worktree", "add", "-b", branch, str(elsewhere), "main", cwd=feature_repo)
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "setup_failed"
+    assert branch in env["error"]["message"]
+    assert "checked out" in env["error"]["message"]
+    assert elsewhere.exists()
+    assert git("branch", "--list", branch, cwd=feature_repo) != ""
 
 
 def test_repeated_baseline_setup_failures_stop_without_a_nonexistent_log(docs_green):

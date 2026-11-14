@@ -128,7 +128,15 @@ If someone locks the scratch worktree with `git worktree lock` while it runs, it
 The baseline result still stands. The stage envelope reports `data.baseline_cleanup_failed` with the path, and the run's event log records a `baseline_cleanup_failed` event.
 Until the worktree is unlocked, a later `--baseline` check fails with `setup_failed` and names the locked path.
 Unlock it with `git worktree unlock <path>` when you no longer need it, then retry. The retry removes the leftover before it checks out the base.
-If the branch `ap/<run-id>-baseline` already exists before the check, the check refuses to reuse it and leaves it in place.
+
+A baseline that is killed, for example by SIGTERM, skips its cleanup and leaves the scratch worktree and its branch.
+The next `--baseline` check of the same run reclaims them.
+It removes the scratch path only when Git registers it as a worktree, including a registration whose directory is gone. It never deletes an unregistered directory there.
+It deletes `ap/<run-id>-baseline` only when the branch still points at the run's base commit and no worktree has it checked out.
+If the branch points anywhere else, it may hold someone's work: the check fails with `setup_failed`, names the branch, and leaves it alone. Remove or rename the branch yourself, then retry.
+
+By design, baseline leftovers are not listed in the `start` housekeeping report and `gc` does not reclaim them.
+The stage envelope and the next `--baseline` check report them instead.
 
 ### Migrating from the sibling default
 
