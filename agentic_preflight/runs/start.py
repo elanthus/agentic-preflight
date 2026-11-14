@@ -266,8 +266,9 @@ def _reclaim_checkouts_from_ended_runs(session: Session) -> None:
     ``ap/<run_id>`` branch or, detached, by its directory. It is reclaimed only
     when that run is terminal, recorded no fix commits, holds no unreleased
     recorded checkout, is idle, and the checkout is clean at the run's head.
-    A runner that fails those checks is refused with ``needs_human``, since the
-    new run cannot proceed without it; a strict checkout is left in place.
+    A runner that fails those checks is refused with ``needs_human``: a reusable
+    run must lease it, and a strict run must remove it first, so a new run in
+    either mode cannot proceed past it. A strict checkout is left in place.
     """
     root = session.store.worktrees_dir.resolve()
     runner = (session.store.worktrees_dir / "runner").resolve()
