@@ -11,7 +11,7 @@ import pytest
 
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.machine import Action
-from agentic_preflight.runs._session import _apply, open_session
+from agentic_preflight.runs._session import apply_action, open_session
 from agentic_preflight.stages import shellstage
 from tests.conftest import commit_all, requires_posix_permissions, write
 from tests.driver import ScriptedAgent
@@ -238,7 +238,7 @@ def test_interrupted_command_is_recorded_before_a_new_process_retries(feature_re
     run_id = session.active_run_id()
     assert run_id is not None
     with session.store.transaction(run_id) as run:
-        _apply(run, Action.RUN_REVIEW_COMMAND)
+        apply_action(run, Action.RUN_REVIEW_COMMAND)
 
     status = ScriptedAgent(feature_repo).run("status")
     assert status["state"] == "REVIEW_COMMAND_RUNNING"

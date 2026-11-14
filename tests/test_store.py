@@ -143,14 +143,14 @@ def test_findings_transaction_preserves_each_record_across_write_failure(
         action=FindingAction.AUTO_FIX,
         title="incorrect result",
     )
-    original_write = store_module._atomic_write
+    original_write = store_module.atomic_write
 
     def interrupted_write(path, payload):
         if path.name == boundary:
             raise OSError("interrupted replacement")
         original_write(path, payload)
 
-    monkeypatch.setattr(store_module, "_atomic_write", interrupted_write)
+    monkeypatch.setattr(store_module, "atomic_write", interrupted_write)
     if boundary:
         with (
             pytest.raises(OSError, match="interrupted replacement"),

@@ -165,7 +165,7 @@ def test_runner_release_failure_still_orphans_and_reports_the_lease(feature_repo
     def boom(*_args, **_kwargs):
         raise RuntimeError("simulated release failure")
 
-    monkeypatch.setattr(startmod, "_release_run_worktree", boom)
+    monkeypatch.setattr(startmod, "release_run_worktree", boom)
     env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
 
     assert "still leased" in env["error"]["message"]

@@ -20,7 +20,7 @@ from agentic_preflight import diff as diffmod
 from agentic_preflight import grounding, refresh_validation
 from agentic_preflight.models import Stage
 from agentic_preflight.runs import evidence, review_protocol
-from agentic_preflight.runs._session import Session, _load_current, open_session
+from agentic_preflight.runs._session import Session, load_current, open_session
 from agentic_preflight.stages import docs as docsstage
 from agentic_preflight.stages import shellstage
 from agentic_preflight.store import Store
@@ -185,7 +185,7 @@ def test_memo_follows_head_within_one_session(feature_repo):
     _prepare(feature_repo)
     ScriptedAgent(feature_repo).run("start")
     session = open_session(feature_repo)
-    run = _load_current(session)
+    run = load_current(session)
 
     first = review_protocol.bundle_for(session, run)
     grounded = review_protocol.grounding_for(session, run, first.files)
@@ -205,7 +205,7 @@ def test_docs_fingerprint_without_surface_matches_memoized_surface(feature_repo)
     _prepare(feature_repo)
     ScriptedAgent(feature_repo).run("start")
     session = open_session(feature_repo)
-    run = _load_current(session)
+    run = load_current(session)
     head = review_protocol._snapshot(session, run, None)[1]
     bundle = review_protocol.bundle_for(session, run)
     arguments = {
@@ -254,7 +254,7 @@ def test_reuse_start_cost_does_not_grow_with_prior_runs(
     # Same-second timestamps let random run IDs reorder this chronological fixture.
     created_at = iter(f"2026-01-01T00:00:{index:02d}+00:00" for index in range(5))
     start_module = import_module("agentic_preflight.runs.start")
-    monkeypatch.setattr(start_module, "_now", lambda: next(created_at))
+    monkeypatch.setattr(start_module, "utc_now", lambda: next(created_at))
     verify_stage = evidence.verify_stage
     fingerprint = evidence.fingerprint
     starts: dict[int, Counter[str]] = {}

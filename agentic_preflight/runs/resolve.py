@@ -16,17 +16,17 @@ from ..models import RESPONSE_REASONS, FindingStatus, ResponseReason, RunDoc, St
 from ..stages import shellstage
 from ._session import (
     Session,
-    _apply,
-    _assert_fresh,
-    _assess,
-    _blocking_severities,
-    _envelope_for,
-    _findings_next_hint,
-    _is_in_place,
-    _load_current,
-    _require_finding_stage,
-    _require_state,
-    _require_worktree,
+    apply_action,
+    assert_fresh,
+    assess_risk,
+    envelope_for,
+    findings_next_hint,
+    is_in_place,
+    load_current,
+    require_finding_stage,
+    require_state,
+    require_worktree,
+    stage_blocking_severities,
 )
 from .fix_commits import derive_fix_commits, record_fix_commits
 from .review import _skip_docs_if_disabled
@@ -95,7 +95,7 @@ def _redacted_note(run: RunDoc, note: str | None) -> str | None:
     if note is None:
         return None
     try:
-        secrets = shellstage.read_secrets(_require_worktree(run), run.copied_files)
+        secrets = shellstage.read_secrets(require_worktree(run), run.copied_files)
     except shellstage.SecretRedactionError as exc:
         raise InvalidResponse(
             "the response cannot be recorded because copied-file redaction is unavailable",
@@ -129,11 +129,11 @@ def respond(
     ``reason`` is the agent's label for a dismissal or acceptance. It is kept
     for telemetry only, so it is checked against the vocabulary and nothing more.
     """
-    run = _load_current(session)
-    accepting_in_place_fix = _is_in_place(run) and action == "fixed" and commit is not None
+    run = load_current(session)
+    accepting_in_place_fix = is_in_place(run) and action == "fixed" and commit is not None
     if not accepting_in_place_fix:
-        _assert_fresh(session, run)
-    _require_state(
+        assert_fresh(session, run)
+    require_state(
         run,
         State.REVIEW_BLOCKED,
         State.REVIEW_GREEN,
@@ -141,7 +141,7 @@ def respond(
         State.DOCS_GREEN,
         command="respond",
     )
-    active_stage = _require_finding_stage(run)
+    active_stage = require_finding_stage(run)
 
     stored = session.store.load_findings(run.run_id)
     target = next((f for f in stored if f.id == finding_id), None)
@@ -176,11 +176,11 @@ def respond(
     target.response_note = note
     target.response_reason = reason
     changed_files = gitx.changed_files(
-        _require_worktree(run),
+        require_worktree(run),
         run.merge_base_sha,
         "HEAD",
     )
-    assessment = _assess(session, changed_files, stored)
+    assessment = assess_risk(session, changed_files, stored)
 
     responded_from_green = False
     with session.store.transaction(run.run_id, findings=stored) as doc:
@@ -189,7 +189,7 @@ def respond(
             doc.head_sha = new_commits[-1]
             doc.source_head_sha = new_commits[-1]
         responded_from_green = doc.state in (State.REVIEW_GREEN, State.DOCS_GREEN)
-        _apply(doc, Action.RESPOND)
+        apply_action(doc, Action.RESPOND)
         doc.changed_files = changed_files
         doc.risk = assessment
         run = doc
@@ -209,7 +209,7 @@ def respond(
     if action == "fixed" and responded_from_green:
         run, reopened = reopen_if_stale(session, run)
         if reopened:
-            return _envelope_for(
+            return envelope_for(
                 run,
                 stage=Stage.REVIEW.value,
                 data=RespondData(
@@ -225,14 +225,14 @@ def respond(
             )
 
     stage = active_stage
-    severities = _blocking_severities(session, stage)
+    severities = stage_blocking_severities(session, stage)
     stage_findings = [finding for finding in stored if finding.stage is stage]
     remaining = findingsmod.blocking(stage_findings, blocking_severities=severities)
     actionable = findingsmod.actionable(stage_findings)
     if not remaining and not actionable:
         run = _skip_docs_if_disabled(session, run)
 
-    envelope = _envelope_for(
+    envelope = envelope_for(
         run,
         stage=stage.value,
         data=RespondData(
@@ -242,7 +242,7 @@ def respond(
         ),
         blocking=[f.model_dump(mode="json") for f in remaining],
     )
-    _findings_next_hint(
+    findings_next_hint(
         envelope,
         remaining,
         actionable,
@@ -255,7 +255,7 @@ def respond(
 
 
 def _verify_fix_commit(session: Session, run: RunDoc, target, commit: str) -> str:
-    wt = _require_worktree(run)
+    wt = require_worktree(run)
     if not gitx.commit_exists(wt, commit):
         raise InvalidResponse(
             f"commit {commit} does not exist in the validation checkout",
@@ -265,7 +265,7 @@ def _verify_fix_commit(session: Session, run: RunDoc, target, commit: str) -> st
 
     full_sha = gitx.rev_parse(wt, commit)
 
-    if not _is_in_place(run) and not gitx.is_ancestor(wt, full_sha, "HEAD"):
+    if not is_in_place(run) and not gitx.is_ancestor(wt, full_sha, "HEAD"):
         raise InvalidResponse(
             f"commit {commit[:8]} is not part of the validation checkout's current "
             "history; apply the repair in the validation worktree before responding",
@@ -273,7 +273,7 @@ def _verify_fix_commit(session: Session, run: RunDoc, target, commit: str) -> st
             run_id=run.run_id,
         )
 
-    if not _is_in_place(run) and (
+    if not is_in_place(run) and (
         full_sha == run.head_sha or not gitx.is_ancestor(wt, run.head_sha, full_sha)
     ):
         raise InvalidResponse(

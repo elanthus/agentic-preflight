@@ -1184,7 +1184,7 @@ def test_markdown_formats_computed_durations():
     assert "| Median | 10m 05s |" in text
     assert "| p90 | 1h 39m |" in text
     assert "| widget (github.com/owner/widget) | 5 | 5 | 0 | 0 | 100.0% | 0 | 10m 05s |" in text
-    assert report._duration(45.4) == "45s"
+    assert report.markdown._duration(45.4) == "45s"
 
 
 def test_report_points_at_rebuild_for_unmirrored_runs_and_names_unreadable_records(tmp_repo):

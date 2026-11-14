@@ -1,0 +1,79 @@
+{
+  "kind": "agentic-preflight-run-summary",
+  "schema_version": 1,
+  "written_at": "2026-11-01T00:00:00+00:00",
+  "run_id": "r_0000000001",
+  "state": "DONE",
+  "record_schema_version": 1,
+  "repo": {
+    "root_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "remote": "github.com/owner/widget",
+    "name": "widget",
+    "source_worktree_path": "/repos/widget"
+  },
+  "branch": "docs/readme",
+  "base_ref": "main",
+  "head_sha": "2222222222222222222222222222222222222222",
+  "pushed_sha": "2222222222222222222222222222222222222222",
+  "intent_sha256": "b67f267309187edb114e1bffeb060435f1e834d835bd99338af6f138916ab562",
+  "intent_source": "user",
+  "created_at": "2026-07-29T03:54:13+00:00",
+  "finished_at": "2026-07-29T05:24:25+00:00",
+  "duration_seconds": 5412.0,
+  "timing": null,
+  "producer": null,
+  "risk": null,
+  "review": null,
+  "stages": {
+    "lint": {
+      "status": "green",
+      "attempts": 0,
+      "started_at": null,
+      "finished_at": "2026-07-29T03:54:41+00:00",
+      "duration_seconds": null,
+      "reused": null,
+      "reason": null,
+      "red_then_green": null
+    },
+    "test": {
+      "status": "skipped",
+      "attempts": 0,
+      "started_at": null,
+      "finished_at": "2026-07-29T03:54:23+00:00",
+      "duration_seconds": null,
+      "reused": null,
+      "reason": "changes are limited to documentation and CI configuration",
+      "red_then_green": null
+    }
+  },
+  "findings": {
+    "total": null,
+    "by_stage": null,
+    "by_severity": null,
+    "by_status": null,
+    "by_action": null,
+    "by_response_reason": null,
+    "blocking": null,
+    "review_blocking_fixed": null,
+    "docs_blocking_fixed": null
+  },
+  "fix_commits": 0,
+  "validation_restarts": null,
+  "event_counts": null,
+  "terminal": {
+    "aborted_forced": null,
+    "abort_reason": null,
+    "aborted_from_state": null,
+    "orphaned_reason": null
+  },
+  "hosted": {
+    "pr_number": null,
+    "pr_state": null,
+    "merged": null,
+    "checks_conclusion": null,
+    "fetched_at": null
+  },
+  "worktree_mode": "in_place",
+  "pr_mode": null,
+  "config_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+}
