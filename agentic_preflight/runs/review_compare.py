@@ -204,6 +204,7 @@ def _shadow_submission(
         stage=Stage.REVIEW.value,
         stdin_text=stdin_text,
         separate_stderr=True,
+        timed_as="review_compare",
     )
     result = protected.result
     log_path = protected.log_path

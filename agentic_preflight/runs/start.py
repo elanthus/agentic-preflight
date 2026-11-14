@@ -14,7 +14,7 @@ from importlib.metadata import version as distribution_version
 from pathlib import Path
 from typing import Any, Literal
 
-from .. import attestation, gitx, housekeeping, worktree
+from .. import attestation, gitx, housekeeping, timing, worktree
 from .. import sync as syncmod
 from ..cli_contract import StartData
 from ..config import Config, config_digest, load_config_layers
@@ -461,6 +461,8 @@ def _create_run_record(ctx: _StartContext, run_id: str, merge_base: str) -> tupl
             "intent": ctx.intent,
             "intent_source": "user",
             "producer": ctx.producer.model_dump(mode="json"),
+            # This run times the commands the tool runs (see timing.timed_command).
+            timing.COMMAND_TIMING_MARKER: timing.COMMAND_TIMING_VERSION,
         },
     )
 
@@ -549,7 +551,11 @@ def _synchronize(
     ctx: _StartContext, run_id: str, wt_path: Path, wt_branch: str
 ) -> tuple[syncmod.SyncResult, list[str]]:
     try:
-        with ctx.session.store.resource("sync"), ctx.session.store.resource("notes"):
+        with (
+            ctx.session.store.resource("sync"),
+            ctx.session.store.resource("notes"),
+            timing.timed_command(ctx.session.store, run_id, "sync"),
+        ):
             sync_result = syncmod.synchronize(ctx.repo, wt_path, base_ref=ctx.base_ref)
     except syncmod.OperationInProgress as exc:
         with ctx.session.store.transaction(run_id) as doc:
@@ -671,12 +677,13 @@ def _execute_setup(
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path.write_text(result.output, encoding="utf-8", newline="\n")
         return result, log_path
-    completed = worktree.run_setup(
-        wt_path,
-        command,
-        timeout_seconds=ctx.cfg.stage.timeout_seconds,
-        guarded_files=copied,
-    )
+    with timing.timed_command(ctx.session.store, run_id, "setup"):
+        completed = worktree.run_setup(
+            wt_path,
+            command,
+            timeout_seconds=ctx.cfg.stage.timeout_seconds,
+            guarded_files=copied,
+        )
     protected = protection.finish(completed, log_path)
     result = replace(protected.result, output=protected.clean_output)
     return result, protected.log_path

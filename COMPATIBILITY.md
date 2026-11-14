@@ -620,3 +620,18 @@ The Claude wrapper now passes `--safe-mode` and `--setting-sources user`, checke
 The Codex wrapper now passes `--config project_doc_max_bytes=0` and `--ignore-rules`, checked against Codex CLI 0.163.0.
 An older CLI that lacks one of these options fails the review with a visible error. Update the CLI, or remove the option from your copy of the wrapper and protect the files that it would read with `trusted_paths`.
 With `--safe-mode`, the Claude reviewer also ignores your user `CLAUDE.md`, skills, hooks, and MCP servers.
+
+## Unreleased: outcome fields in run summaries and the report
+
+The run summary keeps `schema_version = 1`. The new keys are inside objects that the summary already has:
+`findings.review_blocking_fixed`, `findings.docs_blocking_fixed`, `stages.<name>.red_then_green`, `timing.tool_seconds`, and `timing.agent_seconds`.
+Earlier tool versions validate the top level of a summary strictly but read these objects as open maps, so they read the new summaries and ignore the new keys.
+A reader must count a missing key as `null`, as for earlier summary additions.
+`telemetry rebuild` adds the keys to every summary of the clone. `timing.tool_seconds` and `timing.agent_seconds` stay `null` for runs that an earlier version recorded.
+
+The run event log can contain the new `tool_command_started` and `tool_command_finished` events, and the `run_created` event adds `command_timing`.
+The events never bind evidence. No fingerprint, evidence digest, configuration digest, or attestation reads them.
+They count against `events --limit` like other events, so the same limit shows fewer state transitions than before.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+In `agentic-preflight report`, each group of statistics adds `caught` and `tool_time`, and the Markdown has two new sections, "Caught before push" and "Tool time".
