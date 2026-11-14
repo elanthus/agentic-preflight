@@ -475,6 +475,21 @@ def test_reviewer_run_rejects_an_invalid_context(clean_reviewer_env, payload, ex
     assert expected in result.stderr
 
 
+@pytest.mark.skipif(PLATFORM == "win32", reason="POSIX execute permission")
+def test_reviewer_run_reports_a_provider_cli_that_cannot_be_executed(tmp_path, clean_reviewer_env):
+    not_executable = tmp_path / "claude"
+    not_executable.write_text("not a program\n", encoding="utf-8")
+    not_executable.chmod(0o644)
+
+    result = invoke("claude", CONTEXT, AP_CLAUDE_BIN=str(not_executable))
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith(
+        "independent reviewer failed: reviewer CLI could not be started"
+    )
+
+
 def test_reviewer_run_reports_a_missing_provider_cli(tmp_path, clean_reviewer_env):
     result = invoke("codex", CONTEXT, AP_CODEX_BIN=str(tmp_path / "does-not-exist"))
 

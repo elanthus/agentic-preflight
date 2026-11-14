@@ -199,7 +199,8 @@ def run_cli(argv: list[str], prompt: str) -> subprocess.CompletedProcess[str]:
                 )
             except OSError as exc:
                 raise ReviewerError(
-                    f"cannot write AP_REVIEWER_EVENTS_FILE {events_path}: {exc}"
+                    f"cannot read back AP_REVIEWER_EVENTS_FILE {events_path} "
+                    f"or update its status file: {exc}"
                 ) from exc
         else:
             result = subprocess.run(
@@ -213,6 +214,8 @@ def run_cli(argv: list[str], prompt: str) -> subprocess.CompletedProcess[str]:
             )
     except FileNotFoundError as exc:
         raise ReviewerError(f"reviewer CLI not found: {argv[0]}") from exc
+    except OSError as exc:
+        raise ReviewerError(f"reviewer CLI could not be started: {argv[0]}: {exc}") from exc
     except subprocess.TimeoutExpired as exc:
         raise ReviewerError(
             f"reviewer CLI timed out after {timeout_seconds()} seconds: {argv[0]}"

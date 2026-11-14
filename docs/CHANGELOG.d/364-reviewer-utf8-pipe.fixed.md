@@ -5,3 +5,6 @@
 - An `AP_REVIEWER_EVENTS_FILE` that cannot be written, such as a path in a missing or
   read-only directory, now fails the review with one `independent reviewer failed: ...`
   line instead of a traceback or a misleading "reviewer CLI not found" message.
+- A provider CLI that cannot be started, for example because `AP_CLAUDE_BIN` or
+  `AP_CODEX_BIN` names a file that is not executable, now fails the review with one
+  `independent reviewer failed: ...` line instead of a traceback.
