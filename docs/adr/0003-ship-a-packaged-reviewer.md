@@ -52,12 +52,11 @@ A test keeps each copy identical to its packaged counterpart, apart from the she
 The copies keep running with `python3 -S -B`, which a repository reviewer script needs to stay out of the branch's Python environment.
 The removal is listed in the [compatibility removal plan](../maintainers/compatibility-removal-plan.md).
 
-The first step changes no behavior.
-The prompts, the provider CLI arguments, the environment variables, the defaults, the events file, and the output are the same as in the wrappers.
+The first step keeps the prompts, the provider CLI arguments, the environment variables, the defaults, the events file, and the output of the wrappers, apart from the deliberate changes below.
 Commands in the `reviewer` group do not check the Git version, because the reviewer does not run Git.
 It reads and writes its own standard streams as UTF-8, as every other command does; the wrappers used the locale encoding.
 
-One deliberate fix to the moved code: the pipe to the provider CLI is UTF-8 with `errors="replace"`, in the package and in the example copies.
+One deliberate fix to the moved code: the pipe to the provider CLI and the Codex final-output file are UTF-8 with `errors="replace"`, in the package and in the example copies. An `AP_REVIEWER_EVENTS_FILE` that cannot be written, or any `UnicodeError`, gives the one-line `independent reviewer failed:` diagnostic instead of a traceback.
 The provider CLIs read and write UTF-8 regardless of the locale, so the locale encoding was wrong under an ASCII, C, or cp1252 locale, and a non-ASCII diff crashed the reviewer.
 `errors="replace"` means that a lone surrogate in the prompt becomes `?`, and undecodable CLI output becomes U+FFFD.
 The reviewer only parses that output for a JSON object, so a replaced byte at worst makes the output unparseable, which fails the review visibly.
