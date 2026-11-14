@@ -42,6 +42,19 @@ Review binds these inputs:
 
 The `[stage]` section governs command-review timeouts and retries.
 
+The included diff bytes are the patch text that Git prints for the merge base and the head.
+The tool fixes the `core.*` and `diff.*` settings that shape that text, removes `GIT_DIFF_OPTS`, ignores replacement objects, and each patch names full object IDs.
+Thus, two machines whose Git configuration differs in those settings build the same bytes from the same commits.
+Attributes are the exception.
+A `-diff` attribute or a `diff` driver in a `.gitattributes` file in the checkout, in `$GIT_DIR/info/attributes`, from `attr.tree` or `GIT_ATTR_SOURCE`, or in a system-wide attributes file still changes the text.
+So does the `diff.<driver>.*` configuration of a driver that an attribute names, and `diff.default.xfuncname` or `diff.default.funcname`, which set the hunk headers of every other file.
+Notes from 0.8.1 and earlier hash patches with abbreviated object IDs, whose length depends on the clone.
+Git picks the default length from the clone's object count, so such a note can fail in a clone whose count gives a different length, even when its producer used every default.
+A verifier builds that text only when the current text does not reproduce a note's digest.
+It fixes the other settings to Git's default for that text too, so a note whose producer changed one of them may not verify, if the change altered the patch.
+In that text a file-level patch, such as a binary change, names its blobs only by abbreviated object IDs, which a clone that holds both blobs disambiguates.
+See [the compatibility entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-configuration).
+
 Configuration digests cover the published configuration snapshot, because a verifier recomputes them from the note.
 That snapshot leaves out sections from the user configuration file, except `[diff]`.
 Local discovery also compares those user-level sections in the prior run record, so a change to one still prevents reuse.

@@ -27,14 +27,24 @@ ManifestCache = dict[tuple[str, str], diff.ReviewManifest]
 
 def _manifest(repo: Path | str, origin: OriginalExecution, *, head: str, base: str):
     cfg = snapshot_config(origin.config_snapshot)
-    bundle = diff.build_bundle(repo, base, head, exclude=cfg.diff.exclude)
     fingerprint = origin.fingerprint
     if not isinstance(fingerprint, ReviewFingerprint):
         raise ValueError("review origin has the wrong fingerprint")
-    manifest = diff.build_review_manifest(
-        repo, bundle, grounding_sha256=fingerprint.grounding_sha256
-    )
-    if manifest.diff_sha256 != fingerprint.diff_sha256:
+    # 0.8.1 and earlier releases hashed patches whose ``index`` lines abbreviate
+    # object IDs. A digest that the current text does not reproduce is checked
+    # against that earlier text before the note is rejected. The second format
+    # goes when a release no longer has to read 0.8 notes; see
+    # docs/maintainers/compatibility-removal-plan.md.
+    for full_index in (True, False):
+        bundle = diff.build_bundle(
+            repo, base, head, exclude=cfg.diff.exclude, full_index=full_index
+        )
+        manifest = diff.build_review_manifest(
+            repo, bundle, grounding_sha256=fingerprint.grounding_sha256
+        )
+        if manifest.diff_sha256 == fingerprint.diff_sha256:
+            break
+    else:
         raise ValueError("review fingerprint does not match the Git diff")
     if tuple(sorted(manifest.excluded_files)) != fingerprint.excluded_files:
         raise ValueError("review exclusions do not match the Git diff")
