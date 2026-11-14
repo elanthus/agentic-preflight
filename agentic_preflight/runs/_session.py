@@ -500,42 +500,124 @@ def unresolved_findings(session: Session, run: RunDoc, stages: Sequence[Stage]) 
     """Findings in ``stages`` that block, or that are open auto-fix findings.
 
     This is the set an attestation refuses, so a run must clear it before it leaves
-    the stage that recorded it.
+    the stage that recorded it. Blocking findings come first within each stage.
     """
+    return [finding for finding, _ in _unresolved(session, run, stages)]
+
+
+def _unresolved(
+    session: Session, run: RunDoc, stages: Sequence[Stage]
+) -> list[tuple[Finding, bool]]:
+    """Each unresolved finding with whether it blocks."""
     stored = session.store.load_findings(run.run_id)
-    result: list[Finding] = []
+    result: list[tuple[Finding, bool]] = []
     seen: set[str] = set()
     for stage in stages:
         stage_findings = [finding for finding in stored if finding.stage is stage]
         blocking = findingsmod.blocking(
             stage_findings, blocking_severities=stage_blocking_severities(session, stage)
         )
-        for finding in [*blocking, *findingsmod.actionable(stage_findings)]:
+        pairs = [(f, True) for f in blocking] + [
+            (f, False) for f in findingsmod.actionable(stage_findings)
+        ]
+        for finding, blocks in pairs:
             if finding.id not in seen:
                 seen.add(finding.id)
-                result.append(finding)
+                result.append((finding, blocks))
     return result
 
 
-def require_findings_resolved(
-    session: Session, run: RunDoc, *, stages: Sequence[Stage], command: str
-) -> None:
-    """Refuse to leave a finding stage while one of its findings needs a disposition.
+#: Green finding states, and the stages whose findings must be resolved before leaving.
+_LEAVING_STAGES: dict[State, tuple[Stage, ...]] = {
+    State.REVIEW_GREEN: (Stage.REVIEW,),
+    State.DOCS_GREEN: (Stage.REVIEW, Stage.DOCS),
+}
+
+#: States after docs, where `respond` is no longer legal. Only a run that an earlier
+#: release advanced can hold an unresolved finding here.
+PAST_RESPOND_STATES = frozenset(
+    {State.TEST_GREEN, State.MERGEBACK_PENDING, State.MERGEBACK_CONFLICT}
+)
+
+
+def open_findings_refusal(session: Session, run: RunDoc, *, command: str) -> OpenFindings | None:
+    """The refusal for a run that must resolve findings before it moves on, if any.
+
+    In a green review or docs state the next step is `respond`. After docs, where
+    `respond` is not legal, it is `abort`. `status` reads the same instruction, so an
+    agent that follows the exit-3 recovery rule is not sent back to the refusing command.
+    """
+    if run.state in _LEAVING_STAGES:
+        stages = _LEAVING_STAGES[run.state]
+    elif run.state in PAST_RESPOND_STATES:
+        stages = (Stage.REVIEW, Stage.DOCS)
+    else:
+        return None
+    pending = _unresolved(session, run, stages)
+    if not pending:
+        return None
+    first, first_blocks = pending[0]
+    ids = ", ".join(finding.id for finding, _ in pending)
+    blocking = [finding.model_dump(mode="json") for finding, _ in pending]
+    if run.state in PAST_RESPOND_STATES:
+        return OpenFindings(
+            "the run left review with findings that still need a disposition, and "
+            f"`respond` is no longer legal: {ids}",
+            state=run.state.value,
+            run_id=run.run_id,
+            stage=first.stage.value,
+            data={"fix_commits": list(run.fix_commits)},
+            blocking=blocking,
+            next_instruction=_past_respond_instruction(session, run),
+            next_command="agentic-preflight abort",
+        )
+    return OpenFindings(
+        f"`{command}` cannot continue while findings still need a disposition: {ids}",
+        state=run.state.value,
+        run_id=run.run_id,
+        stage=first.stage.value,
+        blocking=blocking,
+        next_instruction=(
+            "Resolve each blocking finding with `respond`, then verify."
+            if first_blocks
+            else OPEN_AUTO_FIX_INSTRUCTION
+        ),
+        next_command=_respond_command(first.id),
+    )
+
+
+def _past_respond_instruction(session: Session, run: RunDoc) -> str:
+    """How to leave a run that can no longer resolve its findings, keeping its fixes."""
+    instruction = (
+        "Do not retry `mergeback`. Abort this run, fix or decide each listed finding, "
+        "and start a fresh run."
+    )
+    # In place, the fix commits are already on the branch and `abort` keeps them.
+    if is_in_place(run) or not run.fix_commits:
+        return instruction
+    attempt = run.mergeback_attempt
+    if attempt is not None and gitx.rev_parse(session.repo_root, "HEAD") != attempt.source_sha:
+        return (
+            f"{instruction} An earlier mergeback attempt already moved your branch from "
+            f"{attempt.source_sha[:12]}, so it may already hold the fix commits in "
+            "data.fix_commits. Check which ones it holds before you cherry-pick any; "
+            "`abort --force` discards only the validation worktree's copies."
+        )
+    return (
+        f"{instruction} Keep the recorded fix commits in data.fix_commits by "
+        "cherry-picking them onto your branch before you abort, because `abort --force` "
+        "discards them."
+    )
+
+
+def require_findings_resolved(session: Session, run: RunDoc, *, command: str) -> None:
+    """Refuse to leave a green review or docs stage while a finding needs a disposition.
 
     `respond` is legal only in the review and docs states. A run that moved on with
     an open auto-fix finding could never resolve it, and `mergeback` would refuse to
     attest it.
     """
-    pending = unresolved_findings(session, run, stages)
-    if not pending:
-        return
-    ids = [finding.id for finding in pending]
-    raise OpenFindings(
-        f"`{command}` cannot continue while findings still need a disposition: {', '.join(ids)}",
-        state=run.state.value,
-        run_id=run.run_id,
-        stage=pending[0].stage.value,
-        blocking=[finding.model_dump(mode="json") for finding in pending],
-        next_instruction=OPEN_AUTO_FIX_INSTRUCTION,
-        next_command=_respond_command(pending[0].id),
-    )
+    if run.state in _LEAVING_STAGES and (
+        refusal := open_findings_refusal(session, run, command=command)
+    ):
+        raise refusal

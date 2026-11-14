@@ -125,9 +125,7 @@ def context(session: Session, *, section: str = "review") -> Envelope:
             command="context --section docs",
         )
         if run.state is State.REVIEW_GREEN:
-            require_findings_resolved(
-                session, run, stages=(Stage.REVIEW,), command="context --section docs"
-            )
+            require_findings_resolved(session, run, command="context --section docs")
             run = _open_docs_stage(session, run)
     else:
         require_state(
@@ -436,10 +434,15 @@ def verify(session: Session) -> Envelope:
             apply_action(doc, Action.RESOLVE_GREEN)
             run = doc
 
-    run = _skip_docs_if_disabled(session, run)
+    # An open auto-fix finding still needs a disposition, so docs is not skipped past it.
+    actionable = findingsmod.actionable(stage_findings)
+    if not actionable:
+        run = _skip_docs_if_disabled(session, run)
 
-    return envelope_for(
+    envelope = envelope_for(
         run,
         stage=stage.value,
         data=VerifyData(stage=stage.value, blocking_count=0),
     )
+    findings_next_hint(envelope, [], actionable)
+    return envelope

@@ -365,7 +365,9 @@ attestation note includes them. Review-command findings are redacted the same wa
 
 ### `agentic-preflight verify [SHA] [--purpose local|publish] [--base REV]`
 Without an argument, confirms nothing blocks the active review/docs stage and advances
-it to green. Exits 2 listing the outstanding blocking set if anything remains.
+it to green. Exits 2 listing the outstanding blocking set if anything remains. While an
+`auto_fix` finding of the stage is still open, `next` names `respond` for it, and
+`[docs] enabled = false` does not skip docs until that finding has a disposition.
 
 With a SHA, validates the portable attestation in `refs/notes/agentic-preflight` for
 CI. It checks the note schema, exact commit and tree binding, complete stage set, and
@@ -544,7 +546,11 @@ which an earlier release allowed, cannot attest it. `mergeback` refuses it with 
 `open_findings` before it records an attempt, changes the source branch, or writes a note.
 `blocking` lists the findings and `data.fix_commits` the recorded fix commits;
 `next` is `abort`, because `respond` is no longer legal. Fix or decide each finding, then
-start a fresh run.
+start a fresh run. A run left in `MERGEBACK_PENDING` by that release's internal error may
+already have moved the source branch. In isolated modes the instruction then says the
+branch may already hold the fix commits, so check before cherry-picking any; otherwise it
+says to cherry-pick them before `abort --force`. In place, the fix commits are already on
+the branch and `abort` keeps them.
 
 A run that an earlier release started has no record of which configuration sections came
 from the user file. `mergeback` refuses it with exit 4 and `needs_human`, giving the reason
@@ -623,6 +629,10 @@ after `gc`.
 ## Inspection and recovery
 
 ### `agentic-preflight status [--all]`
+
+While the run holds a finding that a guarded command refuses with `open_findings`, `next`
+gives that refusal's instruction: `respond` in `REVIEW_GREEN` or `DOCS_GREEN`, and
+`abort` in `TEST_GREEN`, `MERGEBACK_PENDING`, or `MERGEBACK_CONFLICT`.
 
 For a structurally readable active run with invalid stage-origin digests, single-run
 status succeeds with `data.readable = true`, `data.evidence_valid = false`, and

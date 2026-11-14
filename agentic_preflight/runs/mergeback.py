@@ -13,7 +13,6 @@ from ..errors import (
     DirtyTree,
     MergebackConflictError,
     NeedsHuman,
-    OpenFindings,
     StaleRun,
 )
 from ..errors import (
@@ -23,6 +22,7 @@ from ..machine import Action, State
 from ..models import MergebackAttempt, RunDoc, Stage
 from . import evidence
 from ._session import (
+    PAST_RESPOND_STATES,
     Session,
     apply_action,
     assert_fresh,
@@ -31,9 +31,9 @@ from ._session import (
     envelope_for,
     is_in_place,
     load_current,
+    open_findings_refusal,
     require_state,
     require_worktree,
-    unresolved_findings,
     worktree_mode,
 )
 from .fix_commits import derive_fix_commits
@@ -324,36 +324,15 @@ def require_known_provenance(run: RunDoc, *, command: str) -> None:
 def require_resolved_findings(session: Session, run: RunDoc) -> None:
     """Refuse a run whose review or docs findings an attestation would reject.
 
-    The review and docs stages now refuse to hand off such a finding, but a run that
-    an earlier release advanced can still carry one here. `respond` is no longer
-    legal, so the run cannot repair itself; say so before anything is recorded.
+    The review and docs stages refuse to hand off such a finding, but a run that an
+    earlier release advanced can still carry one here, where `respond` is no longer
+    legal. Say so before anything is recorded; an earlier crashed attempt may already
+    have moved the branch, which the refusal's instruction accounts for.
     """
-    if run.state not in (State.TEST_GREEN, State.MERGEBACK_PENDING, State.MERGEBACK_CONFLICT):
-        return
-    pending = unresolved_findings(session, run, (Stage.REVIEW, Stage.DOCS))
-    if not pending:
-        return
-    ids = [finding.id for finding in pending]
-    keep = (
-        " Keep the recorded fix commits in data.fix_commits by cherry-picking them onto "
-        "your branch before you abort, because `abort --force` discards them."
-        if run.fix_commits
-        else ""
-    )
-    raise OpenFindings(
-        "the run left review with findings that still need a disposition, and "
-        f"`respond` is no longer legal: {', '.join(ids)}",
-        state=run.state.value,
-        run_id=run.run_id,
-        stage=pending[0].stage.value,
-        data={"fix_commits": list(run.fix_commits)},
-        blocking=[finding.model_dump(mode="json") for finding in pending],
-        next_instruction=(
-            "Do not retry `mergeback`. Abort this run, fix or decide each listed "
-            f"finding, and start a fresh run.{keep}"
-        ),
-        next_command="agentic-preflight abort",
-    )
+    if run.state in PAST_RESPOND_STATES and (
+        refusal := open_findings_refusal(session, run, command="mergeback")
+    ):
+        raise refusal
 
 
 def mergeback(session: Session) -> Envelope:

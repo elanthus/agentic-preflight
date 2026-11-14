@@ -32,6 +32,7 @@ from ._session import (
     is_in_place,
     load_current,
     max_restarts,
+    open_findings_refusal,
     release_run_worktree,
     restart_limit_reached,
     start_command,
@@ -802,6 +803,10 @@ def _set_status_next(
     elif run.setup_failure is not None and run.setup_failure.scope == "baseline":
         envelope.next_instruction = run.setup_failure.next_instruction
         envelope.next_command = run.setup_failure.next_command
+    elif (refusal := open_findings_refusal(session, run, command="status")) is not None:
+        # The guarded commands refuse while these findings are open; point past them.
+        envelope.next_instruction = refusal.next_instruction
+        envelope.next_command = refusal.next_command
     elif run.state is State.MERGEBACK_CONFLICT:
         conflict = next(
             (
