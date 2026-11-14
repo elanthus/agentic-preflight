@@ -51,6 +51,7 @@ So does the `diff.<driver>.*` configuration of a driver that an attribute names,
 Notes from 0.8.1 and earlier hash patches with abbreviated object IDs, whose length depends on the clone.
 A verifier builds that text only when the current text does not reproduce a note's digest.
 It fixes the other settings to Git's default for that text too, so a note whose producer changed one of them may not verify, if the change altered the patch.
+In that text a file-level patch, such as a binary change, names its blobs only by abbreviated object IDs, which a clone that holds both blobs disambiguates.
 See [the compatibility entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-configuration).
 
 Configuration digests cover the published configuration snapshot, because a verifier recomputes them from the note.

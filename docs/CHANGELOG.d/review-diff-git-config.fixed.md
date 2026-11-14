@@ -24,5 +24,7 @@
   at Git's default. A note written with another value, such as `diff.context = 5`, may fail
   verification, even on the machine that wrote it, when that value changed the patch. If
   verification fails, validate the commit again to replace the note.
-  The verifier's own `core.abbrev` no longer matters for such a note.
+  The verifier's own `core.abbrev` no longer matters for such a note. Until that format is
+  removed in 0.10.0, a binary or other file-level patch in it binds its content only by an
+  abbreviated object ID.
   `COMPATIBILITY.md` lists what changes at upgrade.

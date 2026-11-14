@@ -669,6 +669,7 @@ What changes at upgrade:
   The other settings above are fixed to Git's default for that text too, and the note does not record the producer's values, so they cannot be restored.
   A producer that set one of those settings to another value may therefore have written a note that fails, even on the machine that wrote it, if the value changed the patch. For example, `diff.context = 5` adds context lines to a hunk that has more unchanged lines around it, but leaves a one-line file's patch unchanged.
   The verifier builds the abbreviated text with Git's default length, whatever its own `core.abbrev` says.
+  The verifier tries that text for any note, not only for notes from 0.8.1 and earlier. Until the fallback goes in 0.10.0 (row 11 of [the removal plan](docs/maintainers/compatibility-removal-plan.md)), a file-level patch in that format, such as a binary change, binds its content only by an abbreviated object ID. Hunks carry their full content, so they are not affected. A verifier clone that holds both blobs disambiguates them, because Git lengthens an abbreviation until it is unique.
   The note still fails in a clone where that default length differs from the producer's, because the clone holds a different number of objects. When verification fails for either reason, validate the commit again to replace the note.
 - Review evidence that an earlier release recorded does not carry to a new head. The review runs again.
 - A run that an earlier release reviewed and that is still open reopens review at its next command.
