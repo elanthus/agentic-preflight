@@ -61,8 +61,11 @@ Installs the pre-push hook and writes `.agentic-preflight.toml` if absent. Refus
 replace a pre-push hook it did not write (exit 3, `hook_exists`) — `--force`
 overrides. A hook that is byte for byte one an earlier version installed is replaced
 with the current script; a hook containing the command with other edits is left as it
-is. Does not clobber an existing config. `data.hook_path` is the absolute path
-Git will execute, `data.hook_installed` confirms that installation left that path
+is. A symlink at the hook path is replaced with a regular file and never written
+through: a dangling link or a link to exactly the current script is replaced without
+`--force`, and any other link to a file is judged by that file's content. Does not clobber an existing config. `data.hook_path` is the
+absolute path Git will execute; it names a symlink at the hook itself rather than its
+target. `data.hook_installed` confirms that installation left that path
 containing `agentic-preflight hook-check`, and `data.hooks_path_overridden` reports
 whether the effective path is outside the common Git directory's `hooks/` directory.
 With `--no-hook`, the effective path and override state are still reported, while
