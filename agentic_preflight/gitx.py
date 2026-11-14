@@ -769,10 +769,9 @@ _PINNED_PATCH_OPTIONS = (
 _ATTRIBUTE_FREE_CONFIG = ("-c", "attr.tree=")
 # Git's ``buffer_is_binary`` looks for a NUL byte in this many leading bytes.
 _BINARY_PREFIX_BYTES = 8000
-# Git's default ``core.bigFileThreshold``. Git treats a larger blob as binary
-# without reading it, so the tool does too, and binary patches pin the value.
+# Git's default ``core.bigFileThreshold``, which ``_PINNED_DIFF_CONFIG`` fixes.
+# Git treats a larger blob as binary without reading it, so the tool does too.
 _BIG_FILE_THRESHOLD = 512 * 1024 * 1024
-_BINARY_PATCH_CONFIG = ("-c", f"core.bigFileThreshold={_BIG_FILE_THRESHOLD}")
 # Path variables that a command run from another directory must see as absolute.
 _REPOSITORY_PATH_VARIABLES = ("GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY")
 _NO_BLOB_MODES = ("000000", "160000")
@@ -1485,7 +1484,7 @@ def diff_text_by_path(
             base,
             head,
             [path for path in paths if path in binary_paths],
-            config=(*_ATTRIBUTE_FREE_CONFIG, *_BINARY_PATCH_CONFIG),
+            config=_ATTRIBUTE_FREE_CONFIG,
             options=("--full-index",),
             env=env,
         )
