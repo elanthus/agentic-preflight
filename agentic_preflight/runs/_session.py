@@ -536,7 +536,16 @@ _LEAVING_STAGES: dict[State, tuple[Stage, ...]] = {
 #: States after docs, where `respond` is no longer legal. Only a run that an earlier
 #: release advanced can hold an unresolved finding here.
 PAST_RESPOND_STATES = frozenset(
-    {State.TEST_GREEN, State.MERGEBACK_PENDING, State.MERGEBACK_CONFLICT}
+    {
+        State.LINT_RUNNING,
+        State.LINT_RED,
+        State.LINT_GREEN,
+        State.TEST_RUNNING,
+        State.TEST_RED,
+        State.TEST_GREEN,
+        State.MERGEBACK_PENDING,
+        State.MERGEBACK_CONFLICT,
+    }
 )
 
 

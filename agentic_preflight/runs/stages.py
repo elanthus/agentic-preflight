@@ -21,6 +21,7 @@ from ..models import RunDoc, Stage, StageRecord, StageStatus
 from ..stages import detect, shellstage
 from . import evidence
 from ._session import (
+    PAST_RESPOND_STATES,
     Session,
     apply_action,
     assert_fresh,
@@ -28,6 +29,7 @@ from ._session import (
     envelope_for,
     is_in_place,
     load_current,
+    open_findings_refusal,
     require_findings_resolved,
     require_state,
     require_worktree,
@@ -331,6 +333,18 @@ def _stage_failure(
     )
 
 
+def _refuse_open_findings(session: Session, run: RunDoc, stage_name: str) -> None:
+    """Refuse to run a stage while a review or docs finding still needs a disposition."""
+    command = f"stage run {stage_name}"
+    if run.state is State.DOCS_GREEN:
+        require_findings_resolved(session, run, command=command)
+    elif run.state in PAST_RESPOND_STATES and (
+        refusal := open_findings_refusal(session, run, command=command)
+    ):
+        # Only a run that an earlier release advanced gets here; it can only abort.
+        raise refusal
+
+
 def run_stage(
     session: Session,
     stage_name: str,
@@ -361,8 +375,7 @@ def run_stage(
                 next_command="agentic-preflight context",
             )
     require_state(run, *_STAGE_READY_STATES[stage_name], command=f"stage run {stage_name}")
-    if run.state is State.DOCS_GREEN:
-        require_findings_resolved(session, run, command=f"stage run {stage_name}")
+    _refuse_open_findings(session, run, stage_name)
     run = _recover_interrupted_stage(session, run, stage, spec)
     record_entry = run.stages.get(stage) or StageRecord()
     worktree_path = require_worktree(run)

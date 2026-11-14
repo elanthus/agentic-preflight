@@ -315,3 +315,21 @@ def test_a_run_stuck_by_the_old_crash_gets_correct_recovery_advice(
     else:
         assert "cherry-pick" not in instruction
     assert agent.run("status")["next"]["command"] == "agentic-preflight abort"
+
+
+def test_a_run_left_in_lint_green_is_told_to_abort(feature_repo, tmp_path, monkeypatch):
+    """An earlier release could leave a run between lint and test with an open finding."""
+    configure_base(feature_repo, DOCS_OFF)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
+    assert agent.run("stage", "run", "lint")["state"] == "LINT_GREEN"
+    _inject(feature_repo, monkeypatch, _open("F001"))
+
+    assert agent.run("status")["next"]["command"] == "agentic-preflight abort"
+    env = agent.run("stage", "run", "test", expect=ExitCode.PRECONDITION)
+
+    assert env["error"]["code"] == "open_findings"
+    assert env["next"]["command"] == "agentic-preflight abort"
+    assert agent.run("status")["state"] == "LINT_GREEN"

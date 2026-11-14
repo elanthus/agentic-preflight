@@ -447,7 +447,8 @@ Stages run in the fixed order docs → lint → test after review becomes green.
 `DOCS_GREEN`, `stage run lint` refuses to start while a review or docs finding is an open
 `auto_fix` finding (exit 3, `open_findings`), with the same `blocking` list and
 `respond` hint as docs context, because `respond` is not legal after
-docs. Running lint
+docs. A run that an earlier release moved into a lint or test state with such a finding
+gets the same refusal from `stage run lint|test`, with `abort` as `next`. Running lint
 before the potentially expensive test command means a committed mechanical lint repair
 cannot invalidate an already-green test result. After lint the CLI automatically skips
 the software test command when every changed path is documentation or standard CI
@@ -632,7 +633,8 @@ after `gc`.
 
 While the run holds a finding that a guarded command refuses with `open_findings`, `next`
 gives that refusal's instruction: `respond` in `REVIEW_GREEN` or `DOCS_GREEN`, and
-`abort` in `TEST_GREEN`, `MERGEBACK_PENDING`, or `MERGEBACK_CONFLICT`.
+`abort` in any lint, test, or merge-back state, where `respond` is no longer legal.
+`stage run lint|test` refuses such a run from a lint or test state the same way.
 
 For a structurally readable active run with invalid stage-origin digests, single-run
 status succeeds with `data.readable = true`, `data.evidence_valid = false`, and

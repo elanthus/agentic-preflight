@@ -22,7 +22,6 @@ from ..machine import Action, State
 from ..models import MergebackAttempt, RunDoc, Stage
 from . import evidence
 from ._session import (
-    PAST_RESPOND_STATES,
     Session,
     apply_action,
     assert_fresh,
@@ -321,6 +320,9 @@ def require_known_provenance(run: RunDoc, *, command: str) -> None:
     )
 
 
+_MERGEBACK_STATES = frozenset({State.TEST_GREEN, State.MERGEBACK_PENDING, State.MERGEBACK_CONFLICT})
+
+
 def require_resolved_findings(session: Session, run: RunDoc) -> None:
     """Refuse a run whose review or docs findings an attestation would reject.
 
@@ -329,7 +331,7 @@ def require_resolved_findings(session: Session, run: RunDoc) -> None:
     legal. Say so before anything is recorded; an earlier crashed attempt may already
     have moved the branch, which the refusal's instruction accounts for.
     """
-    if run.state in PAST_RESPOND_STATES and (
+    if run.state in _MERGEBACK_STATES and (
         refusal := open_findings_refusal(session, run, command="mergeback")
     ):
         raise refusal
