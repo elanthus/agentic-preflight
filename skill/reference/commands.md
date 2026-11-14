@@ -5,9 +5,10 @@ This reference describes command behavior; it does not grant publication or merg
 authorization. See the [CLI walkthrough](workflow.md) for a worked sequence.
 
 Every agent-facing workflow command prints exactly one JSON object to stdout. Human
-prose goes to stderr. Parse that stdout blindly; every key is always present. The sole
-exception is `hook-check`: Git consumes its exit status and stderr, so it emits no JSON
-envelope and is not an agent-facing command.
+prose goes to stderr. Parse that stdout blindly; every key is always present. There are
+two exceptions, and neither is an agent-facing command, so neither emits a JSON envelope:
+`hook-check`, whose exit status and stderr Git consumes, and `reviewer run`, whose stdout
+`review run` reads as the review submission.
 
 ```json
 {"ok": true, "run_id": "r_...", "state": "REVIEW_AWAITING_FINDINGS", "stage": "review",
@@ -25,8 +26,8 @@ hyphens, such as `stage-run.json`). The schemas are generated from the models in
 hand. Every field is optional because `data` differs by outcome.
 
 `agentic-preflight --version` prints the installed version and exits 0. Every other
-command first checks the Git version and exits 1 with `unsupported_git_version` when Git
-is older than 2.38.
+command outside the `reviewer` group (whose only command is `reviewer run`) first checks
+the Git version and exits 1 with `unsupported_git_version` when Git is older than 2.38.
 
 Place `--run RUN_ID` before any workflow command to select a stored run explicitly.
 A `RUN_ID` other than `r_` followed by 10 lowercase hex digits exits 6 with
@@ -398,7 +399,9 @@ and Git's merge of the head into it, so criss-cross history cannot hide a change
 covers every path touched by a non-merge commit in `base..head`, which a rebase merge
 replays, so a merge commit that cancels an earlier high-risk commit cannot hide it; a
 high-risk path changed and later reverted on the branch still counts. All three sets
-appear in `data.changed_files`. Low- and
+appear in `data.changed_files`. The repository paths that the base's `[review] command`
+and `planner_command` name, and its `[review] trusted_paths`, count as human-review
+paths and appear in `data.path_reasons` with kind `human_review_path`. Low- and
 medium-risk changes pass without a review. High-risk handling follows `[approval] mode`:
 `manual_merge` reports success while requiring the user to merge manually (the trusted
 workflow separately rejects enabled GitHub auto-merge); `environment` exits 4 until
@@ -935,6 +938,12 @@ the group `unknown`. The statistics are:
 - the median and p90 of `duration_seconds`;
 - the share of run time in the review and docs states and in the lint and test
   states, over runs with complete `timing`;
+- `caught`: the `DONE` runs where the gate stopped something before the push,
+  `runs_with_any_catch`, and for each source in `by_source` (a fixed blocking review or
+  docs finding, a lint or test stage that failed and later passed) its `runs_with_any`
+  and `excluded_runs`;
+- `tool_time`: the median and p90 of `timing.tool_seconds` per `DONE` run, and per
+  pull request (the sum over its synced `DONE` runs) under `per_pull_request`;
 - aborted runs by reason and by `aborted_from_state`;
 - hosted outcomes synced by `telemetry sync-hosted`, under `hosted.synced`, and orphaned
   reasons. The Markdown "Hosted outcomes synced" section and the two limits about hosted
@@ -974,6 +983,29 @@ output is still one JSON envelope. `--rows` includes the filtered summary rows i
 but cannot be read exits 1 with error code `telemetry_mirror_unreadable` and its path in
 `data`. See [Read the report](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md#read-the-report).
 
+## Command reviewer
+
+### `agentic-preflight reviewer run --provider claude|codex`
+The packaged independent reviewer. Configure it as `[review] command` (and, for contract
+checks, `[review.contracts] planner_command`); `review run` and `review compare` then
+start it. Not for you to call in a workflow — follow `next.command` instead.
+
+It reads the review `context` data object as JSON on stdin and shells out to the
+provider CLI: `claude -p --output-format stream-json` or `codex exec --json`. It prints
+one strict `ReviewSubmission` JSON line on stdout, or, when the context has `section:
+"contracts"`, one contract plan. It prints no JSON envelope. It exits 0 on success. On
+any failure (invalid context, provider CLI missing, non-zero exit, timeout, or no
+findings object in the output) it exits 1 with one `independent reviewer failed: ...`
+line on stderr. A usage error, such as a missing or unknown `--provider`, keeps Click's
+usage message and exits 2.
+
+Environment variables: `AP_CLAUDE_BIN` or `AP_CODEX_BIN` (the provider executable,
+default `claude` or `codex`), `AP_REVIEWER_MODEL` (default `claude-sonnet-5` or
+`gpt-5.3-codex`), `AP_REVIEWER_EFFORT` (default `high` or `medium`),
+`AP_REVIEWER_TIMEOUT` (seconds, default 600), and `AP_REVIEWER_EVENTS_FILE` (an absolute
+path that receives the provider CLI's stdout, with `<path>.status.json` beside it). See
+[Independent review and agreement](https://github.com/elanthus/agentic-preflight/blob/main/docs/independent-review.md).
+
 ## Exit codes
 
 | Code | Meaning | What to do |
@@ -985,12 +1017,13 @@ but cannot be read exits 1 with error code `telemetry_mirror_unreadable` and its
 | 4 | Human resolution required | Show recovery material; resolve only the bounded, unambiguous merge-back cases permitted by the skill, otherwise stop |
 | 5 | Confirmation required | Apply the skill's authorization rules, then re-run with the token |
 | 6 | Command-line usage error | Read `error.message`, run `next.command` for valid usage, and fix the invocation |
-| 10 | Hook blocked a push | Start a run with `agentic-preflight start --intent "..."` |
+| 10 | Hook blocked a push | Start a run with `agentic-preflight start --intent "..."`, unless the message says SHA-256 repositories are not supported: then stop and tell the user |
 
 A command-line usage error (unknown option, missing argument, bad choice, unknown
 command) prints one envelope with error code `usage_error`, Click's message in
 `error.message`, and the command's `--help` invocation in `next.command`, then exits 6.
-`hook-check` is the exception and keeps Click's own usage output and exit code.
+`hook-check` and `reviewer run` are the exceptions and keep Click's own usage output and
+exit code 2.
 Running `agentic-preflight` with no arguments prints the root help as plain text and
 exits 0.
 

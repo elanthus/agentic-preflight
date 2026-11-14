@@ -41,12 +41,12 @@ from ..store import RunReadError, UnknownRun
 from . import review_protocol
 from ._session import (
     Session,
-    _apply,
-    _assess,
-    _blocking_severities,
-    _check_restart_limit,
-    _now,
-    _require_worktree,
+    apply_action,
+    assess_risk,
+    check_restart_limit,
+    require_worktree,
+    stage_blocking_severities,
+    utc_now,
 )
 
 
@@ -63,7 +63,7 @@ def fingerprint(
     ``clean`` is a cleanliness check of the validation worktree the caller has
     just made; no additional cleanliness check is needed for shell fingerprints.
     """
-    wt = _require_worktree(run)
+    wt = require_worktree(run)
     head = gitx.rev_parse(wt, "HEAD")
     # The note carries the published snapshot and commands, and a verifier
     # recomputes these digests from it. A user-level command digests as its
@@ -259,7 +259,7 @@ def _same_withheld_config(old: RunDoc, run: RunDoc, stage: Stage) -> bool:
 def _copied_file_secrets(run: RunDoc) -> list[str] | None:
     """Copied-file values for checking reused findings, or None when unreadable."""
     try:
-        return shellstage.read_secrets(_require_worktree(run), run.copied_files)
+        return shellstage.read_secrets(require_worktree(run), run.copied_files)
     except shellstage.SecretRedactionError:
         return None
 
@@ -419,9 +419,9 @@ def reopen_changed_inputs(session: Session, run: RunDoc, *, clean: bool | None =
         doc.stages = {
             stage: StageRecord(attempts=record.attempts) for stage, record in doc.stages.items()
         }
-        _apply(doc, Action.INVALIDATE_REVIEW)
+        apply_action(doc, Action.INVALIDATE_REVIEW)
         run = doc
-    _check_restart_limit(run)
+    check_restart_limit(run)
     return run
 
 
@@ -446,7 +446,7 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
     A caller that has just checked the worktree may pass that result as ``clean``.
     """
     if clean is None:
-        clean = gitx.is_clean(_require_worktree(run))
+        clean = gitx.is_clean(require_worktree(run))
     if not clean:
         return run
     run = reopen_changed_inputs(session, run, clean=True)
@@ -469,7 +469,7 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
             current[stage] = new
             decisions[stage] = classify(item.origin.fingerprint, new)
             if findings.blocking(
-                item.origin.findings, blocking_severities=_blocking_severities(session, stage)
+                item.origin.findings, blocking_severities=stage_blocking_severities(session, stage)
             ) or findings.actionable(item.origin.findings):
                 decisions[stage] = Classification(
                     disposition=Disposition.UNKNOWN, reasons=(ReasonCode.FINDINGS_UNRESOLVED,)
@@ -488,7 +488,7 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
             break
         item = run.reuse_candidates[stage]
         if findings.blocking(
-            item.origin.findings, blocking_severities=_blocking_severities(session, stage)
+            item.origin.findings, blocking_severities=stage_blocking_severities(session, stage)
         ):
             break
         imported = item.model_copy(
@@ -500,7 +500,7 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
                 "derivation_reason": "equivalent_inputs",
             }
         )
-        head = gitx.rev_parse(_require_worktree(run), "HEAD")
+        head = gitx.rev_parse(require_worktree(run), "HEAD")
         try:
             # ``imported`` is refreshed, so verification returns the review coverage
             # it has already rebound to this head and base.
@@ -541,7 +541,7 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
             if stage is Stage.REVIEW:
                 doc.review_coverage = coverage
             install_stage(doc, stage, record)
-            doc.risk = _assess(session, doc.changed_files, stored_findings)
+            doc.risk = assess_risk(session, doc.changed_files, stored_findings)
             run = doc
         session.store.append_event(
             run.run_id,
@@ -550,7 +550,7 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
                 "stage": stage.value,
                 "origin_run_id": item.origin.run_id,
                 "origin_sha": item.origin.head_sha,
-                "refreshed_at": _now(),
+                "refreshed_at": utc_now(),
             },
         )
     return archive(session, run)
@@ -576,20 +576,20 @@ def install_stage(doc: RunDoc, stage: Stage, record: StageRecord) -> None:
     may reach docs either before or after its context has been delivered.
     """
     if stage is Stage.REVIEW:
-        _apply(doc, Action.SUBMIT_CLEAN)
+        apply_action(doc, Action.SUBMIT_CLEAN)
     elif stage is Stage.DOCS:
         if record.status is StageStatus.SKIPPED:
-            _apply(doc, Action.SKIP_DOCS)
+            apply_action(doc, Action.SKIP_DOCS)
         else:
             if doc.state is State.REVIEW_GREEN:
-                _apply(doc, Action.BEGIN_DOCS)
-            _apply(doc, Action.SUBMIT_CLEAN)
+                apply_action(doc, Action.BEGIN_DOCS)
+            apply_action(doc, Action.SUBMIT_CLEAN)
     elif stage is Stage.LINT:
-        _apply(doc, Action.RUN_LINT)
-        _apply(doc, Action.LINT_PASSED)
+        apply_action(doc, Action.RUN_LINT)
+        apply_action(doc, Action.LINT_PASSED)
     elif record.status is StageStatus.SKIPPED:
-        _apply(doc, Action.SKIP_TEST)
+        apply_action(doc, Action.SKIP_TEST)
     else:
-        _apply(doc, Action.RUN_TEST)
-        _apply(doc, Action.TEST_PASSED)
+        apply_action(doc, Action.RUN_TEST)
+        apply_action(doc, Action.TEST_PASSED)
     doc.stages[stage] = record

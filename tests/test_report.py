@@ -31,7 +31,17 @@ ROOT_A = "a" * 40
 ROOT_B = "b" * 40
 
 FINDINGS_NULL = dict.fromkeys(
-    ("total", "by_stage", "by_severity", "by_status", "by_action", "by_response_reason", "blocking")
+    (
+        "total",
+        "by_stage",
+        "by_severity",
+        "by_status",
+        "by_action",
+        "by_response_reason",
+        "blocking",
+        "review_blocking_fixed",
+        "docs_blocking_fixed",
+    )
 )
 
 
@@ -825,10 +835,12 @@ def test_markdown_has_the_sections_in_order_and_ends_with_the_limits():
         "Agentic Preflight report",
         "Source",
         "Runs",
+        "Caught before push",
         "Findings",
         "Finding responses",
         "Stages",
         "Duration",
+        "Tool time",
         "Selected events",
         "Orphaned reasons",
         "Abort reasons",
@@ -1172,7 +1184,7 @@ def test_markdown_formats_computed_durations():
     assert "| Median | 10m 05s |" in text
     assert "| p90 | 1h 39m |" in text
     assert "| widget (github.com/owner/widget) | 5 | 5 | 0 | 0 | 100.0% | 0 | 10m 05s |" in text
-    assert report._duration(45.4) == "45s"
+    assert report.markdown._duration(45.4) == "45s"
 
 
 def test_report_points_at_rebuild_for_unmirrored_runs_and_names_unreadable_records(tmp_repo):

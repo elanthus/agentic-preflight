@@ -135,9 +135,11 @@ To use one, set `planner_command` to the same installed wrapper as `[review] com
 ```toml
 [review.contracts]
 enabled = true
-planner_command = "python3 -B docs/examples/reviewers/claude_review.py"
+planner_command = "python3 -S -B docs/examples/reviewers/claude_review.py"
 # image = "registry.example/review-runtime@sha256:<64 lowercase hex characters>"
 ```
+
+With Agentic Preflight installed, `planner_command = "agentic-preflight reviewer run --provider claude"` runs the same reviewer from the installed package.
 
 On the first `review run` for a snapshot, Agentic Preflight sends a canonical context with `section: "contracts"` to the planner.
 The wrapper requests only unit dispositions and checks.

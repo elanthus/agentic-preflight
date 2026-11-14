@@ -23,7 +23,7 @@ from agentic_preflight.attestation import NOTES_REF
 from agentic_preflight.config import config_digest
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.models import Attestation, Producer, RunDoc
-from agentic_preflight.runs._session import _start_command
+from agentic_preflight.runs._session import start_command
 from agentic_preflight.runs.start import (
     build_producer,
     detect_client,
@@ -261,7 +261,7 @@ def test_status_reports_null_for_a_run_without_a_producer(agent, feature_repo):
 
 def _recovery_argv(producer: Producer | None) -> list[str]:
     """The suggested restart, split the way a shell would."""
-    command = _start_command(
+    command = start_command(
         "same objective", base_ref="main", default_base_ref="main", producer=producer
     )
     return shlex.split(command)
