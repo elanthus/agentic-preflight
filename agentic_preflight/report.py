@@ -108,8 +108,10 @@ CATCH_NOTE = (
     "same run. It is not proof that hosted checks or a reviewer would have missed it."
 )
 TOOL_TIME_NOTE = (
-    "Tool time is the wall time of the commands the tool ran on its own: sync, setup, "
-    "the review command, lint, test, and merge-back. The push is not timed. "
+    "Tool time is the wall time of the commands the tool ran on its own before the run "
+    "ended: sync, setup, the review command, the contract planner, the shadow review of "
+    "`review compare`, the baseline check, lint, test, and merge-back. "
+    "The push is not timed. "
     "A run recorded before command timing has no tool time. "
     "A pull request sums the tool time of its synced `DONE` runs, and is left out "
     "when any of them has no tool time."
