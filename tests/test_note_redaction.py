@@ -276,6 +276,31 @@ def test_run_records_mark_unknown_provenance_by_omitting_the_field():
     assert run.model_dump(mode="json")["user_config_sections"] == []
 
 
+def test_a_redacted_review_command_still_protects_the_reviewer_paths_it_names():
+    # GHSA-3372-q2xp-jr7q: the note-building policy compares the redacted command,
+    # but risk must come from the real one, so its reviewer stays a human-review path.
+    from agentic_preflight.public_config import local_policy
+    from agentic_preflight.risk import assess
+
+    snapshot = {"review": {"executor": "command", "command": "python3 reviewer/rev.py"}}
+    run = make_run().model_copy(
+        update={"config_snapshot": snapshot, "user_config_sections": ["review"]}
+    )
+
+    policy = local_policy(run)
+
+    assert policy.review.command == REDACTED_COMMAND
+    result = assess(
+        ["reviewer/rev.py"],
+        [],
+        policy=policy.policy,
+        review=policy.review,
+        docs_blocking_severities=policy.docs.blocking_severities,
+    )
+    assert result.requires_human_review
+    assert [reason.pattern for reason in result.reasons] == ["reviewer/**"]
+
+
 def _to_test_green(agent: ScriptedAgent, tmp_path: Path) -> str:
     run_id = agent.run("start")["run_id"]
     agent.run("context")

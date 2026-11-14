@@ -41,7 +41,7 @@ def path_assessment(paths):
         paths,
         [],
         policy=cfg.policy,
-        review_blocking_severities=cfg.review.blocking_severities,
+        review=cfg.review,
         docs_blocking_severities=cfg.docs.blocking_severities,
     )
 
@@ -69,6 +69,9 @@ def owners_for(path):
         ".github/CODEOWNERS",
         ".github/workflows/new-workflow.yml",
         "SECURITY.md",
+        "docs/examples/reviewers/claude_review.py",
+        "docs/examples/reviewers/_reviewer_common.py",
+        "sitecustomize.py",
         "agentic_preflight/approval.py",
         "agentic_preflight/attestation.py",
         "agentic_preflight/cli_policy.py",
@@ -162,7 +165,7 @@ def test_dependency_updates_are_audited_without_human_risk_triggers():
             paths,
             [],
             policy=cfg.policy,
-            review_blocking_severities=cfg.review.blocking_severities,
+            review=cfg.review,
             docs_blocking_severities=cfg.docs.blocking_severities,
         ).level
 
@@ -193,7 +196,7 @@ def test_documentation_findings_still_require_human_review(path, status):
         [path],
         [finding],
         policy=cfg.policy,
-        review_blocking_severities=cfg.review.blocking_severities,
+        review=cfg.review,
         docs_blocking_severities=cfg.docs.blocking_severities,
     )
     assert result.level is RiskLevel.HIGH

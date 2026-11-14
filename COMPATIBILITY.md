@@ -603,6 +603,42 @@ The checkouts in `attestation.yml` and `human-approval.yml` set `persist-credent
 `human-approval-rerun.yml` now has an `authorize` job and a `rerun` job, and re-runs the policy only for a review from an owner, member, or collaborator, an action by a user with write access, or an action by a bot account that has dismissed an owner, member, or collaborator review of the pull request. When a lookup that decides this fails, it re-runs the policy with a warning instead of skipping it. A project that copied the companion should copy the new version.
 The required check keeps its name, and `approval-check`, its outputs, and the attestation schema are unchanged.
 
+## Unreleased: the reviewer's own files need human review
+
+Risk classification now treats the repository paths that `[review] command` and `[review.contracts] planner_command` name as human-review paths, together with every file under each named file's directory.
+Directories that a command changes to or adds to `PYTHONPATH` or `NODE_PATH`, and the top-level package of a dotted `-m` module, are protected as whole directories. `-m name` protects `name.py` and `name/**`.
+Shell control operators (`;`, `&`, `|`, `(`, `)`, `<`, `>`) split the command only outside quotes, so a quoted path such as `'reviewers (local)/rev.py'` is protected as one path.
+The new optional `[review] trusted_paths` list adds more patterns.
+This applies to local runs, to attestation verification, and to `approval-check`, which reads both from the protected base.
+A pull request that edits a configured reviewer script, or a sibling file such as the example wrappers' `_reviewer_common.py`, is now high risk and needs the configured approval. Earlier releases classified it by `[policy]` alone.
+Such paths appear in `data.path_reasons` with the existing kind `human_review_path`. No envelope field or reason kind is new.
+They also appear in the policy entries of `data.grounding`. For a branch whose changed files match a newly derived pattern, the grounding and `grounding_sha256` change, so review and docs evidence recorded for that branch before the upgrade is not reused and those stages run again.
+Earlier releases reject a configuration file that sets `trusted_paths`, as an unknown key. Upgrade the protected-base verifier and every machine that shares a clone before you set it.
+Configuration snapshots omit `trusted_paths` when it is empty, so snapshots and configuration digests for existing configurations are unchanged.
+A snapshot that sets it cannot be read by an earlier release.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+The example reviewer configurations now run their wrapper with `python3 -S -B`.
+The Claude wrapper now passes `--safe-mode` and `--setting-sources user`, checked against Claude Code 2.1.292.
+The Codex wrapper now passes `--config project_doc_max_bytes=0` and `--ignore-rules`, checked against Codex CLI 0.163.0.
+An older CLI that lacks one of these options fails the review with a visible error. Update the CLI, or remove the option from your copy of the wrapper and protect the files that it would read with `trusted_paths`.
+With `--safe-mode`, the Claude reviewer also ignores your user `CLAUDE.md`, skills, hooks, and MCP servers.
+
+## Unreleased: outcome fields in run summaries and the report
+
+The run summary keeps `schema_version = 1`. The new keys are inside objects that the summary already has:
+`findings.review_blocking_fixed`, `findings.docs_blocking_fixed`, `stages.<name>.red_then_green`, `timing.tool_seconds`, and `timing.agent_seconds`.
+Earlier tool versions validate the top level of a summary strictly but read these objects as open maps, so they read the new summaries and ignore the new keys.
+A reader must count a missing key as `null`, as for earlier summary additions.
+`telemetry rebuild` adds the keys to every summary of the clone. `timing.tool_seconds` and `timing.agent_seconds` stay `null` for runs that an earlier version recorded.
+
+The run event log can contain the new `tool_command_started` and `tool_command_finished` events, and the `run_created` event adds `command_timing`.
+The events never bind evidence. No fingerprint, evidence digest, configuration digest, or attestation reads them.
+They count against `events --limit` like other events, so the same limit shows fewer state transitions than before.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+In `agentic-preflight report`, each group of statistics adds `caught` and `tool_time`, and the Markdown has two new sections, "Caught before push" and "Tool time".
+
 ## Unreleased: the pre-push hook recognizes the SHA-256 zero object ID
 
 `hook-check` now treats Git's 64-character zero object ID as a ref that does not exist, as it treats the 40-character one.

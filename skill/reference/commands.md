@@ -398,7 +398,9 @@ and Git's merge of the head into it, so criss-cross history cannot hide a change
 covers every path touched by a non-merge commit in `base..head`, which a rebase merge
 replays, so a merge commit that cancels an earlier high-risk commit cannot hide it; a
 high-risk path changed and later reverted on the branch still counts. All three sets
-appear in `data.changed_files`. Low- and
+appear in `data.changed_files`. The repository paths that the base's `[review] command`
+and `planner_command` name, and its `[review] trusted_paths`, count as human-review
+paths and appear in `data.path_reasons` with kind `human_review_path`. Low- and
 medium-risk changes pass without a review. High-risk handling follows `[approval] mode`:
 `manual_merge` reports success while requiring the user to merge manually (the trusted
 workflow separately rejects enabled GitHub auto-merge); `environment` exits 4 until
@@ -920,6 +922,12 @@ the group `unknown`. The statistics are:
 - the median and p90 of `duration_seconds`;
 - the share of run time in the review and docs states and in the lint and test
   states, over runs with complete `timing`;
+- `caught`: the `DONE` runs where the gate stopped something before the push,
+  `runs_with_any_catch`, and for each source in `by_source` (a fixed blocking review or
+  docs finding, a lint or test stage that failed and later passed) its `runs_with_any`
+  and `excluded_runs`;
+- `tool_time`: the median and p90 of `timing.tool_seconds` per `DONE` run, and per
+  pull request (the sum over its synced `DONE` runs) under `per_pull_request`;
 - aborted runs by reason and by `aborted_from_state`;
 - hosted outcomes synced by `telemetry sync-hosted`, under `hosted.synced`, and orphaned
   reasons. The Markdown "Hosted outcomes synced" section and the two limits about hosted

@@ -33,12 +33,17 @@ See [docs/maintainers/approval-readiness.md](docs/maintainers/approval-readiness
 
 - `agentic_preflight/`: the package. Top-level modules hold configuration (`config.py`),
   the state machine (`machine.py`), the run store (`store.py`), Git helpers (`gitx.py`),
-  context grounding (`grounding.py`), the pre-push hook (`hook.py`), and the CLI
-  (`cli.py` plus the `cli_*.py` command families).
+  context grounding (`grounding.py`), the pre-push hook (`hook.py`), run summary
+  derivation (`run_summary.py`), the summary files and the telemetry mirror
+  (`telemetry.py`), and the CLI (`cli.py` plus the `cli_*.py` command families).
 - `agentic_preflight/runs/`: run lifecycle application code, including `start.py`,
   review, stages, merge-back, and the publish gate.
 - `agentic_preflight/stages/`: the docs, lint, and test stage implementations and change
   scope detection.
+- `agentic_preflight/report/`: the usage report. `reading.py` parses the mirror and the
+  hook log and summarizes a clone's records, `aggregation.py` filters and counts, and
+  `markdown.py` renders. `build_report` and `render_markdown` are importable from
+  `agentic_preflight.report`.
 - There is no templates directory. `agentic_preflight/initcmd.py` writes the starter
   configuration and the pre-push hook; `agentic_preflight/stages/docs.py` holds the
   documentation surface and CI-configuration path rules.

@@ -19,15 +19,15 @@ from ..envelope import Envelope
 from ..errors import InvalidFindings
 from ..machine import State
 from ..models import RunDoc
-from ..store import _atomic_write
+from ..store import atomic_write
 from ._session import (
     Session,
-    _assert_fresh,
-    _check_restart_limit,
-    _envelope_for,
-    _load_current,
-    _require_state,
-    _require_worktree,
+    assert_fresh,
+    check_restart_limit,
+    envelope_for,
+    load_current,
+    require_state,
+    require_worktree,
 )
 
 # The delivered summary stays bounded even at the largest configured plan and output
@@ -158,7 +158,7 @@ def image_packages(session: Session, run: RunDoc) -> tuple[ImageInventory, Path 
         # Nothing was attempted (no Docker), so the next call re-checks for it cheaply.
         return inventory, None
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-    _atomic_write(
+    atomic_write(
         path, json.dumps(inventory.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
     )
     return inventory, path
@@ -304,7 +304,7 @@ def record_plan(session: Session, run: RunDoc, payload: Any, bundle: DiffBundle)
             raise ValueError("contract check count exceeds the configured limit")
     except (ValidationError, ValueError) as exc:
         raise InvalidFindings(f"invalid contract plan: {exc}") from exc
-    worktree = Path(_require_worktree(run))
+    worktree = Path(require_worktree(run))
     if not gitx.is_clean(worktree):
         raise InvalidFindings("contract execution requires a clean committed worktree")
     receipt = execute_plan(worktree, manifest.head_sha, plan, session.config.review.contracts)
@@ -328,8 +328,8 @@ def record_plan(session: Session, run: RunDoc, payload: Any, bundle: DiffBundle)
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = folder / (digest + ".json")
     if not path.exists():
-        _atomic_write(path, json.dumps(data, sort_keys=True, separators=(",", ":")))
-    _atomic_write(folder / "current.json", json.dumps({"sha256": digest}))
+        atomic_write(path, json.dumps(data, sort_keys=True, separators=(",", ":")))
+    atomic_write(folder / "current.json", json.dumps({"sha256": digest}))
     session.store.append_event(
         run.run_id,
         {
@@ -345,15 +345,15 @@ def record_plan(session: Session, run: RunDoc, payload: Any, bundle: DiffBundle)
 def check_contracts(session: Session, payload: Any) -> Envelope:
     from . import review_protocol
 
-    run = _load_current(session)
-    _check_restart_limit(run)
-    _assert_fresh(session, run)
-    _require_state(run, State.REVIEW_AWAITING_FINDINGS, command="review contracts")
+    run = load_current(session)
+    check_restart_limit(run)
+    assert_fresh(session, run)
+    require_state(run, State.REVIEW_AWAITING_FINDINGS, command="review contracts")
     record_plan(session, run, payload, review_protocol.bundle_for(session, run))
     manifest = review_protocol.grounded_manifest(
         session, run, review_protocol.bundle_for(session, run)
     )
-    return _envelope_for(
+    return envelope_for(
         run,
         stage="review",
         data=ReviewContractsData(contract_checks=contract_context(session, run, manifest)),

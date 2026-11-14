@@ -279,14 +279,14 @@ def test_failed_legacy_orphan_preserves_journal_and_ownership(agent, feature_rep
     journal = path.parent / "pending-update.json"
     journal.write_text("interrupted legacy payload")
     before = path.read_bytes()
-    original = store_module._atomic_write
+    original = store_module.atomic_write
 
     def fail_orphan(target, payload):
         if target == path and json.loads(payload)["state"] == "ORPHANED":
             raise OSError("cannot retire run")
         original(target, payload)
 
-    monkeypatch.setattr(store_module, "_atomic_write", fail_orphan)
+    monkeypatch.setattr(store_module, "atomic_write", fail_orphan)
     agent.run("start", expect=1)
     assert path.read_bytes() == before
     assert journal.read_text() == "interrupted legacy payload"

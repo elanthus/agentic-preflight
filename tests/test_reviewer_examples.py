@@ -91,7 +91,8 @@ def toml_command_line(command: str) -> str:
 def configure_example(repo: Path, reviewer: str) -> None:
     config = (EXAMPLES / f"{reviewer}-reviewer.toml").read_text(encoding="utf-8")
     wrapper = EXAMPLES / "reviewers" / f"{reviewer}_review.py"
-    configured_command = shlex.join([sys.executable, "-B", str(wrapper)])
+    # Match the examples: no site processing, so nothing on sys.path runs first.
+    configured_command = shlex.join([sys.executable, "-S", "-B", str(wrapper)])
     config = re.sub(
         r'^command = ".*"$',
         lambda _match: toml_command_line(configured_command),
@@ -250,8 +251,13 @@ def test_reviewer_wrapper_runs_end_to_end(
         assert argv[0] == "exec"
         assert argv[argv.index("--model") + 1] == "gpt-5.3-codex"
         assert argv[argv.index("--config") + 1] == 'model_reasoning_effort="medium"'
+        # The branch under review must not instruct its own reviewer.
+        assert "project_doc_max_bytes=0" in argv
+        assert "--ignore-rules" in argv
     else:
         assert argv[0] == "-p"
+        assert "--safe-mode" in argv
+        assert argv[argv.index("--setting-sources") + 1] == "user"
         assert argv[argv.index("--model") + 1] == "claude-sonnet-5"
         assert argv[argv.index("--effort") + 1] == "high"
     session = open_session(feature_repo)
@@ -303,6 +309,9 @@ def test_example_configs_parse_without_expanding_configuration_sections(tmp_path
         assert {"docs/examples/reviewers/**", "docs/CODEOWNERS", ".github/CODEOWNERS"} <= set(
             loaded.policy.human_review_paths
         )
+        if reviewer == "codex":
+            # Codex reads these from the worktree, and no CLI option turns them off.
+            assert {".codex/**", ".agents/**"} <= set(loaded.review.trusted_paths)
 
     configuration = (ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
     documented = set(re.findall(r"^\[([a-z]+)\]$", configuration, re.MULTILINE))

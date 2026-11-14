@@ -17,15 +17,15 @@ from ..machine import Action, State
 from ..models import Attestation, RunDoc
 from ._session import (
     Session,
-    _apply,
-    _assert_fresh,
-    _assess,
-    _envelope_for,
-    _load_current,
-    _release_run_worktree,
-    _require_state,
-    _worktree_completion,
-    _worktree_mode,
+    apply_action,
+    assert_fresh,
+    assess_risk,
+    envelope_for,
+    load_current,
+    release_run_worktree,
+    require_state,
+    worktree_completion,
+    worktree_mode,
 )
 from .mergeback import _remote_for, require_known_provenance
 
@@ -107,9 +107,9 @@ def _attestation_or_none(session: Session, sha: str) -> Attestation | None:
 
 def gate(session: Session) -> Envelope:
     """Summarise what would be pushed and mint a confirmation token."""
-    run = _load_current(session)
-    _assert_fresh(session, run)
-    _require_state(run, State.VERIFIED, State.AWAITING_PUSH_CONFIRM, command="gate")
+    run = load_current(session)
+    assert_fresh(session, run)
+    require_state(run, State.VERIFIED, State.AWAITING_PUSH_CONFIRM, command="gate")
     require_known_provenance(run, command="gate")
 
     _remote_for(session, run)
@@ -123,7 +123,7 @@ def gate(session: Session) -> Envelope:
         run.merge_base_sha,
         run.head_sha,
     )
-    assessment = _assess(session, changed_files, session.store.load_findings(run.run_id))
+    assessment = assess_risk(session, changed_files, session.store.load_findings(run.run_id))
     try:
         portable = attestationmod.verify(session.repo_root, run.head_sha, purpose="publish")
     except (attestationmod.InvalidAttestation, gitx.GitError):
@@ -200,7 +200,7 @@ def gate(session: Session) -> Envelope:
     with session.store.transaction(run.run_id) as doc:
         doc.gate_token = summary.token
         if doc.state is State.VERIFIED:
-            _apply(doc, Action.GATE)
+            apply_action(doc, Action.GATE)
         run = doc
 
     opens_pr = session.config.pr.mode == "auto"
@@ -246,7 +246,7 @@ def gate(session: Session) -> Envelope:
         )
     else:
         cleanup_instruction = ""
-    return _envelope_for(
+    return envelope_for(
         run,
         data=GateData.model_validate(
             {
@@ -265,9 +265,9 @@ def gate(session: Session) -> Envelope:
 
 def push(session: Session, *, confirm: str | None = None, dry_run: bool = False) -> Envelope:
     """Push the run's branch after the confirmation token is checked."""
-    run = _load_current(session)
-    _assert_fresh(session, run)
-    _require_state(run, State.AWAITING_PUSH_CONFIRM, command="push")
+    run = load_current(session)
+    assert_fresh(session, run)
+    require_state(run, State.AWAITING_PUSH_CONFIRM, command="push")
     require_known_provenance(run, command="push")
 
     if not token_matches(run.gate_token, confirm):
@@ -297,7 +297,7 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
         notes_source = NOTES_COMMIT_PLACEHOLDER if candidates else None
         refspecs = _push_refspecs(run.head_sha, run.branch, notes_source)
         notes_lease = None if notes_source is None else _notes_lease(NOTES_TIP_PLACEHOLDER)
-        return _envelope_for(
+        return envelope_for(
             run,
             data=PushData(
                 dry_run=True,
@@ -318,11 +318,11 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
 
     with session.store.transaction(run.run_id) as doc:
         doc.pushed_sha = run.head_sha
-        _apply(doc, Action.PUSH)
+        apply_action(doc, Action.PUSH)
         run = doc
 
     session.store.append_event(run.run_id, {"event": "pushed", "sha": run.head_sha})
-    return _envelope_for(
+    return envelope_for(
         run,
         data=PushData(
             pushed=True,
@@ -413,12 +413,12 @@ def _publish(
 
 def finish(session: Session) -> Envelope:
     """Mark a pushed validation run complete and release its runner."""
-    run = _load_current(session)
-    _require_state(run, State.PUSHED, command="finish")
+    run = load_current(session)
+    require_state(run, State.PUSHED, command="finish")
 
-    _release_run_worktree(session, run)
+    release_run_worktree(session, run)
     with session.store.transaction(run.run_id) as doc:
-        _apply(doc, Action.FINISH)
+        apply_action(doc, Action.FINISH)
         doc.worktree_released = True
         run = doc
 
@@ -440,7 +440,7 @@ def finish(session: Session) -> Envelope:
             "authorization, so do not ask again. Automated cleanup is disabled: stop after "
             "hosted checks and wait for an explicit cleanup request."
         )
-    return _envelope_for(
+    return envelope_for(
         run,
         data=FinishData(
             pushed_sha=run.pushed_sha,
@@ -449,7 +449,7 @@ def finish(session: Session) -> Envelope:
             pr_mode=session.config.pr.mode,
             automated_cleanup=session.config.pr.automated_cleanup,
         ),
-        next_instruction=(_worktree_completion(_worktree_mode(run)) + pr_instruction),
+        next_instruction=(worktree_completion(worktree_mode(run)) + pr_instruction),
         next_command="agentic-preflight gc",
     )
 

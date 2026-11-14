@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from .. import gitx
+from .. import gitx, timing
 from ..errors import StageFailed
 from ..models import RunDoc
 from ..stages import shellstage
-from ._session import Session, _require_worktree
+from ._session import Session, require_worktree
 
 
 def _run_protected(
@@ -25,9 +25,14 @@ def _run_protected(
     before_run: Callable[[], None] | None = None,
     capture_data: dict | None = None,
     dirty_message: str | None = None,
+    timed_as: str | None = None,
 ) -> tuple[shellstage.ProtectedResult, bool]:
-    """Capture before bookkeeping, execute, check once, and persist safe output."""
-    wt = _require_worktree(run)
+    """Capture before bookkeeping, execute, check once, and persist safe output.
+
+    The command's wall time is recorded in the event log as ``timed_as``, which
+    defaults to ``stage``.
+    """
+    wt = require_worktree(run)
     try:
         protection = shellstage.OutputProtection.capture(wt, run.copied_files)
     except shellstage.SecretRedactionError as exc:
@@ -45,14 +50,15 @@ def _run_protected(
         ) from exc
     if before_run is not None:
         before_run()
-    result = shellstage.run_stage(
-        wt,
-        command,
-        timeout_seconds=session.config.stage.timeout_seconds,
-        stdin_text=stdin_text,
-        separate_stderr=separate_stderr,
-        guarded_files=run.copied_files,
-    )
+    with timing.timed_command(session.store, run.run_id, timed_as or stage):
+        result = shellstage.run_stage(
+            wt,
+            command,
+            timeout_seconds=session.config.stage.timeout_seconds,
+            stdin_text=stdin_text,
+            separate_stderr=separate_stderr,
+            guarded_files=run.copied_files,
+        )
     session.clear_memo()
     clean_after = gitx.is_clean(wt)
     if not clean_after:
