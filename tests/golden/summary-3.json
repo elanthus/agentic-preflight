@@ -1,0 +1,108 @@
+{
+  "kind": "agentic-preflight-run-summary",
+  "schema_version": 1,
+  "written_at": "2026-11-01T00:00:00+00:00",
+  "run_id": "r_0000000009",
+  "state": "ABORTED",
+  "record_schema_version": 2,
+  "repo": {
+    "root_commit": null,
+    "remote": "github.com/owner/widget",
+    "name": "widget",
+    "source_worktree_path": "/repos/widget"
+  },
+  "branch": "feature/widget",
+  "base_ref": "main",
+  "head_sha": "4444444444444444444444444444444444444444",
+  "pushed_sha": "4444444444444444444444444444444444444444",
+  "intent_sha256": "b67f267309187edb114e1bffeb060435f1e834d835bd99338af6f138916ab562",
+  "intent_source": "user",
+  "created_at": "2026-10-11T19:50:00+00:00",
+  "finished_at": "2026-10-11T20:10:00+00:00",
+  "duration_seconds": 1200.0,
+  "timing": null,
+  "producer": null,
+  "risk": {
+    "level": "high",
+    "verdict": "needs_human",
+    "requires_human_review": true
+  },
+  "review": {
+    "total_units": 3,
+    "cited_count": 1,
+    "clean_count": 2,
+    "excluded_count": 1,
+    "executor": "command"
+  },
+  "stages": {
+    "review": {
+      "status": "green",
+      "attempts": 0,
+      "started_at": null,
+      "finished_at": "2026-10-11T19:57:19+00:00",
+      "duration_seconds": null,
+      "reused": true,
+      "reason": null,
+      "red_then_green": null
+    },
+    "lint": {
+      "status": "red",
+      "attempts": 2,
+      "started_at": null,
+      "finished_at": "2026-10-11T19:57:28+00:00",
+      "duration_seconds": null,
+      "reused": false,
+      "reason": null,
+      "red_then_green": null
+    }
+  },
+  "findings": {
+    "total": 4,
+    "by_stage": {
+      "docs": 2,
+      "review": 2
+    },
+    "by_severity": {
+      "critical": 1,
+      "high": 1,
+      "low": 1,
+      "medium": 1
+    },
+    "by_status": {
+      "accepted": 1,
+      "dismissed": 1,
+      "fixed": 1,
+      "open": 1
+    },
+    "by_action": {
+      "ask_user": 1,
+      "auto_fix": 1,
+      "no_op": 2
+    },
+    "by_response_reason": {
+      "unspecified": 2
+    },
+    "blocking": 2,
+    "review_blocking_fixed": 0,
+    "docs_blocking_fixed": 0
+  },
+  "fix_commits": 2,
+  "validation_restarts": 1,
+  "event_counts": {},
+  "terminal": {
+    "aborted_forced": null,
+    "abort_reason": null,
+    "aborted_from_state": null,
+    "orphaned_reason": null
+  },
+  "hosted": {
+    "pr_number": 7,
+    "pr_state": "closed",
+    "merged": true,
+    "checks_conclusion": "failure",
+    "fetched_at": "2026-11-01T00:00:00+00:00"
+  },
+  "worktree_mode": "reusable",
+  "pr_mode": "manual",
+  "config_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+}

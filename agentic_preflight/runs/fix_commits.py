@@ -15,7 +15,7 @@ from .. import gitx, worktree
 from ..envelope import ExitCode
 from ..errors import AgenticError, StaleRun
 from ..models import RunDoc
-from ._session import Session, _is_in_place, _require_worktree, _start_command
+from ._session import Session, is_in_place, require_worktree, start_command
 
 
 class NonlinearFixHistory(AgenticError):
@@ -42,14 +42,14 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
     Raises ``StaleRun`` when the validation branch was rewritten rather than
     advanced, and refuses any commit that carries a copied environment file.
     """
-    checkout = _require_worktree(run)
+    checkout = require_worktree(run)
     current = gitx.rev_parse(checkout, "HEAD")
     if not gitx.is_ancestor(checkout, run.head_sha, current):
         raise StaleRun(
             "the validation branch was rewritten instead of advanced by repair commits",
             state=run.state.value,
             run_id=run.run_id,
-            next_command=_start_command(
+            next_command=start_command(
                 run.intent,
                 base_ref=run.base_ref,
                 default_base_ref=session.config.general.base_ref,
@@ -57,7 +57,7 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
             ),
         )
     span = f"{run.head_sha}..{current}"
-    if not _is_in_place(run):
+    if not is_in_place(run):
         merges = gitx._lines(gitx.out(checkout, "rev-list", "--reverse", "--merges", span))
         if merges:
             raise NonlinearFixHistory(
@@ -76,7 +76,7 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
                 next_command=shlex.join(["git", "-C", checkout, "rebase", run.head_sha]),
             )
     commits = gitx.commits_between(checkout, run.head_sha, current)
-    if not _is_in_place(run):
+    if not is_in_place(run):
         commits = [sha for sha in commits if not _is_empty(checkout, sha)]
     for sha in commits:
         # Independent of the preflight copy refusal: a .gitignore edited mid-run
@@ -101,7 +101,7 @@ def record_fix_commits(run: RunDoc, derived: list[str]) -> list[str]:
     order is commit order, whatever order the agent cited it in.
     """
     added = [sha for sha in derived if sha not in run.fix_commits]
-    if _is_in_place(run):
+    if is_in_place(run):
         run.fix_commits = [sha for sha in run.fix_commits if sha not in derived] + derived
     else:
         run.fix_commits = list(derived)

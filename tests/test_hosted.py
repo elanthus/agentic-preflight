@@ -711,7 +711,7 @@ def test_a_hosted_json_that_cannot_be_written_stops_the_sync(github_repo, monkey
     def refuse(path, payload):
         raise PermissionError("read-only run directory")
 
-    monkeypatch.setattr(hosted, "_atomic_write", refuse)
+    monkeypatch.setattr(hosted, "atomic_write", refuse)
 
     result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.ERROR)
 

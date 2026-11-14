@@ -8,7 +8,7 @@ from .. import gitx, timing
 from ..errors import StageFailed
 from ..models import RunDoc
 from ..stages import shellstage
-from ._session import Session, _require_worktree
+from ._session import Session, require_worktree
 
 
 def _run_protected(
@@ -32,7 +32,7 @@ def _run_protected(
     The command's wall time is recorded in the event log as ``timed_as``, which
     defaults to ``stage``.
     """
-    wt = _require_worktree(run)
+    wt = require_worktree(run)
     try:
         protection = shellstage.OutputProtection.capture(wt, run.copied_files)
     except shellstage.SecretRedactionError as exc:

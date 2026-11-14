@@ -1,7 +1,7 @@
 """Wall-clock time in each run state, from the run's ``state_transition`` events.
 
 Every committed state change appends a ``state_transition`` event with ``from``,
-``to``, and a UTC ``at`` (see :func:`agentic_preflight.runs._session._apply`).
+``to``, and a UTC ``at`` (see :func:`agentic_preflight.runs._session.apply_action`).
 This module turns that chain into time spent per state for the run summary.
 
 It reads ``at`` only. ``monotonic_ns`` is exact but valid only within one boot of

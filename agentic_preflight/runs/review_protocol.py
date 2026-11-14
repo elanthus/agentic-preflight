@@ -20,7 +20,7 @@ from ..errors import InvalidFindings
 from ..fingerprints import doc_surface
 from ..models import DocsSubmission, FindingSubmission, ReviewSubmission, RunDoc, Stage
 from ..stages import docs as docsstage
-from ._session import Session, _require_worktree
+from ._session import Session, require_worktree
 
 ReviewExecutor = Literal["in_harness", "command"]
 
@@ -79,7 +79,7 @@ def grounded_manifest(
     head: str | None = None,
 ) -> diffmod.ReviewManifest:
     """Bind review coverage to the grounding delivered with this diff snapshot."""
-    worktree_path = _require_worktree(run)
+    worktree_path = require_worktree(run)
     _, head = _snapshot(session, run, head)
     review_grounding = (
         grounding if grounding is not None else grounding_for(session, run, bundle.files, head=head)
@@ -115,7 +115,7 @@ def docs_inventory(
     each entry's size comes from the worktree, so code that changes the worktree
     inside a command (a stage command) must clear the session memo.
     """
-    worktree_path = _require_worktree(run)
+    worktree_path = require_worktree(run)
     _, head = _snapshot(session, run, head)
     doc_paths = session.config.docs.paths
     return session.memoized(
@@ -128,7 +128,7 @@ def docs_surface(
     session: Session, run: RunDoc, changed_files: list[str], *, head: str | None = None
 ) -> list[dict[str, Any]]:
     """Hash the documentation inventory's file contents once per command."""
-    worktree_path = _require_worktree(run)
+    worktree_path = require_worktree(run)
     _, head = _snapshot(session, run, head)
     key = (
         "docs_surface",
@@ -159,7 +159,7 @@ def context_data(
     review_manifest: diffmod.ReviewManifest | None = None,
 ) -> dict[str, Any]:
     """Build the single canonical bundle used by context and command review."""
-    worktree_path = _require_worktree(run)
+    worktree_path = require_worktree(run)
     head = gitx.rev_parse(worktree_path, "HEAD")
     grounding = grounding_for(session, run, bundle.files, head=head)
     if section == "review" and review_manifest is None:

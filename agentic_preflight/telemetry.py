@@ -1,20 +1,22 @@
 """Local run summaries and the user-level telemetry mirror.
 
 A run's audit record (``run.json``, ``findings.json``, ``events.jsonl``) lives in
-one clone. When a run ends, a compact, versioned :class:`RunSummary` of
-code-derived facts is written beside that record as ``summary.json``. Unless the
-user turns the mirror off, the same summary is appended as one JSON line to a
-user-level ``runs.jsonl``, so runs from every repository on this machine can be
-read together.
+one clone. When a run ends, a compact, versioned
+:class:`~agentic_preflight.run_summary.RunSummary` of code-derived facts is
+written beside that record as ``summary.json``. Unless the user turns the mirror
+off, the same summary is appended as one JSON line to a user-level
+``runs.jsonl``, so runs from every repository on this machine can be read
+together.
+
+This module identifies the repository, reads stored records, writes
+``summary.json`` and the mirror under its lock, records the end of a run, and
+rebuilds summaries. :mod:`agentic_preflight.run_summary` derives the summary
+itself.
 
 Everything here is derived output:
 
 * Nothing is sent anywhere. The mirror is a local file.
-* A summary records states, counts, and digests. It never copies the intent
-  text, diffs, finding text, logs, or command output.
-* No summary field feeds a fingerprint, an evidence digest, or an attestation,
-  and ``summary.json`` is never read back as evidence.
-* Absent evidence is ``None``, never zero. Older records lack many fields.
+* ``summary.json`` is never read back as evidence.
 * Writing a summary never fails the command that ended the run.
 * A repository with no network remote cannot push, so it is a test fixture, not
   work that preflight gates. Its rows never reach the default telemetry directory,
@@ -28,23 +30,27 @@ import json
 import os
 import re
 import subprocess
-from collections import Counter
-from collections.abc import Iterable, Iterator, Mapping, Sequence
-from datetime import UTC, datetime
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import ValidationError
 
-from . import filelock, fileperms, gitx, timing
+from . import filelock, fileperms, gitx
 from .config import Config, ConfigError, load_config
-from .digests import sha256_text
-from .machine import TERMINAL_STATES, State
-from .models import Finding, RunDoc, Stage
-from .store import Store, _atomic_write
+from .machine import TERMINAL_STATES
+from .models import Finding, RunDoc
+from .run_summary import (
+    RepoIdentity,
+    RunSummary,
+    as_str,
+    effective_state,
+    summarize,
+    utc_now,
+)
+from .store import Store, atomic_write
 
-SUMMARY_KIND = "agentic-preflight-run-summary"
 SUMMARY_NAME = "summary.json"
 MIRROR_NAME = "runs.jsonl"
 _MIRROR_LOCK_NAME = "runs.jsonl.lock"
@@ -58,77 +64,11 @@ _DRIVE = re.compile(r"[A-Za-z]:")
 _LOCAL_PATH_START = re.compile(r"[/\\.~]|[A-Za-z]:")
 #: Loopback hosts. A remote on this machine is a test server, not a hosted repository.
 _LOOPBACK = re.compile(r"localhost|127(?:\.\d{1,3}){3}|::1")
-#: Events this module appends. They are left out of ``event_counts`` so that a
-#: rebuilt summary counts the same events as the one written when the run ended.
-TELEMETRY_EVENTS = frozenset({"summary_written", "summary_failed"})
-#: Markers that repeat the terminal state. Some commands append them after the
-#: terminal commit, so they are also left out of ``event_counts``.
-TERMINAL_MARKER_EVENTS = frozenset({"finished", "aborted", "orphaned"})
-
 _TERMINAL = frozenset(state.value for state in TERMINAL_STATES)
-_STATE_VALUES = frozenset(state.value for state in State)
-_STAGE_ORDER = [stage.value for stage in Stage]
-_RETIRED_DELEGATED_STATES = ("TEST_DELEGATED", "PUBLICATION_READY")
-_RETIRED_DELEGATION_REASON = "CI test delegation was removed; start a new local validation run"
-_DEFAULT_BLOCKING = ("critical", "high")
-#: Finding statuses that ``respond`` records with an agent-chosen reason.
-_REASONED_STATUSES = frozenset({"dismissed", "accepted"})
 _GIT_TIMEOUT_SECONDS = 30
 _ERROR_LIMIT = 500
 _SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 _SCP_REMOTE = re.compile(r"^(?:[^@/]+@)?(?P<host>[^/:]+):(?P<path>.*)$")
-
-
-class RepoIdentity(BaseModel):
-    """Which repository a run belongs to, independent of the clone it ran in."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    #: Smallest root commit of ``HEAD``: the same in every clone of a repository.
-    root_commit: str | None
-    #: ``origin`` as host and path, without scheme, credentials, port, or ``.git``.
-    remote: str | None
-    #: Last path segment of ``remote``, else the clone's directory name.
-    name: str | None
-    source_worktree_path: str
-
-
-class RunSummary(BaseModel):
-    """Schema 1 of one finished run's local summary."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: Literal["agentic-preflight-run-summary"] = "agentic-preflight-run-summary"
-    schema_version: Literal[1] = 1
-    written_at: str
-    run_id: str
-    state: str
-    record_schema_version: int
-    repo: RepoIdentity
-    branch: str
-    base_ref: str
-    head_sha: str
-    pushed_sha: str | None
-    intent_sha256: str | None
-    intent_source: str
-    created_at: str
-    finished_at: str
-    duration_seconds: float | None
-    #: Wall-clock seconds per state from the transition events; ``None`` without them.
-    timing: dict[str, Any] | None = None
-    producer: dict[str, Any] | None
-    risk: dict[str, Any] | None
-    review: dict[str, Any] | None
-    stages: dict[str, dict[str, Any]]
-    findings: dict[str, Any]
-    fix_commits: int | None
-    validation_restarts: int | None
-    event_counts: dict[str, int] | None
-    terminal: dict[str, Any]
-    hosted: dict[str, Any]
-    worktree_mode: str | None
-    pr_mode: str | None
-    config_digest: str
 
 
 # -- identity ---------------------------------------------------------------
@@ -172,7 +112,8 @@ def _remote_name(remote: str | None) -> str | None:
     return re.split(r"[/\\]", remote)[-1] or None
 
 
-def _git_output(cwd: Path, *args: str) -> str | None:
+def git_output(cwd: Path, *args: str) -> str | None:
+    """Git's stripped output in ``cwd``, or ``None`` when Git fails or prints nothing."""
     try:
         result = gitx.run(cwd, *args, check=False, timeout=_GIT_TIMEOUT_SECONDS)
     except (OSError, subprocess.SubprocessError):
@@ -183,7 +124,7 @@ def _git_output(cwd: Path, *args: str) -> str | None:
 
 
 def _root_commit(repo_root: Path) -> str | None:
-    listing = _git_output(repo_root, "rev-list", "--max-parents=0", "HEAD")
+    listing = git_output(repo_root, "rev-list", "--max-parents=0", "HEAD")
     roots = [line.strip() for line in (listing or "").splitlines()]
     roots = [line for line in roots if _SHA.fullmatch(line)]
     return min(roots) if roots else None
@@ -203,7 +144,7 @@ def repo_identity(
 ) -> RepoIdentity:
     """Identify the repository at ``repo_root``; unknown parts are ``None``."""
     root = Path(repo_root)
-    remote = normalize_remote(_git_output(root, "remote", "get-url", "origin"))
+    remote = normalize_remote(git_output(root, "remote", "get-url", "origin"))
     return RepoIdentity(
         root_commit=_root_commit(root),
         remote=remote,
@@ -212,346 +153,14 @@ def repo_identity(
     )
 
 
-# -- summary ----------------------------------------------------------------
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
-
-
-def _str(value: Any) -> str | None:
-    return value if isinstance(value, str) else None
-
-
-def _int(value: Any) -> int | None:
-    return value if type(value) is int else None
-
-
-def _bool(value: Any) -> bool | None:
-    return value if isinstance(value, bool) else None
-
-
-def _dict(value: Any) -> dict[str, Any] | None:
-    return value if isinstance(value, dict) else None
-
-
-def _length(value: Any) -> int | None:
-    return len(value) if isinstance(value, list) else None
-
-
-def _as_record(run: RunDoc | Mapping[str, Any]) -> dict[str, Any]:
-    if isinstance(run, BaseModel):
-        return run.model_dump(mode="json")
-    return dict(run)
-
-
-def _producer(run: RunDoc | Mapping[str, Any], record: Mapping[str, Any]) -> dict[str, Any] | None:
-    producer = getattr(run, "producer", None) if isinstance(run, BaseModel) else None
-    if producer is None:
-        producer = record.get("producer")
-    if isinstance(producer, BaseModel):
-        return producer.model_dump(mode="json")
-    return _dict(producer)
-
-
-def _effective_state(record: Mapping[str, Any]) -> tuple[str | None, str | None]:
-    """Return the state and orphan reason the tool reads, as ``RunDoc`` would load them."""
-    state = _str(record.get("state"))
-    retired = state in _RETIRED_DELEGATED_STATES or (
-        record.get("test_delegation") is not None
-        and state in _STATE_VALUES
-        and state not in ("PUSHED", *_TERMINAL)
-    )
-    if retired:
-        return "ORPHANED", _RETIRED_DELEGATION_REASON
-    return state, _str(record.get("orphaned_reason"))
-
-
-def _tally(values: Iterable[Any]) -> dict[str, int]:
-    counts = Counter(value if isinstance(value, str) else "unknown" for value in values)
-    return dict(sorted(counts.items()))
-
-
-def _blocking_severities(snapshot: Mapping[str, Any], section: str) -> frozenset[str] | None:
-    """The run's configured blocking severities for one findings stage.
-
-    A missing key held the model default when the run started. A value that is
-    present but malformed is unknown.
-    """
-    body = snapshot.get(section)
-    if not isinstance(body, dict) or "blocking_severities" not in body:
-        return frozenset(_DEFAULT_BLOCKING)
-    value = body["blocking_severities"]
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        return None
-    return frozenset(value)
-
-
-def _finding_items(findings: Any) -> list[dict[str, Any]] | None:
-    """The findings as objects, or ``None`` when the file is not a list of objects."""
-    if not isinstance(findings, (list, tuple)):
-        return None
-    items: list[dict[str, Any]] = []
-    for item in findings:
-        if isinstance(item, BaseModel):
-            items.append(item.model_dump(mode="json"))
-        elif isinstance(item, Mapping):
-            items.append(dict(item))
-        else:
-            return None
-    return items
-
-
-def _is_blocking(item: Mapping[str, Any], review: frozenset[str], docs: frozenset[str]) -> bool:
-    """Whether a finding's severity blocks its stage. A non-text severity never does."""
-    severity = item.get("severity")
-    if not isinstance(severity, str):
-        return False
-    return severity in (docs if item.get("stage") == "docs" else review)
-
-
-def _response_reasons(items: Sequence[Mapping[str, Any]]) -> dict[str, int]:
-    """The agent's reasons for dismissed and accepted findings. No reason is ``unspecified``."""
-    reasons = (
-        item.get("response_reason") for item in items if item.get("status") in _REASONED_STATUSES
-    )
-    return _tally("unspecified" if reason is None else reason for reason in reasons)
-
-
-def _findings_summary(
-    findings: Sequence[Finding | Mapping[str, Any]] | None, snapshot: Mapping[str, Any]
-) -> dict[str, Any]:
-    """Finding counts. All are ``None`` without a findings file or with a malformed one."""
-    keys = (
-        "total",
-        "by_stage",
-        "by_severity",
-        "by_status",
-        "by_action",
-        "by_response_reason",
-        "blocking",
-        "review_blocking_fixed",
-        "docs_blocking_fixed",
-    )
-    items = _finding_items(findings)
-    if items is None:
-        return dict.fromkeys(keys)
-    review = _blocking_severities(snapshot, "review")
-    docs = _blocking_severities(snapshot, "docs")
-    blocking: int | None = None
-    review_fixed: int | None = None
-    docs_fixed: int | None = None
-    if review is not None and docs is not None:
-        blocking_items = [item for item in items if _is_blocking(item, review, docs)]
-        blocking = len(blocking_items)
-        caught = [item for item in blocking_items if item.get("status") == "fixed"]
-        docs_fixed = sum(1 for item in caught if item.get("stage") == "docs")
-        review_fixed = len(caught) - docs_fixed
-    return {
-        "total": len(items),
-        "by_stage": _tally(item.get("stage") for item in items),
-        "by_severity": _tally(item.get("severity") for item in items),
-        "by_status": _tally(item.get("status") for item in items),
-        "by_action": _tally(item.get("action") for item in items),
-        "by_response_reason": _response_reasons(items),
-        "blocking": blocking,
-        # Blocking findings that were fixed before the push: what review and docs caught.
-        "review_blocking_fixed": review_fixed,
-        "docs_blocking_fixed": docs_fixed,
-    }
-
-
-def _stage_order(name: str) -> tuple[int, str]:
-    return (_STAGE_ORDER.index(name) if name in _STAGE_ORDER else len(_STAGE_ORDER), name)
-
-
-#: Shell stages whose red state the gate can leave for green within one run.
-_SHELL_STAGES = ("lint", "test")
-
-
-def _red_then_green(
-    events: Sequence[Mapping[str, Any]] | None, complete: bool
-) -> dict[str, bool | None]:
-    """Whether each shell stage failed and later passed in the same run.
-
-    ``stages.<name>.attempts`` counts failures but not whether a later attempt
-    passed, so the transitions decide: a visit to ``<STAGE>_RED`` before a visit
-    to ``<STAGE>_GREEN``. A red that interrupted-command recovery committed (the
-    next event is ``<stage>_interrupted``) is not a failure of the change. Unless
-    the transition chain is complete (:func:`timing.state_timing`), a red can be
-    missing, so the answer is unknown.
-    """
-    if not complete:
-        return dict.fromkeys(_SHELL_STAGES)
-    items = list(_event_items(events))
-    result: dict[str, bool | None] = {}
-    for stage in _SHELL_STAGES:
-        red, green = f"{stage.upper()}_RED", f"{stage.upper()}_GREEN"
-        failed = caught = False
-        for index, event in enumerate(items):
-            if event.get("event") != "state_transition":
-                continue
-            target = event.get("to")
-            if target == red:
-                following = items[index + 1] if index + 1 < len(items) else {}
-                failed = failed or following.get("event") != f"{stage}_interrupted"
-            elif target == green and failed:
-                caught = True
-        result[stage] = caught
-    return result
-
-
-def _stages(
-    record: Mapping[str, Any],
-    events: Sequence[Mapping[str, Any]] | None = None,
-    *,
-    complete: bool = False,
-) -> dict[str, dict[str, Any]]:
-    stages = _dict(record.get("stages")) or {}
-    red_then_green = _red_then_green(events, complete)
-    evidence = _dict(record.get("evidence"))
-    summary: dict[str, dict[str, Any]] = {}
-    for name in sorted(stages, key=_stage_order):
-        stage = _dict(stages[name]) or {}
-        status = _str(stage.get("status"))
-        reused: bool | None = None
-        if evidence is not None:
-            item = _dict(evidence.get(name))
-            reused = item is not None and item.get("derivation_reason") is not None
-        started_at = _str(stage.get("started_at"))
-        finished_at = _str(stage.get("finished_at"))
-        # Only a stage that ran here has a duration: a reused result started in
-        # another run, and a skipped stage never started.
-        ran = status != "skipped" and reused is False
-        summary[name] = {
-            "status": status,
-            "attempts": _int(stage.get("attempts")),
-            "started_at": started_at,
-            "finished_at": finished_at,
-            "duration_seconds": _duration(started_at, finished_at) if ran else None,
-            "reused": reused,
-            # Skip reasons are code-assigned. Failure reasons can quote command
-            # or reviewer output, which a summary never copies.
-            "reason": _str(stage.get("reason")) if status == "skipped" else None,
-            # Only the shell stages have a red state that a repair turns green.
-            "red_then_green": red_then_green.get(name),
-        }
-    return summary
-
-
-def _risk(record: Mapping[str, Any]) -> dict[str, Any] | None:
-    risk = _dict(record.get("risk"))
-    if risk is None:
-        return None
-    return {
-        "level": _str(risk.get("level")),
-        "verdict": _str(risk.get("verdict")),
-        "requires_human_review": _bool(risk.get("requires_human_review")),
-    }
-
-
-def _review(record: Mapping[str, Any]) -> dict[str, Any] | None:
-    coverage = _dict(record.get("review_coverage"))
-    stage = _dict((_dict(record.get("stages")) or {}).get("review"))
-    if coverage is None and stage is None:
-        return None
-    coverage = coverage or {}
-    return {
-        "total_units": _int(coverage.get("total_units")),
-        "cited_count": _length(coverage.get("cited_units")),
-        "clean_count": _length(coverage.get("clean_units")),
-        "excluded_count": _length(coverage.get("excluded_files")),
-        "executor": _str((stage or {}).get("executor")),
-    }
-
-
-def _event_items(events: Iterable[Any] | None) -> Iterator[Mapping[str, Any]]:
-    """The event log's objects. A line that holds any other JSON value is skipped."""
-    for event in events or ():
-        if isinstance(event, Mapping):
-            yield event
-
-
-def _event_counts(events: Sequence[Mapping[str, Any]] | None) -> dict[str, int] | None:
-    if events is None:
-        return None
-    names = (event.get("event") for event in _event_items(events))
-    return _tally(
-        name
-        for name in names
-        if isinstance(name, str)
-        and name not in TELEMETRY_EVENTS
-        and name not in TERMINAL_MARKER_EVENTS
-    )
-
-
-def _finished_at(record: Mapping[str, Any], events: Sequence[Mapping[str, Any]] | None) -> Any:
-    """The time of the terminal commit.
-
-    A later write, such as ``gc`` recording a released worktree, moves
-    ``updated_at``. The terminal transition event keeps the original time, and
-    its ``seq`` shows whether ``updated_at`` still belongs to that commit.
-    """
-    updated = _str(record.get("updated_at"))
-    for event in _event_items(events):
-        target = event.get("to")
-        if (
-            event.get("event") == "state_transition"
-            and isinstance(target, str)
-            and (target in _TERMINAL)
-        ):
-            if updated and event.get("seq") is not None and event.get("seq") == record.get("seq"):
-                return updated
-            return _str(event.get("at")) or updated
-    return updated
-
-
-def _duration(start: str | None, end: str | None) -> float | None:
-    try:
-        delta = datetime.fromisoformat(end or "") - datetime.fromisoformat(start or "")
-    except (TypeError, ValueError):
-        return None
-    seconds = delta.total_seconds()
-    return seconds if seconds >= 0 else None
-
-
-def _aborted_from_transition(events: Sequence[Mapping[str, Any]]) -> str | None:
-    """The ``from`` of the last transition into ``ABORTED``, for aborts without a marker."""
-    for event in reversed(events):
-        if event.get("event") == "state_transition" and event.get("to") == "ABORTED":
-            return _str(event.get("from"))
-    return None
-
-
-def _terminal(
-    state: str | None, reason: str | None, events: Sequence[Mapping[str, Any]] | None
-) -> dict[str, Any]:
-    """How the run ended. ``abort_reason`` is the agent's label; the rest is code-derived."""
-    forced = abort_reason = aborted_from = None
-    if state == "ABORTED":
-        items = list(_event_items(events))
-        for event in reversed(items):
-            if event.get("event") == "aborted":
-                forced = _bool(event.get("forced"))
-                abort_reason = _str(event.get("reason"))
-                aborted_from = _str(event.get("aborted_from_state"))
-                break
-        # Older markers, and the aborts that ``start`` commits itself, carry no
-        # state; the transition event records the same fact.
-        aborted_from = aborted_from or _aborted_from_transition(items)
-    return {
-        "aborted_forced": forced,
-        "abort_reason": abort_reason,
-        "aborted_from_state": aborted_from,
-        "orphaned_reason": reason,
-    }
+# -- hosted outcomes ----------------------------------------------------------
 
 
 #: Hosted outcomes that ``telemetry sync-hosted`` joined onto a pushed run.
 HOSTED_NAME = "hosted.json"
 
 
-def _read_hosted(store: Store, run_id: str) -> dict[str, Any] | None:
+def read_hosted(store: Store, run_id: str) -> dict[str, Any] | None:
     """The run's ``hosted.json``, or ``None`` when it has none.
 
     The file is derived from GitHub, not evidence. A file that cannot be read,
@@ -563,91 +172,6 @@ def _read_hosted(store: Store, run_id: str) -> dict[str, Any] | None:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
     return value if isinstance(value, dict) else None
-
-
-def _synced(record: Mapping[str, Any], hosted: Mapping[str, Any] | None) -> dict[str, Any]:
-    """The keys joined from ``hosted.json``. All are ``None`` until the run is synced.
-
-    A file whose ``sha`` is not the run's pushed commit describes another
-    commit, so it is ignored.
-    """
-    pushed = _str(record.get("pushed_sha"))
-    if not isinstance(hosted, Mapping) or not pushed or hosted.get("sha") != pushed:
-        hosted = {}
-    pr = _dict(hosted.get("pr"))
-    checks = _dict(hosted.get("checks")) or {}
-    return {
-        "pr_number": _int(pr.get("number")) if pr else None,
-        "pr_state": _str(pr.get("state")) if pr else None,
-        "merged": bool(_str(pr.get("merged_at"))) if pr else None,
-        "checks_conclusion": _str(checks.get("conclusion")),
-        "fetched_at": _str(hosted.get("fetched_at")),
-    }
-
-
-def _hosted(record: Mapping[str, Any], hosted: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """The GitHub outcome that ``telemetry sync-hosted`` joined, or nulls before a sync."""
-    return _synced(record, hosted)
-
-
-def summarize(
-    run: RunDoc | Mapping[str, Any],
-    findings: Sequence[Finding | Mapping[str, Any]] | None,
-    events: Sequence[Mapping[str, Any]] | None,
-    repo: RepoIdentity,
-    *,
-    written_at: str | None = None,
-    hosted: Mapping[str, Any] | None = None,
-) -> RunSummary:
-    """Summarize one run record from code-derived facts.
-
-    ``run`` is a loaded run document or the raw ``run.json`` object of any
-    schema version. ``findings`` and ``events`` are ``None`` when they are not
-    available, and the fields derived from them are then ``None`` too.
-    ``hosted`` is the run's ``hosted.json`` object, when ``sync-hosted`` wrote one.
-    Raises :class:`pydantic.ValidationError` when the record lacks a field that
-    every summary requires.
-    """
-    record = _as_record(run)
-    state, orphaned_reason = _effective_state(record)
-    snapshot = _dict(record.get("config_snapshot")) or {}
-    intent = record.get("intent")
-    created_at = _str(record.get("created_at"))
-    finished_at = _finished_at(record, events)
-    run_timing = timing.state_timing(events, state)
-    complete = bool(run_timing and run_timing["complete"])
-    return RunSummary.model_validate(
-        {
-            "written_at": written_at or _now(),
-            "run_id": record.get("run_id"),
-            "state": state,
-            "record_schema_version": _int(record.get("schema_version")),
-            "repo": repo,
-            "branch": record.get("branch"),
-            "base_ref": record.get("base_ref"),
-            "head_sha": record.get("head_sha"),
-            "pushed_sha": _str(record.get("pushed_sha")),
-            "intent_sha256": sha256_text(intent) if isinstance(intent, str) and intent else None,
-            "intent_source": record.get("intent_source"),
-            "created_at": created_at,
-            "finished_at": finished_at,
-            "duration_seconds": _duration(created_at, _str(finished_at)),
-            "timing": run_timing,
-            "producer": _producer(run, record),
-            "risk": _risk(record),
-            "review": _review(record),
-            "stages": _stages(record, events, complete=complete),
-            "findings": _findings_summary(findings, snapshot),
-            "fix_commits": _length(record.get("fix_commits")),
-            "validation_restarts": _int(record.get("validation_restarts")),
-            "event_counts": _event_counts(events),
-            "terminal": _terminal(state, orphaned_reason, events),
-            "hosted": _hosted(record, hosted),
-            "worktree_mode": _str((_dict(snapshot.get("worktree")) or {}).get("mode")),
-            "pr_mode": _str((_dict(snapshot.get("pr")) or {}).get("mode")),
-            "config_digest": record.get("config_digest"),
-        }
-    )
 
 
 # -- storage ----------------------------------------------------------------
@@ -714,7 +238,8 @@ def exclusion_reason(
     return NO_NETWORK_REMOTE
 
 
-def _describe(exc: BaseException) -> str:
+def describe_error(exc: BaseException) -> str:
+    """The exception's type and message, cut to a bounded length for an envelope or log."""
     message = f"{type(exc).__name__}: {exc}"
     return message[:_ERROR_LIMIT]
 
@@ -766,10 +291,10 @@ def write_summary(
     errors: list[str] = []
     try:
         path = Path(run_dir) / SUMMARY_NAME
-        _atomic_write(path, summary.model_dump_json(indent=2) + "\n")
+        atomic_write(path, summary.model_dump_json(indent=2) + "\n")
         status["summary_path"] = str(path)
     except Exception as exc:  # noqa: BLE001 - telemetry must never fail the caller
-        errors.append(f"summary: {_describe(exc)}")
+        errors.append(f"summary: {describe_error(exc)}")
     if config is None:
         errors.append(f"mirror skipped: {config_error or 'configuration unavailable'}")
     elif config.telemetry.mirror:
@@ -783,7 +308,7 @@ def write_summary(
                 _append_row(target, summary)
                 status["mirrored"] = True
         except Exception as exc:  # noqa: BLE001 - telemetry must never fail the caller
-            errors.append(f"mirror: {_describe(exc)}")
+            errors.append(f"mirror: {describe_error(exc)}")
     status["error"] = "; ".join(errors) or None
     return status
 
@@ -796,7 +321,7 @@ def live_config(repo_root: Path | str) -> tuple[Config | None, str | None]:
     try:
         return load_config(repo_root), None
     except (ConfigError, OSError) as exc:
-        return None, _describe(exc)
+        return None, describe_error(exc)
 
 
 # -- the terminal hook --------------------------------------------------------
@@ -853,7 +378,7 @@ def record_run_end(store: Store, repo_root: Path | str, run: RunDoc) -> dict[str
             "mirrored": False,
             "mirror_path": None,
             "reason": None,
-            "error": _describe(exc),
+            "error": describe_error(exc),
         }
     event = "summary_written" if status["summary_path"] else "summary_failed"
     try:
@@ -862,7 +387,9 @@ def record_run_end(store: Store, repo_root: Path | str, run: RunDoc) -> dict[str
             {"event": event, **{key: value for key, value in status.items() if key != "run_id"}},
         )
     except Exception as exc:  # noqa: BLE001 - telemetry must never fail the caller
-        status["error"] = "; ".join(filter(None, [status["error"], f"event: {_describe(exc)}"]))
+        status["error"] = "; ".join(
+            filter(None, [status["error"], f"event: {describe_error(exc)}"])
+        )
     _REPORTS[run.run_id] = status
     return status
 
@@ -870,7 +397,13 @@ def record_run_end(store: Store, repo_root: Path | str, run: RunDoc) -> dict[str
 # -- rebuild ------------------------------------------------------------------
 
 
-class _Unreadable(Exception):
+class UnreadableRecord(Exception):
+    """A stored run record that cannot be read or summarized.
+
+    ``reason`` is ``unreadable`` or ``invalid``. ``diagnostic`` names the problem
+    without quoting record values.
+    """
+
     def __init__(self, path: Path, reason: str, diagnostic: str) -> None:
         super().__init__(diagnostic)
         self.path = path
@@ -882,17 +415,20 @@ def _read_json(path: Path, label: str) -> Any:
     try:
         payload = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        raise _Unreadable(path, "unreadable", f"Cannot read {label}.") from exc
+        raise UnreadableRecord(path, "unreadable", f"Cannot read {label}.") from exc
     try:
         return json.loads(payload)
     except json.JSONDecodeError as exc:
-        raise _Unreadable(path, "invalid", f"{label} is not valid JSON.") from exc
+        raise UnreadableRecord(path, "invalid", f"{label} is not valid JSON.") from exc
 
 
-def _read_record(store: Store, run_id: str) -> dict[str, Any]:
+def read_record(store: Store, run_id: str) -> dict[str, Any]:
+    """The raw ``run.json`` object of any schema version. Raises :class:`UnreadableRecord`."""
     record = _read_json(store.run_path(run_id), "Run record")
     if not isinstance(record, dict):
-        raise _Unreadable(store.run_path(run_id), "invalid", "Run record is not a JSON object.")
+        raise UnreadableRecord(
+            store.run_path(run_id), "invalid", "Run record is not a JSON object."
+        )
     return record
 
 
@@ -913,10 +449,12 @@ def _read_events(store: Store, run_id: str) -> list[dict[str, Any]]:
     try:
         return store.load_events(run_id)
     except OSError as exc:
-        raise _Unreadable(store.events_path(run_id), "unreadable", "Cannot read events.") from exc
+        raise UnreadableRecord(
+            store.events_path(run_id), "unreadable", "Cannot read events."
+        ) from exc
 
 
-def _row_key(row: Any) -> tuple[str, str] | None:
+def row_key(row: Any) -> tuple[str, str] | None:
     """The first mirror deduplication key: repository identity and run id."""
     if not isinstance(row, dict) or not isinstance(row.get("run_id"), str):
         return None
@@ -931,15 +469,15 @@ def _run_key(row: Any) -> tuple[str, str, str] | None:
     """The second deduplication key, which ``report`` also joins on.
 
     One run mirrored once with a root commit and once without, for example when
-    Git was unavailable at one write, has two :func:`_row_key` values. Its run
+    Git was unavailable at one write, has two :func:`row_key` values. Its run
     ID, start time, and source worktree are still the same.
     """
     if not isinstance(row, dict):
         return None
     repo = row.get("repo")
-    run_id = _str(row.get("run_id"))
-    created_at = _str(row.get("created_at"))
-    source = _str(repo.get("source_worktree_path")) if isinstance(repo, dict) else None
+    run_id = as_str(row.get("run_id"))
+    created_at = as_str(row.get("created_at"))
+    source = as_str(repo.get("source_worktree_path")) if isinstance(repo, dict) else None
     if not (run_id and created_at and source):
         return None
     return (run_id, created_at, source)
@@ -955,8 +493,8 @@ def _newest(entries: Iterable[tuple[int, dict[str, Any], str]], key: Any) -> lis
     kept: dict[Any, tuple[int, dict[str, Any], str]] = {}
     for entry in sorted(entries, key=lambda item: item[0]):
         name = key(entry)
-        written = _str(entry[1].get("written_at")) or ""
-        if name not in kept or written >= (_str(kept[name][1].get("written_at")) or ""):
+        written = as_str(entry[1].get("written_at")) or ""
+        if name not in kept or written >= (as_str(kept[name][1].get("written_at")) or ""):
             kept[name] = entry
     return list(kept.values())
 
@@ -969,7 +507,7 @@ def _merge_mirror(
     A row is this repository's when it has this root commit or the key of a
     fresh row. Another row also joins when its :func:`_run_key` matches one of
     those rows and it has no root commit, or this clone has none to compare.
-    Rows are deduplicated by :func:`_row_key`, then by :func:`_run_key`, as
+    Rows are deduplicated by :func:`row_key`, then by :func:`_run_key`, as
     ``report`` does. Rows of other repositories, and lines that are not summary
     rows, keep their exact text. A row of this repository whose run could not be
     summarized again stays, so an unreadable record is never treated as absent.
@@ -983,13 +521,13 @@ def _merge_mirror(
             row = json.loads(line)
         except json.JSONDecodeError:
             row = None
-        parsed.append((index, row if _row_key(row) is not None else None, line))
+        parsed.append((index, row if row_key(row) is not None else None, line))
     offset = len(lines)
     candidates = [(offset + index, row, line) for index, (row, line) in enumerate(fresh_rows)]
-    fresh_keys = {_row_key(row) for _, row, _ in candidates}
+    fresh_keys = {row_key(row) for _, row, _ in candidates}
 
     def claimed(row: dict[str, Any]) -> bool:
-        return _row_key(row) in fresh_keys or (
+        return row_key(row) in fresh_keys or (
             root_commit is not None and _root_of(row) == root_commit
         )
 
@@ -1006,11 +544,11 @@ def _merge_mirror(
     ]
     taken = {i for i, _, _ in [*mine, *joined]}
     preserved = [line for i, _, line in parsed if i not in taken]
-    entries = _newest([*mine, *joined, *candidates], lambda item: _row_key(item[1]))
-    entries = _newest(entries, lambda item: _run_key(item[1]) or ("row", _row_key(item[1])))
+    entries = _newest([*mine, *joined, *candidates], lambda item: row_key(item[1]))
+    entries = _newest(entries, lambda item: _run_key(item[1]) or ("row", row_key(item[1])))
     kept = sorted(
         entries,
-        key=lambda item: (_str(item[1].get("finished_at")) or "", item[1]["run_id"]),
+        key=lambda item: (as_str(item[1].get("finished_at")) or "", item[1]["run_id"]),
     )
     return [*preserved, *(line for _, _, line in kept)], len(kept), len(preserved)
 
@@ -1026,7 +564,7 @@ def _rewrite_mirror(
             text = ""
         # Split on newlines only, so preserved rows keep their exact text.
         lines, mine, preserved = _merge_mirror(text.split("\n"), fresh, root_commit)
-        _atomic_write(target, "".join(f"{line}\n" for line in lines))
+        atomic_write(target, "".join(f"{line}\n" for line in lines))
     return mine, preserved
 
 
@@ -1076,7 +614,7 @@ def replace_mirror_rows(
         )
     except (OSError, UnicodeDecodeError) as exc:
         # An unreadable mirror is left exactly as it was.
-        mirror["error"] = _describe(exc)
+        mirror["error"] = describe_error(exc)
     return mirror
 
 
@@ -1084,13 +622,13 @@ def _summarize_stored_run(
     store: Store, run_id: str, identity: RepoIdentity, written_at: str
 ) -> RunSummary | None:
     """Summarize one stored record, or return ``None`` when it is not terminal."""
-    record = _read_record(store, run_id)
-    state, _ = _effective_state(record)
+    record = read_record(store, run_id)
+    state, _ = effective_state(record)
     if state not in _TERMINAL:
         return None
     findings = _read_findings(store, run_id)
     events = _read_events(store, run_id)
-    source = _str(record.get("source_worktree_path")) or identity.source_worktree_path
+    source = as_str(record.get("source_worktree_path")) or identity.source_worktree_path
     try:
         return summarize(
             record,
@@ -1098,25 +636,25 @@ def _summarize_stored_run(
             events,
             identity.model_copy(update={"source_worktree_path": source}),
             written_at=written_at,
-            hosted=_read_hosted(store, run_id),
+            hosted=read_hosted(store, run_id),
         )
     except ValidationError as exc:
-        raise _Unreadable(
+        raise UnreadableRecord(
             store.run_path(run_id), "invalid", "Run record lacks fields that a summary requires."
         ) from exc
 
 
-def _summarize_stored_run_safely(
+def summarize_stored_run_safely(
     store: Store, run_id: str, identity: RepoIdentity, written_at: str
 ) -> RunSummary | None:
     """:func:`_summarize_stored_run`, with any other failure reported as unreadable."""
     try:
         return _summarize_stored_run(store, run_id, identity, written_at)
-    except _Unreadable:
+    except UnreadableRecord:
         raise
     except Exception as exc:  # one malformed record must not fail the clone
         # Name only the exception type: its message can quote record values.
-        raise _Unreadable(
+        raise UnreadableRecord(
             store.run_dir(run_id),
             "invalid",
             f"Run record could not be summarized ({type(exc).__name__}).",
@@ -1132,15 +670,15 @@ def rebuild(store: Store, repo_root: Path | str, config: Config) -> dict[str, An
     (:func:`replace_mirror_rows`).
     """
     identity = repo_identity(repo_root)
-    written_at = _now()
+    written_at = utc_now()
     fresh: list[RunSummary] = []
     skipped = 0
     unreadable: list[dict[str, str]] = []
     write_failures: list[dict[str, str]] = []
     for run_id in store.list_runs():
         try:
-            summary = _summarize_stored_run_safely(store, run_id, identity, written_at)
-        except _Unreadable as exc:
+            summary = summarize_stored_run_safely(store, run_id, identity, written_at)
+        except UnreadableRecord as exc:
             unreadable.append(
                 {
                     "run_id": run_id,
@@ -1156,9 +694,9 @@ def rebuild(store: Store, repo_root: Path | str, config: Config) -> dict[str, An
         fresh.append(summary)
         try:
             path = store.run_dir(run_id) / SUMMARY_NAME
-            _atomic_write(path, summary.model_dump_json(indent=2) + "\n")
+            atomic_write(path, summary.model_dump_json(indent=2) + "\n")
         except OSError as exc:
-            write_failures.append({"run_id": run_id, "error": _describe(exc)})
+            write_failures.append({"run_id": run_id, "error": describe_error(exc)})
 
     return {
         "repo": identity.model_dump(mode="json", exclude={"source_worktree_path"}),

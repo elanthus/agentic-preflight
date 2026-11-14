@@ -620,7 +620,7 @@ def test_malformed_event_values_never_break_the_summary():
 def test_tool_time_treats_a_hosted_value_that_is_not_an_object_as_unsynced():
     row = {**_caught_row("r_01", tool=10.0), "hosted": "not an object"}
 
-    per_pr = report._tool_time([row])["per_pull_request"]
+    per_pr = report.aggregation._tool_time([row])["per_pull_request"]
 
     assert per_pr["pull_requests"] == 0
     assert per_pr["runs_without_pull_request"] == 1

@@ -11,7 +11,7 @@ from ..errors import SetupFailed
 from ..machine import Action
 from ..models import RunDoc, SetupFailure, Stage, StageRecord, StageStatus
 from ..stages import shellstage
-from ._session import Session, _apply, _now, _require_worktree
+from ._session import Session, apply_action, require_worktree, utc_now
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ def check_baseline(
 ) -> bool:
     """Return whether the base fails; persist and raise if its setup never completed."""
     stage_name = stage.value
-    wt = _require_worktree(run)
+    wt = require_worktree(run)
     try:
         return _baseline_is_red(session, run, command)
     except _BaselineSetupFailure as exc:
@@ -66,12 +66,12 @@ def check_baseline(
                 command=command,
                 reason=exc.reason,
                 started_at=previous.started_at,
-                finished_at=_now(),
+                finished_at=utc_now(),
                 head_sha=gitx.rev_parse(wt, "HEAD"),
             )
             doc.stages[stage] = entry
             doc.setup_failure = failure
-            _apply(doc, failure_action)
+            apply_action(doc, failure_action)
             run = doc
         session.store.append_event(
             run.run_id,

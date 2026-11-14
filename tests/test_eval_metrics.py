@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from agentic_preflight.machine import Action, State
-from agentic_preflight.runs._session import _apply
+from agentic_preflight.runs._session import apply_action
 from agentic_preflight.store import Store
 from evals import metrics
 from evals import run as eval_run
@@ -204,15 +204,15 @@ def test_committed_state_trace_retains_intermediate_states_and_ignores_rollback(
     store = Store(tmp_path)
     run = store.create_run(make_run())
     with store.transaction(run.run_id) as doc:
-        _apply(doc, Action.CREATE_WORKTREE)
-        _apply(doc, Action.BEGIN_SYNC)
-        _apply(doc, Action.SYNC_PASSED)
-        _apply(doc, Action.BEGIN_REVIEW)
+        apply_action(doc, Action.CREATE_WORKTREE)
+        apply_action(doc, Action.BEGIN_SYNC)
+        apply_action(doc, Action.SYNC_PASSED)
+        apply_action(doc, Action.BEGIN_REVIEW)
     before = store.load_events(run.run_id)
 
     def rolled_back_transition():
         with store.transaction(run.run_id) as doc:
-            _apply(doc, Action.RUN_REVIEW_COMMAND)
+            apply_action(doc, Action.RUN_REVIEW_COMMAND)
             raise RuntimeError("rollback")
 
     with pytest.raises(RuntimeError):
