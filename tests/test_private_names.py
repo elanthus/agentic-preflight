@@ -68,17 +68,43 @@ def _violations(path: Path) -> list[str]:
                     aliases[alias.asname or alias.name] = target
                 elif source in GUARDED and source != module and _private(alias.name):
                     found.append(f"{path.relative_to(ROOT)}:{node.lineno} imports {target}")
+
+    def guarded(expr: ast.expr) -> str | None:
+        """The guarded module an expression names: an alias, or a dotted module path."""
+        if isinstance(expr, ast.Name) and expr.id in aliases:
+            return aliases[expr.id]
+        dotted = _dotted(expr)
+        return dotted if dotted in GUARDED else None
+
+    # Out of scope: a guarded module rebound to another name after import, and
+    # modules reached through ``importlib`` or ``sys.modules``.
     for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Name)
-            and node.value.id in aliases
-            and aliases[node.value.id] != module
-            and _private(node.attr)
+        owner = name = None
+        if isinstance(node, ast.Attribute):
+            owner, name = guarded(node.value), node.attr
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
         ):
-            target = f"{aliases[node.value.id]}.{node.attr}"
-            found.append(f"{path.relative_to(ROOT)}:{node.lineno} uses {target}")
-    return found
+            owner, name = guarded(node.args[0]), node.args[1].value
+        if owner is not None and name is not None and owner != module and _private(name):
+            found.append(f"{path.relative_to(ROOT)}:{node.lineno} uses {owner}.{name}")
+    return sorted(found, key=lambda item: int(item.split(" ", 1)[0].rsplit(":", 1)[1]))
+
+
+def _dotted(expr: ast.expr) -> str | None:
+    """``a.b.c`` for a chain of names and attributes, else ``None``."""
+    parts: list[str] = []
+    while isinstance(expr, ast.Attribute):
+        parts.append(expr.attr)
+        expr = expr.value
+    if not isinstance(expr, ast.Name):
+        return None
+    return ".".join([expr.id, *reversed(parts)])
 
 
 def _sources() -> list[Path]:
@@ -109,7 +135,12 @@ def test_the_scan_detects_each_kind_of_private_use(tmp_path, monkeypatch):
         "from .. import store as storemod, telemetry\n"
         "storemod._atomic_write\n"
         "telemetry.summarize\n"
-        "telemetry._now\n",
+        "telemetry._now\n"
+        "import agentic_preflight.telemetry\n"
+        "agentic_preflight.telemetry._describe\n"
+        "agentic_preflight.telemetry.describe_error\n"
+        "getattr(storemod, '_atomic_write')\n"
+        "getattr(telemetry, 'summarize')\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(f"{__name__}.ROOT", tmp_path)
@@ -120,4 +151,6 @@ def test_the_scan_detects_each_kind_of_private_use(tmp_path, monkeypatch):
         f"imports {PACKAGE}.runs._session._apply",
         f"uses {PACKAGE}.store._atomic_write",
         f"uses {PACKAGE}.telemetry._now",
+        f"uses {PACKAGE}.telemetry._describe",
+        f"uses {PACKAGE}.store._atomic_write",
     ]
