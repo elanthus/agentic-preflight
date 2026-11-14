@@ -147,7 +147,7 @@ def test_report_data_matches_its_golden(output_format):
         _check("report.md", data["markdown"])
         # Apart from the rendering, the data is the JSON report's.
         data = {**data, "format": "json", "markdown": None}
-    _check("report.json", json.dumps(data, indent=2) + "\n")
+    _check("report.json", json.dumps(data, indent=1) + "\n")
 
 
 def test_typed_rows_name_every_key_a_summary_writes():
