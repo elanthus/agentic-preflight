@@ -265,7 +265,7 @@ def unmerged_fix_commits(session: Session, run: RunDoc, head: str) -> list[str]:
         return []
     repo = str(session.repo_root)
     base = run.sync_base_sha or run.merge_base_sha
-    validated = gitx.rev_parse(_require_worktree(run), "HEAD")
+    validated = gitx.rev_parse(require_worktree(run), "HEAD")
     patch_missing = set(patch_unlanded(repo, list(run.fix_commits), base, head))
     replays = Counter(identity for _, identity in _replay_identities(repo, head, "--not", base))
     recorded = dict(_replay_identities(repo, "--no-walk=unsorted", *run.fix_commits))
@@ -305,7 +305,7 @@ def _refuse_unmerged_fixes(
     if not missing:
         return
     with session.store.transaction(run.run_id) as doc:
-        _apply(doc, Action.MERGEBACK_FAILED)
+        apply_action(doc, Action.MERGEBACK_FAILED)
         run = doc
     session.store.append_event(
         run.run_id,
