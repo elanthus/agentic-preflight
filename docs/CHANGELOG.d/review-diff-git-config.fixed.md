@@ -8,9 +8,11 @@
   "review fingerprint does not match the Git diff" on any machine whose settings differed
   from the producer's. Git also lengthens abbreviated object IDs as a clone gains objects, so
   a fresh CI clone could reject a note that verified locally. Review patches now carry full
-  object IDs, and every such setting is fixed to Git's default. Git attributes in the
-  checkout, and `diff.default.xfuncname` and `diff.default.funcname`, still shape the text;
-  `COMPATIBILITY.md` lists them.
+  object IDs, and every such setting is fixed to Git's default. Git attributes still shape
+  the text: those in `.gitattributes`, `$GIT_DIR/info/attributes`, `attr.tree`,
+  `GIT_ATTR_SOURCE`, and the system-wide attributes file, together with the `diff.<driver>.*`
+  configuration of a driver an attribute names. So do `diff.default.xfuncname` and
+  `diff.default.funcname`. `COMPATIBILITY.md` lists them.
 - Replacement objects under `refs/replace` no longer change the review diff. They exist in
   one clone only.
 - `diff.ignoreSubmodules = all`, and `submodule.<name>.ignore = all` in local configuration,
