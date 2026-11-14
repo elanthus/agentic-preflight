@@ -50,7 +50,7 @@ Git runs without `.gitattributes` files, the index, `attr.tree`, `GIT_ATTR_SOURC
 Text files are diffed with `--text`.
 A file is binary when either side is larger than 512 MiB or has a NUL byte in its first 8,000 bytes, which is Git's own default rule.
 Its patch is Git's `Binary files ... differ` line, and its content is never printed.
-`diff.default.xfuncname` and `diff.default.funcname` still set the hunk headers of every file.
+Hunk headers use Git's built-in rule; `diff.default.xfuncname` or `diff.default.funcname`, which would replace it for every file, stops the command with `review_diff_attribute`.
 Git always reads `$GIT_DIR/info/attributes`.
 `-diff` there has no effect.
 A diff driver there with a hunk-header pattern, or `diff` set on a binary file, stops the command with `review_diff_attribute`, because the text would differ on this machine only.

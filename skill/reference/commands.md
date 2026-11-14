@@ -243,7 +243,8 @@ The diff does not follow Git attributes: text files are shown as text even under
 `-diff`, a file is binary only by Git's default content rule, and hunk headers ignore
 diff drivers. Exits 3 with `review_diff_attribute` when `$GIT_DIR/info/attributes`, which
 Git always reads, sets a diff driver with a hunk-header pattern or sets `diff` on a
-binary file. The user removes that entry.
+binary file, or when Git configuration sets `diff.default.xfuncname` or
+`diff.default.funcname`. The user removes that entry or setting.
 
 ### `agentic-preflight review run`
 Runs the configured independent reviewer when the effective `[review] executor` is

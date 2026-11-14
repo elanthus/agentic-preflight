@@ -639,8 +639,7 @@ Review patches now have one form on every machine:
 - Replacement objects under `refs/replace` are ignored. They exist in one clone only, and a review built with them could show content that the commits do not hold.
 - The user-level attributes file (`core.attributesFile`, by default `$XDG_CONFIG_HOME/git/attributes`) is not read for review patches.
 
-Attributes in the checkout are covered by the next entry.
-`diff.default.xfuncname` and `diff.default.funcname` still change the hunk headers of every file without a `diff` attribute, because Git has no value that restores the built-in rule.
+Attributes in the checkout, and `diff.default.xfuncname` and `diff.default.funcname`, are covered by the next entry.
 
 What changes at upgrade:
 
@@ -675,6 +674,7 @@ Review patches now have one form whatever the attributes:
 - Git builds them without `.gitattributes` files, the index, `attr.tree`, `GIT_ATTR_SOURCE`, the user attributes file, or the system attributes file. Each of these works from Git 2.38, the supported minimum.
 - Text files are diffed with `--text`. The tool decides which files are binary with Git's default rule: either side is larger than 512 MiB or has a NUL byte in its first 8,000 bytes. A binary file's patch is Git's "Binary files ... differ" line, and its content is never printed.
 - Hunk headers use Git's default rule, which picks the nearest earlier line that starts with a letter, `_`, or `$`. A `diff=python` or other driver attribute no longer changes them.
+  `diff.default.xfuncname` or `diff.default.funcname` would replace that rule for every file, and Git has no value that restores it, so either setting stops `context` and review with `review_diff_attribute` (exit 3). Remove the setting to continue.
 - Git always reads `$GIT_DIR/info/attributes`. `-diff` there has no effect, and neither has a driver that only sets `textconv` or `command`. A driver there with a hunk-header pattern, built in or set by `diff.<driver>.xfuncname` or `diff.<driver>.funcname`, or `diff` set on a binary file, stops `context` and review with `review_diff_attribute` (exit 3), and verification on that machine rejects the note. Remove that entry to continue. A built-in driver that a Git release after 2.54 adds is not refused; its hunk headers then differ on that machine only, and a verifier elsewhere rejects the note.
 
 What changes at upgrade:

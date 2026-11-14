@@ -9,6 +9,7 @@
   (GHSA-m8wg-p58p-cqmf)
 - A diff driver with a hunk-header pattern in `$GIT_DIR/info/attributes`, or `diff` set
   there on a binary file, now stops the command with `review_diff_attribute` (exit 3),
-  because no other machine can rebuild that text.
+  because no other machine can rebuild that text. So does `diff.default.xfuncname` or
+  `diff.default.funcname`, which would rewrite every hunk header.
 - A note from 0.8.1 or earlier whose review text marked a text file as binary is now
   rejected. `COMPATIBILITY.md` lists what changes at upgrade.

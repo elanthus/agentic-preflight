@@ -289,3 +289,14 @@ def test_context_reports_a_refused_info_attribute_as_a_typed_error(feature_repo)
 
     assert refused["error"]["code"] == "review_diff_attribute"
     assert "diff=python" in refused["error"]["message"]
+
+
+@pytest.mark.parametrize("key", ["diff.default.xfuncname", "diff.default.funcname"])
+def test_a_hunk_header_pattern_for_the_default_driver_is_refused(change, key):
+    """Every path without a ``diff`` attribute uses the ``default`` driver."""
+    repo, base = change
+    git("config", "--local", key, "^ *(value_3 .*)$", cwd=repo)
+    assert _DEFAULT_HEADER not in _plain_git_diff(repo, base, "HEAD", "src/calc.py")
+
+    with pytest.raises(gitx.ReviewDiffError, match=r"diff\.default\.xfuncname"):
+        diff.build_bundle(repo, base, "HEAD")

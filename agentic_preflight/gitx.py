@@ -694,7 +694,9 @@ _NO_RENAMES = "--no-renames"
 # text as before. ``/dev/null`` is the spelling Git documents for "no file" and
 # resolves itself on Windows.
 #
-# Attributes are handled by ``diff_text_by_path`` below.
+# Attributes, and ``diff.default.xfuncname`` and ``diff.default.funcname``, which
+# shape hunk headers and have no reset value, are handled by ``diff_text_by_path``
+# below.
 #
 # Replacement objects (``refs/replace``) exist in one clone only and would show
 # content that the commits do not hold, so they are ignored. Settings with no
@@ -1338,9 +1340,20 @@ def _refuse_local_diff_attributes(
     driver that only sets ``textconv`` or ``command``, which the pinned options
     disable. A driver with a hunk-header pattern, built in or configured, would
     rewrite hunk headers, and ``diff`` set on a binary file would print its content.
+
+    Every path without a ``diff`` attribute uses Git's ``default`` driver, so a
+    pattern configured for it would rewrite every hunk header. Git has no value
+    that restores the built-in rule, so that configuration is refused too.
     """
     if not paths:
         return
+    configured = _hunk_header_drivers(cwd, env)
+    if "default" in configured:
+        raise ReviewDiffError(
+            "Git configuration sets diff.default.xfuncname or diff.default.funcname, which "
+            "rewrites the hunk headers of the review patch on this machine only. "
+            "Remove that setting."
+        )
     output = _run_bytes(
         cwd,
         *_PINNED_DIFF_CONFIG,
@@ -1355,7 +1368,7 @@ def _refuse_local_diff_attributes(
     fields = [_decode_path(field) for field in output.split(b"\0")[:-1]]
     if len(fields) % 3:
         raise ValueError("git check-attr returned malformed output")
-    drivers: frozenset[str] | None = None
+    drivers = _BUILTIN_HUNK_HEADER_DRIVERS | configured
     for path, _name, value in zip(fields[0::3], fields[1::3], fields[2::3], strict=True):
         shown = display_path(path)
         if value == "set" and path in binary_paths:
@@ -1366,8 +1379,6 @@ def _refuse_local_diff_attributes(
             )
         if value in ("unspecified", "unset", "set"):
             continue
-        if drivers is None:
-            drivers = _BUILTIN_HUNK_HEADER_DRIVERS | _hunk_header_drivers(cwd, env)
         if value in drivers:
             raise ReviewDiffError(
                 f"$GIT_DIR/info/attributes sets diff={value} on {shown}. That driver rewrites "

@@ -216,7 +216,7 @@ to summarize the user's run history.
 | Abandoned run | `status --all`; inspect explicitly with `--run RUN_ID` |
 | Unreadable shared run record | Preserve the record and ownership; inspect its path. Only if a compatible version cannot read it either and the user decides to abandon the run, delete just the pointers a refused mutating command lists in `data.pointer_paths` (`in_place` and `strict` runs only). Without that field, as for a `reusable` run, delete nothing and stop for the user |
 | Diff too large (exit 2, `diff_too_large`) | Exclude generated globs; never review part of it |
-| Diff attribute refused (exit 3, `review_diff_attribute`) | Show the message; the user removes the named `$GIT_DIR/info/attributes` entry, then retry |
+| Diff attribute refused (exit 3, `review_diff_attribute`) | Show the message; the user removes the named `$GIT_DIR/info/attributes` entry or `diff.default` setting, then retry |
 | No command configured (exit 2, `needs_command`) | Show candidates; require user selection and approval; re-run with `--command` and `--record`; distrust the first green |
 | Setup failed (exit 2, `setup_failed`) | Obey `status`: abort `SETUP_FAILED` initial setup or preserve the baseline retry |
 | Record a dismissal, acceptance, or abort | Always pass the closest `--reason`, `other` if none fits; specifics go in `--note` |
