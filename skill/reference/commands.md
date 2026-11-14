@@ -120,7 +120,7 @@ checkout that the interrupted run provisioned is reclaimed; one holding changes 
 beyond the run's starting head makes `start` exit 4 (`needs_human`) with its path in
 `data.worktree_path`, names that head in `next.instruction`, and leaves the run in place. A later
 `start` reclaims the checkout once it is clean at that head, even if the interrupted run
-was aborted in between.
+was aborted in between. A dirty strict checkout does not block a new run and is kept.
 A nonterminal run with a legacy `pending-update.json` is instead orphaned at the next
 `start`, its ownership cleared and journal removed, and a fresh run created. The old
 audit record and user work remain for normal safe cleanup. `status` reports

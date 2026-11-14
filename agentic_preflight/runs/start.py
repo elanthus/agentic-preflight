@@ -207,7 +207,7 @@ def _require_disposable(run: RunDoc, checkouts: list[Path]) -> None:
         )
 
 
-def _reclaim_interrupted_checkouts(session: Session, run: RunDoc) -> None:
+def _reclaim_interrupted_checkouts(session: Session, run: RunDoc) -> list[Path]:
     """Release what an interrupted ``start`` provisioned for ``run``.
 
     The caller has checked that every checkout is disposable. A reusable runner
@@ -217,8 +217,10 @@ def _reclaim_interrupted_checkouts(session: Session, run: RunDoc) -> None:
     caller leaves the run as it was and a later ``start`` can retry.
     """
     branch = f"ap/{run.run_id}"
+    reclaimed: list[Path] = []
     try:
         for path in _interrupted_checkouts(session, run):
+            reclaimed.append(path)
             if path.name == run.run_id:
                 worktree.remove(session.repo_root, path, branch=branch)
             else:
@@ -244,41 +246,68 @@ def _reclaim_interrupted_checkouts(session: Session, run: RunDoc) -> None:
             ),
             next_command="agentic-preflight status --all",
         ) from exc
-    session.store.append_event(run.run_id, {"event": "interrupted_checkout_reclaimed"})
+    session.store.append_event(
+        run.run_id,
+        {"event": "interrupted_checkout_reclaimed", "paths": [str(path) for path in reclaimed]},
+    )
+    return reclaimed
 
 
-def _reclaim_runner_from_ended_run(session: Session) -> None:
-    """Free a runner still leased by an ended run whose ``start`` was interrupted.
+_RUN_ID = re.compile(r"r_[0-9a-f]{10}")
+
+
+def _reclaim_checkouts_from_ended_runs(session: Session) -> None:
+    """Free checkouts still held by ended runs whose ``start`` was interrupted.
 
     An interrupted run that was aborted, or orphaned by an earlier version,
-    never recorded its runner, so neither ``abort`` nor ``gc`` releases it and
-    every later lease fails. The runner's ``ap/<run_id>`` branch identifies
-    the run. It is reclaimed only when that run is terminal, recorded no fix
-    commits, holds no unreleased recorded checkout, and the runner is clean at
-    the run's head; otherwise this refuses with the checkout and head named.
+    never recorded its checkout, so neither ``abort`` nor ``gc`` releases it. A
+    leased reusable runner then blocks every later lease, and a strict checkout
+    leaks. Each checkout under the worktrees directory names its run by its
+    ``ap/<run_id>`` branch or, detached, by its directory. It is reclaimed only
+    when that run is terminal, recorded no fix commits, holds no unreleased
+    recorded checkout, is idle, and the checkout is clean at the run's head.
+    A runner that fails those checks is refused with ``needs_human``, since the
+    new run cannot proceed without it; a strict checkout is left in place.
     """
-    runner = session.store.worktrees_dir / "runner"
-    if not (runner / ".git").is_file():
-        return
-    branch = gitx.current_branch(runner)
-    if not branch.startswith("ap/"):
-        return
-    try:
-        run = session.store.load_run(branch.removeprefix("ap/"))
-    except (UnknownRun, RunReadError):
-        return
-    if (
-        run.state not in TERMINAL_STATES
-        or run.fix_commits
-        or (run.worktree_path and not run.worktree_released)
-        or runner.resolve() not in {path.resolve() for path in _interrupted_checkouts(session, run)}
-    ):
-        return
-    with session.store.try_operation(run.run_id) as idle:
-        if not idle:
-            return
-        _require_disposable(run, [runner])
-        _reclaim_interrupted_checkouts(session, run)
+    root = session.store.worktrees_dir.resolve()
+    runner = (session.store.worktrees_dir / "runner").resolve()
+    for record in gitx.list_worktrees(session.repo_root):
+        if "worktree" not in record:
+            continue
+        path = Path(record["worktree"])
+        resolved = path.resolve()
+        if not resolved.is_relative_to(root):
+            continue
+        branch = record.get("branch", "")
+        if branch.startswith("refs/heads/ap/"):
+            run_id = branch.removeprefix("refs/heads/ap/")
+        elif "detached" in record:
+            run_id = path.name
+        else:
+            continue
+        if not _RUN_ID.fullmatch(run_id):
+            continue
+        try:
+            run = session.store.load_run(run_id)
+        except (UnknownRun, RunReadError):
+            continue
+        if (
+            run.state not in TERMINAL_STATES
+            or run.fix_commits
+            or (run.worktree_path and not run.worktree_released)
+            or resolved not in {owned.resolve() for owned in _interrupted_checkouts(session, run)}
+        ):
+            continue
+        with session.store.try_operation(run.run_id) as idle:
+            if not idle:
+                continue
+            if resolved == runner:
+                _require_disposable(run, [path])
+            elif path.exists() and not (
+                gitx.is_clean(path) and gitx.rev_parse(path, "HEAD") == run.head_sha
+            ):
+                continue
+            _reclaim_interrupted_checkouts(session, run)
 
 
 def _orphan(
@@ -304,14 +333,22 @@ def _orphan(
                 next_instruction="Wait for the active command to finish, then retry.",
                 next_command="agentic-preflight status",
             )
+        released = False
         if interrupted_start:
             _require_disposable(run, _interrupted_checkouts(session, run))
-            _reclaim_interrupted_checkouts(session, run)
+            reclaimed = _reclaim_interrupted_checkouts(session, run)
+            # Only a recorded checkout that was reclaimed, or is gone, is released;
+            # one outside the current worktrees root stays leased for `gc`.
+            if run.worktree_path:
+                recorded = Path(run.worktree_path)
+                released = not recorded.exists() or recorded.resolve() in {
+                    path.resolve() for path in reclaimed
+                }
         with session.store.transaction(run.run_id) as doc:
             if doc.state not in TERMINAL_STATES:
                 apply_action(doc, Action.ORPHAN)
             doc.orphaned_reason = reason
-            if interrupted_start and doc.worktree_path:
+            if released:
                 doc.worktree_released = True
         session.store.clear_run(run.run_id)
         session.store.append_event(run.run_id, {"event": "orphaned", "reason": reason})
@@ -1022,7 +1059,7 @@ def _start(
     if existing is not None:
         return existing
     if ctx.cfg.worktree.mode != "in_place":
-        _reclaim_runner_from_ended_run(session)
+        _reclaim_checkouts_from_ended_runs(session)
     merge_base = _require_changes(ctx)
     run_id = new_run_id()
     # Hold the new run's operation lock until the run is ready for review, as

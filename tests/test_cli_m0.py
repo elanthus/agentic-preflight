@@ -235,6 +235,8 @@ def _kill_start(agent, feature_repo, monkeypatch, mode, point):
     with monkeypatch.context() as patch:
         if point == "after_checkout":
             patch.setattr(startmod, "worktree_identity", die)
+        elif point == "after_recording_checkout":
+            patch.setattr(startmod, "_claim_alias", die)
         elif point == "mid_create":
             patch.setattr(gitx, "run", die_at_branch_switch)
         elif mode == "strict":
@@ -321,6 +323,78 @@ def test_start_refuses_to_reclaim_an_interrupted_checkout_holding_changes(
     head = session.store.load_run(dead_run_id).head_sha
     assert env["data"]["head_sha"] == head
     assert head in env["next"]["instruction"]
+
+
+def test_start_refuses_to_reclaim_an_interrupted_runner_with_an_extra_commit(
+    agent, feature_repo, monkeypatch
+):
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "reusable", "after_checkout")
+    session = runs.open_session(feature_repo)
+    runner = session.store.worktrees_dir / "runner"
+    write(runner, "extra.txt", "committed work\n")
+    commit_all(runner, "work done in the runner")
+    extra = git("rev-parse", "HEAD", cwd=runner)
+
+    env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+
+    assert env["data"]["worktree_path"] == str(runner)
+    assert session.store.load_run(dead_run_id).state is State.CREATED
+    assert git("rev-parse", "HEAD", cwd=runner) == extra
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=runner) == f"ap/{dead_run_id}"
+
+
+def test_orphaning_does_not_mark_an_unreclaimed_recorded_runner_released(
+    agent, feature_repo, monkeypatch, tmp_path
+):
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start(
+        agent, feature_repo, monkeypatch, "reusable", "after_recording_checkout"
+    )
+    session = runs.open_session(feature_repo)
+    old_runner = session.store.worktrees_dir / "runner"
+    assert session.store.load_run(dead_run_id).worktree_path == str(old_runner)
+    new_root = tmp_path / "moved-worktrees"
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        f"[worktree]\nmode = 'reusable'\nroot = '{new_root.as_posix()}'\n",
+    )
+    commit_all(feature_repo, "move the worktrees root")
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    dead = session.store.load_run(dead_run_id)
+    assert dead.state is State.ORPHANED
+    assert dead.worktree_released is False
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=old_runner) == f"ap/{dead_run_id}"
+
+
+@pytest.mark.parametrize("dirty", [False, True], ids=["clean", "dirty"])
+def test_start_reclaims_a_strict_checkout_left_by_an_aborted_interrupted_run(
+    agent, feature_repo, monkeypatch, dirty
+):
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "strict", "after_checkout")
+    session = runs.open_session(feature_repo)
+    dead_checkout = session.store.worktrees_dir / dead_run_id
+    assert agent.run("abort", "--force")["state"] == "ABORTED"
+    assert dead_checkout.exists()
+    if dirty:
+        write(dead_checkout, "notes.txt", "keep me\n")
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    if dirty:
+        # A strict checkout does not block the new run, so it is kept, not refused.
+        assert (dead_checkout / "notes.txt").read_text(encoding="utf-8") == "keep me\n"
+        assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=dead_checkout) == f"ap/{dead_run_id}"
+    else:
+        assert not dead_checkout.exists()
+        assert git("branch", "--list", f"ap/{dead_run_id}", cwd=feature_repo) == ""
 
 
 def test_an_aborted_interrupted_run_does_not_leave_the_runner_leased_forever(
