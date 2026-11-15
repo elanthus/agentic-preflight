@@ -1298,6 +1298,48 @@ def test_a_killed_baselines_leftover_worktree_and_branch_are_reclaimed(docs_gree
     assert git("branch", "--list", branch, cwd=feature_repo) == ""
 
 
+def test_a_dirty_scratch_leftover_at_the_base_is_reclaimed(docs_green, feature_repo):
+    """A killed check leaves its output behind; that alone does not keep the checkout."""
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    scratch = _baseline_scratch(feature_repo, run_id)
+    base = git("merge-base", "main", "feature/x", cwd=feature_repo)
+    git("worktree", "add", "-b", f"ap/{run_id}-baseline", str(scratch), base, cwd=feature_repo)
+    (scratch / "test-output.txt").write_text("partial\n", encoding="utf-8")
+    write(scratch, "src/app.py", "edited by the killed command\n")
+
+    env = _run_baseline(agent)
+
+    assert env["data"]["baseline_red"] is True
+    assert not scratch.exists()
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) == ""
+
+
+def test_a_scratch_leftover_whose_head_moved_is_kept_and_named(docs_green, feature_repo):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    branch = f"ap/{run_id}-baseline"
+    scratch = _baseline_scratch(feature_repo, run_id)
+    base = git("merge-base", "main", "feature/x", cwd=feature_repo)
+    git("worktree", "add", "-b", branch, str(scratch), base, cwd=feature_repo)
+    write(scratch, "notes.txt", "someone's work\n")
+    commit_all(scratch, "work in the scratch checkout")
+    moved = git("rev-parse", "HEAD", cwd=scratch)
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "setup_failed"
+    assert env["data"]["setup"]["kind"] == "worktree"
+    assert "baseline_red" not in env["data"]
+    assert str(scratch) in env["error"]["message"]
+    assert "not this run's base commit" in env["error"]["message"]
+    assert str(scratch) in env["next"]["instruction"]
+    assert "removes that worktree" in env["next"]["instruction"]
+    assert "--baseline" in env["next"]["command"]
+    assert git("rev-parse", "HEAD", cwd=scratch) == moved
+    assert git("rev-parse", branch, cwd=feature_repo) == moved
+
+
 def test_a_leftover_branch_at_the_base_alone_is_reclaimed(docs_green, feature_repo):
     agent = docs_green()
     run_id = agent.run("status")["run_id"]

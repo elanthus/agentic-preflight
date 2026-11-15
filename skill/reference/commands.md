@@ -515,7 +515,10 @@ after the user unlocks it, and the retry removes the leftover first.
 
 A baseline that was killed, for example by SIGTERM, cannot clean up after itself. The
 next `--baseline` check removes a leftover that Git still registers as a worktree at
-the scratch path, including one whose directory is gone, and deletes a leftover
+the scratch path, including one whose directory is gone, when its `HEAD` is still the
+run's base commit; uncommitted changes there do not keep it. A leftover there whose
+`HEAD` moved is kept, and the check fails with `setup_failed` naming it: show it to the
+user, never remove it yourself, and retry only after the user removes it. It deletes a leftover
 `ap/<run-id>-baseline` branch that still points at the run's base commit. A clean,
 unlocked `<run-id>-baseline` checkout at the base that holds the branch elsewhere, such
 as one an earlier release created under `.git`, is removed too. It never deletes an

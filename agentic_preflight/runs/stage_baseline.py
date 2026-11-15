@@ -202,7 +202,8 @@ def _reclaim_leftovers(session: Session, run: RunDoc, scratch: Path, branch: str
 
 def _reclaim(session: Session, run: RunDoc, scratch: Path, branch: str) -> None:
     """Only a path Git registers as a worktree is removed, never an arbitrary
-    directory, and never a locked one. The branch is this run's leftover only while
+    directory, never a locked one, and only while its HEAD is at the run's base
+    commit; uncommitted changes there do not keep it, since a killed check leaves them. The branch is this run's leftover only while
     it still points at the run's base commit and no worktree has it checked out;
     anything else may be someone's work. A holder that is itself a clean, unlocked
     ``<run>-baseline`` checkout at the base, such as one an earlier release created
@@ -219,6 +220,20 @@ def _reclaim(session: Session, run: RunDoc, scratch: Path, branch: str) -> None:
                 scratch, record["locked"], "so the base cannot be checked out"
             )
             raise _worktree_failure(branch, str(scratch), message, instruction=message)
+        head = record.get("HEAD", "")
+        if head != run.merge_base_sha:
+            # A killed check leaves its checkout at the base, dirty or not. A moved
+            # HEAD means someone used it since, so it may hold their work.
+            message = (
+                f"worktree {scratch} is registered at the baseline path, but its HEAD is "
+                f"{head[:12] or 'unknown'}, not this run's base commit "
+                f"{run.merge_base_sha[:12]}; the baseline check does not remove it."
+            )
+            instruction = (
+                f"Show the user the worktree {scratch}; do not remove it yourself. Retry the "
+                "same stage with its baseline check only after the user removes that worktree."
+            )
+            raise _worktree_failure(branch, str(scratch), message, instruction=instruction)
         _remove_leftover(repo, Path(listed), branch, scratch)
         break
 
