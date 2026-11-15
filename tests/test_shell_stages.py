@@ -1206,6 +1206,28 @@ def test_a_locked_baseline_does_not_replace_a_baseline_setup_failure(docs_green,
     assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) == ""
 
 
+def test_a_scratch_directory_left_after_removal_is_reported(docs_green, monkeypatch):
+    """remove() can return with the directory still there; that is a cleanup failure too."""
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    real_remove = worktree.remove
+
+    def leave_directory(repo, path, *, branch=None):
+        if Path(path).name.endswith("-baseline") and Path(path).exists():
+            return None
+        return real_remove(repo, path, branch=branch)
+
+    monkeypatch.setattr(worktree, "remove", leave_directory)
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "stage_failed"
+    assert env["data"]["baseline_red"] is True
+    leftover = env["data"]["baseline_cleanup_failed"]
+    assert leftover["worktree_path"].endswith(f"{run_id}-baseline")
+    assert "still exists after removal" in leftover["detail"]
+
+
 def test_an_in_place_baseline_root_inside_the_repository_is_a_setup_failure(
     docs_green, feature_repo
 ):

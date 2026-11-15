@@ -120,7 +120,7 @@ Remote CI must stay the clean verification boundary in both isolated modes.
 Both isolated modes default to one directory per clone under `$XDG_CACHE_HOME/agentic-preflight/worktrees/`.
 When `XDG_CACHE_HOME` is unset or is not an absolute path, the default is `~/.cache/agentic-preflight/worktrees/`.
 The location is outside `.git`, so tools such as Jest discover tests.
-Set `[worktree] root` to select another location. It must be outside the repository.
+Set `[worktree] root` to select another location. It must be outside the repository and outside the Git common directory, which a linked checkout keeps elsewhere.
 
 The scratch worktree for a `--baseline` stage is the `<run-id>-baseline` entry in the same directory, in every mode, including `in_place`.
 It is on the branch `ap/<run-id>-baseline`. Both are removed when the baseline check ends, whether the command passed or failed.
@@ -138,8 +138,9 @@ A worktree that holds the branch is removed first only when it is a clean, unloc
 If the branch points anywhere else, it may hold someone's work: the check fails with `setup_failed`, names the branch, and leaves it alone. Remove or rename the branch yourself, then retry.
 If another worktree has the branch checked out, Git cannot delete or rename it. The check fails with `setup_failed` and names that worktree. Remove that worktree yourself, then retry.
 
-By design, baseline leftovers are not listed in the `start` housekeeping report and `gc` does not reclaim them.
-The stage envelope and the next `--baseline` check report them instead.
+By design, `gc` never reclaims baseline leftovers. The stage envelope and the next `--baseline` check report them.
+A leftover still on its `ap/<run-id>-baseline` branch, such as one a killed check left, appears in the `start` housekeeping report as `retained`, and `gc` lists its name among the orphans.
+A detached leftover that cleanup could not remove has no branch. `gc` does not list it, and the housekeeping report lists it only in isolated modes, whose scan covers the worktree root.
 
 ### Migrating from the sibling default
 

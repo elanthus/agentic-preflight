@@ -123,7 +123,9 @@ def cleanup_instruction(failure: dict[str, str]) -> str:
     """Tell the agent about a scratch checkout the baseline could not remove."""
     return (
         f"The baseline scratch worktree {failure['worktree_path']} could not be removed: "
-        f"{failure['detail']} Until it is gone, a later --baseline check fails."
+        f"{failure['detail']} A later --baseline check removes it only while it is unlocked, "
+        "registered with Git, and still at the base commit; otherwise that check fails "
+        "until the user removes it."
     )
 
 
@@ -318,7 +320,10 @@ def _remove_scratch(
     """
     try:
         worktree.remove(session.repo_root, scratch, branch=branch)
-        return None
+        if not scratch.exists():
+            return None
+        # remove() falls back to a best-effort delete that can leave the directory.
+        detail = f"the directory still exists after removal: {scratch}"
     except (worktree.WorktreeError, gitx.GitError, OSError) as exc:
         detail = str(exc)
     # Without its own ``.git`` file, git would walk up and detach an enclosing repository.

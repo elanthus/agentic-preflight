@@ -77,6 +77,13 @@ def resolve_root(repo: Path | str, configured: str | None = None) -> Path:
             f"[worktree] root must be outside the repository; got {resolved}. "
             "An external path keeps git status clean and lets Jest discover tests."
         )
+    # A linked checkout's Git common directory lies outside the checkout itself.
+    common = gitx.git_common_dir(repo).resolve()
+    if resolved.is_relative_to(common):
+        raise WorktreeError(
+            f"[worktree] root must be outside the Git directory; got {resolved}. "
+            "Test runners such as Jest ignore checkouts inside it."
+        )
     return resolved
 
 

@@ -527,9 +527,11 @@ check fails with `setup_failed`, names the branch, and leaves it alone: show the
 branch, never delete or rename it yourself, and retry only after the user removes or
 renames it. If another worktree has the branch checked out, the failure names that
 worktree: show it to the user, never remove it yourself, and retry only after the user
-removes that worktree. Baseline leftovers are not listed by the `start` housekeeping
-report or reclaimed by `gc`, by design; the stage envelope and the retry report them
-instead.
+removes that worktree. By design, `gc` never reclaims baseline leftovers; the stage
+envelope and the retry report them. A leftover still on its `ap/<run-id>-baseline`
+branch appears in the `start` housekeeping report as `retained`, and `gc` lists its name
+among the orphans. A detached leftover that cleanup could not remove is not listed by
+`gc`, and the housekeeping report lists it only in isolated modes.
 
 `--baseline` is also the cheapest way to see the command produce two different
 outcomes — if base and head are byte-identical greens on a diff that touches tested
