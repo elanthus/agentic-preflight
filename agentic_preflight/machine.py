@@ -149,12 +149,16 @@ _STATUS = "agentic-preflight status"
 
 STATE_DESCRIPTIONS: dict[State, StateDescription] = {
     _S.CREATED: _state(
-        "Create the worktree.",
+        "Start is creating the validation checkout or was interrupted. If no start "
+        "command is still running, start again: it replaces this run with a fresh one.",
         'agentic-preflight start --intent "<objective and acceptance criteria>"',
         (_A.CREATE_WORKTREE, _S.WORKTREE_READY),
     ),
     _S.WORKTREE_READY: _state(
-        "Synchronize with the fresh remote base.", _STATUS, (_A.BEGIN_SYNC, _S.SYNC_RUNNING)
+        "Start is about to synchronize or was interrupted. If no start command is "
+        "still running, start again: it replaces this run with a fresh one.",
+        'agentic-preflight start --intent "<objective and acceptance criteria>"',
+        (_A.BEGIN_SYNC, _S.SYNC_RUNNING),
     ),
     _S.SYNC_RUNNING: _state(
         "Remote synchronization is running or was interrupted. If no start command "
