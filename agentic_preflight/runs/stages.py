@@ -292,6 +292,16 @@ def _persist_stage_result(
         return doc
 
 
+def _warn_about_baseline_leftover(envelope: Envelope, baseline: BaselineOutcome | None) -> Envelope:
+    """Warn on a passing stage too, not only when a later --baseline trips over it."""
+    if baseline is not None and baseline.cleanup_failure:
+        warning = cleanup_instruction(baseline.cleanup_failure)
+        envelope.next_instruction = " ".join(
+            part for part in (envelope.next_instruction, warning) if part
+        )
+    return envelope
+
+
 def _stage_failure(
     run: RunDoc,
     stage_name: str,
@@ -479,7 +489,8 @@ def run_stage(
         if stage is Stage.LINT:
             run = _skip_test_if_not_applicable(session, run)
         run = evidence.advance(session, run, clean=clean_after)
-        return envelope_for(run, stage=stage_name, data=StageRunData.model_validate(data))
+        envelope = envelope_for(run, stage=stage_name, data=StageRunData.model_validate(data))
+        return _warn_about_baseline_leftover(envelope, baseline_outcome)
 
     _stage_failure(
         run,

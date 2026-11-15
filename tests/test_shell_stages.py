@@ -1140,6 +1140,20 @@ def test_a_locked_baseline_worktree_keeps_the_baseline_result_and_drops_its_bran
     assert "locked" in cleanup[0]["detail"]
 
 
+def test_a_passing_stage_still_warns_about_a_baseline_it_could_not_remove(docs_green, feature_repo):
+    agent = docs_green()
+    command = 'case "$PWD" in *-baseline) git worktree lock "$PWD";; esac; exit 0'
+
+    env = agent.run("stage", "run", "lint", "--command", command, "--record", "--baseline")
+
+    assert env["state"] == "LINT_GREEN"
+    assert env["data"]["baseline_red"] is False
+    leftover = env["data"]["baseline_cleanup_failed"]["worktree_path"]
+    assert leftover in env["next"]["instruction"]
+    assert "do not unlock" in env["next"]["instruction"]
+    assert env["next"]["command"] == "agentic-preflight stage run test"
+
+
 def test_a_locked_baseline_leftover_is_named_until_the_user_unlocks_it(docs_green, feature_repo):
     """The retry names the lock instead of a bare git error, and recovers after unlock."""
     agent = docs_green()
