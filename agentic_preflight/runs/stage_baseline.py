@@ -203,11 +203,12 @@ def _reclaim_leftovers(session: Session, run: RunDoc, scratch: Path, branch: str
 def _reclaim(session: Session, run: RunDoc, scratch: Path, branch: str) -> None:
     """Only a path Git registers as a worktree is removed, never an arbitrary
     directory, never a locked one, and only while its HEAD is at the run's base
-    commit; uncommitted changes there do not keep it, since a killed check leaves them. The branch is this run's leftover only while
-    it still points at the run's base commit and no worktree has it checked out;
-    anything else may be someone's work. A holder that is itself a clean, unlocked
-    ``<run>-baseline`` checkout at the base, such as one an earlier release created
-    under ``.git``, is a leftover too.
+    commit. Uncommitted changes there do not keep it, since a killed check leaves
+    them. The branch is this run's leftover only while it still points at the run's
+    base commit and no worktree has it checked out; anything else may be someone's
+    work. A holder that is itself a clean, unlocked ``<run>-baseline`` checkout at
+    the base, such as one an earlier release created under ``.git``, is a leftover
+    too.
     """
     repo = session.repo_root
     target = os.path.realpath(scratch)
