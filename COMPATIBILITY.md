@@ -664,3 +664,13 @@ Unlike them, it reads its own stdin and writes its own stdout and stderr as UTF-
 It passes the same provider CLI options as the example wrappers, including `--safe-mode` and `--setting-sources user` for Claude and `project_doc_max_bytes=0` and `--ignore-rules` for Codex.
 The example wrappers in `docs/examples/reviewers/` stay as deprecated standard-library copies for one release. A test keeps them identical to the packaged reviewer, and they still run with `python3 -S -B`.
 The configuration file, the review submission, and the attestation schema are unchanged.
+
+## Unreleased: the baseline check runs outside the Git directory
+
+`stage run --baseline` now checks out the base commit under the validation-worktree root in every mode, including `in_place`, instead of under `.git` in `in_place` mode.
+The root is the user cache by default, or `[worktree] root`.
+In `in_place` mode, a `[worktree] root` inside the repository now makes `--baseline` fail with `setup_failed` (kind `worktree`). Isolated modes already refuse such a root at `start`.
+A `[worktree] root` inside the Git common directory is now refused in every mode: at `start` in isolated modes, and as a `--baseline` setup failure in `in_place` mode. From a linked checkout such a root used to pass, because the common directory is outside the checkout.
+The `stage run` envelope adds an optional `data.baseline_cleanup_failed` object (`worktree_path`, `branch`, `detail`) when the scratch worktree could not be removed, and the run's event log adds a matching `baseline_cleanup_failed` event. Both are additive.
+A baseline setup failure can carry the same `data.baseline_cleanup_failed` object.
+The `stage-run.json` schema gains that property. Run schema 2 and attestation schema 7 are unchanged.
