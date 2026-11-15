@@ -113,6 +113,14 @@ accepts `start` without `--intent`, but the command then fails with exit 3 and
 `intent_required`.
 Different linked source worktrees may have runs active concurrently. Repeating `start` with the
 same head, intent, base, and effective configuration resumes that worktree's existing run.
+A run left in `CREATED` or `WORKTREE_READY` by an interrupted `start` is not resumed:
+the next `start`, with or without `--replace`, orphans it and creates a fresh run. It exits 3
+(`wrong_state`) while that run's `start` still holds its operation lock. A clean validation
+checkout that the interrupted run provisioned is reclaimed; one holding changes or commits
+beyond the run's starting head makes `start` exit 4 (`needs_human`) with its path in
+`data.worktree_path`, names that head in `next.instruction`, and leaves the run in place. A later
+`start` reclaims the checkout once it is clean at that head, even if the interrupted run
+was aborted in between. A dirty strict checkout does not block a new run and is kept.
 A nonterminal run with a legacy `pending-update.json` is instead orphaned at the next
 `start`, its ownership cleared and journal removed, and a fresh run created. The old
 audit record and user work remain for normal safe cleanup. `status` reports
@@ -556,11 +564,31 @@ auto-resolves. First inspect and show the recovery block. An agent may resolve o
 the intended result is unambiguous, recoverable, and directly supported by that block;
 it must preserve unrelated edits and user-owned operations, and cannot make a
 content-sensitive choice or bypass protected merge policy. Otherwise a person must
-decide. After resolution, `mergeback` is legal again: an exact tree is attested without
-rerunning completed stages, unless the branch never moved while the run recorded fix
-commits. That retry exits 4 with `fixes_not_landed`, because the recorded fixes never
-landed and the run needs revalidation; a different tree becomes the validation worktree's new
-snapshot and returns the active run to review before any stage can be trusted again.
+decide. After resolution, `mergeback` is legal again. Only a commit beyond the source head
+that merge-back itself produced counts as a resolution; merge-back's own rebase onto the
+recorded base does not. A retry with no such commit replays the fix commits again, which
+applies them or reports the conflict again. An exact tree is attested without rerunning
+completed stages, unless the branch never moved while the run recorded fix commits. That
+retry exits 4 with `fixes_not_landed`, because the recorded fixes never landed and the run
+needs revalidation. A different tree becomes the validation worktree's new snapshot and
+returns the active run to review before any stage can be trusted again, but only when
+every recorded fix commit counts as merged. A fix counts as merged when every path it
+changes holds the fix's or the validated tree's content. It also counts when the fix is an
+ancestor of the branch, a commit since the run's base has its stable patch ID, or a commit
+was cherry-picked from it (same author, author date, and subject), provided every path the
+fix changes holds that content or differs from the fix's parent commit. This check covers
+fix provenance and changed paths; it does not prove that a differing resolution is
+correct, which the restarted review decides. Otherwise the retry exits 4 with
+`fix_commits_unmerged` and `data.missing_fix_commits`, returns the run to
+`MERGEBACK_CONFLICT`, and keeps the validation branch and `fix_commits`. Cherry-pick the
+named commits onto the source branch, resolving any conflict. If Git reports that a pick
+is now empty, first check that the branch already holds the fix's intended content. Only
+then record the pick with `git commit --allow-empty` instead of skipping it; if the
+content is absent, resolve the pick again so that it includes the fix. An empty pick
+asserts that the branch already carries the fix's content; merge-back cannot verify that
+claim, and the restarted review is the only check of it. Then rerun `mergeback`. After a
+base-rebase conflict (`data.mode: fresh_base_rebase_conflict`), a branch rebased by hand
+must also get the fix commits cherry-picked before the retry.
 
 On success: compares the branch tree against the worktree tree. `tree_equivalent: true`
 means the verified content is byte-identical and a Git-note attestation is written for
