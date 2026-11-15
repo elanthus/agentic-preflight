@@ -704,7 +704,7 @@ What changes at upgrade:
 - 0.8.1 and earlier verifiers reject a note that this release writes, with "review fingerprint does not match the Git diff".
   Upgrade the protected verifier before, or together with, the local publisher and the hook.
 
-A repository that sets `diff.ignoreSubmodules = all`, or `submodule.<name>.ignore = all` in its configuration or its committed `.gitmodules`, now sees submodule pointer changes in the review diff, the changed-file list, and risk classification.
+A repository that sets `diff.ignoreSubmodules = all`, or `submodule.<name>.ignore = all` in its configuration or its committed `.gitmodules`, now sees submodule pointer changes in the review diff, the changed-file list, risk classification, and the list of paths a fix commit changes.
 Earlier releases left them out.
 
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.

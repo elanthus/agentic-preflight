@@ -24,11 +24,13 @@ from tests.driver import PROTECTED_CONFIG, ScriptedAgent, findings_json, green_r
 
 #: Settings that take a plain value. Each one changed the patch text or the file
 #: inventory before the options were pinned, or selects a different diff algorithm.
+#: ``diff.mnemonicPrefix`` is left out because it changes only diffs against the
+#: index or the work tree. ``diff.relative`` changes nothing when Git runs from the
+#: repository root, as every caller does; the subdirectory test below covers it.
 AMBIENT_SETTINGS = [
     ("core.abbrev", "12"),
     ("core.quotePath", "false"),
     ("diff.noprefix", "true"),
-    ("diff.mnemonicPrefix", "true"),
     ("diff.srcPrefix", "x/"),
     ("diff.dstPrefix", "y/"),
     ("diff.algorithm", "histogram"),
@@ -38,15 +40,9 @@ AMBIENT_SETTINGS = [
     ("diff.submodule", "log"),
     ("diff.ignoreSubmodules", "all"),
     ("diff.suppressBlankEmpty", "true"),
-    ("diff.relative", "true"),
     ("core.bigFileThreshold", "10"),
     ("diff.default.binary", "true"),
 ]
-
-#: Settings that leave the fixture's text alone when Git runs from the repository
-#: root, as every caller does. ``diff.mnemonicPrefix`` changes only diffs against
-#: the index or the work tree; ``diff.relative`` is tested from a subdirectory.
-_NO_EFFECT_FROM_THE_ROOT = {"diff.mnemonicPrefix", "diff.relative"}
 
 #: Myers and histogram split this change differently.
 _REORDER_BEFORE = "a\nb\nc\na\nb\nc\nd\ne\nx\ny\nz\n"
@@ -157,8 +153,10 @@ def test_a_submodule_change_stays_in_the_inventory_when_git_is_told_to_ignore_it
     git("config", "--local", "diff.ignoreSubmodules", "all", cwd=repo)
 
     assert "vendor/sub" in gitx.changed_files(repo, base, "HEAD")
+    assert "vendor/sub" in gitx.merge_result_files(repo, base, "HEAD")
     assert "vendor/sub" in gitx.classified_files(repo, base, "HEAD")
     assert "vendor/sub" in gitx.non_merge_commit_files(repo, base, "HEAD")
+    assert "vendor/sub" in gitx.commit_files(repo, "HEAD")
 
 
 def test_the_inventory_lists_every_path_from_a_subdirectory_under_diff_relative(varied_repo):
@@ -194,7 +192,12 @@ def test_a_note_verifies_under_a_different_git_configuration(feature_repo, tmp_p
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
     assert attestation.verify(feature_repo, sha).sha == sha
 
-    for key, value in (("diff.noprefix", "true"), ("core.abbrev", "12"), ("diff.context", "9")):
+    base = git("merge-base", "main", sha, cwd=feature_repo)
+    for key, value in (("diff.noprefix", "true"), ("core.abbrev", "12"), ("diff.context", "0")):
+        # Guard the fixture: a setting that leaves this diff alone would pass vacuously.
+        assert _plain_git_diff(feature_repo, base, "-c", f"{key}={value}") != _plain_git_diff(
+            feature_repo, base
+        ), key
         git("config", "--local", key, value, cwd=feature_repo)
         assert attestation.verify(feature_repo, sha, purpose="publish").sha == sha
 
@@ -300,11 +303,7 @@ def _plain_git_diff(repo: Path, base: str, *config: str) -> bytes:
     ).stdout
 
 
-@pytest.mark.parametrize(
-    ("key", "value"),
-    [item for item in AMBIENT_SETTINGS if item[0] not in _NO_EFFECT_FROM_THE_ROOT],
-    ids=[k for k, _ in AMBIENT_SETTINGS if k not in _NO_EFFECT_FROM_THE_ROOT],
-)
+@pytest.mark.parametrize(("key", "value"), AMBIENT_SETTINGS, ids=[k for k, _ in AMBIENT_SETTINGS])
 def test_each_setting_changes_an_unpinned_diff_of_the_fixture(varied_repo, key, value):
     """Guard the fixture: a setting it cannot show would pass the test above vacuously."""
     repo, base = varied_repo
@@ -345,6 +344,52 @@ def test_the_review_snapshot_ignores_replacement_objects(varied_repo):
     assert _snapshot(repo, base) == expected
 
 
+def test_the_inventory_ignores_a_replaced_commit(varied_repo):
+    """A file-list diff never opens a blob, but it does read a replaced commit's tree."""
+    repo, base = varied_repo
+    head = git("rev-parse", "HEAD", cwd=repo)
+    expected = (
+        sorted(gitx.changed_files(repo, base, head)),
+        sorted(gitx.merge_result_files(repo, base, head)),
+        gitx.classified_files(repo, base, head),
+        gitx.non_merge_commit_files(repo, base, head),
+        sorted(gitx.commit_files(repo, head)),
+    )
+    blob = (
+        subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"],
+            cwd=repo,
+            input=b"replacement\n",
+            capture_output=True,
+            check=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
+    tree = (
+        subprocess.run(
+            ["git", "mktree"],
+            cwd=repo,
+            input=f"100644 blob {blob}\tonly-in-replacement.txt\n".encode(),
+            capture_output=True,
+            check=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
+    other = git("commit-tree", tree, "-p", base, "-m", "replacement", cwd=repo)
+    git("replace", head, other, cwd=repo)
+    assert "only-in-replacement.txt" in git("diff", "--name-only", f"{base}...{head}", cwd=repo)
+
+    assert (
+        sorted(gitx.changed_files(repo, base, head)),
+        sorted(gitx.merge_result_files(repo, base, head)),
+        gitx.classified_files(repo, base, head),
+        gitx.non_merge_commit_files(repo, base, head),
+        sorted(gitx.commit_files(repo, head)),
+    ) == expected
+
+
 def test_a_committed_gitmodules_entry_cannot_hide_a_submodule_change(varied_repo):
     """``submodule.<name>.ignore`` in a committed ``.gitmodules`` used to drop the path."""
     repo, base = varied_repo
@@ -358,6 +403,8 @@ def test_a_committed_gitmodules_entry_cannot_hide_a_submodule_change(varied_repo
     assert "vendor/sub" not in git("diff", "--name-only", f"{base}...HEAD", cwd=repo)
 
     assert "vendor/sub" in gitx.changed_files(repo, base, "HEAD")
+    assert "vendor/sub" in gitx.merge_result_files(repo, base, "HEAD")
+    assert "vendor/sub" in gitx.commit_files(repo, "HEAD~1")
     assert "vendor/sub" in diff.build_bundle(repo, base, "HEAD").files
 
 

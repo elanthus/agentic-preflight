@@ -215,6 +215,36 @@ Issue #364 moved the example reviewer wrappers into `agentic_preflight/reviewers
   0.10.0. `tests/test_hook.py` and `tests/test_reviewer_examples.py` pin those entries.
 - Update `docs/independent-review.md`, and add a `removed` changelog fragment.
 
+### 12. Abbreviated review patches
+
+Review patches name full object IDs since the release after 0.8.1. Notes that 0.8.1 and
+earlier wrote hash patches whose `index` lines abbreviate them, and the verifier rebuilds
+that text when the full-ID text does not reproduce a note's digest. In 0.10.0 a release
+no longer reads 0.8 notes, so delete:
+
+- `agentic_preflight/gitx.py`: `_LEGACY_ABBREV_CONFIG`, the `full_index` parameter of
+  `diff_text_by_path` (always pass `--full-index`), and the docstring sentences about the
+  abbreviated form.
+- `agentic_preflight/diff.py`: the `full_index` parameter of `build_bundle` and its
+  docstring sentence.
+- `agentic_preflight/refresh_validation.py`: the loop over both formats in `_manifest`,
+  leaving one build and the existing "review fingerprint does not match the Git diff"
+  error.
+- `tests/test_diff_config_independence.py`:
+  `test_the_abbreviated_format_reproduces_the_patches_of_earlier_releases`,
+  `test_a_note_written_with_abbreviated_object_ids_still_verifies`,
+  `test_a_run_reviewed_by_an_earlier_release_is_reviewed_again_after_an_upgrade`,
+  `test_the_abbreviated_format_ignores_the_verifiers_abbreviation_setting`, and the
+  `_EARLIER_DIFF` constant once nothing uses it. Keep
+  `test_a_digest_that_matches_neither_format_is_rejected` and rename it for one format.
+- `tests/test_gitx.py`: the `earlier` half of
+  `test_crlf_patch_text_and_digests_match_main`, which pins the abbreviated digests.
+- The fallback paragraphs in `docs/fingerprint-contract.md` (from "Notes from 0.8.1 and
+  earlier" to "disambiguates") and the matching upgrade bullets in the `COMPATIBILITY.md`
+  entry "Unreleased: review patches no longer depend on Git configuration". Add a
+  `COMPATIBILITY.md` note that notes from 0.8.1 and earlier no longer verify and must be
+  replaced by validating the commit again, and a `removed` changelog fragment.
+
 ## Guardrail: keep this from growing back
 
 Add `agentic_preflight/_compat.py` holding one table:

@@ -2,22 +2,24 @@
   Before, `core.abbrev`, `core.quotePath`, `core.bigFileThreshold`, `core.precomposeUnicode`,
   `diff.noprefix`, `diff.srcPrefix`, `diff.dstPrefix`, `diff.algorithm`, `diff.context`,
   `diff.interHunkContext`, `diff.indentHeuristic`, `diff.suppressBlankEmpty`,
-  `diff.submodule`, `diff.relative`, `diff.orderFile`, `diff.default.binary`, the
+  `diff.submodule`, `diff.orderFile`, `diff.default.binary`, the
   `GIT_DIFF_OPTS` environment variable, and the user-level attributes file each changed
   the patch text that the review digest hashes. `verify`, `push`, and the pre-push hook then rejected a valid note with
   "review fingerprint does not match the Git diff" on any machine whose settings differed
   from the producer's. Git also lengthens abbreviated object IDs as a clone gains objects, so
   a fresh CI clone could reject a note that verified locally. Review patches now carry full
-  object IDs, and every such setting is fixed to Git's default. Git attributes still shape
+  object IDs, and every such setting is fixed to Git's default. `diff.relative` is fixed too,
+  as a precaution: it has no effect when Git runs from the repository root, as preflight
+  does. Git attributes still shape
   the text: those in `.gitattributes`, `$GIT_DIR/info/attributes`, `attr.tree`,
   `GIT_ATTR_SOURCE`, and the system-wide attributes file, together with the `diff.<driver>.*`
   configuration of a driver an attribute names. So do `diff.default.xfuncname` and
   `diff.default.funcname`. `COMPATIBILITY.md` lists them.
-- Replacement objects under `refs/replace` no longer change the review diff. They exist in
-  one clone only.
+- Replacement objects under `refs/replace` no longer change the review diff, the changed-file
+  list, or risk classification. They exist in one clone only.
 - `diff.ignoreSubmodules = all`, and `submodule.<name>.ignore = all` in local configuration,
-  no longer hide a submodule pointer change from the review diff, the changed-file list, or
-  risk classification.
+  no longer hide a submodule pointer change from the review diff, the changed-file list,
+  risk classification, or the list of paths a fix commit changes.
 - `diff.submodule = log` or `diff` no longer stops `context` with an internal error when a
   change moves a submodule pointer.
 - `core.precomposeUnicode`, which Git on macOS sets at `git init`, no longer stops `context`

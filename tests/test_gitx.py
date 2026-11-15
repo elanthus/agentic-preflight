@@ -842,6 +842,29 @@ def test_windows_raw_git_path_diff_selects_inventory_once(tmp_repo, monkeypatch)
     assert len(calls) == 1
 
 
+def test_windows_streamed_diff_runs_without_git_diff_opts(tmp_repo, monkeypatch):
+    """``GIT_DIFF_OPTS`` would change the context length on this branch too."""
+    raw_name = b"caf\xe9.txt"
+    commit = _commit_raw_paths(tmp_repo, [raw_name])
+    requested = [raw_name.decode("utf-8", errors="surrogateescape")]
+    monkeypatch.setenv("GIT_DIFF_OPTS", "-u7")
+    monkeypatch.setattr(gitx, "_WINDOWS_PATH_ARGUMENTS", True)
+    original = subprocess.Popen
+    environments = []
+
+    def popen(args, **kwargs):
+        environments.append(kwargs.get("env"))
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+
+    gitx.diff_text_by_path(tmp_repo, "main", commit, requested)
+
+    assert len(environments) == 1
+    assert environments[0] is not None
+    assert "GIT_DIFF_OPTS" not in environments[0]
+
+
 @pytest.mark.parametrize("chunk_size", [1, 2, 7, 11, 64 * 1024])
 def test_patch_stream_headers_follow_lf_and_preserve_bytes(chunk_size):
     first = b"diff --git a/one b/one\n+hello\rdiff --git a/fake b/fake\rmore\n"
