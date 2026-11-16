@@ -364,9 +364,11 @@ A generated file that is committed counts like any other committed file.
 A committed symlink is on the surface when its target is a file, even outside the repository. See [Committed symlinks on the documentation surface](limits.md#committed-symlinks-on-the-documentation-surface).
 
 Use `[docs] paths` for repository-specific documentation surfaces.
-The CLI asks Git only for the top-level files and the files under each pattern's literal leading directory, such as `docs` for `docs/**`.
+The CLI asks Git only for the paths each pattern's literal part names.
+That part is the whole pattern when it has no wildcard, such as `notes.txt`, and otherwise the leading directories before the first wildcard, such as `docs` for `docs/**`.
+A top-level pattern with a wildcard, such as the standard `README*`, adds a listing of the top-level files.
 A pattern that can match at any depth, such as `**/*.md` or a bare directory like `site/`, makes it list the whole committed tree, which is slower in a large repository.
-So does a pattern whose literal leading directory contains a non-ASCII character, a backslash, or an empty, `.`, or `..` component.
+So does a pattern whose literal part contains a non-ASCII character, a backslash, or an empty, `.`, or `..` component.
 The surface is an allowlist.
 A docs finding against a path outside the surface is rejected.
 The rejection is a statement about the allowlist, not a verdict on the finding.

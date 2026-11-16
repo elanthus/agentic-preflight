@@ -386,7 +386,9 @@ def _load_sources(
     """
     pathspecs = () if scopes is None else ("--", *(f":(literal){scope}" for scope in scopes))
     env = None if scopes is None else gitx.literal_pathspec_env()
-    output = gitx.run(repo, "ls-tree", "-r", "-l", "-z", revision, *pathspecs, env=env).stdout
+    output = gitx.run(
+        repo, "ls-tree", "-r", "-l", "-z", "--full-tree", revision, *pathspecs, env=env
+    ).stdout
     candidates = []
     paths = set()
     omitted: Counter[str] = Counter()

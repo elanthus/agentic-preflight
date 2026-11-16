@@ -542,10 +542,15 @@ def _ls_tree_calls(monkeypatch) -> list[tuple[str, ...]]:
     return calls
 
 
-def _lists_whole_tree(args: tuple[str, ...]) -> bool:
+def _has_short_flag(args: tuple[str, ...], flag: str) -> bool:
+    """Whether a short option such as ``-r`` appears alone or clustered, as in ``-rl``."""
     options = args[: args.index("--")] if "--" in args else args
-    recursive = any(arg[:1] == "-" and arg[1:2] != "-" and "r" in arg for arg in options)
-    return recursive and ("--" not in args or args.index("--") == len(args) - 1)
+    return any(arg[:1] == "-" and arg[1:2] != "-" and flag in arg[1:] for arg in options)
+
+
+def _lists_whole_tree(args: tuple[str, ...]) -> bool:
+    unlimited = "--" not in args or args.index("--") == len(args) - 1
+    return _has_short_flag(args, "r") and unlimited
 
 
 def test_fingerprinting_commands_never_list_the_whole_tree(feature_repo, tmp_path, monkeypatch):
@@ -573,7 +578,7 @@ def test_fingerprinting_commands_never_list_the_whole_tree(feature_repo, tmp_pat
         else:
             agent.run(*step)
         assert not [args for args in calls if _lists_whole_tree(args)], (step, calls)
-        recursive = [args for args in calls if "-r" in args]
+        recursive = [args for args in calls if _has_short_flag(args, "r")]
         assert len(calls) - len(recursive) <= 2, (step, calls)  # config lookup, root listing
         assert len(recursive) <= 2, (step, calls)  # grounding and docs inventory
 
@@ -604,10 +609,13 @@ def test_scoped_listings_leave_review_and_docs_fingerprints_byte_identical(
     from agentic_preflight import grounding as groundingmod
 
     monkeypatch.setattr(docsstage, "match_scope", lambda pattern: None)
-    monkeypatch.setattr(groundingmod, "match_scope", lambda pattern: None)
+    monkeypatch.setattr(groundingmod, "_source_scopes", lambda extra_paths: None)
     unscoped = fingerprints()
 
-    assert [args for args in whole_tree if _lists_whole_tree(args)], "the old path did not run"
+    full_listings = [args for args in whole_tree if _lists_whole_tree(args)]
+    # Grounding lists sizes with -l; the docs inventory does not.
+    assert [args for args in full_listings if _has_short_flag(args, "l")], "old grounding path"
+    assert [args for args in full_listings if not _has_short_flag(args, "l")], "old docs path"
     assert {stage: value.model_dump() for stage, value in scoped.items()} == {
         stage: value.model_dump() for stage, value in unscoped.items()
     }
