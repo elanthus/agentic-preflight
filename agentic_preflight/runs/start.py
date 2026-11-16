@@ -56,6 +56,7 @@ from ._session import (
     worktree_identity,
     worktree_mode,
 )
+from .fix_commits import _branch_only_commits
 
 # Lower-case harness names. Integration ids are accepted as aliases, so
 # `--client claude` (the `integrations install` name) records `claude-code`.
@@ -134,9 +135,9 @@ def build_producer(
 def _release_idle_runner(session: Session, run: RunDoc) -> None:
     """Free an orphaned run's reusable runner when it provably holds no work.
 
-    Releasing resets and cleans the checkout, so it happens only when no fix
-    commits were recorded, the runner is clean, and its HEAD is still the
-    reviewed head. Otherwise, or on any failure, the runner stays leased for
+    Releasing resets and cleans the checkout and deletes its branch, so it
+    happens only when no fix commits were recorded, the runner is clean, and
+    both its HEAD and its validation branch are still the reviewed head. Otherwise, or on any failure, the runner stays leased for
     ``gc`` and a later start reports it as before.
     """
     if run.fix_commits or run.worktree_released or worktree_mode(run) != "reusable":
@@ -146,6 +147,10 @@ def _release_idle_runner(session: Session, run: RunDoc) -> None:
         return
     try:
         if not gitx.is_clean(path) or gitx.rev_parse(path, "HEAD") != run.head_sha:
+            return
+        # Release deletes the branch, which a detached checkout does not show;
+        # an unreadable branch history raises and keeps the runner leased.
+        if _branch_only_commits(run, path, []):
             return
         release_run_worktree(session, run)
         with session.store.transaction(run.run_id) as doc:

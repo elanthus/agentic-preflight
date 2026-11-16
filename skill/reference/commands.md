@@ -133,8 +133,11 @@ to abort it. Explicit `abort` remains available. Completed history and runs with
 a journal are unaffected.
 A moved source head orphans the stale run without deleting its evidence or fixes and then
 starts fresh. In `reusable` mode, an orphaned run with no fix commits releases its runner
-at once, so the fresh run can lease it, but only when the runner is clean and still at
-the reviewed head. Otherwise, or if the release fails (recorded as a
+at once, so the fresh run can lease it, but only when the runner is clean and both its
+`HEAD` and its validation branch are still at the reviewed head; releasing deletes the
+branch, so a runner detached at the reviewed head while its branch holds a commit is kept.
+Otherwise, including when the branch no longer descends from the reviewed head or holds
+a merge commit, or if the release fails (recorded as a
 `runner_release_failed` event), the runner stays leased until `gc`. On an unchanged head, a different intent or configuration requires
 `--replace`, which preserves the replaced run as `ORPHANED`. Age alone never expires a
 run.
@@ -803,7 +806,11 @@ with no equivalent remains reported as unmerged and is never removed without
 `--force`. Before it releases a `strict` or `reusable` validation worktree, `gc`
 also requires a checkout that is clean apart from copied files and whose `HEAD` is the
 recorded head, a recorded fix, or a commit with the tree of the recorded head or
-the last recorded fix. Otherwise it retains the run in `data.retained`
+the last recorded fix, and whose validation branch holds no commit after the recorded
+head that `HEAD` does not reach and no recorded fix lists. Releasing deletes that branch,
+so a checkout detached at the recorded head no longer hides its commits. A branch that
+no longer descends from the recorded head, or that holds a merge commit, counts as
+uninspectable. Otherwise it retains the run in `data.retained`
 with its `worktree_path` and reason `validation worktree has uncommitted changes`,
 `validation worktree holds unrecorded commits` (for example, a fix committed but not
 yet answered with `respond`), or `validation worktree could not be inspected`.

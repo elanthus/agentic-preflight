@@ -41,6 +41,7 @@ from ._session import (
 )
 from .fix_commits import (
     UnreadableFixHistory,
+    _branch_only_commits,
     branch_fix_commits,
     listed_branch_commits,
     patch_unlanded,
@@ -378,8 +379,10 @@ def _unrecorded_work(run: RunDoc, path: str) -> str | None:
     not yet answered, or an uncommitted file, lives only in the checkout, and
     releasing it removes the worktree and branch or resets and cleans the
     runner. The checkout is releasable only when it is clean apart from copied
-    files and its HEAD is the recorded head, a recorded fix, or a commit with
-    the tree of the recorded head or the last recorded fix.
+    files, its HEAD is the recorded head, a recorded fix, or a commit with the
+    tree of the recorded head or the last recorded fix, and its validation
+    branch holds no unrecorded commit that HEAD does not reach. A branch history
+    that cannot be read counts as uninspectable.
     """
     try:
         status = gitx.run(
@@ -400,18 +403,29 @@ def _unrecorded_work(run: RunDoc, path: str) -> str | None:
         for changed in _porcelain_paths(status)
     ):
         return UNCOMMITTED_CHANGES
+    if not _head_is_recorded(run, path, head):
+        return UNRECORDED_COMMITS
+    # Releasing deletes the validation branch, and a checkout detached at the
+    # recorded head hides what the branch holds beyond it.
+    try:
+        hidden = _branch_only_commits(run, path, list(run.fix_commits))
+    except (UnreadableFixHistory, gitx.GitError, OSError):
+        return UNINSPECTABLE_WORKTREE
+    return UNRECORDED_COMMITS if hidden else None
+
+
+def _head_is_recorded(run: RunDoc, path: str, head: str) -> bool:
+    """Whether the checkout's ``HEAD`` adds nothing to the recorded history."""
     if head == run.head_sha or head in run.fix_commits:
-        return None
+        return True
     # A sync that rewrote commits, a tree-equivalent merge-back, or an empty
     # commit after the last fix can leave HEAD on a different commit with the
     # recorded head's or last fix's tree: no work is lost.
     try:
         recorded = {gitx.tree_sha(path, ref) for ref in (run.head_sha, *run.fix_commits[-1:])}
-        if gitx.tree_sha(path, head) in recorded:
-            return None
+        return gitx.tree_sha(path, head) in recorded
     except (gitx.GitError, OSError):
-        pass
-    return UNRECORDED_COMMITS
+        return False
 
 
 def _porcelain_paths(status: str) -> list[str]:

@@ -771,3 +771,13 @@ A recorded fix commit always counts, even when the validation checkout is detach
 When the branch history cannot be read, because the validation branch holds a merge commit or no longer descends from the reviewed head (for example after a rebase onto another base), a plain `abort` also exits 5 with `unmerged_work` instead of deleting the branch; `--force` still succeeds.
 In-place runs, states before synchronization finishes, and merge-back states are unchanged.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Unreleased: start --replace and gc read the validation branch
+
+`start --replace` (and a moved source head) in `reusable` mode and `gc` in `strict` and `reusable` modes release a validation checkout only after checking its `HEAD`, and the release deletes the validation branch.
+A checkout detached at the reviewed head therefore hid commits on `ap/<run_id>`, which the release deleted.
+Both now also read the branch tip.
+`start` keeps the runner leased when the branch holds a commit after the reviewed head, or when its history cannot be read, and the run is orphaned as before; `gc` then decides.
+`gc` retains such a run in `data.retained` with reason `validation worktree holds unrecorded commits`, or `validation worktree could not be inspected` when the branch holds a merge commit or no longer descends from the recorded head; `gc --force` releases it as before.
+A checkout whose `HEAD` is on its branch, the normal case, behaves as before.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
