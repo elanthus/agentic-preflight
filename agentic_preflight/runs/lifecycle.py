@@ -72,9 +72,9 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
 
     isolated = not is_in_place(run)
     if isolated and not force:
-        uncommitted = _abort_uncommitted_paths(run)
-        if run.fix_commits or uncommitted:
-            raise _unmerged_work(run, uncommitted)
+        uncommitted, uninspectable = _abort_uncommitted_paths(run)
+        if run.fix_commits or uncommitted or uninspectable:
+            raise _unmerged_work(run, uncommitted, uninspectable)
 
     release_run_worktree(session, run)
 
@@ -110,36 +110,25 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
 _MESSAGE_PATH_LIMIT = 10
 
 
-def _abort_uncommitted_paths(run: RunDoc) -> list[str]:
+def _abort_uncommitted_paths(run: RunDoc) -> tuple[list[str], str | None]:
     """Uncommitted paths that releasing an isolated run's worktree would discard.
 
     Copied files do not count, as in ``gc``. A worktree that is gone holds nothing.
-    One that exists but cannot be inspected may hold work, so the abort stops.
+    One that exists but cannot be inspected may hold work, so the second item is
+    then Git's error, and the abort stops.
     """
     path = run.worktree_path
     if not path or run.worktree_released or not Path(path).is_dir():
-        return []
+        return [], None
     try:
-        return _uncommitted_paths(run, path)
+        return _uncommitted_paths(run, path), None
     except (gitx.GitError, OSError) as exc:
-        raise UnmergedWork(
-            f"the validation worktree could not be inspected for uncommitted changes: {exc}",
-            state=run.state.value,
-            run_id=run.run_id,
-            data={
-                "fix_commits": run.fix_commits,
-                "uncommitted_paths": [],
-                "worktree_path": path,
-            },
-            next_instruction=(
-                "Inspect the validation worktree and copy anything worth keeping, then "
-                "abort again with --force to discard the rest."
-            ),
-            next_command="agentic-preflight abort --force",
-        ) from exc
+        return [], str(exc) or type(exc).__name__
 
 
-def _unmerged_work(run: RunDoc, uncommitted: list[str]) -> UnmergedWork:
+def _unmerged_work(
+    run: RunDoc, uncommitted: list[str], uninspectable: str | None = None
+) -> UnmergedWork:
     """The refusal that names everything a forced abort would discard."""
     lost: list[str] = []
     if run.fix_commits:
@@ -154,9 +143,15 @@ def _unmerged_work(run: RunDoc, uncommitted: list[str]) -> UnmergedWork:
         lost.append(
             f"uncommitted changes to {len(uncommitted)} path(s) in the validation worktree: {named}"
         )
-    if run.fix_commits and uncommitted:
+    if uninspectable:
+        lost.append(
+            "a validation worktree that could not be inspected for uncommitted changes: "
+            f"{uninspectable}"
+        )
+    copy = bool(uncommitted or uninspectable)
+    if run.fix_commits and copy:
         keep = "Cherry-pick the commits and copy the changes worth keeping"
-    elif uncommitted:
+    elif copy:
         keep = "Copy anything worth keeping into your checkout"
     else:
         keep = "Cherry-pick anything worth keeping"

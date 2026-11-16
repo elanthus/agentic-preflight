@@ -149,3 +149,25 @@ def test_abort_refuses_when_the_worktree_cannot_be_inspected(agent, feature_repo
     assert refused["data"]["worktree_path"] == str(wt)
     assert refused["next"]["command"] == "agentic-preflight abort --force"
     assert (wt / "notes" / "draft.txt").is_file()
+
+
+def test_an_uninspectable_worktree_refusal_still_names_the_fix_commits(
+    agent, feature_repo, tmp_path
+):
+    _, wt = _start(agent, feature_repo, "strict")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, BLOCKING))
+    write(wt, "src/app.py", "def greet(name, loud=False):\n    return 'HI' if loud else 'hi'\n")
+    git("add", "-A", cwd=wt)
+    git("commit", "-m", "fix the flag", cwd=wt)
+    sha = git("rev-parse", "HEAD", cwd=wt)
+    agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", sha)
+    (wt / ".git").write_text("gitdir: /nonexistent/agentic-preflight-test\n", encoding="utf-8")
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert refused["error"]["code"] == "unmerged_work"
+    assert sha in refused["error"]["message"]
+    assert "could not be inspected" in refused["error"]["message"]
+    assert refused["data"]["fix_commits"] == [sha]
+    assert "Cherry-pick the commits" in refused["next"]["instruction"]
