@@ -138,9 +138,10 @@ def _release_idle_runner(session: Session, run: RunDoc) -> None:
     Releasing resets and cleans the checkout and deletes its branch, so it
     happens only when no fix commits were recorded, the runner is clean, and
     both its HEAD and its validation branch are still the reviewed head.
-    Otherwise, or on any failure, including a branch history that cannot be
-    read, the runner stays leased for ``gc`` and a later start reports it as
-    before.
+    Otherwise, or on any failure, the runner stays leased for ``gc`` and a
+    later start reports it as before. A runner held because its branch holds
+    commits, or a branch history that cannot be read, is detached; it is put
+    back on that branch so the next run cannot lease it.
     """
     if run.fix_commits or run.worktree_released or worktree_mode(run) != "reusable":
         return
@@ -154,9 +155,11 @@ def _release_idle_runner(session: Session, run: RunDoc) -> None:
         # Like any other hold, an unreadable branch history keeps the runner
         # leased without an event; `gc` reports it.
         try:
-            if _branch_only_commits(run, path, []):
-                return
+            hidden = bool(_branch_only_commits(run, path, []))
         except UnreadableFixHistory:
+            hidden = True
+        if hidden:
+            _reattach_runner(path, run)
             return
         release_run_worktree(session, run)
         with session.store.transaction(run.run_id) as doc:
@@ -165,6 +168,17 @@ def _release_idle_runner(session: Session, run: RunDoc) -> None:
         session.store.append_event(
             run.run_id, {"event": "runner_release_failed", "error": str(exc)[:500]}
         )
+
+
+def _reattach_runner(path: str, run: RunDoc) -> None:
+    """Put a held, detached runner back on its run's branch, so it stays leased.
+
+    A detached runner counts as released, and the next run would lease it and
+    reset it. The runner is clean at the reviewed head, which the source branch
+    still reaches, so switching to the validation branch loses nothing.
+    """
+    if run.worktree_branch and gitx.current_branch(path) == "HEAD":
+        gitx.run(path, "switch", "--quiet", run.worktree_branch)
 
 
 def _interrupted_checkouts(session: Session, run: RunDoc) -> list[Path]:

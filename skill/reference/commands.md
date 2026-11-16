@@ -134,11 +134,12 @@ a journal are unaffected.
 A moved source head orphans the stale run without deleting its evidence or fixes and then
 starts fresh. In `reusable` mode, an orphaned run with no fix commits releases its runner
 at once, so the fresh run can lease it, but only when the runner is clean and both its
-`HEAD` and its validation branch are still at the reviewed head; releasing deletes the
-branch, so a runner detached at the reviewed head while its branch holds a commit is kept.
-Otherwise, including when the branch no longer descends from the reviewed head or holds
-a merge commit, or if the release fails (recorded as a
-`runner_release_failed` event), the runner stays leased until `gc`. On an unchanged head, a different intent or configuration requires
+`HEAD` and its validation branch are still at the reviewed head. Releasing deletes the
+branch, so a runner detached at the reviewed head while its branch holds a commit, no
+longer descends from the reviewed head, or holds a merge commit is put back on that
+branch and kept. Otherwise, or if the release fails (recorded as a
+`runner_release_failed` event), the runner stays leased until `gc`, and the fresh run's
+`start` exits 4 (`needs_human`) because the runner is still leased. On an unchanged head, a different intent or configuration requires
 `--replace`, which preserves the replaced run as `ORPHANED`. Age alone never expires a
 run.
 Before review, the command fetches the configured base from `origin` when available and
@@ -814,7 +815,8 @@ uninspectable. Otherwise it retains the run in `data.retained`
 with its `worktree_path` and reason `validation worktree has uncommitted changes`,
 `validation worktree holds unrecorded commits` (for example, a fix committed but not
 yet answered with `respond`), or `validation worktree could not be inspected`.
-`next.instruction` then says that `gc --force` discards any work they hold, and `next.command`
+`next.instruction` then says to inspect each `worktree_path` and its run's `ap/<run_id>`
+branch, which a detached checkout does not show, and that `gc --force` discards any work they hold, and `next.command`
 is `null`. `--force` releases it anyway. A run ended with `abort --force` already discarded
 its fix commits, so they no longer count as unmerged. A `strict` worktree locked with
 `git worktree lock` is retained, even with `--force`, with reason

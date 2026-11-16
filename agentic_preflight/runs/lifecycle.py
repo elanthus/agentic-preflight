@@ -368,7 +368,8 @@ UNRECORDED_WORK_REASONS = frozenset(
 UNRECORDED_WORK_INSTRUCTION = (
     "Validation worktrees that hold uncommitted changes or commits that `respond` never "
     "recorded, or that could not be inspected, were retained; inspect each "
-    "`worktree_path` in `data.retained`. `gc --force` discards any work they hold."
+    "`worktree_path` in `data.retained` and its run's `ap/<run_id>` branch, which a "
+    "detached checkout does not show. `gc --force` discards any work they hold."
 )
 
 

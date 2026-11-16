@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from agentic_preflight.envelope import ExitCode
 from tests.conftest import configure_base, git, write
 from tests.driver import ScriptedAgent
 
@@ -47,13 +48,24 @@ def _events(feature_repo: Path, run_id: str) -> list[str]:
     return [json.loads(line).get("event") for line in lines if line]
 
 
+def _replace_on_held_runner(agent: ScriptedAgent, run_id: str) -> None:
+    """`start --replace` orphans the run, holds its runner, and cannot lease it."""
+    refused = agent.run(
+        "start", "--replace", "--intent", "different objective", expect=ExitCode.NEEDS_HUMAN
+    )
+    assert refused["error"]["code"] == "needs_human"
+    assert f"still leased on branch 'ap/{run_id}'" in refused["error"]["message"]
+
+
 def test_replace_keeps_a_reusable_runner_whose_branch_holds_a_hidden_commit(feature_repo):
     agent, run_id, wt, fix = _hidden_commit(feature_repo, REUSABLE)
 
-    agent.run("start", "--replace", "--intent", "different objective")
+    _replace_on_held_runner(agent, run_id)
 
+    assert _record(feature_repo, run_id)["state"] == "ORPHANED"
     assert _record(feature_repo, run_id)["worktree_released"] is False
-    assert wt.exists()
+    # Back on its own branch, so no other run can lease and reset it.
+    assert git("symbolic-ref", "--short", "HEAD", cwd=wt) == f"ap/{run_id}"
     assert git("rev-parse", f"refs/heads/ap/{run_id}", cwd=feature_repo) == fix
 
 
@@ -71,7 +83,10 @@ def test_replace_still_releases_an_idle_reusable_runner(feature_repo):
 @pytest.mark.parametrize("config", [STRICT, REUSABLE], ids=["strict", "reusable"])
 def test_gc_retains_a_checkout_whose_branch_holds_a_hidden_commit(feature_repo, config):
     agent, run_id, wt, fix = _hidden_commit(feature_repo, config)
-    agent.run("start", "--replace", "--intent", "different objective")
+    if config == REUSABLE:
+        _replace_on_held_runner(agent, run_id)
+    else:
+        agent.run("start", "--replace", "--intent", "different objective")
 
     env = agent.run("gc")
 
@@ -81,6 +96,7 @@ def test_gc_retains_a_checkout_whose_branch_holds_a_hidden_commit(feature_repo, 
         "reason": "validation worktree holds unrecorded commits",
         "worktree_path": str(wt),
     } in env["data"]["retained"]
+    assert "`ap/<run_id>` branch" in env["next"]["instruction"]
     assert wt.exists()
     assert git("rev-parse", f"refs/heads/ap/{run_id}", cwd=feature_repo) == fix
 
@@ -89,6 +105,10 @@ def test_gc_retains_a_checkout_whose_branch_holds_a_hidden_commit(feature_repo, 
     assert run_id in forced["data"]["removed"]
     assert _record(feature_repo, run_id)["worktree_released"] is True
     assert not git("branch", "--list", f"ap/{run_id}", cwd=feature_repo)
+    if config == REUSABLE:
+        # The freed runner is leasable again.
+        restarted = agent.run("start", "--replace", "--intent", "different objective")
+        assert restarted["data"]["worktree_path"] == str(wt)
 
 
 def _rewritten_branch(feature_repo: Path, config: str) -> tuple[ScriptedAgent, str, Path, str]:
@@ -111,12 +131,12 @@ def test_replace_keeps_a_reusable_runner_whose_branch_was_rewritten(feature_repo
     """An unreadable branch history keeps the runner leased for `gc`."""
     agent, run_id, wt, rewritten = _rewritten_branch(feature_repo, REUSABLE)
 
-    agent.run("start", "--replace", "--intent", "different objective")
+    _replace_on_held_runner(agent, run_id)
 
     assert _record(feature_repo, run_id)["worktree_released"] is False
     # A deliberate hold, not a failed release.
     assert "runner_release_failed" not in _events(feature_repo, run_id)
-    assert wt.exists()
+    assert git("symbolic-ref", "--short", "HEAD", cwd=wt) == f"ap/{run_id}"
     assert git("rev-parse", f"refs/heads/ap/{run_id}", cwd=feature_repo) == rewritten
 
 
