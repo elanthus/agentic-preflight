@@ -345,6 +345,8 @@ def test_local_gate_risk_matches_the_hosted_verdict_after_synchronization(
         ("pull.twohead", "ours"),
         ("merge.verifySignatures", "true"),
         ("merge.log", "true"),
+        ("branch.feature/undo.mergeOptions", "-s ours"),
+        ("branch.feature/undo.mergeOptions", "-X theirs --log"),
     ],
 )
 def test_sync_fallback_merge_ignores_merge_configuration(tmp_repo, key, value):
@@ -361,3 +363,19 @@ def test_sync_fallback_merge_ignores_merge_configuration(tmp_repo, key, value):
     assert git("log", "-1", "--format=%B", after, cwd=tmp_repo) == (
         f"Merge commit '{base}' into feature/undo"
     )
+
+
+def test_sync_fallback_merge_keeps_configuration_passed_through_the_environment(
+    tmp_repo, monkeypatch
+):
+    base, _head = _skipped_change(tmp_repo)
+    git("config", "branch.feature/undo.mergeOptions", "-s ours", cwd=tmp_repo)
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "i18n.commitEncoding")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "ISO-8859-1")
+
+    result = sync.synchronize(tmp_repo, tmp_repo, base_ref="main")
+
+    assert result.merged is True
+    assert gitx.tree_sha(tmp_repo, "HEAD") == gitx.tree_sha(tmp_repo, base)
+    assert "\nencoding ISO-8859-1\n" in git("cat-file", "commit", "HEAD", cwd=tmp_repo)

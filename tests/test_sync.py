@@ -373,6 +373,7 @@ def test_strict_start_leaves_a_stacked_branch_alone_under_update_refs(feature_re
 
 
 def test_sync_rebase_ignores_rebase_autosquash(tmp_repo):
+    """A guard: Git applies ``rebase.autoSquash`` only to interactive rebases today."""
     _diverge(tmp_repo)
     write(tmp_repo, "feature.txt", "feature, amended\n")
     commit_all(tmp_repo, "fixup! feature")

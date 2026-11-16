@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -81,15 +82,17 @@ class SyncResult:
 
 # The synchronizing rebase must only replay the branch's own commits onto the base.
 # These options neutralize configuration that would change that: ``rebase.updateRefs``
-# (moves other branches stacked in the rebased range), ``rebase.autoSquash`` (reorders
-# and folds ``fixup!`` commits), ``rebase.autoStash`` (rebases a dirty checkout instead
-# of refusing), ``rebase.rebaseMerges`` (keeps merge commits, which ``sync_onto`` relies
-# on the rebase dropping), and ``pull.twohead``, which the rebase also reads as its
-# default merge strategy. Each matches Git's default, so an unconfigured repository
-# rebases exactly as before. Not neutralized: commit signing (``commit.gpgSign``),
-# hooks (``pre-rebase``, ``post-checkout``, ``post-rewrite``), ``rebase.backend``,
+# (moves other branches stacked in the rebased range), ``rebase.autoStash`` (rebases a
+# dirty checkout instead of refusing), ``rebase.rebaseMerges`` (keeps merge commits,
+# which ``sync_onto`` relies on the rebase dropping), and ``pull.twohead``, which the
+# rebase also reads as its default merge strategy. ``--strategy`` also forces the merge
+# backend, so ``rebase.backend`` is neutralized as a side effect. ``rebase.autoSquash``
+# applies only to interactive rebases, so ``--no-autosquash`` changes nothing today;
+# it is pinned as a guard. Each option matches Git's default, so an unconfigured
+# repository rebases exactly as before. Not neutralized: commit signing
+# (``commit.gpgSign``), hooks (``pre-rebase``, ``post-checkout``, ``post-rewrite``),
 # rename and conflict settings (``merge.renames``, ``merge.directoryRenames``,
-# ``rerere.*``), and notes copying (``notes.rewrite.*``).
+# ``rerere.*``), and notes copying (``notes.rewriteRef``).
 _PINNED_REBASE_OPTIONS = (
     "--no-update-refs",
     "--no-autosquash",
@@ -100,11 +103,13 @@ _PINNED_REBASE_OPTIONS = (
 # The fallback merge always commits a real two-parent merge with the default strategy
 # and message, never overwrites ignored local files, and skips commit hooks, because
 # the rebase it replaces runs none and the merge adds no user content. These options
-# neutralize ``merge.ff``, ``branch.<name>.mergeOptions`` (``--no-commit``,
-# ``--squash``), ``pull.twohead``, ``merge.verifySignatures``, and ``merge.log``. Not
-# neutralized: commit signing (``commit.gpgSign``), strategy options (``-X``) from
-# ``branch.<name>.mergeOptions``, and rename and conflict settings. The merge always
-# starts from a clean checkout, so ``merge.autoStash`` has nothing to stash.
+# neutralize ``merge.ff``, ``pull.twohead``, ``merge.verifySignatures``, and
+# ``merge.log``. ``branch.<name>.mergeOptions`` is cleared for the merge by
+# ``_merge_env``: Git parses it before the command line, and a ``-s`` there is added
+# to the strategy list ahead of ``--strategy=ort``, so ``-s ours`` would still win.
+# Not neutralized: commit signing (``commit.gpgSign``) and rename and conflict
+# settings. The merge always starts from a clean checkout, so ``merge.autoStash`` has
+# nothing to stash.
 _PINNED_MERGE_OPTIONS = (
     "--no-ff",
     "--commit",
@@ -116,6 +121,27 @@ _PINNED_MERGE_OPTIONS = (
     "--no-verify-signatures",
     "--no-log",
 )
+
+
+def _merge_env(worktree_path: Path | str) -> dict[str, str] | None:
+    """Git's environment for the fallback merge, with the branch's ``mergeOptions`` cleared.
+
+    An empty value drops every option the setting holds, ``-s`` and ``-X`` included.
+    The override is appended through ``GIT_CONFIG_COUNT`` rather than ``-c``, because a
+    branch name may contain ``=``; configuration already passed that way is kept.
+    """
+    branch = gitx.current_branch(worktree_path)
+    if branch == "HEAD":
+        return None
+    env = dict(os.environ)
+    try:
+        index = int(env.get("GIT_CONFIG_COUNT", "0"))
+    except ValueError:
+        index = 0
+    env[f"GIT_CONFIG_KEY_{index}"] = f"branch.{branch}.mergeOptions"
+    env[f"GIT_CONFIG_VALUE_{index}"] = ""
+    env["GIT_CONFIG_COUNT"] = str(index + 1)
+    return env
 
 
 def _origin_base_ref(base_ref: str) -> tuple[str, str]:
@@ -202,7 +228,14 @@ def _merge_base_in(
     worktree_path: Path | str, *, base_ref: str, base_sha: str, before: str, landed: str
 ) -> str:
     """Merge the base into the restored head, or restore it and report a conflict."""
-    result = gitx.run(worktree_path, "merge", *_PINNED_MERGE_OPTIONS, base_sha, check=False)
+    result = gitx.run(
+        worktree_path,
+        "merge",
+        *_PINNED_MERGE_OPTIONS,
+        base_sha,
+        check=False,
+        env=_merge_env(worktree_path),
+    )
     if (
         result.returncode == 0
         and gitx.operation_in_progress(worktree_path) is None
