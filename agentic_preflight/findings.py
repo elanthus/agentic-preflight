@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .machine import State
 from .models import (
@@ -30,6 +31,9 @@ from .models import (
     Stage,
 )
 from .stages import shellstage
+
+if TYPE_CHECKING:
+    from .config import Config
 
 
 class FindingRejected(Exception):
@@ -219,3 +223,21 @@ def actionable(items: list[Finding]) -> list[Finding]:
         for finding in items
         if finding.status is FindingStatus.OPEN and finding.action is FindingAction.AUTO_FIX
     ]
+
+
+def unresolved(items: list[Finding], *, blocking_severities: Sequence[str]) -> list[Finding]:
+    """Open findings that still need ``respond``: the blocking set and open auto-fixes.
+
+    Stage evidence that holds one cannot be attested, and a run may not leave
+    review or documentation while one remains. Pass one stage's findings.
+    """
+    held = blocking(items, blocking_severities=blocking_severities)
+    held.extend(finding for finding in actionable(items) if finding not in held)
+    return held
+
+
+def stage_blocking_severities(config: Config, stage: Stage) -> Sequence[str]:
+    """The severities that block ``stage`` under ``config``."""
+    if stage is Stage.DOCS:
+        return config.docs.blocking_severities
+    return config.review.blocking_severities

@@ -51,10 +51,16 @@ Three kinds of transition do not appear in that picture:
   `RETRY_LINT`, `RETRY_TEST`, and `RETRY_REVIEW_COMMAND` return a red stage to its running state.
 - **Disposition.** `RESPOND` keeps the run in `REVIEW_BLOCKED`, `REVIEW_GREEN`, `DOCS_BLOCKED`, or `DOCS_GREEN`.
   `RESOLVE_GREEN` moves a blocked stage to green.
+  `REOPEN_FINDINGS` returns `TEST_GREEN` or `MERGEBACK_PENDING` to `REVIEW_GREEN` when a finding is still open and merge-back has not changed the source.
+  It keeps the review result, discards the documentation, lint, and test results, and is not a restart.
 - **Closing.** `ABORT` and `ORPHAN` are legal from every nonterminal state.
   `DONE`, `ABORTED`, and `ORPHANED` are terminal.
 
 Review and documentation findings can block progress.
+An open `auto_fix` finding below the blocking severity leaves its stage green, but the run cannot leave `REVIEW_GREEN` or `DOCS_GREEN` until every such finding has a disposition.
+The coordinators refuse `BEGIN_DOCS` and `RUN_LINT` with exit 3 and `findings_unresolved`, which names the findings.
+They do not take `SKIP_DOCS` automatically, evidence reuse does not import the next stage, and `status` returns `respond` for the first open finding.
+`respond` is legal only in the review and documentation states, and the attestation refuses evidence that still holds such a finding.
 Failed shell stages retry within their attempt limits. Committed repairs require renewed review.
 A run whose validation returns to review `[stage] max_restarts` times stops for a person.
 Then only the closing transitions are legal.
@@ -106,11 +112,13 @@ The table below lists every transition except the closing transitions.
 | `TEST_RUNNING` | `TEST_FAILED` | `TEST_RED` |
 | `TEST_GREEN` | `BEGIN_MERGEBACK` | `MERGEBACK_PENDING` |
 | `TEST_GREEN` | `INVALIDATE_REVIEW` | `REVIEW_AWAITING_FINDINGS` |
+| `TEST_GREEN` | `REOPEN_FINDINGS` | `REVIEW_GREEN` |
 | `TEST_RED` | `RETRY_TEST` | `TEST_RUNNING` |
 | `TEST_RED` | `TEST_FIX_RESTART` | `REVIEW_AWAITING_FINDINGS` |
 | `MERGEBACK_PENDING` | `MERGEBACK_OK` | `VERIFIED` |
 | `MERGEBACK_PENDING` | `MERGEBACK_FAILED` | `MERGEBACK_CONFLICT` |
 | `MERGEBACK_PENDING` | `INVALIDATE_REVIEW` | `REVIEW_AWAITING_FINDINGS` |
+| `MERGEBACK_PENDING` | `REOPEN_FINDINGS` | `REVIEW_GREEN` |
 | `MERGEBACK_CONFLICT` | `MERGEBACK_RETRY` | `MERGEBACK_PENDING` |
 | `MERGEBACK_CONFLICT` | `INVALIDATE_REVIEW` | `REVIEW_AWAITING_FINDINGS` |
 | `VERIFIED` | `GATE` | `AWAITING_PUSH_CONFIRM` |
@@ -180,6 +188,7 @@ Thus, recovery checks the external result before it decides whether an action mu
 | A conflict retry finds the source where merge-back left it | Merge-back's own rebase onto the recorded base is not a resolution, because the rebased head is recorded as the run's source head. Replay the fix commits again; a remaining conflict returns `MERGEBACK_CONFLICT`. |
 | A conflict retry finds a moved source that lacks a recorded fix commit | A fix counts as present when every path it changes holds the fix's or the validated content. It also counts when the source has it by ancestry, stable patch ID, or a cherry-pick (same author, author date, and subject) and every path it changes holds that content or differs from the fix's parent commit. Record `MERGEBACK_FAILED` into `MERGEBACK_CONFLICT`, append a `mergeback_fixes_unmerged` event, and exit 4 with `fix_commits_unmerged`. Never reset the validation branch or clear `fix_commits` here. Return `mergeback` as the next command, to run once the named commits are applied. |
 | Merge-back changed the source, but attestation or state persistence failed | With no Git operation in progress, retry accepts the completed result only under these conditions: the source branch and validation snapshot still match the attempt, the source tree equals the recorded validated tree, and the synchronized base is still an ancestor. Existing dirty-path checks still apply. The fixes are not cherry-picked again. |
+| `mergeback` finds an open blocking or `auto_fix` finding (a run that an earlier release let leave review) | Before it records an attempt or changes Git, from `TEST_GREEN` or from a pending attempt whose source has not changed: record `REOPEN_FINDINGS` into `REVIEW_GREEN`, discard the documentation, lint, and test results and the attempt, append a `findings_reopened` event, and exit 3 with `findings_unresolved`. Return `respond` for the first named finding. When the source already holds the validated tree, as after an isolated merge-back's cherry-pick or an exact conflict resolution: exit 3 with `dirty_tree` while the validation checkout has uncommitted changes, which the reset would discard. Otherwise make that source commit the review snapshot as for a changed resolution, record `INVALIDATE_REVIEW` without counting a validation restart, discard the attempt, and exit 3 with `findings_unresolved` and `context` as the next command. Review then returns the open finding for `respond`. |
 | A pending merge-back finds different source content, branch, or validation snapshot | Preserve the work, mark the run stale, and direct recovery through `status` to a fresh run. Do not adopt the changed content as verified. |
 | Synchronization fails at `start` (conflict, unreachable remote, missing base, Git or OS error) | Record `SYNC_FAILED` into `SYNC_CONFLICT`. Append a `sync_conflict` or `sync_failed` event with the detail. Return `abort --force`. |
 | A Git sequence is in progress in the validation worktree at `start` | Record `SYNC_FAILED` into `SYNC_CONFLICT`. Append a `sync_refused` event that names the operation. Return `git status`. |

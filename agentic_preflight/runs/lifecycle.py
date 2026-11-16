@@ -35,6 +35,8 @@ from ._session import (
     release_run_worktree,
     restart_limit_reached,
     start_command,
+    unresolved_findings,
+    unresolved_next_hint,
     worktree_mode,
 )
 from .fix_commits import patch_unlanded
@@ -808,6 +810,11 @@ def _set_status_next(
             "then retry mergeback; completed verification stages are retained."
         )
         envelope.next_command = "agentic-preflight mergeback"
+    elif run.state in (State.REVIEW_GREEN, State.DOCS_GREEN):
+        # The stage is green, but the run cannot leave it until each open
+        # finding is answered, and `respond` is legal only here.
+        unresolved = unresolved_findings(session, session.store.load_findings(run.run_id))
+        unresolved_next_hint(session, envelope, unresolved)
 
 
 def status(session: Session, *, all_runs: bool = False) -> Envelope:

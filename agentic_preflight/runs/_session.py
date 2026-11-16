@@ -17,6 +17,7 @@ from ..cli_contract import RunDataBase
 from ..config import Config, load_config, snapshot_config, snapshot_run_settings
 from ..envelope import Envelope
 from ..errors import (
+    FindingsUnresolved,
     MaxRestarts,
     NoRun,
     StaleRun,
@@ -466,11 +467,7 @@ def assess_risk(
 
 
 def stage_blocking_severities(session: Session, stage: Stage) -> Sequence[str]:
-    return (
-        session.config.docs.blocking_severities
-        if stage is Stage.DOCS
-        else session.config.review.blocking_severities
-    )
+    return findingsmod.stage_blocking_severities(session.config, stage)
 
 
 def findings_next_hint(
@@ -490,3 +487,60 @@ def findings_next_hint(
             "or record why it is not worth fixing with `--action accepted --note`."
         )
         envelope.next_command = _respond_command(actionable[0].id)
+
+
+def unresolved_findings(session: Session, items: list[Finding]) -> list[Finding]:
+    """Review and docs findings that still need ``respond``, in id order.
+
+    This is the test the attestation applies to each stage's evidence, so a run
+    must not leave review or documentation while one remains: ``respond`` is not
+    legal after documentation, and merge-back would refuse the evidence.
+    """
+    unresolved: list[Finding] = []
+    for stage in (Stage.REVIEW, Stage.DOCS):
+        unresolved.extend(
+            findingsmod.unresolved(
+                [finding for finding in items if finding.stage is stage],
+                blocking_severities=stage_blocking_severities(session, stage),
+            )
+        )
+    return sorted(unresolved, key=lambda finding: finding.id)
+
+
+def unresolved_next_hint(session: Session, envelope: Envelope, unresolved: list[Finding]) -> None:
+    """Point a green stage's envelope at the first finding that still needs ``respond``."""
+    blocking = [
+        finding
+        for finding in unresolved
+        if finding
+        in findingsmod.blocking(
+            [finding],
+            blocking_severities=stage_blocking_severities(session, finding.stage),
+        )
+    ]
+    actionable = [finding for finding in unresolved if finding not in blocking]
+    findings_next_hint(envelope, blocking, actionable)
+
+
+def findings_unresolved(
+    run: RunDoc,
+    unresolved: list[Finding],
+    *,
+    step: str,
+    next_instruction: str | None = None,
+    next_command: str | None = None,
+) -> FindingsUnresolved:
+    """Name the findings that keep the run from taking ``step``."""
+    ids = ", ".join(finding.id for finding in unresolved)
+    return FindingsUnresolved(
+        f"{step} is not allowed while finding(s) {ids} are open; answer each with `respond` first",
+        state=run.state.value,
+        run_id=run.run_id,
+        blocking=[finding.model_dump(mode="json") for finding in unresolved],
+        next_instruction=next_instruction
+        or (
+            "Fix each named finding and cite the commit, or record why it is not worth "
+            "fixing with `--action accepted --note`. Then follow `next.command` again."
+        ),
+        next_command=next_command or _respond_command(unresolved[0].id),
+    )
