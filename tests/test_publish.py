@@ -178,7 +178,7 @@ def test_push_retry_after_remote_success_before_local_state_write(
     from agentic_preflight import store as storemod
 
     token = verified.run("gate")["data"]["token"]
-    original = storemod._atomic_write
+    original = storemod.atomic_write
 
     def interrupted(path, payload):
         if path.name == "run.json" and json.loads(payload)["state"] == "PUSHED":
@@ -186,7 +186,7 @@ def test_push_retry_after_remote_success_before_local_state_write(
         original(path, payload)
 
     with monkeypatch.context() as fault:
-        fault.setattr(storemod, "_atomic_write", interrupted)
+        fault.setattr(storemod, "atomic_write", interrupted)
         verified.run("push", "--confirm", token, expect=1)
     remote_sha = git("rev-parse", "feature/x", cwd=bare_remote)
     assert remote_sha == git("rev-parse", "HEAD", cwd=feature_repo)

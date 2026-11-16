@@ -260,3 +260,33 @@ def test_a_branch_cannot_choose_an_older_base_through_its_own_base_ref(feature_r
             pull_request_author="contributor",
         )
     assert caught.value.reason == "base_mismatch"
+
+
+@pytest.mark.parametrize(
+    ("edited", "accepted"), [("reviewer/rev.py", False), ("src/other.py", True)]
+)
+def test_a_branch_that_edits_its_reviewer_is_held_to_the_command_review_policy(
+    feature_repo, tmp_path, edited, accepted
+):
+    # GHSA-3372-q2xp-jr7q: the base's reviewer script is a human-review path, so a
+    # branch that edits it is high risk and `require_command_for = ["high"]` applies.
+    git("switch", "main", cwd=feature_repo)
+    write(feature_repo, "reviewer/rev.py", "raise SystemExit(1)\n")
+    commit_all(feature_repo, "add the repository reviewer")
+    git("switch", "feature/x", cwd=feature_repo)
+    git("rebase", "main", cwd=feature_repo)
+    write(feature_repo, edited, "print('{}')\n")
+    commit_all(feature_repo, "edit a file")
+    green_run(feature_repo, tmp_path)
+    sha = git("rev-parse", "HEAD", cwd=feature_repo)
+    _advance_main(
+        feature_repo,
+        PROTECTED_CONFIG
+        + "\n[review]\ncommand = 'python3 reviewer/rev.py'\nrequire_command_for = ['high']\n",
+    )
+
+    if accepted:
+        assert attestation.verify(feature_repo, sha, base="main").sha == sha
+    else:
+        with pytest.raises(attestation.InvalidAttestation, match="protected executor policy"):
+            attestation.verify(feature_repo, sha, base="main")

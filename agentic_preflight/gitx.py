@@ -13,7 +13,7 @@ import re
 import secrets
 import subprocess
 import tempfile
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from functools import cache
 from pathlib import Path
@@ -117,9 +117,9 @@ def run(
     return result
 
 
-def _run_bytes(cwd: Path | str, *args: str) -> bytes:
+def _run_bytes(cwd: Path | str, *args: str, env: Mapping[str, str] | None = None) -> bytes:
     """Run a git command and return its raw stdout, without newline translation."""
-    result = subprocess.run([_git_executable(), *args], cwd=str(cwd), capture_output=True)
+    result = subprocess.run([_git_executable(), *args], cwd=str(cwd), capture_output=True, env=env)
     if result.returncode != 0:
         raise GitError(
             list(args), result.returncode, result.stderr.decode("utf-8", errors=_DECODE_ERRORS)
@@ -337,13 +337,23 @@ def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
     return tree if clean else None
 
 
-def merge_tree_result(cwd: Path | str, left: str, right: str) -> tuple[str, bool]:
+def merge_tree_result(
+    cwd: Path | str, left: str, right: str, *, ignore_replacements: bool = False
+) -> tuple[str, bool]:
     """Return Git's merge-result tree and whether the merge was clean.
 
     A conflicted merge still writes a tree, with conflict markers in the
     conflicted files, so every path the merge touches remains visible in it.
+    ``ignore_replacements`` builds the merge from the commits themselves rather
+    than from any ``refs/replace`` entry, as the review inventory requires.
     """
-    args = ["merge-tree", "--write-tree", left, right]
+    args = [
+        *(("--no-replace-objects",) if ignore_replacements else ()),
+        "merge-tree",
+        "--write-tree",
+        left,
+        right,
+    ]
     result = run(cwd, *args, check=False)
     if result.returncode in (0, 1):
         return result.stdout.splitlines()[0], result.returncode == 0
@@ -361,9 +371,21 @@ def commit_files(cwd: Path | str, sha: str) -> list[str]:
 
     NUL-delimited for the same reason as ``changed_files``: under default
     ``core.quotePath`` a non-ASCII path comes back C-quoted, naming a file
-    that exists nowhere.
+    that exists nowhere. The pinned options keep a submodule pointer change in
+    the list, as the review inventory does, so that ``diff.ignoreSubmodules`` or
+    a committed ``.gitmodules`` cannot hide it from the checks that use this list.
     """
-    output = run(cwd, "diff-tree", "--no-commit-id", "--name-only", "-z", "-r", sha).stdout
+    output = run(
+        cwd,
+        *_PINNED_DIFF_CONFIG,
+        "diff-tree",
+        "--ignore-submodules=none",
+        "--no-commit-id",
+        "--name-only",
+        "-z",
+        "-r",
+        sha,
+    ).stdout
     return [path for path in output.split("\0") if path]
 
 
@@ -678,6 +700,68 @@ def fold_published_notes(cwd: Path | str, notes_ref: str, published_ref: str) ->
 # by path, so renames are disabled and each path reports as A, D, M or T.
 _NO_RENAMES = "--no-renames"
 
+# Review evidence is a hash of patch text, and a verifier on another machine must
+# rebuild that text from the same commits. Git shapes it from ``core.*`` and
+# ``diff.*`` configuration, so the settings that change a byte or drop a path are
+# fixed here instead of being read from whoever runs the command. Each value is
+# Git's own default, with two exceptions that are switched off: replacement
+# objects and the user-level attributes file. A clone with neither, and with no
+# such configuration, produces the same text as before apart from the ``index``
+# line, which now carries full object IDs. ``/dev/null`` is the spelling Git
+# documents for "no file" and resolves itself on Windows.
+#
+# Not fixed: attributes in the checkout, in ``$GIT_DIR/info/attributes``, from
+# ``attr.tree`` or ``GIT_ATTR_SOURCE``, or system-wide, and the ``diff.<driver>.*``
+# definition of a driver they name; and ``diff.default.xfuncname`` and
+# ``diff.default.funcname``, which shape hunk headers and have no reset value.
+#
+# Replacement objects (``refs/replace``) exist in one clone only and would show
+# content that the commits do not hold, so they are ignored. Settings with no
+# command-line option follow. ``diff.default.*`` configures the driver that every
+# path without a ``diff`` attribute uses; ``auto`` restores its binary detection.
+# ``core.bigFileThreshold`` turns a larger file's patch into a binary marker.
+# ``core.precomposeUnicode``, which macOS sets at ``git init``, rewrites a
+# decomposed pathspec so that it no longer matches the path in the tree. The
+# attributes file is the user-level one.
+_PINNED_DIFF_CONFIG = (
+    "--no-replace-objects",
+    "-c",
+    "core.quotePath=true",
+    "-c",
+    "diff.suppressBlankEmpty=false",
+    "-c",
+    "core.attributesFile=/dev/null",
+    "-c",
+    "core.bigFileThreshold=512m",
+    "-c",
+    "core.precomposeUnicode=false",
+    "-c",
+    "diff.default.binary=auto",
+)
+# The abbreviated form of 0.8.1 and earlier, with Git's default length.
+_LEGACY_ABBREV_CONFIG = ("-c", "core.abbrev=auto")
+# Which paths a diff lists, and in which order.
+_PINNED_INVENTORY_OPTIONS = (
+    "--no-ext-diff",
+    "--no-textconv",
+    _NO_RENAMES,
+    "--ignore-submodules=none",
+    "--no-relative",
+    "-O/dev/null",
+)
+# The text of each patch.
+_PINNED_PATCH_OPTIONS = (
+    *_PINNED_INVENTORY_OPTIONS,
+    "--no-color",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+    "--diff-algorithm=myers",
+    "--indent-heuristic",
+    "--unified=3",
+    "--inter-hunk-context=0",
+    "--submodule=short",
+)
+
 
 def changed_files(cwd: Path | str, base: str, head: str = "HEAD") -> list[str]:
     """Return display paths changed between the merge base and head."""
@@ -688,12 +772,11 @@ def changed_files_raw(cwd: Path | str, base: str, head: str = "HEAD") -> list[st
     """Return changed paths in raw form, suitable only for handing back to Git."""
     output = _run_bytes(
         cwd,
+        *_PINNED_DIFF_CONFIG,
         "diff",
-        "--no-ext-diff",
-        "--no-textconv",
+        *_PINNED_INVENTORY_OPTIONS,
         "--name-only",
         "-z",
-        _NO_RENAMES,
         f"{base}...{head}",
     )
     return [_decode_path(path) for path in output.split(b"\0") if path]
@@ -708,15 +791,14 @@ def merge_result_files(cwd: Path | str, base: str, head: str) -> list[str]:
     ``-s ours`` reverts it without showing the revert. The merge-tree result
     accounts for every merge base. Conflicted paths are reported too.
     """
-    tree, _clean = merge_tree_result(cwd, base, head)
+    tree, _clean = merge_tree_result(cwd, base, head, ignore_replacements=True)
     output = _run_bytes(
         cwd,
+        *_PINNED_DIFF_CONFIG,
         "diff",
-        "--no-ext-diff",
-        "--no-textconv",
+        *_PINNED_INVENTORY_OPTIONS,
         "--name-only",
         "-z",
-        _NO_RENAMES,
         base,
         tree,
     )
@@ -734,6 +816,7 @@ def non_merge_commit_files(cwd: Path | str, base: str, head: str) -> list[str]:
     """
     output = run(
         cwd,
+        *_PINNED_DIFF_CONFIG,
         "log",
         "--no-merges",
         "--no-show-signature",
@@ -741,9 +824,7 @@ def non_merge_commit_files(cwd: Path | str, base: str, head: str) -> list[str]:
         "--format=",
         "--name-only",
         "-z",
-        "--no-ext-diff",
-        "--no-textconv",
-        _NO_RENAMES,
+        *_PINNED_INVENTORY_OPTIONS,
         f"{base}..{head}",
         "--",
     ).stdout
@@ -932,11 +1013,18 @@ def _finish_streamed_diff(
 
 
 def _streamed_diff_text_by_path(
-    cwd: Path | str, args: tuple[str, ...], requested: set[str]
+    cwd: Path | str,
+    args: tuple[str, ...],
+    requested: set[str],
+    env: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     with tempfile.TemporaryFile() as errors:
         process = subprocess.Popen(
-            [_git_executable(), *args], cwd=str(cwd), stdout=subprocess.PIPE, stderr=errors
+            [_git_executable(), *args],
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=errors,
+            env=env,
         )
         stream = process.stdout
         if stream is None:
@@ -966,37 +1054,46 @@ def _streamed_diff_text_by_path(
 
 
 def diff_text_by_path(
-    cwd: Path | str, base: str, head: str, paths: Sequence[str]
+    cwd: Path | str, base: str, head: str, paths: Sequence[str], *, full_index: bool = True
 ) -> dict[str, str]:
     """Return complete per-file patches using one Git process per bounded batch.
 
     ``paths`` and the returned keys are raw paths from :func:`changed_files_raw`.
     Windows arguments cannot carry surrogateescaped Git names. For those names,
     stream the full diff once and retain only requested raw inventory entries.
+
+    The pinned options above keep ``core.*`` and ``diff.*`` configuration out of
+    the text; attributes still shape it. ``GIT_DIFF_OPTS`` would override the
+    context length, so it is removed from Git's environment. ``full_index=False``
+    reproduces the patches of 0.8.1 and earlier releases, whose ``index`` lines
+    abbreviate object IDs to Git's default length, which grows with the clone. It
+    exists to verify notes those releases wrote. Besides the attributes that shape
+    both forms, it also varies with the number of objects in the clone.
     """
     unfiltered = _WINDOWS_PATH_ARGUMENTS and any(
         "\udc80" <= char <= "\udcff" for path in paths for char in path
     )
     batches = [list(paths)] if unfiltered else _path_batches(paths)
+    env = {name: value for name, value in os.environ.items() if name != "GIT_DIFF_OPTS"}
     per_file: dict[str, str] = {}
     for batch in batches:
         args = (
+            *_PINNED_DIFF_CONFIG,
+            *(() if full_index else _LEGACY_ABBREV_CONFIG),
             "diff",
-            "--no-ext-diff",
-            "--no-textconv",
+            *_PINNED_PATCH_OPTIONS,
+            *(("--full-index",) if full_index else ()),
             "--raw",
             "-z",
             "--patch",
-            "--no-color",
-            _NO_RENAMES,
             f"{base}...{head}",
             "--",
             *(f":(literal){path}" for path in batch if not unfiltered),
         )
         if unfiltered:
-            parsed = _streamed_diff_text_by_path(cwd, args, set(batch))
+            parsed = _streamed_diff_text_by_path(cwd, args, set(batch), env)
         else:
-            parsed = _parse_raw_patch_output(_run_bytes(cwd, *args))
+            parsed = _parse_raw_patch_output(_run_bytes(cwd, *args, env=env))
         missing = [path for path in batch if path not in parsed]
         if missing:
             raise ValueError("git diff omitted requested changed paths: " + ", ".join(missing))

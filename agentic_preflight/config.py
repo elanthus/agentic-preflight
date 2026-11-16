@@ -118,13 +118,19 @@ class ReviewSection(_Section):
     executor: Literal["in_harness", "command"] = "in_harness"
     command: str | None = None
     require_command_for: list[RiskName] = Field(default_factory=list)
+    trusted_paths: list[RepoRelativePattern] = Field(default_factory=list)
+    """Paths the reviewer depends on. A change to one needs human review."""
     contracts: ReviewContractsSection = Field(default_factory=ReviewContractsSection)
 
     @model_serializer(mode="wrap")
-    def omit_default_contracts(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+    def omit_defaults(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # Omitting default values keeps snapshots, and the digests over them, identical
+        # to those that releases without these keys wrote.
         data = handler(self)
         if self.contracts == ReviewContractsSection():
             data.pop("contracts", None)
+        if not self.trusted_paths:
+            data.pop("trusted_paths", None)
         return data
 
 

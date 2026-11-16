@@ -27,6 +27,10 @@ bounded recovery resolves or restores the reported paths, `mergeback` is the leg
 and completed verification remains intact only when the resulting tree is identical to
 the verified tree. Any non-equivalent resolved tree re-enters the active run's full
 applicable validation path, clearing snapshot-bound review, lint, and test evidence.
+If the conflict was in rebasing the branch onto the base
+(`data.mode: fresh_base_rebase_conflict`) and the user rebases by hand, the fix commits
+must then be cherry-picked onto the rebased branch before the retry; otherwise it stops
+with `fix_commits_unmerged`.
 Before concluding the conflict is real, check the user's tree was clean — see
 non-negotiable 7.
 
@@ -36,6 +40,23 @@ A conflict retry found the branch unmoved and its tree already equal to the vali
 worktree while the run records fix commits. The fixes change nothing, so the findings
 they claim to fix were not repaired. Do not retry `mergeback`. Tell the user, run
 `agentic-preflight abort`, and start a new run so the branch is revalidated.
+
+## Moved branch lacks recorded fixes (exit 4, `fix_commits_unmerged`)
+
+A conflict retry found commits on the source branch beyond the head merge-back left it
+at, but at least one recorded fix commit does not count as merged, so adopting the branch
+as the new review snapshot would discard validated fixes. A fix counts as merged when every
+path it changes holds the fix's or the validated content, or when the branch has the fix
+by ancestry, stable patch ID, or a cherry-pick of it (same author, author date, and subject)
+and every path the fix changes holds that content or differs from the fix's parent. The run is
+back in `MERGEBACK_CONFLICT`; the validation branch and `fix_commits` were kept, and no
+note was written. Tell the user. With their agreement, cherry-pick the commits in
+`data.missing_fix_commits` onto the source branch, resolving any conflict under the
+merge-back contract. If Git reports that a pick is now empty because the branch already
+holds the intended content, run `git commit --allow-empty` rather than `--skip`. An empty
+pick asserts that the branch already carries the fix's content; merge-back cannot verify
+that claim, and the restarted review is the only check of it, so record one only when that
+is true. Then re-run `mergeback`. To drop the fixes instead, the user aborts the run.
 
 ## Merge in the validation history (exit 3, `nonlinear_fix_history`)
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import runpy
@@ -91,7 +92,8 @@ def toml_command_line(command: str) -> str:
 def configure_example(repo: Path, reviewer: str) -> None:
     config = (EXAMPLES / f"{reviewer}-reviewer.toml").read_text(encoding="utf-8")
     wrapper = EXAMPLES / "reviewers" / f"{reviewer}_review.py"
-    configured_command = shlex.join([sys.executable, "-B", str(wrapper)])
+    # Match the examples: no site processing, so nothing on sys.path runs first.
+    configured_command = shlex.join([sys.executable, "-S", "-B", str(wrapper)])
     config = re.sub(
         r'^command = ".*"$',
         lambda _match: toml_command_line(configured_command),
@@ -250,8 +252,13 @@ def test_reviewer_wrapper_runs_end_to_end(
         assert argv[0] == "exec"
         assert argv[argv.index("--model") + 1] == "gpt-5.3-codex"
         assert argv[argv.index("--config") + 1] == 'model_reasoning_effort="medium"'
+        # The branch under review must not instruct its own reviewer.
+        assert "project_doc_max_bytes=0" in argv
+        assert "--ignore-rules" in argv
     else:
         assert argv[0] == "-p"
+        assert "--safe-mode" in argv
+        assert argv[argv.index("--setting-sources") + 1] == "user"
         assert argv[argv.index("--model") + 1] == "claude-sonnet-5"
         assert argv[argv.index("--effort") + 1] == "high"
     session = open_session(feature_repo)
@@ -303,6 +310,9 @@ def test_example_configs_parse_without_expanding_configuration_sections(tmp_path
         assert {"docs/examples/reviewers/**", "docs/CODEOWNERS", ".github/CODEOWNERS"} <= set(
             loaded.policy.human_review_paths
         )
+        if reviewer == "codex":
+            # Codex reads these from the worktree, and no CLI option turns them off.
+            assert {".codex/**", ".agents/**"} <= set(loaded.review.trusted_paths)
 
     configuration = (ROOT / "docs" / "configuration.md").read_text(encoding="utf-8")
     documented = set(re.findall(r"^\[([a-z]+)\]$", configuration, re.MULTILINE))
@@ -350,3 +360,40 @@ def test_agreement_summarizer_aggregates_synthetic_reports(tmp_path):
     assert "2" in result.stdout
     assert "0.750" in result.stdout
     assert re.search(r"\b2\s+3\s+3\b", result.stdout)
+
+
+def _comparable(source: str) -> str:
+    """The module body without its documented differences from the packaged copy.
+
+    The example copies may differ from ``agentic_preflight/reviewers/`` only in the
+    shebang, the module docstring, the sibling versus relative import of the shared
+    helpers, and the ``__main__`` block.
+    """
+    tree = ast.parse(source)
+    body = tree.body
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        body = body[1:]
+    last = body[-1] if body else None
+    if isinstance(last, ast.If) and ast.unparse(last.test) == "__name__ == '__main__'":
+        body = body[:-1]
+    start = body[0].lineno if body else 1
+    end = body[-1].end_lineno if body else 0
+    lines = source.splitlines()[start - 1 : end]
+    return "\n".join(lines).replace("from _reviewer_common import (", "from .common import (")
+
+
+@pytest.mark.parametrize(
+    ("example", "packaged"),
+    [
+        ("_reviewer_common.py", "common.py"),
+        ("claude_review.py", "claude.py"),
+        ("codex_review.py", "codex.py"),
+    ],
+)
+def test_example_wrappers_stay_in_sync_with_the_packaged_reviewer(example, packaged):
+    copy = (EXAMPLES / "reviewers" / example).read_text(encoding="utf-8")
+    original = (ROOT / "agentic_preflight" / "reviewers" / packaged).read_text(encoding="utf-8")
+
+    assert _comparable(copy) == _comparable(original)
+    # The copies import nothing from the package, so `python3 -S -B` can run them.
+    assert "agentic_preflight" not in copy

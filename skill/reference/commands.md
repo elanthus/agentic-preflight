@@ -5,9 +5,10 @@ This reference describes command behavior; it does not grant publication or merg
 authorization. See the [CLI walkthrough](workflow.md) for a worked sequence.
 
 Every agent-facing workflow command prints exactly one JSON object to stdout. Human
-prose goes to stderr. Parse that stdout blindly; every key is always present. The sole
-exception is `hook-check`: Git consumes its exit status and stderr, so it emits no JSON
-envelope and is not an agent-facing command.
+prose goes to stderr. Parse that stdout blindly; every key is always present. There are
+two exceptions, and neither is an agent-facing command, so neither emits a JSON envelope:
+`hook-check`, whose exit status and stderr Git consumes, and `reviewer run`, whose stdout
+`review run` reads as the review submission.
 
 ```json
 {"ok": true, "run_id": "r_...", "state": "REVIEW_AWAITING_FINDINGS", "stage": "review",
@@ -25,8 +26,8 @@ hyphens, such as `stage-run.json`). The schemas are generated from the models in
 hand. Every field is optional because `data` differs by outcome.
 
 `agentic-preflight --version` prints the installed version and exits 0. Every other
-command first checks the Git version and exits 1 with `unsupported_git_version` when Git
-is older than 2.38.
+command outside the `reviewer` group (whose only command is `reviewer run`) first checks
+the Git version and exits 1 with `unsupported_git_version` when Git is older than 2.38.
 
 Place `--run RUN_ID` before any workflow command to select a stored run explicitly.
 A `RUN_ID` other than `r_` followed by 10 lowercase hex digits exits 6 with
@@ -112,6 +113,14 @@ accepts `start` without `--intent`, but the command then fails with exit 3 and
 `intent_required`.
 Different linked source worktrees may have runs active concurrently. Repeating `start` with the
 same head, intent, base, and effective configuration resumes that worktree's existing run.
+A run left in `CREATED` or `WORKTREE_READY` by an interrupted `start` is not resumed:
+the next `start`, with or without `--replace`, orphans it and creates a fresh run. It exits 3
+(`wrong_state`) while that run's `start` still holds its operation lock. A clean validation
+checkout that the interrupted run provisioned is reclaimed; one holding changes or commits
+beyond the run's starting head makes `start` exit 4 (`needs_human`) with its path in
+`data.worktree_path`, names that head in `next.instruction`, and leaves the run in place. A later
+`start` reclaims the checkout once it is clean at that head, even if the interrupted run
+was aborted in between. A dirty strict checkout does not block a new run and is kept.
 A nonterminal run with a legacy `pending-update.json` is instead orphaned at the next
 `start`, its ownership cleared and journal removed, and a fresh run created. The old
 audit record and user work remain for normal safe cleanup. `status` reports
@@ -398,7 +407,9 @@ and Git's merge of the head into it, so criss-cross history cannot hide a change
 covers every path touched by a non-merge commit in `base..head`, which a rebase merge
 replays, so a merge commit that cancels an earlier high-risk commit cannot hide it; a
 high-risk path changed and later reverted on the branch still counts. All three sets
-appear in `data.changed_files`. Low- and
+appear in `data.changed_files`. The repository paths that the base's `[review] command`
+and `planner_command` name, and its `[review] trusted_paths`, count as human-review
+paths and appear in `data.path_reasons` with kind `human_review_path`. Low- and
 medium-risk changes pass without a review. High-risk handling follows `[approval] mode`:
 `manual_merge` reports success while requiring the user to merge manually (the trusted
 workflow separately rejects enabled GitHub auto-merge); `environment` exits 4 until
@@ -497,9 +508,42 @@ no results file, no tests run, **exit 0**. Engine and GUI toolchains are dense w
 these; treat their first green as unverified.
 
 `--baseline` also runs the command against the base commit, so a pre-existing failure
-is reported rather than blamed on the diff. It is also the cheapest way to see the
-command produce two different outcomes — if base and head are byte-identical greens on
-a diff that touches tested code, suspect the command before trusting it.
+is reported rather than blamed on the diff. The base commit is checked out in a scratch
+worktree, `<run-id>-baseline` on branch `ap/<run-id>-baseline`, under the validation
+worktree root (the user cache by default, or `[worktree] root`). This holds in every
+mode, `in_place` included, so the baseline never runs inside `.git`. The scratch
+worktree and its branch are removed afterwards, also when the command fails.
+
+If the scratch worktree was locked, it is left in place without its branch and the
+baseline result still stands. The envelope reports `data.baseline_cleanup_failed`
+(`worktree_path`, `branch`, `detail`), and the event log records the same. A later
+`--baseline` check fails with `setup_failed` and a `next.instruction` that names the
+locked path. Show the user the path. Never run `git worktree unlock` yourself; retry only
+after the user unlocks it, and the retry removes the leftover first.
+
+A baseline that was killed, for example by SIGTERM, cannot clean up after itself. The
+next `--baseline` check removes a leftover that Git still registers as a worktree at
+the scratch path, including one whose directory is gone, when its `HEAD` is still the
+run's base commit; uncommitted changes there do not keep it. A leftover there whose
+`HEAD` moved is kept, and the check fails with `setup_failed` naming it: show it to the
+user, never remove it yourself, and retry only after the user removes it. It deletes a leftover
+`ap/<run-id>-baseline` branch that still points at the run's base commit. A clean,
+unlocked `<run-id>-baseline` checkout at the base that holds the branch elsewhere, such
+as one an earlier release created under `.git`, is removed too. It never deletes an
+unregistered directory at the scratch path. If the branch points anywhere else, the
+check fails with `setup_failed`, names the branch, and leaves it alone: show the user the
+branch, never delete or rename it yourself, and retry only after the user removes or
+renames it. If another worktree has the branch checked out, the failure names that
+worktree: show it to the user, never remove it yourself, and retry only after the user
+removes that worktree. By design, `gc` never reclaims baseline leftovers; the stage
+envelope and the retry report them. A leftover still on its `ap/<run-id>-baseline`
+branch appears in the `start` housekeeping report as `retained`, and `gc` lists its name
+among the orphans. A detached leftover that cleanup could not remove is not listed by
+`gc`, and the housekeeping report lists it only in isolated modes.
+
+`--baseline` is also the cheapest way to see the command produce two different
+outcomes — if base and head are byte-identical greens on a diff that touches tested
+code, suspect the command before trusting it.
 
 ### `agentic-preflight mergeback`
 In in-place mode, attests the already-verified current SHA without creating or
@@ -520,11 +564,31 @@ auto-resolves. First inspect and show the recovery block. An agent may resolve o
 the intended result is unambiguous, recoverable, and directly supported by that block;
 it must preserve unrelated edits and user-owned operations, and cannot make a
 content-sensitive choice or bypass protected merge policy. Otherwise a person must
-decide. After resolution, `mergeback` is legal again: an exact tree is attested without
-rerunning completed stages, unless the branch never moved while the run recorded fix
-commits. That retry exits 4 with `fixes_not_landed`, because the recorded fixes never
-landed and the run needs revalidation; a different tree becomes the validation worktree's new
-snapshot and returns the active run to review before any stage can be trusted again.
+decide. After resolution, `mergeback` is legal again. Only a commit beyond the source head
+that merge-back itself produced counts as a resolution; merge-back's own rebase onto the
+recorded base does not. A retry with no such commit replays the fix commits again, which
+applies them or reports the conflict again. An exact tree is attested without rerunning
+completed stages, unless the branch never moved while the run recorded fix commits. That
+retry exits 4 with `fixes_not_landed`, because the recorded fixes never landed and the run
+needs revalidation. A different tree becomes the validation worktree's new snapshot and
+returns the active run to review before any stage can be trusted again, but only when
+every recorded fix commit counts as merged. A fix counts as merged when every path it
+changes holds the fix's or the validated tree's content. It also counts when the fix is an
+ancestor of the branch, a commit since the run's base has its stable patch ID, or a commit
+was cherry-picked from it (same author, author date, and subject), provided every path the
+fix changes holds that content or differs from the fix's parent commit. This check covers
+fix provenance and changed paths; it does not prove that a differing resolution is
+correct, which the restarted review decides. Otherwise the retry exits 4 with
+`fix_commits_unmerged` and `data.missing_fix_commits`, returns the run to
+`MERGEBACK_CONFLICT`, and keeps the validation branch and `fix_commits`. Cherry-pick the
+named commits onto the source branch, resolving any conflict. If Git reports that a pick
+is now empty, first check that the branch already holds the fix's intended content. Only
+then record the pick with `git commit --allow-empty` instead of skipping it; if the
+content is absent, resolve the pick again so that it includes the fix. An empty pick
+asserts that the branch already carries the fix's content; merge-back cannot verify that
+claim, and the restarted review is the only check of it. Then rerun `mergeback`. After a
+base-rebase conflict (`data.mode: fresh_base_rebase_conflict`), a branch rebased by hand
+must also get the fix commits cherry-picked before the retry.
 
 On success: compares the branch tree against the worktree tree. `tree_equivalent: true`
 means the verified content is byte-identical and a Git-note attestation is written for
@@ -920,6 +984,12 @@ the group `unknown`. The statistics are:
 - the median and p90 of `duration_seconds`;
 - the share of run time in the review and docs states and in the lint and test
   states, over runs with complete `timing`;
+- `caught`: the `DONE` runs where the gate stopped something before the push,
+  `runs_with_any_catch`, and for each source in `by_source` (a fixed blocking review or
+  docs finding, a lint or test stage that failed and later passed) its `runs_with_any`
+  and `excluded_runs`;
+- `tool_time`: the median and p90 of `timing.tool_seconds` per `DONE` run, and per
+  pull request (the sum over its synced `DONE` runs) under `per_pull_request`;
 - aborted runs by reason and by `aborted_from_state`;
 - hosted outcomes synced by `telemetry sync-hosted`, under `hosted.synced`, and orphaned
   reasons. The Markdown "Hosted outcomes synced" section and the two limits about hosted
@@ -959,6 +1029,29 @@ output is still one JSON envelope. `--rows` includes the filtered summary rows i
 but cannot be read exits 1 with error code `telemetry_mirror_unreadable` and its path in
 `data`. See [Read the report](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md#read-the-report).
 
+## Command reviewer
+
+### `agentic-preflight reviewer run --provider claude|codex`
+The packaged independent reviewer. Configure it as `[review] command` (and, for contract
+checks, `[review.contracts] planner_command`); `review run` and `review compare` then
+start it. Not for you to call in a workflow — follow `next.command` instead.
+
+It reads the review `context` data object as JSON on stdin and shells out to the
+provider CLI: `claude -p --output-format stream-json` or `codex exec --json`. It prints
+one strict `ReviewSubmission` JSON line on stdout, or, when the context has `section:
+"contracts"`, one contract plan. It prints no JSON envelope. It exits 0 on success. On
+any failure (invalid context, provider CLI missing, non-zero exit, timeout, or no
+findings object in the output) it exits 1 with one `independent reviewer failed: ...`
+line on stderr. A usage error, such as a missing or unknown `--provider`, keeps Click's
+usage message and exits 2.
+
+Environment variables: `AP_CLAUDE_BIN` or `AP_CODEX_BIN` (the provider executable,
+default `claude` or `codex`), `AP_REVIEWER_MODEL` (default `claude-sonnet-5` or
+`gpt-5.3-codex`), `AP_REVIEWER_EFFORT` (default `high` or `medium`),
+`AP_REVIEWER_TIMEOUT` (seconds, default 600), and `AP_REVIEWER_EVENTS_FILE` (an absolute
+path that receives the provider CLI's stdout, with `<path>.status.json` beside it). See
+[Independent review and agreement](https://github.com/elanthus/agentic-preflight/blob/main/docs/independent-review.md).
+
 ## Exit codes
 
 | Code | Meaning | What to do |
@@ -970,12 +1063,13 @@ but cannot be read exits 1 with error code `telemetry_mirror_unreadable` and its
 | 4 | Human resolution required | Show recovery material; resolve only the bounded, unambiguous merge-back cases permitted by the skill, otherwise stop |
 | 5 | Confirmation required | Apply the skill's authorization rules, then re-run with the token |
 | 6 | Command-line usage error | Read `error.message`, run `next.command` for valid usage, and fix the invocation |
-| 10 | Hook blocked a push | Start a run with `agentic-preflight start --intent "..."` |
+| 10 | Hook blocked a push | Start a run with `agentic-preflight start --intent "..."`, unless the message says SHA-256 repositories are not supported: then stop and tell the user |
 
 A command-line usage error (unknown option, missing argument, bad choice, unknown
 command) prints one envelope with error code `usage_error`, Click's message in
 `error.message`, and the command's `--help` invocation in `next.command`, then exits 6.
-`hook-check` is the exception and keeps Click's own usage output and exit code.
+`hook-check` and `reviewer run` are the exceptions and keep Click's own usage output and
+exit code 2.
 Running `agentic-preflight` with no arguments prints the root help as plain text and
 exits 0.
 

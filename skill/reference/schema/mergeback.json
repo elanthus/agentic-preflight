@@ -169,6 +169,21 @@
       "default": null,
       "title": "Max Restarts"
     },
+    "missing_fix_commits": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Missing Fix Commits"
+    },
     "mode": {
       "anyOf": [
         {

@@ -43,6 +43,13 @@ A docs finding can name the symlink, and an agent that edits that path writes to
 Grounding, by contrast, reads only regular files from the merge-base commit and skips symlinks.
 Review a committed symlink under a documentation path before you run the docs stage on it.
 
+## SHA-256 repositories are not supported
+
+Run records and attestation notes hold only SHA-1 object IDs.
+In a repository that uses the SHA-256 object format, a run fails before it is green, and no commit can have a valid attestation.
+The pre-push hook blocks a branch push there with a message that says SHA-256 repositories are not supported.
+See [COMPATIBILITY.md](../COMPATIBILITY.md).
+
 ## History rewrites require evidence refresh
 
 The attestation note is bound to an exact SHA.
@@ -162,9 +169,22 @@ Policy comes from the `.agentic-preflight.toml` committed at the trusted base.
 The note's configuration snapshot records the published part of what ran. It does not decide what was required.
 
 Thus, with a trusted base, a branch cannot relax the policy that judges it.
-It cannot skip docs that the base enables, or replace a configured lint, test, or review command.
+It cannot skip docs that the base enables, or change the command string of a configured lint, test, or review command.
 It cannot exclude review files that the base includes, or avoid a command review that the base requires.
 A run can do more than the base requires. For example, it can run docs that the base disables.
+
+Verification compares command strings, not the programs that they run.
+Every command runs in the worktree that holds the change, so a command that names a script in the repository runs the branch's copy.
+A branch can therefore change what a lint, test, review, or planner command does without changing its string.
+Lint and test commands run the branch's own code by design.
+For the reviewer, the path that the base's `[review] command` or `planner_command` names, the files under its directory, and the base's `[review] trusted_paths` count as human-review paths.
+A branch that edits them, including one that rewrites the reviewer to report nothing, still passes `verify`, unless the base's `require_command_for` includes `high`. Then `verify` requires a command review.
+The change is high risk, so the hosted approval check applies the configured `[approval] mode`: an owner or peer approval, an Environment release, or a manual merge.
+Finding the paths in a command is approximate. A reviewer file that the command does not name, outside the named script's directory, is protected only if `trusted_paths` or `[policy] human_review_paths` lists it.
+For a script at the repository root, that includes every module beside it.
+The reviewer's runtime environment is also an input that path rules do not find on their own: a project runner such as `uv run` and its manifest and lockfile, `sitecustomize` modules on `sys.path`, and instruction or settings files that the coding-agent CLI reads from the worktree.
+When the base sets no `[review] command`, for example because only a user configuration file sets it, the base names no reviewer paths at all.
+See [Review independence](configuration.md#review-independence-review).
 
 These checks narrow what a forged note can claim. They do not authenticate the note.
 A writer of the notes ref can still record stage results that never ran, if those results satisfy the base policy.

@@ -10,12 +10,13 @@ history, in commit order. Every path that registers fix commits uses
 from __future__ import annotations
 
 import shlex
+from pathlib import Path
 
 from .. import gitx, worktree
 from ..envelope import ExitCode
 from ..errors import AgenticError, StaleRun
 from ..models import RunDoc
-from ._session import Session, _is_in_place, _require_worktree, _start_command
+from ._session import Session, is_in_place, require_worktree, start_command
 
 
 class NonlinearFixHistory(AgenticError):
@@ -42,14 +43,14 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
     Raises ``StaleRun`` when the validation branch was rewritten rather than
     advanced, and refuses any commit that carries a copied environment file.
     """
-    checkout = _require_worktree(run)
+    checkout = require_worktree(run)
     current = gitx.rev_parse(checkout, "HEAD")
     if not gitx.is_ancestor(checkout, run.head_sha, current):
         raise StaleRun(
             "the validation branch was rewritten instead of advanced by repair commits",
             state=run.state.value,
             run_id=run.run_id,
-            next_command=_start_command(
+            next_command=start_command(
                 run.intent,
                 base_ref=run.base_ref,
                 default_base_ref=session.config.general.base_ref,
@@ -57,7 +58,7 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
             ),
         )
     span = f"{run.head_sha}..{current}"
-    if not _is_in_place(run):
+    if not is_in_place(run):
         merges = gitx._lines(gitx.out(checkout, "rev-list", "--reverse", "--merges", span))
         if merges:
             raise NonlinearFixHistory(
@@ -76,13 +77,49 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
                 next_command=shlex.join(["git", "-C", checkout, "rebase", run.head_sha]),
             )
     commits = gitx.commits_between(checkout, run.head_sha, current)
-    if not _is_in_place(run):
+    if not is_in_place(run):
         commits = [sha for sha in commits if not _is_empty(checkout, sha)]
     for sha in commits:
         # Independent of the preflight copy refusal: a .gitignore edited mid-run
         # must not be able to open this hole.
         worktree.assert_commit_is_clean_of(checkout, sha, run.copied_files)
     return commits
+
+
+def patch_matches(
+    repo: Path | str,
+    fix_commits: list[str],
+    base: str,
+    head: str,
+    *,
+    exclude: frozenset[str] = frozenset(),
+) -> dict[str, str]:
+    """Pair each fix commit with a distinct patch-equivalent commit in ``base..head``.
+
+    Merge-back cherry-picks, so SHA ancestry cannot prove that a fix landed. A stable
+    patch ID ignores commit metadata, so a clean cherry-pick, including a reworded one,
+    compares equal to its source. Each landed commit accounts for one fix, commits in
+    ``exclude`` (already accounted for) are never matched, and an empty fix has no
+    patch ID and is never matched.
+    """
+    if not fix_commits:
+        return {}
+    pool: dict[str, list[str]] = {}
+    for sha, patch_id in gitx.patch_ids(repo, base, head).items():
+        if patch_id is not None and sha not in exclude:
+            pool.setdefault(patch_id, []).append(sha)
+    matches: dict[str, str] = {}
+    for sha in fix_commits:
+        patch_id = gitx.commit_patch_id(repo, sha)
+        if patch_id is not None and pool.get(patch_id):
+            matches[sha] = pool[patch_id].pop(0)
+    return matches
+
+
+def patch_unlanded(repo: Path | str, fix_commits: list[str], base: str, head: str) -> list[str]:
+    """Return the fix commits with no patch-equivalent commit in ``base..head``."""
+    matched = patch_matches(repo, fix_commits, base, head)
+    return [sha for sha in fix_commits if sha not in matched]
 
 
 def _is_empty(checkout: str, sha: str) -> bool:
@@ -101,7 +138,7 @@ def record_fix_commits(run: RunDoc, derived: list[str]) -> list[str]:
     order is commit order, whatever order the agent cited it in.
     """
     added = [sha for sha in derived if sha not in run.fix_commits]
-    if _is_in_place(run):
+    if is_in_place(run):
         run.fix_commits = [sha for sha in run.fix_commits if sha not in derived] + derived
     else:
         run.fix_commits = list(derived)

@@ -2,6 +2,9 @@
 
 Agentic Preflight supports Python 3.11, 3.12, 3.13, and 3.14 on macOS 15 or newer, on Linux, and on Windows 10 or newer.
 Git 2.38 or newer is required.
+Repositories that use the SHA-256 object format are not supported.
+Run records and attestation notes hold only SHA-1 object IDs, so a run in such a repository fails before it is green, and no commit there can have a valid attestation.
+The pre-push hook blocks a branch push in such a repository with a message that says so.
 
 ## Python versions
 
@@ -187,6 +190,11 @@ The field makes every new run record unreadable to earlier releases, which forbi
 Before downgrading, finish or abort the runs that this release started. A record that an earlier release wrote stays without the field and stays readable to that release.
 
 ## Compatibility changes
+
+`mergeback` has a new error code, `fix_commits_unmerged`, with exit 4.
+A conflict retry returns it when the source branch moved but lacks a recorded fix commit, instead of resetting the validation branch and clearing `fix_commits`.
+Its `data` holds `missing_fix_commits`, `fix_commits`, `post_sha`, and `worktree_path`, and the run returns to `MERGEBACK_CONFLICT`.
+The run record and attestation schemas are unchanged.
 
 Agentic Preflight 0.7.0 requires Click 8.2 or newer.
 Documentation inventory entries no longer contain `exists`.
@@ -617,3 +625,119 @@ The `high-risk human approval` job now fails unless the policy job reports `requ
 The checkouts in `attestation.yml` and `human-approval.yml` set `persist-credentials: false`. A private repository that copies them must authenticate the later `git fetch` itself; see [Portable attestations and CI enforcement](docs/attestations-and-ci.md#required-github-check).
 `human-approval-rerun.yml` now has an `authorize` job and a `rerun` job, and re-runs the policy only for a review from an owner, member, or collaborator, an action by a user with write access, or an action by a bot account that has dismissed an owner, member, or collaborator review of the pull request. When a lookup that decides this fails, it re-runs the policy with a warning instead of skipping it. A project that copied the companion should copy the new version.
 The required check keeps its name, and `approval-check`, its outputs, and the attestation schema are unchanged.
+
+## Unreleased: the reviewer's own files need human review
+
+Risk classification now treats the repository paths that `[review] command` and `[review.contracts] planner_command` name as human-review paths, together with every file under each named file's directory.
+Directories that a command changes to or adds to `PYTHONPATH` or `NODE_PATH`, and the top-level package of a dotted `-m` module, are protected as whole directories. `-m name` protects `name.py` and `name/**`.
+Shell control operators (`;`, `&`, `|`, `(`, `)`, `<`, `>`) split the command only outside quotes, so a quoted path such as `'reviewers (local)/rev.py'` is protected as one path.
+The new optional `[review] trusted_paths` list adds more patterns.
+This applies to local runs, to attestation verification, and to `approval-check`, which reads both from the protected base.
+A pull request that edits a configured reviewer script, or a sibling file such as the example wrappers' `_reviewer_common.py`, is now high risk and needs the configured approval. Earlier releases classified it by `[policy]` alone.
+Such paths appear in `data.path_reasons` with the existing kind `human_review_path`. No envelope field or reason kind is new.
+They also appear in the policy entries of `data.grounding`. For a branch whose changed files match a newly derived pattern, the grounding and `grounding_sha256` change, so review and docs evidence recorded for that branch before the upgrade is not reused and those stages run again.
+Earlier releases reject a configuration file that sets `trusted_paths`, as an unknown key. Upgrade the protected-base verifier and every machine that shares a clone before you set it.
+Configuration snapshots omit `trusted_paths` when it is empty, so snapshots and configuration digests for existing configurations are unchanged.
+A snapshot that sets it cannot be read by an earlier release.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+The example reviewer configurations now run their wrapper with `python3 -S -B`.
+The Claude wrapper now passes `--safe-mode` and `--setting-sources user`, checked against Claude Code 2.1.292.
+The Codex wrapper now passes `--config project_doc_max_bytes=0` and `--ignore-rules`, checked against Codex CLI 0.163.0.
+An older CLI that lacks one of these options fails the review with a visible error. Update the CLI, or remove the option from your copy of the wrapper and protect the files that it would read with `trusted_paths`.
+With `--safe-mode`, the Claude reviewer also ignores your user `CLAUDE.md`, skills, hooks, and MCP servers.
+
+## Unreleased: outcome fields in run summaries and the report
+
+The run summary keeps `schema_version = 1`. The new keys are inside objects that the summary already has:
+`findings.review_blocking_fixed`, `findings.docs_blocking_fixed`, `stages.<name>.red_then_green`, `timing.tool_seconds`, and `timing.agent_seconds`.
+Earlier tool versions validate the top level of a summary strictly but read these objects as open maps, so they read the new summaries and ignore the new keys.
+A reader must count a missing key as `null`, as for earlier summary additions.
+`telemetry rebuild` adds the keys to every summary of the clone. `timing.tool_seconds` and `timing.agent_seconds` stay `null` for runs that an earlier version recorded.
+
+The run event log can contain the new `tool_command_started` and `tool_command_finished` events, and the `run_created` event adds `command_timing`.
+The events never bind evidence. No fingerprint, evidence digest, configuration digest, or attestation reads them.
+They count against `events --limit` like other events, so the same limit shows fewer state transitions than before.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+In `agentic-preflight report`, each group of statistics adds `caught` and `tool_time`, and the Markdown has two new sections, "Caught before push" and "Tool time".
+
+## Unreleased: the pre-push hook recognizes the SHA-256 zero object ID
+
+`hook-check` now treats Git's 64-character zero object ID as a ref that does not exist, as it treats the 40-character one.
+In a SHA-256 repository it no longer blocks every new branch as a force push.
+It blocks a branch push that needs an attestation with the reason code `missing_attestation` and a message that says SHA-256 repositories are not supported.
+It gives that message, not the force-push message, for a push that rewrites a remote branch there with a commit the remote does not have.
+A rewind to a commit the remote already has is still refused as a force push unless `[hook] allow_force_push = true`.
+Deletions, tags, the attestation notes ref, evidence refs, and pushes of a commit the remote already has are allowed as in a SHA-1 repository.
+The exit codes, the reason codes, and the hook decision lines are unchanged. Behavior in a SHA-1 repository is unchanged.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Unreleased: packaged command reviewer
+
+`agentic-preflight reviewer run --provider claude|codex` is a new command.
+Like `hook-check`, it prints no JSON envelope and keeps Click's usage output and exit code 2 on a usage error.
+Its stdout, stderr, exit codes, and `AP_*` environment variables are those of the former example wrappers.
+Unlike them, it reads its own stdin and writes its own stdout and stderr as UTF-8 rather than in the locale encoding, which matters on Windows. The packaged reviewer and the current example wrappers also send the prompt to the provider CLI as UTF-8 and decode its output as UTF-8, replacing undecodable bytes, where earlier wrappers used the locale encoding. An unwritable `AP_REVIEWER_EVENTS_FILE` now fails the review with the one-line diagnostic instead of a traceback. Like them, it does not need Git: commands in the `reviewer` group skip the Git version check.
+It passes the same provider CLI options as the example wrappers, including `--safe-mode` and `--setting-sources user` for Claude and `project_doc_max_bytes=0` and `--ignore-rules` for Codex.
+The example wrappers in `docs/examples/reviewers/` stay as deprecated standard-library copies for one release. A test keeps them identical to the packaged reviewer, and they still run with `python3 -S -B`.
+The configuration file, the review submission, and the attestation schema are unchanged.
+
+## Unreleased: the baseline check runs outside the Git directory
+
+`stage run --baseline` now checks out the base commit under the validation-worktree root in every mode, including `in_place`, instead of under `.git` in `in_place` mode.
+The root is the user cache by default, or `[worktree] root`.
+In `in_place` mode, a `[worktree] root` inside the repository now makes `--baseline` fail with `setup_failed` (kind `worktree`). Isolated modes already refuse such a root at `start`.
+A `[worktree] root` inside the Git common directory is now refused in every mode: at `start` in isolated modes, and as a `--baseline` setup failure in `in_place` mode. From a linked checkout such a root used to pass, because the common directory is outside the checkout.
+The `stage run` envelope adds an optional `data.baseline_cleanup_failed` object (`worktree_path`, `branch`, `detail`) when the scratch worktree could not be removed, and the run's event log adds a matching `baseline_cleanup_failed` event. Both are additive.
+A baseline setup failure can carry the same `data.baseline_cleanup_failed` object.
+The `stage-run.json` schema gains that property. Run schema 2 and attestation schema 7 are unchanged.
+
+## Unreleased: review patches no longer depend on Git configuration
+
+The review digest hashes the patch text of the change, and a verifier accepts a note only when it can rebuild that text.
+Earlier releases built it with the Git configuration of the machine that ran the command.
+A producer and a verifier with different settings then disagreed about the same commits, and `verify`, `push`, and the pre-push hook failed with "review fingerprint does not match the Git diff".
+
+Review patches now have one form on every machine:
+
+- The `index` line of each patch names full object IDs. Earlier releases abbreviated them to a length that `core.abbrev` sets and that Git otherwise raises as a clone gains objects.
+- These settings no longer change the patch text or the list of changed files: `core.quotePath`, `core.bigFileThreshold`, `core.precomposeUnicode`, `diff.noprefix`, `diff.srcPrefix`, `diff.dstPrefix`, `diff.algorithm`, `diff.context`, `diff.interHunkContext`, `diff.indentHeuristic`, `diff.suppressBlankEmpty`, `diff.submodule`, `diff.ignoreSubmodules`, `diff.relative`, `diff.orderFile`, and `diff.default.binary`.
+  Each is fixed to Git's default.
+  `core.bigFileThreshold` turned a larger text file's patch into "Binary files ... differ", and so did `diff.default.binary = true` for every file without a `diff` attribute.
+  `core.precomposeUnicode`, which Git on macOS sets at `git init`, stopped `context` with an internal error for a path whose name the tree stores in decomposed Unicode.
+- `submodule.<name>.ignore` no longer drops a submodule pointer change, whether it is set in local configuration or in a `.gitmodules` file that the branch itself commits.
+- The `GIT_DIFF_OPTS` environment variable no longer changes the number of context lines.
+- Replacement objects under `refs/replace` are ignored. They exist in one clone only, and a review built with them could show content that the commits do not hold.
+- The user-level attributes file (`core.attributesFile`, by default `$XDG_CONFIG_HOME/git/attributes`) is not read for review patches.
+
+Attributes are not fixed.
+A `.gitattributes` file in the checkout, `$GIT_DIR/info/attributes`, `attr.tree`, `GIT_ATTR_SOURCE`, and a system-wide attributes file still apply.
+A `-diff` attribute or a `diff` driver set there still changes the patch text.
+A driver takes its definition from `diff.<driver>.*` configuration, so a driver that an attribute names can still differ between machines, as `$GIT_DIR/info/attributes` can.
+`diff.default.xfuncname` and `diff.default.funcname` still change the hunk headers of every file without a `diff` attribute, because Git has no value that restores the built-in rule.
+
+What changes at upgrade:
+
+- `diff_sha256`, the review manifest, and the digest of each file-level review unit change for every diff that has an `index` line, because that line changed. A diff with only mode changes or an empty diff is unchanged.
+  A file-level unit is a patch without hunks, such as a binary change. Hunk unit digests are unchanged.
+- A note that 0.8.1 or an earlier release wrote still verifies when its producer left each setting above at Git's default, or when a setting it changed did not change that note's patch text, when the verifier's clone abbreviates object IDs to the same length as the producer's clone did, and when the attributes and driver settings that still apply, as described above, give the verifier the same patch text as they gave the producer.
+  For example, a `-diff` attribute in the producer's `$GIT_DIR/info/attributes` makes a file's patch binary there, while a verifier clone without that attribute builds a text patch, so neither text matches the note.
+  When the full-ID text does not reproduce a note's digest, the verifier also builds the abbreviated text and accepts the note if that text matches.
+  The other settings above are fixed to Git's default for that text too, and the note does not record the producer's values, so they cannot be restored.
+  A producer that set one of those settings to another value may therefore have written a note that fails, even on the machine that wrote it, if the value changed the patch. For example, `diff.context = 5` adds context lines to a hunk that has more unchanged lines around it, but leaves a one-line file's patch unchanged.
+  The verifier builds the abbreviated text with Git's default length, whatever its own `core.abbrev` says.
+  The verifier tries that text for any note, not only for notes from 0.8.1 and earlier. Until the fallback goes in 0.10.0 (row 12 of [the removal plan](docs/maintainers/compatibility-removal-plan.md)), a file-level patch in that format, such as a binary change, binds its content only by an abbreviated object ID. Hunks carry their full content, so they are not affected. A verifier clone that holds both blobs disambiguates them, because Git lengthens an abbreviation until it is unique.
+  Git picks that default length from the number of objects in the clone, so the note can fail in a clone whose object count gives a different length, even when its producer used every default.
+  A note for a change whose committed `.gitmodules` set `submodule.<name>.ignore = all` on a changed submodule fails on every machine, because 0.8.1 left that pointer change out of the patch and both texts now include it.
+  When verification fails for any of these reasons, validate the commit again to replace the note.
+- Review evidence that an earlier release recorded does not carry to a new head. The review runs again.
+- A run that an earlier release reviewed and that is still open reopens review at its next command.
+  The shell stages run again after the new review.
+- 0.8.1 and earlier verifiers reject a note that this release writes, with "review fingerprint does not match the Git diff".
+  Upgrade the protected verifier before, or together with, the local publisher and the hook.
+
+A repository that sets `diff.ignoreSubmodules = all`, or `submodule.<name>.ignore = all` in its configuration or its committed `.gitmodules`, now sees submodule pointer changes in the review diff, the changed-file list, risk classification, and the list of paths a fix commit changes.
+Earlier releases left them out.
+
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.

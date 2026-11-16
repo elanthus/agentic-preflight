@@ -11,11 +11,13 @@ from __future__ import annotations
 import functools
 import json
 import os
+import shutil
 import signal
 import stat
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -69,7 +71,7 @@ def user_telemetry_guard(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
-def deterministic_git_env(monkeypatch, tmp_path_factory):
+def deterministic_git_env(monkeypatch, tmp_path_factory, git_only_bin):
     for key, value in DETERMINISTIC_ENV.items():
         monkeypatch.setenv(key, value)
     # Isolated runs default to a worktree under the user cache. Point it at a
@@ -86,7 +88,49 @@ def deterministic_git_env(monkeypatch, tmp_path_factory):
     # running pytest so an unrelated user installation cannot test older code.
     python_bin = str(Path(sys.executable).parent)
     current_path = os.environ.get("PATH", "")
-    monkeypatch.setenv("PATH", os.pathsep.join(part for part in (python_bin, current_path) if part))
+    parts = (python_bin, git_only_bin, current_path)
+    monkeypatch.setenv("PATH", os.pathsep.join(str(part) for part in parts if part))
+
+
+@pytest.fixture(scope="session")
+def git_only_bin(tmp_path_factory) -> Path | None:
+    """A ``bin`` directory holding only the Git that macOS's ``/usr/bin/git`` stub runs.
+
+    On macOS ``/usr/bin/git`` is a stub that asks ``xcrun`` for the selected
+    developer directory on every call and then runs the Git found there. The
+    lookup costs more than twice what Git itself takes to start, and nearly every
+    test starts Git dozens or hundreds of times. Putting this directory on
+    ``PATH`` runs the very binary the stub would have run, without the lookup.
+
+    The directory holds nothing but ``git``, so no other program on ``PATH``
+    changes. ``git`` is a symlink to the selected binary, and the directory's
+    siblings (``libexec``, ``share`` and the rest) are symlinks to the selected
+    prefix's own. Apple's Git finds its helpers and templates relative to the
+    path it was started from, so that layout gives it the same exec path and
+    templates it has when the stub starts it; a lone symlink would not.
+    Elsewhere, and when ``git`` on ``PATH`` is not the stub, this is ``None``
+    and ``PATH`` is unchanged.
+    """
+    if sys.platform != "darwin" or shutil.which("git") != "/usr/bin/git":
+        return None
+    try:
+        found = subprocess.run(
+            ["xcrun", "--find", "git"], capture_output=True, text=True, check=True, timeout=30
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if not found or not Path(found).is_file():
+        return None
+    binary = Path(found)
+    prefix = binary.parent.parent
+    mirror = tmp_path_factory.mktemp("git-prefix")
+    for entry in prefix.iterdir():
+        if entry.name != "bin":
+            (mirror / entry.name).symlink_to(entry)
+    bin_dir = mirror / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "git").symlink_to(binary)
+    return bin_dir
 
 
 #: The hook log's time bound in tests. The product's two seconds bound a push on an
@@ -376,10 +420,8 @@ def configure_base(repo: Path, config: str) -> None:
         git("rebase", "main", cwd=repo)
 
 
-@pytest.fixture
-def tmp_repo(tmp_path: Path) -> Path:
-    """A repo on ``main`` with one base commit and no working-tree changes."""
-    repo = tmp_path / "repo"
+def build_base_repo(repo: Path) -> None:
+    """Create the ``tmp_repo`` layout: ``main`` with one base commit, clean."""
     repo.mkdir()
     git("init", "-b", "main", cwd=repo)
     write(repo, "README.md", "# demo\n\nA demo project.\n")
@@ -388,15 +430,86 @@ def tmp_repo(tmp_path: Path) -> Path:
     # uncommitted ignore rule is invisible where it matters.
     write(repo, ".gitignore", ".env\n")
     commit_all(repo, "base commit")
+
+
+def add_feature_branch(repo: Path) -> None:
+    """Add the ``feature_repo`` layout: ``feature/x`` one commit ahead of ``main``."""
+    git("switch", "-c", "feature/x", cwd=repo)
+    write(repo, "src/app.py", "def greet(name, loud=False):\n    return f'hi {name}'\n")
+    commit_all(repo, "add loud flag")
+
+
+@pytest.fixture(scope="session")
+def repo_templates(tmp_path_factory) -> Iterator[dict[str, Path]]:
+    """The ``tmp_repo`` and ``feature_repo`` repositories, built once per worker.
+
+    Every test gets its own copy (see :func:`copy_repo_template`), never these
+    directories. The repositories are built by real Git under the same
+    deterministic identity and dates the per-test environment sets, so a copy
+    holds exactly the objects, refs and reflog a per-test build would.
+    """
+    root = tmp_path_factory.mktemp("repo-templates")
+    with pytest.MonkeyPatch.context() as patch:
+        for key, value in DETERMINISTIC_ENV.items():
+            patch.setenv(key, value)
+        base = root / "base"
+        build_base_repo(base)
+        feature = root / "feature"
+        shutil.copytree(base, feature, symlinks=True)
+        add_feature_branch(feature)
+        templates = {"base": base, "feature": feature}
+        before = {name: _repo_snapshot(path) for name, path in templates.items()}
+    yield templates
+    # No test may reach a template: each gets a copy. Fail the session if one did.
+    with pytest.MonkeyPatch.context() as patch:
+        for key, value in DETERMINISTIC_ENV.items():
+            patch.setenv(key, value)
+        changed = [name for name, path in templates.items() if _repo_snapshot(path) != before[name]]
+    if changed:
+        pytest.fail(f"a test changed the shared repository template(s): {changed}", pytrace=False)
+
+
+def _repo_snapshot(repo: Path) -> tuple[str, str, str]:
+    """The refs, checked-out branch and working-tree status of a repository.
+
+    A guard against the likely accidents, not a full digest: it does not cover
+    ``.git/config``, hooks, ``info/exclude``, or objects no ref reaches.
+    """
+    return (
+        git("for-each-ref", "--format=%(refname) %(objectname)", cwd=repo),
+        git("symbolic-ref", "HEAD", cwd=repo),
+        git("status", "--porcelain", "--ignored", "--untracked-files=all", cwd=repo),
+    )
+
+
+def copy_repo_template(template: Path, repo: Path) -> Path:
+    """Copy a template repository to ``repo`` and refresh its index.
+
+    The copy has fresh file times and inodes, so the index's cached stat data
+    no longer matches the working tree. ``update-index --refresh`` re-reads the
+    files and records their new stat data, which leaves the index as a fresh
+    checkout would: plumbing that compares stat data (``diff-index``,
+    ``diff-files``) sees a clean tree, exactly as it did after a per-test build.
+    """
+    shutil.copytree(template, repo, symlinks=True, copy_function=shutil.copy)
+    git("update-index", "-q", "--refresh", cwd=repo)
     return repo
+
+
+@pytest.fixture
+def tmp_repo(request, tmp_path: Path, repo_templates: dict[str, Path]) -> Path:
+    """A repo on ``main`` with one base commit and no working-tree changes.
+
+    When the test also asks for ``feature_repo`` the copy is taken from the
+    feature template directly, so the two fixtures still name one repository.
+    """
+    template = "feature" if "feature_repo" in request.fixturenames else "base"
+    return copy_repo_template(repo_templates[template], tmp_path / "repo")
 
 
 @pytest.fixture
 def feature_repo(tmp_repo: Path) -> Path:
     """``tmp_repo`` with a ``feature/x`` branch holding one commit ahead of main."""
-    git("switch", "-c", "feature/x", cwd=tmp_repo)
-    write(tmp_repo, "src/app.py", "def greet(name, loud=False):\n    return f'hi {name}'\n")
-    commit_all(tmp_repo, "add loud flag")
     return tmp_repo
 
 
