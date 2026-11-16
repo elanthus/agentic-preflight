@@ -105,7 +105,7 @@ _PINNED_REBASE_OPTIONS = (
 # the rebase it replaces runs none and the merge adds no user content. These options
 # neutralize ``merge.ff``, ``pull.twohead``, ``merge.verifySignatures``, and
 # ``merge.log``. ``branch.<name>.mergeOptions`` is cleared for the merge by
-# ``_merge_env``: Git parses it before the command line, and a ``-s`` there is added
+# ``_merge_overrides``: Git parses it before the command line, and a ``-s`` there is added
 # to the strategy list ahead of ``--strategy=ort``, so ``-s ours`` would still win.
 # Not neutralized: commit signing (``commit.gpgSign``) and rename and conflict
 # settings. The merge always starts from a clean checkout, so ``merge.autoStash`` has
@@ -123,25 +123,23 @@ _PINNED_MERGE_OPTIONS = (
 )
 
 
-def _merge_env(worktree_path: Path | str) -> dict[str, str] | None:
-    """Git's environment for the fallback merge, with the branch's ``mergeOptions`` cleared.
+# An environment variable that holds an empty value, for ``--config-env``.
+_EMPTY_CONFIG_VALUE_ENV = "AGENTIC_PREFLIGHT_EMPTY_CONFIG_VALUE"
+
+
+def _merge_overrides(worktree_path: Path | str) -> tuple[list[str], dict[str, str] | None]:
+    """Git options and environment that clear the branch's ``mergeOptions`` for the merge.
 
     An empty value drops every option the setting holds, ``-s`` and ``-X`` included.
-    The override is appended through ``GIT_CONFIG_COUNT`` rather than ``-c``, because a
-    branch name may contain ``=``; configuration already passed that way is kept.
+    ``--config-env`` is read after every other source, including ``git -c`` settings
+    inherited through ``GIT_CONFIG_PARAMETERS``, so the empty value wins. Unlike
+    ``-c``, it also accepts a branch name that contains ``=``.
     """
     branch = gitx.current_branch(worktree_path)
     if branch == "HEAD":
-        return None
-    env = dict(os.environ)
-    try:
-        index = int(env.get("GIT_CONFIG_COUNT", "0"))
-    except ValueError:
-        index = 0
-    env[f"GIT_CONFIG_KEY_{index}"] = f"branch.{branch}.mergeOptions"
-    env[f"GIT_CONFIG_VALUE_{index}"] = ""
-    env["GIT_CONFIG_COUNT"] = str(index + 1)
-    return env
+        return [], None
+    env = {**os.environ, _EMPTY_CONFIG_VALUE_ENV: ""}
+    return [f"--config-env=branch.{branch}.mergeOptions={_EMPTY_CONFIG_VALUE_ENV}"], env
 
 
 def _origin_base_ref(base_ref: str) -> tuple[str, str]:
@@ -228,13 +226,15 @@ def _merge_base_in(
     worktree_path: Path | str, *, base_ref: str, base_sha: str, before: str, landed: str
 ) -> str:
     """Merge the base into the restored head, or restore it and report a conflict."""
+    overrides, env = _merge_overrides(worktree_path)
     result = gitx.run(
         worktree_path,
+        *overrides,
         "merge",
         *_PINNED_MERGE_OPTIONS,
         base_sha,
         check=False,
-        env=_merge_env(worktree_path),
+        env=env,
     )
     if (
         result.returncode == 0

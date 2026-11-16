@@ -379,3 +379,25 @@ def test_sync_fallback_merge_keeps_configuration_passed_through_the_environment(
     assert result.merged is True
     assert gitx.tree_sha(tmp_repo, "HEAD") == gitx.tree_sha(tmp_repo, base)
     assert "\nencoding ISO-8859-1\n" in git("cat-file", "commit", "HEAD", cwd=tmp_repo)
+
+
+def test_sync_fallback_merge_ignores_merge_options_passed_with_git_c(tmp_repo, monkeypatch):
+    """``git -c`` settings reach Git through ``GIT_CONFIG_PARAMETERS``, read after the files."""
+    base, _head = _skipped_change(tmp_repo)
+    monkeypatch.setenv("GIT_CONFIG_PARAMETERS", "'branch.feature/undo.mergeOptions'='-s ours'")
+
+    result = sync.synchronize(tmp_repo, tmp_repo, base_ref="main")
+
+    assert result.merged is True
+    assert gitx.tree_sha(tmp_repo, "HEAD") == gitx.tree_sha(tmp_repo, base)
+
+
+def test_sync_fallback_merge_clears_merge_options_on_a_branch_named_with_equals(tmp_repo):
+    base, _head = _skipped_change(tmp_repo)
+    git("branch", "-m", "feature/un=do", cwd=tmp_repo)
+    git("config", "branch.feature/un=do.mergeOptions", "-s ours", cwd=tmp_repo)
+
+    result = sync.synchronize(tmp_repo, tmp_repo, base_ref="main")
+
+    assert result.merged is True
+    assert gitx.tree_sha(tmp_repo, "HEAD") == gitx.tree_sha(tmp_repo, base)
