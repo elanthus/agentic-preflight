@@ -385,7 +385,8 @@ def _load_sources(
     ``select`` can accept; Git then lists only those, instead of the whole tree.
     """
     pathspecs = () if scopes is None else ("--", *(f":(literal){scope}" for scope in scopes))
-    output = gitx.run(repo, "ls-tree", "-r", "-l", "-z", revision, *pathspecs).stdout
+    env = None if scopes is None else gitx.literal_pathspec_env()
+    output = gitx.run(repo, "ls-tree", "-r", "-l", "-z", revision, *pathspecs, env=env).stdout
     candidates = []
     paths = set()
     omitted: Counter[str] = Counter()

@@ -43,6 +43,7 @@ Source reads have separate limits from this output budget.
 The CLI lists the committed blob IDs and sizes with one `git ls-tree` call.
 That call is limited to `docs/`, the convention files, and the literal leading directory of each `extra_paths` pattern.
 If an `extra_paths` pattern can match at any depth, such as `**/*.md`, the call lists the whole tree.
+So does a pattern whose literal leading directory contains a non-ASCII character, a backslash, or an empty, `.`, or `..` component.
 Then it reads the selected content with one `git cat-file --batch` call.
 It reads at most 1 MiB per source, 16 MiB in total, and 1,024 sources, selected in path order.
 Known binary formats and non-regular Git entries are omitted before the content reads.

@@ -573,8 +573,9 @@ def test_fingerprinting_commands_never_list_the_whole_tree(feature_repo, tmp_pat
         else:
             agent.run(*step)
         assert not [args for args in calls if _lists_whole_tree(args)], (step, calls)
-        if step in (("status",), ("submit-findings", "docs")):
-            assert len(calls) == 4, (step, calls)
+        recursive = [args for args in calls if "-r" in args]
+        assert len(calls) - len(recursive) <= 2, (step, calls)  # config lookup, root listing
+        assert len(recursive) <= 2, (step, calls)  # grounding and docs inventory
 
 
 def test_scoped_listings_leave_review_and_docs_fingerprints_byte_identical(

@@ -6,9 +6,9 @@ drives a run to the docs review and then times ``status``, the docs
 ``submit-findings``, and ``stage run lint``, each in a fresh process, and counts
 the ``git ls-tree`` processes each one starts.
 
-Every CLI subprocess gets ``XDG_DATA_HOME`` and ``XDG_CACHE_HOME`` inside the
-workspace, so a benchmark run writes nothing to your telemetry directory or
-worktree cache. Run it from a checkout with ``uv run``::
+Every CLI subprocess gets ``HOME``, ``XDG_DATA_HOME`` and ``XDG_CACHE_HOME``
+inside the workspace, so a benchmark run neither reads your user configuration
+nor writes to your telemetry directory or worktree cache. Run it from a checkout with ``uv run``::
 
     uv run python scripts/bench_large_tree.py --workspace /tmp/ap-bench
 
@@ -92,9 +92,11 @@ class Cli:
         self.trace = trace
         self.env = _git_env()
         self.env.update(
+            HOME=str(workspace / "home"),
             XDG_DATA_HOME=str(workspace / "xdg-data"),
             XDG_CACHE_HOME=str(workspace / "xdg-cache"),
         )
+        (workspace / "home").mkdir(exist_ok=True)
 
     def run(
         self, *argv: str, prefix: tuple[str, ...] = (), allowed: tuple[int, ...] = (0,)

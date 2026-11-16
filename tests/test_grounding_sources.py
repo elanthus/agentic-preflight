@@ -128,3 +128,25 @@ def test_a_scoped_source_listing_selects_what_a_full_listing_selects(tmp_repo, e
         assert scopes is None
     else:
         assert scopes is not None
+
+
+@pytest.mark.parametrize(
+    "variable",
+    ["GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS"],
+)
+def test_git_pathspec_environment_does_not_change_grounding_sources(
+    tmp_repo, monkeypatch, variable
+):
+    """A scoped source listing ignores Git's global pathspec switches."""
+    for rel in ("AGENTS.md", "docs/a.md", "docs/nested/b.md", "rules/a.md", "src/app.py"):
+        write(tmp_repo, rel, f"{rel}\n")
+    commit_all(tmp_repo, "grounding sources")
+    extra_paths = ["rules/*.md"]
+    select = grounding._source_selector(extra_paths)
+    full = grounding._load_sources(tmp_repo, select)
+
+    monkeypatch.setenv(variable, "1")
+    scoped = grounding._load_sources(tmp_repo, select, scopes=grounding._source_scopes(extra_paths))
+
+    assert set(full[0]) == {"AGENTS.md", "docs/a.md", "docs/nested/b.md", "rules/a.md"}
+    assert scoped == full
