@@ -8,6 +8,8 @@ worktree's ``start``, ``mergeback``, and ``push`` then blocks on those locks.
 from __future__ import annotations
 
 import os
+import signal
+import subprocess
 import sys
 import threading
 import time
@@ -18,7 +20,8 @@ import pytest
 from agentic_preflight import filelock, gitx, runs
 from agentic_preflight import store as storemod
 from agentic_preflight.envelope import ExitCode
-from tests.conftest import git
+from tests.conftest import configure_base, git
+from tests.driver import ScriptedAgent, findings_json
 
 posix_only = pytest.mark.skipif(
     sys.platform == "win32", reason="the remote helpers here are POSIX shell scripts"
@@ -119,16 +122,120 @@ def test_a_stalled_remote_times_out_and_its_processes_stop(tmp_repo, tmp_path, m
     assert "credentials" in message
     assert "network" in message
     # The helper Git started is stopped with Git, not left running.
-    helper_pid = int(pid_file.read_text(encoding="utf-8"))
-    deadline = time.monotonic() + 10
+    assert _process_stops(int(pid_file.read_text(encoding="utf-8")))
+    # Git was asked to stop before it was killed, so it left no lock file behind.
+    assert sorted((tmp_repo / ".git").rglob("*.lock")) == []
+
+
+def _process_stops(pid: int, within: float = 10) -> bool:
+    deadline = time.monotonic() + within
     while time.monotonic() < deadline:
         try:
-            os.kill(helper_pid, 0)
+            os.kill(pid, 0)
         except ProcessLookupError:
-            break
+            return True
         time.sleep(0.05)
+    return False
+
+
+@posix_only
+@pytest.mark.parametrize(
+    "signum", [signal.SIGTERM, signal.SIGHUP] if hasattr(signal, "SIGHUP") else []
+)
+def test_a_signal_to_the_tool_stops_a_running_remote_command(
+    tmp_repo, tmp_path, monkeypatch, signum
+):
+    url = _remote_helper(
+        tmp_path, monkeypatch, "stall", 'echo $$ > "$AP_TEST_OUT"\nexec sleep 120\n'
+    )
+    pid_file = tmp_path / "stall.pid"
+    monkeypatch.setenv("AP_TEST_OUT", str(pid_file))
+    script = (
+        "import sys\n"
+        "from agentic_preflight import gitx\n"
+        "gitx.run(sys.argv[1], 'fetch', sys.argv[2], remote='origin')\n"
+    )
+    tool = subprocess.Popen([sys.executable, "-c", script, str(tmp_repo), url])
+    try:
+        deadline = time.monotonic() + 30
+        while not pid_file.exists() or not pid_file.read_text(encoding="utf-8").strip():
+            assert time.monotonic() < deadline, "the remote helper never started"
+            assert tool.poll() is None, "the tool exited before the helper started"
+            time.sleep(0.05)
+        helper_pid = int(pid_file.read_text(encoding="utf-8"))
+
+        tool.send_signal(signum)
+        tool.wait(timeout=30)
+    finally:
+        if tool.poll() is None:
+            tool.kill()
+
+    assert tool.returncode == -signum
+    assert _process_stops(helper_pid)
+
+
+@posix_only
+def test_a_remote_command_does_not_wait_on_stdin(tmp_repo, tmp_path, monkeypatch):
+    # ``cat`` returns at once on an empty stdin; on an inherited terminal it would wait.
+    script = tmp_path / "read_stdin.sh"
+    script.write_text(f"#!/bin/sh\ncat > '{tmp_path / 'stdin.out'}'\nexit 1\n", encoding="utf-8")
+    script.chmod(0o755)
+    git("config", "alias.readstdin", f"!{script}", cwd=tmp_repo)
+    reader, writer = os.pipe()
+    try:
+        # Hand the tool a stdin that never ends, as a terminal would be.
+        saved = os.dup(0)
+        os.dup2(reader, 0)
+        try:
+            started = time.monotonic()
+            result = gitx.run(tmp_repo, "readstdin", check=False, remote="origin", timeout=30)
+            elapsed = time.monotonic() - started
+        finally:
+            os.dup2(saved, 0)
+            os.close(saved)
+    finally:
+        os.close(reader)
+        os.close(writer)
+
+    assert elapsed < 20
+    assert result.returncode == 1
+    assert (tmp_path / "stdin.out").read_text(encoding="utf-8") == ""
+
+
+def _ssh_command_seen(tmp_repo, tmp_path, monkeypatch) -> str:
+    url = _remote_helper(
+        tmp_path,
+        monkeypatch,
+        "sshenv",
+        'printf "%s" "${GIT_SSH_COMMAND-<unset>}" > "$AP_TEST_OUT"\nexit 1\n',
+    )
+    out = tmp_path / "ssh.out"
+    monkeypatch.setenv("AP_TEST_OUT", str(out))
+    gitx.run(tmp_repo, "fetch", url, check=False, remote="origin", timeout=60)
+    return out.read_text(encoding="utf-8")
+
+
+@posix_only
+def test_ssh_runs_in_batch_mode_when_the_user_chose_no_ssh_command(tmp_repo, tmp_path, monkeypatch):
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    monkeypatch.delenv("GIT_SSH", raising=False)
+
+    assert _ssh_command_seen(tmp_repo, tmp_path, monkeypatch) == gitx.BATCH_SSH_COMMAND
+
+
+@posix_only
+@pytest.mark.parametrize("source", ["GIT_SSH_COMMAND", "GIT_SSH", "core.sshCommand"])
+def test_a_users_ssh_command_is_left_alone(tmp_repo, tmp_path, monkeypatch, source):
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    monkeypatch.delenv("GIT_SSH", raising=False)
+    if source == "core.sshCommand":
+        git("config", "core.sshCommand", "ssh -i /custom/key", cwd=tmp_repo)
+        expected = "<unset>"
     else:
-        pytest.fail(f"remote helper {helper_pid} kept running after the timeout")
+        monkeypatch.setenv(source, "my-ssh")
+        expected = "my-ssh" if source == "GIT_SSH_COMMAND" else "<unset>"
+
+    assert _ssh_command_seen(tmp_repo, tmp_path, monkeypatch) == expected
 
 
 def test_a_remote_timeout_message_carries_no_credentials():
@@ -140,6 +247,17 @@ def test_a_remote_timeout_message_carries_no_credentials():
     )
     assert "secret-token" not in str(error)
     assert "secret-token" not in error.remote
+
+
+def test_a_remote_name_is_reported_as_given():
+    error = gitx.RemoteTimeout(["fetch", "up@stream"], remote="up@stream", timeout=5, stderr="")
+    assert error.remote == "up@stream"
+    assert "pre-push" not in str(error)
+
+
+def test_a_push_timeout_says_it_includes_the_pre_push_hook():
+    error = gitx.RemoteTimeout(["push", "origin"], remote="origin", timeout=5, stderr="")
+    assert "pre-push hook" in str(error)
 
 
 # -- start ---------------------------------------------------------------------
@@ -190,18 +308,45 @@ def test_start_fetches_the_base_and_notes_without_prompting(
     agent, feature_repo, bare_remote, monkeypatch
 ):
     real_run = gitx.run
-    remote_calls: list[tuple[str, str | None]] = []
+    remote_calls: list[tuple[str, str | None, float | None]] = []
 
     def recording(cwd, *args, **kwargs):
         if args and args[0] in {"fetch", "push", "ls-remote"}:
-            remote_calls.append((args[0], kwargs.get("remote")))
+            remote_calls.append((args[0], kwargs.get("remote"), kwargs.get("timeout")))
         return real_run(cwd, *args, **kwargs)
 
     monkeypatch.setattr(gitx, "run", recording)
 
     agent.run("start")
 
-    assert remote_calls == [("fetch", "origin"), ("fetch", "origin")]
+    assert remote_calls == [("fetch", "origin", 600), ("fetch", "origin", 600)]
+
+
+@posix_only
+def test_start_against_a_stalled_remote_fails_within_the_configured_timeout(
+    agent, feature_repo, bare_remote, tmp_path, monkeypatch
+):
+    configure_base(feature_repo, "[general]\nnetwork_timeout_seconds = 1\n")
+    url = _remote_helper(
+        tmp_path, monkeypatch, "stall", 'echo $$ > "$AP_TEST_OUT"\nexec sleep 120\n'
+    )
+    monkeypatch.setenv("AP_TEST_OUT", str(tmp_path / "stall.pid"))
+    git("remote", "set-url", "origin", url, cwd=feature_repo)
+
+    started = time.monotonic()
+    env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 60
+    assert env["error"]["code"] == "remote_timeout"
+    assert env["data"]["remote"] == "origin"
+    assert env["data"]["operation"] == "fetch"
+    assert env["data"]["timeout_seconds"] == 1
+    assert ".lock" in env["next"]["instruction"]
+    store = runs.open_session(feature_repo).store
+    assert _lock_is_free(store, "sync")
+    assert _lock_is_free(store, "notes")
+    assert _process_stops(int((tmp_path / "stall.pid").read_text(encoding="utf-8")))
 
 
 # -- push ----------------------------------------------------------------------
@@ -210,9 +355,6 @@ def test_start_fetches_the_base_and_notes_without_prompting(
 def test_push_reports_a_remote_timeout_and_keeps_the_run_awaiting_push(
     feature_repo, bare_remote, tmp_path, monkeypatch
 ):
-    from tests.conftest import configure_base
-    from tests.driver import ScriptedAgent, findings_json
-
     configure_base(
         feature_repo,
         "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n",
@@ -244,6 +386,11 @@ def test_push_reports_a_remote_timeout_and_keeps_the_run_awaiting_push(
     assert env["error"]["code"] == "remote_timeout"
     assert env["data"]["remote"] == "origin"
     assert env["data"]["operation"] == "push"
+    assert env["data"]["timeout_seconds"] == 7
+    assert env["run_id"]
+    assert env["state"] == "AWAITING_PUSH_CONFIRM"
+    assert "may have landed" in env["next"]["instruction"]
+    assert "pre-push hook" in env["next"]["instruction"]
     assert env["next"]["command"] == "agentic-preflight status"
     assert agent.run("status")["state"] == "AWAITING_PUSH_CONFIRM"
     assert _lock_is_free(runs.open_session(feature_repo).store, "notes")

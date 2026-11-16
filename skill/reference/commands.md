@@ -154,9 +154,15 @@ without unmerged paths; inspect `git status` in the worktree. A fetch, network, 
 synchronization exits 4 with `sync_failed`, `data.error_type`, and `data.detail`. Both leave
 the run in `SYNC_CONFLICT`; `next.command` is `agentic-preflight abort --force`, after which
 `start` again with the same intent. The fetches cannot prompt: Git's terminal credential
-prompt is off, stdin is empty, and on Linux and macOS `ssh` has no terminal for a host-key or
-passphrase question, so a missing credential fails the fetch with `sync_failed` instead of
-blocking it. Credential helpers and SSH agents still work. Synchronization also
+prompt is off, stdin is empty, on Linux and macOS there is no controlling terminal, and `ssh`
+runs with `-o BatchMode=yes` unless `GIT_SSH_COMMAND`, `GIT_SSH`, or `core.sshCommand` is set.
+A missing credential therefore fails the fetch with `sync_failed` instead of blocking it.
+Credential helpers and SSH agents still work. A fetch that runs longer than `[general]
+network_timeout_seconds` (default 600) is stopped with the processes it started, and `start`
+exits 4 with `remote_timeout`. `data` holds `remote`, `operation`, `timeout_seconds`,
+`base_ref`, and `worktree_path`; the clone-wide locks are already released, the run is in
+`SYNC_CONFLICT`, a `remote_timeout` event is stored, and `next.command` is
+`agentic-preflight abort --force`. Synchronization also
 refuses, before changing anything, when a path added by the base or by the branch's merge
 result already exists as an untracked or ignored local file, and lists those files in
 `data.conflicting_files`.
@@ -660,7 +666,9 @@ Only `[gate] mode = "manual"` exits 4 and puts the literal `git push` command in
 the gate fetches the remote notes and builds the notes commit to publish, so the command
 names that commit's SHA and leases the remote notes ref to the tip the gate fetched
 (`--force-with-lease`; an empty expectation means the ref must not exist). If the fetch
-changed the head's stored attestation, the gate exits 2 with `attestation_failed`. No ref
+changed the head's stored attestation, the gate exits 2 with `attestation_failed`. A notes
+fetch that runs longer than `[general] network_timeout_seconds` exits 4 with
+`remote_timeout`, as for `push`; run `status`, then `gate` again. No ref
 keeps that commit, so run the command promptly. If the remote notes change before it runs,
 including a deletion or a rewind, or Git has since pruned the unreferenced commit, the
 atomic push is rejected and publishes nothing; run `gate` again.
@@ -678,7 +686,14 @@ notes between the fetch and the push, the atomic push is rejected without landin
 the remote notes ref to the fetched tip, so a ref that another writer deleted or rewound in the
 meantime is also rejected and rebuilt on, never recreated or moved forward again. If the push fails
 for another reason, it reports Git's push error. Like the fetches in `start`, the fetch,
-pushes, and remote query here cannot prompt for a credential or a host key. After a successful push it merges the published
+pushes, and remote query here cannot prompt for a credential or a host key, and the pre-push
+hook that Git runs inside the push has no terminal either. Each is stopped after `[general]
+network_timeout_seconds`, a limit that for a push includes the pre-push hook. `push` then
+exits 4 with `remote_timeout` and the run's `run_id` and `state`; its `data` names the
+remote, the Git operation, and the timeout in seconds, as for `start`. The run stays in
+`AWAITING_PUSH_CONFIRM`.
+The push may have landed before it was stopped, so `next.command` is
+`agentic-preflight status`; push again with the same token after the cause is fixed. After a successful push it merges the published
 notes commit into the local notes ref, keeping local notes where they differ, so the next notes
 fetch extends local history. `data.published_notes` names the SHAs whose note the push added to or
 changed on the remote. On a dry run, which does not contact the remote, it lists every pushed

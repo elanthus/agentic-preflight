@@ -226,19 +226,29 @@ else:
 if sys.platform == "win32":
 
     @contextmanager
-    def _kill_on_termination(process: subprocess.Popen) -> Iterator[None]:
-        """Stop the Windows stage tree before propagating Ctrl+C."""
+    def kill_on_termination(
+        process: subprocess.Popen,
+        stop: Callable[[subprocess.Popen], None] = kill_process_tree,
+    ) -> Iterator[None]:
+        """Stop the Windows process tree with ``stop`` before propagating Ctrl+C."""
         try:
             yield
         except KeyboardInterrupt:
-            kill_process_tree(process)
+            stop(process)
             raise
 
 else:
 
     @contextmanager
-    def _kill_on_termination(process: subprocess.Popen) -> Iterator[None]:
-        """Kill ``process``'s tree if SIGTERM or SIGINT arrives while it runs."""
+    def kill_on_termination(
+        process: subprocess.Popen,
+        stop: Callable[[subprocess.Popen], None] = kill_process_tree,
+    ) -> Iterator[None]:
+        """Stop ``process``'s tree with ``stop`` if SIGTERM, SIGINT, or SIGHUP arrives.
+
+        The child runs in its own session, so a signal to this process, or a hangup
+        of its terminal, does not reach the child unless this forwards it.
+        """
         previous: dict[int, signal.Handlers | int | Callable[..., object] | None] = {}
 
         def restore() -> None:
@@ -247,12 +257,12 @@ else:
             previous.clear()
 
         def handler(signum: int, frame: object) -> None:
-            kill_process_tree(process)
+            stop(process)
             restore()
             signal.raise_signal(signum)
 
         try:
-            for number in (signal.SIGTERM, signal.SIGINT):
+            for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
                 previous[int(number)] = signal.signal(number, handler)
         except ValueError:
             # Signal handlers can only be installed from the main thread.
@@ -340,7 +350,7 @@ def run_stage(
                 )
             timed_out = False
             try:
-                with _kill_on_termination(process):
+                with kill_on_termination(process):
                     process.communicate(input=stdin_text, timeout=timeout_seconds)
             except subprocess.TimeoutExpired:
                 timed_out = True

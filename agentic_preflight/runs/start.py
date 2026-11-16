@@ -21,6 +21,7 @@ from ..cli_contract import StartData
 from ..config import Config, config_digest, load_config_layers
 from ..envelope import Envelope, ExitCode
 from ..errors import (
+    REMOTE_TIMEOUT_CHECKS,
     AgenticError,
     DirtyTree,
     EmptyDiff,
@@ -776,7 +777,12 @@ def _synchronize(
             ctx.session.store.resource("notes", holder=run_id),
             timing.timed_command(ctx.session.store, run_id, "sync"),
         ):
-            sync_result = syncmod.synchronize(ctx.repo, wt_path, base_ref=ctx.base_ref)
+            sync_result = syncmod.synchronize(
+                ctx.repo,
+                wt_path,
+                base_ref=ctx.base_ref,
+                network_timeout=ctx.cfg.general.network_timeout_seconds,
+            )
     except syncmod.OperationInProgress as exc:
         with ctx.session.store.transaction(run_id) as doc:
             apply_action(doc, Action.SYNC_FAILED)
@@ -826,9 +832,7 @@ def _synchronize(
             state=run.state.value,
             run_id=run_id,
             next_instruction=(
-                "Check the credentials for the remote and the network. Credential and "
-                "host-key prompts are disabled, so a credential helper or an SSH agent must "
-                "supply them. Then abort this run and start again with the same intent."
+                f"{REMOTE_TIMEOUT_CHECKS} Then abort this run and start again with the same intent."
             ),
             next_command="agentic-preflight abort --force",
         )

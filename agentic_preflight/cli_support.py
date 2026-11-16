@@ -15,7 +15,7 @@ import click
 from .cli_contract import NO_ENVELOPE
 from .config import ConfigError
 from .envelope import Envelope, ExitCode, emit
-from .errors import AgenticError, RemoteTimeout, SourceWorktreeMissing
+from .errors import REMOTE_TIMEOUT_CHECKS, AgenticError, RemoteTimeout, SourceWorktreeMissing
 from .gitx import GitError
 from .gitx import RemoteTimeout as GitRemoteTimeout
 from .store import RunReadError
@@ -200,11 +200,7 @@ def command(fn):
             fail(
                 RemoteTimeout.from_git(
                     exc,
-                    next_instruction=(
-                        "Check the credentials for the remote and the network. Credential "
-                        "and host-key prompts are disabled, so a credential helper or an SSH "
-                        "agent must supply them. Then run status and obey next."
-                    ),
+                    next_instruction=f"{REMOTE_TIMEOUT_CHECKS} Then run status and obey next.",
                     next_command="agentic-preflight status",
                 )
             )

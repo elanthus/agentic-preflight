@@ -77,8 +77,23 @@ def _repo_relative_pattern(value: str) -> str:
 RepoRelativePattern = Annotated[str, AfterValidator(_repo_relative_pattern)]
 
 
+#: The default bound on a fetch, notes fetch, remote query, or push.
+DEFAULT_NETWORK_TIMEOUT_SECONDS = 600
+
+
 class GeneralSection(_Section):
     base_ref: str = "main"
+    #: Seconds a Git command that contacts the remote may run before it is stopped.
+    network_timeout_seconds: int = Field(default=DEFAULT_NETWORK_TIMEOUT_SECONDS, ge=1)
+
+    @model_serializer(mode="wrap")
+    def omit_defaults(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # Omitting the default keeps snapshots, and the digests over them, identical
+        # to those that releases without this key wrote.
+        data = handler(self)
+        if self.network_timeout_seconds == DEFAULT_NETWORK_TIMEOUT_SECONDS:
+            data.pop("network_timeout_seconds", None)
+        return data
 
 
 class CommandsSection(_Section):

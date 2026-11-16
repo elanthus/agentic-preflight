@@ -50,6 +50,7 @@ See [what verification trusts](limits.md#attestations-are-not-signatures).
 ```toml
 [general]
 base_ref = "main"
+network_timeout_seconds = 600   # bound on each fetch, remote query, and push
 
 [commands]
 lint = "ruff check ."
@@ -149,6 +150,7 @@ run_days = 90                     # gc deletes reclaimed run records older than 
 A later edit of `.agentic-preflight.toml` does not change that run.
 The snapshot and its digest are recorded with the run events.
 The snapshot does not contain `[telemetry]` or `[retention]`.
+`[general] network_timeout_seconds` is in the snapshot only when it differs from the default, and no stage fingerprint includes it.
 
 Commit configuration changes **before** you start the run that they must affect.
 For the same reason, the file must be committed before `start`. Do not edit it during a run.
@@ -159,6 +161,24 @@ A review fingerprint hashes only `[general]`, `[review]`, `[policy]`, `[context]
 A docs fingerprint hashes `[general]`, `[docs]`, `[diff]`, `[context]`, and `[policy]`.
 Thus, a change to an unrelated section, for example `[commands]`, cannot by itself invalidate that stage's evidence.
 See [`docs/fingerprint-contract.md`](fingerprint-contract.md) for automatic refresh.
+
+## Network timeout (`[general] network_timeout_seconds`)
+
+Every Git command that contacts `origin` is stopped after `network_timeout_seconds`.
+That covers the base fetch and the notes fetch in `start`, the notes fetch in a manual-mode `gate`, and the notes fetch, the remote query, and the pushes in `push`.
+The default is 600 seconds, which allows a slow first fetch of a large repository. The value must be at least 1.
+Each command gets the whole limit; it is not shared across the commands of one invocation.
+
+For a push, the limit includes the pre-push hook, which Git runs inside the push.
+A slow hook, such as one that uploads Git LFS objects, needs a limit that covers it too.
+
+These commands cannot prompt. Git's terminal credential prompt is off, stdin is empty, and on Linux and macOS there is no controlling terminal.
+When you have not set `GIT_SSH_COMMAND`, `GIT_SSH`, or `core.sshCommand`, `ssh` runs with `-o BatchMode=yes`.
+The pre-push hook inherits the same environment, so a hook that asks a question fails.
+A command that runs out of time is asked to exit, then killed with the processes it started, and the command exits 4 with `remote_timeout`.
+See [Limits](limits.md#fetch-and-push-cannot-ask-for-credentials).
+
+The run snapshot keeps this key, so an edit after `start` does not change that run.
 
 ## Local run telemetry (`[telemetry]`)
 

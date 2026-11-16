@@ -12,7 +12,13 @@ from .. import risk as riskmod
 from ..attestation import NOTES_REF
 from ..cli_contract import FinishData, GateData, PushData
 from ..envelope import Envelope
-from ..errors import AttestationFailed, ManualGate, NeedsConfirm
+from ..errors import (
+    REMOTE_TIMEOUT_CHECKS,
+    AttestationFailed,
+    ManualGate,
+    NeedsConfirm,
+    RemoteTimeout,
+)
 from ..machine import Action, State
 from ..models import Attestation, RunDoc
 from ._session import (
@@ -105,6 +111,26 @@ def _attestation_or_none(session: Session, sha: str) -> Attestation | None:
         return None
 
 
+def _network_timeout(session: Session) -> int:
+    return session.config.general.network_timeout_seconds
+
+
+def _gate_fetch_notes(session: Session, run: RunDoc) -> str | None:
+    """Fetch the remote notes for a manual gate, reporting a timeout with the run."""
+    try:
+        return gitx.fetch_notes(
+            session.repo_root, "origin", NOTES_REF, timeout=_network_timeout(session)
+        )
+    except gitx.RemoteTimeout as exc:
+        raise RemoteTimeout.from_git(
+            exc,
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction=f"{REMOTE_TIMEOUT_CHECKS} Then run gate again.",
+            next_command="agentic-preflight status",
+        ) from exc
+
+
 def gate(session: Session) -> Envelope:
     """Summarise what would be pushed and mint a confirmation token."""
     run = load_current(session)
@@ -142,7 +168,7 @@ def gate(session: Session) -> Envelope:
         with session.store.resource("notes", holder=run.run_id):
             gitx.sweep_notes_staging_refs(session.repo_root)
             before = _attestation_or_none(session, run.head_sha)
-            remote_tip = gitx.fetch_notes(session.repo_root, "origin", NOTES_REF)
+            remote_tip = _gate_fetch_notes(session, run)
             if _attestation_or_none(session, run.head_sha) != before:
                 raise AttestationFailed(
                     "Attestation changed during notes synchronization; refresh before publication",
@@ -313,8 +339,21 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
             next_command="agentic-preflight push --confirm <token>",
         )
 
-    with session.store.resource("notes", holder=run.run_id):
-        published_notes = _publish(session, run, portable, evidence_refspecs, pushed_commits)
+    try:
+        with session.store.resource("notes", holder=run.run_id):
+            published_notes = _publish(session, run, portable, evidence_refspecs, pushed_commits)
+    except gitx.RemoteTimeout as exc:
+        raise RemoteTimeout.from_git(
+            exc,
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction=(
+                f"{REMOTE_TIMEOUT_CHECKS} The limit includes the pre-push hook. The push may "
+                "have landed on the remote before it was stopped, so run status, and then "
+                "push again with the same token."
+            ),
+            next_command="agentic-preflight status",
+        ) from exc
 
     with session.store.transaction(run.run_id) as doc:
         doc.pushed_sha = run.head_sha
@@ -340,7 +379,9 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
 
 def _synchronize_notes(session: Session, run: RunDoc, portable: Attestation) -> str | None:
     """Fetch the remote notes, confirm the head's attestation survived, return the tip."""
-    remote_tip = gitx.fetch_notes(session.repo_root, "origin", NOTES_REF)
+    remote_tip = gitx.fetch_notes(
+        session.repo_root, "origin", NOTES_REF, timeout=_network_timeout(session)
+    )
     try:
         synchronized = attestationmod.read(session.repo_root, run.head_sha)
     except attestationmod.InvalidAttestation as exc:
@@ -382,7 +423,13 @@ def _publish(
     # a combined push can otherwise expose the branch despite that rejection.
     if evidence_refspecs:
         gitx.run(
-            session.repo_root, "push", "--atomic", "origin", *evidence_refspecs, remote="origin"
+            session.repo_root,
+            "push",
+            "--atomic",
+            "origin",
+            *evidence_refspecs,
+            remote="origin",
+            timeout=_network_timeout(session),
         )
     attempt = 1
     while True:
@@ -394,7 +441,13 @@ def _publish(
                 _push_refspecs(run.head_sha, run.branch, staging),
                 None if staging is None else _notes_lease(remote_tip),
             )
-            result = gitx.run(session.repo_root, *args, check=False, remote="origin")
+            result = gitx.run(
+                session.repo_root,
+                *args,
+                check=False,
+                remote="origin",
+                timeout=_network_timeout(session),
+            )
             if result.returncode == 0:
                 if staging is not None:
                     gitx.fold_published_notes(session.repo_root, NOTES_REF, staging)
@@ -403,7 +456,11 @@ def _publish(
         if attempt >= _NOTES_PUBLISH_ATTEMPTS:
             raise push_error
         try:
-            current_tip = gitx.remote_ref_tip(session.repo_root, "origin", NOTES_REF)
+            current_tip = gitx.remote_ref_tip(
+                session.repo_root, "origin", NOTES_REF, timeout=_network_timeout(session)
+            )
+        except gitx.RemoteTimeout:
+            raise
         except gitx.GitError as exc:
             # Report why the push failed, not why the follow-up query failed.
             raise push_error from exc

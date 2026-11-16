@@ -525,13 +525,23 @@ A docs stage that is green while the base disables docs now passes. Earlier veri
 Attestation schema 7, fingerprint version 2, and the evidence and configuration digests are unchanged.
 Notes that an earlier release wrote stay readable, and they verify when they satisfy the protected base policy.
 
-## Unreleased: fetch and push cannot prompt
+## Unreleased: fetch and push cannot prompt, and time out
 
-The fetches in `start` and in a manual-mode `gate`, and the pushes and remote query in `push`, now run with `GIT_TERMINAL_PROMPT=0` and an empty stdin.
+The fetches in `start` and in a manual-mode `gate`, and the pushes, notes fetch, and remote query in `push`, now run with `GIT_TERMINAL_PROMPT=0` and an empty stdin.
 On Linux and macOS they also run without a controlling terminal.
+When `GIT_SSH_COMMAND`, `GIT_SSH`, and `core.sshCommand` are all unset, they run `ssh` as `ssh -o BatchMode=yes`. A configured SSH command is used unchanged.
 A remote that needs a username, a password, a new host key, or a key passphrase typed at the terminal now fails the command with Git's error instead of waiting.
 Store the credential in a credential helper or an SSH agent, and accept the host key once outside the tool.
-The error codes, the exit codes, run schema 2, and attestation schema 7 are unchanged.
+The pre-push hook that Git runs inside `push` inherits that environment, so a hook that asks a question now fails.
+
+The new key `[general] network_timeout_seconds` (default 600, at least 1) stops each of those commands, with the processes it started, when it runs longer.
+For a push, the limit includes the pre-push hook.
+The key is in the run snapshot only when it differs from the default, so default configurations keep their snapshots and configuration digests. No review or docs fingerprint includes it.
+An earlier release rejects a configuration that sets the key, as an unknown key.
+
+`start`, `gate`, and `push` have a new error code, `remote_timeout`, with exit 4. Its `data` holds `remote`, `operation`, and `timeout_seconds`, and for `start` also `base_ref` and `worktree_path`.
+`start` records a new `remote_timeout` event and leaves the run in `SYNC_CONFLICT`, as for `sync_failed`. `push` leaves the run in `AWAITING_PUSH_CONFIRM`.
+Run schema 2 and attestation schema 7 are unchanged.
 
 ## Unreleased: reviews re-run the hosted approval check
 

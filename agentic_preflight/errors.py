@@ -174,6 +174,15 @@ class SyncFailed(AgenticError):
     exit_code = ExitCode.NEEDS_HUMAN
 
 
+#: What to check after a ``remote_timeout``, shared by every command that reports one.
+REMOTE_TIMEOUT_CHECKS = (
+    "Check the credentials for the remote and the network. Git cannot prompt, so a "
+    "credential helper or an SSH agent must supply them, and the SSH host key must already "
+    "be known. If a later Git command reports that a .lock file under .git exists, make "
+    "sure no Git command is still running and delete that file."
+)
+
+
 class RemoteTimeout(AgenticError):
     """A fetch, push, or remote query did not finish within its timeout.
 
