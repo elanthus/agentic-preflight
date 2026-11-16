@@ -103,7 +103,8 @@ If a later Git command reports that a `.lock` file under `.git` exists, check th
 A push that was stopped may already have landed on the remote; run `status` before you push again.
 
 `start`, `mergeback`, `gate`, and `push` share clone-wide locks with the other worktrees' runs.
-A command that waits more than five seconds for one of them prints a line on stderr that names the lock and the run and process that hold it.
+A command that waits more than five seconds for one of them prints a line on stderr that names the lock and the process that holds it.
+It also names the run when a run's command holds the lock; `gc` and the per-worktree lock that serializes `start` hold theirs before or outside any run, so for those it names only the process.
 
 ## Isolated validation worktrees can differ from your environment
 
