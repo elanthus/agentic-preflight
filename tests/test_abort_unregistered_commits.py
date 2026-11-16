@@ -12,8 +12,11 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
+
 from agentic_preflight import worktree
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.gitx import GitError
 from tests.conftest import configure_base, git, write
 from tests.driver import ScriptedAgent, findings_json
 
@@ -364,3 +367,14 @@ def test_a_root_commit_on_the_branch_is_still_listed(feature_repo, tmp_path):
     assert sorted(refused["data"]["fix_commits"]) == sorted(on_branch)
     forced = agent.run("abort", "--force")
     assert sorted(forced["data"]["discarded_fix_commits"]) == sorted(on_branch)
+
+
+def test_only_a_missing_ref_reads_as_an_absent_branch(feature_repo, tmp_path):
+    """Both branch readers treat any other failure as unreadable, never as empty."""
+    tip_exists = fix_commits_module._tip_exists
+    assert tip_exists(str(feature_repo), "HEAD")
+    assert not tip_exists(str(feature_repo), "refs/heads/no-such-branch")
+    outside = tmp_path / "not-a-repository"
+    outside.mkdir()
+    with pytest.raises(GitError):
+        tip_exists(str(outside), "HEAD")

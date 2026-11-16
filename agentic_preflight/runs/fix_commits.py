@@ -173,18 +173,30 @@ class UnreadableFixHistory(Exception):
     """The validation branch's history could not be read, so it may hold work."""
 
 
+def _tip_exists(cwd: str, tip: str) -> bool:
+    """Whether ``tip`` names a commit; only a missing ref is ``False``.
+
+    Any other failure, such as a checkout Git cannot open, raises ``gitx.GitError``.
+    """
+    args = ("rev-parse", "--verify", "--quiet", f"{tip}^{{commit}}")
+    result = gitx.run(cwd, *args, check=False)
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1 and not result.stderr.strip():
+        return False
+    raise gitx.GitError(list(args), result.returncode, result.stderr)
+
+
 def _branch_only_commits(run: RunDoc, checkout: str, derived: list[str]) -> list[str]:
     """Commits on the validation branch that ``HEAD`` does not reach.
 
     Release deletes the branch, not ``HEAD``, so a checkout detached at an older
     commit must not hide what the branch holds.
     """
-    if not run.worktree_branch:
+    ref = f"refs/heads/{run.worktree_branch}"
+    if not run.worktree_branch or not _tip_exists(checkout, ref):
         return []
-    try:
-        tip = gitx.rev_parse(checkout, f"refs/heads/{run.worktree_branch}")
-    except gitx.GitError:
-        return []
+    tip = gitx.rev_parse(checkout, ref)
     if tip == gitx.rev_parse(checkout, "HEAD"):
         return []
     if not gitx.is_ancestor(checkout, run.head_sha, tip):
@@ -232,13 +244,9 @@ def listed_branch_commits(session: Session, run: RunDoc, *, best_effort: bool = 
         tips.append((str(checkout), "HEAD"))
     listed: list[str] = []
     for cwd, tip in tips:
-        args = ("rev-parse", "--verify", "--quiet", f"{tip}^{{commit}}")
-        exists = gitx.run(cwd, *args, check=False)
-        if exists.returncode == 1 and not exists.stderr.strip():
-            continue  # the ref does not exist
         try:
-            if exists.returncode != 0:
-                raise gitx.GitError(list(args), exists.returncode, exists.stderr)
+            if not _tip_exists(cwd, tip):
+                continue
             commits = gitx.commits_between(cwd, run.head_sha, tip)
         except gitx.GitError:
             if best_effort:
