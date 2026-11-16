@@ -46,7 +46,8 @@ Treeless clones (`--filter=tree:0`) are not tested.
 
 **Verified:**
 
-- In `in_place` mode, `start` fetches no blob: it compares trees, which a blobless clone has.
+- In `in_place` mode, on a branch that does not change `.agentic-preflight.toml` and with no earlier run on the branch, `start` fetches no blob.
+  It compares trees, which a blobless clone has, and reads the configuration from the checkout.
 - `context` needs the merge-base version of each changed file.
   Git fetches the missing blobs from the promisor remote while the tool runs `git diff`.
 - When the promisor remote is unreachable, `context` exits with code 1 and error code `git_error`.
@@ -58,6 +59,9 @@ Treeless clones (`--filter=tree:0`) are not tested.
   After the first `context`, the blobs are local, so these commands fetch nothing more in that clone.
   In another partial clone, such as a CI job, `verify` fetches them again.
 - Grounding reads files from the merge-base commit, so it can fetch blobs too.
+  It also reads the merge-base copy of `.agentic-preflight.toml` with `git show`.
+  When the branch changes that file, the merge-base copy may be missing, and the read fetches it.
+  `start` can make this read when an earlier run on the branch supplies evidence that it checks for reuse.
 - An isolated validation worktree checks out the full head tree, which can fetch blobs that the source checkout does not have.
 - These fetches happen inside Git commands that the tool runs with no timeout.
   A remote that stalls, or a credential prompt, stops the command until it is interrupted.
