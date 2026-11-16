@@ -233,6 +233,8 @@ def test_an_info_attributes_driver_without_a_header_pattern_is_ignored(change, t
         ("*.bin diff\n", None),
         ("*.bin diff=printer\n", ("diff.printer.binary", "false")),
         ("*.bin diff=printer\n", ("diff.printer.binary", "0k")),
+        ("*.bin diff=printer\n", ("diff.printer.binary", "0" * 5000)),
+        ("*.bin diff=printer\n", ("diff.printer.binary", "0x0")),
     ],
     ids=[
         "xfuncname",
@@ -241,6 +243,8 @@ def test_an_info_attributes_driver_without_a_header_pattern_is_ignored(change, t
         "binary-as-text",
         "driver-prints-binary",
         "driver-prints-binary-unit-suffix",
+        "driver-prints-binary-long-zero",
+        "driver-prints-binary-hex-zero",
     ],
 )
 def test_an_info_attributes_entry_that_would_change_the_patch_is_refused(
@@ -583,11 +587,17 @@ def test_a_quoted_alternate_with_a_separator_still_supplies_objects(
     assert _snapshot(empty, base, head) == expected
 
 
-@pytest.mark.parametrize("driver", ["unset", "unspecified"])
-def test_a_state_named_driver_that_prints_binaries_is_refused_before_the_read(change, driver):
-    """Refused wherever a bounded read stops, like any driver that prints a binary."""
+@pytest.mark.parametrize("driver", ["unset", "unspecified", "set"])
+@pytest.mark.parametrize("value", ["false", "0" * 5000], ids=["false", "long-zero"])
+def test_a_state_named_driver_that_prints_binaries_is_refused_before_the_read(
+    change, driver, value
+):
+    """Refused wherever a bounded read stops, like any driver that prints a binary.
+
+    Git reads a zero of any length as false; so must the check.
+    """
     repo, base = change
-    git("config", "--local", f"diff.{driver}.binary", "false", cwd=repo)
+    git("config", "--local", f"diff.{driver}.binary", value, cwd=repo)
     (repo / ".git" / "info").mkdir(exist_ok=True)
     (repo / ".git" / "info" / "attributes").write_text(f"*.bin diff={driver}\n", encoding="utf-8")
 

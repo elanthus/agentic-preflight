@@ -1918,24 +1918,34 @@ def _diff_driver_config(cwd: Path | str, env: Mapping[str, str]) -> tuple[set[st
 
 
 def _forces_text(value: bytes | None) -> bool:
-    """Whether a ``diff.<driver>.binary`` value tells Git to print binary content as text.
+    """Whether a ``diff.<driver>.binary`` value may make Git print binary content as text.
 
     Git reads the setting as a tristate: ``auto`` keeps its own detection, a true
     boolean (or a key with no ``=``) marks the file binary, and a false one, which
-    includes an empty value and ``0``, prints it as text. Anything else makes
-    Git's own diff fail, so it is left to Git.
+    includes an empty value and any integer equal to zero, prints it as text. Git
+    parses integers with ``strtoimax`` in base 0 (``0x`` hex, a leading ``0`` octal)
+    and an optional ``k``, ``m`` or ``g`` suffix. The zero test reads the digits
+    instead of converting them, so a zero of any length counts. Any value Git would
+    reject also counts: Git's own diff then fails, so refusing it costs nothing.
     """
     if value is None:
         return False
     text = value.decode("utf-8", errors=_DECODE_ERRORS).strip().lower()
+    if text in ("auto", "true", "yes", "on"):
+        return False
     if text in ("false", "no", "off", ""):
         return True
-    # Git's integers take an optional k, m, or g unit suffix.
     number = text[:-1] if text[-1:] in ("k", "m", "g") else text
-    try:
-        return int(number, 0) == 0
-    except ValueError:
-        return False
+    digits = number[1:] if number[:1] in ("+", "-") else number
+    if digits.startswith("0x"):
+        body, allowed = digits[2:], set("0123456789abcdef")
+    elif digits.startswith("0"):
+        body, allowed = digits[1:], set("01234567")
+    elif digits:
+        body, allowed = digits, set("0123456789")
+    else:
+        return True
+    return not set(body) <= allowed or set(body) <= {"0"}
 
 
 def _refuse_local_diff_attributes(

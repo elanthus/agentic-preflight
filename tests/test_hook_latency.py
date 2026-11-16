@@ -29,7 +29,7 @@ from tests.test_hook import ZERO, hook_check
 #: The Git version check and 18 processes evaluate the push. Five of them keep
 #: clone-local attributes out of the verified patch text (GHSA-m8wg-p58p-cqmf): the
 #: Git directory for the attribute-free work tree, the raw inventory, the binary
-#: check, the hunk-header configuration, and ``$GIT_DIR/info/attributes``.
+#: check, the diff driver configuration, and ``$GIT_DIR/info/attributes``.
 MAX_GIT_PROCESSES_TO_DECIDE = 19
 #: The hook decision log identifies the repository on a background thread, which
 #: overlaps the evaluation: 3 more processes when the log is on.
