@@ -202,15 +202,20 @@ def branch_fix_commits(session: Session, run: RunDoc) -> list[str]:
     on the branch but not in ``fix_commits``, and releasing the worktree deletes the
     branch. The result is the recorded list followed by any such commit, read from
     both ``HEAD`` and the branch. It never drops a recorded commit, because a
-    detached or reset checkout can hide one. A missing checkout holds nothing, so
-    the recorded list stands; any other failure raises :class:`UnreadableFixHistory`.
+    detached or reset checkout can hide one. When the checkout is gone, the branch
+    ref, which lives in the shared repository, is still read. Any failure raises
+    :class:`UnreadableFixHistory`.
     """
     recorded = list(run.fix_commits)
     if is_in_place(run) or run.state not in _UNREGISTERED_STATES:
         return recorded
     checkout = run.worktree_path
     if not checkout or not Path(checkout).is_dir():
-        return recorded
+        try:
+            extra = _branch_only_commits(run, str(session.repo_root), [])
+        except gitx.GitError as exc:
+            raise UnreadableFixHistory(str(exc)) from exc
+        return recorded + [sha for sha in extra if sha not in recorded]
     try:
         derived = derive_fix_commits(session, run)
         derived += _branch_only_commits(run, checkout, derived)

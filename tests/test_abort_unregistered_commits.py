@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import shutil
 from pathlib import Path
 
 from agentic_preflight import worktree
@@ -204,3 +205,15 @@ def test_the_aborted_event_records_what_force_discarded(feature_repo, tmp_path):
     events = [json.loads(line) for line in events_file.read_text(encoding="utf-8").splitlines()]
     aborted = next(event for event in events if event.get("event") == "aborted")
     assert aborted["discarded_fix_commits"] == [fix]
+
+
+def test_abort_reads_the_branch_when_the_checkout_is_gone(feature_repo, tmp_path):
+    """The branch ref lives in the shared repository and outlives a deleted checkout."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    fix = _commit(wt, "FIXED", "fix after the tests")
+    shutil.rmtree(wt)
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert refused["data"]["fix_commits"] == [fix]
+    assert agent.run("abort", "--force")["state"] == "ABORTED"
