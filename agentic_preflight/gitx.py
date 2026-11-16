@@ -1746,8 +1746,104 @@ def _patch_environment() -> dict[str, str]:
     return {name: value for name, value in os.environ.items() if name != "GIT_DIFF_OPTS"}
 
 
+_C_ESCAPES = {
+    ord("a"): 7,
+    ord("b"): 8,
+    ord("f"): 12,
+    ord("n"): 10,
+    ord("r"): 13,
+    ord("t"): 9,
+    ord("v"): 11,
+    ord("\\"): ord("\\"),
+    ord('"'): ord('"'),
+}
+
+
+def _unquote_c_style(value: bytes, start: int) -> tuple[bytes, int] | None:
+    """Git's ``unquote_c_style``: the path quoted at ``start`` and the index after it.
+
+    Returns ``None`` for broken quoting, which Git then reads as an unquoted path.
+    """
+    out = bytearray()
+    index = start + 1
+    while index < len(value):
+        byte = value[index]
+        index += 1
+        if byte == ord('"'):
+            return bytes(out), index
+        if byte != ord("\\"):
+            out.append(byte)
+            continue
+        if index >= len(value):
+            return None
+        escape = value[index]
+        index += 1
+        if escape in _C_ESCAPES:
+            out.append(_C_ESCAPES[escape])
+        elif ord("0") <= escape <= ord("3"):
+            digits = value[index : index + 2]
+            if len(digits) < 2 or not all(ord("0") <= digit <= ord("7") for digit in digits):
+                return None
+            out.append((escape - 48) << 6 | (digits[0] - 48) << 3 | (digits[1] - 48))
+            index += 2
+        else:
+            return None
+    return None
+
+
+def _alternate_entries(value: str) -> list[str]:
+    """Split ``GIT_ALTERNATE_OBJECT_DIRECTORIES`` as Git's ``parse_alt_odb_entry`` does.
+
+    An entry that starts with ``"`` is C-quoted and may contain the separator, one
+    that starts with ``#`` is a comment, and empty entries are skipped.
+    """
+    raw = os.fsencode(value)
+    separator = os.fsencode(os.pathsep)[0]
+    entries: list[str] = []
+    index = 0
+    while index < len(raw):
+        quoted = _unquote_c_style(raw, index) if raw[index] == ord('"') else None
+        if quoted is not None:
+            entry, index = quoted
+            index += 1 if index < len(raw) else 0
+        else:
+            end = raw.find(separator, index)
+            end = len(raw) if end < 0 else end
+            entry = b"" if raw[index] == ord("#") else raw[index:end]
+            index = end + 1
+        if entry:
+            entries.append(os.fsdecode(entry))
+    return entries
+
+
+def _quote_alternate(path: str) -> str:
+    """Write an alternate so Git reads it back as exactly ``path``."""
+    raw = os.fsencode(path)
+    plain = (
+        raw[:1] not in (b'"', b"#")
+        and os.fsencode(os.pathsep) not in raw
+        and all(byte >= 0x20 and byte != 0x7F for byte in raw)
+    )
+    if plain:
+        return path
+    escaped = bytearray(b'"')
+    for byte in raw:
+        if byte in (ord('"'), ord("\\")):
+            escaped += bytes((ord("\\"), byte))
+        elif byte < 0x20 or byte == 0x7F:
+            escaped += f"\\{byte:03o}".encode()
+        else:
+            escaped.append(byte)
+    escaped.append(ord('"'))
+    return os.fsdecode(bytes(escaped))
+
+
 def _absolute_repository_variables(cwd: Path | str) -> dict[str, str]:
-    """Copy the patch environment with repository paths resolved against ``cwd``."""
+    """Copy the patch environment with repository paths resolved against ``cwd``.
+
+    Git resolves relative alternates, quoted or not, against its working directory,
+    which for a review patch is an empty temporary one.
+    """
     env = _patch_environment()
     base = Path(cwd).resolve()
     for name in _REPOSITORY_PATH_VARIABLES:
@@ -1756,7 +1852,7 @@ def _absolute_repository_variables(cwd: Path | str) -> dict[str, str]:
     alternates = env.get("GIT_ALTERNATE_OBJECT_DIRECTORIES")
     if alternates:
         env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = os.pathsep.join(
-            str(base / entry) if entry else entry for entry in alternates.split(os.pathsep)
+            _quote_alternate(str(base / entry)) for entry in _alternate_entries(alternates)
         )
     return env
 

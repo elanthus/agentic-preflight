@@ -11,6 +11,7 @@ and check that the review snapshot does not move.
 from __future__ import annotations
 
 import dataclasses
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -541,3 +542,34 @@ def test_a_header_pattern_for_a_driver_named_like_an_attribute_state_is_refused(
         diff.build_bundle(repo, base, "HEAD")
     with pytest.raises(gitx.ReviewDiffError, match=rf"diff\.{driver}\.xfuncname"):
         diff.build_bundle_within_budget(repo, base, "HEAD", max_bytes=1)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("a:b", ["a", "b"]),
+        ('"/srv/cache:one/objects"', ["/srv/cache:one/objects"]),
+        ('"/srv/tab\\there":rel', ["/srv/tab\there", "rel"]),
+        ('"oct\\101l"', ["octAl"]),
+        ("#comment:kept", ["kept"]),
+        ('"broken', ['"broken']),
+        ("::a::", ["a"]),
+    ],
+)
+def test_alternates_are_split_as_git_splits_them(value, expected, monkeypatch):
+    monkeypatch.setattr(gitx.os, "pathsep", ":")
+    assert gitx._alternate_entries(value) == expected
+
+
+def test_a_quoted_alternate_with_a_separator_still_supplies_objects(change, tmp_path, monkeypatch):
+    """Git C-unquotes an alternate that starts with a double quote."""
+    repo, base = change
+    expected = _snapshot(repo, base)
+    head = git("rev-parse", "HEAD", cwd=repo)
+    store = tmp_path / f"cache{gitx.os.pathsep}one" / "objects"
+    shutil.copytree(repo / ".git" / "objects", store)
+    empty = tmp_path / "empty"
+    git("init", "-q", str(empty), cwd=tmp_path)
+    monkeypatch.setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", f'"{store}"')
+
+    assert _snapshot(empty, base, head) == expected
