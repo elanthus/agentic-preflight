@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from tests.conftest import configure_base, git, write
 from tests.driver import ScriptedAgent
 
@@ -59,8 +61,9 @@ def test_replace_still_releases_an_idle_reusable_runner(feature_repo):
     assert _record(feature_repo, run_id)["worktree_released"] is True
 
 
-def test_gc_retains_a_strict_checkout_whose_branch_holds_a_hidden_commit(feature_repo):
-    agent, run_id, wt, fix = _hidden_commit(feature_repo, STRICT)
+@pytest.mark.parametrize("config", [STRICT, REUSABLE], ids=["strict", "reusable"])
+def test_gc_retains_a_checkout_whose_branch_holds_a_hidden_commit(feature_repo, config):
+    agent, run_id, wt, fix = _hidden_commit(feature_repo, config)
     agent.run("start", "--replace", "--intent", "different objective")
 
     env = agent.run("gc")
@@ -73,6 +76,12 @@ def test_gc_retains_a_strict_checkout_whose_branch_holds_a_hidden_commit(feature
     } in env["data"]["retained"]
     assert wt.exists()
     assert git("rev-parse", f"refs/heads/ap/{run_id}", cwd=feature_repo) == fix
+
+    forced = agent.run("gc", "--force")
+
+    assert run_id in forced["data"]["removed"]
+    assert _record(feature_repo, run_id)["worktree_released"] is True
+    assert not git("branch", "--list", f"ap/{run_id}", cwd=feature_repo)
 
 
 def _rewritten_branch(feature_repo: Path, config: str) -> tuple[ScriptedAgent, str, Path, str]:
