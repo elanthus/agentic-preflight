@@ -884,7 +884,7 @@ def test_streamed_patch_inventory_keeps_both_type_change_blocks():
     kept = b"diff --git a/kept b/kept\n+kept\n"
     omitted = b"diff --git a/omitted b/omitted\n+omitted\n"
 
-    buffers, count, expected = gitx._select_streamed_patches(
+    buffers, count, expected, stopped = gitx._select_streamed_patches(
         [("kind", "T"), ("kept", "M"), ("omitted", "A")],
         [deleted, added, kept, omitted],
         {"kind", "kept"},
@@ -892,6 +892,7 @@ def test_streamed_patch_inventory_keeps_both_type_change_blocks():
 
     assert buffers == {"kind": deleted + added, "kept": kept}
     assert count == expected == 4
+    assert stopped is None
 
 
 def test_windows_raw_path_diff_does_not_buffer_large_excluded_line(tmp_repo, monkeypatch):

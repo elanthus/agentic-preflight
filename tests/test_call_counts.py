@@ -54,6 +54,7 @@ def call_counts(monkeypatch) -> CallCounts:
     counter = CallCounts()
     assemble = grounding.assemble
     build_bundle = diffmod.build_bundle
+    build_budgeted = diffmod.build_bundle_within_budget
     build_inventory = docsstage.build_inventory
     manifest = refresh_validation._manifest
 
@@ -69,6 +70,11 @@ def call_counts(monkeypatch) -> CallCounts:
         counter.counts[key] += 1
         return build_bundle(*args, **kwargs)
 
+    def counted_budgeted(*args, **kwargs):
+        # The budget check reads the command's own review bundle.
+        counter.counts["bundle"] += 1
+        return build_budgeted(*args, **kwargs)
+
     def counted_inventory(*args, **kwargs):
         counter.counts["inventory"] += 1
         return build_inventory(*args, **kwargs)
@@ -83,6 +89,7 @@ def call_counts(monkeypatch) -> CallCounts:
 
     monkeypatch.setattr(grounding, "assemble", counted_assemble)
     monkeypatch.setattr(diffmod, "build_bundle", counted_bundle)
+    monkeypatch.setattr(diffmod, "build_bundle_within_budget", counted_budgeted)
     monkeypatch.setattr(docsstage, "build_inventory", counted_inventory)
     monkeypatch.setattr(refresh_validation, "_manifest", counted_manifest)
     return counter

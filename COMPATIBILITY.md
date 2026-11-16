@@ -741,3 +741,13 @@ A repository that sets `diff.ignoreSubmodules = all`, or `submodule.<name>.ignor
 Earlier releases left them out.
 
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Unreleased: an oversized diff is measured with a bounded read
+
+`context` and `review run` can stop reading the diff early once its patch text passes four times `[diff] max_bytes`.
+The `diff_too_large` envelope from `context` adds `data.complete` and `data.unmeasured_files`.
+`data.complete` is `false` only when the read stopped early. Then `data.total_bytes` and the sizes in `data.by_file` are lower bounds over the files read, `data.unmeasured_files` lists the files that were not read, `next.instruction` says to check them too, and the error message reads "the diff is at least N bytes".
+A report with `data.complete` set to `true` is exact, as before. Every diff of up to four times the limit is reported that way.
+A wrapper that treated `data.total_bytes` as the exact diff size must check `data.complete`.
+A diff within the limit produces the same patch text, `diff_sha256`, and review manifest as before.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
