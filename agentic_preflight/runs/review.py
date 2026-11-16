@@ -38,6 +38,7 @@ from ._session import (
     require_worktree,
     stage_blocking_severities,
     unresolved_findings,
+    unresolved_next_hint,
     utc_now,
 )
 
@@ -458,5 +459,5 @@ def verify(session: Session) -> Envelope:
     )
     if run.state in (State.REVIEW_GREEN, State.DOCS_GREEN):
         unresolved = unresolved_findings(session, session.store.load_findings(run.run_id))
-        findings_next_hint(envelope, [], unresolved)
+        unresolved_next_hint(session, envelope, unresolved)
     return envelope

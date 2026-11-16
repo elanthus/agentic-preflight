@@ -216,12 +216,8 @@ def _verify_current_stage(
         expected_config = shell_config_digest(value.config_snapshot, stage.value)
         if fp.config_sha256 != expected_config:
             raise ValueError("current shell policy binding changed")
-    severities = (
-        cfg.docs.blocking_severities if stage is Stage.DOCS else cfg.review.blocking_severities
-    )
-    if findings.blocking(
-        item.origin.findings, blocking_severities=severities
-    ) or findings.actionable(item.origin.findings):
+    severities = findings.stage_blocking_severities(cfg, stage)
+    if findings.unresolved(item.origin.findings, blocking_severities=severities):
         raise ValueError("reused evidence contains unresolved blocking or actionable findings")
     return item.origin.findings
 

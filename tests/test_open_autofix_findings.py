@@ -8,7 +8,10 @@ where ``respond`` is not legal.
 
 import importlib
 import json
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from agentic_preflight.envelope import ExitCode
 from tests.conftest import commit_all, configure_base, git, write
@@ -220,14 +223,19 @@ def test_an_in_place_run_stuck_in_pending_mergeback_recovers(feature_repo, tmp_p
     assert agent.run("mergeback")["state"] == "VERIFIED"
 
 
-def test_an_isolated_run_stuck_after_its_cherry_pick_recovers(feature_repo, tmp_path, monkeypatch):
+@pytest.mark.parametrize("mode", ["reusable", "strict"])
+def test_an_isolated_run_stuck_after_its_cherry_pick_recovers(
+    feature_repo, tmp_path, monkeypatch, mode
+):
+    # One restart is already spent by the fix; recovery must not spend the last one.
     agent = _stuck_in_pending_mergeback(
         feature_repo,
         tmp_path,
         monkeypatch,
-        CONFIG + "\n[worktree]\nmode = 'reusable'\n",
+        CONFIG + f"\n[stage]\nmax_restarts = 2\n\n[worktree]\nmode = '{mode}'\n",
         with_fix=True,
     )
+    assert agent.run("status")["data"]["validation_restarts"] == 1
     picked = git("rev-parse", "HEAD", cwd=feature_repo)
     assert git("log", "-1", "--format=%s", cwd=feature_repo) == "apply the fix"
 
@@ -238,6 +246,9 @@ def test_an_isolated_run_stuck_after_its_cherry_pick_recovers(feature_repo, tmp_
     assert recovered["state"] == "REVIEW_AWAITING_FINDINGS"
     assert recovered["next"]["command"] == "agentic-preflight context"
     assert git("rev-parse", "HEAD", cwd=feature_repo) == picked
+    status = agent.run("status")
+    assert status["data"]["validation_restarts"] == 1
+    assert status["data"]["mergeback_attempt"] is None
 
     agent.run("context")
     reviewed = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
@@ -249,3 +260,99 @@ def test_an_isolated_run_stuck_after_its_cherry_pick_recovers(feature_repo, tmp_
     agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")
     assert agent.run("mergeback")["state"] == "VERIFIED"
+    subjects = git("log", "--format=%s", "main..HEAD", cwd=feature_repo).splitlines()
+    assert subjects.count("apply the fix") == 1
+
+
+def test_a_legacy_conflict_retry_with_an_open_finding_returns_to_review(
+    feature_repo, tmp_path, monkeypatch
+):
+    mergeback = importlib.import_module("agentic_preflight.runs.mergeback")
+    agent = _legacy_test_green(
+        feature_repo,
+        tmp_path,
+        monkeypatch,
+        CONFIG + "\n[worktree]\nmode = 'reusable'\n",
+        with_fix=True,
+    )
+    run_id = agent.run("status")["run_id"]
+    fix_sha = git("rev-parse", "HEAD", cwd=Path(agent.run("status")["data"]["worktree_path"]))
+
+    # Diverge the source on the same file. Re-point the recorded source head so
+    # the staleness guard does not fire first, as test_mergeback's conflict tests do.
+    write(feature_repo, "src/app.py", "BRANCH CONTENT\n")
+    new_head = commit_all(feature_repo, "branch rewrite")
+    common = git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo)
+    run_path = Path(common) / "agentic-preflight" / "runs" / run_id / "run.json"
+    doc = json.loads(run_path.read_text(encoding="utf-8"))
+    doc["source_head_sha"] = new_head
+    run_path.write_text(json.dumps(doc))
+    with monkeypatch.context() as legacy:
+        legacy.setattr(mergeback, "unresolved_findings", lambda session, items: [])
+        conflict = agent.run("mergeback", expect=ExitCode.NEEDS_HUMAN)
+    assert conflict["state"] == "MERGEBACK_CONFLICT"
+
+    picked = subprocess.run(
+        ["git", "cherry-pick", fix_sha], cwd=feature_repo, capture_output=True, text=True
+    )
+    assert picked.returncode != 0
+    write(feature_repo, "src/app.py", "def greet(name, loud=False):\n    return 'FIXED'\n")
+    git("add", "src/app.py", cwd=feature_repo)
+    git("cherry-pick", "--continue", cwd=feature_repo)
+    restarts = agent.run("status")["data"]["validation_restarts"]
+
+    recovered = agent.run("mergeback", expect=ExitCode.PRECONDITION)
+    assert recovered["error"]["code"] == "findings_unresolved"
+    assert [f["id"] for f in recovered["blocking"]] == ["F002"]
+    assert recovered["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert agent.run("status")["data"]["validation_restarts"] == restarts
+
+
+def test_reused_docs_evidence_does_not_carry_the_run_past_an_open_finding(feature_repo, tmp_path):
+    configure_base(feature_repo, CONFIG)
+    user_config = Path.home() / ".config" / "agentic-preflight" / "config.toml"
+    user_config.parent.mkdir(parents=True, exist_ok=True)
+    user_config.write_text("[review]\nmax_findings = 40\n")
+    first = ScriptedAgent(feature_repo)
+    first.run("start")
+    first.run("context")
+    first.run("submit-findings", "--file", findings_json(tmp_path, []))
+    first.run("context", "--section", "docs")
+    first.run("submit-findings", "--file", _docs_findings(tmp_path, []))
+    first.run("stage", "run", "lint")
+    first.run("stage", "run", "test")
+    assert first.run("mergeback")["state"] == "VERIFIED"
+    first.run("abort", "--reason", "other")
+
+    # A review-only setting changes, so review runs again while docs stay reusable.
+    user_config.write_text("[review]\nmax_findings = 30\n")
+    second = ScriptedAgent(feature_repo)
+    second.run("start")
+    second.run("context")
+    env = second.run("submit-findings", "--file", findings_json(tmp_path, MEDIUM_AUTO_FIX))
+    assert env["state"] == "REVIEW_GREEN"
+
+    status = second.run("status")
+    assert status["data"]["applicability"]["docs"]["disposition"] == "reusable"
+    assert status["state"] == "REVIEW_GREEN"
+    assert status["next"]["command"].startswith("agentic-preflight respond --id F001")
+    _accept(second)
+    assert second.run("status")["state"] == "DOCS_GREEN"
+
+
+def test_respond_points_at_an_open_finding_from_another_stage(feature_repo, tmp_path, monkeypatch):
+    from agentic_preflight import findings
+
+    configure_base(feature_repo, CONFIG)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, MEDIUM_AUTO_FIX))
+    with monkeypatch.context() as legacy:
+        legacy.setattr(findings, "actionable", lambda items: [])
+        agent.run("context", "--section", "docs")
+    agent.run("submit-findings", "--file", _docs_findings(tmp_path, DOCS_AUTO_FIX))
+
+    answered = _accept(agent, "F002")
+    assert answered["state"] == "DOCS_GREEN"
+    assert answered["next"]["command"].startswith("agentic-preflight respond --id F001")

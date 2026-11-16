@@ -628,9 +628,11 @@ findings. From `TEST_GREEN`, or from a pending attempt that has not changed the 
 check runs before any Git change or recorded attempt. The run returns to `REVIEW_GREEN`
 with its review result kept, the documentation, lint, and test results discarded, and
 `respond` for the first finding as `next.command`; this is not a validation restart. When
-the source already holds the validated tree, as after an isolated merge-back's cherry-pick,
+the source already holds the validated tree, as after an isolated merge-back's cherry-pick
+or an exact conflict resolution,
 the validation worktree adopts that commit and the run returns to review, as for a
-changed resolution, with `context` as `next.command`. Review then names the open finding.
+changed resolution, with `context` as `next.command`. The tree is unchanged, so this
+return does not count toward `[stage] max_restarts`. Review then names the open finding.
 
 A merge-back interrupted after synchronizing the source with the base but before reaching
 the recorded verified tree is stale. Follow `status` and restart preflight for the current source;

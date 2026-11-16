@@ -27,7 +27,6 @@ from ._session import (
     apply_action,
     assess_risk,
     envelope_for,
-    findings_next_hint,
     head_moved,
     interrupted_legacy_update,
     is_in_place,
@@ -37,6 +36,7 @@ from ._session import (
     restart_limit_reached,
     start_command,
     unresolved_findings,
+    unresolved_next_hint,
     worktree_mode,
 )
 from .fix_commits import patch_unlanded
@@ -814,7 +814,7 @@ def _set_status_next(
         # The stage is green, but the run cannot leave it until each open
         # finding is answered, and `respond` is legal only here.
         unresolved = unresolved_findings(session, session.store.load_findings(run.run_id))
-        findings_next_hint(envelope, [], unresolved)
+        unresolved_next_hint(session, envelope, unresolved)
 
 
 def status(session: Session, *, all_runs: bool = False) -> Envelope:

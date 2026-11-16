@@ -467,11 +467,7 @@ def assess_risk(
 
 
 def stage_blocking_severities(session: Session, stage: Stage) -> Sequence[str]:
-    return (
-        session.config.docs.blocking_severities
-        if stage is Stage.DOCS
-        else session.config.review.blocking_severities
-    )
+    return findingsmod.stage_blocking_severities(session.config, stage)
 
 
 def findings_next_hint(
@@ -494,22 +490,36 @@ def findings_next_hint(
 
 
 def unresolved_findings(session: Session, items: list[Finding]) -> list[Finding]:
-    """Open findings that a stage's evidence may not carry into an attestation.
+    """Review and docs findings that still need ``respond``, in id order.
 
-    These are the stage's blocking set and every open ``auto_fix`` finding, the
-    same test the attestation applies to each stage's evidence. A run must not
-    leave review or documentation while one remains, because ``respond`` is not
-    legal after documentation and merge-back would refuse the evidence.
+    This is the test the attestation applies to each stage's evidence, so a run
+    must not leave review or documentation while one remains: ``respond`` is not
+    legal after documentation, and merge-back would refuse the evidence.
     """
     unresolved: list[Finding] = []
     for stage in (Stage.REVIEW, Stage.DOCS):
-        stage_items = [finding for finding in items if finding.stage is stage]
-        blocking = findingsmod.blocking(
-            stage_items, blocking_severities=stage_blocking_severities(session, stage)
+        unresolved.extend(
+            findingsmod.unresolved(
+                [finding for finding in items if finding.stage is stage],
+                blocking_severities=stage_blocking_severities(session, stage),
+            )
         )
-        unresolved.extend(blocking)
-        unresolved.extend(f for f in findingsmod.actionable(stage_items) if f not in blocking)
     return sorted(unresolved, key=lambda finding: finding.id)
+
+
+def unresolved_next_hint(session: Session, envelope: Envelope, unresolved: list[Finding]) -> None:
+    """Point a green stage's envelope at the first finding that still needs ``respond``."""
+    blocking = [
+        finding
+        for finding in unresolved
+        if finding
+        in findingsmod.blocking(
+            [finding],
+            blocking_severities=stage_blocking_severities(session, finding.stage),
+        )
+    ]
+    actionable = [finding for finding in unresolved if finding not in blocking]
+    findings_next_hint(envelope, blocking, actionable)
 
 
 def findings_unresolved(
