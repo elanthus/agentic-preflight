@@ -371,7 +371,7 @@ def test_a_failed_follow_up_query_reports_the_original_push_error(
     agent = verify(feature_repo, tmp_path)
     token = agent.run("gate")["data"]["token"]
 
-    def unreachable(cwd, remote, ref):
+    def unreachable(cwd, remote, ref, **kwargs):
         raise gitx.GitError(["ls-remote", remote, ref], 128, "QUERY-FAILED")
 
     monkeypatch.setattr(gitx, "remote_ref_tip", unreachable)

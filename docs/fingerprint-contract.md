@@ -41,6 +41,7 @@ Review binds these inputs:
 - The `[general]`, `[review]`, `[policy]`, `[context]`, `[diff]`, and `[stage]` sections
 
 The `[stage]` section governs command-review timeouts and retries.
+Neither fingerprint includes `[general] network_timeout_seconds`, which bounds only fetches and pushes.
 
 The included diff bytes are the patch text that Git prints for the merge base and the head.
 The tool fixes the `core.*` and `diff.*` settings that shape that text, removes `GIT_DIFF_OPTS`, ignores replacement objects, and each patch names full object IDs.

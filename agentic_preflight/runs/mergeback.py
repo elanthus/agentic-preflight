@@ -705,7 +705,7 @@ def mergeback(session: Session) -> Envelope:
         docs_enabled=session.config.docs.enabled,
         findings_summary=summary,
     )
-    with session.store.resource("notes"):
+    with session.store.resource("notes", holder=run.run_id):
         attestationmod.write(session.repo_root, entry)
 
     with session.store.transaction(run.run_id) as doc:

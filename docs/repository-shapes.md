@@ -65,7 +65,7 @@ Treeless clones (`--filter=tree:0`) are not tested.
 - An isolated validation worktree checks out the full head tree, which can fetch blobs that the source checkout does not have.
 - These fetches happen inside Git commands that the tool runs with no timeout.
   A remote that stalls, or a credential prompt, stops the command until it is interrupted.
-  [Issue #348](https://github.com/elanthus/agentic-preflight/issues/348) proposes timeouts for the tool's `fetch` and `push`. It does not name the fetches that Git makes on its own inside other commands.
+  The tool's own `fetch`, `ls-remote`, and `push` have a timeout (`[general] network_timeout_seconds`) and cannot prompt. The fetches that Git makes on its own inside other commands have neither.
 
 **What helps:** keep the promisor remote reachable during a run.
 Use a full clone, or a clone without a filter, where the network is unreliable.

@@ -81,7 +81,30 @@ They ignore `rebase.updateRefs`, `rebase.autoSquash`, `rebase.autoStash`, `rebas
 So the rebase never moves a branch stacked under the validated branch.
 Hooks other than the fallback merge's commit hooks, notes copying (`notes.rewriteRef`), and rename and conflict settings still apply.
 With `commit.gpgSign` set, all three commands sign the commits they write.
-These calls have no timeout, so a signing prompt that waits for input blocks the command (see [#348](https://github.com/elanthus/agentic-preflight/issues/348)).
+These calls are local, so they have no timeout, and a signing prompt that waits for input blocks the command.
+Use a signing agent that already holds the key, such as `gpg-agent` with a cached passphrase.
+
+## Fetch and push cannot ask for credentials
+
+The fetches in `start` and in a manual-mode `gate`, and the pushes and remote query in `push`, run without a terminal.
+Git's own username and password prompt is off (`GIT_TERMINAL_PROMPT=0`), and stdin is empty.
+On Linux and macOS the command also has no controlling terminal.
+When you have not set `GIT_SSH_COMMAND`, `GIT_SSH`, or `core.sshCommand`, `ssh` runs with `-o BatchMode=yes`, so on every platform it cannot ask you to accept a host key or to type a password or key passphrase.
+An SSH command that you configured is used unchanged; on Windows it can still prompt on the console, and only the timeout stops it.
+A stored credential still works: a credential helper, an askpass program, an SSH agent, or a key without a passphrase.
+Without one, the command fails with Git's error instead of waiting for an answer.
+Fetch from and push to the remote once yourself first, so that the host key is known and the credential is stored.
+
+Each of these commands is stopped after `[general] network_timeout_seconds` (600 by default), and the command exits 4 with `remote_timeout`.
+For a push, that limit includes the pre-push hook, which Git runs inside the push.
+The hook, like the push, has no terminal and an empty stdin apart from the refs that Git writes to it, so a hook that asks a question fails.
+A stopped Git command is asked to exit first, so it normally removes its lock files.
+If a later Git command reports that a `.lock` file under `.git` exists, check that no Git command is still running and delete the file.
+A push that was stopped may already have landed on the remote; run `status` before you push again.
+
+`start`, `mergeback`, `gate`, and `push` share clone-wide locks with the other worktrees' runs.
+A command that waits more than five seconds for one of them prints a line on stderr that names the lock and the process that holds it.
+It also names the run when a run's command holds the lock; `gc` and the per-worktree lock that serializes `start` hold theirs before or outside any run, so for those it names only the process.
 
 ## Isolated validation worktrees can differ from your environment
 
