@@ -79,8 +79,10 @@ def _git_executable() -> str:
 class GitError(Exception):
     """A git invocation exited non-zero."""
 
-    def __init__(self, args: list[str], returncode: int, stderr: str) -> None:
-        super().__init__(f"git {' '.join(args)} failed ({returncode}): {stderr.strip()}")
+    def __init__(
+        self, args: list[str], returncode: int, stderr: str, *, message: str | None = None
+    ) -> None:
+        super().__init__(message or f"git {' '.join(args)} failed ({returncode}): {stderr.strip()}")
         self.args_list = args
         self.returncode = returncode
         self.stderr = stderr
@@ -95,10 +97,7 @@ class NotOnBranch(GitError):
 
     def __init__(self, ref: str) -> None:
         message = f"HEAD points at {ref}, which is not a branch"
-        Exception.__init__(self, message)
-        self.args_list = ["symbolic-ref", "--quiet", "HEAD"]
-        self.returncode = 0
-        self.stderr = message
+        super().__init__(["symbolic-ref", "--quiet", "HEAD"], 0, "", message=message)
         self.ref = ref
 
 
@@ -231,6 +230,18 @@ def current_branch(cwd: Path | str) -> str:
     if not ref.startswith("refs/heads/"):
         raise NotOnBranch(ref)
     return ref.removeprefix("refs/heads/")
+
+
+def current_branch_or_none(cwd: Path | str) -> str | None:
+    """Return ``current_branch``, or ``None`` when HEAD points at a ref that is not a branch.
+
+    For comparisons against a recorded branch or the detached ``"HEAD"``: ``None``
+    matches neither, so a non-branch HEAD reads as a mismatch rather than a Git failure.
+    """
+    try:
+        return current_branch(cwd)
+    except NotOnBranch:
+        return None
 
 
 def rev_parse(cwd: Path | str, ref: str) -> str:

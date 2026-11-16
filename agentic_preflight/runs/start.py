@@ -712,7 +712,7 @@ def _provision_validation_checkout(
         else:  # strict
             retained_runner = ctx.session.store.worktrees_dir / "runner"
             if retained_runner.exists():
-                if gitx.current_branch(retained_runner) != "HEAD":
+                if gitx.current_branch_or_none(retained_runner) != "HEAD":
                     raise worktree.WorktreeError(
                         f"cannot enter strict mode: reusable runner {retained_runner} "
                         "is still leased; recover or release its run first"

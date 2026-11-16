@@ -48,6 +48,20 @@ def test_create_does_not_clobber_an_existing_branch_name(feature_repo, tmp_path)
         )
 
 
+def test_reusable_runner_on_a_tag_is_treated_as_still_leased(feature_repo, tmp_path):
+    runner = tmp_path / "runner"
+    git("worktree", "add", "--detach", str(runner), "HEAD", cwd=feature_repo)
+    git("tag", "pinned", cwd=runner)
+    git("symbolic-ref", "HEAD", "refs/tags/pinned", cwd=runner)
+    with pytest.raises(worktree.WorktreeError, match="still leased on refs/tags/pinned"):
+        worktree.acquire_reusable(
+            feature_repo,
+            path=runner,
+            branch="ap/r_next",
+            head_sha=gitx.rev_parse(feature_repo, "HEAD"),
+        )
+
+
 def test_configured_root_must_remain_outside_the_repository(feature_repo):
     with pytest.raises(worktree.WorktreeError) as exc:
         worktree.resolve_root(feature_repo, str(feature_repo / ".worktrees"))

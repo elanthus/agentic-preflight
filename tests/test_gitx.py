@@ -74,6 +74,11 @@ def test_current_branch_reports_a_detached_head_as_head(feature_repo):
     assert gitx.current_branch(feature_repo) == "HEAD"
 
 
+def test_current_branch_names_an_unborn_branch(feature_repo):
+    git("switch", "--orphan", "fresh", cwd=feature_repo)
+    assert gitx.current_branch(feature_repo) == "fresh"
+
+
 def test_current_branch_refuses_a_head_that_points_at_a_tag(feature_repo):
     git("tag", "v1", cwd=feature_repo)
     git("symbolic-ref", "HEAD", "refs/tags/v1", cwd=feature_repo)
