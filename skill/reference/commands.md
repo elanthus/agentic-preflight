@@ -616,9 +616,11 @@ which an earlier release allowed, cannot attest it. `mergeback` refuses it with 
 `open_findings` before it records an attempt, changes the source branch, or writes a note.
 `blocking` lists the findings and `data.fix_commits` the fix commits;
 `next` is `abort`, because `respond` is no longer legal. Fix or decide each finding, then
-start a fresh run. From `TEST_GREEN`, `mergeback` first checks whether the validation
-branch changed since the tests; a changed run returns to review, where `respond` is legal
-again, instead of being refused. In isolated modes, before merge-back, a commit made after
+start a fresh run. From `TEST_GREEN`, `mergeback` first checks whether the run's inputs
+changed since the tests. In isolated modes, a fix committed in the validation worktree
+returns the run to review, where `respond` is legal again, instead of being refused, and
+the refusal's instruction says so; in place, such a commit moves the source branch, so
+the run is stale. In isolated modes, before merge-back, a commit made after
 the last `respond` is on the validation branch but not yet recorded. The refusal from
 `mergeback` or `stage run lint|test` lists and records every such commit, and `abort`
 counts them too, so a plain `abort` stops with `unmerged_work` rather than deleting the
@@ -767,8 +769,9 @@ timestamps are suitable for intervals within one host boot.
 ### `agentic-preflight abort [--force] [--reason REASON]`
 Ends the run and releases the worktree. Exits 5 if unmerged fix commits would be lost;
 `--force` discards them. In isolated modes, from a lint or test state, these include
-commits on the validation branch that no `respond` or stage registered yet; `data.fix_commits`
-lists them all.
+commits on the validation branch that no `respond` or stage registered yet;
+`data.fix_commits` lists the recorded commits and those new ones. When the branch history
+cannot be read, only the recorded commits count.
 A `strict` validation worktree locked with `git worktree lock` is never deleted:
 the command exits 1 with `git_error` naming the worktree, and the run keeps its state.
 Show the user the message; do not unlock it yourself.

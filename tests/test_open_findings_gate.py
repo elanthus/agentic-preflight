@@ -24,6 +24,7 @@ from tests.driver import findings_json as review_findings_json
 
 # `agentic_preflight.runs` re-exports a `mergeback` function under the module's name.
 mergeback_module = importlib.import_module("agentic_preflight.runs.mergeback")
+fix_commits_module = importlib.import_module("agentic_preflight.runs.fix_commits")
 
 DOCS_ON = "[commands]\nlint = 'true'\ntest = 'true'\n"
 DOCS_OFF = "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
@@ -511,3 +512,53 @@ def test_lint_refuses_a_review_finding_left_open_at_docs_green(feature_repo, tmp
     assert env["error"]["code"] == "open_findings"
     assert [item["id"] for item in env["blocking"]] == ["F009"]
     assert "respond --id F009" in env["next"]["command"]
+
+
+def test_abort_keeps_recorded_fix_commits_when_the_checkout_is_detached(feature_repo, tmp_path):
+    """A detached or reset checkout must not hide a recorded fix from `abort`."""
+    configure_base(feature_repo, f"{DOCS_OFF}\n[worktree]\nmode = 'strict'\n")
+    agent = ScriptedAgent(feature_repo)
+    wt = agent.run("start")["data"]["worktree_path"]
+    head = git("rev-parse", "HEAD", cwd=wt)
+    agent.run("context")
+    high = {**_low_auto_fix(), "severity": "high"}
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, [high]))
+    write(wt, "src/app.py", "def greet(name, loud=False):\n    return 'FIXED'\n")
+    git("add", "-A", cwd=wt)
+    git("commit", "-m", "fix", cwd=wt)
+    fix = git("rev-parse", "HEAD", cwd=wt)
+    agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", fix)
+    agent.run("verify")
+    agent.run("context")
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
+    assert agent.run("stage", "run", "lint")["state"] == "LINT_GREEN"
+    git("checkout", "-q", "--detach", head, cwd=wt)
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert refused["error"]["code"] == "unmerged_work"
+    assert fix in refused["data"]["fix_commits"]
+
+
+def test_an_unreadable_branch_history_never_blocks_status_or_abort_force(
+    feature_repo, tmp_path, monkeypatch
+):
+    """`status` and `abort --force` are the way out, so a failed derivation falls back."""
+    from agentic_preflight import worktree
+
+    configure_base(feature_repo, f"{DOCS_OFF}\n[worktree]\nmode = 'strict'\n")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    assert agent.run("stage", "run", "test")["state"] == "TEST_GREEN"
+    _inject(feature_repo, monkeypatch, _open("F001"))
+
+    def unreadable(*_args, **_kwargs):
+        raise worktree.CopiedFileInCommit("commit deadbeef touches copied file .env")
+
+    monkeypatch.setattr(fix_commits_module, "derive_fix_commits", unreadable)
+
+    assert agent.run("status")["next"]["command"] == "agentic-preflight abort"
+    assert agent.run("abort", "--force")["state"] == "ABORTED"

@@ -172,14 +172,17 @@ def branch_fix_commits(session: Session, run: RunDoc) -> list[str]:
     Before merge-back, a commit made after the last ``respond`` is on the branch but
     not yet in ``fix_commits``. A refusal that sends the run to ``abort`` must name
     it, because releasing the worktree deletes the branch. Falls back to the
-    recorded list when the history cannot be derived.
+    recorded list when the history cannot be derived, and never drops a recorded
+    commit: a detached or reset checkout can hide one from ``head_sha..HEAD``.
     """
+    recorded = list(run.fix_commits)
     if is_in_place(run) or run.state not in _UNREGISTERED_STATES:
-        return list(run.fix_commits)
+        return recorded
     try:
-        return derive_fix_commits(session, run)
-    except (AgenticError, gitx.GitError, OSError):
-        return list(run.fix_commits)
+        derived = derive_fix_commits(session, run)
+    except (AgenticError, gitx.GitError, OSError, worktree.CopiedFileInCommit):
+        return recorded
+    return recorded + [sha for sha in derived if sha not in recorded]
 
 
 def register_branch_fix_commits(session: Session, run: RunDoc) -> RunDoc:

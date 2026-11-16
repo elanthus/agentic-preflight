@@ -606,9 +606,17 @@ def _source_branch_tip(session: Session, run: RunDoc) -> str | None:
 def _past_respond_instruction(session: Session, run: RunDoc, fix_commits: list[str]) -> str:
     """How to leave a run that can no longer resolve its findings, keeping its fixes."""
     instruction = (
-        "Do not retry `mergeback`. Abort this run, fix or decide each listed finding, "
-        "and start a fresh run."
+        "Abort this run, fix or decide each listed finding, and start a fresh run."
+        if run.state is State.TEST_GREEN
+        else "Do not retry `mergeback`. Abort this run, fix or decide each listed "
+        "finding, and start a fresh run."
     )
+    if run.state is State.TEST_GREEN and not is_in_place(run):
+        instruction += (
+            " If you committed a fix in the validation worktree after the tests, run "
+            "`mergeback` instead: it returns the changed run to review, where `respond` "
+            "is legal."
+        )
     # In place, the fix commits are already on the branch and `abort` keeps them.
     if is_in_place(run) or not fix_commits:
         return instruction

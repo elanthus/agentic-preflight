@@ -70,8 +70,11 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
 
     isolated = not is_in_place(run)
     # Before merge-back, a commit made after the last `respond` is on the validation
-    # branch but not yet recorded; releasing the worktree would delete it too.
-    fix_commits = branch_fix_commits(session, run) if isolated else list(run.fix_commits)
+    # branch but not yet recorded; releasing the worktree would delete it too. With
+    # --force nothing is protected, so a branch that cannot be read never blocks it.
+    fix_commits = (
+        branch_fix_commits(session, run) if isolated and not force else list(run.fix_commits)
+    )
     if isolated and fix_commits and not force:
         raise UnmergedWork(
             f"this run has {len(fix_commits)} fix commit(s) that were never merged "

@@ -7,8 +7,8 @@
   disabled docs stage past such a finding. `mergeback` refuses such a run from an earlier
   release the same way, before it records an attempt or touches the source branch, and
   points to `abort`; for a run that release's error left mid-merge, it says the branch may
-  already hold the fix commits. A run whose validation branch changed after its tests
-  returns to review instead, where `respond` is legal again.
+  already hold the fix commits. In isolated modes, a run whose validation branch changed
+  after its tests returns to review instead, where `respond` is legal again.
 - In isolated modes, `abort` from a lint or test state now counts commits on the
   validation branch that no `respond` or stage registered, and stops with `unmerged_work`
   instead of deleting them with the branch. The `open_findings` refusal and `status` list
