@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -260,14 +261,109 @@ def current_branch_or_none(cwd: Path | str) -> str | None:
         return None
 
 
+_FULL_OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+#: Successful lookups of full object IDs inside :func:`object_cache`, keyed on the
+#: repository path and the lookup. ``None`` outside the block, where nothing is cached.
+_OBJECT_LOOKUPS: ContextVar[dict[tuple[str, str], object] | None] = ContextVar(
+    "agentic_preflight_object_lookups", default=None
+)
+
+
+@contextmanager
+def object_cache() -> Iterator[None]:
+    """Memoize lookups of full object IDs until the block ends.
+
+    What a full object ID peels to, and the paths that differ between two of them,
+    cannot change while one verification runs, so the block runs each such
+    lookup once. Symbolic names such as ``HEAD`` or a branch are never cached,
+    and neither is a failure: a lookup that failed runs again and fails as it did.
+    The cache lives only as long as the outermost block, so it never outlasts one
+    verification and never leaks between callers. Nested blocks share it.
+
+    An ID is full only in the repository's own object format: 40 hexadecimal digits
+    with SHA-1, 64 with SHA-256. A peel names an object of that format, so a result
+    is cached only when it is as long as the ID it came from. Otherwise the string
+    may be an abbreviation or a ref name, and the lookup is not cached.
+    """
+    if _OBJECT_LOOKUPS.get() is not None:
+        yield
+        return
+    token = _OBJECT_LOOKUPS.set({})
+    try:
+        yield
+    finally:
+        _OBJECT_LOOKUPS.reset(token)
+
+
+def _peel(cwd: Path | str, ref: str, kind: str, args: Sequence[str]) -> str:
+    lookups = _OBJECT_LOOKUPS.get()
+    if lookups is None or _FULL_OBJECT_ID.fullmatch(ref) is None:
+        return out(cwd, *args)
+    slot = (os.fspath(cwd), f"{ref}^{{{kind}}}")
+    cached = lookups.get(slot)
+    if isinstance(cached, str):
+        return cached
+    answer = out(cwd, *args)
+    if len(answer) == len(ref):
+        lookups[slot] = answer
+    return answer
+
+
+def _known_full_id(lookups: dict[tuple[str, str], object], slot: str, oid: str) -> bool:
+    """Whether a cached peel has shown ``oid`` to be a full ID in this repository."""
+    return any(
+        isinstance(lookups.get((slot, f"{oid}^{{{kind}}}")), str) for kind in ("commit", "tree")
+    )
+
+
+def prime_object_lookups(cwd: Path | str, object_ids: Iterable[str]) -> None:
+    """Resolve the commit and tree of each full object ID in one Git process.
+
+    Only inside :func:`object_cache`, and only for successes: an ID Git cannot
+    peel is left out, so the later :func:`rev_parse` or :func:`tree_sha` for it
+    runs its own command and raises exactly the error it always did. If the
+    batch itself fails, nothing is cached.
+    """
+    lookups = _OBJECT_LOOKUPS.get()
+    if lookups is None:
+        return
+    slot = os.fspath(cwd)
+    wanted = [
+        (oid, f"{oid}^{{{kind}}}")
+        for oid in dict.fromkeys(object_ids)
+        if _FULL_OBJECT_ID.fullmatch(oid) is not None
+        for kind in ("commit", "tree")
+    ]
+    wanted = [(oid, name) for oid, name in wanted if (slot, name) not in lookups]
+    if not wanted:
+        return
+    result = subprocess.run(
+        [_git_executable(), "cat-file", "--batch-check=%(objectname)"],
+        cwd=str(cwd),
+        input=("\n".join(name for _, name in wanted) + "\n").encode("ascii"),
+        capture_output=True,
+    )
+    if result.returncode:
+        return
+    answers = result.stdout.decode("ascii", errors="replace").splitlines()
+    if len(answers) != len(wanted):
+        return
+    for (oid, name), answer in zip(wanted, answers, strict=True):
+        # A name Git cannot peel prints "<name> missing", which is not an object ID,
+        # and an ID in the other object format peels to an answer of another length.
+        if _FULL_OBJECT_ID.fullmatch(answer) is not None and len(answer) == len(oid):
+            lookups[slot, name] = answer
+
+
 def rev_parse(cwd: Path | str, ref: str) -> str:
     """Resolve a ref to a commit SHA."""
-    return out(cwd, "rev-parse", "--verify", f"{ref}^{{commit}}")
+    return _peel(cwd, ref, "commit", ("rev-parse", "--verify", f"{ref}^{{commit}}"))
 
 
 def tree_sha(cwd: Path | str, ref: str = "HEAD") -> str:
     """Return the tree SHA of a ref."""
-    return out(cwd, "rev-parse", f"{ref}^{{tree}}")
+    return _peel(cwd, ref, "tree", ("rev-parse", f"{ref}^{{tree}}"))
 
 
 _PATHSPEC_ENV = (
@@ -869,6 +965,24 @@ def changed_files(cwd: Path | str, base: str, head: str = "HEAD") -> list[str]:
 
 def changed_files_raw(cwd: Path | str, base: str, head: str = "HEAD") -> list[str]:
     """Return changed paths in raw form, suitable only for handing back to Git."""
+    lookups = _OBJECT_LOOKUPS.get()
+    slot = os.fspath(cwd)
+    # Cached only between commits already peeled as full IDs in this repository.
+    if (
+        lookups is None
+        or not _known_full_id(lookups, slot, base)
+        or not _known_full_id(lookups, slot, head)
+    ):
+        return _changed_files_raw(cwd, base, head)
+    key = (slot, f"changed:{base}...{head}")
+    cached = lookups.get(key)
+    if not isinstance(cached, tuple):
+        cached = tuple(_changed_files_raw(cwd, base, head))
+        lookups[key] = cached
+    return list(cached)
+
+
+def _changed_files_raw(cwd: Path | str, base: str, head: str) -> list[str]:
     output = _run_bytes(
         cwd,
         *_PINNED_DIFF_CONFIG,
