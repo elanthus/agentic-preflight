@@ -984,3 +984,96 @@ def test_crlf_patch_text_and_digests_match_main(tmp_repo):
             "260f79bfed5421811142664fbeec72c91df66872417ba092e9734645815f1790"
         ]
     assert "\r" not in bundle.per_file["a.txt"]
+
+
+# -- attestation notes ------------------------------------------------------
+
+_TEST_NOTES_REF = "refs/notes/test-341"
+
+
+def _note_blob_bytes(repo, notes_ref: str, sha: str) -> bytes:
+    blob = gitx.note_blobs(repo, notes_ref)[sha]
+    return subprocess.run(
+        ["git", "cat-file", "blob", blob], cwd=repo, capture_output=True, check=True
+    ).stdout
+
+
+def test_write_note_round_trips_a_note_larger_than_one_megabyte(tmp_repo):
+    # Past macOS's 1 MiB ARG_MAX and Linux's 128 KiB per-argument limit, so
+    # passing the payload as ``-m <payload>`` raised "Argument list too long".
+    sha = git("rev-parse", "HEAD", cwd=tmp_repo)
+    payload = json.dumps({"excluded_files": [f"vendor/pkg/file-{i:06d}.py" for i in range(60_000)]})
+    assert len(payload) > 1_500_000
+
+    gitx.write_note(tmp_repo, _TEST_NOTES_REF, sha, payload)
+
+    assert gitx.read_note(tmp_repo, _TEST_NOTES_REF, sha) == payload
+    assert _note_blob_bytes(tmp_repo, _TEST_NOTES_REF, sha) == payload.encode("ascii") + b"\n"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param('{"a":1,"b":[1,2]}', id="canonical-json"),
+        pytest.param('{"a":"caf\\u00e9"}', id="escaped-unicode"),
+        pytest.param("x\n", id="trailing-newline"),
+        pytest.param("one\r\ntwo", id="crlf"),
+        pytest.param("café 雪", id="non-ascii"),
+        pytest.param("# not a comment\nline  \n\n\nlast", id="stripspace"),
+    ],
+)
+def test_write_note_stores_the_same_blob_as_the_former_message_argument(tmp_repo, payload):
+    sha = git("rev-parse", "HEAD", cwd=tmp_repo)
+    legacy_ref = "refs/notes/test-341-legacy"
+    git("notes", f"--ref={legacy_ref}", "add", "-f", "-m", payload, sha, cwd=tmp_repo)
+
+    gitx.write_note(tmp_repo, _TEST_NOTES_REF, sha, payload)
+
+    # Same blob ID: every note written before the change still matches byte for byte.
+    assert (
+        gitx.note_blobs(tmp_repo, _TEST_NOTES_REF)[sha]
+        == (gitx.note_blobs(tmp_repo, legacy_ref)[sha])
+    )
+
+
+def test_write_note_sends_utf8_bytes_on_stdin_without_a_shell_or_text_mode(tmp_repo, monkeypatch):
+    sha = git("rev-parse", "HEAD", cwd=tmp_repo)
+    payload = '{"k":"v"}\n{"café":1}'
+    calls = []
+    real_run = subprocess.run
+
+    def recording_run(argv, *args, **kwargs):
+        calls.append((argv, kwargs))
+        return real_run(argv, *args, **kwargs)
+
+    monkeypatch.setattr(gitx.subprocess, "run", recording_run)
+    gitx.write_note(tmp_repo, _TEST_NOTES_REF, sha, payload)
+
+    [(argv, kwargs)] = [call for call in calls if "notes" in call[0]]
+    assert payload not in argv
+    assert argv[-3:] == ["-F", "-", sha]
+    # Raw bytes in binary mode: no locale encoding and no "\n" -> "\r\n" on Windows.
+    assert kwargs["input"] == payload.encode("utf-8")
+    assert not kwargs.get("text")
+    assert not kwargs.get("universal_newlines")
+    assert "encoding" not in kwargs
+    assert not kwargs.get("shell")
+
+
+def test_attestation_notes_written_before_stdin_still_verify(feature_repo, tmp_path):
+    from agentic_preflight import attestation
+    from tests.driver import green_run
+
+    green_run(feature_repo, tmp_path)
+    sha = git("rev-parse", "HEAD", cwd=feature_repo)
+    payload = attestation.encode(attestation.read(feature_repo, sha))
+    git(
+        "notes", f"--ref={attestation.NOTES_REF}", "add", "-f", "-m", payload, sha, cwd=feature_repo
+    )
+    legacy_blob = gitx.note_blobs(feature_repo, attestation.NOTES_REF)[sha]
+    attestation.verify(feature_repo, sha)
+
+    gitx.write_note(feature_repo, attestation.NOTES_REF, sha, payload)
+
+    assert gitx.note_blobs(feature_repo, attestation.NOTES_REF)[sha] == legacy_blob
+    attestation.verify(feature_repo, sha)
