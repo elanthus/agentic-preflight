@@ -214,14 +214,28 @@ def tree_sha(cwd: Path | str, ref: str = "HEAD") -> str:
     return out(cwd, "rev-parse", f"{ref}^{{tree}}")
 
 
-def tree_files(cwd: Path | str, ref: str = "HEAD") -> list[str]:
+def tree_files(
+    cwd: Path | str,
+    ref: str = "HEAD",
+    *,
+    scopes: Sequence[str] | None = None,
+    recursive: bool = True,
+) -> list[str]:
     """Return the raw path of every blob in a commit's tree, in Git's order.
 
     Submodule entries are commits, not blobs, so they are left out. Paths come
     back undecoded as filesystem names do, so they can be joined to a worktree.
+    ``scopes`` limits the listing to those literal repository paths and
+    everything beneath them, so Git skips the rest of the tree; an empty
+    sequence lists nothing. ``recursive=False`` lists the top level only.
     """
+    if scopes is not None and not scopes:
+        return []
+    args = ["ls-tree", *(("-r",) if recursive else ()), "-z", "--full-tree", ref]
+    if scopes is not None:
+        args += ["--", *(f":(literal){scope}" for scope in scopes)]
     paths: list[str] = []
-    for record in _run_bytes(cwd, "ls-tree", "-r", "-z", "--full-tree", ref).split(b"\0"):
+    for record in _run_bytes(cwd, *args).split(b"\0"):
         if not record:
             continue
         metadata, path = record.split(b"\t", 1)

@@ -84,3 +84,47 @@ def test_source_count_limit_and_head_change_are_deterministic(tmp_repo, monkeypa
     assert grounding._load_sources(tmp_repo, lambda p: p.startswith("docs/"))[0] == {
         "docs/a.md": "changed\n",
     }
+
+
+@pytest.mark.parametrize(
+    "extra_paths",
+    [
+        [],
+        ["rules/*.md"],
+        ["/rules/", "docs/**"],
+        ["rules/[ab]*.md", "conventions/style.md"],
+        ["**/*.md"],
+        ["rules/"],
+        ["*.txt"],
+    ],
+)
+def test_a_scoped_source_listing_selects_what_a_full_listing_selects(tmp_repo, extra_paths):
+    """Grounding asks Git for its scopes only; the grounding bytes cannot change."""
+    for rel in (
+        "AGENTS.md",
+        "CLAUDE.md",
+        "docs/a.md",
+        "docs/nested/b.md",
+        "docsx/c.md",
+        "rules/a.md",
+        "rules/b-extra.md",
+        "rules/deep/c.md",
+        "nested/rules/d.md",
+        "conventions/style.md",
+        "notes.txt",
+        "src/app.py",
+    ):
+        write(tmp_repo, rel, f"{rel}\n")
+    commit_all(tmp_repo, "grounding sources")
+    select = grounding._source_selector(extra_paths)
+    scopes = grounding._source_scopes(extra_paths)
+
+    full = grounding._load_sources(tmp_repo, select)
+    scoped = grounding._load_sources(tmp_repo, select, scopes=scopes)
+
+    assert full[0], "nothing was selected, so the comparison would be vacuous"
+    assert scoped == full
+    if any(pattern in {"**/*.md", "rules/", "*.txt"} for pattern in extra_paths):
+        assert scopes is None
+    else:
+        assert scopes is not None

@@ -64,6 +64,38 @@ def _fnmatch_attempts(pattern: str) -> tuple[str, ...]:
     return (pattern,)
 
 
+_WILDCARD = re.compile(r"[*?\[]")
+
+
+def literal_scope(pattern: str) -> str | None:
+    """Return a path that every path accepted by ``pattern`` equals or lies beneath.
+
+    ``fnmatchcase`` treats only ``*``, ``?`` and ``[`` as special, so the text
+    before the first of them must begin every match. A wildcard-free pattern is
+    its own scope; otherwise the scope stops at the last ``/`` before the
+    wildcard. ``None`` means a match can lie anywhere, or the scope is not a
+    plain ASCII repository path that Git takes unchanged as a literal pathspec. Callers use
+    the scope to narrow a Git listing and must still match each listed path.
+    """
+    # Git on macOS may rewrite a non-ASCII argument to its precomposed Unicode
+    # form, which would no longer name a decomposed path in the tree.
+    if not pattern or "\\" in pattern or not pattern.isascii():
+        return None
+    wildcard = _WILDCARD.search(pattern)
+    scope = pattern if wildcard is None else pattern[: wildcard.start()].rpartition("/")[0]
+    if not scope or any(part in {"", ".", ".."} for part in scope.split("/")):
+        return None
+    return scope
+
+
+def match_scope(pattern: str) -> str | None:
+    """Return the literal scope of every path :func:`path_matches` accepts for ``pattern``."""
+    attempts = _fnmatch_attempts(pattern)
+    # A bare directory or ``**/`` pattern gets a second attempt because it can
+    # match at any depth, so it has no scope.
+    return literal_scope(attempts[0]) if len(attempts) == 1 else None
+
+
 def is_excluded(path: str, patterns: list[str] | tuple[str, ...]) -> bool:
     """Return whether a path matches any exclude pattern."""
     return any(path_matches(path, pattern) for pattern in patterns)

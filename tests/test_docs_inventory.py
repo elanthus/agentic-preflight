@@ -105,6 +105,8 @@ def _repo(root: Path) -> Path:
         ["*/README.md"],
         ["[Dd]ocs/**", "node_modules/*/docs/**"],
         ["../outside/**", "./docs/**", "docs", ""],
+        ["docs/a/**", "Guide/upper.md", "notes.txt", "site/*.md", "missing/**"],
+        ["no*tes.txt", ".", "..", "src/README.md"],
     ],
 )
 def test_inventory_matches_the_full_walk_over_committed_files(tmp_path, extra):
