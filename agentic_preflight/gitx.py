@@ -199,8 +199,23 @@ def _lines(text: str) -> list[str]:
 
 
 def current_branch(cwd: Path | str) -> str:
-    """Return the name of the checked-out branch."""
-    return out(cwd, "rev-parse", "--abbrev-ref", "HEAD")
+    """Return the name of the checked-out branch, or ``"HEAD"`` when detached.
+
+    ``rev-parse --abbrev-ref`` disambiguates a branch that shares its name with a
+    tag to ``heads/<name>``, and a refspec built from that publishes to the wrong
+    ref. ``symbolic-ref`` names the branch HEAD points at exactly.
+    """
+    args = ["symbolic-ref", "--quiet", "HEAD"]
+    result = run(cwd, *args, check=False)
+    ref = result.stdout.strip()
+    if result.returncode == 1 and not ref:
+        return "HEAD"
+    if result.returncode != 0:
+        raise GitError(args, result.returncode, result.stderr)
+    # Plumbing can point HEAD at any ref under refs/; only a branch has a name to publish.
+    if not ref.startswith("refs/heads/"):
+        raise GitError(args, result.returncode, f"HEAD points at {ref}, which is not a branch")
+    return ref.removeprefix("refs/heads/")
 
 
 def rev_parse(cwd: Path | str, ref: str) -> str:

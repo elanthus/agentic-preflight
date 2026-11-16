@@ -62,6 +62,25 @@ def test_current_branch_reads_the_checked_out_branch(feature_repo):
     assert gitx.current_branch(feature_repo) == "feature/x"
 
 
+def test_current_branch_is_the_plain_name_when_a_tag_shares_it(feature_repo):
+    # ``rev-parse --abbrev-ref`` disambiguates to ``heads/feature/x`` here, and a
+    # refspec built from that creates ``refs/heads/heads/feature/x`` on push.
+    git("tag", "feature/x", cwd=feature_repo)
+    assert gitx.current_branch(feature_repo) == "feature/x"
+
+
+def test_current_branch_reports_a_detached_head_as_head(feature_repo):
+    git("switch", "--detach", cwd=feature_repo)
+    assert gitx.current_branch(feature_repo) == "HEAD"
+
+
+def test_current_branch_refuses_a_head_that_points_at_a_tag(feature_repo):
+    git("tag", "v1", cwd=feature_repo)
+    git("symbolic-ref", "HEAD", "refs/tags/v1", cwd=feature_repo)
+    with pytest.raises(gitx.GitError, match="not a branch"):
+        gitx.current_branch(feature_repo)
+
+
 def test_operation_in_progress_is_absent_in_an_idle_checkout(tmp_repo):
     assert gitx.operation_in_progress(tmp_repo) is None
 
