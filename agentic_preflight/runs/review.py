@@ -135,11 +135,18 @@ def context(session: Session, *, section: str = "review") -> Envelope:
             command="context",
         )
 
-    bundle = review_protocol.bundle_for(session, run)
-    report = diffmod.check_budget(bundle, session.config.diff.max_bytes)
-    if report.over_budget:
+    bundle, report = review_protocol.budgeted_bundle_for(session, run)
+    if report.over_budget or bundle is None:
+        unmeasured = (
+            ""
+            if report.complete
+            else (
+                " Reading stopped early: the files in `data.unmeasured_files` were not "
+                "measured, so check them for generated content too."
+            )
+        )
         raise DiffTooLarge(
-            f"the diff is {report.total_bytes} bytes, over the {report.max_bytes} byte budget",
+            diffmod.over_budget_message(report),
             state=run.state.value,
             run_id=run.run_id,
             stage=section,
@@ -148,12 +155,14 @@ def context(session: Session, *, section: str = "review") -> Envelope:
                 "total_bytes": report.total_bytes,
                 "max_bytes": report.max_bytes,
                 "by_file": [list(item) for item in report.by_file],
+                "complete": report.complete,
+                "unmeasured_files": report.unmeasured_files,
             },
             next_instruction=(
                 "Narrow the diff before reviewing it. Add generated or vendored paths "
                 "to `[diff] exclude` in .agentic-preflight.toml, or raise `[diff] max_bytes` "
                 "if the change really is this large. The diff is never truncated, so "
-                "reviewing it partially is not an option."
+                "reviewing it partially is not an option." + unmeasured
             ),
             next_command="agentic-preflight context",
         )

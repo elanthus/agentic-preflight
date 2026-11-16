@@ -8,6 +8,7 @@ quietly drifting away from in-harness review.
 
 from __future__ import annotations
 
+from collections.abc import Hashable
 from typing import Any, Literal
 
 from pydantic import ValidationError
@@ -36,14 +37,45 @@ def _snapshot(session: Session, run: RunDoc, head: str | None) -> tuple[str, str
     return repo, head if head is not None else gitx.rev_parse(repo, "HEAD")
 
 
+def _bundle_key(session: Session, run: RunDoc, repo: str, head: str) -> tuple[Hashable, ...]:
+    return ("bundle", repo, head, run.merge_base_sha, tuple(session.config.diff.exclude))
+
+
 def bundle_for(session: Session, run: RunDoc, *, head: str | None = None) -> diffmod.DiffBundle:
     """Build the exact diff snapshot shared by all review executors."""
     repo, head = _snapshot(session, run, head)
     exclude = session.config.diff.exclude
     return session.memoized(
-        ("bundle", repo, head, run.merge_base_sha, tuple(exclude)),
+        _bundle_key(session, run, repo, head),
         lambda: diffmod.build_bundle(repo, run.merge_base_sha, "HEAD", exclude=exclude),
     )
+
+
+def budgeted_bundle_for(
+    session: Session, run: RunDoc, *, head: str | None = None
+) -> tuple[diffmod.DiffBundle | None, diffmod.BudgetReport]:
+    """Check the diff against ``[diff] max_bytes`` without reading all of a huge one.
+
+    A diff the read measured in full is the bundle :func:`bundle_for` returns,
+    and is memoized as that bundle so later steps of the command reuse it. A
+    read that stopped far over budget returns no bundle and a partial report.
+    """
+    repo, head = _snapshot(session, run, head)
+    max_bytes = session.config.diff.max_bytes
+    key = _bundle_key(session, run, repo, head)
+    if key in session.memo:
+        bundle = session.memo[key]
+        return bundle, diffmod.check_budget(bundle, max_bytes)
+    bundle, report = diffmod.build_bundle_within_budget(
+        repo,
+        run.merge_base_sha,
+        "HEAD",
+        exclude=session.config.diff.exclude,
+        max_bytes=max_bytes,
+    )
+    if bundle is not None:
+        session.memo[key] = bundle
+    return bundle, report
 
 
 def grounding_for(

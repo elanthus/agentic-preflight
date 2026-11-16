@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from typing import IO
@@ -987,20 +988,37 @@ def _patch_stream_chunks(chunks: Iterable[bytes]) -> Iterator[tuple[bool, bytes]
 
 
 def _select_streamed_patches(
-    entries: list[tuple[str, str]], chunks: Iterable[bytes], requested: set[str]
-) -> tuple[dict[str, bytearray], int, int]:
+    entries: list[tuple[str, str]],
+    chunks: Iterable[bytes],
+    requested: set[str],
+    stop_after: int | None = None,
+) -> tuple[dict[str, bytearray], int, int, str | None]:
+    """Collect the requested patches, stopping early once ``stop_after`` is passed.
+
+    The running count is a lower bound on the decoded size of the collected text:
+    decoding keeps every valid byte, widens an invalid one, and only folds a CR,
+    so the raw byte count less the CR count can never exceed it. Once that bound
+    passes ``stop_after`` the read stops and the path being read is returned last.
+    """
     owners = [path for path, status in entries for _ in range(2 if status == "T" else 1)]
     buffers: dict[str, bytearray] = {}
     target: bytearray | None = None
+    target_path: str | None = None
     count = 0
+    measured = 0
     for header, chunk in _patch_stream_chunks(chunks):
         if header:
             path = owners[count] if count < len(owners) else None
+            target_path = path if path in requested else None
             target = buffers.setdefault(path, bytearray()) if path in requested else None
             count += 1
         if target is not None:
             target.extend(chunk)
-    return buffers, count, len(owners)
+            if stop_after is not None:
+                measured += len(chunk) - chunk.count(b"\r")
+                if measured > stop_after:
+                    return buffers, count, len(owners), target_path
+    return buffers, count, len(owners), None
 
 
 def _finish_streamed_diff(
@@ -1017,7 +1035,15 @@ def _streamed_diff_text_by_path(
     args: tuple[str, ...],
     requested: set[str],
     env: Mapping[str, str] | None = None,
-) -> dict[str, str]:
+    stop_after: int | None = None,
+) -> tuple[dict[str, str], tuple[str, int] | None]:
+    """Read requested patches from one streamed ``git diff``.
+
+    With ``stop_after``, the read ends once a lower bound on the decoded text
+    passes it. The second value then names the path being read with a lower
+    bound on its decoded size, the first holds only the paths read in full, and
+    Git is stopped without reading the rest of its output.
+    """
     with tempfile.TemporaryFile() as errors:
         process = subprocess.Popen(
             [_git_executable(), *args],
@@ -1037,20 +1063,63 @@ def _streamed_diff_text_by_path(
                 _finish_streamed_diff(process, args, errors)
                 raise ValueError("git diff did not separate its raw inventory from patch output")
             entries = _raw_patch_entries(raw)
-            buffers, count, expected = _select_streamed_patches(
-                entries, _diff_chunks(stream, initial), requested
+            buffers, count, expected, stopped = _select_streamed_patches(
+                entries, _diff_chunks(stream, initial), requested, stop_after
             )
+            if stopped is not None:
+                # Git may already have failed. Its error, not an early stop, is the result.
+                if process.poll() not in (None, 0):
+                    _finish_streamed_diff(process, args, errors)
+                partial = buffers.pop(stopped)
+                patches = {path: _decode_patch(bytes(data)) for path, data in buffers.items()}
+                return patches, (stopped, len(partial) - partial.count(b"\r"))
             _finish_streamed_diff(process, args, errors)
             if count != expected:
                 raise ValueError(
                     f"git diff returned {expected} expected patch blocks but {count} patches"
                 )
-            return {path: _decode_patch(bytes(data)) for path, data in buffers.items()}
+            return {path: _decode_patch(bytes(data)) for path, data in buffers.items()}, None
         finally:
             if process.poll() is None:
                 process.kill()
             process.wait()
             stream.close()
+
+
+def _patch_diff_args(
+    base: str, head: str, batch: Sequence[str], *, full_index: bool, unfiltered: bool
+) -> tuple[str, ...]:
+    """The pinned ``git diff`` invocation that prints one batch's raw inventory and patches."""
+    return (
+        *_PINNED_DIFF_CONFIG,
+        *(() if full_index else _LEGACY_ABBREV_CONFIG),
+        "diff",
+        *_PINNED_PATCH_OPTIONS,
+        *(("--full-index",) if full_index else ()),
+        "--raw",
+        "-z",
+        "--patch",
+        f"{base}...{head}",
+        "--",
+        *(f":(literal){path}" for path in batch if not unfiltered),
+    )
+
+
+def _patch_batches(paths: Sequence[str]) -> tuple[bool, list[list[str]]]:
+    """Return whether paths must be filtered from the full diff, and the batches to read.
+
+    Windows arguments cannot carry surrogateescaped Git names. For those names,
+    the full diff is streamed once and only the requested raw entries are kept.
+    """
+    unfiltered = _WINDOWS_PATH_ARGUMENTS and any(
+        "\udc80" <= char <= "\udcff" for path in paths for char in path
+    )
+    return unfiltered, [list(paths)] if unfiltered else list(_path_batches(paths))
+
+
+def _patch_env() -> dict[str, str]:
+    """Git's environment for patch text: ``GIT_DIFF_OPTS`` would change the context length."""
+    return {name: value for name, value in os.environ.items() if name != "GIT_DIFF_OPTS"}
 
 
 def diff_text_by_path(
@@ -1070,28 +1139,13 @@ def diff_text_by_path(
     exists to verify notes those releases wrote. Besides the attributes that shape
     both forms, it also varies with the number of objects in the clone.
     """
-    unfiltered = _WINDOWS_PATH_ARGUMENTS and any(
-        "\udc80" <= char <= "\udcff" for path in paths for char in path
-    )
-    batches = [list(paths)] if unfiltered else _path_batches(paths)
-    env = {name: value for name, value in os.environ.items() if name != "GIT_DIFF_OPTS"}
+    unfiltered, batches = _patch_batches(paths)
+    env = _patch_env()
     per_file: dict[str, str] = {}
     for batch in batches:
-        args = (
-            *_PINNED_DIFF_CONFIG,
-            *(() if full_index else _LEGACY_ABBREV_CONFIG),
-            "diff",
-            *_PINNED_PATCH_OPTIONS,
-            *(("--full-index",) if full_index else ()),
-            "--raw",
-            "-z",
-            "--patch",
-            f"{base}...{head}",
-            "--",
-            *(f":(literal){path}" for path in batch if not unfiltered),
-        )
+        args = _patch_diff_args(base, head, batch, full_index=full_index, unfiltered=unfiltered)
         if unfiltered:
-            parsed = _streamed_diff_text_by_path(cwd, args, set(batch), env)
+            parsed, _ = _streamed_diff_text_by_path(cwd, args, set(batch), env)
         else:
             parsed = _parse_raw_patch_output(_run_bytes(cwd, *args, env=env))
         missing = [path for path in batch if path not in parsed]
@@ -1099,6 +1153,56 @@ def diff_text_by_path(
             raise ValueError("git diff omitted requested changed paths: " + ", ".join(missing))
         per_file.update((path, parsed[path]) for path in batch)
     return per_file
+
+
+@dataclass(frozen=True)
+class BoundedPatches:
+    """Per-file patches read until their decoded size passed a bound.
+
+    When ``complete`` is true, ``patches`` equals what :func:`diff_text_by_path`
+    returns for the same paths. Otherwise it holds only the paths read in full,
+    and ``partial``, when set, names the path being read when the read stopped
+    with a lower bound on the UTF-8 size of its decoded patch.
+    """
+
+    patches: dict[str, str]
+    complete: bool
+    partial: tuple[str, int] | None = None
+
+
+def diff_text_by_path_bounded(
+    cwd: Path | str, base: str, head: str, paths: Sequence[str], *, stop_after_bytes: int
+) -> BoundedPatches:
+    """Read the patches of :func:`diff_text_by_path`, stopping once they pass a size.
+
+    The size is the UTF-8 length of the decoded patch text. Every batch is
+    streamed with the same pinned options and environment, and Git is stopped
+    as soon as a lower bound on the text read passes ``stop_after_bytes``, so
+    an oversized diff costs a bounded read. Only the current patch format is
+    read; the earlier abbreviated form is never bounded. As in
+    :func:`diff_text_by_path`, the unfiltered Windows read still streams the
+    patches of paths that were not requested; only requested text counts.
+    """
+    unfiltered, batches = _patch_batches(paths)
+    env = _patch_env()
+    per_file: dict[str, str] = {}
+    measured = 0
+    for batch in batches:
+        if measured > stop_after_bytes:
+            return BoundedPatches(per_file, complete=False)
+        args = _patch_diff_args(base, head, batch, full_index=True, unfiltered=unfiltered)
+        parsed, partial = _streamed_diff_text_by_path(
+            cwd, args, set(batch), env, stop_after=stop_after_bytes - measured
+        )
+        if partial is not None:
+            per_file.update(parsed)
+            return BoundedPatches(per_file, complete=False, partial=partial)
+        missing = [path for path in batch if path not in parsed]
+        if missing:
+            raise ValueError("git diff omitted requested changed paths: " + ", ".join(missing))
+        per_file.update((path, parsed[path]) for path in batch)
+        measured += sum(len(parsed[path].encode()) for path in batch)
+    return BoundedPatches(per_file, complete=True)
 
 
 # -- working tree -----------------------------------------------------------
