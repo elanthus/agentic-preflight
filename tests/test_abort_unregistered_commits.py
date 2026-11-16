@@ -16,6 +16,7 @@ from tests.conftest import configure_base, git, write
 from tests.driver import ScriptedAgent, findings_json
 
 fix_commits_module = importlib.import_module("agentic_preflight.runs.fix_commits")
+lifecycle_module = importlib.import_module("agentic_preflight.runs.lifecycle")
 
 STRICT = (
     "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n\n"
@@ -101,7 +102,25 @@ def test_an_unreadable_history_never_blocks_abort_force(feature_repo, tmp_path, 
     monkeypatch.setattr(fix_commits_module, "derive_fix_commits", unreadable)
 
     # The recorded list is empty, so only --force is needed, and it is never blocked.
-    assert agent.run("abort", "--force")["state"] == "ABORTED"
+    env = agent.run("abort", "--force")
+    assert env["state"] == "ABORTED"
+    assert env["data"]["discarded_fix_commits"] == []
+
+
+def test_an_unexpected_failure_never_blocks_abort_force(feature_repo, tmp_path, monkeypatch):
+    """The report falls back to the recorded commits on any failure under --force."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    _commit(wt, "FIXED", "fix after the tests")
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("simulated failure")
+
+    monkeypatch.setattr(lifecycle_module, "branch_fix_commits", broken)
+
+    env = agent.run("abort", "--force")
+
+    assert env["state"] == "ABORTED"
+    assert env["data"]["discarded_fix_commits"] == []
 
 
 def test_an_in_place_abort_is_unchanged(feature_repo, tmp_path):
