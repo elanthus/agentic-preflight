@@ -201,8 +201,10 @@ def command(fn):
                     "review_diff_attribute",
                     str(exc),
                     ExitCode.PRECONDITION,
-                    "Remove the attribute the message names, then retry. Review patches "
-                    "must not depend on attributes that only this machine has.",
+                    "Do what the message says: remove the $GIT_DIR/info/attributes entry "
+                    "or Git setting it names, or validate the commit again when it is about "
+                    "an earlier note, then retry. Review patches must not depend on "
+                    "attributes that only this machine has.",
                     "agentic-preflight status",
                 )
             )

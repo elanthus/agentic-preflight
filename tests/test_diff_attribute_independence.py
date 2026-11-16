@@ -206,8 +206,9 @@ def test_an_info_attributes_driver_without_a_header_pattern_is_ignored(change, t
         ("*.py diff=custom\n", ("diff.custom.funcname", "^ *(value_3 .*)$")),
         ("*.py diff=python\n", None),
         ("*.bin diff\n", None),
+        ("*.bin diff=printer\n", ("diff.printer.binary", "false")),
     ],
-    ids=["xfuncname", "funcname", "built-in", "binary-as-text"],
+    ids=["xfuncname", "funcname", "built-in", "binary-as-text", "driver-prints-binary"],
 )
 def test_an_info_attributes_entry_that_would_change_the_patch_is_refused(
     change, attributes, config
@@ -221,6 +222,46 @@ def test_an_info_attributes_entry_that_would_change_the_patch_is_refused(
 
     with pytest.raises(gitx.ReviewDiffError, match=r"\$GIT_DIR/info/attributes"):
         diff.build_bundle(repo, base, "HEAD")
+
+
+def _replace_with_binary(repo: Path, blob: str) -> None:
+    """Point a clone-local replace ref from ``blob`` at content Git calls binary."""
+    fake = (
+        subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"],
+            cwd=repo,
+            input=b"\x00replacement\n",
+            capture_output=True,
+            check=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
+    git("replace", blob, fake, cwd=repo)
+
+
+def test_a_replacement_object_cannot_make_a_text_file_look_binary(change):
+    """With ``-diff`` in the info file, a binary verdict would hide the text."""
+    repo, base = change
+    _replace_with_binary(repo, git("rev-parse", "HEAD:notes.txt", cwd=repo))
+    (repo / ".git" / "info").mkdir(exist_ok=True)
+    (repo / ".git" / "info" / "attributes").write_text("* -diff\n", encoding="utf-8")
+
+    bundle = diff.build_bundle(repo, base, "HEAD")
+    budgeted, _report = diff.build_bundle_within_budget(repo, base, "HEAD", max_bytes=1_000_000)
+
+    assert "+hidden instruction\n" in bundle.per_file["notes.txt"]
+    assert budgeted == bundle
+
+
+def test_a_replacement_object_cannot_pass_the_earlier_format_guard(change):
+    repo, base = change
+    _replace_with_binary(repo, git("rev-parse", "HEAD:notes.txt", cwd=repo))
+    (repo / ".git" / "info").mkdir(exist_ok=True)
+    (repo / ".git" / "info" / "attributes").write_text("* -diff\n", encoding="utf-8")
+
+    with pytest.raises(gitx.ReviewDiffError, match=r"notes\.txt"):
+        diff.build_bundle(repo, base, "HEAD", legacy=True)
 
 
 def test_a_binary_file_is_reported_as_binary_and_not_dumped(change):

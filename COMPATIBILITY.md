@@ -693,7 +693,7 @@ Review patches now have one form on every machine:
 - Replacement objects under `refs/replace` are ignored. They exist in one clone only, and a review built with them could show content that the commits do not hold.
 - The user-level attributes file (`core.attributesFile`, by default `$XDG_CONFIG_HOME/git/attributes`) is not read for review patches.
 
-Attributes in the checkout, and `diff.default.xfuncname` and `diff.default.funcname`, are covered by the next entry.
+Attributes in the checkout, and `diff.default.xfuncname` and `diff.default.funcname`, are covered by [the Git attributes entry](#unreleased-review-patches-no-longer-depend-on-git-attributes).
 
 What changes at upgrade:
 
@@ -743,17 +743,18 @@ Review patches now have one form whatever the attributes:
 - Text files are diffed with `--text`. The tool decides which files are binary with Git's default rule: either side is larger than 512 MiB or has a NUL byte in its first 8,000 bytes. A binary file's patch is Git's "Binary files ... differ" line, and its content is never printed.
 - Hunk headers use Git's default rule, which picks the nearest earlier line that starts with a letter, `_`, or `$`. A `diff=python` or other driver attribute no longer changes them.
   `diff.default.xfuncname` or `diff.default.funcname` would replace that rule for every file, and Git has no value that restores it, so either setting stops `context` and review with `review_diff_attribute` (exit 3). Remove the setting to continue.
-- Git always reads `$GIT_DIR/info/attributes`. `-diff` there has no effect, and neither has a driver that only sets `textconv` or `command`. A driver there with a hunk-header pattern, built in or set by `diff.<driver>.xfuncname` or `diff.<driver>.funcname`, or `diff` set on a binary file, stops `context` and review with `review_diff_attribute` (exit 3), and verification on that machine rejects the note. Remove that entry to continue. A built-in driver that a Git release after 2.54 adds is not refused; its hunk headers then differ on that machine only, and a verifier elsewhere rejects the note.
+- Git always reads `$GIT_DIR/info/attributes`. `-diff` there has no effect, and neither has a driver that only sets `textconv` or `command`. A driver there with a hunk-header pattern, built in or set by `diff.<driver>.xfuncname` or `diff.<driver>.funcname`, `diff` set on a binary file, or a driver that prints a binary file as text, such as one with `diff.<driver>.binary = false`, stops `context` and review with `review_diff_attribute` (exit 3), and verification on that machine rejects the note. Remove that entry to continue. A built-in driver that a Git release after 2.54 adds is not refused; its hunk headers then differ on that machine only, and a verifier elsewhere rejects the note.
 
 What changes at upgrade:
 
-- `diff_sha256`, the review manifest, and the affected unit digests change for a repository whose attributes changed a patch: a `-diff`, `binary`, or `diff` attribute, or a diff driver with a hunk-header pattern. A repository without such attributes gets the same text as the previous entry describes.
-- A note that 0.8.1 or an earlier release wrote still verifies when its text can be rebuilt, as the previous entry describes. That text follows the verifier's attributes, as 0.8.1 did.
+- `diff_sha256`, the review manifest, and the affected unit digests change for a repository whose attributes changed a patch: a `-diff`, `binary`, or `diff` attribute, or a diff driver with a hunk-header pattern. A repository without such attributes gets the same text as [the Git configuration entry](#unreleased-review-patches-no-longer-depend-on-git-configuration) describes.
+- A note that 0.8.1 or an earlier release wrote still verifies when its text can be rebuilt, as [the Git configuration entry](#unreleased-review-patches-no-longer-depend-on-git-configuration) describes. That text follows the verifier's attributes, as 0.8.1 did.
   The verifier now rejects such a note when its text shows "Binary files ... differ" for a file whose content is text. The message names the file.
   This applies only when that earlier text reproduces the note's digest. A digest that neither text reproduces fails with "review fingerprint does not match the Git diff", whatever the checkout's attributes.
-  That text uses Git's default `core.bigFileThreshold`, as the previous entry describes, so a lowered threshold on the verifier does not cause this.
+  That text uses Git's default `core.bigFileThreshold`, as [the Git configuration entry](#unreleased-review-patches-no-longer-depend-on-git-configuration) describes, so a lowered threshold on the verifier does not cause this.
 - Review evidence recorded against attribute-shaped text does not carry to a new head. The review runs again and now sees the content.
-- The bounded read that checks `[diff] max_bytes`, described in the previous entry, builds the same attribute-free text. To decide which files are binary it still reads every changed blob, keeping only the first 8,000 bytes of each, before it reads any patch text.
-- Earlier verifiers rebuild attribute-shaped text, so they reject a note that this release writes for a repository whose attributes changed a patch. Upgrade the protected verifier before, or together with, the local publisher and the hook, as the previous entry already requires.
+- Which files are binary is decided from the blobs the commits hold. A replacement object under `refs/replace` does not change that decision, as it does not change the patch.
+- The bounded read that checks `[diff] max_bytes`, described in [the bounded read entry](#unreleased-an-oversized-diff-is-measured-with-a-bounded-read), builds the same attribute-free text. To decide which files are binary it still reads every changed blob, keeping only the first 8,000 bytes of each, before it reads any patch text.
+- Earlier verifiers rebuild attribute-shaped text, so they reject a note that this release writes for a repository whose attributes changed a patch. Upgrade the protected verifier before, or together with, the local publisher and the hook, as [the Git configuration entry](#unreleased-review-patches-no-longer-depend-on-git-configuration) already requires.
 
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.

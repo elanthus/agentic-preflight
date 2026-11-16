@@ -220,13 +220,17 @@ set to `true` is exact.
 ## Diff attribute refused (exit 3, `review_diff_attribute`)
 
 `$GIT_DIR/info/attributes` on this machine sets a `diff` attribute that would change
-the review patch: a diff driver with a hunk-header pattern, or `diff` on a binary file.
+the review patch: a diff driver with a hunk-header pattern, `diff` on a binary file, or
+a driver that prints a binary file as text, such as one with `diff.<driver>.binary = false`.
 Git configuration that sets `diff.default.xfuncname` or `diff.default.funcname` has the
 same effect on every file and is refused the same way.
 A verifier on another machine cannot see that file, so the tool refuses rather than
 hash text nobody else can rebuild. Show the user the message. Do not edit the file
 yourself; the user removes the named entry or setting, then the same command is retried.
-Committed `.gitattributes` files never cause this: review patches ignore them.
+Committed `.gitattributes` files never cause this for a new review: review patches ignore
+them. The one exception is a note from 0.8.1 or earlier, whose review text followed them;
+when the message says that review never saw a file, validate the commit again instead of
+removing anything.
 
 ## No command configured (exit 2, `needs_command`)
 

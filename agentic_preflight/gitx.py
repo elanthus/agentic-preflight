@@ -1283,7 +1283,8 @@ def _binary_blobs(
     if not wanted:
         return set()
     binary: set[str] = set()
-    args = ("cat-file", "--batch-command")
+    # Like the diff, read the blobs the commits hold, not a clone-local replacement.
+    args = ("--no-replace-objects", "cat-file", "--batch-command")
     with tempfile.TemporaryFile() as errors:
         process = subprocess.Popen(
             [_git_executable(), *args],
@@ -1490,14 +1491,22 @@ def _check_binary_markers(
         marked = _has_binary_marker(block)
         is_binary = any(oid in binary for oid in blobs)
         if marked and not is_binary:
+            if strict:
+                raise ReviewDiffError(
+                    f"Git reported {shown} as binary, but its content is text. "
+                    "A Git attribute hides this patch from review."
+                )
             raise ReviewDiffError(
-                f"Git reported {shown} as binary, but its content is text. "
-                "A Git attribute hides this patch from review."
+                f"The earlier review text shows {shown} as binary, but its content is "
+                "text, so that review never saw it. Validate the commit again to "
+                "replace the note."
             )
         if strict and changed and is_binary and not marked:
             raise ReviewDiffError(
-                f"Git printed binary file {shown} as text. "
-                "A Git attribute changes this patch on this machine only."
+                f"Git printed binary file {shown} as text. A diff driver that "
+                "$GIT_DIR/info/attributes names for it, such as one with "
+                "diff.<driver>.binary = false, prints its content on this machine only. "
+                "Remove that entry."
             )
 
 
