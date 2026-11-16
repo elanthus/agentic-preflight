@@ -378,3 +378,18 @@ def test_only_a_missing_ref_reads_as_an_absent_branch(feature_repo, tmp_path):
     outside.mkdir()
     with pytest.raises(GitError):
         tip_exists(str(outside), "HEAD")
+
+
+def test_a_detached_head_is_reported_when_the_checkout_cannot_be_opened(feature_repo, tmp_path):
+    """The shared repository still records the worktree's HEAD."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    on_branch = _commit(wt, "ON BRANCH", "work on the branch")
+    git("checkout", "-q", "--detach", cwd=wt)
+    detached = _commit(wt, "DETACHED", "work on a detached HEAD")
+    (Path(wt) / ".git").unlink()
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert {on_branch, detached} <= set(refused["data"]["fix_commits"])
+    forced = agent.run("abort", "--force")
+    assert {on_branch, detached} <= set(forced["data"]["discarded_fix_commits"])

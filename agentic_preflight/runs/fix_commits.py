@@ -225,14 +225,27 @@ def _changes_tree(cwd: str, sha: str) -> bool:
         return True
 
 
+def _recorded_worktree_head(repo: str, checkout: str) -> str | None:
+    """The ``HEAD`` the shared repository records for a checkout, if it lists one.
+
+    Git keeps each linked worktree's ``HEAD`` in the shared repository, so it can be
+    read even when the checkout's own ``.git`` file is gone.
+    """
+    target = Path(checkout).resolve()
+    for record in gitx.list_worktrees(repo):
+        if "worktree" in record and Path(record["worktree"]).resolve() == target:
+            return record.get("HEAD") or None
+    return None
+
+
 def listed_branch_commits(session: Session, run: RunDoc, *, best_effort: bool = False) -> list[str]:
     """Every commit after the reviewed head on ``HEAD`` or the validation branch.
 
     A plain listing, with none of :func:`branch_fix_commits`'s checks: what ``abort``
     names, and what it weighs, when the history cannot be derived. Empty commits
     change no tree and are left out, as everywhere else. The branch ref is read from
-    the shared repository, where it lives, and ``HEAD`` from the checkout when its
-    directory exists. A tip that does not exist holds nothing; any other failure,
+    the shared repository, where it lives, and ``HEAD`` both from the checkout when its
+    directory exists and from the shared repository's record of that worktree. A tip that does not exist holds nothing; any other failure,
     such as a checkout Git cannot open, raises ``gitx.GitError``, or with
     ``best_effort`` skips that tip, so a report still names what the others hold.
     """
@@ -242,6 +255,15 @@ def listed_branch_commits(session: Session, run: RunDoc, *, best_effort: bool = 
         tips.append((str(session.repo_root), f"refs/heads/{run.worktree_branch}"))
     if checkout and Path(str(checkout)).is_dir():
         tips.append((str(checkout), "HEAD"))
+    if checkout:
+        try:
+            recorded = _recorded_worktree_head(str(session.repo_root), str(checkout))
+        except gitx.GitError:
+            if not best_effort:
+                raise
+            recorded = None
+        if recorded:
+            tips.append((str(session.repo_root), recorded))
     listed: list[str] = []
     for cwd, tip in tips:
         try:
