@@ -10,6 +10,7 @@ and check that the review snapshot does not move.
 
 from __future__ import annotations
 
+import dataclasses
 import subprocess
 from pathlib import Path
 
@@ -436,6 +437,49 @@ def test_a_note_that_an_attribute_hid_content_from_does_not_verify(
         )
     with pytest.raises(attestation.InvalidAttestation):
         attestation.verify(feature_repo, sha, purpose="publish")
+
+
+def test_the_earlier_format_returns_the_manifest_of_the_checked_text(
+    feature_repo, tmp_path, monkeypatch
+):
+    """Attributes are read for each build, so the checked rebuild must be what is returned."""
+
+    def earlier_release(cwd, base, head, paths, **_):
+        blocks = gitx._patches(cwd, base, head, paths)
+        return {path: "".join(blocks[path]) for path in paths}
+
+    with monkeypatch.context() as patched:
+        patched.setattr(gitx, "diff_text_by_path", earlier_release)
+        patched.setattr(
+            gitx,
+            "diff_text_by_path_bounded",
+            lambda cwd, base, head, paths, **_: gitx.BoundedPatches(
+                earlier_release(cwd, base, head, paths), complete=True
+            ),
+        )
+        green_run(feature_repo, tmp_path)
+    sha = git("rev-parse", "HEAD", cwd=feature_repo)
+    note = attestation.read(feature_repo, sha)
+    assert note is not None
+    origin = note.evidence[Stage.REVIEW].origin
+    real = diff.build_bundle
+
+    def changes_between_builds(*args, **kwargs):
+        bundle = real(*args, **kwargs)
+        if kwargs.get("legacy") and kwargs.get("refuse_hidden", True):
+            # The checked rebuild saw different text from the matched build.
+            first = bundle.files[0]
+            return dataclasses.replace(
+                bundle, per_file={**bundle.per_file, first: bundle.per_file[first] + "+x\n"}
+            )
+        return bundle
+
+    monkeypatch.setattr(diff, "build_bundle", changes_between_builds)
+
+    with pytest.raises(ValueError, match="review fingerprint does not match the Git diff"):
+        refresh_validation._manifest(
+            feature_repo, origin, head=origin.head_sha, base=origin.base_sha
+        )
 
 
 def test_a_mismatched_digest_is_a_plain_mismatch_despite_a_hiding_attribute(feature_repo, tmp_path):

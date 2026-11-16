@@ -51,8 +51,15 @@ def _manifest(repo: Path | str, origin: OriginalExecution, *, head: str, base: s
     else:
         raise ValueError("review fingerprint does not match the Git diff")
     if legacy:
-        # Raises ReviewDiffError when the matched text hides a text file.
-        diff.build_bundle(repo, base, head, exclude=cfg.diff.exclude, legacy=True)
+        # Rebuild with the hidden-content check, which raises ReviewDiffError when the
+        # text hides a text file, and return that bundle's manifest: attributes are
+        # read again for each build, so the checked text must be the matched text.
+        checked = diff.build_bundle(repo, base, head, exclude=cfg.diff.exclude, legacy=True)
+        manifest = diff.build_review_manifest(
+            repo, checked, grounding_sha256=fingerprint.grounding_sha256
+        )
+        if manifest.diff_sha256 != fingerprint.diff_sha256:
+            raise ValueError("review fingerprint does not match the Git diff")
     if tuple(sorted(manifest.excluded_files)) != fingerprint.excluded_files:
         raise ValueError("review exclusions do not match the Git diff")
     return manifest
