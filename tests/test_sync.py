@@ -470,7 +470,7 @@ class _CountingPath(str):
     def __eq__(self, other: object) -> bool:
         type(self).comparisons += 1
         if type(self).comparisons > type(self).budget:
-            raise AssertionError("deduplication compared paths more than linearly often")
+            raise AssertionError("compared paths more than linearly often")
         return str.__eq__(self, other)
 
     __hash__ = str.__hash__
@@ -490,7 +490,59 @@ def test_obstructed_paths_deduplicates_in_linear_comparisons(tmp_path, monkeypat
     monkeypatch.setattr(_CountingPath, "comparisons", 0)
     monkeypatch.setattr(_CountingPath, "budget", 3 * count)
     _fake_git(monkeypatch, {"diff": [first, second], "ls-files": []})
+    _no_local_files(monkeypatch)
 
     # No path exists locally, so nothing is obstructed and Git is not asked again.
     assert sync._obstructed_paths(tmp_path, "before", ["one", "two"]) == []
-    assert _CountingPath.comparisons <= 3 * count
+    # Each repeated path is compared once against its first occurrence. Fewer comparisons
+    # mean the counting paths were bypassed and the budget checked nothing.
+    assert _CountingPath.comparisons >= count
+
+
+def _no_local_files(monkeypatch) -> None:
+    monkeypatch.setattr(sync.Path, "exists", lambda self, **kwargs: False)
+    monkeypatch.setattr(sync.Path, "is_symlink", lambda self: False)
+
+
+def _every_path_exists(monkeypatch) -> None:
+    monkeypatch.setattr(sync.Path, "exists", lambda self, **kwargs: True)
+
+
+def _reference_filter(candidates: list[str], untracked: list[str]) -> list[str]:
+    """The original quadratic filter, kept as the specification for the linear one."""
+    return [
+        path
+        for path in candidates
+        if any(found == path or found.startswith(f"{path}/") for found in untracked)
+    ]
+
+
+def test_obstructed_paths_filter_matches_the_reference_on_edge_cases(tmp_path, monkeypatch):
+    candidates = ["a", "a/", "ab", "a/b", "b", "c//d", "c", "c/", "x/y", "x", "y", "z/w"]
+    untracked = ["a/b", "ab", "c//d/e", "x/y", "y/", "z/w/v/u"]
+    _fake_git(
+        monkeypatch,
+        {"diff": ["\0".join(candidates) + "\0"], "ls-files": ["\0".join(untracked) + "\0"]},
+    )
+    _every_path_exists(monkeypatch)
+
+    expected = _reference_filter(candidates, untracked)
+    assert expected == ["a", "ab", "a/b", "c//d", "c", "c/", "x/y", "x", "y", "z/w"]
+    assert sync._obstructed_paths(tmp_path, "before", ["one"]) == expected
+
+
+def test_obstructed_paths_filters_untracked_files_in_linear_comparisons(tmp_path, monkeypatch):
+    count = 100_000
+    directories = [f"dir-{index}" for index in range(count)]
+    # Every other added directory holds an untracked file; the rest hold nothing.
+    untracked = [f"{directory}/file.txt" for directory in directories[::2]]
+    added = _CountingOutput("\0".join(directories) + "\0")
+    listed = _CountingOutput("\0".join(untracked) + "\0")
+    monkeypatch.setattr(_CountingPath, "comparisons", 0)
+    monkeypatch.setattr(_CountingPath, "budget", 3 * count)
+    _fake_git(monkeypatch, {"diff": [added], "ls-files": [listed]})
+    _every_path_exists(monkeypatch)
+
+    assert sync._obstructed_paths(tmp_path, "before", ["one"]) == directories[::2]
+    # Each obstructed directory is compared once when it is found among the matches.
+    assert _CountingPath.comparisons >= count // 2

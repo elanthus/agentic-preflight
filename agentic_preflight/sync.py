@@ -216,11 +216,16 @@ def _obstructed_paths(worktree_path: Path | str, before: str, trees: list[str]) 
         ).stdout.split("\0")
         if path
     ]
-    return [
-        path
-        for path in candidates
-        if any(found == path or found.startswith(f"{path}/") for found in untracked)
-    ]
+    # A candidate is obstructed when it is an untracked path or a directory above one, so
+    # collect every untracked path and each of its parent prefixes once.
+    matched: set[str] = set()
+    for found in untracked:
+        matched.add(found)
+        slash = found.find("/")
+        while slash != -1:
+            matched.add(found[:slash])
+            slash = found.find("/", slash + 1)
+    return [path for path in candidates if path in matched]
 
 
 def _merge_base_in(
