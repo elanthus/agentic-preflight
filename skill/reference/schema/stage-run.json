@@ -33,6 +33,19 @@
       "default": null,
       "title": "Attempts"
     },
+    "baseline_cleanup_failed": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Baseline Cleanup Failed"
+    },
     "baseline_red": {
       "default": null,
       "title": "Baseline Red"

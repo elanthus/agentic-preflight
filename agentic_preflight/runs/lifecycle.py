@@ -38,6 +38,7 @@ from ._session import (
     start_command,
     worktree_mode,
 )
+from .fix_commits import patch_unlanded
 
 
 def events(session: Session, *, limit: int | None = None) -> Envelope:
@@ -658,17 +659,7 @@ def _unlanded_fix_commits(repo: Path, run: RunDoc) -> list[str]:
     branch moves; compare stable patch IDs within that reviewed history.
     """
     try:
-        landed_patch_ids = {
-            patch_id
-            for patch_id in gitx.patch_ids(repo, run.merge_base_sha, run.head_sha).values()
-            if patch_id is not None
-        }
-        return [
-            sha
-            for sha in run.fix_commits
-            if (patch_id := gitx.commit_patch_id(repo, sha)) is None
-            or patch_id not in landed_patch_ids
-        ]
+        return patch_unlanded(repo, list(run.fix_commits), run.merge_base_sha, run.head_sha)
     except gitx.GitError:
         # Missing or corrupt history is not permission to destroy the only
         # remaining ref to a fix. Report it as unmerged and require --force.

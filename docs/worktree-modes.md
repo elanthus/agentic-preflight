@@ -71,6 +71,10 @@ An uncommitted change or an unaccounted branch movement stops the run.
 In-place mode reuses the checkout's existing dependency environment. It does not run an automatic install.
 An explicit `setup_command` still runs.
 
+A `--baseline` stage is the one exception to working in the current checkout.
+It checks out the base commit in a scratch worktree under the same root that isolated modes use, never inside `.git`.
+See [Where isolated worktrees live](#where-isolated-worktrees-live).
+
 ## `reusable`
 
 This mode leases one validation worktree under the user cache directory.
@@ -116,7 +120,27 @@ Remote CI must stay the clean verification boundary in both isolated modes.
 Both isolated modes default to one directory per clone under `$XDG_CACHE_HOME/agentic-preflight/worktrees/`.
 When `XDG_CACHE_HOME` is unset or is not an absolute path, the default is `~/.cache/agentic-preflight/worktrees/`.
 The location is outside `.git`, so tools such as Jest discover tests.
-Set `[worktree] root` to select another location. It must be outside the repository.
+Set `[worktree] root` to select another location. It must be outside the repository and outside the Git common directory, which a linked checkout keeps elsewhere.
+
+The scratch worktree for a `--baseline` stage is the `<run-id>-baseline` entry in the same directory, in every mode, including `in_place`.
+It is on the branch `ap/<run-id>-baseline`. Both are removed when the baseline check ends, whether the command passed or failed.
+If someone locks the scratch worktree with `git worktree lock` while it runs, it is left in place without its branch.
+The baseline result still stands. The stage envelope reports `data.baseline_cleanup_failed` with the path, and the run's event log records a `baseline_cleanup_failed` event.
+Until the worktree is unlocked, a later `--baseline` check fails with `setup_failed` and names the locked path.
+Unlock it with `git worktree unlock <path>` when you no longer need it, then retry. The retry removes the leftover before it checks out the base.
+
+A baseline that is killed, for example by SIGTERM, skips its cleanup and leaves the scratch worktree and its branch.
+The next `--baseline` check of the same run reclaims them.
+It removes the scratch path only when Git registers it as a worktree, including a registration whose directory is gone, and only while its `HEAD` is still the run's base commit. Uncommitted changes there do not keep it, because a killed command often leaves output behind. It never deletes an unregistered directory there.
+If the scratch worktree's `HEAD` has moved, someone may have worked in it: the check fails with `setup_failed`, names the worktree, and leaves it alone. Remove it yourself, then retry.
+It deletes `ap/<run-id>-baseline` only when the branch still points at the run's base commit and no worktree has it checked out.
+A worktree that holds the branch is removed first only when it is a clean, unlocked `<run-id>-baseline` checkout at the base commit, such as one that an earlier release created under `.git`.
+If the branch points anywhere else, it may hold someone's work: the check fails with `setup_failed`, names the branch, and leaves it alone. Remove or rename the branch yourself, then retry.
+If another worktree has the branch checked out, Git cannot delete or rename it. The check fails with `setup_failed` and names that worktree. Remove that worktree yourself, then retry.
+
+By design, `gc` never reclaims baseline leftovers. The stage envelope and the next `--baseline` check report them.
+A leftover still on its `ap/<run-id>-baseline` branch, such as one a killed check left, appears in the `start` housekeeping report as `retained`, and `gc` lists its name among the orphans.
+A detached leftover that cleanup could not remove has no branch. `gc` does not list it, and the housekeeping report lists it only in isolated modes, whose scan covers the worktree root.
 
 ### Migrating from the sibling default
 

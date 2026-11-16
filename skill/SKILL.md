@@ -206,6 +206,7 @@ to summarize the user's run history.
 | Git operation already in progress (exit 3, `operation_in_progress`) | Stop; the user must finish or abort it |
 | Merge-back conflict (exit 4, isolated modes only) | Inspect and show `data.resolution`; resolve only an unambiguous, recoverable result permitted by the merge-back contract, then re-run `mergeback`, or stop |
 | Recorded fixes never landed (exit 4, `fixes_not_landed`) | Do not retry `mergeback`; tell the user, `abort`, and start a new run to revalidate |
+| Moved branch lacks recorded fixes (exit 4, `fix_commits_unmerged`) | Tell the user; cherry-pick `data.missing_fix_commits` onto the source branch, resolving any conflict, then re-run `mergeback`, or stop. Record an empty pick (`git commit --allow-empty`) only after checking that the branch already holds that fix's content, since it asserts so and only the restarted review checks the claim |
 | Run started by an earlier release (exit 4, `needs_human`, `data.reason` `unknown_config_provenance`) | Do not retry `mergeback`, `gate`, or `push`; show the message to the user. Keep `data.fix_commits` before any `abort --force`, then start a new run so the note leaves out user-level configuration |
 | Stage red after max attempts (exit 4) | Stop retrying; show a stage log, or abort if baseline setup never produced one |
 | Validation restarted too many times (exit 4, `max_restarts`) | Stop repairing; show `status` and wait for the user. Never abort and restart on your own to reset the counter |
@@ -215,6 +216,7 @@ to summarize the user's run history.
 | Merge in the validation history (exit 3, `nonlinear_fix_history`) | Remove the named merge commits from the validation branch, keeping your own repairs as linear commits on the reviewed head, then rerun the command |
 | Stale head (exit 3, `stale_run`) | Run `start` again; it preserves the old run as `ORPHANED` |
 | Base synchronization failed at start (exit 4, `sync_conflict` or `sync_failed`) | Print the whole `data` object; the user resolves the listed conflicts, moves or removes listed local files, or fixes the remote, then `abort --force` and `start` again |
+| Run left in `CREATED` or `WORKTREE_READY` after `start` died | Run `start` again; it preserves the interrupted run as `ORPHANED` and creates a fresh one. If it exits 4 (`needs_human`) naming a checkout and the head it must return to, show it to the user; do not discard its changes yourself. Once the user has made it clean at that head, `start` again |
 | Interrupted legacy update | Follow `status` from the recorded source worktree; below the restart limit, `start` retires interrupted validation and discards its journal while preserving audit history and user work. At the limit, stop for the user’s abort/restart decision |
 | Abandoned run | `status --all`; inspect explicitly with `--run RUN_ID` |
 | Unreadable shared run record | Preserve the record and ownership; inspect its path. Only if a compatible version cannot read it either and the user decides to abandon the run, delete just the pointers a refused mutating command lists in `data.pointer_paths` (`in_place` and `strict` runs only). Without that field, as for a `reusable` run, delete nothing and stop for the user |
@@ -224,6 +226,7 @@ to summarize the user's run history.
 | Record a dismissal, acceptance, or abort | Always pass the closest `--reason`, `other` if none fits; specifics go in `--note` |
 | Stage far slower than normal | Check `[worktree] mode` before raising `max_attempts` |
 | Locked validation worktree (exit 1, `git_error`, or `gc` retains `validation worktree is locked`) | Show the user the message and path; never run `git worktree unlock` yourself. Retry only after the user unlocks it |
+| Baseline scratch worktree left behind (`data.baseline_cleanup_failed`, or exit 2 `setup_failed` naming a locked `-baseline` path) | Show the user `worktree_path` and `detail`; never run `git worktree unlock`, and never remove the worktree or delete its branch yourself. If it is locked, retry the same `--baseline` stage only after the user unlocks it; otherwise the retry reclaims it while it is still at the base commit. For a `setup_failed` that names an existing `ap/<run-id>-baseline` branch, or the worktree holding it, show it to the user; never delete, rename, or remove either yourself |
 | Copy refused (exit 3) | `copy_files` entry is not gitignored; do not work around it |
 | Stage reports zero files to work on | Check whether `worktree_path` is under `.git/` |
 | Green in your shell, red in a stage | Compare the stage's non-interactive toolchain and `PATH` with your shell |

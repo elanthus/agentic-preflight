@@ -43,7 +43,8 @@ Thus, command review and in-harness review share one submission path.
 - `runs/stages.py` coordinates, in this order: freshness and recovery checks, committed repairs, attempt limits, output protection, local execution, and result persistence.
   A dirty validation worktree or a repair that requires renewed review stops before local execution.
 - `runs/stage_baseline.py` owns the scratch baseline worktree and setup-failure recovery.
-  It returns whether the baseline command failed.
+  It returns whether the baseline command failed, and any scratch worktree it could not remove. A cleanup failure never replaces that result.
+  Before it creates the scratch worktree, it reclaims the leftovers of an earlier check of the same run, or refuses by name.
   On setup failure, it records a red attempt and raises with the same baseline retry command. It does not manufacture a test result.
   A failing baseline never turns a failing local stage green.
 

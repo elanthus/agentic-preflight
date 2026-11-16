@@ -41,7 +41,7 @@ from .fix_commits import derive_fix_commits, record_fix_commits
 from .log_window import DEFAULT_TAIL_LINES, read_log_window
 from .review import _skip_test_if_not_applicable
 from .review_coverage import invalidate_stage_result, reopen_if_stale
-from .stage_baseline import check_baseline
+from .stage_baseline import BaselineOutcome, check_baseline, cleanup_instruction
 
 
 class _StageSpec(TypedDict):
@@ -295,6 +295,16 @@ def _persist_stage_result(
         return doc
 
 
+def _warn_about_baseline_leftover(envelope: Envelope, baseline: BaselineOutcome | None) -> Envelope:
+    """Warn on a passing stage too, not only when a later --baseline trips over it."""
+    if baseline is not None and baseline.cleanup_failure:
+        warning = cleanup_instruction(baseline.cleanup_failure)
+        envelope.next_instruction = " ".join(
+            part for part in (envelope.next_instruction, warning) if part
+        )
+    return envelope
+
+
 def _stage_failure(
     run: RunDoc,
     stage_name: str,
@@ -302,7 +312,7 @@ def _stage_failure(
     data: dict,
     redaction_failure_reason: str | None,
     redaction_error,
-    baseline_red,
+    baseline: BaselineOutcome | None,
 ) -> NoReturn:
     """Raise the failure variant selected by output protection and baseline status."""
     message = f"the {stage_name} stage failed (exit {result.exit_code})"
@@ -313,7 +323,7 @@ def _stage_failure(
             "Restore every copied file to its intended contents, then retry the stage. "
             "Commands must not rewrite [worktree] copy_files."
         )
-    elif baseline_red:
+    elif baseline is not None and baseline.red:
         message = (
             f"the {stage_name} stage failed, but the base commit fails it too — "
             f"this is pre-existing, not caused by the diff"
@@ -322,6 +332,8 @@ def _stage_failure(
             "The base commit already fails this stage, so the change under review is "
             "not responsible. Tell the user rather than trying to fix it here."
         )
+    if baseline is not None and baseline.cleanup_failure:
+        instruction += " " + cleanup_instruction(baseline.cleanup_failure)
     raise StageFailed(
         message,
         state=run.state.value,
@@ -405,11 +417,11 @@ def run_stage(
 
     _check_attempt_limit(session, run, stage, record_entry)
     resolved = _resolve_command(session, run, stage_name, command)
-    baseline_red = None
+    baseline_outcome: BaselineOutcome | None = None
     input_fingerprint = None
 
     def begin() -> None:
-        nonlocal run, baseline_red, input_fingerprint
+        nonlocal run, baseline_outcome, input_fingerprint
         with session.store.transaction(run.run_id) as doc:
             apply_action(doc, spec["retry"] if doc.state is spec["red"] else spec["run"])
             doc.setup_failure = None
@@ -418,10 +430,10 @@ def run_stage(
             entry.head_sha = gitx.rev_parse(worktree_path, "HEAD")
             doc.stages[stage] = entry
             run = doc
-        baseline_red = None
+        baseline_outcome = None
         if baseline:
             with timing.timed_command(session.store, run.run_id, "baseline"):
-                baseline_red = check_baseline(
+                baseline_outcome = check_baseline(
                     session, run, stage, resolved, failure_action=spec["failed"]
                 )
         input_fingerprint = evidence.fingerprint(session, run, stage, command=resolved, clean=True)
@@ -484,14 +496,17 @@ def run_stage(
         data["copied_file"] = str(redaction_error.path)
     if result.copied_files_changed:
         data["copied_files"] = run.copied_files
-    if baseline_red is not None:
-        data["baseline_red"] = baseline_red
+    if baseline_outcome is not None:
+        data["baseline_red"] = baseline_outcome.red
+        if baseline_outcome.cleanup_failure:
+            data["baseline_cleanup_failed"] = baseline_outcome.cleanup_failure
 
     if result.passed:
         if stage is Stage.LINT:
             run = _skip_test_if_not_applicable(session, run)
         run = evidence.advance(session, run, clean=clean_after)
-        return envelope_for(run, stage=stage_name, data=StageRunData.model_validate(data))
+        envelope = envelope_for(run, stage=stage_name, data=StageRunData.model_validate(data))
+        return _warn_about_baseline_leftover(envelope, baseline_outcome)
 
     _stage_failure(
         run,
@@ -500,7 +515,7 @@ def run_stage(
         data,
         redaction_failure_reason,
         redaction_error,
-        baseline_red,
+        baseline_outcome,
     )
 
 

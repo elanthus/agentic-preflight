@@ -40,7 +40,10 @@ def _diff_text(cwd, base: str, head: str = "HEAD") -> str:
 
 
 def _diff_text_for_path(cwd, base: str, head: str, path: str) -> str:
-    """Return the diff for one path between the merge base and head."""
+    """Return the diff for one path between the merge base and head.
+
+    Full object IDs, as review patches carry them; every other option is Git's default.
+    """
     return gitx.run(
         cwd,
         "diff",
@@ -48,6 +51,7 @@ def _diff_text_for_path(cwd, base: str, head: str, path: str) -> str:
         "--no-textconv",
         "--no-color",
         "--no-renames",
+        "--full-index",
         f"{base}...{head}",
         "--",
         f":(literal){path}",
@@ -398,10 +402,10 @@ def test_diff_text_by_path_batches_many_files(tmp_repo, monkeypatch):
         calls += 1
         return real_run(cwd, *args, **kwargs)
 
-    def recording_run_bytes(cwd, *args):
+    def recording_run_bytes(cwd, *args, **kwargs):
         nonlocal calls
         calls += 1
-        return real_run_bytes(cwd, *args)
+        return real_run_bytes(cwd, *args, **kwargs)
 
     monkeypatch.setattr(gitx, "run", recording_run)
     monkeypatch.setattr(gitx, "_run_bytes", recording_run_bytes)
@@ -838,6 +842,29 @@ def test_windows_raw_git_path_diff_selects_inventory_once(tmp_repo, monkeypatch)
     assert len(calls) == 1
 
 
+def test_windows_streamed_diff_runs_without_git_diff_opts(tmp_repo, monkeypatch):
+    """``GIT_DIFF_OPTS`` would change the context length on this branch too."""
+    raw_name = b"caf\xe9.txt"
+    commit = _commit_raw_paths(tmp_repo, [raw_name])
+    requested = [raw_name.decode("utf-8", errors="surrogateescape")]
+    monkeypatch.setenv("GIT_DIFF_OPTS", "-u7")
+    monkeypatch.setattr(gitx, "_WINDOWS_PATH_ARGUMENTS", True)
+    original = subprocess.Popen
+    environments = []
+
+    def popen(args, **kwargs):
+        environments.append(kwargs.get("env"))
+        return original(args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+
+    gitx.diff_text_by_path(tmp_repo, "main", commit, requested)
+
+    assert len(environments) == 1
+    assert environments[0] is not None
+    assert "GIT_DIFF_OPTS" not in environments[0]
+
+
 @pytest.mark.parametrize("chunk_size", [1, 2, 7, 11, 64 * 1024])
 def test_patch_stream_headers_follow_lf_and_preserve_bytes(chunk_size):
     first = b"diff --git a/one b/one\n+hello\rdiff --git a/fake b/fake\rmore\n"
@@ -912,15 +939,23 @@ def test_crlf_patch_text_and_digests_match_main(tmp_repo):
 
     bundle = diff_module.build_bundle(tmp_repo, "HEAD~1", "HEAD")
     manifest = diff_module.build_review_manifest(tmp_repo, bundle)
+    earlier = diff_module.build_bundle(tmp_repo, "HEAD~1", "HEAD", full_index=False)
+    earlier_manifest = diff_module.build_review_manifest(tmp_repo, earlier)
 
     # Values computed with main's text-mode decoding before the byte-split change.
-    assert hashlib.sha256(bundle.text.encode()).hexdigest() == (
+    # Notes from 0.8.1 and earlier record them, so the abbreviated format keeps them.
+    assert hashlib.sha256(earlier.text.encode()).hexdigest() == (
         "6e99453702fcbb1be74d16ea51a2fc0bc9bbee874879c4bb842eb791e3666f44"
     )
+    assert earlier_manifest.diff_sha256 == (
+        "6e99453702fcbb1be74d16ea51a2fc0bc9bbee874879c4bb842eb791e3666f44"
+    )
+    # Full object IDs change the file header and nothing inside a hunk.
     assert manifest.diff_sha256 == (
-        "6e99453702fcbb1be74d16ea51a2fc0bc9bbee874879c4bb842eb791e3666f44"
+        "89a3f679bedb130ada4cf144088006a18ab70e7eab3ff61e6933cfbe6b3b2874"
     )
-    assert [unit.digest for unit in manifest.units] == [
-        "260f79bfed5421811142664fbeec72c91df66872417ba092e9734645815f1790"
-    ]
+    for built in (manifest, earlier_manifest):
+        assert [unit.digest for unit in built.units] == [
+            "260f79bfed5421811142664fbeec72c91df66872417ba092e9734645815f1790"
+        ]
     assert "\r" not in bundle.per_file["a.txt"]

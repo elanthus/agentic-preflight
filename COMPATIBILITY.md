@@ -173,6 +173,11 @@ Before downgrading, finish or abort the runs that this release started. A record
 
 ## Compatibility changes
 
+`mergeback` has a new error code, `fix_commits_unmerged`, with exit 4.
+A conflict retry returns it when the source branch moved but lacks a recorded fix commit, instead of resetting the validation branch and clearing `fix_commits`.
+Its `data` holds `missing_fix_commits`, `fix_commits`, `post_sha`, and `worktree_path`, and the run returns to `MERGEBACK_CONFLICT`.
+The run record and attestation schemas are unchanged.
+
 Agentic Preflight 0.7.0 requires Click 8.2 or newer.
 Documentation inventory entries no longer contain `exists`.
 Detected command candidates no longer contain `trust`.
@@ -659,6 +664,65 @@ Unlike them, it reads its own stdin and writes its own stdout and stderr as UTF-
 It passes the same provider CLI options as the example wrappers, including `--safe-mode` and `--setting-sources user` for Claude and `project_doc_max_bytes=0` and `--ignore-rules` for Codex.
 The example wrappers in `docs/examples/reviewers/` stay as deprecated standard-library copies for one release. A test keeps them identical to the packaged reviewer, and they still run with `python3 -S -B`.
 The configuration file, the review submission, and the attestation schema are unchanged.
+
+## Unreleased: the baseline check runs outside the Git directory
+
+`stage run --baseline` now checks out the base commit under the validation-worktree root in every mode, including `in_place`, instead of under `.git` in `in_place` mode.
+The root is the user cache by default, or `[worktree] root`.
+In `in_place` mode, a `[worktree] root` inside the repository now makes `--baseline` fail with `setup_failed` (kind `worktree`). Isolated modes already refuse such a root at `start`.
+A `[worktree] root` inside the Git common directory is now refused in every mode: at `start` in isolated modes, and as a `--baseline` setup failure in `in_place` mode. From a linked checkout such a root used to pass, because the common directory is outside the checkout.
+The `stage run` envelope adds an optional `data.baseline_cleanup_failed` object (`worktree_path`, `branch`, `detail`) when the scratch worktree could not be removed, and the run's event log adds a matching `baseline_cleanup_failed` event. Both are additive.
+A baseline setup failure can carry the same `data.baseline_cleanup_failed` object.
+The `stage-run.json` schema gains that property. Run schema 2 and attestation schema 7 are unchanged.
+
+## Unreleased: review patches no longer depend on Git configuration
+
+The review digest hashes the patch text of the change, and a verifier accepts a note only when it can rebuild that text.
+Earlier releases built it with the Git configuration of the machine that ran the command.
+A producer and a verifier with different settings then disagreed about the same commits, and `verify`, `push`, and the pre-push hook failed with "review fingerprint does not match the Git diff".
+
+Review patches now have one form on every machine:
+
+- The `index` line of each patch names full object IDs. Earlier releases abbreviated them to a length that `core.abbrev` sets and that Git otherwise raises as a clone gains objects.
+- These settings no longer change the patch text or the list of changed files: `core.quotePath`, `core.bigFileThreshold`, `core.precomposeUnicode`, `diff.noprefix`, `diff.srcPrefix`, `diff.dstPrefix`, `diff.algorithm`, `diff.context`, `diff.interHunkContext`, `diff.indentHeuristic`, `diff.suppressBlankEmpty`, `diff.submodule`, `diff.ignoreSubmodules`, `diff.relative`, `diff.orderFile`, and `diff.default.binary`.
+  Each is fixed to Git's default.
+  `core.bigFileThreshold` turned a larger text file's patch into "Binary files ... differ", and so did `diff.default.binary = true` for every file without a `diff` attribute.
+  `core.precomposeUnicode`, which Git on macOS sets at `git init`, stopped `context` with an internal error for a path whose name the tree stores in decomposed Unicode.
+- `submodule.<name>.ignore` no longer drops a submodule pointer change, whether it is set in local configuration or in a `.gitmodules` file that the branch itself commits.
+- The `GIT_DIFF_OPTS` environment variable no longer changes the number of context lines.
+- Replacement objects under `refs/replace` are ignored. They exist in one clone only, and a review built with them could show content that the commits do not hold.
+- The user-level attributes file (`core.attributesFile`, by default `$XDG_CONFIG_HOME/git/attributes`) is not read for review patches.
+
+Attributes are not fixed.
+A `.gitattributes` file in the checkout, `$GIT_DIR/info/attributes`, `attr.tree`, `GIT_ATTR_SOURCE`, and a system-wide attributes file still apply.
+A `-diff` attribute or a `diff` driver set there still changes the patch text.
+A driver takes its definition from `diff.<driver>.*` configuration, so a driver that an attribute names can still differ between machines, as `$GIT_DIR/info/attributes` can.
+`diff.default.xfuncname` and `diff.default.funcname` still change the hunk headers of every file without a `diff` attribute, because Git has no value that restores the built-in rule.
+
+What changes at upgrade:
+
+- `diff_sha256`, the review manifest, and the digest of each file-level review unit change for every diff that has an `index` line, because that line changed. A diff with only mode changes or an empty diff is unchanged.
+  A file-level unit is a patch without hunks, such as a binary change. Hunk unit digests are unchanged.
+- A note that 0.8.1 or an earlier release wrote still verifies when its producer left each setting above at Git's default, or when a setting it changed did not change that note's patch text, when the verifier's clone abbreviates object IDs to the same length as the producer's clone did, and when the attributes and driver settings that still apply, as described above, give the verifier the same patch text as they gave the producer.
+  For example, a `-diff` attribute in the producer's `$GIT_DIR/info/attributes` makes a file's patch binary there, while a verifier clone without that attribute builds a text patch, so neither text matches the note.
+  When the full-ID text does not reproduce a note's digest, the verifier also builds the abbreviated text and accepts the note if that text matches.
+  The other settings above are fixed to Git's default for that text too, and the note does not record the producer's values, so they cannot be restored.
+  A producer that set one of those settings to another value may therefore have written a note that fails, even on the machine that wrote it, if the value changed the patch. For example, `diff.context = 5` adds context lines to a hunk that has more unchanged lines around it, but leaves a one-line file's patch unchanged.
+  The verifier builds the abbreviated text with Git's default length, whatever its own `core.abbrev` says.
+  The verifier tries that text for any note, not only for notes from 0.8.1 and earlier. Until the fallback goes in 0.10.0 (row 12 of [the removal plan](docs/maintainers/compatibility-removal-plan.md)), a file-level patch in that format, such as a binary change, binds its content only by an abbreviated object ID. Hunks carry their full content, so they are not affected. A verifier clone that holds both blobs disambiguates them, because Git lengthens an abbreviation until it is unique.
+  Git picks that default length from the number of objects in the clone, so the note can fail in a clone whose object count gives a different length, even when its producer used every default.
+  A note for a change whose committed `.gitmodules` set `submodule.<name>.ignore = all` on a changed submodule fails on every machine, because 0.8.1 left that pointer change out of the patch and both texts now include it.
+  When verification fails for any of these reasons, validate the commit again to replace the note.
+- Review evidence that an earlier release recorded does not carry to a new head. The review runs again.
+- A run that an earlier release reviewed and that is still open reopens review at its next command.
+  The shell stages run again after the new review.
+- 0.8.1 and earlier verifiers reject a note that this release writes, with "review fingerprint does not match the Git diff".
+  Upgrade the protected verifier before, or together with, the local publisher and the hook.
+
+A repository that sets `diff.ignoreSubmodules = all`, or `submodule.<name>.ignore = all` in its configuration or its committed `.gitmodules`, now sees submodule pointer changes in the review diff, the changed-file list, risk classification, and the list of paths a fix commit changes.
+Earlier releases left them out.
+
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
 ## Unreleased: an open auto-fix finding stops the run at its stage
 
