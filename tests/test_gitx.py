@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import tracemalloc
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -1077,3 +1078,17 @@ def test_attestation_notes_written_before_stdin_still_verify(feature_repo, tmp_p
 
     assert gitx.note_blobs(feature_repo, attestation.NOTES_REF)[sha] == legacy_blob
     attestation.verify(feature_repo, sha)
+
+
+def test_list_worktrees_keeps_a_path_with_line_breaks(tmp_repo, tmp_path):
+    """Porcelain output prints paths raw, so records are split on NUL."""
+    odd = tmp_path / "line\nbreak\rpath"
+    git("worktree", "add", "-q", "--detach", str(odd), cwd=tmp_repo)
+    head = git("rev-parse", "HEAD", cwd=tmp_repo)
+
+    records = gitx.list_worktrees(tmp_repo)
+
+    match = [r for r in records if Path(r["worktree"]).resolve() == odd.resolve()]
+    assert len(match) == 1
+    assert match[0]["HEAD"] == head
+    assert "detached" in match[0]
