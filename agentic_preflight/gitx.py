@@ -1424,9 +1424,9 @@ def _patch_lines(patch: str) -> list[str]:
 def _has_binary_marker(block: str) -> bool:
     """Whether a patch block is Git's "Binary files ... differ" form.
 
-    The marker is the last line of a block that has no hunks. Decoding reads a
-    lone CR as a line break, so file content can fake a marker line only inside
-    a hunk, and a block with a hunk is not binary.
+    The marker is the last line of a block that has no hunks. Lines split on LF
+    only, so file content can put a marker-like line in a block only inside a
+    hunk, and a block with a hunk is not binary.
     """
     lines = _patch_lines(block)
     return (
