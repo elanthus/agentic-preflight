@@ -244,10 +244,11 @@ def listed_branch_commits(session: Session, run: RunDoc, *, best_effort: bool = 
     A plain listing, with none of :func:`branch_fix_commits`'s checks: what ``abort``
     names, and what it weighs, when the history cannot be derived. Empty commits
     change no tree and are left out, as everywhere else. The branch ref is read from
-    the shared repository, where it lives, and ``HEAD`` both from the checkout when its
-    directory exists and from the shared repository's record of that worktree. A tip that does not exist holds nothing; any other failure,
-    such as a checkout Git cannot open, raises ``gitx.GitError``, or with
-    ``best_effort`` skips that tip, so a report still names what the others hold.
+    the shared repository, where it lives, and ``HEAD`` both from the checkout when
+    its directory exists and from the shared repository's record of that worktree.
+    A tip that does not exist holds nothing; any other failure, such as a checkout
+    Git cannot open, raises ``gitx.GitError``, or with ``best_effort`` skips that
+    tip, so a report still names what the others hold.
     """
     checkout = run.worktree_path
     tips: list[tuple[str, str]] = []
