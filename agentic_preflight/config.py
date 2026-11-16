@@ -77,8 +77,23 @@ def _repo_relative_pattern(value: str) -> str:
 RepoRelativePattern = Annotated[str, AfterValidator(_repo_relative_pattern)]
 
 
+#: The default bound on a fetch, notes fetch, remote query, or push.
+DEFAULT_NETWORK_TIMEOUT_SECONDS = 600
+
+
 class GeneralSection(_Section):
     base_ref: str = "main"
+    #: Seconds a Git command that contacts the remote may run before it is stopped.
+    network_timeout_seconds: int = Field(default=DEFAULT_NETWORK_TIMEOUT_SECONDS, ge=1)
+
+    @model_serializer(mode="wrap")
+    def omit_defaults(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # Omitting the default keeps snapshots, and the digests over them, identical
+        # to those that releases without this key wrote.
+        data = handler(self)
+        if self.network_timeout_seconds == DEFAULT_NETWORK_TIMEOUT_SECONDS:
+            data.pop("network_timeout_seconds", None)
+        return data
 
 
 class CommandsSection(_Section):
@@ -489,10 +504,18 @@ def committed_config(repo: Path | str, revision: str) -> Config:
     """Read protected configuration at a revision, defaulting when absent."""
     from . import gitx
 
-    if not gitx.out(repo, "ls-tree", "--name-only", revision, "--", REPO_CONFIG_NAME):
-        return Config()
+    # Reading the file first costs one Git process when it exists, which it does in
+    # every configured repository. Only a failed read asks whether the file is absent,
+    # so a missing file still means the defaults and any other failure still raises.
+    shown = gitx.run(repo, "show", f"{revision}:{REPO_CONFIG_NAME}", check=False)
+    if shown.returncode:
+        if not gitx.out(repo, "ls-tree", "--name-only", revision, "--", REPO_CONFIG_NAME):
+            return Config()
+        raise gitx.GitError(
+            ["show", f"{revision}:{REPO_CONFIG_NAME}"], shown.returncode, shown.stderr
+        )
     try:
-        policy = tomllib.loads(gitx.out(repo, "show", f"{revision}:{REPO_CONFIG_NAME}"))
+        policy = tomllib.loads(shown.stdout.strip())
         if "telemetry" in policy:
             # The same repository rule load_config applies, so a protected base
             # that load_config accepts also verifies.

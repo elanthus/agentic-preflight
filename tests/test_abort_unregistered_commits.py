@@ -53,6 +53,8 @@ def test_abort_refuses_to_delete_a_commit_nothing_registered(feature_repo, tmp_p
 
     assert refused["error"]["code"] == "unmerged_work"
     assert refused["data"]["fix_commits"] == [fix]
+    # The branch, not just the worktree, holds them, and abort deletes both.
+    assert "validation branch" in refused["next"]["instruction"]
     assert git("rev-parse", "HEAD", cwd=wt) == fix
 
 
@@ -262,3 +264,71 @@ def test_abort_force_names_the_branch_commits_when_the_checkout_is_gone(feature_
 
     assert forced["state"] == "ABORTED"
     assert sorted(forced["data"]["discarded_fix_commits"]) == sorted(on_branch)
+
+
+def test_a_checkout_detached_at_an_older_commit_does_not_block_abort(feature_repo, tmp_path):
+    """Nothing after the reviewed head is on HEAD or the branch, so nothing is at risk."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    git("checkout", "-q", "--detach", "HEAD~1", cwd=wt)
+
+    env = agent.run("abort")
+
+    assert env["state"] == "ABORTED"
+
+
+def test_an_empty_commit_on_the_branch_is_not_work(feature_repo, tmp_path):
+    """Empty commits are left out whether or not the checkout still exists."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    git("commit", "-q", "--allow-empty", "-m", "nothing", cwd=wt)
+    shutil.rmtree(wt)
+
+    env = agent.run("abort")
+
+    assert env["state"] == "ABORTED"
+
+
+def test_an_empty_commit_alone_does_not_block_abort_on_an_unreadable_history(
+    feature_repo, tmp_path
+):
+    """A branch that no longer descends from the reviewed head is listed plainly."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    git("reset", "-q", "--hard", "HEAD~1", cwd=wt)
+    git("commit", "-q", "--allow-empty", "-m", "nothing", cwd=wt)
+
+    env = agent.run("abort")
+
+    assert env["state"] == "ABORTED"
+
+
+def test_a_missing_reusable_runner_keeps_its_branch(feature_repo, tmp_path):
+    """Releasing a missing runner leaves the branch, so its commits are not at risk."""
+    configure_base(feature_repo, STRICT.replace("'strict'", "'reusable'"))
+    agent = ScriptedAgent(feature_repo)
+    wt = agent.run("start")["data"]["worktree_path"]
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    assert agent.run("stage", "run", "test")["state"] == "TEST_GREEN"
+    branch = git("branch", "--show-current", cwd=wt)
+    fix = _commit(wt, "FIXED", "fix after the tests")
+    shutil.rmtree(wt)
+
+    env = agent.run("abort")
+
+    assert env["state"] == "ABORTED"
+    assert git("rev-parse", f"refs/heads/{branch}", cwd=feature_repo) == fix
+
+
+def test_an_in_place_abort_with_a_commit_is_unchanged(feature_repo, tmp_path):
+    """In place, the commit is on the source branch, which abort keeps."""
+    configure_base(feature_repo, STRICT.replace("'strict'", "'in_place'"))
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    fix = _commit(feature_repo, "FIXED", "commit in place")
+
+    env = agent.run("abort")
+
+    assert env["state"] == "ABORTED"
+    assert git("rev-parse", "HEAD", cwd=feature_repo) == fix
