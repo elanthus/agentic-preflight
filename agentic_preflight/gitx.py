@@ -1882,8 +1882,9 @@ _ATTRIBUTE_STATES = frozenset({"unspecified", "unset", "set"})
 
 
 def _diff_driver_config(cwd: Path | str, env: Mapping[str, str]) -> tuple[set[str], set[str]]:
-    """Return the drivers that set a hunk-header pattern, and those that set ``binary``
-    to false, which makes Git print a binary file's content as text.
+    """Return the drivers that set a hunk-header pattern, and those whose ``binary``
+    value is false, which makes Git print a binary file's content as text, or is one
+    Git would reject (see :func:`_forces_text`).
 
     One query reads both. As in Git, the last value of a key wins. ``default`` is
     left out of the second set: the pinned options set its ``binary`` to ``auto``.

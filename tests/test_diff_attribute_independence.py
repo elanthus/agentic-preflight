@@ -311,10 +311,25 @@ def test_a_replacement_object_cannot_pass_the_earlier_format_guard(change):
     [
         [("diff.printer.binary", "auto")],
         [("diff.printer.binary", "true")],
+        [("diff.printer.binary", "1")],
+        [("diff.printer.binary", "0x1")],
+        [("diff.printer.binary", "01")],
+        [("diff.printer.binary", "1K")],
+        [("diff.printer.binary", "On")],
         [("diff.printer.binary", "false"), ("diff.printer.binary", "true")],
         [("diff.default.binary", "false")],
     ],
-    ids=["auto", "true", "last-value-wins", "default-is-pinned"],
+    ids=[
+        "auto",
+        "true",
+        "one",
+        "hex-one",
+        "octal-one",
+        "unit-one",
+        "mixed-case-on",
+        "last-value-wins",
+        "default-is-pinned",
+    ],
 )
 def test_a_driver_that_keeps_a_binary_file_binary_is_not_refused(change, settings):
     """Only a driver whose effective ``binary`` is false prints binary content."""
