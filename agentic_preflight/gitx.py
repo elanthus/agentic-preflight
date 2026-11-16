@@ -80,11 +80,26 @@ def _git_executable() -> str:
 class GitError(Exception):
     """A git invocation exited non-zero."""
 
-    def __init__(self, args: list[str], returncode: int, stderr: str) -> None:
-        super().__init__(f"git {' '.join(args)} failed ({returncode}): {stderr.strip()}")
+    def __init__(
+        self, args: list[str], returncode: int, stderr: str, *, message: str | None = None
+    ) -> None:
+        super().__init__(message or f"git {' '.join(args)} failed ({returncode}): {stderr.strip()}")
         self.args_list = args
         self.returncode = returncode
         self.stderr = stderr
+
+
+class NotOnBranch(GitError):
+    """HEAD is a symbolic ref to something other than a branch.
+
+    ``symbolic-ref`` itself succeeds here, so there is no failing exit status to report;
+    the message names the ref instead. Handlers of ``GitError`` still catch it.
+    """
+
+    def __init__(self, ref: str) -> None:
+        message = f"HEAD points at {ref}, which is not a branch"
+        super().__init__(["symbolic-ref", "--quiet", "HEAD"], 0, "", message=message)
+        self.ref = ref
 
 
 class GitVersionError(Exception):
@@ -207,8 +222,34 @@ def _lines(text: str) -> list[str]:
 
 
 def current_branch(cwd: Path | str) -> str:
-    """Return the name of the checked-out branch."""
-    return out(cwd, "rev-parse", "--abbrev-ref", "HEAD")
+    """Return the name of the checked-out branch, or ``"HEAD"`` when detached.
+
+    ``rev-parse --abbrev-ref`` disambiguates a branch that shares its name with a
+    tag to ``heads/<name>``, and a refspec built from that publishes to the wrong
+    ref. ``symbolic-ref`` names the branch HEAD points at exactly.
+    """
+    result = run(cwd, "symbolic-ref", "--quiet", "HEAD", check=False)
+    ref = result.stdout.strip()
+    if result.returncode == 1 and not ref:
+        return "HEAD"
+    if result.returncode != 0:
+        raise GitError(["symbolic-ref", "--quiet", "HEAD"], result.returncode, result.stderr)
+    # Plumbing can point HEAD at any ref under refs/; only a branch has a name to publish.
+    if not ref.startswith("refs/heads/"):
+        raise NotOnBranch(ref)
+    return ref.removeprefix("refs/heads/")
+
+
+def current_branch_or_none(cwd: Path | str) -> str | None:
+    """Return ``current_branch``, or ``None`` when HEAD points at a ref that is not a branch.
+
+    For comparisons against a recorded branch or the detached ``"HEAD"``: ``None``
+    matches neither, so a non-branch HEAD reads as a mismatch rather than a Git failure.
+    """
+    try:
+        return current_branch(cwd)
+    except NotOnBranch:
+        return None
 
 
 def rev_parse(cwd: Path | str, ref: str) -> str:
