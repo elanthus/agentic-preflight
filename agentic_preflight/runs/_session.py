@@ -496,19 +496,15 @@ OPEN_AUTO_FIX_INSTRUCTION = (
 )
 
 
-def unresolved_findings(session: Session, run: RunDoc, stages: Sequence[Stage]) -> list[Finding]:
-    """Findings in ``stages`` that block, or that are open auto-fix findings.
-
-    This is the set an attestation refuses, so a run must clear it before it leaves
-    the stage that recorded it. Blocking findings come first within each stage.
-    """
-    return [finding for finding, _ in _unresolved(session, run, stages)]
-
-
 def _unresolved(
     session: Session, run: RunDoc, stages: Sequence[Stage]
 ) -> list[tuple[Finding, bool]]:
-    """Each unresolved finding with whether it blocks."""
+    """Each finding in ``stages`` that an attestation refuses, with whether it blocks.
+
+    That is a blocking finding or an open auto-fix finding, so a run must clear it
+    before it leaves the stage that recorded it. Blocking findings come first within
+    each stage.
+    """
     stored = session.store.load_findings(run.run_id)
     result: list[tuple[Finding, bool]] = []
     seen: set[str] = set()

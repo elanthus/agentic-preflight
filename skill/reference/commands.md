@@ -609,10 +609,13 @@ which an earlier release allowed, cannot attest it. `mergeback` refuses it with 
 `open_findings` before it records an attempt, changes the source branch, or writes a note.
 `blocking` lists the findings and `data.fix_commits` the fix commits;
 `next` is `abort`, because `respond` is no longer legal. Fix or decide each finding, then
-start a fresh run. In isolated modes, before merge-back, a commit made after the last
-`respond` is on the validation branch but not yet recorded. The refusal from `mergeback`
-or `stage run lint|test` lists and records every such commit, so a plain `abort` then
-stops with `unmerged_work` rather than deleting the branch. A run left in `MERGEBACK_PENDING` by that release's internal error may
+start a fresh run. From `TEST_GREEN`, `mergeback` first checks whether the validation
+branch changed since the tests; a changed run returns to review, where `respond` is legal
+again, instead of being refused. In isolated modes, before merge-back, a commit made after
+the last `respond` is on the validation branch but not yet recorded. The refusal from
+`mergeback` or `stage run lint|test` lists and records every such commit, and `abort`
+counts them too, so a plain `abort` stops with `unmerged_work` rather than deleting the
+branch. A run left in `MERGEBACK_PENDING` by that release's internal error may
 already have moved the source branch. In isolated modes the instruction then says the
 branch may already hold the fix commits, so check before cherry-picking any; otherwise it
 says to cherry-pick them before `abort --force`. In place, the fix commits are already on
@@ -699,8 +702,10 @@ after `gc`.
 While the run holds a finding that a guarded command refuses with `open_findings`, `next`
 gives that refusal's instruction: `respond` in `REVIEW_GREEN` or `DOCS_GREEN`, and
 `abort` in any lint, test, or merge-back state, where `respond` is no longer legal.
-`stage run lint|test` refuses such a run from a lint or test state the same way. In
-`MERGEBACK_CONFLICT`, `data.mergeback_conflict` still carries the conflict report.
+`stage run lint|test` refuses such a run from a lint or test state the same way. While
+`next` is that `abort`, `data.fix_commits` lists the refusal's fix commits, including
+commits on the validation branch that are not yet recorded. In `MERGEBACK_CONFLICT`,
+`data.mergeback_conflict` still carries the conflict report.
 
 For a structurally readable active run with invalid stage-origin digests, single-run
 status succeeds with `data.readable = true`, `data.evidence_valid = false`, and
@@ -754,7 +759,9 @@ timestamps are suitable for intervals within one host boot.
 
 ### `agentic-preflight abort [--force] [--reason REASON]`
 Ends the run and releases the worktree. Exits 5 if unmerged fix commits would be lost;
-`--force` discards them.
+`--force` discards them. In isolated modes, from a lint or test state, these include
+commits on the validation branch that no `respond` or stage registered yet; `data.fix_commits`
+lists them all.
 A `strict` validation worktree locked with `git worktree lock` is never deleted:
 the command exits 1 with `git_error` naming the worktree, and the run keeps its state.
 Show the user the message; do not unlock it yourself.

@@ -729,7 +729,8 @@ Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 `context --section docs` and `stage run lint` now refuse, with exit 3 and the new error code `open_findings`, to leave a green review or docs stage while one of its findings is an open `auto_fix` finding.
 Earlier releases continued to lint, test, and `mergeback`, where `respond` was no longer legal and `mergeback` failed with `internal_error` after moving the run to `MERGEBACK_PENDING`.
 `mergeback` now refuses such a run, from an earlier release, with exit 3 and `open_findings` before it records an attempt, and its `next` is `abort`.
-In isolated modes, that refusal, and the same refusal from `stage run lint|test`, adds to `fix_commits` any commit on the validation branch made after the last `respond`, so a plain `abort` stops with `unmerged_work` instead of deleting it.
+In isolated modes, that refusal, and the same refusal from `stage run lint|test`, adds to `fix_commits` any commit on the validation branch made after the last `respond`.
+`abort` from a lint or test state in an isolated mode now counts such commits even when nothing recorded them, and exits 5 with `unmerged_work` where it used to delete them with the branch; `--force` still discards them.
 `status` now gives the refusal's `next` for such a run, and `verify` no longer skips a disabled docs stage while an auto-fix finding is open.
 A run that resolves each auto-fix finding with `respond`, as `next` already said, is unaffected.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.

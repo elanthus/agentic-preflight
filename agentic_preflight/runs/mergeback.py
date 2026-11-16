@@ -480,7 +480,9 @@ def require_resolved_findings(session: Session, run: RunDoc) -> None:
     The review and docs stages refuse to hand off such a finding, but a run that an
     earlier release advanced can still carry one here, where `respond` is no longer
     legal. Say so before anything is recorded; an earlier crashed attempt may already
-    have moved the branch, which the refusal's instruction accounts for.
+    have moved the branch, which the refusal's instruction accounts for. At
+    ``TEST_GREEN`` the caller checks first whether changed inputs reopen review,
+    where `respond` is legal again.
     """
     if run.state in _MERGEBACK_STATES:
         refuse_open_findings_past_respond(session, run, command="mergeback")
@@ -500,7 +502,8 @@ def mergeback(session: Session) -> Envelope:
             run_id=run.run_id,
         )
     require_known_provenance(run, command="mergeback")
-    require_resolved_findings(session, run)
+    if run.state is not State.TEST_GREEN:
+        require_resolved_findings(session, run)
 
     retrying_conflict = run.state is State.MERGEBACK_CONFLICT or (
         run.state is State.MERGEBACK_PENDING
@@ -522,6 +525,7 @@ def mergeback(session: Session) -> Envelope:
                 data=MergebackData(coverage_invalidated=True),
                 next_command="agentic-preflight context",
             )
+        require_resolved_findings(session, run)
         if not in_place:
             run = _register_validated_history(session, run)
     require_state(

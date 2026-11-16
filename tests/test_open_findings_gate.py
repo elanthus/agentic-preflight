@@ -450,3 +450,64 @@ def test_the_moved_branch_check_reads_the_source_branch_not_the_checkout(
     instruction = agent.run("status")["next"]["instruction"]
 
     assert "already moved your branch" in instruction
+
+
+def _stuck_at_test_green_with_a_new_commit(feature_repo, tmp_path, monkeypatch):
+    """A run an earlier release left at TEST_GREEN, whose agent then committed a fix."""
+    configure_base(feature_repo, f"{DOCS_OFF}\n[worktree]\nmode = 'strict'\n")
+    agent = ScriptedAgent(feature_repo)
+    wt = agent.run("start")["data"]["worktree_path"]
+    agent.run("context")
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    assert agent.run("stage", "run", "test")["state"] == "TEST_GREEN"
+    _inject(feature_repo, monkeypatch, _open("F001"))
+    write(wt, "src/app.py", "def greet(name, loud=False):\n    return 'FIXED'\n")
+    git("add", "-A", cwd=wt)
+    git("commit", "-m", "fix after the tests", cwd=wt)
+    return agent, wt, git("rev-parse", "HEAD", cwd=wt)
+
+
+def test_abort_after_status_keeps_an_unregistered_fix_commit(feature_repo, tmp_path, monkeypatch):
+    """Following `status` straight to `abort` must not delete a commit nothing recorded."""
+    agent, wt, fix = _stuck_at_test_green_with_a_new_commit(feature_repo, tmp_path, monkeypatch)
+
+    status = agent.run("status")
+    assert status["next"]["command"] == "agentic-preflight abort"
+    assert status["data"]["fix_commits"] == [fix]
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert refused["error"]["code"] == "unmerged_work"
+    assert refused["data"]["fix_commits"] == [fix]
+    assert git("rev-parse", "HEAD", cwd=wt) == fix
+
+
+def test_mergeback_reopens_review_for_a_changed_run_instead_of_refusing(
+    feature_repo, tmp_path, monkeypatch
+):
+    """Back in review, `respond` is legal again, so the run need not be aborted."""
+    agent, _wt, _fix = _stuck_at_test_green_with_a_new_commit(feature_repo, tmp_path, monkeypatch)
+
+    env = agent.run("mergeback")
+
+    assert env["state"].startswith("REVIEW")
+    assert env["error"] is None
+
+
+def test_lint_refuses_a_review_finding_left_open_at_docs_green(feature_repo, tmp_path, monkeypatch):
+    """Evidence reuse can carry a run from REVIEW_GREEN to DOCS_GREEN past the docs guard."""
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
+    agent.run("context", "--section", "docs")
+    assert agent.run("submit-findings", "--file", _docs_findings_json(tmp_path, []))["state"] == (
+        "DOCS_GREEN"
+    )
+    _inject(feature_repo, monkeypatch, _open("F009"))
+
+    env = agent.run("stage", "run", "lint", expect=ExitCode.PRECONDITION)
+
+    assert env["error"]["code"] == "open_findings"
+    assert [item["id"] for item in env["blocking"]] == ["F009"]
+    assert "respond --id F009" in env["next"]["command"]

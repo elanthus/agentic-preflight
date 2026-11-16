@@ -38,7 +38,7 @@ from ._session import (
     start_command,
     worktree_mode,
 )
-from .fix_commits import patch_unlanded
+from .fix_commits import branch_fix_commits, patch_unlanded
 
 
 def events(session: Session, *, limit: int | None = None) -> Envelope:
@@ -69,13 +69,16 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
     run = load_current(session, allow_interrupted=True)
 
     isolated = not is_in_place(run)
-    if isolated and run.fix_commits and not force:
+    # Before merge-back, a commit made after the last `respond` is on the validation
+    # branch but not yet recorded; releasing the worktree would delete it too.
+    fix_commits = branch_fix_commits(session, run) if isolated else list(run.fix_commits)
+    if isolated and fix_commits and not force:
         raise UnmergedWork(
-            f"this run has {len(run.fix_commits)} fix commit(s) that were never merged "
-            f"back: {', '.join(run.fix_commits)}",
+            f"this run has {len(fix_commits)} fix commit(s) that were never merged "
+            f"back: {', '.join(fix_commits)}",
             state=run.state.value,
             run_id=run.run_id,
-            data={"fix_commits": run.fix_commits, "worktree_path": run.worktree_path},
+            data={"fix_commits": fix_commits, "worktree_path": run.worktree_path},
             next_instruction=(
                 "Those commits exist only in the worktree. Cherry-pick anything worth "
                 "keeping, then abort again with --force to discard the rest."
@@ -100,7 +103,7 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
     return envelope_for(
         run,
         data=AbortData(
-            discarded_fix_commits=run.fix_commits if isolated and force else [],
+            discarded_fix_commits=fix_commits if isolated and force else [],
             preserved_in_place_commits=run.fix_commits if not isolated else [],
         ),
         next_instruction="Run aborted. Start a fresh one when ready.",
@@ -811,6 +814,11 @@ def _set_status_next(
         # The conflict report still describes the source branch the abort leaves.
         if run.state is State.MERGEBACK_CONFLICT:
             data.mergeback_conflict = _latest_conflict(session, run)
+        # The instruction names data.fix_commits; give it the refusal's list, which
+        # includes commits on the validation branch that are not yet recorded.
+        listed = refusal.data.get("fix_commits")
+        if isinstance(listed, list):
+            data.fix_commits = list(listed)
         envelope.next_instruction = refusal.next_instruction
         envelope.next_command = refusal.next_command
     elif run.state is State.MERGEBACK_CONFLICT:
