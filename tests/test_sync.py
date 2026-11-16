@@ -428,3 +428,69 @@ def test_sync_rebase_ignores_pull_twohead(tmp_repo):
     assert merged is False
     assert git("log", "--format=%s", f"{base}..{after}", cwd=tmp_repo) == "feature"
     assert git("show", f"{after}:feature.txt", cwd=tmp_repo) == "feature"
+
+
+# -- obstructed-path detection ------------------------------------------------
+
+
+def _fake_git(monkeypatch, outputs: dict[str, list[str]]) -> None:
+    """Answer ``gitx.run`` from canned output, keyed by the Git subcommand."""
+    queues = {command: list(values) for command, values in outputs.items()}
+
+    def fake_run(cwd, *args, **kwargs):
+        command = next(arg for arg in args if not arg.startswith("-"))
+        return subprocess.CompletedProcess(["git", *args], 0, queues[command].pop(0), "")
+
+    monkeypatch.setattr(gitx, "run", fake_run)
+
+
+def test_obstructed_paths_keeps_first_seen_order_across_trees(tmp_path, monkeypatch):
+    for name in ("b", "a", "e"):
+        (tmp_path / name).write_text("local\n", encoding="utf-8")
+    (tmp_path / "d").mkdir()
+    (tmp_path / "d" / "x").write_text("local\n", encoding="utf-8")
+    _fake_git(
+        monkeypatch,
+        {
+            "diff": ["b\0a\0c\0", "a\0d\0b\0e\0"],
+            # Git lists untracked files sorted; the result must still follow the trees.
+            "ls-files": ["a\0b\0d/x\0"],
+        },
+    )
+
+    assert sync._obstructed_paths(tmp_path, "before", ["one", "two"]) == ["b", "a", "d"]
+
+
+class _CountingPath(str):
+    """A path that counts equality tests, the cost a list membership test pays per element."""
+
+    budget = 0
+    comparisons = 0
+
+    def __eq__(self, other: object) -> bool:
+        type(self).comparisons += 1
+        if type(self).comparisons > type(self).budget:
+            raise AssertionError("deduplication compared paths more than linearly often")
+        return str.__eq__(self, other)
+
+    __hash__ = str.__hash__
+
+
+class _CountingOutput(str):
+    def split(self, sep=None, maxsplit=-1):  # type: ignore[override]
+        return [_CountingPath(part) for part in str.split(self, sep, maxsplit)]
+
+
+def test_obstructed_paths_deduplicates_in_linear_comparisons(tmp_path, monkeypatch):
+    count = 100_000
+    paths = [f"dir/file-{index}.txt" for index in range(count)]
+    # The second tree repeats every path of the first and adds as many again.
+    first = _CountingOutput("\0".join(paths) + "\0")
+    second = _CountingOutput("\0".join(paths + [f"new/{path}" for path in paths]) + "\0")
+    monkeypatch.setattr(_CountingPath, "comparisons", 0)
+    monkeypatch.setattr(_CountingPath, "budget", 3 * count)
+    _fake_git(monkeypatch, {"diff": [first, second], "ls-files": []})
+
+    # No path exists locally, so nothing is obstructed and Git is not asked again.
+    assert sync._obstructed_paths(tmp_path, "before", ["one", "two"]) == []
+    assert _CountingPath.comparisons <= 3 * count

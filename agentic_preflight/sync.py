@@ -189,7 +189,8 @@ def _obstructed_paths(worktree_path: Path | str, before: str, trees: list[str]) 
     rebase first checks out the base, and a directory rename can move a branch file onto
     an ignored local file.
     """
-    added: list[str] = []
+    # A dict keeps the first-seen order and tests membership in constant time.
+    added: dict[str, None] = {}
     for tree in trees:
         output = gitx.run(
             worktree_path,
@@ -201,7 +202,7 @@ def _obstructed_paths(worktree_path: Path | str, before: str, trees: list[str]) 
             before,
             tree,
         ).stdout
-        added.extend(path for path in output.split("\0") if path and path not in added)
+        added.update(dict.fromkeys(path for path in output.split("\0") if path))
     root = Path(worktree_path)
     candidates = [path for path in added if (root / path).exists() or (root / path).is_symlink()]
     if not candidates:
