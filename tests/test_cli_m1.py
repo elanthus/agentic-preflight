@@ -383,7 +383,10 @@ def test_reusable_runner_is_reused_but_secrets_and_nonignored_files_are_not(agen
     write(runner, "node_modules/cache/index.js", "cached\n")
     write(runner, "scratch.txt", "not a cache\n")
 
-    agent.run("abort")
+    # A non-ignored file may be work, so only a forced abort cleans it away.
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+    assert refused["data"]["uncommitted_paths"] == ["scratch.txt"]
+    agent.run("abort", "--force")
 
     assert runner.exists()
     assert not (runner / ".env").exists()
