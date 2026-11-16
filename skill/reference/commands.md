@@ -781,9 +781,13 @@ commits would be lost; `--force` discards them. In `strict` and `reusable` modes
 exits 5 with `unmerged_work` when the validation worktree has uncommitted changes, since
 releasing it removes the worktree or resets and cleans the runner. Untracked files count;
 ignored files and the files `start` copied in do not, the same rule `gc` applies.
-`data.uncommitted_paths` lists every such path, `data.fix_commits` the unmerged fix
-commits, and `data.worktree_path` where both live; one refusal names both. A worktree
-that exists but cannot be inspected also exits 5. `--force` discards the changes too.
+`data.uncommitted_paths` lists up to 200 such paths and `data.uncommitted_path_count`
+counts them all; `data.fix_commits` lists the unmerged fix commits and
+`data.worktree_path` where both live, so one refusal names both. A worktree that exists
+but cannot be inspected also exits 5, with Git's error in `data.inspection_error` and
+`data.uncommitted_paths` and `data.uncommitted_path_count` set to `null`, since unknown
+is not clean; `data.inspection_error` is `null` otherwise. A worktree that no longer
+exists does not stop `abort`. `--force` discards the changes too.
 An `in_place` run never touches the source checkout, so uncommitted changes there do not
 stop `abort`.
 A `strict` validation worktree locked with `git worktree lock` is never deleted:

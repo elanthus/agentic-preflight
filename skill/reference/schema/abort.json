@@ -31,6 +31,18 @@
       "default": null,
       "title": "Fix Commits"
     },
+    "inspection_error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Inspection Error"
+    },
     "max_restarts": {
       "anyOf": [
         {
@@ -103,6 +115,18 @@
       "default": null,
       "description": "Summary outcome written when this command ended a run.",
       "title": "Telemetry"
+    },
+    "uncommitted_path_count": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Uncommitted Path Count"
     },
     "uncommitted_paths": {
       "anyOf": [

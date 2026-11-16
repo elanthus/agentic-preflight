@@ -72,9 +72,9 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
 
     isolated = not is_in_place(run)
     if isolated and not force:
-        uncommitted, uninspectable = _abort_uncommitted_paths(run)
-        if run.fix_commits or uncommitted or uninspectable:
-            raise _unmerged_work(run, uncommitted, uninspectable)
+        uncommitted, inspection_error = _abort_uncommitted_paths(run)
+        if run.fix_commits or uncommitted or inspection_error:
+            raise _unmerged_work(run, uncommitted, inspection_error)
 
     release_run_worktree(session, run)
 
@@ -106,16 +106,19 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
     )
 
 
-#: How many uncommitted paths a refusal message names; ``data`` lists them all.
+#: How many uncommitted paths a refusal message names.
 _MESSAGE_PATH_LIMIT = 10
+#: How many uncommitted paths a refusal lists in ``data``; an untracked tree such as
+#: a dependency directory can hold far more, and ``uncommitted_path_count`` has the total.
+_DATA_PATH_LIMIT = 200
 
 
-def _abort_uncommitted_paths(run: RunDoc) -> tuple[list[str], str | None]:
+def _abort_uncommitted_paths(run: RunDoc) -> tuple[list[str] | None, str | None]:
     """Uncommitted paths that releasing an isolated run's worktree would discard.
 
     Copied files do not count, as in ``gc``. A worktree that is gone holds nothing.
-    One that exists but cannot be inspected may hold work, so the second item is
-    then Git's error, and the abort stops.
+    One that exists but cannot be inspected may hold work: the paths are then
+    ``None`` and the second item is Git's error, and the abort stops.
     """
     path = run.worktree_path
     if not path or run.worktree_released or not Path(path).is_dir():
@@ -123,11 +126,11 @@ def _abort_uncommitted_paths(run: RunDoc) -> tuple[list[str], str | None]:
     try:
         return _uncommitted_paths(run, path), None
     except (gitx.GitError, OSError) as exc:
-        return [], str(exc) or type(exc).__name__
+        return None, str(exc) or type(exc).__name__
 
 
 def _unmerged_work(
-    run: RunDoc, uncommitted: list[str], uninspectable: str | None = None
+    run: RunDoc, uncommitted: list[str] | None, inspection_error: str | None = None
 ) -> UnmergedWork:
     """The refusal that names everything a forced abort would discard."""
     lost: list[str] = []
@@ -143,12 +146,12 @@ def _unmerged_work(
         lost.append(
             f"uncommitted changes to {len(uncommitted)} path(s) in the validation worktree: {named}"
         )
-    if uninspectable:
+    if inspection_error:
         lost.append(
             "a validation worktree that could not be inspected for uncommitted changes: "
-            f"{uninspectable}"
+            f"{inspection_error}"
         )
-    copy = bool(uncommitted or uninspectable)
+    copy = bool(uncommitted or inspection_error)
     if run.fix_commits and copy:
         keep = "Cherry-pick the commits and copy the changes worth keeping"
     elif copy:
@@ -161,7 +164,11 @@ def _unmerged_work(
         run_id=run.run_id,
         data={
             "fix_commits": run.fix_commits,
-            "uncommitted_paths": uncommitted,
+            # ``None``, not ``[]``, when the worktree could not be inspected: unknown
+            # is not clean.
+            "uncommitted_paths": None if uncommitted is None else uncommitted[:_DATA_PATH_LIMIT],
+            "uncommitted_path_count": None if uncommitted is None else len(uncommitted),
+            "inspection_error": inspection_error,
             "worktree_path": run.worktree_path,
         },
         next_instruction=(

@@ -7,6 +7,7 @@ a plain `abort` refuses the same way, and `--force` still discards the changes.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -47,6 +48,8 @@ def test_abort_refuses_to_discard_uncommitted_changes(agent, feature_repo, mode)
 
     assert refused["error"]["code"] == "unmerged_work"
     assert sorted(refused["data"]["uncommitted_paths"]) == ["notes/draft.txt", "src/app.py"]
+    assert refused["data"]["uncommitted_path_count"] == 2
+    assert refused["data"]["inspection_error"] is None
     assert refused["data"]["fix_commits"] == []
     assert refused["data"]["worktree_path"] == str(wt)
     assert "notes/draft.txt" in refused["error"]["message"]
@@ -136,9 +139,10 @@ def test_in_place_abort_leaves_uncommitted_changes_alone(agent, feature_repo):
     assert (wt / "notes" / "draft.txt").read_text(encoding="utf-8") == "half-finished fix\n"
 
 
-def test_abort_refuses_when_the_worktree_cannot_be_inspected(agent, feature_repo):
+@pytest.mark.parametrize("mode", ["strict", "reusable"])
+def test_abort_refuses_when_the_worktree_cannot_be_inspected(agent, feature_repo, mode):
     """A worktree Git cannot read may still hold work, so a plain abort stops."""
-    _, wt = _start(agent, feature_repo, "strict")
+    _, wt = _start(agent, feature_repo, mode)
     write(wt, "notes/draft.txt", "half-finished fix\n")
     (wt / ".git").write_text("gitdir: /nonexistent/agentic-preflight-test\n", encoding="utf-8")
 
@@ -146,6 +150,10 @@ def test_abort_refuses_when_the_worktree_cannot_be_inspected(agent, feature_repo
 
     assert refused["error"]["code"] == "unmerged_work"
     assert "could not be inspected" in refused["error"]["message"]
+    # Unknown is not clean: `data` must not look like an empty worktree.
+    assert refused["data"]["uncommitted_paths"] is None
+    assert refused["data"]["uncommitted_path_count"] is None
+    assert refused["data"]["inspection_error"]
     assert refused["data"]["worktree_path"] == str(wt)
     assert refused["next"]["command"] == "agentic-preflight abort --force"
     assert (wt / "notes" / "draft.txt").is_file()
@@ -171,3 +179,28 @@ def test_an_uninspectable_worktree_refusal_still_names_the_fix_commits(
     assert "could not be inspected" in refused["error"]["message"]
     assert refused["data"]["fix_commits"] == [sha]
     assert "Cherry-pick the commits" in refused["next"]["instruction"]
+
+
+def test_abort_lists_a_bounded_number_of_paths(agent, feature_repo):
+    """An untracked tree can hold thousands of files; the envelope stays small."""
+    _, wt = _start(agent, feature_repo, "strict")
+    for index in range(205):
+        write(wt, f"build/out/{index:03}.txt", "generated\n")
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert refused["data"]["uncommitted_path_count"] == 205
+    assert len(refused["data"]["uncommitted_paths"]) == 200
+    assert "205 path(s)" in refused["error"]["message"]
+    assert "and 195 more" in refused["error"]["message"]
+
+
+@pytest.mark.parametrize("mode", ["strict", "reusable"])
+def test_abort_succeeds_when_the_validation_worktree_is_gone(agent, feature_repo, mode):
+    """A deleted worktree holds nothing to keep, so it must not block a plain abort."""
+    _, wt = _start(agent, feature_repo, mode)
+    shutil.rmtree(wt)
+
+    env = agent.run("abort")
+
+    assert env["state"] == "ABORTED"

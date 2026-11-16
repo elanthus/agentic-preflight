@@ -436,6 +436,8 @@ class AbortData(RunDataBase):
     preserved_in_place_commits: list[str] | None = None
     fix_commits: list[str] | None = None
     uncommitted_paths: list[str] | None = None
+    uncommitted_path_count: int | None = None
+    inspection_error: str | None = None
     worktree_path: str | None = None
 
 

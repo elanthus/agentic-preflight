@@ -784,9 +784,10 @@ Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
 In `strict` and `reusable` modes, releasing the validation worktree removes it or resets and cleans the runner, and a plain `abort` used to discard uncommitted changes there without asking.
 `abort` now exits 5 with `unmerged_work` when the validation worktree has uncommitted changes, untracked files included, apart from ignored files and the files `start` copied in: the rule `gc` already applies before it releases a worktree.
-The refusal adds `data.uncommitted_paths`, which lists every such path, and keeps `data.fix_commits` and `data.worktree_path`; when the run also has unmerged fix commits, one refusal names both.
-A validation worktree that exists but cannot be inspected also exits 5 with `unmerged_work`.
+The refusal adds `data.uncommitted_paths`, which lists up to 200 such paths, `data.uncommitted_path_count`, which counts them all, and `data.inspection_error`, and keeps `data.fix_commits` and `data.worktree_path`; when the run also has unmerged fix commits, one refusal names both.
+A validation worktree that exists but cannot be inspected also exits 5 with `unmerged_work`; then `data.inspection_error` holds Git's error and `data.uncommitted_paths` and `data.uncommitted_path_count` are `null`, so a wrapper must not read an empty list as a clean worktree.
+A validation worktree that no longer exists does not stop `abort`.
 `--force` still discards the changes, as before.
 A wrapper or agent that ran a plain `abort` after leaving files in the validation worktree, for example after a setup command that writes untracked files, must handle exit 5 or pass `--force`.
-`in_place` runs are unchanged. The abort schema adds the optional `uncommitted_paths` property.
+`in_place` runs are unchanged. The abort schema adds the optional `uncommitted_paths`, `uncommitted_path_count`, and `inspection_error` properties.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
