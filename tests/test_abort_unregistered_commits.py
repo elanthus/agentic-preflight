@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 import json
+from pathlib import Path
 
 from agentic_preflight import worktree
 from agentic_preflight.envelope import ExitCode
@@ -134,3 +135,72 @@ def test_an_in_place_abort_is_unchanged(feature_repo, tmp_path):
 
     assert env["state"] == "ABORTED"
     assert json.loads(json.dumps(env["data"]))["discarded_fix_commits"] == []
+
+
+def test_abort_protects_a_commit_made_in_review_before_respond(feature_repo, tmp_path):
+    """The window between committing a fix and answering it is the usual case."""
+    configure_base(feature_repo, STRICT)
+    agent = ScriptedAgent(feature_repo)
+    wt = agent.run("start")["data"]["worktree_path"]
+    agent.run("context")
+    finding = {"path": "src/app.py", "severity": "high", "action": "auto_fix", "title": "defect"}
+    blocked = agent.run("submit-findings", "--file", findings_json(tmp_path, [finding]))
+    assert blocked["state"] == "REVIEW_BLOCKED"
+    fix = _commit(wt, "FIXED", "fix not yet answered")
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert refused["error"]["code"] == "unmerged_work"
+    assert refused["data"]["fix_commits"] == [fix]
+
+
+def test_abort_reads_the_branch_when_the_checkout_is_detached(feature_repo, tmp_path):
+    """Release deletes the branch, so a detached checkout must not hide its commits."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    head = git("rev-parse", "HEAD", cwd=wt)
+    fix = _commit(wt, "FIXED", "fix after the tests")
+    git("checkout", "-q", "--detach", head, cwd=wt)
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert refused["data"]["fix_commits"] == [fix]
+
+
+def test_an_unreadable_history_stops_a_plain_abort(feature_repo, tmp_path):
+    """A merge on the validation branch cannot be derived; it may still hold work."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    head = git("rev-parse", "HEAD", cwd=wt)
+    git("switch", "-q", "-c", "side", cwd=wt)
+    _commit(wt, "SIDE", "side work")
+    git("switch", "-q", "-", cwd=wt)
+    write(wt, "README.md", "work on the validation branch\n")
+    git("add", "-A", cwd=wt)
+    git("commit", "-q", "-m", "work", cwd=wt)
+    git("merge", "-q", "--no-ff", "-m", "merge side", "side", cwd=wt)
+    git("branch", "-q", "-D", "side", cwd=wt)
+    assert git("rev-parse", "HEAD", cwd=wt) != head
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert refused["error"]["code"] == "unmerged_work"
+    assert "cannot be read" in refused["error"]["message"]
+    assert refused["next"]["command"] == "agentic-preflight abort --force"
+    assert agent.run("abort", "--force")["state"] == "ABORTED"
+
+
+def test_the_aborted_event_records_what_force_discarded(feature_repo, tmp_path):
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    fix = _commit(wt, "FIXED", "fix after the tests")
+
+    env = agent.run("abort", "--force")
+
+    events_file = (
+        Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo))
+        / "agentic-preflight"
+        / "runs"
+        / env["run_id"]
+        / "events.jsonl"
+    )
+    events = [json.loads(line) for line in events_file.read_text(encoding="utf-8").splitlines()]
+    aborted = next(event for event in events if event.get("event") == "aborted")
+    assert aborted["discarded_fix_commits"] == [fix]

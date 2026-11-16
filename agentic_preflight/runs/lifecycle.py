@@ -39,7 +39,7 @@ from ._session import (
     unresolved_next_hint,
     worktree_mode,
 )
-from .fix_commits import branch_fix_commits, patch_unlanded
+from .fix_commits import UnreadableFixHistory, branch_fix_commits, patch_unlanded
 
 
 def events(session: Session, *, limit: int | None = None) -> Envelope:
@@ -58,11 +58,26 @@ def events(session: Session, *, limit: int | None = None) -> Envelope:
 def _abort_fix_commits(session: Session, run: RunDoc, *, force: bool) -> list[str]:
     """The fix commits an isolated abort protects, or with ``force`` reports discarding.
 
-    ``--force`` is the way out of a run, so with it a branch history that cannot be
-    read only narrows the report to the recorded commits; it never blocks the abort.
+    Without ``--force``, a branch history that cannot be read may hold work, so the
+    abort stops, as ``gc`` does. ``--force`` is the way out of a run, so with it such
+    a history only narrows the report to the recorded commits.
     """
     if not force:
-        return branch_fix_commits(session, run)
+        try:
+            return branch_fix_commits(session, run)
+        except UnreadableFixHistory as exc:
+            raise UnmergedWork(
+                "the validation branch history cannot be read, so it may hold commits "
+                f"that were never merged back: {exc}",
+                state=run.state.value,
+                run_id=run.run_id,
+                data={"fix_commits": list(run.fix_commits), "worktree_path": run.worktree_path},
+                next_instruction=(
+                    "Inspect the validation worktree and cherry-pick anything worth keeping, "
+                    "then abort again with --force to discard the rest."
+                ),
+                next_command="agentic-preflight abort --force",
+            ) from exc
     try:
         return branch_fix_commits(session, run)
     except Exception:  # noqa: BLE001 - the report must not block the forced abort
@@ -108,6 +123,9 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
     # The marker commits with the transition, so the run summary written at the
     # terminal commit can record whether the abort was forced, why, and from where.
     marker: dict[str, object] = {"event": "aborted", "forced": force, "reason": reason}
+    if isolated and force:
+        # Unregistered commits are recorded nowhere else, so keep them for recovery.
+        marker["discarded_fix_commits"] = fix_commits
     with session.store.transaction(run.run_id, events=[marker]) as doc:
         # The state the transition leaves: the ``from`` of its state_transition event.
         marker["aborted_from_state"] = doc.state.value

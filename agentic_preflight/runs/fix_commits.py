@@ -146,10 +146,20 @@ def record_fix_commits(run: RunDoc, derived: list[str]) -> list[str]:
     return added
 
 
-#: States in which a commit made after the last ``respond`` may not be registered yet.
-#: Merge-back registers the whole validated history at ``TEST_GREEN``.
+#: States in which the validation branch can hold commits that nothing registered:
+#: from the end of the base synchronization, which fixes ``head_sha``, until
+#: merge-back registers the validated history.
 _UNREGISTERED_STATES = frozenset(
     {
+        State.SYNC_GREEN,
+        State.REVIEW_AWAITING_FINDINGS,
+        State.REVIEW_COMMAND_RUNNING,
+        State.REVIEW_COMMAND_RED,
+        State.REVIEW_BLOCKED,
+        State.REVIEW_GREEN,
+        State.DOCS_AWAITING_FINDINGS,
+        State.DOCS_BLOCKED,
+        State.DOCS_GREEN,
         State.LINT_RUNNING,
         State.LINT_RED,
         State.LINT_GREEN,
@@ -160,20 +170,50 @@ _UNREGISTERED_STATES = frozenset(
 )
 
 
+class UnreadableFixHistory(Exception):
+    """The validation branch's history could not be read, so it may hold work."""
+
+
+def _branch_only_commits(run: RunDoc, checkout: str, derived: list[str]) -> list[str]:
+    """Commits on the validation branch that ``HEAD`` does not reach.
+
+    Release deletes the branch, not ``HEAD``, so a checkout detached at an older
+    commit must not hide what the branch holds.
+    """
+    if not run.worktree_branch:
+        return []
+    try:
+        tip = gitx.rev_parse(checkout, f"refs/heads/{run.worktree_branch}")
+    except gitx.GitError:
+        return []
+    if tip == gitx.rev_parse(checkout, "HEAD"):
+        return []
+    if not gitx.is_ancestor(checkout, run.head_sha, tip):
+        raise UnreadableFixHistory(
+            f"the validation branch {run.worktree_branch} no longer descends from the reviewed head"
+        )
+    return [sha for sha in gitx.commits_between(checkout, run.head_sha, tip) if sha not in derived]
+
+
 def branch_fix_commits(session: Session, run: RunDoc) -> list[str]:
     """The fix commits an isolated run's validation branch holds, without recording them.
 
-    Before merge-back, a commit made after the last ``respond`` is on the branch but
-    not yet in ``fix_commits``, and releasing the worktree deletes the branch. The
-    result is the recorded list followed by any such commit. It never drops a
-    recorded commit, because a detached or reset checkout can hide one from
-    ``head_sha..HEAD``, and it is the recorded list when the history cannot be read.
+    Before merge-back, a commit made outside ``respond`` and a red stage's restart is
+    on the branch but not in ``fix_commits``, and releasing the worktree deletes the
+    branch. The result is the recorded list followed by any such commit, read from
+    both ``HEAD`` and the branch. It never drops a recorded commit, because a
+    detached or reset checkout can hide one. A missing checkout holds nothing, so
+    the recorded list stands; any other failure raises :class:`UnreadableFixHistory`.
     """
     recorded = list(run.fix_commits)
     if is_in_place(run) or run.state not in _UNREGISTERED_STATES:
         return recorded
+    checkout = run.worktree_path
+    if not checkout or not Path(checkout).is_dir():
+        return recorded
     try:
         derived = derive_fix_commits(session, run)
-    except (AgenticError, gitx.GitError, OSError, worktree.CopiedFileInCommit):
-        return recorded
+        derived += _branch_only_commits(run, checkout, derived)
+    except (AgenticError, gitx.GitError, OSError, worktree.CopiedFileInCommit) as exc:
+        raise UnreadableFixHistory(str(exc)) from exc
     return recorded + [sha for sha in derived if sha not in recorded]

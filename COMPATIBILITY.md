@@ -766,8 +766,8 @@ Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
 In isolated worktree modes, `respond` and a red stage's restart register fix commits, and merge-back registers the validated history at `TEST_GREEN`.
 A commit made in the validation worktree outside those points lived only on the validation branch, and a plain `abort` deleted it with the branch.
-`abort` from a lint or test state now counts such commits and exits 5 with `unmerged_work`; `--force` still discards them and lists them in `data.discarded_fix_commits`.
+`abort` from any state between the end of base synchronization and merge-back now counts such commits, read from both the checkout's `HEAD` and the validation branch, and exits 5 with `unmerged_work`; `--force` still discards them and lists them in `data.discarded_fix_commits` and the `aborted` event.
 A recorded fix commit always counts, even when the validation checkout is detached or reset.
-When the branch history cannot be read, `abort` counts only the recorded commits, as before.
-In-place runs, and states before lint or after test, are unchanged.
+When the branch history cannot be read, for example after a merge or a rebase on the validation branch, a plain `abort` also exits 5 with `unmerged_work` instead of deleting the branch; `--force` still succeeds.
+In-place runs, states before synchronization finishes, and merge-back states are unchanged.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
