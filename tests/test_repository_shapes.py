@@ -274,8 +274,16 @@ def _submodule_repo(tmp_path: Path, config: str) -> Path:
     return repo
 
 
-def test_submodule_pointer_change_is_one_review_unit(tmp_path):
+@pytest.mark.parametrize(
+    "settings",
+    [{}, {"diff.submodule": "log", "submodule.lib.ignore": "all"}],
+    ids=["default", "log-and-ignore"],
+)
+def test_submodule_pointer_change_is_one_review_unit(tmp_path, settings):
     repo = _submodule_repo(tmp_path, DOCS_CONFIG)
+    # Git settings that would otherwise change or hide the submodule diff.
+    for key, value in settings.items():
+        git("config", key, value, cwd=repo)
     agent = ScriptedAgent(repo)
     agent.run("start")
     env = agent.run("context")

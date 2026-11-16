@@ -92,7 +92,7 @@ Use a full clone, or a clone without a filter, where the network is unreliable.
 
 - A change to a submodule pointer is one review unit, with the submodule's path.
   The diff shows the old and new `Subproject commit` lines.
-  It always has this short form: since [pull request #366](https://github.com/elanthus/agentic-preflight/pull/366), the review diff passes `--submodule=short --ignore-submodules=none`, so Git's `diff.submodule` and `submodule.<name>.ignore` settings do not change it.
+  It always has this short form: since [pull request #366](https://github.com/elanthus/agentic-preflight/pull/366), the review diff passes `--submodule=short --ignore-submodules=none`, so the test's `diff.submodule = log` and `submodule.<name>.ignore = all` settings do not change it.
   The changes inside the submodule are not in the diff, so the review does not cover them.
 - The documentation surface does not list files inside a submodule.
 - A modified or untracked file inside a submodule makes `start` exit with code 3 and error code `dirty_tree`.
