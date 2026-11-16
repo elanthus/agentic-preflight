@@ -60,41 +60,29 @@ def events(session: Session, *, limit: int | None = None) -> Envelope:
     )
 
 
-def _abort_fix_commits(session: Session, run: RunDoc, *, force: bool) -> list[str]:
+def _abort_fix_commits(
+    session: Session, run: RunDoc, *, force: bool
+) -> tuple[list[str], str | None]:
     """The fix commits an isolated abort protects, or with ``force`` reports discarding.
 
-    Without ``--force``, a branch history that cannot be read may hold work, so the
-    abort stops, as ``gc`` does. ``--force`` is the way out of a run, so with it such
-    a history is listed as fully as a plain ``rev-list`` allows, and any failure only
-    narrows the report to the recorded commits.
+    The second item is why the branch history could not be read, or ``None``.
+    Without ``--force``, such a history may hold work, so the abort stops, as ``gc``
+    does, unless nothing follows the reviewed head. ``--force`` is the way out of a
+    run, so with it such a history is listed as fully as a plain ``rev-list``
+    allows, and any failure only narrows the report to the recorded commits.
     """
     if not force:
         try:
-            return branch_fix_commits(session, run)
+            return branch_fix_commits(session, run), None
         except UnreadableFixHistory as exc:
             # Nothing after the reviewed head on HEAD or the branch: nothing at risk.
             with suppress(Exception):
                 if not listed_branch_commits(session, run):
-                    return list(run.fix_commits)
-            raise UnmergedWork(
-                "the validation branch history cannot be read, so it may hold commits "
-                f"that were never merged back: {exc}",
-                state=run.state.value,
-                run_id=run.run_id,
-                data={
-                    "fix_commits": _listed_fix_commits(session, run),
-                    "worktree_path": run.worktree_path,
-                },
-                next_instruction=(
-                    "Inspect the commits in data.fix_commits, from the validation worktree or "
-                    "the validation branch, and cherry-pick anything worth keeping, then "
-                    "abort again with --force to discard the rest."
-                ),
-                next_command="agentic-preflight abort --force",
-            ) from exc
+                    return list(run.fix_commits), None
+            return _listed_fix_commits(session, run), str(exc)
     with suppress(Exception):  # the report must not block the forced abort
-        return branch_fix_commits(session, run)
-    return _listed_fix_commits(session, run)
+        return branch_fix_commits(session, run), None
+    return _listed_fix_commits(session, run), None
 
 
 def _listed_fix_commits(session: Session, run: RunDoc) -> list[str]:
@@ -114,7 +102,8 @@ def _listed_fix_commits(session: Session, run: RunDoc) -> list[str]:
 def abort(session: Session, *, force: bool = False, reason: AbortReason | None = None) -> Envelope:
     """End the run and reclaim its worktree.
 
-    Unmerged fix commits are reported rather than discarded: the agent may have
+    Unmerged fix commits and, in isolated modes, uncommitted changes in the
+    validation worktree are reported rather than discarded: the agent may have
     done real work in there, and silently deleting it is the one outcome nobody
     can undo.
 
@@ -128,23 +117,15 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
     isolated = not is_in_place(run)
     # Before merge-back, a commit made after the last `respond` is on the validation
     # branch but not yet recorded; releasing the worktree would delete it too.
-    fix_commits = (
-        _abort_fix_commits(session, run, force=force) if isolated else list(run.fix_commits)
+    fix_commits, unreadable = (
+        _abort_fix_commits(session, run, force=force) if isolated else (list(run.fix_commits), None)
     )
-    if isolated and fix_commits and not force:
-        raise UnmergedWork(
-            f"this run has {len(fix_commits)} fix commit(s) that were never merged "
-            f"back: {', '.join(fix_commits)}",
-            state=run.state.value,
-            run_id=run.run_id,
-            data={"fix_commits": fix_commits, "worktree_path": run.worktree_path},
-            next_instruction=(
-                "Those commits exist only on the validation branch or in its worktree, "
-                "which abort deletes. Cherry-pick anything worth keeping, then abort "
-                "again with --force to discard the rest."
-            ),
-            next_command="agentic-preflight abort --force",
-        )
+    if isolated and not force:
+        uncommitted, inspection_error = _abort_uncommitted_paths(run)
+        if fix_commits or unreadable or uncommitted or inspection_error:
+            raise _unmerged_work(
+                run, fix_commits, uncommitted, inspection_error, unreadable_history=unreadable
+            )
 
     release_run_worktree(session, run)
 
@@ -176,6 +157,100 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
             default_base_ref=session.config.general.base_ref,
             producer=run.producer,
         ),
+    )
+
+
+#: How many uncommitted paths a refusal message names.
+_MESSAGE_PATH_LIMIT = 10
+#: How many uncommitted paths a refusal lists in ``data``; an untracked tree such as
+#: a dependency directory can hold far more, and ``uncommitted_path_count`` has the total.
+_DATA_PATH_LIMIT = 200
+
+
+def _abort_uncommitted_paths(run: RunDoc) -> tuple[list[str] | None, str | None]:
+    """Uncommitted paths that releasing an isolated run's worktree would discard.
+
+    Copied files do not count, as in ``gc``. A worktree that is gone holds nothing.
+    One that exists but cannot be inspected may hold work: the paths are then
+    ``None`` and the second item is Git's error, and the abort stops.
+    """
+    path = run.worktree_path
+    if not path or run.worktree_released or not Path(path).is_dir():
+        return [], None
+    try:
+        return _uncommitted_paths(run, path), None
+    except (gitx.GitError, OSError) as exc:
+        return None, str(exc) or type(exc).__name__
+
+
+def _unmerged_work(
+    run: RunDoc,
+    fix_commits: list[str],
+    uncommitted: list[str] | None,
+    inspection_error: str | None = None,
+    *,
+    unreadable_history: str | None = None,
+) -> UnmergedWork:
+    """The refusal that names everything a forced abort would discard.
+
+    With ``unreadable_history``, ``fix_commits`` is a plain listing of the branch,
+    named for inspection rather than as verified fix commits.
+    """
+    lost: list[str] = []
+    if unreadable_history:
+        lost.append(
+            "a validation branch whose history cannot be read, so it may hold commits "
+            f"that were never merged back ({unreadable_history}): "
+            f"{', '.join(fix_commits) or 'none listed'}"
+        )
+    elif fix_commits:
+        lost.append(
+            f"{len(fix_commits)} fix commit(s) that were never merged back: "
+            f"{', '.join(fix_commits)}"
+        )
+    if uncommitted:
+        named = ", ".join(uncommitted[:_MESSAGE_PATH_LIMIT])
+        if len(uncommitted) > _MESSAGE_PATH_LIMIT:
+            named += f", and {len(uncommitted) - _MESSAGE_PATH_LIMIT} more"
+        lost.append(
+            f"uncommitted changes to {len(uncommitted)} path(s) in the validation worktree: {named}"
+        )
+    if inspection_error:
+        lost.append(
+            "a validation worktree that could not be inspected for uncommitted changes: "
+            f"{inspection_error}"
+        )
+    copy = bool(uncommitted or inspection_error)
+    if unreadable_history:
+        keep = "Inspect the commits in data.fix_commits and cherry-pick anything worth keeping" + (
+            ", and copy the changes worth keeping" if copy else ""
+        )
+    elif fix_commits and copy:
+        keep = "Cherry-pick the commits and copy the changes worth keeping"
+    elif copy:
+        keep = "Copy anything worth keeping into your checkout"
+    else:
+        keep = "Cherry-pick anything worth keeping"
+    # Unregistered commits may be read from the branch after the checkout is gone.
+    where = "on the validation branch or in its worktree" if fix_commits else "in the worktree"
+    return UnmergedWork(
+        f"this run has {'; and '.join(lost)}",
+        state=run.state.value,
+        run_id=run.run_id,
+        data={
+            "fix_commits": fix_commits,
+            # ``None``, not ``[]``, when the worktree could not be inspected: unknown
+            # is not clean.
+            "uncommitted_paths": None if uncommitted is None else uncommitted[:_DATA_PATH_LIMIT],
+            "uncommitted_path_count": None if uncommitted is None else len(uncommitted),
+            "inspection_error": inspection_error,
+            "worktree_path": run.worktree_path,
+        },
+        next_instruction=(
+            f"That work exists only {where}, which abort deletes. {keep}, then abort "
+            "again with --force to discard the rest."
+        ),
+        next_command="agentic-preflight abort --force",
     )
 
 
@@ -388,23 +463,12 @@ def _unrecorded_work(run: RunDoc, path: str) -> str | None:
     the tree of the recorded head or the last recorded fix.
     """
     try:
-        status = gitx.run(
-            path,
-            "status",
-            "--porcelain",
-            "-z",
-            "--untracked-files=all",
-            "--ignore-submodules=none",
-        ).stdout
+        uncommitted = _uncommitted_paths(run, path)
         head = gitx.rev_parse(path, "HEAD")
     except (gitx.GitError, OSError):
         # OSError: Git could not start, for example in a directory it cannot enter.
         return UNINSPECTABLE_WORKTREE
-    copied = [entry.rstrip("/") for entry in run.copied_files]
-    if any(
-        not any(changed == entry or changed.startswith(entry + "/") for entry in copied)
-        for changed in _porcelain_paths(status)
-    ):
+    if uncommitted:
         return UNCOMMITTED_CHANGES
     if head == run.head_sha or head in run.fix_commits:
         return None
@@ -418,6 +482,28 @@ def _unrecorded_work(run: RunDoc, path: str) -> str | None:
     except (gitx.GitError, OSError):
         pass
     return UNRECORDED_COMMITS
+
+
+def _uncommitted_paths(run: RunDoc, path: str) -> list[str]:
+    """Paths with uncommitted changes in a validation checkout, apart from copied files.
+
+    Untracked files count; ignored ones do not. Raises :class:`gitx.GitError` or
+    :class:`OSError` when Git cannot inspect the checkout.
+    """
+    status = gitx.run(
+        path,
+        "status",
+        "--porcelain",
+        "-z",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+    ).stdout
+    copied = [entry.rstrip("/") for entry in run.copied_files]
+    return [
+        changed
+        for changed in _porcelain_paths(status)
+        if not any(changed == entry or changed.startswith(entry + "/") for entry in copied)
+    ]
 
 
 def _porcelain_paths(status: str) -> list[str]:

@@ -776,9 +776,22 @@ unreadable, is skipped, and `skipped_lines` counts the skipped lines. Monotonic
 timestamps are suitable for intervals within one host boot.
 
 ### `agentic-preflight abort [--force] [--reason REASON]`
-Ends the run and releases the worktree. Exits 5 if unmerged fix commits would be lost;
-`--force` discards them. In isolated modes, from the end of base synchronization until
-merge-back, these include commits on the validation branch that no `respond` or stage
+Ends the run and releases the worktree. Exits 5 with `unmerged_work` if unmerged fix
+commits would be lost; `--force` discards them. In `strict` and `reusable` modes it also
+exits 5 with `unmerged_work` when the validation worktree has uncommitted changes, since
+releasing it removes the worktree or resets and cleans the runner. Untracked files count;
+ignored files and the files `start` copied in do not, the same rule `gc` applies.
+`data.uncommitted_paths` lists up to 200 such paths and `data.uncommitted_path_count`
+counts them all; `data.fix_commits` lists the unmerged fix commits and
+`data.worktree_path` where both live, so one refusal names both. A worktree that exists
+but cannot be inspected also exits 5, with Git's error in `data.inspection_error` and
+`data.uncommitted_paths` and `data.uncommitted_path_count` set to `null`, since unknown
+is not clean; `data.inspection_error` is `null` otherwise. A worktree that no longer
+exists does not stop `abort`. `--force` discards the changes too.
+An `in_place` run never touches the source checkout, so uncommitted changes there do not
+stop `abort`.
+In isolated modes, from the end of base synchronization until merge-back, the unmerged
+fix commits include commits on the validation branch that no `respond` or stage
 registered yet, read from both the checkout's `HEAD` and the branch;
 `data.fix_commits` lists the recorded commits and those new ones, and with `--force`
 `data.discarded_fix_commits` and the `aborted` event do. When the branch history

@@ -393,3 +393,22 @@ def test_a_detached_head_is_reported_when_the_checkout_cannot_be_opened(feature_
     assert {on_branch, detached} <= set(refused["data"]["fix_commits"])
     forced = agent.run("abort", "--force")
     assert {on_branch, detached} <= set(forced["data"]["discarded_fix_commits"])
+
+
+def test_an_unreadable_history_and_uncommitted_changes_are_named_together(feature_repo, tmp_path):
+    """One refusal names both, so a following --force discards nothing unnamed."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    git("switch", "-q", "-c", "side", cwd=wt)
+    _commit(wt, "SIDE", "side work")
+    git("switch", "-q", "-", cwd=wt)
+    write(wt, "README.md", "work on the validation branch\n")
+    git("add", "-A", cwd=wt)
+    git("commit", "-q", "-m", "work", cwd=wt)
+    git("merge", "-q", "--no-ff", "-m", "merge side", "side", cwd=wt)
+    write(wt, "notes.txt", "not committed\n")
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert "cannot be read" in refused["error"]["message"]
+    assert refused["data"]["fix_commits"]
+    assert refused["data"]["uncommitted_paths"] == ["notes.txt"]
