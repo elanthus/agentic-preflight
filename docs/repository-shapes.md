@@ -164,16 +164,18 @@ See [Existing hooks](pre-push-hook.md#existing-hooks).
 
 **Verified,** with a synthetic tree of 400 files:
 
-- Over `[diff] max_bytes`, `context` exits with code 2, `data.mode` is `diff_too_large`, and `data.by_file` lists each file's size.
+- Over `[diff] max_bytes`, `context` exits with code 2 and `data.mode` is `diff_too_large`.
+  In this test the read stops early, so `data.complete` is `false`: `data.by_file` gives lower-bound sizes for the files read so far, and `data.unmeasured_files` lists the rest.
+  Together they name every generated file.
 - With the generated directory in `[diff] exclude`, a new run reviews only the other files and lists the excluded ones in `excluded_files`.
 
 **Not verified here: latency.**
-Measurements in the open performance issues:
+Measurements and fixes in the performance issues:
 
 - [Issue #358](https://github.com/elanthus/agentic-preflight/issues/358): on a tree with 300,000 files, `status`, `submit-findings`, and `stage run` each took 4.5 to 6.5 seconds.
   The documentation surface and grounding each list the whole tree.
 - [Issue #359](https://github.com/elanthus/agentic-preflight/issues/359): `hook-check` took about 1.3 seconds for one ref with a one-file diff.
-- [Issue #356](https://github.com/elanthus/agentic-preflight/issues/356): the whole diff is read before the `[diff] max_bytes` check.
+- [Issue #356](https://github.com/elanthus/agentic-preflight/issues/356), fixed: `context` now stops reading the diff at four times `[diff] max_bytes`.
 
 **Settings that help:**
 

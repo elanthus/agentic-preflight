@@ -454,8 +454,11 @@ def test_a_large_generated_change_is_refused_until_excluded(tmp_repo):
     env = agent.run("context", expect=ExitCode.STAGE_FAILED)
     assert env["data"]["mode"] == "diff_too_large"
     assert env["data"]["max_bytes"] == 4000
-    sized = [path for path, _ in env["data"]["by_file"]]
-    assert sum(path.startswith("generated/") for path in sized) == 200
+    # The read stops early (#356), so sizes are lower bounds for the files read so
+    # far, and the rest are listed as unmeasured.
+    assert env["data"]["complete"] is False
+    listed = {path for path, _ in env["data"]["by_file"]} | set(env["data"]["unmeasured_files"])
+    assert {f"generated/g{number:03}.py" for number in range(200)} <= listed
     agent.run("abort", "--reason", "other")
 
     write(
