@@ -172,6 +172,32 @@ def test_push_with_the_right_token_succeeds(verified, feature_repo, bare_remote)
     assert remote_sha == git("rev-parse", "HEAD", cwd=feature_repo)
 
 
+def test_push_updates_the_branch_when_a_tag_shares_its_name(feature_repo, bare_remote, tmp_path):
+    git("tag", "feature/x", cwd=feature_repo)
+    configure_base(
+        feature_repo,
+        "[docs]\nenabled = false\n\n[commands]\nlint = 'true'\ntest = 'true'\n"
+        "\n[worktree]\nmode = 'reusable'\n",
+    )
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
+    assert agent.run("mergeback")["state"] == "VERIFIED"
+
+    gate = agent.run("gate")["data"]
+    assert gate["branch"] == "feature/x"
+    token = gate["token"]
+    assert agent.run("push", "--confirm", token)["state"] == "PUSHED"
+    remote_branches = git("for-each-ref", "--format=%(refname)", "refs/heads", cwd=bare_remote)
+    assert remote_branches.split() == ["refs/heads/feature/x", "refs/heads/main"]
+    assert git("rev-parse", "refs/heads/feature/x", cwd=bare_remote) == git(
+        "rev-parse", "HEAD", cwd=feature_repo
+    )
+
+
 def test_push_retry_after_remote_success_before_local_state_write(
     verified, feature_repo, bare_remote, monkeypatch
 ):

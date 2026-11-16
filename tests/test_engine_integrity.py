@@ -70,6 +70,15 @@ def test_start_rejects_a_detached_head(feature_repo):
     assert "detached" in env["error"]["message"]
 
 
+def test_start_rejects_a_head_that_points_at_a_tag(feature_repo):
+    git("tag", "v1", cwd=feature_repo)
+    git("symbolic-ref", "HEAD", "refs/tags/v1", cwd=feature_repo)
+    env = ScriptedAgent(feature_repo).run("start", expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "no_branch"
+    assert "refs/tags/v1" in env["error"]["message"]
+    assert env["next"]["command"] == "git switch <branch>"
+
+
 def test_start_rejects_an_unborn_branch(feature_repo):
     git("switch", "--orphan", "fresh", cwd=feature_repo)
     env = ScriptedAgent(feature_repo).run("start", expect=ExitCode.PRECONDITION)
