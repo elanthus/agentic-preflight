@@ -330,6 +330,31 @@ def test_a_type_change_keeps_a_binary_side_hidden_and_a_symlink_side_visible(cha
     assert "+pointed/target\n" in patch
 
 
+def test_info_diff_unset_leaves_the_symlink_side_of_a_type_change_visible(change):
+    """Git applies no attribute to a symlink, so ``-diff`` cannot hide that side."""
+    repo, base = change
+    target = (
+        subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"],
+            cwd=repo,
+            input=b"pointed/target",
+            capture_output=True,
+            check=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
+    git("update-index", "--cacheinfo", f"120000,{target},logo.bin", cwd=repo)
+    git("commit", "-m", "binary becomes a symlink", cwd=repo)
+    (repo / ".git" / "info").mkdir(exist_ok=True)
+    (repo / ".git" / "info" / "attributes").write_text("* -diff\n", encoding="utf-8")
+
+    patch = diff.build_bundle(repo, base, "HEAD").per_file["logo.bin"]
+
+    assert "Binary files a/logo.bin and /dev/null differ\n" in patch
+    assert "+pointed/target\n" in patch
+
+
 def test_the_earlier_format_refuses_an_attribute_that_hides_a_text_file(change):
     """0.8.1 text follows attributes, so a note relying on ``-diff`` must not verify."""
     repo, base = change

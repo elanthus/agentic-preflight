@@ -1493,8 +1493,9 @@ def _check_binary_markers(
         if marked and not is_binary:
             if strict:
                 raise ReviewDiffError(
-                    f"Git reported {shown} as binary, but its content is text. "
-                    "A Git attribute hides this patch from review."
+                    f"Git reported {shown} as binary, but its content is text, so the review "
+                    "would not see it. $GIT_DIR/info/attributes is the only attribute source "
+                    "left; remove the entry there that applies to this file."
                 )
             raise ReviewDiffError(
                 f"The earlier review text shows {shown} as binary, but its content is "
