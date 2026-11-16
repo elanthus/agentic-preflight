@@ -137,8 +137,10 @@ def _release_idle_runner(session: Session, run: RunDoc) -> None:
 
     Releasing resets and cleans the checkout and deletes its branch, so it
     happens only when no fix commits were recorded, the runner is clean, and
-    both its HEAD and its validation branch are still the reviewed head. Otherwise, or on any failure, the runner stays leased for
-    ``gc`` and a later start reports it as before.
+    both its HEAD and its validation branch are still the reviewed head.
+    Otherwise, or on any failure, including a branch history that cannot be
+    read, the runner stays leased for ``gc`` and a later start reports it as
+    before.
     """
     if run.fix_commits or run.worktree_released or worktree_mode(run) != "reusable":
         return
