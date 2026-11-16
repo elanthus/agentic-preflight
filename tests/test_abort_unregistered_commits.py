@@ -239,3 +239,24 @@ def test_abort_reads_the_branch_when_the_checkout_is_gone(feature_repo, tmp_path
 
     assert refused["data"]["fix_commits"] == [fix]
     assert agent.run("abort", "--force")["state"] == "ABORTED"
+
+
+def test_abort_force_names_the_branch_commits_when_the_checkout_is_gone(feature_repo, tmp_path):
+    """With the checkout gone and a merge on the branch, the report reads the branch ref."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    head = git("rev-parse", "HEAD", cwd=wt)
+    git("switch", "-q", "-c", "side", cwd=wt)
+    _commit(wt, "SIDE", "side work")
+    git("switch", "-q", "-", cwd=wt)
+    write(wt, "README.md", "work on the validation branch\n")
+    git("add", "-A", cwd=wt)
+    git("commit", "-q", "-m", "work", cwd=wt)
+    git("merge", "-q", "--no-ff", "-m", "merge side", "side", cwd=wt)
+    git("branch", "-q", "-D", "side", cwd=wt)
+    on_branch = git("rev-list", f"{head}..HEAD", cwd=wt).split()
+    shutil.rmtree(wt)
+
+    forced = agent.run("abort", "--force")
+
+    assert forced["state"] == "ABORTED"
+    assert sorted(forced["data"]["discarded_fix_commits"]) == sorted(on_branch)
