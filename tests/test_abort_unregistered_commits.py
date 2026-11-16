@@ -332,3 +332,35 @@ def test_an_in_place_abort_with_a_commit_is_unchanged(feature_repo, tmp_path):
 
     assert env["state"] == "ABORTED"
     assert git("rev-parse", "HEAD", cwd=feature_repo) == fix
+
+
+def test_a_checkout_git_cannot_open_stops_a_plain_abort(feature_repo, tmp_path):
+    """A missing worktree entry must not read as "nothing follows the reviewed head"."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    fix = _commit(wt, "FIXED", "real work")
+    # As after `git worktree prune`: the checkout and its .git file remain.
+    shutil.rmtree(git("rev-parse", "--absolute-git-dir", cwd=wt))
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert refused["error"]["code"] == "unmerged_work"
+    # The branch ref lives in the shared repository, so it is still listed.
+    assert fix in refused["data"]["fix_commits"]
+    forced = agent.run("abort", "--force")
+    assert fix in forced["data"]["discarded_fix_commits"]
+
+
+def test_a_root_commit_on_the_branch_is_still_listed(feature_repo, tmp_path):
+    """A commit without a parent cannot be compared with one, so it counts as work."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    branch = git("branch", "--show-current", cwd=wt)
+    git("checkout", "-q", "--orphan", "unrelated", cwd=wt)
+    git("commit", "-q", "-m", "unrelated root", cwd=wt)
+    _commit(wt, "MORE", "more work")
+    git("branch", "-q", "-M", "unrelated", branch, cwd=wt)
+    on_branch = git("rev-list", "HEAD", cwd=wt).split()
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+    assert sorted(refused["data"]["fix_commits"]) == sorted(on_branch)
+    forced = agent.run("abort", "--force")
+    assert sorted(forced["data"]["discarded_fix_commits"]) == sorted(on_branch)

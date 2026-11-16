@@ -204,29 +204,47 @@ def _branch_only_commits(run: RunDoc, checkout: str, derived: list[str]) -> list
     ]
 
 
-def listed_branch_commits(session: Session, run: RunDoc) -> list[str]:
+def _changes_tree(cwd: str, sha: str) -> bool:
+    """Whether a commit may hold work: anything but a single-parent empty commit."""
+    try:
+        return not _is_empty(cwd, sha)
+    except gitx.GitError:
+        # A root commit has no parent to compare; count it rather than lose it.
+        return True
+
+
+def listed_branch_commits(session: Session, run: RunDoc, *, best_effort: bool = False) -> list[str]:
     """Every commit after the reviewed head on ``HEAD`` or the validation branch.
 
     A plain listing, with none of :func:`branch_fix_commits`'s checks: what ``abort``
     names, and what it weighs, when the history cannot be derived. Empty commits
-    change no tree and are left out, as everywhere else. A tip that does not exist
-    holds nothing; any other failure raises ``gitx.GitError``.
+    change no tree and are left out, as everywhere else. The branch ref is read from
+    the shared repository, where it lives, and ``HEAD`` from the checkout when its
+    directory exists. A tip that does not exist holds nothing; any other failure,
+    such as a checkout Git cannot open, raises ``gitx.GitError``, or with
+    ``best_effort`` skips that tip, so a report still names what the others hold.
     """
     checkout = run.worktree_path
-    present = bool(checkout) and Path(str(checkout)).is_dir()
-    root = str(checkout) if present else str(session.repo_root)
-    tips = [f"refs/heads/{run.worktree_branch}"] if run.worktree_branch else []
-    if present:
-        tips.append("HEAD")
+    tips: list[tuple[str, str]] = []
+    if run.worktree_branch:
+        tips.append((str(session.repo_root), f"refs/heads/{run.worktree_branch}"))
+    if checkout and Path(str(checkout)).is_dir():
+        tips.append((str(checkout), "HEAD"))
     listed: list[str] = []
-    for tip in tips:
-        exists = gitx.run(
-            root, "rev-parse", "--verify", "--quiet", f"{tip}^{{commit}}", check=False
-        )
-        if exists.returncode != 0:
-            continue
-        commits = gitx.commits_between(root, run.head_sha, tip)
-        listed += [sha for sha in commits if sha not in listed and not _is_empty(root, sha)]
+    for cwd, tip in tips:
+        args = ("rev-parse", "--verify", "--quiet", f"{tip}^{{commit}}")
+        exists = gitx.run(cwd, *args, check=False)
+        if exists.returncode == 1 and not exists.stderr.strip():
+            continue  # the ref does not exist
+        try:
+            if exists.returncode != 0:
+                raise gitx.GitError(list(args), exists.returncode, exists.stderr)
+            commits = gitx.commits_between(cwd, run.head_sha, tip)
+        except gitx.GitError:
+            if best_effort:
+                continue
+            raise
+        listed += [sha for sha in commits if sha not in listed and _changes_tree(cwd, sha)]
     return listed
 
 

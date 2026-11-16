@@ -4,4 +4,5 @@
   discards them and reports them in `data.discarded_fix_commits` and the `aborted` event.
   A recorded fix commit always counts, and a checkout detached from the validation
   branch no longer hides the branch's commits. A history that cannot be read, such as a
-  merge on the validation branch, also stops a plain `abort`.
+  merge on the validation branch, also stops a plain `abort` when a non-empty commit
+  follows the reviewed head, or when Git cannot open the validation checkout.

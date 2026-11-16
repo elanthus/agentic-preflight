@@ -105,7 +105,7 @@ def _listed_fix_commits(session: Session, run: RunDoc) -> list[str]:
     """
     recorded = list(run.fix_commits)
     try:
-        listed = listed_branch_commits(session, run)
+        listed = listed_branch_commits(session, run, best_effort=True)
     except Exception:  # noqa: BLE001 - a report must not fail the command
         return recorded
     return recorded + [sha for sha in listed if sha not in recorded]
