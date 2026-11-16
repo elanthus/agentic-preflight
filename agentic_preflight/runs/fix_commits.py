@@ -192,7 +192,35 @@ def _branch_only_commits(run: RunDoc, checkout: str, derived: list[str]) -> list
         raise UnreadableFixHistory(
             f"the validation branch {run.worktree_branch} no longer descends from the reviewed head"
         )
+    merges = gitx._lines(gitx.out(checkout, "rev-list", "--merges", f"{run.head_sha}..{tip}"))
+    if merges:
+        raise UnreadableFixHistory(
+            f"the validation branch {run.worktree_branch} contains merge commit(s) "
+            f"{', '.join(merges)}"
+        )
     return [sha for sha in gitx.commits_between(checkout, run.head_sha, tip) if sha not in derived]
+
+
+def listed_branch_commits(session: Session, run: RunDoc) -> list[str]:
+    """Every commit after the reviewed head on ``HEAD`` or the validation branch.
+
+    A plain listing for a report, with none of :func:`branch_fix_commits`'s checks:
+    it is what ``abort --force`` names when the history cannot be derived.
+    """
+    checkout = run.worktree_path
+    present = bool(checkout) and Path(str(checkout)).is_dir()
+    root = str(checkout) if present else str(session.repo_root)
+    tips = [f"refs/heads/{run.worktree_branch}"] if run.worktree_branch else []
+    if present:
+        tips.append("HEAD")
+    listed: list[str] = []
+    for tip in tips:
+        try:
+            commits = gitx.commits_between(root, run.head_sha, tip)
+        except gitx.GitError:
+            continue
+        listed += [sha for sha in commits if sha not in listed]
+    return listed
 
 
 def branch_fix_commits(session: Session, run: RunDoc) -> list[str]:
@@ -213,7 +241,7 @@ def branch_fix_commits(session: Session, run: RunDoc) -> list[str]:
     if not checkout or not Path(checkout).is_dir():
         try:
             extra = _branch_only_commits(run, str(session.repo_root), [])
-        except gitx.GitError as exc:
+        except (gitx.GitError, OSError) as exc:
             raise UnreadableFixHistory(str(exc)) from exc
         return recorded + [sha for sha in extra if sha not in recorded]
     try:

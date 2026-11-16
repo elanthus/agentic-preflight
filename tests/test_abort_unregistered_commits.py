@@ -96,23 +96,24 @@ def test_abort_keeps_a_recorded_fix_when_the_checkout_is_detached(feature_repo, 
 
 def test_an_unreadable_history_never_blocks_abort_force(feature_repo, tmp_path, monkeypatch):
     agent, wt = _at_test_green(feature_repo, tmp_path)
-    _commit(wt, "FIXED", "fix after the tests")
+    fix = _commit(wt, "FIXED", "fix after the tests")
 
     def unreadable(*_args, **_kwargs):
         raise worktree.CopiedFileInCommit("commit deadbeef touches copied file .env")
 
     monkeypatch.setattr(fix_commits_module, "derive_fix_commits", unreadable)
 
-    # The recorded list is empty, so only --force is needed, and it is never blocked.
+    # Nothing is recorded, so only --force is needed, and it is never blocked.
     env = agent.run("abort", "--force")
     assert env["state"] == "ABORTED"
-    assert env["data"]["discarded_fix_commits"] == []
+    # The best-effort listing still names the discarded commit.
+    assert env["data"]["discarded_fix_commits"] == [fix]
 
 
 def test_an_unexpected_failure_never_blocks_abort_force(feature_repo, tmp_path, monkeypatch):
-    """The report falls back to the recorded commits on any failure under --force."""
+    """A failure that derivation does not handle still lets --force through."""
     agent, wt = _at_test_green(feature_repo, tmp_path)
-    _commit(wt, "FIXED", "fix after the tests")
+    fix = _commit(wt, "FIXED", "fix after the tests")
 
     def broken(*_args, **_kwargs):
         raise RuntimeError("simulated failure")
@@ -122,7 +123,7 @@ def test_an_unexpected_failure_never_blocks_abort_force(feature_repo, tmp_path, 
     env = agent.run("abort", "--force")
 
     assert env["state"] == "ABORTED"
-    assert env["data"]["discarded_fix_commits"] == []
+    assert env["data"]["discarded_fix_commits"] == [fix]
 
 
 def test_an_in_place_abort_is_unchanged(feature_repo, tmp_path):
@@ -186,7 +187,28 @@ def test_an_unreadable_history_stops_a_plain_abort(feature_repo, tmp_path):
     assert refused["error"]["code"] == "unmerged_work"
     assert "cannot be read" in refused["error"]["message"]
     assert refused["next"]["command"] == "agentic-preflight abort --force"
-    assert agent.run("abort", "--force")["state"] == "ABORTED"
+    work_and_merge = git("rev-list", f"{head}..HEAD", cwd=wt).split()
+    forced = agent.run("abort", "--force")
+    assert forced["state"] == "ABORTED"
+    # The report still names every discarded commit, so it can be recovered.
+    assert sorted(forced["data"]["discarded_fix_commits"]) == sorted(work_and_merge)
+
+
+def test_a_merge_on_the_branch_stops_abort_when_the_checkout_is_gone(feature_repo, tmp_path):
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    git("switch", "-q", "-c", "side", cwd=wt)
+    _commit(wt, "SIDE", "side work")
+    git("switch", "-q", "-", cwd=wt)
+    write(wt, "README.md", "work on the validation branch\n")
+    git("add", "-A", cwd=wt)
+    git("commit", "-q", "-m", "work", cwd=wt)
+    git("merge", "-q", "--no-ff", "-m", "merge side", "side", cwd=wt)
+    git("branch", "-q", "-D", "side", cwd=wt)
+    shutil.rmtree(wt)
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert "cannot be read" in refused["error"]["message"]
 
 
 def test_the_aborted_event_records_what_force_discarded(feature_repo, tmp_path):

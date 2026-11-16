@@ -39,7 +39,12 @@ from ._session import (
     unresolved_next_hint,
     worktree_mode,
 )
-from .fix_commits import UnreadableFixHistory, branch_fix_commits, patch_unlanded
+from .fix_commits import (
+    UnreadableFixHistory,
+    branch_fix_commits,
+    listed_branch_commits,
+    patch_unlanded,
+)
 
 
 def events(session: Session, *, limit: int | None = None) -> Envelope:
@@ -78,10 +83,15 @@ def _abort_fix_commits(session: Session, run: RunDoc, *, force: bool) -> list[st
                 ),
                 next_command="agentic-preflight abort --force",
             ) from exc
-    try:
+    with suppress(Exception):  # the report must not block the forced abort
         return branch_fix_commits(session, run)
+    # Name what is discarded as fully as possible, so it can be recovered.
+    recorded = list(run.fix_commits)
+    try:
+        listed = listed_branch_commits(session, run)
     except Exception:  # noqa: BLE001 - the report must not block the forced abort
-        return list(run.fix_commits)
+        return recorded
+    return recorded + [sha for sha in listed if sha not in recorded]
 
 
 def abort(session: Session, *, force: bool = False, reason: AbortReason | None = None) -> Envelope:
