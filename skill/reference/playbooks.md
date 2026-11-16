@@ -321,10 +321,12 @@ Then start again. See [repository shapes](https://github.com/elanthus/agentic-pr
 `init` found a pre-push hook that it did not write and left it unchanged. Show the user
 the hook path. Do not run `init --force` without the user's decision: it replaces the
 hook and removes what it did. Git LFS writes such a hook, and replacing it stops pushes
-from uploading LFS objects. To keep both, the user adds `agentic-preflight hook-check`
-to the existing hook so that each command gets its own copy of standard input, as
+from uploading LFS objects. To keep both, the user combines them in one hook that runs
+`agentic-preflight hook-check` first, so that a blocked push sends nothing, and the
+existing command only after it passes, each with its own copy of standard input, as
 [repository shapes](https://github.com/elanthus/agentic-preflight/blob/main/docs/repository-shapes.md#git-lfs)
-shows.
+shows. A later `git lfs install --force` or `git lfs update --force` replaces the
+combined hook; `status` then reports the hook as inactive.
 
 ## Summarize preflight history
 

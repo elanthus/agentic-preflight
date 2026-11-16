@@ -13,12 +13,12 @@ Statements marked **Unverified** come from reading the code or Git's documentati
 |---|---|---|
 | [Shallow clone](#shallow-clones) | Yes, when the merge base is in the history | `start` fails when the merge base is missing |
 | [Partial clone](#partial-clones) | Yes, with a reachable promisor remote | Commands fetch missing blobs over the network |
-| [Sparse checkout](#sparse-checkouts) | Review, lint, and test: yes. Docs: partly | The docs stage sees only the files in the sparse set |
+| [Sparse checkout](#sparse-checkouts) | Review: yes. Lint and test: on the sparse set only. Docs: partly | The docs stage sees only the files in the sparse set |
 | [Submodules](#submodules) | Yes, as pointers | Submodule contents are not reviewed |
 | [Git LFS](#git-lfs) | Yes, as pointers | Review sees pointer files; the LFS hook needs composing |
 | [Monorepo or very large tree](#monorepos-and-very-large-trees) | Yes | Latency grows with the tree; large diffs need `[diff] exclude` |
 | [SHA-256 object format](#sha-256-object-format) | No | No commit can get an attestation |
-| [Linked worktrees and bare repositories](#linked-worktrees-and-bare-repositories) | Yes, from a worktree | Commands do not run in the bare directory itself |
+| [Linked worktrees and bare repositories](#linked-worktrees-and-bare-repositories) | Yes, from a worktree | Commands such as `status`, `init`, and `start` do not run in the bare directory itself |
 
 ## Shallow clones
 
@@ -28,7 +28,7 @@ Statements marked **Unverified** come from reading the code or Git's documentati
 - When the merge base of the branch and the base is not in the shallow history, `start` exits with code 3.
   The error code is `empty_diff`, and the message starts with `cannot find a merge base with 'main'`.
   `next` is `null`, so the envelope suggests no fix.
-  The error code and the missing suggestion are a known issue (pending).
+  The error code and the missing suggestion are a known issue (pending): [issue #392](https://github.com/elanthus/agentic-preflight/issues/392).
 - After `git fetch --unshallow`, `start` succeeds.
 
 **What helps:** fetch the missing history, then start again.
@@ -72,15 +72,15 @@ Use a full clone, or a clone without a filter, where the network is unreliable.
 
 - The review diff is built from commits, not from the checkout.
   It includes changes to files outside the sparse set.
-- The documentation surface lists only documentation files that are present in the checkout.
+- The documentation surface lists only documentation files that are committed at the head commit and present in the checkout.
   A documentation file outside the sparse set is not on the surface, even when the branch changes it.
   A docs finding against it is therefore rejected.
-  This is a known issue (pending).
-- A `strict` validation worktree has the same sparse set as the source checkout, because `git worktree add` copies it.
+  This is a known issue (pending): [issue #393](https://github.com/elanthus/agentic-preflight/issues/393).
+- A `strict` validation worktree has the same sparse set as the source checkout, because `git worktree add` copies it (Git 2.38 or newer, the supported minimum).
   Lint and test commands run in that checkout, so they see only the files in the sparse set.
   The `reusable` mode is not tested.
 - The docs fingerprint's tree identities are the same in a sparse and a full checkout of one commit.
-  Its `doc_surface_sha256` reads the checkout, so it differs.
+  Its `doc_surface_sha256` reads the checkout, so it differs. This is part of [issue #393](https://github.com/elanthus/agentic-preflight/issues/393).
 
 **Unverified:** because `doc_surface_sha256` differs, docs evidence from a sparse checkout is not reused by a run in a full checkout of the same commits, and the reverse.
 
@@ -92,6 +92,7 @@ Use a full clone, or a clone without a filter, where the network is unreliable.
 
 - A change to a submodule pointer is one review unit, with the submodule's path.
   The diff shows the old and new `Subproject commit` lines.
+  It always has this short form: since [pull request #366](https://github.com/elanthus/agentic-preflight/pull/366), the review diff passes `--submodule=short --ignore-submodules=none`, so Git's `diff.submodule` and `submodule.<name>.ignore` settings do not change it.
   The changes inside the submodule are not in the diff, so the review does not cover them.
 - The documentation surface does not list files inside a submodule.
 - A modified or untracked file inside a submodule makes `start` exit with code 3 and error code `dirty_tree`.
@@ -102,8 +103,6 @@ Use a full clone, or a clone without a filter, where the network is unreliable.
 **Unverified:**
 
 - In `in_place` mode, the stages use the submodules as they are checked out in your checkout.
-- The text of a submodule diff depends on Git's `diff.submodule` setting.
-  [Pull request #366](https://github.com/elanthus/agentic-preflight/pull/366) proposes building review patches independently of Git configuration.
 
 **What helps:** review a submodule's own changes in its repository.
 Add `git submodule update --init --recursive` to `[worktree] setup_command` when the stages need the submodule contents in an isolated worktree.
@@ -122,21 +121,31 @@ The tests for this section are skipped when `git lfs` is not installed.
 - The envelope's `next.command` is `agentic-preflight init --force`.
   That command replaces the LFS hook, and pushes then stop uploading LFS objects.
   Do not run it in an LFS repository. This suggestion is a known issue (pending).
-- The composed hook below blocks a push that has no attestation.
+- The combined hook below blocks a push that has no attestation, and that blocked push uploads no LFS object.
   With a green run, `push` succeeds and the LFS object reaches the remote's LFS store.
-  `status` reports the hook as active.
+  `status` reports the hook as active, and reports it as inactive after `git lfs update --force`.
 
-Both commands read the list of refs that Git writes on standard input, so each one needs its own copy:
+The combined hook runs `agentic-preflight hook-check` first, so that a blocked push sends nothing, and runs `git lfs pre-push` only after the gate passes.
+Both commands read the list of refs that Git writes on standard input, so each one gets its own copy.
+Like the hook that `init` installs, it warns and allows the push when `agentic-preflight` is not on `PATH`:
 
 ```sh
 #!/bin/sh
-# Both commands read the ref list on standard input, so each gets a copy.
+# Run the gate first so that a blocked push sends nothing, then let Git LFS
+# upload objects. Both commands read the ref list on standard input, so each
+# gets its own copy.
 updates=$(cat)
-printf '%s\n' "$updates" | git lfs pre-push "$@" || exit $?
-printf '%s\n' "$updates" | AGENTIC_PREFLIGHT_PUSH_REMOTE="$1" agentic-preflight hook-check
+if command -v agentic-preflight >/dev/null 2>&1; then
+  printf '%s\n' "$updates" | AGENTIC_PREFLIGHT_PUSH_REMOTE="$1" agentic-preflight hook-check || exit $?
+else
+  echo "agentic-preflight: not found on PATH, skipping the quality gate (warn only)" >&2
+fi
+command -v git-lfs >/dev/null 2>&1 || { echo "git-lfs was not found on your path" >&2; exit 2; }
+printf '%s\n' "$updates" | git lfs pre-push "$@"
 ```
 
 Put it at the path that `init` reports, and make it executable.
+A later `git lfs install --force` or `git lfs update --force` replaces the combined hook, and `status` then reports the hook as inactive; combine it again after either.
 See [Existing hooks](pre-push-hook.md#existing-hooks).
 
 **Unverified:**
@@ -144,6 +153,7 @@ See [Existing hooks](pre-push-hook.md#existing-hooks).
 - Each new isolated worktree writes a full copy of every LFS file at its head commit, so `strict` mode pays that copy on every run.
   The LFS store under the Git common directory is shared by linked worktrees, so an object that is already local is not downloaded again.
 - An object that is not local, for example after a clone with `GIT_LFS_SKIP_SMUDGE=1`, is downloaded from the LFS server during the checkout, with no timeout.
+- `stage run --baseline` makes a full scratch checkout of the base in every mode, `in_place` included, so each baseline check smudges every LFS file at the base.
 
 ## Monorepos and very large trees
 
@@ -168,6 +178,7 @@ Measurements in the open performance issues:
 - `[diff] max_bytes` only when the change really is that large. The diff is never truncated.
 - `[worktree] mode = "in_place"` or `"reusable"`, so that a run does not check out the whole tree again.
   `strict` mode creates a fresh worktree for every run. See [worktree modes](worktree-modes.md).
+  In every mode, each `stage run --baseline` check pays one full scratch checkout of the base.
 
 ## SHA-256 object format
 
@@ -176,7 +187,7 @@ Run records and attestation notes hold only SHA-1 object IDs, so no commit in su
 
 **Verified:** `start` and `context` succeed, and `submit-findings` exits with code 1 and error code `internal_error`.
 
-See [issue #351](https://github.com/elanthus/agentic-preflight/issues/351) and [COMPATIBILITY.md](../COMPATIBILITY.md#repository-shapes).
+See [issue #394](https://github.com/elanthus/agentic-preflight/issues/394) and [COMPATIBILITY.md](../COMPATIBILITY.md#repository-shapes).
 
 ## Linked worktrees and bare repositories
 
@@ -188,7 +199,7 @@ See [issue #351](https://github.com/elanthus/agentic-preflight/issues/351) and [
   - `init` in the worktree installs the hook at `<bare>/hooks/pre-push`, which every worktree of the clone uses.
   - Run records are under `<bare>/agentic-preflight/`.
   - A run reaches `VERIFIED`.
-- In the bare directory itself, commands exit with code 1 and error code `git_error`.
+- In the bare directory itself, `status`, `init`, and `start` exit with code 1 and error code `git_error`.
   The message includes Git's `this operation must be run in a work tree`.
 
 **What helps:** run every command from a linked worktree, for example one made with `git worktree add <path> <branch>`.

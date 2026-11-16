@@ -11,6 +11,7 @@ Remotes are local ``file://`` URLs or paths, so no test uses the network.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -112,7 +113,7 @@ def test_shallow_clone_without_the_merge_base_cannot_start(tmp_path):
 
     agent = ScriptedAgent(clone)
     env = agent.run("start", expect=ExitCode.PRECONDITION)
-    # Known issue (pending): the code says the diff is empty, and nothing suggests
+    # Known issue (pending), #392: the code says the diff is empty, and nothing suggests
     # deepening the history.
     assert env["error"]["code"] == "empty_diff"
     assert "cannot find a merge base with 'main'" in env["error"]["message"]
@@ -148,7 +149,9 @@ def test_partial_clone_fetches_blobs_lazily_for_the_review_diff(tmp_path):
     origin.rename(moved)
     env = agent.run("context", expect=ExitCode.ERROR)
     assert env["error"]["code"] == "git_error"
-    assert "git diff" in env["error"]["message"]
+    message = env["error"]["message"]
+    assert "from promisor remote" in message
+    assert re.search(r"\bdiff\b", message)
 
     moved.rename(origin)
     env = agent.run("context")
@@ -184,7 +187,7 @@ def test_sparse_checkout_review_covers_paths_outside_the_sparse_set(sparse_featu
 
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     surface = agent.run("context", "--section", "docs")["data"]["doc_surface"]
-    # Known issue (pending): the documentation surface lists only files present in
+    # Known issue (pending), #393: the documentation surface lists only files present in
     # the checkout, so a changed guide outside the sparse set is not on it.
     assert [entry["path"] for entry in surface] == ["README.md"]
     finding = {
@@ -356,10 +359,17 @@ def test_init_refuses_to_replace_the_lfs_pre_push_hook(tmp_path):
 
 
 COMPOSED_HOOK = """#!/bin/sh
-# Both commands read the ref list on standard input, so each gets a copy.
+# Run the gate first so that a blocked push sends nothing, then let Git LFS
+# upload objects. Both commands read the ref list on standard input, so each
+# gets its own copy.
 updates=$(cat)
-printf '%s\\n' "$updates" | git lfs pre-push "$@" || exit $?
-printf '%s\\n' "$updates" | AGENTIC_PREFLIGHT_PUSH_REMOTE="$1" agentic-preflight hook-check
+if command -v agentic-preflight >/dev/null 2>&1; then
+  printf '%s\\n' "$updates" | AGENTIC_PREFLIGHT_PUSH_REMOTE="$1" agentic-preflight hook-check || exit $?
+else
+  echo "agentic-preflight: not found on PATH, skipping the quality gate (warn only)" >&2
+fi
+command -v git-lfs >/dev/null 2>&1 || { echo "git-lfs was not found on your path" >&2; exit 2; }
+printf '%s\\n' "$updates" | git lfs pre-push "$@"
 """
 
 
@@ -380,14 +390,28 @@ def test_a_composed_lfs_hook_gates_pushes_and_uploads_objects(tmp_path):
     )
     assert blocked.returncode != 0
     assert "feature/x" not in git("ls-remote", str(remote), cwd=repo)
+    oid = git("lfs", "ls-files", "--long", cwd=repo).split()[0]
+    stored = remote / "lfs" / "objects" / oid[:2] / oid[2:4] / oid
+    # The gate runs first, so a blocked push uploads no LFS object either.
+    assert not stored.exists()
 
     agent = ScriptedAgent(repo)
     assert agent.run("status")["data"]["hook"]["active"] is True
     _green_to_verified(agent, tmp_path)
     token = agent.run("gate")["data"]["token"]
     assert agent.run("push", "--confirm", token)["state"] == "PUSHED"
-    oid = git("lfs", "ls-files", "--long", cwd=repo).split()[0]
-    assert (remote / "lfs" / "objects" / oid[:2] / oid[2:4] / oid).is_file()
+    assert stored.is_file()
+
+    # Git LFS rewrites its hooks on a forced update, which drops the gate.
+    git("lfs", "update", "--force", cwd=repo)
+    assert agent.run("status")["data"]["hook"]["active"] is False
+
+
+def test_the_documented_lfs_hook_is_the_tested_one():
+    page = (Path(__file__).parent.parent / "docs" / "repository-shapes.md").read_text(
+        encoding="utf-8"
+    )
+    assert f"```sh\n{COMPOSED_HOOK}```" in page
 
 
 # -- monorepos and large trees -------------------------------------------------
@@ -442,7 +466,7 @@ def test_sha256_repository_starts_but_cannot_record_a_review(tmp_path):
     agent = ScriptedAgent(repo)
     agent.run("start")
     agent.run("context")
-    # Unsupported (issue #351): run records hold only SHA-1 object IDs.
+    # Unsupported (issue #394): run records hold only SHA-1 object IDs.
     env = agent.run("submit-findings", "--file", findings_json(tmp_path, []), expect=ExitCode.ERROR)
     assert env["error"]["code"] == "internal_error"
 

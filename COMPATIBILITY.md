@@ -87,17 +87,17 @@ POSIX signal handling is unchanged.
 
 These shapes are supported:
 
-- Full clones, linked worktrees, and linked worktrees of a bare repository. Commands do not run in a bare directory itself.
+- Full clones, linked worktrees, and linked worktrees of a bare repository. Commands such as `status`, `init`, and `start` do not run in a bare directory itself.
 - Shallow clones whose history contains the merge base of the branch and the base.
 - Blobless partial clones (`--filter=blob:none`) whose promisor remote is reachable during a run.
 - Submodules, reviewed as pointer changes. Submodule contents are not reviewed.
-- Git LFS files, reviewed as pointer files. The LFS pre-push hook must be composed with `agentic-preflight hook-check`.
+- Git LFS files, reviewed as pointer files. The LFS pre-push hook must be combined with `agentic-preflight hook-check`, which runs first.
 
-Sparse checkouts are supported with one limit: the docs stage sees only the documentation files in the sparse set.
+Sparse checkouts are supported for review. Lint and test see only the files in the sparse set, and the docs stage sees only the documentation files in it.
 
 Repositories that use the SHA-256 object format are not supported.
 Run records and attestation notes hold only SHA-1 object IDs, so no commit in such a repository can have a valid attestation.
-See [issue #351](https://github.com/elanthus/agentic-preflight/issues/351).
+See [issue #394](https://github.com/elanthus/agentic-preflight/issues/394).
 
 ## Evaluation report compatibility
 
