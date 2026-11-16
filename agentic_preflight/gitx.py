@@ -1848,6 +1848,11 @@ def _text_forcing_drivers(cwd: Path | str, env: Mapping[str, str]) -> set[str]:
     return {driver for driver, value in last.items() if driver != "default" and _forces_text(value)}
 
 
+#: The values ``git check-attr`` prints for an attribute's states. A driver with one
+#: of these names prints the same value, so the output cannot tell the two apart.
+_ATTRIBUTE_STATES = frozenset({"unspecified", "unset", "set"})
+
+
 def _refuse_local_diff_attributes(
     cwd: Path | str, env: Mapping[str, str], paths: Sequence[str], binary_paths: set[str]
 ) -> None:
@@ -1863,7 +1868,10 @@ def _refuse_local_diff_attributes(
 
     Every path without a ``diff`` attribute uses Git's ``default`` driver, so a
     pattern configured for it would rewrite every hunk header. Git has no value
-    that restores the built-in rule, so that configuration is refused too.
+    that restores the built-in rule, so that configuration is refused too. So is a
+    pattern for a driver named ``set``, ``unset`` or ``unspecified``: ``check-attr``
+    prints ``diff=unset`` exactly as it prints ``-diff``, yet Git applies the
+    driver, so the attribute cannot be told from the harmless state.
     """
     if not paths:
         return
@@ -1872,6 +1880,15 @@ def _refuse_local_diff_attributes(
         raise ReviewDiffError(
             "Git configuration sets diff.default.xfuncname or diff.default.funcname, which "
             "rewrites the hunk headers of the review patch on this machine only. "
+            "Remove that setting."
+        )
+    colliding = sorted(configured & _ATTRIBUTE_STATES)
+    if colliding:
+        raise ReviewDiffError(
+            f"Git configuration sets diff.{colliding[0]}.xfuncname or "
+            f"diff.{colliding[0]}.funcname. Git cannot tell a driver named "
+            f"{colliding[0]!r} from the attribute state of that name, and the driver "
+            "would rewrite the hunk headers of the review patch on this machine only. "
             "Remove that setting."
         )
     output = _run_bytes(
@@ -1891,8 +1908,7 @@ def _refuse_local_diff_attributes(
     drivers = _BUILTIN_HUNK_HEADER_DRIVERS | configured
     entries = list(zip(fields[0::3], fields[1::3], fields[2::3], strict=True))
     names_a_driver = any(
-        path in binary_paths and value not in ("unspecified", "unset", "set")
-        for path, _name, value in entries
+        path in binary_paths and value not in _ATTRIBUTE_STATES for path, _name, value in entries
     )
     text_forcing = _text_forcing_drivers(cwd, env) if names_a_driver else set()
     for path, _name, value in entries:
@@ -1909,7 +1925,7 @@ def _refuse_local_diff_attributes(
                 "which would print its content into the review patch. "
                 "Remove the attribute from that file."
             )
-        if value in ("unspecified", "unset", "set"):
+        if value in _ATTRIBUTE_STATES:
             continue
         if value in drivers:
             raise ReviewDiffError(

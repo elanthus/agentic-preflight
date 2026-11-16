@@ -523,3 +523,21 @@ def test_a_hunk_header_pattern_for_the_default_driver_is_refused(change, key):
 
     with pytest.raises(gitx.ReviewDiffError, match=r"diff\.default\.xfuncname"):
         diff.build_bundle(repo, base, "HEAD")
+
+
+@pytest.mark.parametrize("driver", ["unset", "set", "unspecified"])
+def test_a_header_pattern_for_a_driver_named_like_an_attribute_state_is_refused(change, driver):
+    """``check-attr`` prints ``diff=unset`` as it prints ``-diff``, yet Git applies it."""
+    repo, base = change
+    git("config", "--local", f"diff.{driver}.xfuncname", "^ *(value_3 .*)$", cwd=repo)
+    (repo / ".git" / "info").mkdir(exist_ok=True)
+    (repo / ".git" / "info" / "attributes").write_text(f"*.py diff={driver}\n", encoding="utf-8")
+    if driver == "unset":
+        # Git applies the driver, so without the refusal the header would change.
+        git("config", "--local", "core.attributesFile", "/dev/null", cwd=repo)
+        assert _DEFAULT_HEADER not in _plain_git_diff(repo, base, "HEAD", "src/calc.py")
+
+    with pytest.raises(gitx.ReviewDiffError, match=rf"diff\.{driver}\.xfuncname"):
+        diff.build_bundle(repo, base, "HEAD")
+    with pytest.raises(gitx.ReviewDiffError, match=rf"diff\.{driver}\.xfuncname"):
+        diff.build_bundle_within_budget(repo, base, "HEAD", max_bytes=1)

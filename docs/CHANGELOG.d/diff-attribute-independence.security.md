@@ -10,7 +10,9 @@
 - A diff driver with a hunk-header pattern in `$GIT_DIR/info/attributes`, `diff` set
   there on a binary file, or a driver there that prints a binary file as text, now stops the command with `review_diff_attribute` (exit 3),
   because no other machine can rebuild that text. So does `diff.default.xfuncname` or
-  `diff.default.funcname`, which would rewrite every hunk header.
+  `diff.default.funcname`, which would rewrite every hunk header, and a hunk-header
+  pattern for a driver named `set`, `unset` or `unspecified`, which Git's attribute output
+  cannot tell from those states.
 - A note from 0.8.1 or earlier whose review text marked a text file as binary is now
   rejected. A note that neither text reproduces still fails as an ordinary mismatch, even
   where the checkout's attributes mark a text file as binary. `COMPATIBILITY.md` lists

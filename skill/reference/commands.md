@@ -271,7 +271,9 @@ diff drivers. Exits 3 with `review_diff_attribute` when `$GIT_DIR/info/attribute
 Git always reads, sets a diff driver with a hunk-header pattern, sets `diff` on a
 binary file, or names a driver that prints a binary file as text (such as one with
 `diff.<driver>.binary = false`), or when Git configuration sets `diff.default.xfuncname`
-or `diff.default.funcname`. The user removes that entry or setting. Verification also
+or `diff.default.funcname`, or a hunk-header pattern for a driver named `set`, `unset` or
+`unspecified`, which Git's attribute output cannot tell from those states. The user
+removes that entry or setting. Verification also
 refuses a note from 0.8.1 or earlier whose review text showed a text file as binary;
 the message says so, and validating the commit again replaces the note.
 
