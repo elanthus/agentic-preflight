@@ -15,6 +15,17 @@ nor writes to your telemetry directory or worktree cache. Run it from a checkout
 The workspace keeps the generated repository, so a second invocation with the
 same ``--workspace`` and ``--files`` skips the slow build and only re-times.
 Pass ``--profile`` to write a cProfile dump of ``status`` into the workspace.
+
+The script times whichever ``agentic_preflight`` package the subprocesses
+import. To get "before" numbers for an older revision, extract that revision's
+package and put it first on ``PYTHONPATH``, which the subprocesses inherit::
+
+    mkdir /tmp/ap-before
+    git archive <old-ref> agentic_preflight | tar -x -C /tmp/ap-before
+    PYTHONPATH=/tmp/ap-before uv run python scripts/bench_large_tree.py --workspace /tmp/ap-bench
+
+Run both revisions against the same workspace so they time the same tree, and
+alternate them if the machine is busy.
 """
 
 from __future__ import annotations
