@@ -104,6 +104,21 @@
       "description": "Summary outcome written when this command ended a run.",
       "title": "Telemetry"
     },
+    "uncommitted_paths": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Uncommitted Paths"
+    },
     "validation_restarts": {
       "anyOf": [
         {

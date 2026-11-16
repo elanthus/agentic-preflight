@@ -776,8 +776,16 @@ unreadable, is skipped, and `skipped_lines` counts the skipped lines. Monotonic
 timestamps are suitable for intervals within one host boot.
 
 ### `agentic-preflight abort [--force] [--reason REASON]`
-Ends the run and releases the worktree. Exits 5 if unmerged fix commits would be lost;
-`--force` discards them.
+Ends the run and releases the worktree. Exits 5 with `unmerged_work` if unmerged fix
+commits would be lost; `--force` discards them. In `strict` and `reusable` modes it also
+exits 5 with `unmerged_work` when the validation worktree has uncommitted changes, since
+releasing it removes the worktree or resets and cleans the runner. Untracked files count;
+ignored files and the files `start` copied in do not, the same rule `gc` applies.
+`data.uncommitted_paths` lists every such path, `data.fix_commits` the unmerged fix
+commits, and `data.worktree_path` where both live; one refusal names both. A worktree
+that exists but cannot be inspected also exits 5. `--force` discards the changes too.
+An `in_place` run never touches the source checkout, so uncommitted changes there do not
+stop `abort`.
 A `strict` validation worktree locked with `git worktree lock` is never deleted:
 the command exits 1 with `git_error` naming the worktree, and the run keeps its state.
 Show the user the message; do not unlock it yourself.

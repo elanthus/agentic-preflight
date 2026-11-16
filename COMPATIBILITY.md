@@ -779,3 +779,14 @@ A report with `data.complete` set to `true` is exact, as before. Every diff of u
 A wrapper that treated `data.total_bytes` as the exact diff size must check `data.complete`.
 A diff within the limit produces the same patch text, `diff_sha256`, and review manifest as before.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Unreleased: abort protects uncommitted changes in the validation worktree
+
+In `strict` and `reusable` modes, releasing the validation worktree removes it or resets and cleans the runner, and a plain `abort` used to discard uncommitted changes there without asking.
+`abort` now exits 5 with `unmerged_work` when the validation worktree has uncommitted changes, untracked files included, apart from ignored files and the files `start` copied in: the rule `gc` already applies before it releases a worktree.
+The refusal adds `data.uncommitted_paths`, which lists every such path, and keeps `data.fix_commits` and `data.worktree_path`; when the run also has unmerged fix commits, one refusal names both.
+A validation worktree that exists but cannot be inspected also exits 5 with `unmerged_work`.
+`--force` still discards the changes, as before.
+A wrapper or agent that ran a plain `abort` after leaving files in the validation worktree, for example after a setup command that writes untracked files, must handle exit 5 or pass `--force`.
+`in_place` runs are unchanged. The abort schema adds the optional `uncommitted_paths` property.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
