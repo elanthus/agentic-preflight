@@ -153,3 +153,19 @@ def test_gc_retains_a_strict_checkout_whose_branch_was_rewritten(feature_repo):
         "worktree_path": str(wt),
     } in env["data"]["retained"]
     assert git("rev-parse", f"refs/heads/ap/{run_id}", cwd=feature_repo) == rewritten
+
+
+def test_gc_releases_a_strict_checkout_on_its_own_rewritten_branch(feature_repo):
+    """A branch whose tip is the checkout's recorded ``HEAD`` hides nothing."""
+    configure_base(feature_repo, STRICT)
+    agent = ScriptedAgent(feature_repo)
+    started = agent.run("start", "--intent", "first objective")
+    run_id, wt = started["run_id"], Path(started["data"]["worktree_path"])
+    # Same tree as the reviewed head, but no longer descended from it.
+    git("commit", "-q", "--amend", "--no-edit", "-m", "reworded", cwd=wt)
+    agent.run("start", "--replace", "--intent", "different objective")
+
+    env = agent.run("gc")
+
+    assert run_id in env["data"]["removed"]
+    assert not git("branch", "--list", f"ap/{run_id}", cwd=feature_repo)

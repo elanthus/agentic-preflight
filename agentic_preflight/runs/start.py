@@ -157,7 +157,7 @@ def _release_idle_runner(session: Session, run: RunDoc) -> None:
         # Like any other hold, a branch history that cannot be read keeps the
         # runner leased without an event; `gc` reports it.
         try:
-            hidden = bool(_branch_only_commits(run, path, []))
+            hidden = bool(_branch_only_commits(run, path, [], head=run.head_sha))
         except (UnreadableFixHistory, gitx.GitError, OSError):
             hidden = True
         if hidden:

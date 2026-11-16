@@ -479,7 +479,7 @@ def _unrecorded_work(run: RunDoc, path: str) -> str | None:
     # Releasing deletes the validation branch, and a checkout detached at the
     # recorded head hides what the branch holds beyond it.
     try:
-        hidden = _branch_only_commits(run, path, list(run.fix_commits))
+        hidden = _branch_only_commits(run, path, list(run.fix_commits), head=head)
     except (UnreadableFixHistory, gitx.GitError, OSError):
         return UNINSPECTABLE_WORKTREE
     return UNRECORDED_COMMITS if hidden else None
