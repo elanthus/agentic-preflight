@@ -418,6 +418,32 @@ def test_reclaiming_never_deletes_a_run_branch_that_moved_past_its_head(
     assert git("rev-parse", f"refs/heads/ap/{dead_run_id}", cwd=feature_repo) == extra
 
 
+@pytest.mark.parametrize("mode", ["strict", "reusable"])
+def test_reclaiming_keeps_a_run_branch_commit_hidden_by_a_detached_checkout(
+    agent, feature_repo, monkeypatch, mode
+):
+    # Detaching at the run's head makes the checkout look disposable from HEAD alone. The
+    # commit must still survive on the run branch: in both modes, reclaim deletes the branch
+    # only while it still points at the head.
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, mode, "after_checkout")
+    session = runs.open_session(feature_repo)
+    checkout = session.store.worktrees_dir / (dead_run_id if mode == "strict" else "runner")
+    head = session.store.load_run(dead_run_id).head_sha
+    write(checkout, "extra.txt", "committed work\n")
+    commit_all(checkout, "work on the run branch")
+    extra = git("rev-parse", "HEAD", cwd=checkout)
+    git("switch", "--detach", head, cwd=checkout)
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert git("rev-parse", f"refs/heads/ap/{dead_run_id}", cwd=feature_repo) == extra
+
+    agent.run("gc", "--force")
+
+    assert git("rev-parse", f"refs/heads/ap/{dead_run_id}", cwd=feature_repo) == extra
+
+
 def test_a_locked_strict_leftover_does_not_block_start(agent, feature_repo, monkeypatch):
     dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "strict", "after_checkout")
     session = runs.open_session(feature_repo)
