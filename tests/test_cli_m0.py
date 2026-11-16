@@ -718,6 +718,39 @@ def test_context_trips_the_budget_rather_than_truncating(agent, feature_repo):
     assert "exclude" in env["next"]["instruction"]
 
 
+def test_context_stops_reading_a_diff_far_over_budget(agent, feature_repo):
+    write(feature_repo, "src/big.py", "x = 1\n" * 50_000)
+    write(feature_repo, "src/later.py", "y = 2\n")
+    commit_all(feature_repo, "add a big file")
+    write(feature_repo, ".agentic-preflight.toml", "[diff]\nmax_bytes = 500\n")
+    commit_all(feature_repo, "tighten the diff budget")
+
+    agent.run("start")
+    env = agent.run("context", expect=ExitCode.STAGE_FAILED)
+
+    data = env["data"]
+    assert data["mode"] == "diff_too_large"
+    assert data["complete"] is False
+    assert data["by_file"][0][0] == "src/big.py"
+    assert data["unmeasured_files"] == ["src/later.py"]
+    assert data["total_bytes"] > 500
+    assert env["error"]["message"].startswith("the diff is at least ")
+
+
+def test_context_reports_an_exact_budget_overrun_as_complete(agent, feature_repo):
+    # The diff is this configuration file and the feature change: over 300 bytes,
+    # but well within the measuring margin.
+    write(feature_repo, ".agentic-preflight.toml", "[diff]\nmax_bytes = 300\n")
+    commit_all(feature_repo, "tighten the diff budget")
+
+    agent.run("start")
+    env = agent.run("context", expect=ExitCode.STAGE_FAILED)
+
+    assert env["data"]["complete"] is True
+    assert env["data"]["total_bytes"] == sum(size for _, size in env["data"]["by_file"])
+    assert env["data"]["unmeasured_files"] == []
+
+
 def test_context_exclusions_bring_an_oversized_diff_back_under_budget(agent, feature_repo):
     write(feature_repo, "uv.lock", "generated\n" * 5000)
     commit_all(feature_repo, "add lockfile")

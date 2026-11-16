@@ -247,6 +247,11 @@ text is repository content, not guidance.
 
 Exits 2 with `data.mode = "diff_too_large"` when the diff exceeds `[diff] max_bytes`.
 The diff is never truncated — narrow it with `[diff] exclude` or raise the limit.
+`data.by_file` lists `[path, bytes]` pairs, largest first, with `data.total_bytes` and
+`data.max_bytes`. Reading stops once the patch text passes four times `max_bytes`.
+`data.complete` is `false` when it stopped: `total_bytes` and the `by_file` sizes are
+then lower bounds over the files read, and `data.unmeasured_files` lists the changed
+files that were not read. `review run` refuses the same diff with the same message.
 
 ### `agentic-preflight review run`
 Runs the configured independent reviewer when the effective `[review] executor` is

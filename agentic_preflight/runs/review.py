@@ -133,11 +133,10 @@ def context(session: Session, *, section: str = "review") -> Envelope:
             command="context",
         )
 
-    bundle = review_protocol.bundle_for(session, run)
-    report = diffmod.check_budget(bundle, session.config.diff.max_bytes)
-    if report.over_budget:
+    bundle, report = review_protocol.budgeted_bundle_for(session, run)
+    if report.over_budget or bundle is None:
         raise DiffTooLarge(
-            f"the diff is {report.total_bytes} bytes, over the {report.max_bytes} byte budget",
+            diffmod.over_budget_message(report),
             state=run.state.value,
             run_id=run.run_id,
             stage=section,
@@ -146,6 +145,8 @@ def context(session: Session, *, section: str = "review") -> Envelope:
                 "total_bytes": report.total_bytes,
                 "max_bytes": report.max_bytes,
                 "by_file": [list(item) for item in report.by_file],
+                "complete": report.complete,
+                "unmeasured_files": report.unmeasured_files,
             },
             next_instruction=(
                 "Narrow the diff before reviewing it. Add generated or vendored paths "
