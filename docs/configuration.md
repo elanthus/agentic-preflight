@@ -397,7 +397,10 @@ Absolute paths and paths that contain `..` are rejected.
 Over `[diff] max_bytes`, `context` **refuses**. It does not truncate.
 An agent that reviews half a diff and believes that it saw all of it produces a false green.
 
-The envelope lists the size of each file, so the agent can narrow the diff with `[diff] exclude`.
+The envelope lists the size of each file, largest first, so the agent can narrow the diff with `[diff] exclude`.
+Reading can stop early once the patch text passes four times `max_bytes`, so a very large diff costs a bounded read.
+`data.complete` is `false` only when the read stopped early. Then `total_bytes` and the sizes in `by_file` are lower bounds for the files read so far, and `data.unmeasured_files` lists the changed files that were not read.
+A report with `data.complete` set to `true` is exact.
 Raise `max_bytes` only when the change really is that large.
 
 **`exclude` replaces the defaults. It does not extend them.**

@@ -225,3 +225,37 @@ def test_bundle_text_and_size_are_computed_once():
     assert bundle.text is bundle.text
     assert bundle.text == "+é\n-z\n"
     assert bundle.total_bytes == bundle.file_bytes("x") + bundle.file_bytes("y") == 7
+
+
+def _count_patch_bytes_read(monkeypatch) -> list[int]:
+    """Record the bytes each streamed ``git diff`` hands to the patch reader."""
+    read: list[int] = []
+    chunks = diff.gitx._diff_chunks
+
+    def counted(stream, initial):
+        for chunk in chunks(stream, initial):
+            read.append(len(chunk))
+            yield chunk
+
+    monkeypatch.setattr(diff.gitx, "_diff_chunks", counted)
+    return read
+
+
+def test_an_oversized_diff_is_reported_without_reading_all_patch_text(feature_repo, monkeypatch):
+    base = git("rev-parse", "main", cwd=feature_repo)
+    write(feature_repo, "generated.txt", "generated = true\n" * 200_000)
+    commit_all(feature_repo, "add a generated file")
+    full = diff.build_bundle(feature_repo, base, "HEAD")
+    read = _count_patch_bytes_read(monkeypatch)
+
+    bundle, report = diff.build_bundle_within_budget(feature_repo, base, "HEAD", max_bytes=1_000)
+
+    assert bundle is None
+    assert report.over_budget is True
+    assert report.complete is False
+    assert sum(read) < full.total_bytes // 10
+    assert report.total_bytes > 1_000
+    assert report.by_file[0][0] == "generated.txt"
+    measured = {path for path, _ in report.by_file}
+    assert measured | set(report.unmeasured_files) == set(full.files)
+    assert not measured & set(report.unmeasured_files)

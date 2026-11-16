@@ -69,11 +69,10 @@ def run_review_command(session: Session) -> Envelope:
     run = _recover_interrupted(session, run, command=command)
     _require_attempt(session, run)
 
-    bundle = review_protocol.bundle_for(session, run)
-    report = diffmod.check_budget(bundle, session.config.diff.max_bytes)
-    if report.over_budget:
+    bundle, report = review_protocol.budgeted_bundle_for(session, run)
+    if report.over_budget or bundle is None:
         raise DiffTooLarge(
-            f"the diff is {report.total_bytes} bytes, over the {report.max_bytes} byte budget",
+            diffmod.over_budget_message(report),
             state=run.state.value,
             run_id=run.run_id,
             stage=Stage.REVIEW.value,

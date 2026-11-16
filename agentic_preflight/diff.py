@@ -249,6 +249,36 @@ def build_review_manifest(
     )
 
 
+def _inventory(
+    repo: Path | str, base: str, head: str, exclude: list[str] | tuple[str, ...] | None
+) -> tuple[dict[str, str], list[str], list[str]]:
+    """Return display paths by raw path, the kept raw paths, and the excluded display paths."""
+    patterns = list(exclude) if exclude is not None else []
+    # Raw paths go back to Git; everything stored, hashed, or shown uses display paths.
+    raw_files = gitx.changed_files_raw(repo, base, head)
+    display = {raw: gitx.display_path(raw) for raw in raw_files}
+    kept_raw = [p for p in raw_files if not is_excluded(display[p], patterns)]
+    dropped = [display[p] for p in raw_files if is_excluded(display[p], patterns)]
+    return display, kept_raw, dropped
+
+
+def _bundle(
+    base: str,
+    head: str,
+    display: dict[str, str],
+    kept_raw: list[str],
+    dropped: list[str],
+    raw_patches: dict[str, str],
+) -> DiffBundle:
+    return DiffBundle(
+        base=base,
+        head=head,
+        files=[display[p] for p in kept_raw],
+        per_file={display[p]: raw_patches[p] for p in kept_raw if p in raw_patches},
+        excluded=dropped,
+    )
+
+
 def build_bundle(
     repo: Path | str,
     base: str,
@@ -262,19 +292,54 @@ def build_bundle(
     ``full_index=False`` builds the patch text of 0.8.1 and earlier releases; see
     :func:`agentic_preflight.gitx.diff_text_by_path`.
     """
-    patterns = list(exclude) if exclude is not None else []
-    # Raw paths go back to Git; everything stored, hashed, or shown uses display paths.
-    raw_files = gitx.changed_files_raw(repo, base, head)
-    display = {raw: gitx.display_path(raw) for raw in raw_files}
-    kept_raw = [p for p in raw_files if not is_excluded(display[p], patterns)]
-    dropped = [display[p] for p in raw_files if is_excluded(display[p], patterns)]
+    display, kept_raw, dropped = _inventory(repo, base, head, exclude)
     raw_patches = gitx.diff_text_by_path(repo, base, head, kept_raw, full_index=full_index)
-    return DiffBundle(
-        base=base,
-        head=head,
-        files=[display[p] for p in kept_raw],
-        per_file={display[p]: raw_patches[p] for p in kept_raw if p in raw_patches},
-        excluded=dropped,
+    return _bundle(base, head, display, kept_raw, dropped, raw_patches)
+
+
+#: How far past ``[diff] max_bytes`` a budgeted read keeps measuring before it
+#: stops. Up to this multiple the over-budget report is as exact as a full read;
+#: past it the read is cut short, so a huge generated file costs a bounded read.
+BUDGET_MEASURE_FACTOR = 4
+
+
+def build_bundle_within_budget(
+    repo: Path | str,
+    base: str,
+    head: str = "HEAD",
+    *,
+    exclude: list[str] | tuple[str, ...] | None = None,
+    max_bytes: int,
+) -> tuple[DiffBundle | None, BudgetReport]:
+    """Build the review bundle, or stop reading once it is far over ``max_bytes``.
+
+    Reading stops once the patch text passes ``BUDGET_MEASURE_FACTOR`` times
+    ``max_bytes``. Until then the result is the bundle :func:`build_bundle`
+    returns, byte for byte, with :func:`check_budget`'s report. When the read
+    stops, there is no bundle and the report is partial: ``total_bytes`` and
+    ``by_file`` are lower bounds that cover the paths read so far, and
+    ``unmeasured_files`` lists the paths that were never read.
+    """
+    display, kept_raw, dropped = _inventory(repo, base, head, exclude)
+    read = gitx.diff_text_by_path_bounded(
+        repo, base, head, kept_raw, stop_after_bytes=max_bytes * BUDGET_MEASURE_FACTOR
+    )
+    if read.complete:
+        bundle = _bundle(base, head, display, kept_raw, dropped, read.patches)
+        return bundle, check_budget(bundle, max_bytes)
+    sizes = [(display[p], len(read.patches[p].encode())) for p in kept_raw if p in read.patches]
+    partial = None
+    if read.partial is not None:
+        partial, partial_bytes = read.partial
+        sizes.append((display[partial], partial_bytes))
+    unmeasured = [display[p] for p in kept_raw if p not in read.patches and p != partial]
+    return None, BudgetReport(
+        over_budget=True,
+        total_bytes=sum(size for _, size in sizes),
+        max_bytes=max_bytes,
+        by_file=_largest_first(sizes),
+        complete=False,
+        unmeasured_files=unmeasured,
     )
 
 
@@ -287,23 +352,35 @@ class BudgetReport:
     paths to ``[diff] exclude`` or raise ``[diff] max_bytes``. The property being
     protected is that the agent never reviews part of a diff while believing it
     saw all of it; a loud stop protects that far more cheaply than chunking.
+
+    ``complete`` is false when the read stopped far over budget. ``total_bytes``
+    and ``by_file`` are then lower bounds over the paths read, and
+    ``unmeasured_files`` lists the changed paths that were not read at all.
     """
 
     over_budget: bool
     total_bytes: int
     max_bytes: int
     by_file: list[tuple[str, int]] = field(default_factory=list)
+    complete: bool = True
+    unmeasured_files: list[str] = field(default_factory=list)
+
+
+def over_budget_message(report: BudgetReport) -> str:
+    """The error message for a report over budget."""
+    size = f"{report.total_bytes}" if report.complete else f"at least {report.total_bytes}"
+    return f"the diff is {size} bytes, over the {report.max_bytes} byte budget"
+
+
+def _largest_first(sizes: list[tuple[str, int]]) -> list[tuple[str, int]]:
+    return sorted(sizes, key=lambda item: (-item[1], item[0]))
 
 
 def check_budget(bundle: DiffBundle, max_bytes: int) -> BudgetReport:
     """Compare a bundle against the byte budget, largest files reported first."""
-    by_file = sorted(
-        ((path, bundle.file_bytes(path)) for path in bundle.files),
-        key=lambda item: (-item[1], item[0]),
-    )
     return BudgetReport(
         over_budget=bundle.total_bytes > max_bytes,
         total_bytes=bundle.total_bytes,
         max_bytes=max_bytes,
-        by_file=by_file,
+        by_file=_largest_first([(path, bundle.file_bytes(path)) for path in bundle.files]),
     )

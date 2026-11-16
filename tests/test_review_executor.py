@@ -111,6 +111,23 @@ def test_command_receives_the_exact_context_bundle_and_records_evidence(feature_
     assert len(review["output_sha256"]) == 64
 
 
+def test_review_run_refuses_a_diff_far_over_budget_without_starting_the_reviewer(
+    feature_repo, tmp_path
+):
+    capture = tmp_path / "review-input.json"
+    write(feature_repo, "src/big.py", "x = 1\n" * 50_000)
+    configure_reviewer(feature_repo, capture=capture, extra_review="\n[diff]\nmax_bytes = 500\n")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+
+    env = agent.run("review", "run", expect=ExitCode.STAGE_FAILED)
+
+    assert env["error"]["code"] == "diff_too_large"
+    assert env["error"]["message"].startswith("the diff is at least ")
+    assert env["data"]["reviewer_invocations"] == 0
+    assert not capture.exists()
+
+
 def test_command_can_submit_blocking_findings(feature_repo):
     configure_reviewer(feature_repo, mode="finding")
     agent = ScriptedAgent(feature_repo)

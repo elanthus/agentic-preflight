@@ -87,16 +87,13 @@ EMITTED_NOT_DOCUMENTED: dict[str, set[str]] = {
     # emitted but undocumented
     "context": {
         "base",
-        "by_file",
         "coverage_invalidated",
         "diff_bytes",
         "intent",
         "intent_source",
-        "max_bytes",
         "require_changelog",
         "risk",
         "section",
-        "total_bytes",
     },
     # emitted but undocumented
     "events": {"count", "events"},
