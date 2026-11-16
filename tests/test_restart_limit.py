@@ -10,7 +10,7 @@ from agentic_preflight.config import Config
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.errors import MaxRestarts
 from agentic_preflight.machine import Action, State
-from agentic_preflight.runs._session import _apply
+from agentic_preflight.runs._session import apply_action
 from tests.conftest import commit_all, make_run, write
 from tests.driver import ScriptedAgent
 
@@ -112,11 +112,11 @@ def test_a_stopped_run_stays_stopped_but_remains_inspectable_and_abortable(agent
 def test_reopening_a_review_that_is_already_open_is_not_a_restart():
     run = make_run()
     run.state = State.REVIEW_AWAITING_FINDINGS
-    _apply(run, Action.INVALIDATE_REVIEW)
+    apply_action(run, Action.INVALIDATE_REVIEW)
     assert run.validation_restarts == 0
 
     run.state = State.REVIEW_GREEN
-    _apply(run, Action.INVALIDATE_REVIEW)
+    apply_action(run, Action.INVALIDATE_REVIEW)
     assert run.validation_restarts == 1
 
 
@@ -125,8 +125,8 @@ def test_only_closing_actions_remain_legal_at_the_limit():
     run.state = State.REVIEW_AWAITING_FINDINGS
     run.validation_restarts = Config.model_validate(run.config_snapshot).stage.max_restarts
     with pytest.raises(MaxRestarts):
-        _apply(run, Action.SUBMIT_CLEAN)
-    _apply(run, Action.ABORT)
+        apply_action(run, Action.SUBMIT_CLEAN)
+    apply_action(run, Action.ABORT)
     assert run.state is State.ABORTED
 
 

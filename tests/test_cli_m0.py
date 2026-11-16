@@ -1,5 +1,6 @@
 """M0 walking skeleton: start -> context -> submit-findings -> verify -> status."""
 
+import importlib
 import json
 import time
 from pathlib import Path
@@ -196,6 +197,362 @@ def test_a_run_left_in_sync_running_offers_abort(agent, feature_repo):
     assert agent.run("abort", "--force")["state"] == "ABORTED"
 
 
+class _Killed(BaseException):
+    """Stands in for the process dying: nothing in `start` handles it."""
+
+
+def _kill_start_before_the_checkout_exists(agent, feature_repo, monkeypatch, mode):
+    """Run `start` until its record is written, then die before the checkout exists."""
+    return _kill_start(agent, feature_repo, monkeypatch, mode, "before_checkout")
+
+
+def _kill_start(agent, feature_repo, monkeypatch, mode, point):
+    """Run `start` until ``point``, then die as if the process were killed.
+
+    ``before_checkout`` dies before any Git call; ``mid_create`` dies after
+    `git worktree add` and before the run branch exists; ``after_checkout`` dies
+    once the checkout is on the run branch but before the record names it; and
+    ``after_recording_checkout`` dies once the record names the checkout, before
+    the validation worktree's ownership alias is claimed.
+    """
+    from agentic_preflight import gitx, worktree
+    from agentic_preflight.machine import State
+
+    startmod = importlib.import_module("agentic_preflight.runs.start")
+
+    if mode != "in_place":
+        write(feature_repo, ".agentic-preflight.toml", f"[worktree]\nmode = '{mode}'\n")
+        commit_all(feature_repo, f"use {mode} validation")
+
+    def die(*_args, **_kwargs):
+        raise _Killed
+
+    real_git_run = gitx.run
+
+    def die_at_branch_switch(cwd, *args, **kwargs):
+        if args[:2] == ("switch", "-c"):
+            raise _Killed
+        return real_git_run(cwd, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        if point == "after_checkout":
+            patch.setattr(startmod, "worktree_identity", die)
+        elif point == "after_recording_checkout":
+            patch.setattr(startmod, "_claim_alias", die)
+        elif point == "mid_create":
+            patch.setattr(gitx, "run", die_at_branch_switch)
+        elif mode == "strict":
+            patch.setattr(worktree, "create", die)
+        elif mode == "reusable":
+            patch.setattr(worktree, "acquire_reusable", die)
+        else:
+            patch.setattr(startmod, "_provision_validation_checkout", die)
+        with pytest.raises(_Killed):
+            agent.run("start")
+
+    session = runs.open_session(feature_repo)
+    store = session.store
+    dead_run_id = store.get_active(session.owner_id)
+    assert dead_run_id is not None
+    assert store.load_run(dead_run_id).state is State.CREATED
+    return dead_run_id
+
+
+@pytest.mark.parametrize("mode", ["in_place", "strict", "reusable"])
+@pytest.mark.parametrize("replace", [False, True], ids=["start", "start-replace"])
+def test_start_recovers_a_run_that_died_in_created(agent, feature_repo, monkeypatch, mode, replace):
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start_before_the_checkout_exists(agent, feature_repo, monkeypatch, mode)
+    status = agent.run("status")
+    assert status["state"] == "CREATED"
+    assert status["next"]["command"].startswith("agentic-preflight start")
+
+    env = agent.run("start", *(["--replace"] if replace else []))
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert env["run_id"] != dead_run_id
+    assert env["data"].get("resumed") is not True
+    store = runs.open_session(feature_repo).store
+    dead = store.load_run(dead_run_id)
+    assert dead.state is State.ORPHANED
+    assert dead.orphaned_reason == "start was interrupted before its validation checkout existed"
+    assert agent.run("status")["run_id"] == env["run_id"]
+
+
+@pytest.mark.parametrize(
+    ("mode", "point"),
+    [("strict", "mid_create"), ("strict", "after_checkout"), ("reusable", "after_checkout")],
+)
+def test_start_reclaims_the_checkout_an_interrupted_start_provisioned(
+    agent, feature_repo, monkeypatch, mode, point
+):
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, mode, point)
+    session = runs.open_session(feature_repo)
+    dead_checkout = session.store.worktrees_dir / dead_run_id
+    if mode == "strict":
+        assert dead_checkout.exists()
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert env["run_id"] != dead_run_id
+    assert session.store.load_run(dead_run_id).state is State.ORPHANED
+    assert not dead_checkout.exists()
+    assert str(dead_checkout) not in git("worktree", "list", "--porcelain", cwd=feature_repo)
+    assert git("branch", "--list", f"ap/{dead_run_id}", cwd=feature_repo) == ""
+
+
+def test_start_refuses_to_reclaim_an_interrupted_checkout_holding_changes(
+    agent, feature_repo, monkeypatch
+):
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "reusable", "after_checkout")
+    session = runs.open_session(feature_repo)
+    runner = session.store.worktrees_dir / "runner"
+    write(runner, "notes.txt", "keep me\n")
+
+    env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+
+    assert env["error"]["code"] == "needs_human"
+    assert env["data"]["worktree_path"] == str(runner)
+    assert session.store.load_run(dead_run_id).state is State.CREATED
+    assert (runner / "notes.txt").read_text(encoding="utf-8") == "keep me\n"
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=runner) == f"ap/{dead_run_id}"
+    head = session.store.load_run(dead_run_id).head_sha
+    assert env["data"]["head_sha"] == head
+    assert head in env["next"]["instruction"]
+
+
+def test_start_refuses_to_reclaim_an_interrupted_runner_with_an_extra_commit(
+    agent, feature_repo, monkeypatch
+):
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "reusable", "after_checkout")
+    session = runs.open_session(feature_repo)
+    runner = session.store.worktrees_dir / "runner"
+    write(runner, "extra.txt", "committed work\n")
+    commit_all(runner, "work done in the runner")
+    extra = git("rev-parse", "HEAD", cwd=runner)
+
+    env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+
+    assert env["data"]["worktree_path"] == str(runner)
+    assert session.store.load_run(dead_run_id).state is State.CREATED
+    assert git("rev-parse", "HEAD", cwd=runner) == extra
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=runner) == f"ap/{dead_run_id}"
+
+
+def test_orphaning_does_not_mark_an_unreclaimed_recorded_runner_released(
+    agent, feature_repo, monkeypatch, tmp_path
+):
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start(
+        agent, feature_repo, monkeypatch, "reusable", "after_recording_checkout"
+    )
+    session = runs.open_session(feature_repo)
+    old_runner = session.store.worktrees_dir / "runner"
+    assert session.store.load_run(dead_run_id).worktree_path == str(old_runner)
+    new_root = tmp_path / "moved-worktrees"
+    write(
+        feature_repo,
+        ".agentic-preflight.toml",
+        f"[worktree]\nmode = 'reusable'\nroot = '{new_root.as_posix()}'\n",
+    )
+    commit_all(feature_repo, "move the worktrees root")
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    dead = session.store.load_run(dead_run_id)
+    assert dead.state is State.ORPHANED
+    assert dead.worktree_released is False
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=old_runner) == f"ap/{dead_run_id}"
+
+
+@pytest.mark.parametrize("dirty", [False, True], ids=["clean", "dirty"])
+def test_start_reclaims_a_strict_checkout_left_by_an_aborted_interrupted_run(
+    agent, feature_repo, monkeypatch, dirty
+):
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "strict", "after_checkout")
+    session = runs.open_session(feature_repo)
+    dead_checkout = session.store.worktrees_dir / dead_run_id
+    assert agent.run("abort", "--force")["state"] == "ABORTED"
+    assert dead_checkout.exists()
+    if dirty:
+        write(dead_checkout, "notes.txt", "keep me\n")
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    if dirty:
+        # A strict checkout does not block the new run, so it is kept, not refused.
+        assert (dead_checkout / "notes.txt").read_text(encoding="utf-8") == "keep me\n"
+        assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=dead_checkout) == f"ap/{dead_run_id}"
+    else:
+        assert not dead_checkout.exists()
+        assert git("branch", "--list", f"ap/{dead_run_id}", cwd=feature_repo) == ""
+
+
+def test_reclaiming_never_deletes_a_run_branch_that_moved_past_its_head(
+    agent, feature_repo, monkeypatch
+):
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "strict", "mid_create")
+    session = runs.open_session(feature_repo)
+    dead_checkout = session.store.worktrees_dir / dead_run_id
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=dead_checkout) == "HEAD"
+    extra = git(
+        "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "work on the run branch", cwd=feature_repo
+    )
+    git("branch", f"ap/{dead_run_id}", extra, cwd=feature_repo)
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert not dead_checkout.exists()
+    assert git("rev-parse", f"refs/heads/ap/{dead_run_id}", cwd=feature_repo) == extra
+
+
+def test_a_locked_strict_leftover_does_not_block_start(agent, feature_repo, monkeypatch):
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "strict", "after_checkout")
+    session = runs.open_session(feature_repo)
+    dead_checkout = session.store.worktrees_dir / dead_run_id
+    assert agent.run("abort", "--force")["state"] == "ABORTED"
+    git("worktree", "lock", "--reason", "kept by the user", str(dead_checkout), cwd=feature_repo)
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert dead_checkout.exists()
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=dead_checkout) == f"ap/{dead_run_id}"
+
+
+def test_reclaiming_a_runner_leaves_another_dirty_checkout_of_the_run_alone(
+    agent, feature_repo, monkeypatch
+):
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "reusable", "after_checkout")
+    session = runs.open_session(feature_repo)
+    runner = session.store.worktrees_dir / "runner"
+    assert agent.run("abort", "--force")["state"] == "ABORTED"
+    named_for_run = session.store.worktrees_dir / dead_run_id
+    git("worktree", "add", "--detach", str(named_for_run), "HEAD", cwd=feature_repo)
+    write(named_for_run, "notes.txt", "keep me\n")
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=runner) == f"ap/{env['run_id']}"
+    assert (named_for_run / "notes.txt").read_text(encoding="utf-8") == "keep me\n"
+
+
+def test_an_aborted_interrupted_run_does_not_leave_the_runner_leased_forever(
+    agent, feature_repo, monkeypatch
+):
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "reusable", "after_checkout")
+    session = runs.open_session(feature_repo)
+    runner = session.store.worktrees_dir / "runner"
+    write(runner, "notes.txt", "keep me\n")
+    agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+    assert agent.run("abort", "--force")["state"] == "ABORTED"
+
+    # Still dirty: the refusal names the checkout and the head to return it to.
+    env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+    head = session.store.load_run(dead_run_id).head_sha
+    assert env["data"]["worktree_path"] == str(runner)
+    assert env["data"]["head_sha"] == head
+    assert "still leased" not in env["error"]["message"]
+    assert (runner / "notes.txt").exists()
+
+    # Once the user cleans it, the next start reclaims the runner.
+    (runner / "notes.txt").unlink()
+    env = agent.run("start")
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=runner) == f"ap/{env['run_id']}"
+    assert git("branch", "--list", f"ap/{dead_run_id}", cwd=feature_repo) == ""
+    assert session.store.load_run(dead_run_id).state is State.ABORTED
+
+
+def test_a_failed_reclaim_leaves_the_interrupted_run_for_a_retry(agent, feature_repo, monkeypatch):
+    from agentic_preflight import worktree
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "reusable", "after_checkout")
+    session = runs.open_session(feature_repo)
+
+    def refuse(*_args, **_kwargs):
+        raise worktree.WorktreeError("simulated release failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(worktree, "release_reusable", refuse)
+        env = agent.run("start", expect=ExitCode.NEEDS_HUMAN)
+    assert "simulated release failure" in env["error"]["message"]
+    assert session.store.load_run(dead_run_id).state is State.CREATED
+
+    env = agent.run("start")
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert session.store.load_run(dead_run_id).state is State.ORPHANED
+
+
+def test_start_never_reclaims_a_user_worktree_outside_the_store(
+    agent, feature_repo, monkeypatch, tmp_path
+):
+    dead_run_id = _kill_start(agent, feature_repo, monkeypatch, "strict", "before_checkout")
+    named_for_run = tmp_path / "user" / dead_run_id
+    on_run_branch = tmp_path / "user" / "branch-checkout"
+    git("worktree", "add", "--detach", str(named_for_run), "HEAD", cwd=feature_repo)
+    git("worktree", "add", "-b", f"ap/{dead_run_id}", str(on_run_branch), "HEAD", cwd=feature_repo)
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert named_for_run.exists()
+    assert on_run_branch.exists()
+    assert git("rev-parse", "--abbrev-ref", "HEAD", cwd=on_run_branch) == f"ap/{dead_run_id}"
+
+
+def test_start_recovers_a_run_left_in_worktree_ready(agent, feature_repo, monkeypatch):
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start_before_the_checkout_exists(
+        agent, feature_repo, monkeypatch, "in_place"
+    )
+    store = runs.open_session(feature_repo).store
+    with store.transaction(dead_run_id) as doc:
+        doc.state = State.WORKTREE_READY
+    status = agent.run("status")
+    assert status["state"] == "WORKTREE_READY"
+    assert status["next"]["command"].startswith("agentic-preflight start")
+
+    env = agent.run("start")
+
+    assert env["state"] == "REVIEW_AWAITING_FINDINGS"
+    dead = store.load_run(dead_run_id)
+    assert dead.state is State.ORPHANED
+    assert dead.orphaned_reason == "start was interrupted before synchronization began"
+
+
+def test_start_leaves_a_created_run_alone_while_its_start_is_still_running(
+    agent, feature_repo, monkeypatch
+):
+    from agentic_preflight.machine import State
+
+    dead_run_id = _kill_start_before_the_checkout_exists(
+        agent, feature_repo, monkeypatch, "in_place"
+    )
+    store = runs.open_session(feature_repo).store
+    with store.operation(dead_run_id):
+        env = agent.run("start", expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "wrong_state"
+    assert store.load_run(dead_run_id).state is State.CREATED
+
+
 def test_start_resumes_a_matching_run_in_the_same_worktree(agent):
     first = agent.run("start")
 
@@ -279,14 +636,14 @@ def test_failed_legacy_orphan_preserves_journal_and_ownership(agent, feature_rep
     journal = path.parent / "pending-update.json"
     journal.write_text("interrupted legacy payload")
     before = path.read_bytes()
-    original = store_module._atomic_write
+    original = store_module.atomic_write
 
     def fail_orphan(target, payload):
         if target == path and json.loads(payload)["state"] == "ORPHANED":
             raise OSError("cannot retire run")
         original(target, payload)
 
-    monkeypatch.setattr(store_module, "_atomic_write", fail_orphan)
+    monkeypatch.setattr(store_module, "atomic_write", fail_orphan)
     agent.run("start", expect=1)
     assert path.read_bytes() == before
     assert journal.read_text() == "interrupted legacy payload"

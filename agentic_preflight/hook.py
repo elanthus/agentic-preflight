@@ -24,7 +24,19 @@ from . import gitx
 from .attestation import NOTES_REF
 from .evidence_transport import REF_PREFIX
 
-ZERO_SHA = "0" * 40
+#: Git's zero object ID, which names no object: 40 zeros in a SHA-1 repository and
+#: 64 in a SHA-256 one. Git sends it for a remote ref that does not exist yet and
+#: for the local side of a deletion.
+ZERO_IDS = frozenset({"0" * 40, "0" * 64})
+
+#: The length of a SHA-256 object ID in hexadecimal.
+SHA256_ID_LENGTH = 64
+
+
+def is_zero_id(value: str) -> bool:
+    """Whether ``value`` is Git's zero object ID in either object format."""
+    return value in ZERO_IDS
+
 
 #: The environment variable through which the installed hook passes Git's first
 #: pre-push argument, the remote name, to ``hook-check``. An environment variable
@@ -125,7 +137,7 @@ class RefUpdate:
 
     @property
     def is_deletion(self) -> bool:
-        return set(self.local_sha) == {"0"}
+        return is_zero_id(self.local_sha)
 
     @property
     def is_attestation_note(self) -> bool:
@@ -232,9 +244,37 @@ def evaluate(
             outcomes.append(UpdateOutcome(update, exemption, None))
             continue
 
-        forced = update.remote_sha != ZERO_SHA and not is_ancestor(
+        forced = not is_zero_id(update.remote_sha) and not is_ancestor(
             update.remote_sha, update.local_sha
         )
+        # The remote already has this commit, so the push publishes nothing new.
+        already_on_remote = not is_zero_id(update.remote_sha) and is_ancestor(
+            update.local_sha, update.remote_sha
+        )
+        # Run records and attestation notes hold only SHA-1 object IDs, so no
+        # commit in a SHA-256 repository can have a valid note. Say so, rather
+        # than send the agent to a run that cannot finish. Git writes every ID on
+        # the pre-push stdin in the repository's object format, so a 64-character
+        # local ID marks a SHA-256 repository.
+        # This comes before the force-push check, whose fix cannot help here. A
+        # push of a commit the remote already has still needs no attestation.
+        if len(update.local_sha) == SHA256_ID_LENGTH and not already_on_remote:
+            outcomes.append(UpdateOutcome(update, MISSING_ATTESTATION, forced))
+            return _blocked(
+                MISSING_ATTESTATION,
+                _block_message(
+                    update.local_sha,
+                    headline="SHA-256 repositories are not supported",
+                    reason=(
+                        "attestation notes hold only SHA-1 object IDs, so no commit in a "
+                        "SHA-256 repository can have a valid one"
+                    ),
+                    fix="none in this version; stop and tell the user (see COMPATIBILITY.md)",
+                ),
+                outcomes,
+                updates[index + 1 :],
+            )
+
         if forced and not allow_force_push:
             outcomes.append(UpdateOutcome(update, FORCE_PUSH_REFUSED, True))
             return _blocked(
@@ -252,8 +292,7 @@ def evaluate(
                 updates[index + 1 :],
             )
 
-        # The remote already has this commit, so the push publishes nothing new.
-        if update.remote_sha != ZERO_SHA and is_ancestor(update.local_sha, update.remote_sha):
+        if already_on_remote:
             outcomes.append(UpdateOutcome(update, ALREADY_ON_REMOTE, forced))
             continue
 

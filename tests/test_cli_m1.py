@@ -959,7 +959,7 @@ def test_gc_cleanup_failures_still_surface(feature_repo, monkeypatch):
     def failed(*args):
         raise OSError("cleanup failed")
 
-    monkeypatch.setattr("agentic_preflight.runs.lifecycle._release_run_worktree", failed)
+    monkeypatch.setattr("agentic_preflight.runs.lifecycle.release_run_worktree", failed)
     result = ScriptedAgent(feature_repo).run("gc", expect=1)
     assert result["error"]["code"] == "internal_error"
     assert store.load_run(run.run_id).worktree_released is False

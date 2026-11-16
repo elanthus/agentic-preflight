@@ -39,7 +39,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, StrictBool, ValidationError
 
-from . import filelock, fileperms, gitx, telemetry
+from . import filelock, fileperms, gitx, run_summary, telemetry
 from .config import (
     REPO_CONFIG_NAME,
     USER_CONFIG_NAME,
@@ -97,7 +97,7 @@ class HookDecisionLine(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     at: str
-    repo: telemetry.RepoIdentity
+    repo: run_summary.RepoIdentity
     #: The remote name Git passed to the hook, or a URL as host and path without
     #: credentials. ``None`` when the hook did not receive it.
     remote: str | None
@@ -127,7 +127,7 @@ def remote_label(value: str | None) -> str | None:
 def build_line(
     decision: Decision,
     *,
-    repo: telemetry.RepoIdentity,
+    repo: run_summary.RepoIdentity,
     remote: str | None,
     at: str | None = None,
 ) -> HookDecisionLine:
@@ -293,10 +293,10 @@ class Pending:
         if not value:
             return None
         if _REMOTE_NAME.fullmatch(value):
-            value = telemetry._git_output(self._root, "remote", "get-url", value) or ""
+            value = telemetry.git_output(self._root, "remote", "get-url", value) or ""
         return telemetry.normalize_remote(value)
 
-    def _excluded(self, identity: telemetry.RepoIdentity) -> bool:
+    def _excluded(self, identity: run_summary.RepoIdentity) -> bool:
         """Whether the rule keeps this repository's line out of the log.
 
         An explicit ``[telemetry] path`` opts every repository in. Otherwise the

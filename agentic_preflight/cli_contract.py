@@ -263,6 +263,7 @@ class StageRunData(RunDataBase, _OutputSummary):
     copied_file: str | None = None
     copied_files: list[str] | None = None
     baseline_red: Any = None
+    baseline_cleanup_failed: Obj | None = None
     mode: str | None = None
     candidates: list[Candidate] | None = None
     attempts: int | None = None
@@ -295,6 +296,8 @@ class MergebackData(RunDataBase):
     base_sha: str | None = None
     affected_paths: list[str] | None = None
     overlapping_status: Any = None
+    # `fix_commits_unmerged`: recorded fixes the moved source branch lacks.
+    missing_fix_commits: list[str] | None = None
 
 
 class GateData(RunDataBase):
@@ -496,7 +499,7 @@ class ReportData(CommandData):
     error: str | None = None
 
 
-#: Every agent-facing command, keyed by its CLI path. ``hook-check`` emits no envelope.
+#: Every agent-facing command, keyed by its CLI path. The ``NO_ENVELOPE`` commands are not here.
 COMMAND_MODELS: dict[str, type[BaseModel]] = {
     "init": InitData,
     "integrations install": IntegrationsData,
@@ -527,8 +530,9 @@ COMMAND_MODELS: dict[str, type[BaseModel]] = {
     "report": ReportData,
 }
 
-#: Commands that print no JSON envelope.
-NO_ENVELOPE = frozenset({"hook-check"})
+#: Commands that print no JSON envelope. Git consumes ``hook-check``; ``review run`` reads
+#: the strict submission that ``reviewer run`` prints.
+NO_ENVELOPE = frozenset({"hook-check", "reviewer run"})
 
 
 def schema_filename(command: str) -> str:

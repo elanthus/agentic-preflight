@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import Counter
+
 from .. import attestation as attestationmod
 from .. import gitx, public_config, timing, worktree
 from .. import mergeback as mergebackmod
@@ -23,18 +25,18 @@ from ..models import MergebackAttempt, RunDoc, Stage
 from . import evidence
 from ._session import (
     Session,
-    _apply,
-    _assert_fresh,
-    _assess,
-    _check_restart_limit,
-    _envelope_for,
-    _is_in_place,
-    _load_current,
-    _require_state,
-    _require_worktree,
-    _worktree_mode,
+    apply_action,
+    assert_fresh,
+    assess_risk,
+    check_restart_limit,
+    envelope_for,
+    is_in_place,
+    load_current,
+    require_state,
+    require_worktree,
+    worktree_mode,
 )
-from .fix_commits import derive_fix_commits
+from .fix_commits import derive_fix_commits, patch_matches
 from .review_coverage import invalidate_stage_result, reopen_if_stale
 
 
@@ -56,7 +58,7 @@ def _reconcile_attempt(
     attempt = run.mergeback_attempt
     if run.state is not State.MERGEBACK_PENDING or attempt is None:
         return False, None
-    wt = _require_worktree(run)
+    wt = require_worktree(run)
     repo = session.repo_root
     if (
         run.stale
@@ -96,7 +98,7 @@ def _reset_non_equivalent_merge_to_review(
     result: mergebackmod.MergebackResult,
 ) -> RunDoc:
     """Make a human-resolved source tree the new isolated review snapshot."""
-    worktree_path = _require_worktree(run)
+    worktree_path = require_worktree(run)
     worktree.assert_diff_is_clean_of(
         session.repo_root,
         run.merge_base_sha,
@@ -106,7 +108,7 @@ def _reset_non_equivalent_merge_to_review(
     worktree.assert_paths_are_ignored(session.repo_root, run.copied_files)
     gitx.run(worktree_path, "reset", "--hard", result.post_sha)
     changed = gitx.changed_files(worktree_path, run.merge_base_sha, "HEAD")
-    assessment = _assess(session, changed, session.store.load_findings(run.run_id))
+    assessment = assess_risk(session, changed, session.store.load_findings(run.run_id))
     with session.store.transaction(run.run_id) as doc:
         doc.head_sha = result.post_sha
         doc.source_head_sha = result.post_sha
@@ -117,7 +119,7 @@ def _reset_non_equivalent_merge_to_review(
         invalidate_stage_result(doc, Stage.REVIEW)
         invalidate_stage_result(doc, Stage.LINT)
         invalidate_stage_result(doc, Stage.TEST)
-        _apply(doc, Action.INVALIDATE_REVIEW)
+        apply_action(doc, Action.INVALIDATE_REVIEW)
         run = doc
     session.store.append_event(
         run.run_id,
@@ -128,7 +130,7 @@ def _reset_non_equivalent_merge_to_review(
             "resolved_tree_sha": result.local_tree_sha,
         },
     )
-    _check_restart_limit(run)
+    check_restart_limit(run)
     return run
 
 
@@ -192,13 +194,13 @@ def _record_attempt(session: Session, run: RunDoc, *, retrying_conflict: bool) -
     source_sha = gitx.rev_parse(repo, "HEAD")
     attempt = MergebackAttempt(
         source_sha=source_sha,
-        validation_sha=gitx.rev_parse(_require_worktree(run), "HEAD"),
-        validation_tree=gitx.tree_sha(_require_worktree(run)),
+        validation_sha=gitx.rev_parse(require_worktree(run), "HEAD"),
+        validation_tree=gitx.tree_sha(require_worktree(run)),
         retrying_conflict=retrying_conflict,
     )
     with session.store.transaction(run.run_id) as doc:
         doc.mergeback_attempt = attempt
-        _apply(doc, Action.MERGEBACK_RETRY if retrying_conflict else Action.BEGIN_MERGEBACK)
+        apply_action(doc, Action.MERGEBACK_RETRY if retrying_conflict else Action.BEGIN_MERGEBACK)
         return doc
 
 
@@ -207,6 +209,151 @@ class FixesNotLanded(AgenticError):
 
     code = "fixes_not_landed"
     exit_code = ExitCode.NEEDS_HUMAN
+
+
+class FixCommitsUnmerged(AgenticError):
+    """A moved source branch lacks recorded fix commits, so adopting it would discard them."""
+
+    code = "fix_commits_unmerged"
+    exit_code = ExitCode.NEEDS_HUMAN
+
+
+def _replay_identities(repo: str, *args: str) -> list[tuple[str, str]]:
+    """``(sha, identity)`` for each listed commit; identity survives ``git cherry-pick``.
+
+    Cherry-pick keeps the author name, email, and date and the subject, even when a
+    human resolves a conflict and continues, while the SHA, committer, and patch change.
+    The identity is provenance only: it never shows that the fix's content is present.
+    """
+    listing = gitx.out(repo, "log", "--date=raw", "--format=%H%x00%an%x00%ae%x00%ad%x00%s", *args)
+    found: list[tuple[str, str]] = []
+    for line in listing.splitlines():
+        sha, _, identity = line.partition("\0")
+        if identity:
+            found.append((sha, identity))
+    return found
+
+
+def _path_entries(repo: str, rev: str, paths: list[str]) -> dict[str, str]:
+    """Mode and object ID of each of ``paths`` at ``rev``; a missing path is absent."""
+    output = gitx.run(repo, "--literal-pathspecs", "ls-tree", "-z", rev, "--", *paths).stdout
+    entries: dict[str, str] = {}
+    for record in output.split("\0"):
+        meta, tab, path = record.partition("\t")
+        if tab:
+            mode, _, rest = meta.partition(" ")
+            entries[path] = f"{mode} {rest.partition(' ')[2]}"
+    return entries
+
+
+def unmerged_fix_commits(session: Session, run: RunDoc, head: str) -> list[str]:
+    """Recorded fix commits whose provenance or content ``head`` does not carry.
+
+    Each path a fix changes is *validated* at ``head`` when it matches the fix commit
+    or the validated tree, and *changed* when it differs from the fix's own parent.
+    A recorded fix counts as merged when either holds:
+
+    - Exact content: every path the fix changes is validated.
+    - Provenance and changed content: a commit since the run's base is the fix itself,
+      has the same stable patch ID, or was cherry-picked from it (same author, author
+      date, and subject). Each such commit vouches for at most one fix, allocated in
+      that order, so a commit that already vouches for one fix by SHA or patch ID
+      cannot also vouch for another. In addition, every path the fix changes is
+      validated or changed, so a replay whose resolution kept the content from before
+      the fix is not accepted, even when an earlier fix changed the same path.
+    """
+    if not run.fix_commits:
+        return []
+    repo = str(session.repo_root)
+    base = run.sync_base_sha or run.merge_base_sha
+    validated = gitx.rev_parse(require_worktree(run), "HEAD")
+    # One allocation of the commits since the base: each vouches for at most one fix,
+    # first as the fix itself, then by patch ID, then by cherry-pick identity.
+    pool = dict(_replay_identities(repo, head, "--not", base))
+    vouched: set[str] = set()
+    for sha in run.fix_commits:
+        if sha in pool:  # the fix itself is on the branch
+            del pool[sha]
+            vouched.add(sha)
+    consumed = frozenset(vouched)
+    for sha, landed in patch_matches(
+        repo,
+        [sha for sha in run.fix_commits if sha not in vouched],
+        base,
+        head,
+        exclude=consumed,
+    ).items():
+        pool.pop(landed, None)
+        vouched.add(sha)
+    unclaimed = Counter(pool.values())
+    recorded = dict(_replay_identities(repo, "--no-walk=unsorted", *run.fix_commits))
+    missing: list[str] = []
+    for sha in run.fix_commits:
+        paths = gitx.commit_files(repo, sha)
+        if not paths:
+            missing.append(sha)  # an empty fix has no content to find
+            continue
+        now = _path_entries(repo, head, paths)
+        fixed = _path_entries(repo, sha, paths)
+        final = _path_entries(repo, validated, paths)
+        exact = {path for path in paths if now.get(path) in (fixed.get(path), final.get(path))}
+        if len(exact) == len(paths):
+            continue
+        parent = _path_entries(repo, f"{sha}^", paths)
+        if any(path not in exact and now.get(path) == parent.get(path) for path in paths):
+            missing.append(sha)
+            continue
+        if sha in vouched:
+            continue
+        identity = recorded.get(sha)
+        if identity is not None and unclaimed[identity] > 0:
+            unclaimed[identity] -= 1
+            continue
+        missing.append(sha)
+    return missing
+
+
+def _refuse_unmerged_fixes(
+    session: Session, run: RunDoc, result: mergebackmod.MergebackResult
+) -> None:
+    """Keep the validation branch and fix list while the source lacks a recorded fix."""
+    if result.applied == run.fix_commits:
+        return  # merge-back replayed every recorded fix itself
+    missing = unmerged_fix_commits(session, run, result.post_sha)
+    if not missing:
+        return
+    with session.store.transaction(run.run_id) as doc:
+        apply_action(doc, Action.MERGEBACK_FAILED)
+        run = doc
+    session.store.append_event(
+        run.run_id,
+        {
+            "event": "mergeback_fixes_unmerged",
+            "post_sha": result.post_sha,
+            "missing_fix_commits": missing,
+        },
+    )
+    raise FixCommitsUnmerged(
+        f"the source branch moved to {result.post_sha[:8]} but lacks recorded fix "
+        f"commit(s) {', '.join(missing)}; adopting it would discard validated fixes",
+        state=run.state.value,
+        run_id=run.run_id,
+        data={
+            "missing_fix_commits": missing,
+            "fix_commits": list(run.fix_commits),
+            "post_sha": result.post_sha,
+            "worktree_path": run.worktree_path,
+        },
+        next_instruction=(
+            "Tell the user. The validation branch and the recorded fix commits were kept. "
+            "Apply the missing commits to the source branch with `git cherry-pick "
+            f"{' '.join(missing)}`, resolving any conflict and continuing. If Git reports "
+            "that a pick is now empty because the branch already holds the intended "
+            "content, record it with `git commit --allow-empty` instead of skipping it. "
+            "Then rerun `mergeback`. To discard the fixes instead, abort the run."
+        ),
+        next_command="agentic-preflight mergeback",
+    )
 
 
 def _perform_merge(
@@ -231,7 +378,7 @@ def _perform_merge(
             local_tree_sha=tree,
             worktree_tree_sha=tree,
         )
-    worktree_path = _require_worktree(run)
+    worktree_path = require_worktree(run)
     worktree_branch = run.worktree_branch
     if worktree_branch is None:
         raise NeedsHuman(
@@ -250,6 +397,11 @@ def _perform_merge(
                 next_command="git status",
             )
         syncmod.sync_onto(repo, sync_base)
+        # Record the tool's own rebase as the source baseline, so a later conflict
+        # retry treats only movement beyond it as a human resolution.
+        with session.store.transaction(run.run_id) as doc:
+            doc.source_head_sha = gitx.rev_parse(repo, "HEAD")
+            run = doc
     local_tree = gitx.tree_sha(repo)
     verified_tree = gitx.tree_sha(worktree_path)
     branch_moved = gitx.rev_parse(repo, "HEAD") != run.source_head_sha
@@ -321,8 +473,8 @@ def require_known_provenance(run: RunDoc, *, command: str) -> None:
 
 def mergeback(session: Session) -> Envelope:
     """Attest in-place validation or merge isolated fixes onto the source branch."""
-    run = _load_current(session)
-    in_place = _is_in_place(run)
+    run = load_current(session)
+    in_place = is_in_place(run)
     repo = session.repo_root
     operation = gitx.operation_in_progress(repo)
     if operation is not None:
@@ -341,14 +493,14 @@ def mergeback(session: Session) -> Envelope:
     )
     reconciled, recovered = _reconcile_attempt(session, run)
     if not retrying_conflict and not reconciled:
-        _assert_fresh(session, run)
+        assert_fresh(session, run)
     if run.state is State.TEST_GREEN:
         run = evidence.advance(session, run)
         if run.state is not State.TEST_GREEN:
-            return _envelope_for(run, data=MergebackData(inputs_invalidated=True))
+            return envelope_for(run, data=MergebackData(inputs_invalidated=True))
         run, reopened = reopen_if_stale(session, run)
         if reopened:
-            return _envelope_for(
+            return envelope_for(
                 run,
                 stage="review",
                 data=MergebackData(coverage_invalidated=True),
@@ -356,7 +508,7 @@ def mergeback(session: Session) -> Envelope:
             )
         if not in_place:
             run = _register_validated_history(session, run)
-    _require_state(
+    require_state(
         run,
         State.TEST_GREEN,
         State.MERGEBACK_PENDING,
@@ -387,7 +539,7 @@ def mergeback(session: Session) -> Envelope:
         ) from exc
     except (mergebackmod.MergebackConflict, syncmod.SyncConflict) as exc:
         with session.store.transaction(run.run_id) as doc:
-            _apply(doc, Action.MERGEBACK_FAILED)
+            apply_action(doc, Action.MERGEBACK_FAILED)
             run = doc
         report = (
             exc.report.as_dict()
@@ -409,6 +561,13 @@ def mergeback(session: Session) -> Envelope:
                 "Show the user the resolution block verbatim. The fix commits remain "
                 "intact; after the reported paths are resolved, `mergeback` can retry "
                 "without rerunning the completed stages."
+                + (
+                    ""
+                    if isinstance(exc, mergebackmod.MergebackConflict)
+                    else " If the branch is rebased onto the base by hand, also cherry-pick "
+                    "the recorded fix commits onto it before the retry; otherwise the "
+                    "retry stops with `fix_commits_unmerged`."
+                )
             ),
             next_command="agentic-preflight mergeback",
         ) from exc
@@ -424,14 +583,15 @@ def mergeback(session: Session) -> Envelope:
         summary[finding.severity.value] = summary.get(finding.severity.value, 0) + 1
 
     if not result.tree_equivalent:
+        _refuse_unmerged_fixes(session, run, result)
         run = _reset_non_equivalent_merge_to_review(session, run, result)
-        return _envelope_for(
+        return envelope_for(
             run,
             stage="review",
             data=MergebackData.model_validate(
                 {
                     **result.as_dict(),
-                    "worktree_mode": _worktree_mode(run),
+                    "worktree_mode": worktree_mode(run),
                     "validation_restarted": True,
                 }
             ),
@@ -456,7 +616,7 @@ def mergeback(session: Session) -> Envelope:
     with session.store.transaction(run.run_id) as doc:
         doc.head_sha = result.post_sha
         doc.source_head_sha = result.post_sha
-        _apply(doc, Action.MERGEBACK_OK)
+        apply_action(doc, Action.MERGEBACK_OK)
         run = doc
 
     session.store.append_event(
@@ -468,10 +628,10 @@ def mergeback(session: Session) -> Envelope:
         },
     )
 
-    return _envelope_for(
+    return envelope_for(
         run,
         data=MergebackData.model_validate(
-            {**result.as_dict(), "worktree_mode": _worktree_mode(run)}
+            {**result.as_dict(), "worktree_mode": worktree_mode(run)}
         ),
     )
 

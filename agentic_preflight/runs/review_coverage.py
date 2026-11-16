@@ -12,7 +12,7 @@ from .. import gitx
 from ..errors import InvalidFindings
 from ..machine import Action
 from ..models import FindingSubmission, ReviewCoverage, RunDoc, Stage, StageRecord
-from ._session import Session, _apply, _check_restart_limit, _require_worktree
+from ._session import Session, apply_action, check_restart_limit, require_worktree
 
 
 def validate(
@@ -100,7 +100,7 @@ def invalidate_stage_result(run: RunDoc, stage: Stage) -> None:
 def reopen_if_stale(session: Session, run: RunDoc) -> tuple[RunDoc, bool]:
     """Invalidate review evidence when the validation snapshot has moved."""
     coverage = run.review_coverage
-    worktree_path = _require_worktree(run)
+    worktree_path = require_worktree(run)
     current_head = gitx.rev_parse(worktree_path, "HEAD")
     if coverage is not None and coverage.head_sha == current_head:
         return run, False
@@ -111,7 +111,7 @@ def reopen_if_stale(session: Session, run: RunDoc) -> tuple[RunDoc, bool]:
         invalidate_stage_result(doc, Stage.DOCS)
         invalidate_stage_result(doc, Stage.LINT)
         invalidate_stage_result(doc, Stage.TEST)
-        _apply(doc, Action.INVALIDATE_REVIEW)
+        apply_action(doc, Action.INVALIDATE_REVIEW)
         run = doc
     session.store.append_event(
         run.run_id,
@@ -121,5 +121,5 @@ def reopen_if_stale(session: Session, run: RunDoc) -> tuple[RunDoc, bool]:
             "current_head": current_head,
         },
     )
-    _check_restart_limit(run)
+    check_restart_limit(run)
     return run, True

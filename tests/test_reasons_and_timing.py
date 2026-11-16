@@ -243,7 +243,7 @@ def ticking_clock(monkeypatch):
     ticks = count()
     monkeypatch.setattr(
         _session,
-        "_now",
+        "utc_now",
         lambda: (origin + timedelta(seconds=next(ticks))).isoformat(timespec="seconds"),
     )
 

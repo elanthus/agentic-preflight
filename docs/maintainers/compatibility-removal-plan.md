@@ -31,8 +31,9 @@ Under this rule, 0.8.0 must read 0.7.0 records, notes, and snapshots. It need no
 | 8 | `REMOVED_CONFIG_KEYS` entries removed in 0.7.0 | 0.7.0 | 0.6.0 snapshots and config files | 0.10.0 |
 | 9 | `LEGACY_DIRNAME`, `legacy_worktrees`, runner reclamation at the old root | 0.7.0 | worktrees created before 0.7.0 | 0.10.0 |
 | 10 | `record.get("producer")` raw fallback in `telemetry._producer` | after v0.7.0 | 0.7.0 records without the key | 0.10.0 |
-| 11 | `legacy=True` in `gitx.diff_text_by_path` and `diff.build_bundle` (`_legacy_diff_text_by_path`), and the second pass in `refresh_validation._manifest` | after v0.8.1 | review digests in notes from 0.8.1 and earlier: abbreviated object IDs | 0.10.0 |
-| 12 | The attribute-shaped text that `_legacy_diff_text_by_path` builds and its binary-marker check | after v0.8.1 | review digests in notes from 0.8.1 and earlier: text that followed the checkout's Git attributes | 0.10.0, with row 11 |
+| 11 | `docs/examples/reviewers/` wrapper copies | 0.9.0 | review commands that still run an example wrapper path | 0.10.0 |
+| 12 | `legacy=True` in `gitx.diff_text_by_path` and `diff.build_bundle` (`_legacy_diff_text_by_path`), and the second pass in `refresh_validation._manifest` | after v0.8.1 | review digests in notes from 0.8.1 and earlier: abbreviated object IDs | 0.10.0 |
+| 13 | The attribute-shaped text that `_legacy_diff_text_by_path` builds and its binary-marker check | after v0.8.1 | review digests in notes from 0.8.1 and earlier: text that followed the checkout's Git attributes | 0.10.0, with row 12 |
 
 Run schema 2, attestation schema 7, and fingerprint version 2 do not change in any stage.
 No stage rewrites saved data or deletes user work. Rejected records keep the existing
@@ -107,8 +108,8 @@ and its `start`, like 0.8.0's, already orphaned any such run it met.
 
 - `agentic_preflight/models.py`: delete `retire_ci_delegation`. The states are not in
   `State`, so such a record fails validation naturally.
-- `agentic_preflight/telemetry.py`: delete `_RETIRED_DELEGATED_STATES`,
-  `_RETIRED_DELEGATION_REASON`, and the retired branch of `_effective_state`, which
+- `agentic_preflight/run_summary.py`: delete `_RETIRED_DELEGATED_STATES`,
+  `_RETIRED_DELEGATION_REASON`, and the retired branch of `effective_state`, which
   duplicates the model logic for raw records. `telemetry rebuild` then skips those records
   as unreadable, which the summary report already counts.
 - Tests: the four `test_models.py` cases at lines 352 to 378, plus the delegation cases in
@@ -122,8 +123,8 @@ the only such runs are ones nobody has started since 0.6.0. Collapse the four si
 - `agentic_preflight/store.py`: in `load_run`, treat a nonterminal record with a
   `pending-update.json` beside it as a `RunReadError` with reason `invalid` and a message
   naming 0.7.0 as the release that can finish or abort it.
-- Delete `_interrupted_legacy_update` and its callers in `runs/_session.py`
-  (`_load_current`), `runs/start.py` (the orphan-and-restart branch around line 272), and
+- Delete `interrupted_legacy_update` and its callers in `runs/_session.py`
+  (`load_current`), `runs/start.py` (the orphan-and-restart branch around line 272), and
   `runs/lifecycle.py` (the `status` branch around line 612 and the
   `interrupted_legacy_update` envelope key).
 - `runs/evidence.py`: keep the single `orphaned_reason == "interrupted legacy update"`
@@ -193,6 +194,67 @@ the honest value for "unknown", and the summary keeps reporting it as such.
 What does expire is the missing key. Every record 0.8.0 writes carries the key, so in
 0.10.0 the `record.get("producer")` fallback in `telemetry._producer`, which exists for
 raw records without it, can go. The model field stays `Producer | None`.
+
+### 11. Reviewer example copies
+
+Issue #364 moved the example reviewer wrappers into `agentic_preflight/reviewers/` behind
+`agentic-preflight reviewer run --provider claude|codex`. The three files in
+`docs/examples/reviewers/` stay for one release as standard-library copies, which
+`test_example_wrappers_stay_in_sync_with_the_packaged_reviewer` in
+`tests/test_reviewer_examples.py` keeps identical to the package, so that a configured
+`python3 -S -B docs/examples/reviewers/<provider>_review.py` command keeps working. In 0.10.0:
+
+- Before the removal, switch the callers that still run a copy: this repository's
+  `[review] command` in `.agentic-preflight.toml` (a human-review path; update
+  `human_review_paths` accordingly), the example configurations, and `evals/run.py`, whose
+  real mode sets `AP_EVAL_EXECUTOR` to the copy.
+- Delete `docs/examples/reviewers/` and the tests in `tests/test_reviewer_examples.py` that
+  run or compare the copies.
+- Decide whether `docs/examples/reviewers/**` stays in the `init` template's
+  `human_review_paths` (`agentic_preflight/initcmd.py`), in `docs/configuration.md`, and in
+  the example configurations. It then protects only wrappers that users copied before
+  0.10.0. `tests/test_hook.py` and `tests/test_reviewer_examples.py` pin those entries.
+- Update `docs/independent-review.md`, and add a `removed` changelog fragment.
+
+### 12. Abbreviated review patches
+
+Review patches name full object IDs since the release after 0.8.1. Notes that 0.8.1 and
+earlier wrote hash patches whose `index` lines abbreviate them, and the verifier rebuilds
+that text when the full-ID text does not reproduce a note's digest. In 0.10.0 a release
+no longer reads 0.8 notes, so delete:
+
+- `agentic_preflight/gitx.py`: `_LEGACY_ABBREV_CONFIG`, `_legacy_diff_text_by_path`, the
+  `legacy` parameter of `diff_text_by_path`, and the docstring sentences about the
+  earlier form.
+- `agentic_preflight/diff.py`: the `legacy` parameter of `build_bundle` and its
+  docstring sentence.
+- `agentic_preflight/refresh_validation.py`: the loop over both formats in `_manifest`,
+  leaving one build and the existing "review fingerprint does not match the Git diff"
+  error.
+- `tests/test_diff_config_independence.py`:
+  `test_the_abbreviated_format_reproduces_the_patches_of_earlier_releases`,
+  `test_a_note_written_with_abbreviated_object_ids_still_verifies`,
+  `test_a_run_reviewed_by_an_earlier_release_is_reviewed_again_after_an_upgrade`,
+  `test_the_abbreviated_format_ignores_the_verifiers_abbreviation_setting`, and the
+  `_EARLIER_DIFF` constant once nothing uses it. In
+  `tests/test_diff_attribute_independence.py`,
+  `test_the_earlier_format_refuses_an_attribute_that_hides_a_text_file` goes with row 13. Keep
+  `test_a_digest_that_matches_neither_format_is_rejected` and rename it for one format.
+- `tests/test_gitx.py`: the `earlier` half of
+  `test_crlf_patch_text_and_digests_match_main`, which pins the abbreviated digests.
+- The fallback paragraphs in `docs/fingerprint-contract.md` (from "Notes from 0.8.1 and
+  earlier" to "disambiguates") and the matching upgrade bullets in the `COMPATIBILITY.md`
+  entry "Unreleased: review patches no longer depend on Git configuration". Add a
+  `COMPATIBILITY.md` note that notes from 0.8.1 and earlier no longer verify and must be
+  replaced by validating the commit again, and a `removed` changelog fragment.
+
+### 13. Attribute-shaped earlier text
+
+The earlier text followed the checkout's Git attributes, so `_legacy_diff_text_by_path`
+also checks that no attribute turned a text file into a binary marker. It goes with row
+12, in the same change: delete the `strict=False` branch of `_check_binary_markers` (the
+attribute-free form always passes `strict=True`, so the parameter can go too) and the
+COMPATIBILITY.md and fingerprint-contract sentences about attribute-shaped notes.
 
 ## Guardrail: keep this from growing back
 

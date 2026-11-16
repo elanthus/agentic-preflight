@@ -4,6 +4,8 @@ import contextlib
 import json
 import os
 import random
+import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -15,6 +17,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from agentic_preflight import worktree
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.stages import command as command_plan
 from agentic_preflight.stages import shellstage
@@ -1066,12 +1069,138 @@ def test_an_in_place_baseline_worktree_is_not_created_beside_the_checkout(docs_g
     assert not scratch.exists()
 
 
-def test_a_baseline_worktree_that_cannot_be_prepared_is_not_reported_as_a_passing_base(
+def _record_baseline_pwd(target):
+    """A command that fails everywhere and records where the baseline copy ran."""
+    return f'case "$PWD" in *-baseline) pwd > {shlex.quote(str(target))};; esac; exit 1'
+
+
+def test_an_in_place_baseline_runs_outside_the_git_directory(docs_green, feature_repo, tmp_path):
+    """Runners that skip VCS directories must see the baseline as an ordinary checkout."""
+    agent = docs_green("[docs]\nenabled = false\n\n[worktree]\nmode = 'in_place'\n")
+    run_id = agent.run("status")["run_id"]
+    marker = tmp_path / "baseline-pwd"
+
+    env = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        _record_baseline_pwd(marker),
+        "--record",
+        "--baseline",
+        expect=ExitCode.STAGE_FAILED,
+    )
+
+    assert env["data"]["baseline_red"] is True
+    scratch = Path(marker.read_text(encoding="utf-8").strip()).resolve()
+    common = (feature_repo / git("rev-parse", "--git-common-dir", cwd=feature_repo)).resolve()
+    assert scratch.name == f"{run_id}-baseline"
+    assert not scratch.is_relative_to(common)
+    assert not scratch.is_relative_to(feature_repo.resolve())
+    assert agent.run("status")["data"]["worktree_path"] == str(feature_repo.resolve())
+    # The failing command still leaves neither the scratch checkout nor its branch.
+    assert not scratch.exists()
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) == ""
+    assert str(scratch) not in git("worktree", "list", "--porcelain", cwd=feature_repo)
+
+
+def test_a_locked_baseline_worktree_keeps_the_baseline_result_and_drops_its_branch(
     docs_green, feature_repo
 ):
+    """A cleanup refusal is not allowed to replace the answer the baseline produced."""
     agent = docs_green()
     run_id = agent.run("status")["run_id"]
-    git("branch", f"ap/{run_id}-baseline", "main", cwd=feature_repo)
+    command = 'case "$PWD" in *-baseline) git worktree lock "$PWD";; esac; exit 1'
+
+    env = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        command,
+        "--record",
+        "--baseline",
+        expect=ExitCode.STAGE_FAILED,
+    )
+
+    assert env["error"]["code"] == "stage_failed"
+    assert env["data"]["baseline_red"] is True
+    leftover = env["data"]["baseline_cleanup_failed"]
+    assert leftover["worktree_path"].endswith(f"{run_id}-baseline")
+    assert leftover["branch"] == f"ap/{run_id}-baseline"
+    assert "locked" in leftover["detail"]
+    assert leftover["worktree_path"] in env["next"]["instruction"]
+    assert "do not unlock" in env["next"]["instruction"]
+    assert Path(leftover["worktree_path"]).exists()
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) == ""
+    events = agent.run("events")["data"]["events"]
+    cleanup = [event for event in events if event["event"] == "baseline_cleanup_failed"]
+    assert len(cleanup) == 1
+    assert cleanup[0]["worktree_path"] == leftover["worktree_path"]
+    assert "locked" in cleanup[0]["detail"]
+
+
+def test_a_passing_stage_still_warns_about_a_baseline_it_could_not_remove(docs_green, feature_repo):
+    agent = docs_green()
+    command = 'case "$PWD" in *-baseline) git worktree lock "$PWD";; esac; exit 0'
+
+    env = agent.run("stage", "run", "lint", "--command", command, "--record", "--baseline")
+
+    assert env["state"] == "LINT_GREEN"
+    assert env["data"]["baseline_red"] is False
+    leftover = env["data"]["baseline_cleanup_failed"]["worktree_path"]
+    assert leftover in env["next"]["instruction"]
+    assert "do not unlock" in env["next"]["instruction"]
+    assert env["next"]["command"] == "agentic-preflight stage run test"
+
+
+def test_a_locked_baseline_leftover_is_named_until_the_user_unlocks_it(docs_green, feature_repo):
+    """The retry names the lock instead of a bare git error, and recovers after unlock."""
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    lock = 'case "$PWD" in *-baseline) git worktree lock --reason held "$PWD";; esac; exit 1'
+    first = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        lock,
+        "--record",
+        "--baseline",
+        expect=ExitCode.STAGE_FAILED,
+    )
+    scratch = first["data"]["baseline_cleanup_failed"]["worktree_path"]
+    retry = ["stage", "run", "lint", "--command", "exit 1", "--record", "--baseline"]
+
+    blocked = agent.run(*retry, expect=ExitCode.STAGE_FAILED)
+
+    assert blocked["error"]["code"] == "setup_failed"
+    assert blocked["data"]["setup"]["kind"] == "worktree"
+    assert blocked["data"]["worktree_path"] == scratch
+    assert "baseline_red" not in blocked["data"]
+    assert "is locked (held)" in blocked["error"]["message"]
+    assert "do not unlock it yourself" in blocked["next"]["instruction"]
+    assert "Fix the setup environment" not in blocked["next"]["instruction"]
+    assert "--baseline" in blocked["next"]["command"]
+    assert Path(scratch).exists()
+
+    git("worktree", "unlock", scratch, cwd=feature_repo)
+    recovered = agent.run(*retry, expect=ExitCode.STAGE_FAILED)
+
+    assert recovered["error"]["code"] == "stage_failed"
+    assert recovered["data"]["baseline_red"] is True
+    assert "baseline_cleanup_failed" not in recovered["data"]
+    assert not Path(scratch).exists()
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) == ""
+
+
+def test_a_locked_baseline_does_not_replace_a_baseline_setup_failure(docs_green, feature_repo):
+    agent = docs_green(
+        "[docs]\nenabled = false\n\n"
+        "[worktree]\n"
+        'setup_command = \'case "$PWD" in *-baseline) git worktree lock "$PWD"; exit 9;; esac\'\n'
+    )
+    run_id = agent.run("status")["run_id"]
 
     env = agent.run(
         "stage",
@@ -1085,15 +1214,296 @@ def test_a_baseline_worktree_that_cannot_be_prepared_is_not_reported_as_a_passin
     )
 
     assert env["error"]["code"] == "setup_failed"
+    assert env["data"]["setup"]["exit_code"] == 9
+    assert env["data"]["baseline_cleanup_failed"]["worktree_path"] == env["data"]["worktree_path"]
+    assert env["data"]["worktree_path"] in env["next"]["instruction"]
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) == ""
+
+
+def test_a_scratch_directory_left_after_removal_is_reported(docs_green, monkeypatch):
+    """remove() can return with the directory still there; that is a cleanup failure too."""
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    real_remove = worktree.remove
+
+    def leave_directory(repo, path, *, branch=None):
+        if Path(path).name.endswith("-baseline") and Path(path).exists():
+            return None
+        return real_remove(repo, path, branch=branch)
+
+    monkeypatch.setattr(worktree, "remove", leave_directory)
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "stage_failed"
+    assert env["data"]["baseline_red"] is True
+    leftover = env["data"]["baseline_cleanup_failed"]
+    assert leftover["worktree_path"].endswith(f"{run_id}-baseline")
+    assert "still exists after removal" in leftover["detail"]
+
+
+def test_an_in_place_baseline_root_inside_the_repository_is_a_setup_failure(
+    docs_green, feature_repo
+):
+    agent = docs_green(
+        "[docs]\nenabled = false\n\n"
+        f"[worktree]\nmode = 'in_place'\nroot = '{feature_repo.name}/scratch'\n"
+    )
+    run_id = agent.run("status")["run_id"]
+
+    env = agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        "exit 1",
+        "--record",
+        "--baseline",
+        expect=ExitCode.STAGE_FAILED,
+    )
+
+    assert env["error"]["code"] == "setup_failed"
+    assert env["data"]["setup"]["kind"] == "worktree"
+    assert "outside the repository" in env["error"]["message"]
+    assert env["data"]["worktree_path"] == str(
+        feature_repo.resolve() / "scratch" / f"{run_id}-baseline"
+    )
+    assert "baseline_red" not in env["data"]
+    assert not (feature_repo / "scratch").exists()
+
+
+def _baseline_scratch(repo, run_id):
+    return worktree.resolve_root(repo) / f"{run_id}-baseline"
+
+
+def _run_baseline(agent, command="exit 1"):
+    return agent.run(
+        "stage",
+        "run",
+        "lint",
+        "--command",
+        command,
+        "--record",
+        "--baseline",
+        expect=ExitCode.STAGE_FAILED,
+    )
+
+
+def test_a_baseline_branch_with_other_commits_is_refused_by_name_and_kept(docs_green, feature_repo):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    branch = f"ap/{run_id}-baseline"
+    extra = git(
+        "commit-tree", "main^{tree}", "-p", "main", "-m", "someone's work", cwd=feature_repo
+    )
+    git("branch", branch, extra, cwd=feature_repo)
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "setup_failed"
     assert env["state"] == "LINT_RED"
     assert "baseline_red" not in env["data"]
     assert env["data"]["scope"] == "baseline"
     assert env["data"]["setup"]["kind"] == "worktree"
-    assert "already exists" in env["error"]["message"]
+    assert branch in env["error"]["message"]
+    assert "commits beyond the base" in env["error"]["message"]
+    assert branch in env["next"]["instruction"]
+    assert "Fix the setup environment" not in env["next"]["instruction"]
+    assert "do not delete" in env["next"]["instruction"]
     assert "--baseline" in env["next"]["command"]
+    assert git("rev-parse", branch, cwd=feature_repo) == extra
     status = agent.run("status")
     assert status["data"]["stages"]["lint"]["reason"] == "baseline worktree could not be prepared"
     assert status["data"]["setup_failure"]["scope"] == "baseline"
+
+
+def test_a_killed_baselines_leftover_worktree_and_branch_are_reclaimed(docs_green, feature_repo):
+    """SIGTERM skips cleanup; the next check recognises this run's own leftovers."""
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    branch = f"ap/{run_id}-baseline"
+    scratch = _baseline_scratch(feature_repo, run_id)
+    base = git("merge-base", "main", "feature/x", cwd=feature_repo)
+    git("worktree", "add", "-b", branch, str(scratch), base, cwd=feature_repo)
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "stage_failed"
+    assert env["data"]["baseline_red"] is True
+    assert not scratch.exists()
+    assert git("branch", "--list", branch, cwd=feature_repo) == ""
+
+
+def test_a_dirty_scratch_leftover_at_the_base_is_reclaimed(docs_green, feature_repo):
+    """A killed check leaves its output behind; that alone does not keep the checkout."""
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    scratch = _baseline_scratch(feature_repo, run_id)
+    base = git("merge-base", "main", "feature/x", cwd=feature_repo)
+    git("worktree", "add", "-b", f"ap/{run_id}-baseline", str(scratch), base, cwd=feature_repo)
+    (scratch / "test-output.txt").write_text("partial\n", encoding="utf-8")
+    write(scratch, "src/app.py", "edited by the killed command\n")
+
+    env = _run_baseline(agent)
+
+    assert env["data"]["baseline_red"] is True
+    assert not scratch.exists()
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) == ""
+
+
+def test_a_scratch_leftover_whose_head_moved_is_kept_and_named(docs_green, feature_repo):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    branch = f"ap/{run_id}-baseline"
+    scratch = _baseline_scratch(feature_repo, run_id)
+    base = git("merge-base", "main", "feature/x", cwd=feature_repo)
+    git("worktree", "add", "-b", branch, str(scratch), base, cwd=feature_repo)
+    write(scratch, "notes.txt", "someone's work\n")
+    commit_all(scratch, "work in the scratch checkout")
+    moved = git("rev-parse", "HEAD", cwd=scratch)
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "setup_failed"
+    assert env["data"]["setup"]["kind"] == "worktree"
+    assert "baseline_red" not in env["data"]
+    assert str(scratch) in env["error"]["message"]
+    assert "not this run's base commit" in env["error"]["message"]
+    assert str(scratch) in env["next"]["instruction"]
+    assert "removes that worktree" in env["next"]["instruction"]
+    assert "--baseline" in env["next"]["command"]
+    assert git("rev-parse", "HEAD", cwd=scratch) == moved
+    assert git("rev-parse", branch, cwd=feature_repo) == moved
+
+
+def test_a_leftover_branch_at_the_base_alone_is_reclaimed(docs_green, feature_repo):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    git("branch", f"ap/{run_id}-baseline", "main", cwd=feature_repo)
+
+    env = _run_baseline(agent)
+
+    assert env["data"]["baseline_red"] is True
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) == ""
+
+
+def test_a_registered_baseline_leftover_with_no_directory_is_reclaimed(docs_green, feature_repo):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    branch = f"ap/{run_id}-baseline"
+    scratch = _baseline_scratch(feature_repo, run_id)
+    base = git("merge-base", "main", "feature/x", cwd=feature_repo)
+    git("worktree", "add", "-b", branch, str(scratch), base, cwd=feature_repo)
+    shutil.rmtree(scratch)
+
+    env = _run_baseline(agent)
+
+    assert env["data"]["baseline_red"] is True
+    assert git("branch", "--list", branch, cwd=feature_repo) == ""
+    assert str(scratch) not in git("worktree", "list", "--porcelain", cwd=feature_repo)
+
+
+def test_an_unregistered_directory_at_the_baseline_path_is_never_deleted(docs_green, feature_repo):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    scratch = _baseline_scratch(feature_repo, run_id)
+    scratch.mkdir(parents=True)
+    (scratch / "keep.txt").write_text("not ours\n", encoding="utf-8")
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "setup_failed"
+    assert env["data"]["setup"]["kind"] == "worktree"
+    assert (scratch / "keep.txt").read_text(encoding="utf-8") == "not ours\n"
+
+
+def test_a_baseline_branch_checked_out_elsewhere_names_the_worktree_to_remove(
+    docs_green, feature_repo, tmp_path
+):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    branch = f"ap/{run_id}-baseline"
+    elsewhere = tmp_path / "elsewhere"
+    git("worktree", "add", "-b", branch, str(elsewhere), "main", cwd=feature_repo)
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "setup_failed"
+    assert branch in env["error"]["message"]
+    assert "checked out" in env["error"]["message"]
+    assert str(elsewhere.resolve()) in env["error"]["message"]
+    assert str(elsewhere.resolve()) in env["next"]["instruction"]
+    assert "removes that worktree" in env["next"]["instruction"]
+    assert "--baseline" in env["next"]["command"]
+    assert elsewhere.exists()
+    assert git("branch", "--list", branch, cwd=feature_repo) != ""
+
+
+def _old_baseline_checkout(repo, run_id):
+    """The scratch checkout an earlier release left under the Git directory."""
+    old = repo / ".git" / "agentic-preflight" / "worktrees" / f"{run_id}-baseline"
+    base = git("merge-base", "main", "feature/x", cwd=repo)
+    git("worktree", "add", "-b", f"ap/{run_id}-baseline", str(old), base, cwd=repo)
+    return old
+
+
+def test_an_earlier_releases_baseline_checkout_under_git_is_reclaimed(docs_green, feature_repo):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    old = _old_baseline_checkout(feature_repo, run_id)
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "stage_failed"
+    assert env["data"]["baseline_red"] is True
+    assert not old.exists()
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) == ""
+
+
+@pytest.mark.parametrize("change", ["dirty", "locked"])
+def test_an_earlier_baseline_checkout_with_changes_or_a_lock_is_kept(
+    docs_green, feature_repo, change
+):
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    old = _old_baseline_checkout(feature_repo, run_id)
+    if change == "dirty":
+        (old / "notes.txt").write_text("work in progress\n", encoding="utf-8")
+    else:
+        git("worktree", "lock", str(old), cwd=feature_repo)
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "setup_failed"
+    assert "checked out in the worktree" in env["error"]["message"]
+    assert old.exists()
+    assert git("branch", "--list", f"ap/{run_id}-baseline", cwd=feature_repo) != ""
+
+
+def test_a_git_error_while_reclaiming_is_a_baseline_setup_failure(
+    docs_green, feature_repo, monkeypatch
+):
+    from agentic_preflight import gitx
+
+    agent = docs_green()
+    run_id = agent.run("status")["run_id"]
+    git("branch", f"ap/{run_id}-baseline", "main", cwd=feature_repo)
+    real = gitx.rev_parse
+
+    def failing(cwd, ref):
+        if ref.startswith("refs/heads/ap/"):
+            raise gitx.GitError(["rev-parse", ref], 128, "simulated failure")
+        return real(cwd, ref)
+
+    monkeypatch.setattr(gitx, "rev_parse", failing)
+
+    env = _run_baseline(agent)
+
+    assert env["error"]["code"] == "setup_failed"
+    assert env["data"]["scope"] == "baseline"
+    assert env["data"]["setup"]["kind"] == "worktree"
+    assert "simulated failure" in env["error"]["message"]
+    assert "--baseline" in env["next"]["command"]
 
 
 def test_repeated_baseline_setup_failures_stop_without_a_nonexistent_log(docs_green):

@@ -345,13 +345,23 @@ def merge_tree(cwd: Path | str, left: str, right: str) -> str | None:
     return tree if clean else None
 
 
-def merge_tree_result(cwd: Path | str, left: str, right: str) -> tuple[str, bool]:
+def merge_tree_result(
+    cwd: Path | str, left: str, right: str, *, ignore_replacements: bool = False
+) -> tuple[str, bool]:
     """Return Git's merge-result tree and whether the merge was clean.
 
     A conflicted merge still writes a tree, with conflict markers in the
     conflicted files, so every path the merge touches remains visible in it.
+    ``ignore_replacements`` builds the merge from the commits themselves rather
+    than from any ``refs/replace`` entry, as the review inventory requires.
     """
-    args = ["merge-tree", "--write-tree", left, right]
+    args = [
+        *(("--no-replace-objects",) if ignore_replacements else ()),
+        "merge-tree",
+        "--write-tree",
+        left,
+        right,
+    ]
     result = run(cwd, *args, check=False)
     if result.returncode in (0, 1):
         return result.stdout.splitlines()[0], result.returncode == 0
@@ -369,9 +379,21 @@ def commit_files(cwd: Path | str, sha: str) -> list[str]:
 
     NUL-delimited for the same reason as ``changed_files``: under default
     ``core.quotePath`` a non-ASCII path comes back C-quoted, naming a file
-    that exists nowhere.
+    that exists nowhere. The pinned options keep a submodule pointer change in
+    the list, as the review inventory does, so that ``diff.ignoreSubmodules`` or
+    a committed ``.gitmodules`` cannot hide it from the checks that use this list.
     """
-    output = run(cwd, "diff-tree", "--no-commit-id", "--name-only", "-z", "-r", sha).stdout
+    output = run(
+        cwd,
+        *_PINNED_DIFF_CONFIG,
+        "diff-tree",
+        "--ignore-submodules=none",
+        "--no-commit-id",
+        "--name-only",
+        "-z",
+        "-r",
+        sha,
+    ).stdout
     return [path for path in output.split("\0") if path]
 
 
@@ -690,9 +712,12 @@ _NO_RENAMES = "--no-renames"
 # rebuild that text from the same commits. Git shapes it from ``core.*`` and
 # ``diff.*`` configuration, so the settings that change a byte or drop a path are
 # fixed here instead of being read from whoever runs the command. Each value is
-# Git's own default: a repository with no such configuration produces the same
-# text as before. ``/dev/null`` is the spelling Git documents for "no file" and
-# resolves itself on Windows.
+# Git's own default, with two exceptions that are switched off: replacement
+# objects and the user-level attributes file. A clone with neither, with no such
+# configuration, and with no attributes that change a patch, produces the same
+# text as before apart from the ``index`` line, which now carries full object IDs.
+# ``/dev/null`` is the spelling Git
+# documents for "no file" and resolves itself on Windows.
 #
 # Attributes, and ``diff.default.xfuncname`` and ``diff.default.funcname``, which
 # shape hunk headers and have no reset value, are handled by ``diff_text_by_path``
@@ -819,7 +844,7 @@ def merge_result_files(cwd: Path | str, base: str, head: str) -> list[str]:
     ``-s ours`` reverts it without showing the revert. The merge-tree result
     accounts for every merge base. Conflicted paths are reported too.
     """
-    tree, _clean = merge_tree_result(cwd, base, head)
+    tree, _clean = merge_tree_result(cwd, base, head, ignore_replacements=True)
     output = _run_bytes(
         cwd,
         *_PINNED_DIFF_CONFIG,

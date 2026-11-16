@@ -22,23 +22,23 @@ from ..stages import detect, shellstage
 from . import evidence
 from ._session import (
     Session,
-    _apply,
-    _assert_fresh,
-    _check_restart_limit,
-    _envelope_for,
-    _is_in_place,
-    _load_current,
-    _now,
-    _require_state,
-    _require_worktree,
-    _start_command,
+    apply_action,
+    assert_fresh,
+    check_restart_limit,
+    envelope_for,
+    is_in_place,
+    load_current,
+    require_state,
+    require_worktree,
+    start_command,
+    utc_now,
 )
 from ._shell import _run_protected, _withheld_message
 from .fix_commits import derive_fix_commits, record_fix_commits
 from .log_window import DEFAULT_TAIL_LINES, read_log_window
 from .review import _skip_test_if_not_applicable
 from .review_coverage import invalidate_stage_result, reopen_if_stale
-from .stage_baseline import check_baseline
+from .stage_baseline import BaselineOutcome, check_baseline, cleanup_instruction
 
 
 class _StageSpec(TypedDict):
@@ -91,13 +91,13 @@ def _recover_interrupted_stage(
         entry.reason = "interrupted"
         entry.output_sha256 = None
         entry.log_path = None
-        entry.finished_at = _now()
+        entry.finished_at = utc_now()
         # Keep the head the attempt began from, so a repair committed after the
         # interruption is registered rather than mistaken for the tested tree.
         if entry.head_sha is None:
-            entry.head_sha = gitx.rev_parse(_require_worktree(doc), "HEAD")
+            entry.head_sha = gitx.rev_parse(require_worktree(doc), "HEAD")
         doc.stages[stage] = entry
-        _apply(doc, spec["failed"])
+        apply_action(doc, spec["failed"])
         run = doc
     session.store.append_event(
         run.run_id,
@@ -128,7 +128,7 @@ def _register_stage_fix_commits(
                 "stage's recorded head",
                 state=run.state.value,
                 run_id=run.run_id,
-                next_command=_start_command(
+                next_command=start_command(
                     run.intent,
                     base_ref=run.base_ref,
                     default_base_ref=session.config.general.base_ref,
@@ -141,7 +141,7 @@ def _register_stage_fix_commits(
             entry = doc.stages.get(stage) or StageRecord()
             entry.head_sha = None
             doc.stages[stage] = entry
-            if _is_in_place(doc):
+            if is_in_place(doc):
                 doc.head_sha = current_head
                 doc.source_head_sha = current_head
             doc.review_coverage = None
@@ -152,19 +152,19 @@ def _register_stage_fix_commits(
                 # a committed test repair, so the lint commit is not later mistaken
                 # for another test repair.
                 invalidate_stage_result(doc, Stage.TEST)
-                _apply(doc, Action.LINT_FIX_RESTART)
+                apply_action(doc, Action.LINT_FIX_RESTART)
             elif stage is Stage.TEST:
                 # The previously green lint result names the pre-repair tree. Drop
                 # it before returning to docs/lint so the next lint run starts clean
                 # rather than treating this test commit as a lint repair.
                 invalidate_stage_result(doc, Stage.LINT)
-                _apply(doc, Action.TEST_FIX_RESTART)
+                apply_action(doc, Action.TEST_FIX_RESTART)
             run = doc
         session.store.append_event(
             run.run_id,
             {"event": "stage_fix_commits_registered", "stage": stage.value, "commits": commits},
         )
-        _check_restart_limit(run)
+        check_restart_limit(run)
         return run, True
     return run, False
 
@@ -272,7 +272,7 @@ def _persist_stage_result(
     input_fingerprint,
 ) -> RunDoc:
     """Persist the completed local result in its original transaction boundary."""
-    wt = _require_worktree(run)
+    wt = require_worktree(run)
     with session.store.transaction(run.run_id) as doc:
         entry = doc.stages.get(stage) or StageRecord()
         entry.command = resolved
@@ -281,15 +281,25 @@ def _persist_stage_result(
         entry.output_sha256 = output_digest(clean_output)
         entry.log_path = str(log_path)
         entry.status = StageStatus.GREEN if result.passed else StageStatus.RED
-        entry.finished_at = _now()
+        entry.finished_at = utc_now()
         entry.head_sha = gitx.rev_parse(wt, "HEAD")
         entry.fingerprint = input_fingerprint
         doc.evidence.pop(stage, None)
         if not result.passed:
             entry.attempts += 1
         doc.stages[stage] = entry
-        _apply(doc, spec["passed"] if result.passed else spec["failed"])
+        apply_action(doc, spec["passed"] if result.passed else spec["failed"])
         return doc
+
+
+def _warn_about_baseline_leftover(envelope: Envelope, baseline: BaselineOutcome | None) -> Envelope:
+    """Warn on a passing stage too, not only when a later --baseline trips over it."""
+    if baseline is not None and baseline.cleanup_failure:
+        warning = cleanup_instruction(baseline.cleanup_failure)
+        envelope.next_instruction = " ".join(
+            part for part in (envelope.next_instruction, warning) if part
+        )
+    return envelope
 
 
 def _stage_failure(
@@ -299,7 +309,7 @@ def _stage_failure(
     data: dict,
     redaction_failure_reason: str | None,
     redaction_error,
-    baseline_red,
+    baseline: BaselineOutcome | None,
 ) -> NoReturn:
     """Raise the failure variant selected by output protection and baseline status."""
     message = f"the {stage_name} stage failed (exit {result.exit_code})"
@@ -310,7 +320,7 @@ def _stage_failure(
             "Restore every copied file to its intended contents, then retry the stage. "
             "Commands must not rewrite [worktree] copy_files."
         )
-    elif baseline_red:
+    elif baseline is not None and baseline.red:
         message = (
             f"the {stage_name} stage failed, but the base commit fails it too — "
             f"this is pre-existing, not caused by the diff"
@@ -319,6 +329,8 @@ def _stage_failure(
             "The base commit already fails this stage, so the change under review is "
             "not responsible. Tell the user rather than trying to fix it here."
         )
+    if baseline is not None and baseline.cleanup_failure:
+        instruction += " " + cleanup_instruction(baseline.cleanup_failure)
     raise StageFailed(
         message,
         state=run.state.value,
@@ -339,30 +351,30 @@ def run_stage(
     baseline: bool = False,
 ) -> Envelope:
     """Run a deterministic shell stage. Pass/fail is the exit code, nothing else."""
-    run = _load_current(session)
+    run = load_current(session)
     spec = _STAGE_STATES[stage_name]
     stage = Stage(stage_name)
     record_entry = run.stages.get(stage) or StageRecord()
     accepting_repair = (
-        _is_in_place(run)
+        is_in_place(run)
         and run.state in (spec["red"], spec["running"])
         and record_entry.head_sha is not None
     )
     if not accepting_repair:
-        _assert_fresh(session, run)
+        assert_fresh(session, run)
     if run.state in {State.DOCS_GREEN, State.TEST_GREEN}:
         run, reopened = reopen_if_stale(session, run)
         if reopened:
-            return _envelope_for(
+            return envelope_for(
                 run,
                 stage=Stage.REVIEW.value,
                 data=StageRunData(coverage_invalidated=True),
                 next_command="agentic-preflight context",
             )
-    _require_state(run, *_STAGE_READY_STATES[stage_name], command=f"stage run {stage_name}")
+    require_state(run, *_STAGE_READY_STATES[stage_name], command=f"stage run {stage_name}")
     run = _recover_interrupted_stage(session, run, stage, spec)
     record_entry = run.stages.get(stage) or StageRecord()
-    worktree_path = _require_worktree(run)
+    worktree_path = require_worktree(run)
 
     if not gitx.is_clean(worktree_path):
         raise DirtyTree(
@@ -376,7 +388,7 @@ def run_stage(
 
     run, restarted = _register_stage_fix_commits(session, run, stage, spec, record_entry)
     if restarted:
-        return _envelope_for(
+        return envelope_for(
             run,
             stage=stage_name,
             data=StageRunData(stage=stage_name, validation_restarted=True),
@@ -389,23 +401,23 @@ def run_stage(
 
     _check_attempt_limit(session, run, stage, record_entry)
     resolved = _resolve_command(session, run, stage_name, command)
-    baseline_red = None
+    baseline_outcome: BaselineOutcome | None = None
     input_fingerprint = None
 
     def begin() -> None:
-        nonlocal run, baseline_red, input_fingerprint
+        nonlocal run, baseline_outcome, input_fingerprint
         with session.store.transaction(run.run_id) as doc:
-            _apply(doc, spec["retry"] if doc.state is spec["red"] else spec["run"])
+            apply_action(doc, spec["retry"] if doc.state is spec["red"] else spec["run"])
             doc.setup_failure = None
             # Interrupted-stage recovery compares this with the head it finds.
             entry = doc.stages.get(stage) or StageRecord()
             entry.head_sha = gitx.rev_parse(worktree_path, "HEAD")
             doc.stages[stage] = entry
             run = doc
-        baseline_red = None
+        baseline_outcome = None
         if baseline:
             with timing.timed_command(session.store, run.run_id, "baseline"):
-                baseline_red = check_baseline(
+                baseline_outcome = check_baseline(
                     session, run, stage, resolved, failure_action=spec["failed"]
                 )
         input_fingerprint = evidence.fingerprint(session, run, stage, command=resolved, clean=True)
@@ -468,14 +480,17 @@ def run_stage(
         data["copied_file"] = str(redaction_error.path)
     if result.copied_files_changed:
         data["copied_files"] = run.copied_files
-    if baseline_red is not None:
-        data["baseline_red"] = baseline_red
+    if baseline_outcome is not None:
+        data["baseline_red"] = baseline_outcome.red
+        if baseline_outcome.cleanup_failure:
+            data["baseline_cleanup_failed"] = baseline_outcome.cleanup_failure
 
     if result.passed:
         if stage is Stage.LINT:
             run = _skip_test_if_not_applicable(session, run)
         run = evidence.advance(session, run, clean=clean_after)
-        return _envelope_for(run, stage=stage_name, data=StageRunData.model_validate(data))
+        envelope = envelope_for(run, stage=stage_name, data=StageRunData.model_validate(data))
+        return _warn_about_baseline_leftover(envelope, baseline_outcome)
 
     _stage_failure(
         run,
@@ -484,7 +499,7 @@ def run_stage(
         data,
         redaction_failure_reason,
         redaction_error,
-        baseline_red,
+        baseline_outcome,
     )
 
 
@@ -502,7 +517,7 @@ def logs(
     ``tail`` choose another line count. Either is cut to :data:`.log_window.MAX_WINDOW_BYTES`.
     ``whole`` returns the entire log.
     """
-    run = _load_current(session)
+    run = load_current(session)
     log_path = session.store.logs_dir(run.run_id) / f"{stage_name}.txt"
     if not log_path.exists():
         next_command = (
@@ -523,7 +538,7 @@ def logs(
         window = read_log_window(log_path, head=head)
     else:
         window = read_log_window(log_path, tail=DEFAULT_TAIL_LINES if tail is None else tail)
-    return _envelope_for(
+    return envelope_for(
         run,
         stage=stage_name,
         data=LogsData(

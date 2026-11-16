@@ -58,6 +58,7 @@ Notes from 0.8.1 and earlier hash patches with abbreviated object IDs, whose len
 Git picks the default length from the clone's object count, so such a note can fail in a clone whose count gives a different length, even when its producer used every default.
 A verifier builds that text only when the current text does not reproduce a note's digest.
 It fixes the other settings to Git's default for that text too, so a note whose producer changed one of them may not verify, if the change altered the patch.
+A note for a commit whose committed `.gitmodules` hid a changed submodule pointer never verifies, because both texts now list that pointer.
 In that text a file-level patch, such as a binary change, names its blobs only by abbreviated object IDs, which a clone that holds both blobs disambiguates.
 It rejects the note when that text marks a file whose content is text as binary.
 See [the compatibility entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-configuration)
