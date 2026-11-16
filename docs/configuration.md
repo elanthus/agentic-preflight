@@ -465,6 +465,7 @@ Each captured stream keeps at most 8 MiB.
 Longer output keeps its first and last 4 MiB around an `[output truncated: N bytes omitted]` line.
 The stage log and the envelope's head and tail come from that capped text.
 On POSIX, a SIGTERM, SIGINT, or SIGHUP delivered to the CLI while a stage runs also kills that stage's process group.
+A signal that the CLI inherited as ignored, for example SIGHUP under `nohup`, stays ignored.
 On Windows, Ctrl+C kills the stage's process tree before cancellation propagates.
 
 `max_restarts` bounds the whole run, not one stage.

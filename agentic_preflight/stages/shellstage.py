@@ -263,6 +263,11 @@ else:
 
         try:
             for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+                # An ignored signal (``nohup``, or a parent's SIG_IGN) must stay
+                # ignored: forwarding it would stop the child while this process,
+                # restored to SIG_IGN, carried on without it.
+                if signal.getsignal(number) is signal.SIG_IGN:
+                    continue
                 previous[int(number)] = signal.signal(number, handler)
         except ValueError:
             # Signal handlers can only be installed from the main thread.

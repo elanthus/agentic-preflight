@@ -7,6 +7,7 @@ worktree's ``start``, ``mergeback``, and ``push`` then blocks on those locks.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -172,6 +173,41 @@ def test_a_signal_to_the_tool_stops_a_running_remote_command(
 
     assert tool.returncode == -signum
     assert _process_stops(helper_pid)
+
+
+@posix_only
+@pytest.mark.skipif(not hasattr(signal, "SIGHUP"), reason="POSIX hangup signal")
+def test_an_ignored_hangup_leaves_a_running_remote_command_alone(tmp_repo, tmp_path, monkeypatch):
+    url = _remote_helper(
+        tmp_path, monkeypatch, "stall", 'echo $$ > "$AP_TEST_OUT"\nexec sleep 120\n'
+    )
+    pid_file = tmp_path / "stall.pid"
+    monkeypatch.setenv("AP_TEST_OUT", str(pid_file))
+    script = (
+        "import signal, sys\n"
+        "signal.signal(signal.SIGHUP, signal.SIG_IGN)\n"
+        "from agentic_preflight import gitx\n"
+        "gitx.run(sys.argv[1], 'fetch', sys.argv[2], remote='origin')\n"
+    )
+    tool = subprocess.Popen([sys.executable, "-c", script, str(tmp_repo), url])
+    try:
+        deadline = time.monotonic() + 30
+        while not pid_file.exists() or not pid_file.read_text(encoding="utf-8").strip():
+            assert time.monotonic() < deadline, "the remote helper never started"
+            assert tool.poll() is None, "the tool exited before the helper started"
+            time.sleep(0.05)
+        helper_pid = int(pid_file.read_text(encoding="utf-8"))
+
+        tool.send_signal(signal.SIGHUP)
+        time.sleep(1)
+
+        assert tool.poll() is None
+        os.kill(helper_pid, 0)  # still running: raises if the hangup stopped it
+    finally:
+        tool.kill()
+        tool.wait(timeout=30)
+        with contextlib.suppress(ProcessLookupError, UnboundLocalError):
+            os.kill(helper_pid, signal.SIGKILL)
 
 
 @posix_only
