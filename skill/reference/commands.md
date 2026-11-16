@@ -803,6 +803,20 @@ is not clean; `data.inspection_error` is `null` otherwise. A worktree that no lo
 exists does not stop `abort`. `--force` discards the changes too.
 An `in_place` run never touches the source checkout, so uncommitted changes there do not
 stop `abort`.
+In isolated modes, from the end of base synchronization until merge-back, the unmerged
+fix commits include commits on the validation branch that no `respond` or stage
+registered yet, read from both the checkout's `HEAD` and the branch;
+`data.fix_commits` lists the recorded commits and those new ones, and with `--force`
+`data.discarded_fix_commits` and the `aborted` event do. When the branch history
+cannot be read, for example because the validation branch holds a merge commit or no
+longer descends from the reviewed head, a plain `abort` also exits 5 with
+`unmerged_work` if any non-empty commit follows the reviewed head or Git cannot open
+the validation checkout; `data.fix_commits` then lists them without those checks,
+reading the branch from the shared repository, so after a rebase onto another base it
+can include commits the new base brought in. `--force` still succeeds, except for a
+`reusable` runner whose checkout Git cannot open, which fails to release with
+`git_error`. A `reusable` runner whose directory is gone keeps its branch, so its
+commits are not counted.
 A `strict` validation worktree locked with `git worktree lock` is never deleted:
 the command exits 1 with `git_error` naming the worktree, and the run keeps its state.
 Show the user the message; do not unlock it yourself.

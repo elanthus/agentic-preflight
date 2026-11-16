@@ -39,7 +39,12 @@ from ._session import (
     unresolved_next_hint,
     worktree_mode,
 )
-from .fix_commits import patch_unlanded
+from .fix_commits import (
+    UnreadableFixHistory,
+    branch_fix_commits,
+    listed_branch_commits,
+    patch_unlanded,
+)
 
 
 def events(session: Session, *, limit: int | None = None) -> Envelope:
@@ -53,6 +58,45 @@ def events(session: Session, *, limit: int | None = None) -> Envelope:
         run,
         data=EventsData(events=history, count=len(history), skipped_lines=log.skipped_lines),
     )
+
+
+def _abort_fix_commits(
+    session: Session, run: RunDoc, *, force: bool
+) -> tuple[list[str], str | None]:
+    """The fix commits an isolated abort protects, or with ``force`` reports discarding.
+
+    The second item is why the branch history could not be read, or ``None``.
+    Without ``--force``, such a history may hold work, so the abort stops, as ``gc``
+    does, unless nothing follows the reviewed head. ``--force`` is the way out of a
+    run, so with it such a history is listed as fully as a plain ``rev-list``
+    allows, and any failure only narrows the report to the recorded commits.
+    """
+    if not force:
+        try:
+            return branch_fix_commits(session, run), None
+        except UnreadableFixHistory as exc:
+            # Nothing after the reviewed head on HEAD or the branch: nothing at risk.
+            with suppress(Exception):
+                if not listed_branch_commits(session, run):
+                    return list(run.fix_commits), None
+            return _listed_fix_commits(session, run), str(exc)
+    with suppress(Exception):  # the report must not block the forced abort
+        return branch_fix_commits(session, run), None
+    return _listed_fix_commits(session, run), None
+
+
+def _listed_fix_commits(session: Session, run: RunDoc) -> list[str]:
+    """The recorded fix commits plus a plain listing of the branch, for a report.
+
+    Used when the history cannot be derived, so the commits can still be found and
+    recovered. Any failure narrows the list to the recorded commits.
+    """
+    recorded = list(run.fix_commits)
+    try:
+        listed = listed_branch_commits(session, run, best_effort=True)
+    except Exception:  # noqa: BLE001 - a report must not fail the command
+        return recorded
+    return recorded + [sha for sha in listed if sha not in recorded]
 
 
 def abort(session: Session, *, force: bool = False, reason: AbortReason | None = None) -> Envelope:
@@ -71,16 +115,26 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
     run = load_current(session, allow_interrupted=True)
 
     isolated = not is_in_place(run)
+    # Before merge-back, a commit made after the last `respond` is on the validation
+    # branch but not yet recorded; releasing the worktree would delete it too.
+    fix_commits, unreadable = (
+        _abort_fix_commits(session, run, force=force) if isolated else (list(run.fix_commits), None)
+    )
     if isolated and not force:
         uncommitted, inspection_error = _abort_uncommitted_paths(run)
-        if run.fix_commits or uncommitted or inspection_error:
-            raise _unmerged_work(run, uncommitted, inspection_error)
+        if fix_commits or unreadable or uncommitted or inspection_error:
+            raise _unmerged_work(
+                run, fix_commits, uncommitted, inspection_error, unreadable_history=unreadable
+            )
 
     release_run_worktree(session, run)
 
     # The marker commits with the transition, so the run summary written at the
     # terminal commit can record whether the abort was forced, why, and from where.
     marker: dict[str, object] = {"event": "aborted", "forced": force, "reason": reason}
+    if isolated and force:
+        # Unregistered commits are recorded nowhere else, so keep them for recovery.
+        marker["discarded_fix_commits"] = fix_commits
     with session.store.transaction(run.run_id, events=[marker]) as doc:
         # The state the transition leaves: the ``from`` of its state_transition event.
         marker["aborted_from_state"] = doc.state.value
@@ -93,7 +147,7 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
     return envelope_for(
         run,
         data=AbortData(
-            discarded_fix_commits=run.fix_commits if isolated and force else [],
+            discarded_fix_commits=fix_commits if isolated and force else [],
             preserved_in_place_commits=run.fix_commits if not isolated else [],
         ),
         next_instruction="Run aborted. Start a fresh one when ready.",
@@ -130,14 +184,29 @@ def _abort_uncommitted_paths(run: RunDoc) -> tuple[list[str] | None, str | None]
 
 
 def _unmerged_work(
-    run: RunDoc, uncommitted: list[str] | None, inspection_error: str | None = None
+    run: RunDoc,
+    fix_commits: list[str],
+    uncommitted: list[str] | None,
+    inspection_error: str | None = None,
+    *,
+    unreadable_history: str | None = None,
 ) -> UnmergedWork:
-    """The refusal that names everything a forced abort would discard."""
+    """The refusal that names everything a forced abort would discard.
+
+    With ``unreadable_history``, ``fix_commits`` is a plain listing of the branch,
+    named for inspection rather than as verified fix commits.
+    """
     lost: list[str] = []
-    if run.fix_commits:
+    if unreadable_history:
         lost.append(
-            f"{len(run.fix_commits)} fix commit(s) that were never merged back: "
-            f"{', '.join(run.fix_commits)}"
+            "a validation branch whose history cannot be read, so it may hold commits "
+            f"that were never merged back ({unreadable_history}): "
+            f"{', '.join(fix_commits) or 'none listed'}"
+        )
+    elif fix_commits:
+        lost.append(
+            f"{len(fix_commits)} fix commit(s) that were never merged back: "
+            f"{', '.join(fix_commits)}"
         )
     if uncommitted:
         named = ", ".join(uncommitted[:_MESSAGE_PATH_LIMIT])
@@ -152,18 +221,24 @@ def _unmerged_work(
             f"{inspection_error}"
         )
     copy = bool(uncommitted or inspection_error)
-    if run.fix_commits and copy:
+    if unreadable_history:
+        keep = "Inspect the commits in data.fix_commits and cherry-pick anything worth keeping" + (
+            ", and copy the changes worth keeping" if copy else ""
+        )
+    elif fix_commits and copy:
         keep = "Cherry-pick the commits and copy the changes worth keeping"
     elif copy:
         keep = "Copy anything worth keeping into your checkout"
     else:
         keep = "Cherry-pick anything worth keeping"
+    # Unregistered commits may be read from the branch after the checkout is gone.
+    where = "on the validation branch or in its worktree" if fix_commits else "in the worktree"
     return UnmergedWork(
         f"this run has {'; and '.join(lost)}",
         state=run.state.value,
         run_id=run.run_id,
         data={
-            "fix_commits": run.fix_commits,
+            "fix_commits": fix_commits,
             # ``None``, not ``[]``, when the worktree could not be inspected: unknown
             # is not clean.
             "uncommitted_paths": None if uncommitted is None else uncommitted[:_DATA_PATH_LIMIT],
@@ -172,8 +247,8 @@ def _unmerged_work(
             "worktree_path": run.worktree_path,
         },
         next_instruction=(
-            f"That work exists only in the worktree. {keep}, then abort again with "
-            "--force to discard the rest."
+            f"That work exists only {where}, which abort deletes. {keep}, then abort "
+            "again with --force to discard the rest."
         ),
         next_command="agentic-preflight abort --force",
     )

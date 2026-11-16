@@ -64,7 +64,6 @@ DOCUMENTED_NOT_EMITTED: dict[str, set[str]] = {
 EMITTED_NOT_DOCUMENTED: dict[str, set[str]] = {
     # emitted but undocumented
     "abort": {
-        "discarded_fix_commits",
         "preserved_in_place_commits",
     },
     # emitted but undocumented

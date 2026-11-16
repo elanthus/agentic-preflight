@@ -178,7 +178,11 @@ def test_an_uninspectable_worktree_refusal_still_names_the_fix_commits(
     assert sha in refused["error"]["message"]
     assert "could not be inspected" in refused["error"]["message"]
     assert refused["data"]["fix_commits"] == [sha]
-    assert "Cherry-pick the commits" in refused["next"]["instruction"]
+    # Git cannot open the checkout, so its branch history is unreadable too: the
+    # refusal asks for the listed commits to be inspected as well as copied.
+    assert "cannot be read" in refused["error"]["message"]
+    assert "cherry-pick anything worth keeping" in refused["next"]["instruction"]
+    assert "copy the changes worth keeping" in refused["next"]["instruction"]
 
 
 def test_abort_lists_a_bounded_number_of_paths(agent, feature_repo):
