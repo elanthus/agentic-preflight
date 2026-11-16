@@ -787,5 +787,6 @@ A commit made in the validation worktree outside those points lived only on the 
 `abort` from any state between the end of base synchronization and merge-back now counts such commits, read from both the checkout's `HEAD` and the validation branch, and exits 5 with `unmerged_work`; `--force` still discards them and lists them in `data.discarded_fix_commits` and the `aborted` event.
 A recorded fix commit always counts, even when the validation checkout is detached or reset.
 When the branch history cannot be read, for example because the validation branch holds a merge commit or no longer descends from the reviewed head, a plain `abort` also exits 5 with `unmerged_work` instead of deleting the branch, as long as some non-empty commit follows the reviewed head or Git cannot open the validation checkout; `data.fix_commits` then lists those commits without further checks, reading the branch from the shared repository, so after a rebase onto another base it can include commits the new base brought in. `--force` still succeeds.
+A `reusable` runner whose directory is gone keeps its branch when released, so its commits are not counted.
 In-place runs, states before synchronization finishes, and merge-back states are unchanged.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
