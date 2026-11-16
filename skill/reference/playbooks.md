@@ -158,6 +158,25 @@ in the worktree. With
 fixes. In both cases run `agentic-preflight abort --force`, then `start` again with the
 same intent. Do not resolve a rebase on the user's behalf.
 
+## Fetch or push timed out (exit 4, `remote_timeout`)
+
+A fetch, notes fetch, remote query, or push ran longer than `[general]
+network_timeout_seconds` (600 by default) and was stopped. The clone-wide locks are
+already released. Print the whole `data` object: `remote`, `operation`, and
+`timeout_seconds`. These commands cannot prompt, so the usual cause is a credential that no
+credential helper or SSH agent supplies, an SSH host key that is not yet known, or an
+unreachable remote. For a push, the limit includes the pre-push hook. Tell the user; do not
+raise the timeout on your own. If a later Git command reports that a `.lock` file under
+`.git` exists, the user checks that no Git command is still running and deletes it.
+
+- After `start`, the run is in `SYNC_CONFLICT` and a `remote_timeout` event is stored. Once
+  the user has fixed the cause, run `agentic-preflight abort --force`, then `start` again
+  with the same intent.
+- After `push`, the run stays in `AWAITING_PUSH_CONFIRM`. The push may have landed before
+  it was stopped, so run `status`, and once the user has fixed the cause, run `push` again
+  with the same token, under the same authorization.
+- After a manual-mode `gate`, run `status` and then `gate` again.
+
 ## Abandoned run
 
 Do not infer abandonment from elapsed time. A run may legitimately wait for user input.

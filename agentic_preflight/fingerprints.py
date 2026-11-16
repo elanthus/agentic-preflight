@@ -171,10 +171,23 @@ _KNOWN_CONFIG = {
 }
 
 
+#: Keys that bound only a transport, never what a stage judged. They stay out of
+#: every fingerprint, so changing one cannot invalidate evidence.
+_TRANSPORT_ONLY_KEYS = {"general": frozenset({"network_timeout_seconds"})}
+
+
+def _section(snapshot: dict[str, Any], section: str) -> Any:
+    body = snapshot.get(section)
+    dropped = _TRANSPORT_ONLY_KEYS.get(section)
+    if dropped and isinstance(body, dict):
+        return {key: value for key, value in body.items() if key not in dropped}
+    return body
+
+
 def _scoped_config(snapshot: dict[str, Any], sections: tuple[str, ...]) -> dict[str, Any]:
     # Future dependencies must not silently disappear from applicability checks.
     return {
-        **{section: snapshot.get(section) for section in sections},
+        **{section: _section(snapshot, section) for section in sections},
         **{key: value for key, value in snapshot.items() if key not in _KNOWN_CONFIG},
     }
 

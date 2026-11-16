@@ -25,7 +25,8 @@ from __future__ import annotations
 import errno
 import os
 import sys
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -93,13 +94,37 @@ def _release(handle) -> None:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+#: How often a waiter that reports a long wait retries before it reports it.
+_POLL_SECONDS = 0.05
+
+
+def _acquire_within(handle, seconds: float) -> bool:
+    """Try to take the lock for up to ``seconds``, returning whether it was taken."""
+    deadline = time.monotonic() + seconds
+    while True:
+        if _try_acquire(handle):
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(_POLL_SECONDS, remaining))
+
+
 @contextmanager
-def exclusive(path: Path | str) -> Iterator[None]:
+def exclusive(
+    path: Path | str,
+    *,
+    on_wait: Callable[[], None] | None = None,
+    wait_notice_after: float = 0.0,
+) -> Iterator[None]:
     """Hold an exclusive lock on ``path`` for the duration of the block.
 
     The file is opened for append rather than write: truncating it would be a
     second, unsynchronised mutation of the very file being used to synchronise,
     and the Windows range lock needs a byte to exist to lock.
+
+    When another holder still has the lock after ``wait_notice_after`` seconds,
+    ``on_wait`` is called once and the wait continues without a limit.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -109,7 +134,10 @@ def exclusive(path: Path | str) -> Iterator[None]:
             # the lock range backed by real content on every platform.
             handle.write(b"\0")
             handle.flush()
-        _acquire(handle)
+        if on_wait is None or not _acquire_within(handle, wait_notice_after):
+            if on_wait is not None:
+                on_wait()
+            _acquire(handle)
         try:
             yield
         finally:

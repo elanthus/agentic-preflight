@@ -19,7 +19,7 @@ import tempfile
 import time
 import traceback
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -681,12 +681,87 @@ class Store:
             yield acquired
 
     @contextmanager
-    def resource(self, name: str) -> Iterator[None]:
-        """Serialize a narrow clone-wide Git or runner resource."""
+    def resource(self, name: str, *, holder: str | None = None) -> Iterator[None]:
+        """Serialize a narrow clone-wide Git or runner resource.
+
+        ``holder`` names the run that takes the lock. A command that then waits
+        longer than ``RESOURCE_WAIT_NOTICE_SECONDS`` for it says on stderr which
+        lock it waits for and which run and process hold it.
+        """
         if not name.replace("-", "").isalnum():
             raise ValueError(f"invalid resource lock name: {name!r}")
-        with filelock.exclusive(self.root / "resources" / f"{name}.lock"):
-            yield
+        lock_path = self.root / "resources" / f"{name}.lock"
+        holder_path = lock_path.with_name(f"{name}.holder")
+        with filelock.exclusive(
+            lock_path,
+            on_wait=lambda: _report_resource_wait(name, holder_path),
+            wait_notice_after=RESOURCE_WAIT_NOTICE_SECONDS,
+        ):
+            _record_resource_holder(holder_path, holder)
+            try:
+                yield
+            finally:
+                with suppress(OSError):
+                    holder_path.unlink(missing_ok=True)
+
+
+#: How long a command waits for a busy resource lock before it says who holds it.
+RESOURCE_WAIT_NOTICE_SECONDS = 5.0
+
+
+def _record_resource_holder(path: Path, run_id: str | None) -> None:
+    """Record who holds a resource lock. It is a diagnostic, so it never fails the command.
+
+    The rename keeps a reader from seeing a partial record. There is no fsync: a
+    record lost in a crash would name a holder that no longer exists anyway.
+    """
+    payload = json.dumps({"pid": os.getpid(), "run_id": run_id, "since": _utcnow()})
+    with suppress(OSError):
+        fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+        tmp = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(payload + "\n")
+            _replace(tmp, path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+
+
+def _process_alive(pid: int) -> bool:
+    """Whether ``pid`` names a running process, as far as this platform can tell cheaply."""
+    if sys.platform == "win32":
+        # ``os.kill`` on Windows terminates the process, so it cannot probe one.
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _report_resource_wait(name: str, holder_path: Path) -> None:
+    """Tell the person at the terminal which lock this command waits for, and on whom."""
+    try:
+        recorded = json.loads(holder_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        recorded = None
+    if (
+        isinstance(recorded, dict)
+        and isinstance(recorded.get("pid"), int)
+        and _process_alive(recorded["pid"])
+    ):
+        run_id = recorded.get("run_id")
+        who = (
+            f"run {run_id} (process {recorded['pid']})" if run_id else f"process {recorded['pid']}"
+        )
+        holder = f"held by {who} since {recorded.get('since', 'an unknown time')}"
+    else:
+        holder = "held by another agentic-preflight command"
+    sys.stderr.write(f"agentic-preflight: waiting for the clone-wide {name!r} lock, {holder}.\n")
+    sys.stderr.flush()
 
 
 def violations(run: RunDoc) -> list[str]:

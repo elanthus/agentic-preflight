@@ -340,8 +340,13 @@ def synchronize(
     worktree_path: Path | str,
     *,
     base_ref: str,
+    network_timeout: float | None = None,
 ) -> SyncResult:
-    """Fetch the authoritative base when possible, then bring the worktree onto it."""
+    """Fetch the authoritative base when possible, then bring the worktree onto it.
+
+    ``network_timeout`` bounds each fetch; one that runs longer raises
+    ``gitx.RemoteTimeout``.
+    """
     remote: str | None = None
     target_ref = base_ref
     if gitx.remote_url(repo, "origin"):
@@ -352,11 +357,13 @@ def synchronize(
             "--prune",
             "origin",
             f"+refs/heads/{branch}:{target_ref}",
+            remote="origin",
+            timeout=network_timeout,
         )
         # Keep the shared notes history current before this run eventually adds
         # its own attestation. Locally-ahead and disjoint histories are retained;
         # a same-commit note conflict remains a loud Git error.
-        gitx.fetch_notes(repo, "origin", NOTES_REF)
+        gitx.fetch_notes(repo, "origin", NOTES_REF, timeout=network_timeout)
         remote = "origin"
 
     base_sha = gitx.rev_parse(repo, target_ref)
