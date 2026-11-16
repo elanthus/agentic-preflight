@@ -17,7 +17,7 @@ import hashlib
 import json
 import re
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 from . import gitx
 from . import risk as riskmod
 from .config import committed_context
-from .diff import path_matches
+from .diff import match_scope, path_matches
 from .models import RunDoc
 
 if TYPE_CHECKING:
@@ -282,6 +282,29 @@ def _apply_total_budget(
     return entries, dropped
 
 
+def _source_selector(extra_paths: Sequence[str]) -> Callable[[str], bool]:
+    """Select documentation, convention files, and ``[context] extra_paths`` matches."""
+    return lambda path: (
+        path.startswith("docs/")
+        or path in _CONVENTION_PATHS
+        or any(path_matches(path, pattern) for pattern in extra_paths)
+    )
+
+
+def _source_scopes(extra_paths: Sequence[str]) -> list[str] | None:
+    """Literal paths containing every source :func:`_source_selector` accepts.
+
+    ``None`` when an extra pattern can match at any depth, so the whole tree is listed.
+    """
+    scopes = {"docs", *_CONVENTION_PATHS}
+    for pattern in extra_paths:
+        scope = match_scope(pattern)
+        if scope is None:
+            return None
+        scopes.add(scope)
+    return sorted(scopes)
+
+
 def assemble(session: Session, run: RunDoc, changed_files: list[str]) -> dict[str, Any]:
     """Assemble stable, bounded repository context for one review snapshot.
 
@@ -296,12 +319,9 @@ def assemble(session: Session, run: RunDoc, changed_files: list[str]) -> dict[st
 
     texts, omitted, _ = _load_sources(
         repo,
-        lambda path: (
-            path.startswith("docs/")
-            or path in _CONVENTION_PATHS
-            or any(path_matches(path, pattern) for pattern in config.extra_paths)
-        ),
+        _source_selector(config.extra_paths),
         revision=run.merge_base_sha,
+        scopes=_source_scopes(config.extra_paths),
     )
     groups = (
         ("doc", _doc_entries(texts, changed_files, config.entry_max_bytes)),
@@ -350,16 +370,25 @@ _BINARY_SUFFIXES = frozenset(
 
 
 def _load_sources(
-    repo: Path | str, select: Callable[[str], bool], *, revision: str = "HEAD"
+    repo: Path | str,
+    select: Callable[[str], bool],
+    *,
+    revision: str = "HEAD",
+    scopes: Sequence[str] | None = None,
 ) -> tuple[dict[str, str], dict[str, int], set[str]]:
     """Select by metadata before one batched content read; report every omitted source.
 
     ``revision`` names the commit whose tree is read; review grounding passes the
     run's merge base. Object IDs from ls-tree bind subsequent reads to that tree even
     if HEAD moves. Neither staged files nor filesystem symlink targets enter the
-    source set.
+    source set. ``scopes``, when given, are literal paths that contain every path
+    ``select`` can accept; Git then lists only those, instead of the whole tree.
     """
-    output = gitx.run(repo, "ls-tree", "-r", "-l", "-z", revision).stdout
+    pathspecs = () if scopes is None else ("--", *(f":(literal){scope}" for scope in scopes))
+    env = None if scopes is None else gitx.literal_pathspec_env()
+    output = gitx.run(
+        repo, "ls-tree", "-r", "-l", "-z", "--full-tree", revision, *pathspecs, env=env
+    ).stdout
     candidates = []
     paths = set()
     omitted: Counter[str] = Counter()

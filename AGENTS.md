@@ -54,7 +54,8 @@ See [docs/maintainers/approval-readiness.md](docs/maintainers/approval-readiness
 - `evals/`: the regression eval runner and its cases; see `evals/README.md`.
 - `docs/`: user and design documentation, including ADRs under `docs/adr/`.
 - `tools/`: release tooling such as `tools/changelog.py`, which assembles changelog fragments.
-- `scripts/`: CI helper scripts such as `scripts/smoke-wheel.sh`.
+- `scripts/`: CI helper scripts such as `scripts/smoke-wheel.sh`, and
+  `scripts/bench_large_tree.py`, which times fingerprinting commands on a large synthetic tree.
 - `skill/`: the agent skill (`SKILL.md`) and its reference files under `skill/reference/`.
 
 ## Docs that change with code
