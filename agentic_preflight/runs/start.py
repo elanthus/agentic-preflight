@@ -427,9 +427,18 @@ class UnsupportedBaseRef(AgenticError):
 
 
 def _require_branch(repo: Path) -> None:
-    if gitx.run(repo, "symbolic-ref", "-q", "HEAD", check=False).returncode != 0:
+    head = gitx.run(repo, "symbolic-ref", "-q", "HEAD", check=False)
+    if head.returncode != 0:
         raise NoBranch(
             "HEAD is detached; start validates and publishes a named branch",
+            next_instruction="Check out the branch you want to ship, then start the run.",
+            next_command="git switch <branch>",
+        )
+    target = head.stdout.strip()
+    if not target.startswith("refs/heads/"):
+        raise NoBranch(
+            f"HEAD points at {target}, which is not a branch; "
+            "start validates and publishes a named branch",
             next_instruction="Check out the branch you want to ship, then start the run.",
             next_command="git switch <branch>",
         )

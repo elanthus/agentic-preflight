@@ -77,7 +77,7 @@ def test_current_branch_reports_a_detached_head_as_head(feature_repo):
 def test_current_branch_refuses_a_head_that_points_at_a_tag(feature_repo):
     git("tag", "v1", cwd=feature_repo)
     git("symbolic-ref", "HEAD", "refs/tags/v1", cwd=feature_repo)
-    with pytest.raises(gitx.GitError, match="not a branch"):
+    with pytest.raises(gitx.NotOnBranch, match="refs/tags/v1, which is not a branch"):
         gitx.current_branch(feature_repo)
 
 

@@ -86,6 +86,22 @@ class GitError(Exception):
         self.stderr = stderr
 
 
+class NotOnBranch(GitError):
+    """HEAD is a symbolic ref to something other than a branch.
+
+    ``symbolic-ref`` itself succeeds here, so there is no failing exit status to report;
+    the message names the ref instead. Handlers of ``GitError`` still catch it.
+    """
+
+    def __init__(self, ref: str) -> None:
+        message = f"HEAD points at {ref}, which is not a branch"
+        Exception.__init__(self, message)
+        self.args_list = ["symbolic-ref", "--quiet", "HEAD"]
+        self.returncode = 0
+        self.stderr = message
+        self.ref = ref
+
+
 class GitVersionError(Exception):
     """The installed Git does not meet the supported minimum."""
 
@@ -205,16 +221,15 @@ def current_branch(cwd: Path | str) -> str:
     tag to ``heads/<name>``, and a refspec built from that publishes to the wrong
     ref. ``symbolic-ref`` names the branch HEAD points at exactly.
     """
-    args = ["symbolic-ref", "--quiet", "HEAD"]
-    result = run(cwd, *args, check=False)
+    result = run(cwd, "symbolic-ref", "--quiet", "HEAD", check=False)
     ref = result.stdout.strip()
     if result.returncode == 1 and not ref:
         return "HEAD"
     if result.returncode != 0:
-        raise GitError(args, result.returncode, result.stderr)
+        raise GitError(["symbolic-ref", "--quiet", "HEAD"], result.returncode, result.stderr)
     # Plumbing can point HEAD at any ref under refs/; only a branch has a name to publish.
     if not ref.startswith("refs/heads/"):
-        raise GitError(args, result.returncode, f"HEAD points at {ref}, which is not a branch")
+        raise NotOnBranch(ref)
     return ref.removeprefix("refs/heads/")
 
 
