@@ -283,8 +283,9 @@ def test_an_isolated_run_stuck_after_its_cherry_pick_recovers(
     assert subjects.count("apply the fix") == 1
 
 
+@pytest.mark.parametrize("dirty_validation", [False, True])
 def test_a_legacy_conflict_retry_with_an_open_finding_returns_to_review(
-    feature_repo, tmp_path, monkeypatch
+    feature_repo, tmp_path, monkeypatch, dirty_validation
 ):
     mergeback = importlib.import_module("agentic_preflight.runs.mergeback")
     agent = _legacy_test_green(
@@ -319,6 +320,15 @@ def test_a_legacy_conflict_retry_with_an_open_finding_returns_to_review(
     git("add", "src/app.py", cwd=feature_repo)
     git("cherry-pick", "--continue", cwd=feature_repo)
     restarts = agent.run("status")["data"]["validation_restarts"]
+
+    if dirty_validation:
+        # The recovery resets the validation checkout, so it must not discard work there.
+        worktree = Path(agent.run("status")["data"]["worktree_path"])
+        edited = write(worktree, "README.md", "uncommitted validation edit\n")
+        refused = agent.run("mergeback", expect=ExitCode.PRECONDITION)
+        assert refused["error"]["code"] == "dirty_tree"
+        assert edited.read_text() == "uncommitted validation edit\n"
+        git("checkout", "--", "README.md", cwd=worktree)
 
     recovered = agent.run("mergeback", expect=ExitCode.PRECONDITION)
     assert recovered["error"]["code"] == "findings_unresolved"

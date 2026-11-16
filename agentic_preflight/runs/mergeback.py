@@ -195,6 +195,20 @@ def _restart_review_for_unresolved_findings(
     unresolved = unresolved_findings(session, session.store.load_findings(run.run_id))
     if not unresolved:
         return
+    # A conflict retry has not checked the validation checkout, and the reset
+    # below would discard its uncommitted changes.
+    if not gitx.is_clean(require_worktree(run)):
+        raise DirtyTree(
+            "the validation checkout has uncommitted changes that returning to review "
+            "would discard",
+            state=run.state.value,
+            run_id=run.run_id,
+            data={"worktree_path": run.worktree_path},
+            next_instruction=(
+                "Commit or discard the changes in the validation checkout, then retry mergeback."
+            ),
+            next_command="agentic-preflight mergeback",
+        )
     run = _reset_non_equivalent_merge_to_review(session, run, result, count_restart=False)
     raise findings_unresolved(
         run,
