@@ -5,4 +5,5 @@
   A recorded fix commit always counts, and a checkout detached from the validation
   branch no longer hides the branch's commits. A history that cannot be read, such as a
   merge on the validation branch, also stops a plain `abort` when a non-empty commit
-  follows the reviewed head, or when Git cannot open the validation checkout.
+  follows the reviewed head, or when Git cannot open the validation checkout; its listing
+  can then include commits that a rebase onto another base brought in.
