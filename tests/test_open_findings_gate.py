@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -333,3 +334,86 @@ def test_a_run_left_in_lint_green_is_told_to_abort(feature_repo, tmp_path, monke
     assert env["error"]["code"] == "open_findings"
     assert env["next"]["command"] == "agentic-preflight abort"
     assert agent.run("status")["state"] == "LINT_GREEN"
+
+
+def test_an_unregistered_fix_commit_survives_the_refusal(feature_repo, tmp_path, monkeypatch):
+    """A commit made after the last `respond` is on the branch but not yet recorded.
+
+    Merge-back registers it only after the refusal point, so the refusal names it and
+    records it; a plain `abort` must then stop instead of deleting the branch.
+    """
+    configure_base(feature_repo, f"{DOCS_OFF}\n[worktree]\nmode = 'strict'\n")
+    agent = ScriptedAgent(feature_repo)
+    wt = agent.run("start")["data"]["worktree_path"]
+    agent.run("context")
+    high = {**_low_auto_fix(), "severity": "high"}
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, [high]))
+    write(wt, "src/app.py", "def greet(name, loud=False):\n    return 'FIXED'\n")
+    git("add", "-A", cwd=wt)
+    git("commit", "-m", "fix", cwd=wt)
+    fix = git("rev-parse", "HEAD", cwd=wt)
+    agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", fix)
+    write(wt, "src/app.py", "def greet(name, loud=False):\n    return 'FIXED AGAIN'\n")
+    git("add", "-A", cwd=wt)
+    git("commit", "-m", "later fix", cwd=wt)
+    later = git("rev-parse", "HEAD", cwd=wt)
+    agent.run("verify")
+    agent.run("context")
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    assert agent.run("stage", "run", "test")["state"] == "TEST_GREEN"
+    assert agent.run("status")["data"]["fix_commits"] == [fix]
+    _inject(feature_repo, monkeypatch, _open("F002"))
+
+    env = agent.run("mergeback", expect=ExitCode.PRECONDITION)
+
+    assert env["error"]["code"] == "open_findings"
+    assert env["data"]["fix_commits"] == [fix, later]
+    assert "before you abort" in env["next"]["instruction"]
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+    assert refused["error"]["code"] == "unmerged_work"
+    assert refused["data"]["fix_commits"] == [fix, later]
+    assert git("rev-parse", "HEAD", cwd=wt) == later
+
+
+def test_status_keeps_the_conflict_report_when_it_points_to_abort(
+    feature_repo, tmp_path, monkeypatch
+):
+    """A conflicted run still needs the report of the paths its source branch holds."""
+    configure_base(feature_repo, f"{DOCS_OFF}\n[worktree]\nmode = 'strict'\n")
+    agent = ScriptedAgent(feature_repo)
+    wt = agent.run("start")["data"]["worktree_path"]
+    run_id = agent.run("status")["run_id"]
+    agent.run("context")
+    high = {**_low_auto_fix(), "severity": "high"}
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, [high]))
+    write(wt, "src/app.py", "WORKTREE CONTENT\n")
+    git("add", "-A", cwd=wt)
+    git("commit", "-m", "worktree rewrite", cwd=wt)
+    agent.run(
+        "respond", "--id", "F001", "--action", "fixed", "--commit", git("rev-parse", "HEAD", cwd=wt)
+    )
+    agent.run("verify")
+    agent.run("context")
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
+    write(feature_repo, "src/app.py", "BRANCH CONTENT\n")
+    git("add", "-A", cwd=feature_repo)
+    git("commit", "-m", "branch rewrite", cwd=feature_repo)
+    # Re-point the recorded source head so the staleness guard does not fire first.
+    state_root = (
+        Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo))
+        / "agentic-preflight"
+    )
+    run_path = state_root / "runs" / run_id / "run.json"
+    doc = json.loads(run_path.read_text(encoding="utf-8"))
+    doc["source_head_sha"] = git("rev-parse", "HEAD", cwd=feature_repo)
+    run_path.write_text(json.dumps(doc))
+    assert agent.run("mergeback", expect=ExitCode.NEEDS_HUMAN)["state"] == "MERGEBACK_CONFLICT"
+    _inject(feature_repo, monkeypatch, _open("F002"))
+
+    status = agent.run("status")
+
+    assert status["next"]["command"] == "agentic-preflight abort"
+    assert status["data"]["mergeback_conflict"]["conflicting_files"] == ["src/app.py"]

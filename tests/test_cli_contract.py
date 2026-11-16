@@ -257,7 +257,6 @@ EMITTED_NOT_DOCUMENTED: dict[str, set[str]] = {
         "intent_source",
         "interrupted_legacy_update",
         "mergeback_attempt",
-        "mergeback_conflict",
         "owner_ids",
         "pr_mode",
         "previous_run_id",

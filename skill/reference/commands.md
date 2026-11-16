@@ -607,9 +607,12 @@ the exact commit. False returns to review with all snapshot-bound stage evidence
 A run that reaches `mergeback` with a blocking or open `auto_fix` review or docs finding,
 which an earlier release allowed, cannot attest it. `mergeback` refuses it with exit 3 and
 `open_findings` before it records an attempt, changes the source branch, or writes a note.
-`blocking` lists the findings and `data.fix_commits` the recorded fix commits;
+`blocking` lists the findings and `data.fix_commits` the fix commits;
 `next` is `abort`, because `respond` is no longer legal. Fix or decide each finding, then
-start a fresh run. A run left in `MERGEBACK_PENDING` by that release's internal error may
+start a fresh run. In isolated modes, before merge-back, a commit made after the last
+`respond` is on the validation branch but not yet recorded. The refusal from `mergeback`
+or `stage run lint|test` lists and records every such commit, so a plain `abort` then
+stops with `unmerged_work` rather than deleting the branch. A run left in `MERGEBACK_PENDING` by that release's internal error may
 already have moved the source branch. In isolated modes the instruction then says the
 branch may already hold the fix commits, so check before cherry-picking any; otherwise it
 says to cherry-pick them before `abort --force`. In place, the fix commits are already on
@@ -696,7 +699,8 @@ after `gc`.
 While the run holds a finding that a guarded command refuses with `open_findings`, `next`
 gives that refusal's instruction: `respond` in `REVIEW_GREEN` or `DOCS_GREEN`, and
 `abort` in any lint, test, or merge-back state, where `respond` is no longer legal.
-`stage run lint|test` refuses such a run from a lint or test state the same way.
+`stage run lint|test` refuses such a run from a lint or test state the same way. In
+`MERGEBACK_CONFLICT`, `data.mergeback_conflict` still carries the conflict report.
 
 For a structurally readable active run with invalid stage-origin digests, single-run
 status succeeds with `data.readable = true`, `data.evidence_valid = false`, and

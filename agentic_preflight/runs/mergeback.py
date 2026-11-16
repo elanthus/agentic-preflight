@@ -32,12 +32,11 @@ from ._session import (
     envelope_for,
     is_in_place,
     load_current,
-    open_findings_refusal,
     require_state,
     require_worktree,
     worktree_mode,
 )
-from .fix_commits import derive_fix_commits, patch_matches
+from .fix_commits import derive_fix_commits, patch_matches, refuse_open_findings_past_respond
 from .review_coverage import invalidate_stage_result, reopen_if_stale
 
 
@@ -483,10 +482,8 @@ def require_resolved_findings(session: Session, run: RunDoc) -> None:
     legal. Say so before anything is recorded; an earlier crashed attempt may already
     have moved the branch, which the refusal's instruction accounts for.
     """
-    if run.state in _MERGEBACK_STATES and (
-        refusal := open_findings_refusal(session, run, command="mergeback")
-    ):
-        raise refusal
+    if run.state in _MERGEBACK_STATES:
+        refuse_open_findings_past_respond(session, run, command="mergeback")
 
 
 def mergeback(session: Session) -> Envelope:

@@ -569,15 +569,19 @@ def open_findings_refusal(session: Session, run: RunDoc, *, command: str) -> Ope
     ids = ", ".join(finding.id for finding, _ in pending)
     blocking = [finding.model_dump(mode="json") for finding, _ in pending]
     if run.state in PAST_RESPOND_STATES:
+        # Deferred: fix_commits imports this module.
+        from .fix_commits import branch_fix_commits
+
+        fix_commits = branch_fix_commits(session, run)
         return OpenFindings(
             "the run left review with findings that still need a disposition, and "
             f"`respond` is no longer legal: {ids}",
             state=run.state.value,
             run_id=run.run_id,
             stage=first.stage.value,
-            data={"fix_commits": list(run.fix_commits)},
+            data={"fix_commits": fix_commits},
             blocking=blocking,
-            next_instruction=_past_respond_instruction(session, run),
+            next_instruction=_past_respond_instruction(session, run, fix_commits),
             next_command="agentic-preflight abort",
         )
     return OpenFindings(
@@ -595,14 +599,14 @@ def open_findings_refusal(session: Session, run: RunDoc, *, command: str) -> Ope
     )
 
 
-def _past_respond_instruction(session: Session, run: RunDoc) -> str:
+def _past_respond_instruction(session: Session, run: RunDoc, fix_commits: list[str]) -> str:
     """How to leave a run that can no longer resolve its findings, keeping its fixes."""
     instruction = (
         "Do not retry `mergeback`. Abort this run, fix or decide each listed finding, "
         "and start a fresh run."
     )
     # In place, the fix commits are already on the branch and `abort` keeps them.
-    if is_in_place(run) or not run.fix_commits:
+    if is_in_place(run) or not fix_commits:
         return instruction
     attempt = run.mergeback_attempt
     if attempt is not None and gitx.rev_parse(session.repo_root, "HEAD") != attempt.source_sha:

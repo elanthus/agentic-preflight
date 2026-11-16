@@ -15,8 +15,15 @@ from pathlib import Path
 from .. import gitx, worktree
 from ..envelope import ExitCode
 from ..errors import AgenticError, StaleRun
+from ..machine import State
 from ..models import RunDoc
-from ._session import Session, is_in_place, require_worktree, start_command
+from ._session import (
+    Session,
+    is_in_place,
+    open_findings_refusal,
+    require_worktree,
+    start_command,
+)
 
 
 class NonlinearFixHistory(AgenticError):
@@ -143,3 +150,62 @@ def record_fix_commits(run: RunDoc, derived: list[str]) -> list[str]:
     else:
         run.fix_commits = list(derived)
     return added
+
+
+#: States in which commits made after the last ``respond`` may not be registered yet.
+#: Merge-back registers the whole validated history at ``TEST_GREEN``.
+_UNREGISTERED_STATES = frozenset(
+    {
+        State.LINT_RUNNING,
+        State.LINT_RED,
+        State.LINT_GREEN,
+        State.TEST_RUNNING,
+        State.TEST_RED,
+        State.TEST_GREEN,
+    }
+)
+
+
+def branch_fix_commits(session: Session, run: RunDoc) -> list[str]:
+    """The fix commits an isolated run's validation branch holds, without recording them.
+
+    Before merge-back, a commit made after the last ``respond`` is on the branch but
+    not yet in ``fix_commits``. A refusal that sends the run to ``abort`` must name
+    it, because releasing the worktree deletes the branch. Falls back to the
+    recorded list when the history cannot be derived.
+    """
+    if is_in_place(run) or run.state not in _UNREGISTERED_STATES:
+        return list(run.fix_commits)
+    try:
+        return derive_fix_commits(session, run)
+    except (AgenticError, gitx.GitError, OSError):
+        return list(run.fix_commits)
+
+
+def register_branch_fix_commits(session: Session, run: RunDoc) -> RunDoc:
+    """Record :func:`branch_fix_commits` so that ``abort`` refuses to discard them."""
+    derived = branch_fix_commits(session, run)
+    if derived == run.fix_commits:
+        return run
+    with session.store.transaction(run.run_id) as doc:
+        recorded = list(doc.fix_commits)
+        doc.fix_commits = derived
+        run = doc
+    session.store.append_event(
+        run.run_id,
+        {"event": "fix_commits_registered_for_abort", "recorded": recorded, "commits": derived},
+    )
+    return run
+
+
+def refuse_open_findings_past_respond(session: Session, run: RunDoc, *, command: str) -> None:
+    """Raise the open-findings refusal of a run past ``respond``, keeping its fix commits.
+
+    The refusal names ``abort``. Registering the branch's commits first means a plain
+    ``abort`` stops with ``unmerged_work`` instead of deleting commits it never knew of.
+    """
+    refusal = open_findings_refusal(session, run, command=command)
+    if refusal is None:
+        return
+    register_branch_fix_commits(session, run)
+    raise refusal

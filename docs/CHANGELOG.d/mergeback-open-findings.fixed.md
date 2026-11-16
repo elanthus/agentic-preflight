@@ -7,3 +7,5 @@
   disabled docs stage past such a finding. `mergeback` refuses such a run from an earlier
   release the same way, before it changes anything, and points to `abort`; for a run that
   release's error left mid-merge, it says the branch may already hold the fix commits.
+  In isolated modes, that refusal also records any commit made after the last `respond`,
+  so a plain `abort` stops with `unmerged_work` instead of deleting it with the branch.

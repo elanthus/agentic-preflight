@@ -764,6 +764,18 @@ def _try_advance_evidence(session: Session, run: RunDoc, findings):
     return run, findings, reuse_error
 
 
+def _latest_conflict(session: Session, run: RunDoc) -> dict[str, object] | None:
+    """The run's most recent ``mergeback_conflict`` event, the durable conflict report."""
+    return next(
+        (
+            event
+            for event in reversed(session.store.load_events(run.run_id))
+            if event.get("event") == "mergeback_conflict"
+        ),
+        None,
+    )
+
+
 def _set_status_next(
     session: Session, run: RunDoc, envelope: Envelope, data: StatusData, *, stale: bool
 ) -> None:
@@ -796,18 +808,13 @@ def _set_status_next(
         envelope.next_command = run.setup_failure.next_command
     elif (refusal := open_findings_refusal(session, run, command="status")) is not None:
         # The guarded commands refuse while these findings are open; point past them.
+        # The conflict report still describes the source branch the abort leaves.
+        if run.state is State.MERGEBACK_CONFLICT:
+            data.mergeback_conflict = _latest_conflict(session, run)
         envelope.next_instruction = refusal.next_instruction
         envelope.next_command = refusal.next_command
     elif run.state is State.MERGEBACK_CONFLICT:
-        conflict = next(
-            (
-                event
-                for event in reversed(session.store.load_events(run.run_id))
-                if event.get("event") == "mergeback_conflict"
-            ),
-            None,
-        )
-        data.mergeback_conflict = conflict
+        data.mergeback_conflict = _latest_conflict(session, run)
         envelope.next_instruction = (
             "Use the durable conflict report below, resolve the affected paths, "
             "then retry mergeback; completed verification stages are retained."

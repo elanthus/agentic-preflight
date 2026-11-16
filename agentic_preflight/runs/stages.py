@@ -29,7 +29,6 @@ from ._session import (
     envelope_for,
     is_in_place,
     load_current,
-    open_findings_refusal,
     require_findings_resolved,
     require_state,
     require_worktree,
@@ -37,7 +36,11 @@ from ._session import (
     utc_now,
 )
 from ._shell import _run_protected, _withheld_message
-from .fix_commits import derive_fix_commits, record_fix_commits
+from .fix_commits import (
+    derive_fix_commits,
+    record_fix_commits,
+    refuse_open_findings_past_respond,
+)
 from .log_window import DEFAULT_TAIL_LINES, read_log_window
 from .review import _skip_test_if_not_applicable
 from .review_coverage import invalidate_stage_result, reopen_if_stale
@@ -350,11 +353,9 @@ def _refuse_open_findings(session: Session, run: RunDoc, stage_name: str) -> Non
     command = f"stage run {stage_name}"
     if run.state is State.DOCS_GREEN:
         require_findings_resolved(session, run, command=command)
-    elif run.state in PAST_RESPOND_STATES and (
-        refusal := open_findings_refusal(session, run, command=command)
-    ):
+    elif run.state in PAST_RESPOND_STATES:
         # Only a run that an earlier release advanced gets here; it can only abort.
-        raise refusal
+        refuse_open_findings_past_respond(session, run, command=command)
 
 
 def run_stage(
