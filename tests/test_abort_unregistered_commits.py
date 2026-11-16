@@ -53,6 +53,8 @@ def test_abort_refuses_to_delete_a_commit_nothing_registered(feature_repo, tmp_p
 
     assert refused["error"]["code"] == "unmerged_work"
     assert refused["data"]["fix_commits"] == [fix]
+    # The branch, not just the worktree, holds them, and abort deletes both.
+    assert "validation branch" in refused["next"]["instruction"]
     assert git("rev-parse", "HEAD", cwd=wt) == fix
 
 

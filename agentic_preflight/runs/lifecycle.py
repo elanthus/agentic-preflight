@@ -139,8 +139,9 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
             run_id=run.run_id,
             data={"fix_commits": fix_commits, "worktree_path": run.worktree_path},
             next_instruction=(
-                "Those commits exist only in the worktree. Cherry-pick anything worth "
-                "keeping, then abort again with --force to discard the rest."
+                "Those commits exist only on the validation branch or in its worktree, "
+                "which abort deletes. Cherry-pick anything worth keeping, then abort "
+                "again with --force to discard the rest."
             ),
             next_command="agentic-preflight abort --force",
         )
