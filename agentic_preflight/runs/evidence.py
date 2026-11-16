@@ -46,6 +46,7 @@ from ._session import (
     check_restart_limit,
     require_worktree,
     stage_blocking_severities,
+    unresolved_findings,
     utc_now,
 )
 
@@ -373,6 +374,13 @@ def discover(session: Session, run: RunDoc) -> RunDoc:
         return doc
 
 
+def _awaiting_respond(session: Session, run: RunDoc) -> bool:
+    """Whether a green stage must stay put for `respond`, which is legal only there."""
+    return run.state in (State.REVIEW_GREEN, State.DOCS_GREEN) and bool(
+        unresolved_findings(session, session.store.load_findings(run.run_id))
+    )
+
+
 def _ready_stage(run: RunDoc) -> Stage | None:
     return {
         State.REVIEW_AWAITING_FINDINGS: Stage.REVIEW,
@@ -468,9 +476,9 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
             new = fingerprint(session, run, stage, clean=True)
             current[stage] = new
             decisions[stage] = classify(item.origin.fingerprint, new)
-            if findings.blocking(
+            if findings.unresolved(
                 item.origin.findings, blocking_severities=stage_blocking_severities(session, stage)
-            ) or findings.actionable(item.origin.findings):
+            ):
                 decisions[stage] = Classification(
                     disposition=Disposition.UNKNOWN, reasons=(ReasonCode.FINDINGS_UNRESOLVED,)
                 )
@@ -484,7 +492,7 @@ def advance(session: Session, run: RunDoc, *, clean: bool | None = None) -> RunD
     while (ready := _ready_stage(run)) is not None:
         stage = ready
         decision = decisions[stage]
-        if decision.disposition != Disposition.REUSABLE:
+        if decision.disposition != Disposition.REUSABLE or _awaiting_respond(session, run):
             break
         item = run.reuse_candidates[stage]
         if findings.blocking(

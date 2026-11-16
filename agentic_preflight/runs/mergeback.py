@@ -98,8 +98,15 @@ def _reset_non_equivalent_merge_to_review(
     session: Session,
     run: RunDoc,
     result: mergebackmod.MergebackResult,
+    *,
+    count_restart: bool = True,
 ) -> RunDoc:
-    """Make a human-resolved source tree the new isolated review snapshot."""
+    """Make a human-resolved source tree the new isolated review snapshot.
+
+    ``count_restart=False`` returns to review without spending the restart
+    budget, for a recovery that repairs an earlier release's defect on an
+    unchanged tree rather than a change that needs revalidation.
+    """
     worktree_path = require_worktree(run)
     worktree.assert_diff_is_clean_of(
         session.repo_root,
@@ -121,7 +128,11 @@ def _reset_non_equivalent_merge_to_review(
         invalidate_stage_result(doc, Stage.REVIEW)
         invalidate_stage_result(doc, Stage.LINT)
         invalidate_stage_result(doc, Stage.TEST)
+        doc.mergeback_attempt = None
+        restarts = doc.validation_restarts
         apply_action(doc, Action.INVALIDATE_REVIEW)
+        if not count_restart:
+            doc.validation_restarts = restarts
         run = doc
     session.store.append_event(
         run.run_id,
@@ -130,9 +141,11 @@ def _reset_non_equivalent_merge_to_review(
             "post_sha": result.post_sha,
             "verified_tree_sha": result.worktree_tree_sha,
             "resolved_tree_sha": result.local_tree_sha,
+            "counted_restart": count_restart,
         },
     )
-    check_restart_limit(run)
+    if count_restart:
+        check_restart_limit(run)
     return run
 
 
@@ -176,12 +189,13 @@ def _restart_review_for_unresolved_findings(
 
     The source cannot return to its earlier commit, so the validation checkout
     adopts it as the new review snapshot, as for a changed conflict resolution.
-    Review then reports the still-open finding for ``respond``.
+    The tree is unchanged and the return repairs an earlier release's defect, so
+    it is not a validation restart. Review then reports the open finding.
     """
     unresolved = unresolved_findings(session, session.store.load_findings(run.run_id))
     if not unresolved:
         return
-    run = _reset_non_equivalent_merge_to_review(session, run, result)
+    run = _reset_non_equivalent_merge_to_review(session, run, result, count_restart=False)
     raise findings_unresolved(
         run,
         unresolved,
