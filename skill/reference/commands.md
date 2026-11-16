@@ -136,8 +136,8 @@ starts fresh. In `reusable` mode, an orphaned run with no fix commits releases i
 at once, so the fresh run can lease it, but only when the runner is clean and both its
 `HEAD` and its validation branch are still at the reviewed head. Releasing deletes the
 branch, so a runner detached at the reviewed head while its branch holds a commit, no
-longer descends from the reviewed head, or holds a merge commit is put back on that
-branch and kept. Otherwise, or if the release fails (recorded as a
+longer descends from the reviewed head, holds a merge commit, or cannot be read is put
+back on that branch and kept, without an event. Otherwise, or if the release fails (recorded as a
 `runner_release_failed` event), the runner stays leased until `gc`, and the fresh run's
 `start` exits 4 (`needs_human`) because the runner is still leased. On an unchanged head, a different intent or configuration requires
 `--replace`, which preserves the replaced run as `ORPHANED`. Age alone never expires a
