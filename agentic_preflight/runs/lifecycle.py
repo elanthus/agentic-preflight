@@ -54,6 +54,20 @@ def events(session: Session, *, limit: int | None = None) -> Envelope:
     )
 
 
+def _abort_fix_commits(session: Session, run: RunDoc, *, force: bool) -> list[str]:
+    """The fix commits an isolated abort protects, or with ``force`` reports discarding.
+
+    ``--force`` is the way out of a run, so with it a branch history that cannot be
+    read only narrows the report to the recorded commits; it never blocks the abort.
+    """
+    if not force:
+        return branch_fix_commits(session, run)
+    try:
+        return branch_fix_commits(session, run)
+    except Exception:  # noqa: BLE001 - the report must not block the forced abort
+        return list(run.fix_commits)
+
+
 def abort(session: Session, *, force: bool = False, reason: AbortReason | None = None) -> Envelope:
     """End the run and reclaim its worktree.
 
@@ -70,10 +84,9 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
 
     isolated = not is_in_place(run)
     # Before merge-back, a commit made after the last `respond` is on the validation
-    # branch but not yet recorded; releasing the worktree would delete it too. With
-    # --force nothing is protected, so a branch that cannot be read never blocks it.
+    # branch but not yet recorded; releasing the worktree would delete it too.
     fix_commits = (
-        branch_fix_commits(session, run) if isolated and not force else list(run.fix_commits)
+        _abort_fix_commits(session, run, force=force) if isolated else list(run.fix_commits)
     )
     if isolated and fix_commits and not force:
         raise UnmergedWork(

@@ -562,3 +562,14 @@ def test_an_unreadable_branch_history_never_blocks_status_or_abort_force(
 
     assert agent.run("status")["next"]["command"] == "agentic-preflight abort"
     assert agent.run("abort", "--force")["state"] == "ABORTED"
+
+
+def test_abort_force_reports_the_unregistered_commits_it_discards(
+    feature_repo, tmp_path, monkeypatch
+):
+    agent, _wt, fix = _stuck_at_test_green_with_a_new_commit(feature_repo, tmp_path, monkeypatch)
+
+    env = agent.run("abort", "--force")
+
+    assert env["state"] == "ABORTED"
+    assert env["data"]["discarded_fix_commits"] == [fix]
