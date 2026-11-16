@@ -76,6 +76,11 @@ Agentic Preflight refuses to start or merge back while the checkout has a rebase
 Finish or abort that Git operation yourself first.
 The tool never aborts an operation that it did not start.
 
+The fresh-base rebase, its fallback base merge, and the merge-back cherry-pick pin the options that would change which commits they write.
+They ignore `rebase.updateRefs`, `rebase.autoSquash`, `rebase.autoStash`, `rebase.rebaseMerges`, `pull.twohead`, `merge.ff`, `merge.verifySignatures`, and `merge.log`.
+So the rebase never moves a branch stacked under the validated branch.
+Commit signing, hooks other than the fallback merge's commit hooks, and rename and conflict settings still apply.
+
 ## Isolated validation worktrees can differ from your environment
 
 In-place mode uses the checkout's existing dependencies and ignored files.

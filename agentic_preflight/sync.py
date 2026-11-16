@@ -79,6 +79,45 @@ class SyncResult:
         return asdict(self)
 
 
+# The synchronizing rebase must only replay the branch's own commits onto the base.
+# These options neutralize configuration that would change that: ``rebase.updateRefs``
+# (moves other branches stacked in the rebased range), ``rebase.autoSquash`` (reorders
+# and folds ``fixup!`` commits), ``rebase.autoStash`` (rebases a dirty checkout instead
+# of refusing), ``rebase.rebaseMerges`` (keeps merge commits, which ``sync_onto`` relies
+# on the rebase dropping), and ``pull.twohead``, which the rebase also reads as its
+# default merge strategy. Each matches Git's default, so an unconfigured repository
+# rebases exactly as before. Not neutralized: commit signing (``commit.gpgSign``),
+# hooks (``pre-rebase``, ``post-checkout``, ``post-rewrite``), ``rebase.backend``,
+# rename and conflict settings (``merge.renames``, ``merge.directoryRenames``,
+# ``rerere.*``), and notes copying (``notes.rewrite.*``).
+_PINNED_REBASE_OPTIONS = (
+    "--no-update-refs",
+    "--no-autosquash",
+    "--no-autostash",
+    "--no-rebase-merges",
+    "--strategy=ort",
+)
+# The fallback merge always commits a real two-parent merge with the default strategy
+# and message, never overwrites ignored local files, and skips commit hooks, because
+# the rebase it replaces runs none and the merge adds no user content. These options
+# neutralize ``merge.ff``, ``branch.<name>.mergeOptions`` (``--no-commit``,
+# ``--squash``), ``pull.twohead``, ``merge.verifySignatures``, and ``merge.log``. Not
+# neutralized: commit signing (``commit.gpgSign``), strategy options (``-X``) from
+# ``branch.<name>.mergeOptions``, and rename and conflict settings. The merge always
+# starts from a clean checkout, so ``merge.autoStash`` has nothing to stash.
+_PINNED_MERGE_OPTIONS = (
+    "--no-ff",
+    "--commit",
+    "--no-squash",
+    "--no-edit",
+    "--no-verify",
+    "--no-overwrite-ignore",
+    "--strategy=ort",
+    "--no-verify-signatures",
+    "--no-log",
+)
+
+
 def _origin_base_ref(base_ref: str) -> tuple[str, str]:
     branch = base_ref.removeprefix("refs/remotes/origin/").removeprefix("origin/")
     return branch, f"refs/remotes/origin/{branch}"
@@ -163,21 +202,7 @@ def _merge_base_in(
     worktree_path: Path | str, *, base_ref: str, base_sha: str, before: str, landed: str
 ) -> str:
     """Merge the base into the restored head, or restore it and report a conflict."""
-    # The options override any configured merge behavior: always commit a real merge,
-    # never overwrite ignored local files, and skip commit hooks, because the rebase this
-    # replaces runs none and the merge adds no user content.
-    result = gitx.run(
-        worktree_path,
-        "merge",
-        "--no-ff",
-        "--commit",
-        "--no-squash",
-        "--no-edit",
-        "--no-verify",
-        "--no-overwrite-ignore",
-        base_sha,
-        check=False,
-    )
+    result = gitx.run(worktree_path, "merge", *_PINNED_MERGE_OPTIONS, base_sha, check=False)
     if (
         result.returncode == 0
         and gitx.operation_in_progress(worktree_path) is None
@@ -221,7 +246,7 @@ def sync_onto(worktree_path: Path | str, base_ref: str) -> tuple[str, str, bool]
         raise SyncObstructed(
             base_ref=base_ref, base_sha=base_sha, head_before=before, paths=obstructed
         )
-    result = gitx.run(worktree_path, "rebase", base_sha, check=False)
+    result = gitx.run(worktree_path, "rebase", *_PINNED_REBASE_OPTIONS, base_sha, check=False)
     if result.returncode == 0:
         after = gitx.rev_parse(worktree_path, "HEAD")
         # A conflicted merge has no landed tree; the rebase is then the resolution.

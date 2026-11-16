@@ -599,6 +599,25 @@ def test_conflict_never_auto_resolves(tmp_repo, monkeypatch):
     assert "--abort" in flat, "a conflicting cherry-pick must be aborted"
 
 
+def test_cherry_pick_ignores_pull_twohead(tmp_repo):
+    """The cherry-pick reads ``pull.twohead`` as its default strategy; ``ours`` empties a fix."""
+    from agentic_preflight import mergeback
+
+    git("switch", "-c", "side", cwd=tmp_repo)
+    write(tmp_repo, "src/app.py", "FIXED\n")
+    fix = commit_all(tmp_repo, "fix")
+    git("switch", "main", cwd=tmp_repo)
+    pre_sha = git("rev-parse", "HEAD", cwd=tmp_repo)
+    git("config", "pull.twohead", "ours", cwd=tmp_repo)
+
+    result = mergeback.cherry_pick_fixes(
+        tmp_repo, [fix], worktree_branch="side", worktree_path=str(tmp_repo)
+    )
+
+    assert git("rev-parse", "HEAD~1", cwd=tmp_repo) == pre_sha
+    assert result.local_tree_sha == git("rev-parse", f"{fix}^{{tree}}", cwd=tmp_repo)
+
+
 @pytest.mark.parametrize("use_ref", [False, True])
 def test_conflict_leaves_no_cherry_pick_in_progress(tmp_repo, use_ref):
     """CHERRY_PICK_HEAD must be gone: a half-finished pick wedges the repo."""
@@ -740,7 +759,7 @@ def test_cherry_pick_preserves_user_resolution_started_after_precondition(tmp_re
 
     def start_user_pick(cwd, *args, **kwargs):
         nonlocal user_status
-        if args == ("cherry-pick", fix_sha):
+        if args == ("cherry-pick", *mergeback._PINNED_CHERRY_PICK_OPTIONS, fix_sha):
             assert real_run(cwd, "cherry-pick", user_sha, check=False).returncode != 0
             write(tmp_repo, "src/app.py", "USER RESOLUTION\n")
             real_run(cwd, "add", "src/app.py")

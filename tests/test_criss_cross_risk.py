@@ -224,20 +224,29 @@ def test_sync_rebases_unrelated_history_without_a_landed_tree(tmp_repo):
     assert gitx.is_ancestor(tmp_repo, "main", "HEAD")
 
 
+def _skipped_change(repo):
+    """Return ``(base, head)`` where a rebase skips a branch commit the base already has.
+
+    The rebase then replays the branch's revert, so synchronization must merge instead.
+    """
+    original = (repo / "src/app.py").read_text(encoding="utf-8")
+    git("switch", "-c", "feature/undo", cwd=repo)
+    write(repo, "src/app.py", original + "FLAG = 1\n")
+    commit_all(repo, "add flag")
+    write(repo, "src/app.py", original)
+    head = commit_all(repo, "remove flag")
+    git("switch", "main", cwd=repo)
+    write(repo, "src/app.py", original + "FLAG = 1\n")
+    base = commit_all(repo, "main adds flag")
+    git("switch", "feature/undo", cwd=repo)
+    # The branch nets to nothing, so merging it keeps the base's flag.
+    assert gitx.merge_tree(repo, base, head) == gitx.tree_sha(repo, base)
+    return base, head
+
+
 def test_sync_merges_when_a_rebase_would_skip_a_change_the_base_already_has(tmp_repo):
     """A rebase skips the branch commit the base already has, then replays its revert."""
-    original = (tmp_repo / "src/app.py").read_text(encoding="utf-8")
-    git("switch", "-c", "feature/undo", cwd=tmp_repo)
-    write(tmp_repo, "src/app.py", original + "FLAG = 1\n")
-    commit_all(tmp_repo, "add flag")
-    write(tmp_repo, "src/app.py", original)
-    head = commit_all(tmp_repo, "remove flag")
-    git("switch", "main", cwd=tmp_repo)
-    write(tmp_repo, "src/app.py", original + "FLAG = 1\n")
-    base = commit_all(tmp_repo, "main adds flag")
-    git("switch", "feature/undo", cwd=tmp_repo)
-    # The branch nets to nothing, so merging it keeps the base's flag.
-    assert gitx.merge_tree(tmp_repo, base, head) == gitx.tree_sha(tmp_repo, base)
+    base, _head = _skipped_change(tmp_repo)
 
     result = sync.synchronize(tmp_repo, tmp_repo, base_ref="main")
 
@@ -327,3 +336,28 @@ def test_local_gate_risk_matches_the_hosted_verdict_after_synchronization(
     )
     assert hosted["changed_files"] == run.changed_files == ["docs/notes.md", "src/security.py"]
     assert hosted["risk_level"] == gate["risk"]["level"] == "high"
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("merge.ff", "only"),
+        ("pull.twohead", "ours"),
+        ("merge.verifySignatures", "true"),
+        ("merge.log", "true"),
+    ],
+)
+def test_sync_fallback_merge_ignores_merge_configuration(tmp_repo, key, value):
+    base, head = _skipped_change(tmp_repo)
+    git("config", key, value, cwd=tmp_repo)
+
+    result = sync.synchronize(tmp_repo, tmp_repo, base_ref="main")
+
+    after = git("rev-parse", "HEAD", cwd=tmp_repo)
+    assert result.merged is True
+    assert gitx.tree_sha(tmp_repo, after) == gitx.tree_sha(tmp_repo, base)
+    assert git("rev-parse", f"{after}^1", cwd=tmp_repo) == head
+    assert git("rev-parse", f"{after}^2", cwd=tmp_repo) == base
+    assert git("log", "-1", "--format=%B", after, cwd=tmp_repo) == (
+        f"Merge commit '{base}' into feature/undo"
+    )

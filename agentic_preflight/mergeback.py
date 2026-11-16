@@ -29,6 +29,14 @@ from . import gitx
 
 OperationInProgress = gitx.OperationInProgress
 
+# The cherry-pick reads ``pull.twohead`` as its default merge strategy, so ``ours``
+# there would silently empty every fix commit; ``--strategy=ort`` is Git's default.
+# Not neutralized: commit signing (``commit.gpgSign``), the ``prepare-commit-msg``
+# and ``post-commit`` hooks, ``commit.cleanup``, and rename and conflict settings
+# (``merge.renames``, ``rerere.*``). Rerere never completes a conflicted pick: the
+# pick still stops and is aborted. Tree equivalence decides whether green transfers.
+_PINNED_CHERRY_PICK_OPTIONS = ("--strategy=ort",)
+
 
 class MergebackConflict(Exception):
     """A cherry-pick conflicted. The branch has been restored."""
@@ -157,7 +165,9 @@ def cherry_pick_fixes(
     if fix_commits:
         # One sequencer operation matters: `--abort` then restores the start of
         # the whole stack, not merely the commit immediately before a conflict.
-        result = gitx.run(repo, "cherry-pick", *fix_commits, check=False)
+        result = gitx.run(
+            repo, "cherry-pick", *_PINNED_CHERRY_PICK_OPTIONS, *fix_commits, check=False
+        )
         if result.returncode != 0:
             conflicts = _conflicting_files(repo)
             head = gitx.run(repo, "rev-parse", "CHERRY_PICK_HEAD", check=False)
