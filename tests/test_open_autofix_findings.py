@@ -188,24 +188,40 @@ def _stuck_in_pending_mergeback(repo, tmp_path, monkeypatch, config, *, with_fix
 
 def test_mergeback_refuses_an_open_finding_before_any_effect(feature_repo, tmp_path, monkeypatch):
     agent = _legacy_test_green(
-        feature_repo, tmp_path, monkeypatch, CONFIG + "\n[worktree]\nmode = 'reusable'\n"
+        feature_repo,
+        tmp_path,
+        monkeypatch,
+        CONFIG + "\n[worktree]\nmode = 'reusable'\n",
+        with_fix=True,
     )
     source = git("rev-parse", "HEAD", cwd=feature_repo)
+    before = agent.run("status")["data"]
+    assert before["validation_restarts"] == 1
 
-    refused = agent.run("mergeback", expect=ExitCode.PRECONDITION)
-    _assert_names_open_finding(refused)
+    mergeback = importlib.import_module("agentic_preflight.runs.mergeback")
+    with monkeypatch.context() as differing:
+        # Make registration observable: it would rewrite the replay list and log it.
+        differing.setattr(mergeback, "derive_fix_commits", lambda session, run: [])
+        refused = agent.run("mergeback", expect=ExitCode.PRECONDITION)
+    _assert_names_open_finding(refused, "F002")
     assert refused["state"] == "REVIEW_GREEN"
     assert git("rev-parse", "HEAD", cwd=feature_repo) == source
     status = agent.run("status")
     assert status["data"]["mergeback_attempt"] is None
-    assert status["data"]["validation_restarts"] == 0
+    assert status["data"]["validation_restarts"] == 1
+    assert status["data"]["fix_commits"] == before["fix_commits"]
+    events = [event["event"] for event in agent.run("events")["data"]["events"]]
+    assert "findings_reopened" in events
+    assert "validated_fix_commits_registered" not in events
 
-    _accept(agent)
+    _accept(agent, "F002")
     agent.run("context", "--section", "docs")
     agent.run("submit-findings", "--file", _docs_findings(tmp_path, []))
     agent.run("stage", "run", "lint")
     agent.run("stage", "run", "test")
     assert agent.run("mergeback")["state"] == "VERIFIED"
+    subjects = git("log", "--format=%s", "main..HEAD", cwd=feature_repo).splitlines()
+    assert subjects.count("apply the fix") == 1
 
 
 def test_an_in_place_run_stuck_in_pending_mergeback_recovers(feature_repo, tmp_path, monkeypatch):
@@ -249,12 +265,15 @@ def test_an_isolated_run_stuck_after_its_cherry_pick_recovers(
     status = agent.run("status")
     assert status["data"]["validation_restarts"] == 1
     assert status["data"]["mergeback_attempt"] is None
+    stored = {finding["id"]: finding for finding in status["data"]["findings"]}
+    assert stored["F002"]["status"] == "open"
 
     agent.run("context")
     reviewed = agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     assert reviewed["state"] == "REVIEW_GREEN"
     assert reviewed["next"]["command"].startswith("agentic-preflight respond --id F002")
-    _accept(agent, "F002")
+    answered = _accept(agent, "F002")
+    assert answered["data"]["finding"]["status"] == "accepted"
     agent.run("context", "--section", "docs")
     agent.run("submit-findings", "--file", _docs_findings(tmp_path, []))
     agent.run("stage", "run", "lint")
@@ -356,3 +375,27 @@ def test_respond_points_at_an_open_finding_from_another_stage(feature_repo, tmp_
     answered = _accept(agent, "F002")
     assert answered["state"] == "DOCS_GREEN"
     assert answered["next"]["command"].startswith("agentic-preflight respond --id F001")
+
+
+def test_status_and_verify_point_at_a_review_finding_from_docs_green(
+    feature_repo, tmp_path, monkeypatch
+):
+    from agentic_preflight import findings
+
+    configure_base(feature_repo, CONFIG)
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, MEDIUM_AUTO_FIX))
+    with monkeypatch.context() as legacy:
+        # A run that an earlier release let into documentation with the finding open.
+        legacy.setattr(findings, "actionable", lambda items: [])
+        agent.run("context", "--section", "docs")
+    assert agent.run("submit-findings", "--file", _docs_findings(tmp_path, []))["state"] == (
+        "DOCS_GREEN"
+    )
+
+    for command in ("status", "verify"):
+        env = agent.run(command)
+        assert env["state"] == "DOCS_GREEN"
+        assert env["next"]["command"].startswith("agentic-preflight respond --id F001")
