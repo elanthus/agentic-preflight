@@ -180,14 +180,15 @@ def verify(
     """
     if purpose not in {"local", "publish"}:
         raise InvalidAttestation("unknown verification purpose")
-    resolved = gitx.rev_parse(repo, sha)
-    value = read(repo, resolved)
-    if value is None:
-        raise InvalidAttestation(
-            f"commit {resolved} has no agentic-preflight attestation in {NOTES_REF}",
-            reason="missing_note",
-        )
-    return verify_value(repo, value, resolved, purpose=purpose, base=base)
+    with gitx.object_cache():
+        resolved = gitx.rev_parse(repo, sha)
+        value = read(repo, resolved)
+        if value is None:
+            raise InvalidAttestation(
+                f"commit {resolved} has no agentic-preflight attestation in {NOTES_REF}",
+                reason="missing_note",
+            )
+        return verify_value(repo, value, resolved, purpose=purpose, base=base)
 
 
 def _base_candidates(base_ref: str) -> list[str]:
@@ -261,6 +262,18 @@ def verify_value(
     base: str | None = None,
 ) -> Attestation:
     """Validate an already decoded note against the policy of a trusted base."""
+    with gitx.object_cache():
+        return _verify_value(repo, value, resolved, purpose=purpose, base=base)
+
+
+def _verify_value(
+    repo: Path | str,
+    value: Attestation,
+    resolved: str,
+    *,
+    purpose: Literal["local", "publish"],
+    base: str | None,
+) -> Attestation:
     if purpose not in {"local", "publish"}:
         raise InvalidAttestation("unknown verification purpose")
     if value.outcome != "verified":
@@ -270,6 +283,9 @@ def verify_value(
             f"attestation names {value.sha}, but it is attached to {resolved}",
             reason="commit_mismatch",
         )
+    # Every commit the note names is peeled again and again below. One batch
+    # resolves them all; anything it cannot resolve is looked up, and fails, as before.
+    gitx.prime_object_lookups(repo, _named_commits(value, resolved))
     actual_tree = gitx.tree_sha(repo, resolved)
     if value.tree_sha != actual_tree:
         raise InvalidAttestation(
@@ -295,6 +311,14 @@ def verify_value(
     except ValueError as exc:
         raise InvalidAttestation(str(exc)) from exc
     return value
+
+
+def _named_commits(value: Attestation, resolved: str) -> list[str]:
+    """The verified head, the note's merge base, and each evidence origin's commits."""
+    commits = [resolved, value.merge_base_sha]
+    for item in (value.evidence or {}).values():
+        commits += [item.origin.head_sha, item.origin.base_sha]
+    return commits
 
 
 class InvalidAttestation(ValueError):
