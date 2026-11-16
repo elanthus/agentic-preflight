@@ -367,7 +367,8 @@ def test_an_id_in_the_other_object_format_is_never_cached(tmp_repo, monkeypatch)
 
     monkeypatch.setattr(gitx, "_run_bytes", counted_bytes)
     with gitx.object_cache():
-        gitx.prime_object_lookups(tmp_repo, [name])
+        # ``first`` is a full ID, so only ``name`` can keep the diff out of the cache.
+        gitx.prime_object_lookups(tmp_repo, [first, name])
         assert gitx.rev_parse(tmp_repo, name) == first
         assert gitx.changed_files_raw(tmp_repo, first, name) == []
 
