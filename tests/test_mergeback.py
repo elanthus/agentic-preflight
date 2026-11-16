@@ -134,6 +134,15 @@ def test_pending_mergeback_rejects_an_interrupted_source_rebase(
     assert git("rev-parse", "HEAD", cwd=feature_repo) == tip
 
 
+def test_mergeback_treats_a_head_on_a_tag_as_a_branch_mismatch(ready, feature_repo):
+    agent, _ = ready(with_fix=True)
+    git("tag", "pinned", cwd=feature_repo)
+    git("symbolic-ref", "HEAD", "refs/tags/pinned", cwd=feature_repo)
+    env = agent.run("mergeback", expect=3)
+    assert env["error"]["code"] == "stale_run"
+    assert "recorded source branch" in env["error"]["message"]
+
+
 def _interrupt_persisted_retry(agent, monkeypatch):
     from agentic_preflight import store as storemod
 
@@ -208,7 +217,7 @@ def test_pending_mergeback_reconciles_completed_git_effects(
     )
 
 
-@pytest.mark.parametrize("change", ["source", "validation", "branch"])
+@pytest.mark.parametrize("change", ["source", "validation", "branch", "tag"])
 def test_pending_mergeback_rejects_changes_outside_recorded_attempt(
     ready, feature_repo, monkeypatch, change
 ):
@@ -224,6 +233,9 @@ def test_pending_mergeback_rejects_changes_outside_recorded_attempt(
         agent.run("mergeback", expect=1)
     if change == "branch":
         git("switch", "-c", "different-branch", cwd=feature_repo)
+    elif change == "tag":
+        git("tag", "pinned", cwd=feature_repo)
+        git("symbolic-ref", "HEAD", "refs/tags/pinned", cwd=feature_repo)
     else:
         target = feature_repo if change == "source" else Path(wt)
         write(target, "unexpected.txt", "unreviewed content\n")
