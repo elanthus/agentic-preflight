@@ -561,15 +561,37 @@ def test_alternates_are_split_as_git_splits_them(value, expected, monkeypatch):
     assert gitx._alternate_entries(value) == expected
 
 
-def test_a_quoted_alternate_with_a_separator_still_supplies_objects(change, tmp_path, monkeypatch):
-    """Git C-unquotes an alternate that starts with a double quote."""
+@pytest.mark.parametrize("relative", [False, True], ids=["absolute", "relative"])
+def test_a_quoted_alternate_with_a_separator_still_supplies_objects(
+    change, tmp_path, monkeypatch, relative
+):
+    """Git C-unquotes an alternate that starts with a double quote.
+
+    Git resolves a relative entry, quoted or not, against its working directory,
+    which is the checkout when a user runs the tool.
+    """
     repo, base = change
     expected = _snapshot(repo, base)
     head = git("rev-parse", "HEAD", cwd=repo)
-    store = tmp_path / f"cache{gitx.os.pathsep}one" / "objects"
-    shutil.copytree(repo / ".git" / "objects", store)
     empty = tmp_path / "empty"
     git("init", "-q", str(empty), cwd=tmp_path)
-    monkeypatch.setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", f'"{store}"')
+    store = empty / f"cache{gitx.os.pathsep}one" / "objects"
+    shutil.copytree(repo / ".git" / "objects", store)
+    entry = store.relative_to(empty) if relative else store
+    monkeypatch.setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", f'"{entry}"')
 
     assert _snapshot(empty, base, head) == expected
+
+
+@pytest.mark.parametrize("driver", ["unset", "unspecified"])
+def test_a_state_named_driver_that_prints_binaries_is_refused_before_the_read(change, driver):
+    """Refused wherever a bounded read stops, like any driver that prints a binary."""
+    repo, base = change
+    git("config", "--local", f"diff.{driver}.binary", "false", cwd=repo)
+    (repo / ".git" / "info").mkdir(exist_ok=True)
+    (repo / ".git" / "info" / "attributes").write_text(f"*.bin diff={driver}\n", encoding="utf-8")
+
+    with pytest.raises(gitx.ReviewDiffError, match=rf"diff\.{driver}\.binary"):
+        diff.build_bundle(repo, base, "HEAD")
+    with pytest.raises(gitx.ReviewDiffError, match=rf"diff\.{driver}\.binary"):
+        diff.build_bundle_within_budget(repo, base, "HEAD", max_bytes=1)

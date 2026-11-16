@@ -242,9 +242,9 @@ set to `true` is exact.
 the review patch: a diff driver with a hunk-header pattern, `diff` on a binary file, or
 a driver that prints a binary file as text, such as one with `diff.<driver>.binary = false`.
 Git configuration that sets `diff.default.xfuncname` or `diff.default.funcname` has the
-same effect on every file and is refused the same way, as is a hunk-header pattern for a
-driver named `set`, `unset` or `unspecified`, which the tool cannot tell from those
-attribute states.
+same effect on every file and is refused the same way, as is a hunk-header pattern or
+`binary = false` for a driver named `set`, `unset` or `unspecified`, which the tool
+cannot tell from those attribute states.
 A verifier on another machine cannot see that file, so the tool refuses rather than
 hash text nobody else can rebuild. Show the user the message. Do not edit the file
 yourself; the user removes the named entry or setting, then the same command is retried.

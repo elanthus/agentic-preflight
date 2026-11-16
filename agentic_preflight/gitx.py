@@ -1876,10 +1876,20 @@ def _attribute_free(cwd: Path | str) -> Iterator[tuple[str, dict[str, str]]]:
         yield empty, env
 
 
-def _hunk_header_drivers(cwd: Path | str, env: Mapping[str, str]) -> set[str]:
-    """Return the diff drivers whose configuration sets a hunk-header pattern."""
+#: The values ``git check-attr`` prints for an attribute's states. A driver with one
+#: of these names prints the same value, so the output cannot tell the two apart.
+_ATTRIBUTE_STATES = frozenset({"unspecified", "unset", "set"})
+
+
+def _diff_driver_config(cwd: Path | str, env: Mapping[str, str]) -> tuple[set[str], set[str]]:
+    """Return the drivers that set a hunk-header pattern, and the state-named ones that
+    print binary content as text.
+
+    The second set holds only drivers named like an attribute state, which
+    ``check-attr`` cannot tell apart from that state; one query reads both.
+    """
     result = subprocess.run(
-        [_git_executable(), "config", "-z", "--get-regexp", r"^diff\..+\.x?funcname$"],
+        [_git_executable(), "config", "-z", "--get-regexp", r"^diff\..+\.(x?funcname|binary)$"],
         cwd=str(cwd),
         capture_output=True,
         env=env,
@@ -1890,8 +1900,19 @@ def _hunk_header_drivers(cwd: Path | str, env: Mapping[str, str]) -> set[str]:
             result.returncode,
             result.stderr.decode("utf-8", errors=_DECODE_ERRORS),
         )
-    keys = (entry.split(b"\n", 1)[0] for entry in result.stdout.split(b"\0") if entry)
-    return {_decode_path(key)[len("diff.") :].rsplit(".", 1)[0] for key in keys}
+    headers: set[str] = set()
+    binary: dict[str, bytes | None] = {}
+    for entry in result.stdout.split(b"\0"):
+        if not entry:
+            continue
+        key, separator, value = entry.partition(b"\n")
+        driver, _, variable = _decode_path(key)[len("diff.") :].rpartition(".")
+        if variable == "binary":
+            binary[driver] = value if separator else None  # the last value wins
+        else:
+            headers.add(driver)
+    states = {driver for driver in _ATTRIBUTE_STATES if _forces_text(binary.get(driver))}
+    return headers, states
 
 
 def _forces_text(value: bytes | None) -> bool:
@@ -1944,11 +1965,6 @@ def _text_forcing_drivers(cwd: Path | str, env: Mapping[str, str]) -> set[str]:
     return {driver for driver, value in last.items() if driver != "default" and _forces_text(value)}
 
 
-#: The values ``git check-attr`` prints for an attribute's states. A driver with one
-#: of these names prints the same value, so the output cannot tell the two apart.
-_ATTRIBUTE_STATES = frozenset({"unspecified", "unset", "set"})
-
-
 def _refuse_local_diff_attributes(
     cwd: Path | str, env: Mapping[str, str], paths: Sequence[str], binary_paths: set[str]
 ) -> None:
@@ -1965,13 +1981,14 @@ def _refuse_local_diff_attributes(
     Every path without a ``diff`` attribute uses Git's ``default`` driver, so a
     pattern configured for it would rewrite every hunk header. Git has no value
     that restores the built-in rule, so that configuration is refused too. So is a
-    pattern for a driver named ``set``, ``unset`` or ``unspecified``: ``check-attr``
-    prints ``diff=unset`` exactly as it prints ``-diff``, yet Git applies the
-    driver, so the attribute cannot be told from the harmless state.
+    pattern, or ``binary`` set to false, for a driver named ``set``, ``unset`` or
+    ``unspecified``: ``check-attr`` prints ``diff=unset`` exactly as it prints
+    ``-diff``, yet Git applies the driver, so the attribute cannot be told from the
+    harmless state.
     """
     if not paths:
         return
-    configured = _hunk_header_drivers(cwd, env)
+    configured, text_forcing_states = _diff_driver_config(cwd, env)
     if "default" in configured:
         raise ReviewDiffError(
             "Git configuration sets diff.default.xfuncname or diff.default.funcname, which "
@@ -1985,6 +2002,14 @@ def _refuse_local_diff_attributes(
             f"diff.{colliding[0]}.funcname. Git cannot tell a driver named "
             f"{colliding[0]!r} from the attribute state of that name, and the driver "
             "would rewrite the hunk headers of the review patch on this machine only. "
+            "Remove that setting."
+        )
+    if text_forcing_states:
+        name = sorted(text_forcing_states)[0]
+        raise ReviewDiffError(
+            f"Git configuration sets diff.{name}.binary to false. Git cannot tell a "
+            f"driver named {name!r} from the attribute state of that name, and the driver "
+            "would print binary content into the review patch on this machine only. "
             "Remove that setting."
         )
     output = _run_bytes(
