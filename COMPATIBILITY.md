@@ -573,6 +573,16 @@ A `run_record_unreadable` error envelope from a mutating command adds `data.poin
 Single-run `status`, `status --all`, and `gc` output are unchanged.
 Run schema 2, attestation schema 7, fingerprint version 2, and the findings format are unchanged.
 
+## Unreleased: open `auto_fix` findings keep the run in review
+
+`context --section docs`, `stage run lint`, and `mergeback` have a new error code, `findings_unresolved`, with exit 3.
+They return it while a review or docs finding is still open and either blocking or `auto_fix`. `error.message` and `blocking` name the findings.
+Earlier releases let such a run continue, and `mergeback` then failed with `internal_error` and left the run in `MERGEBACK_PENDING`.
+A disabled docs stage is no longer skipped while such a finding is open, and `status` in `REVIEW_GREEN` or `DOCS_GREEN` returns `respond` for it.
+The transition table adds `REOPEN_FINDINGS`, from `TEST_GREEN` and `MERGEBACK_PENDING` to `REVIEW_GREEN`. A `state_transition` event can name it.
+`mergeback` uses it, or a return to review, to recover a run that an earlier release left in `TEST_GREEN` or `MERGEBACK_PENDING` with such a finding.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
 ## Unreleased: `logs` returns a bounded window
 
 `logs --stage` no longer returns the whole stage log by default.

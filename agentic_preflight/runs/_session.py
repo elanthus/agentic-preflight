@@ -17,6 +17,7 @@ from ..cli_contract import RunDataBase
 from ..config import Config, load_config, snapshot_config, snapshot_run_settings
 from ..envelope import Envelope
 from ..errors import (
+    FindingsUnresolved,
     MaxRestarts,
     NoRun,
     StaleRun,
@@ -490,3 +491,46 @@ def findings_next_hint(
             "or record why it is not worth fixing with `--action accepted --note`."
         )
         envelope.next_command = _respond_command(actionable[0].id)
+
+
+def unresolved_findings(session: Session, items: list[Finding]) -> list[Finding]:
+    """Open findings that a stage's evidence may not carry into an attestation.
+
+    These are the stage's blocking set and every open ``auto_fix`` finding, the
+    same test the attestation applies to each stage's evidence. A run must not
+    leave review or documentation while one remains, because ``respond`` is not
+    legal after documentation and merge-back would refuse the evidence.
+    """
+    unresolved: list[Finding] = []
+    for stage in (Stage.REVIEW, Stage.DOCS):
+        stage_items = [finding for finding in items if finding.stage is stage]
+        blocking = findingsmod.blocking(
+            stage_items, blocking_severities=stage_blocking_severities(session, stage)
+        )
+        unresolved.extend(blocking)
+        unresolved.extend(f for f in findingsmod.actionable(stage_items) if f not in blocking)
+    return sorted(unresolved, key=lambda finding: finding.id)
+
+
+def findings_unresolved(
+    run: RunDoc,
+    unresolved: list[Finding],
+    *,
+    step: str,
+    next_instruction: str | None = None,
+    next_command: str | None = None,
+) -> FindingsUnresolved:
+    """Name the findings that keep the run from taking ``step``."""
+    ids = ", ".join(finding.id for finding in unresolved)
+    return FindingsUnresolved(
+        f"{step} is not allowed while finding(s) {ids} are open; answer each with `respond` first",
+        state=run.state.value,
+        run_id=run.run_id,
+        blocking=[finding.model_dump(mode="json") for finding in unresolved],
+        next_instruction=next_instruction
+        or (
+            "Fix each named finding and cite the commit, or record why it is not worth "
+            "fixing with `--action accepted --note`. Then follow `next.command` again."
+        ),
+        next_command=next_command or _respond_command(unresolved[0].id),
+    )

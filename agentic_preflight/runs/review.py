@@ -31,17 +31,22 @@ from ._session import (
     check_restart_limit,
     envelope_for,
     findings_next_hint,
+    findings_unresolved,
     load_current,
     require_finding_stage,
     require_state,
     require_worktree,
     stage_blocking_severities,
+    unresolved_findings,
     utc_now,
 )
 
 
 def _open_docs_stage(session: Session, run: RunDoc) -> RunDoc:
-    """Move REVIEW_GREEN into the docs sub-machine."""
+    """Move REVIEW_GREEN into the docs sub-machine once every finding is answered."""
+    unresolved = unresolved_findings(session, session.store.load_findings(run.run_id))
+    if unresolved:
+        raise findings_unresolved(run, unresolved, step="leaving review")
     with session.store.transaction(run.run_id) as doc:
         apply_action(doc, Action.BEGIN_DOCS)
         return doc
@@ -56,6 +61,9 @@ def _skip_docs_if_disabled(session: Session, run: RunDoc) -> RunDoc:
     than an absence.
     """
     if session.config.docs.enabled or run.state is not State.REVIEW_GREEN:
+        return run
+    # An open finding keeps the run in review, where `respond` is still legal.
+    if unresolved_findings(session, session.store.load_findings(run.run_id)):
         return run
     # Grounding can read other runs. Never nest those locks inside this run's
     # record lock; the command's operation lock already serializes its work.
@@ -434,8 +442,12 @@ def verify(session: Session) -> Envelope:
 
     run = _skip_docs_if_disabled(session, run)
 
-    return envelope_for(
+    envelope = envelope_for(
         run,
         stage=stage.value,
         data=VerifyData(stage=stage.value, blocking_count=0),
     )
+    if run.state in (State.REVIEW_GREEN, State.DOCS_GREEN):
+        unresolved = unresolved_findings(session, session.store.load_findings(run.run_id))
+        findings_next_hint(envelope, [], unresolved)
+    return envelope

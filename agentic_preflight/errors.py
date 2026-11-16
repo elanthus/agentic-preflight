@@ -214,6 +214,13 @@ class InvalidResponse(AgenticError):
     exit_code = ExitCode.PRECONDITION
 
 
+class FindingsUnresolved(AgenticError):
+    """A finding still needs `respond` before the run may leave review or documentation."""
+
+    code = "findings_unresolved"
+    exit_code = ExitCode.PRECONDITION
+
+
 class UnmergedWork(AgenticError):
     """Destroying work is the one outcome nobody can undo, so it needs a yes."""
 
