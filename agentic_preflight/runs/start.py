@@ -56,7 +56,7 @@ from ._session import (
     worktree_identity,
     worktree_mode,
 )
-from .fix_commits import _branch_only_commits
+from .fix_commits import UnreadableFixHistory, _branch_only_commits
 
 # Lower-case harness names. Integration ids are accepted as aliases, so
 # `--client claude` (the `integrations install` name) records `claude-code`.
@@ -150,9 +150,13 @@ def _release_idle_runner(session: Session, run: RunDoc) -> None:
     try:
         if not gitx.is_clean(path) or gitx.rev_parse(path, "HEAD") != run.head_sha:
             return
-        # Release deletes the branch, which a detached checkout does not show;
-        # an unreadable branch history raises and keeps the runner leased.
-        if _branch_only_commits(run, path, []):
+        # Release deletes the branch, which a detached checkout does not show.
+        # Like any other hold, an unreadable branch history keeps the runner
+        # leased without an event; `gc` reports it.
+        try:
+            if _branch_only_commits(run, path, []):
+                return
+        except UnreadableFixHistory:
             return
         release_run_worktree(session, run)
         with session.store.transaction(run.run_id) as doc:

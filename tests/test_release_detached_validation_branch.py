@@ -40,6 +40,13 @@ def _record(feature_repo: Path, run_id: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _events(feature_repo: Path, run_id: str) -> list[str]:
+    root = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo))
+    path = root / "agentic-preflight" / "runs" / run_id / "events.jsonl"
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return [json.loads(line).get("event") for line in lines if line]
+
+
 def test_replace_keeps_a_reusable_runner_whose_branch_holds_a_hidden_commit(feature_repo):
     agent, run_id, wt, fix = _hidden_commit(feature_repo, REUSABLE)
 
@@ -107,6 +114,8 @@ def test_replace_keeps_a_reusable_runner_whose_branch_was_rewritten(feature_repo
     agent.run("start", "--replace", "--intent", "different objective")
 
     assert _record(feature_repo, run_id)["worktree_released"] is False
+    # A deliberate hold, not a failed release.
+    assert "runner_release_failed" not in _events(feature_repo, run_id)
     assert wt.exists()
     assert git("rev-parse", f"refs/heads/ap/{run_id}", cwd=feature_repo) == rewritten
 
