@@ -30,10 +30,12 @@ from ._session import (
     assess_risk,
     check_restart_limit,
     envelope_for,
+    findings_unresolved,
     is_in_place,
     load_current,
     require_state,
     require_worktree,
+    unresolved_findings,
     worktree_mode,
 )
 from .fix_commits import derive_fix_commits, patch_matches
@@ -96,8 +98,15 @@ def _reset_non_equivalent_merge_to_review(
     session: Session,
     run: RunDoc,
     result: mergebackmod.MergebackResult,
+    *,
+    count_restart: bool = True,
 ) -> RunDoc:
-    """Make a human-resolved source tree the new isolated review snapshot."""
+    """Make a human-resolved source tree the new isolated review snapshot.
+
+    ``count_restart=False`` returns to review without spending the restart
+    budget, for a recovery that repairs an earlier release's defect on an
+    unchanged tree rather than a change that needs revalidation.
+    """
     worktree_path = require_worktree(run)
     worktree.assert_diff_is_clean_of(
         session.repo_root,
@@ -119,7 +128,11 @@ def _reset_non_equivalent_merge_to_review(
         invalidate_stage_result(doc, Stage.REVIEW)
         invalidate_stage_result(doc, Stage.LINT)
         invalidate_stage_result(doc, Stage.TEST)
+        doc.mergeback_attempt = None
+        restarts = doc.validation_restarts
         apply_action(doc, Action.INVALIDATE_REVIEW)
+        if not count_restart:
+            doc.validation_restarts = restarts
         run = doc
     session.store.append_event(
         run.run_id,
@@ -128,10 +141,86 @@ def _reset_non_equivalent_merge_to_review(
             "post_sha": result.post_sha,
             "verified_tree_sha": result.worktree_tree_sha,
             "resolved_tree_sha": result.local_tree_sha,
+            "counted_restart": count_restart,
         },
     )
-    check_restart_limit(run)
+    if count_restart:
+        check_restart_limit(run)
     return run
+
+
+def _reopen_unresolved_findings(session: Session, run: RunDoc) -> None:
+    """Return a run with an unanswered finding to review before merge-back changes anything.
+
+    Earlier releases let such a run leave review, so it can reach ``TEST_GREEN``
+    or stop in ``MERGEBACK_PENDING`` while the source still holds no merge-back
+    result. ``REOPEN_FINDINGS`` keeps the review result and discards the later
+    stage results, because ``respond`` is legal only in review and documentation.
+    """
+    unresolved = unresolved_findings(session, session.store.load_findings(run.run_id))
+    if not unresolved:
+        return
+    with session.store.transaction(run.run_id) as doc:
+        for stage in (Stage.DOCS, Stage.LINT, Stage.TEST):
+            invalidate_stage_result(doc, stage)
+        doc.mergeback_attempt = None
+        apply_action(doc, Action.REOPEN_FINDINGS)
+        run = doc
+    session.store.append_event(
+        run.run_id,
+        {"event": "findings_reopened", "findings": [finding.id for finding in unresolved]},
+    )
+    raise findings_unresolved(
+        run,
+        unresolved,
+        step="mergeback",
+        next_instruction=(
+            "The run is back in review and nothing was merged. Fix each named finding and "
+            "cite the commit, or record why it is not worth fixing with `--action accepted "
+            "--note`. Then follow `next.command` through documentation, lint, and tests again."
+        ),
+    )
+
+
+def _restart_review_for_unresolved_findings(
+    session: Session, run: RunDoc, result: mergebackmod.MergebackResult
+) -> None:
+    """Restart review from a source that already holds the validated tree.
+
+    The source cannot return to its earlier commit, so the validation checkout
+    adopts it as the new review snapshot, as for a changed conflict resolution.
+    The tree is unchanged and the return repairs an earlier release's defect, so
+    it is not a validation restart. Review then reports the open finding.
+    """
+    unresolved = unresolved_findings(session, session.store.load_findings(run.run_id))
+    if not unresolved:
+        return
+    # A conflict retry has not checked the validation checkout, and the reset
+    # below would discard its uncommitted changes.
+    if not gitx.is_clean(require_worktree(run)):
+        raise DirtyTree(
+            "the validation checkout has uncommitted changes that returning to review "
+            "would discard",
+            state=run.state.value,
+            run_id=run.run_id,
+            data={"worktree_path": run.worktree_path},
+            next_instruction=(
+                "Commit or discard the changes in the validation checkout, then retry mergeback."
+            ),
+            next_command="agentic-preflight mergeback",
+        )
+    run = _reset_non_equivalent_merge_to_review(session, run, result, count_restart=False)
+    raise findings_unresolved(
+        run,
+        unresolved,
+        step="mergeback",
+        next_instruction=(
+            "The source branch already holds the validated fixes, so the validation "
+            "checkout now matches it and review restarts. Review the complete current "
+            "diff; review then names each open finding to answer with `respond`."
+        ),
+        next_command="agentic-preflight context",
+    )
 
 
 def _register_validated_history(session: Session, run: RunDoc) -> RunDoc:
@@ -506,6 +595,8 @@ def mergeback(session: Session) -> Envelope:
                 data=MergebackData(coverage_invalidated=True),
                 next_command="agentic-preflight context",
             )
+        # Refuse before the replay list is rewritten, so no event claims it.
+        _reopen_unresolved_findings(session, run)
         if not in_place:
             run = _register_validated_history(session, run)
     require_state(
@@ -515,6 +606,8 @@ def mergeback(session: Session) -> Envelope:
         State.MERGEBACK_CONFLICT,
         command="mergeback",
     )
+    if run.state is State.MERGEBACK_PENDING and recovered is None and not retrying_conflict:
+        _reopen_unresolved_findings(session, run)
 
     # Validate saved origins before recording an attempt or changing the source branch.
     run = evidence.archive(session, run)
@@ -582,7 +675,9 @@ def mergeback(session: Session) -> Envelope:
         # The schema models this as an open string-to-count summary.
         summary[finding.severity.value] = summary.get(finding.severity.value, 0) + 1
 
-    if not result.tree_equivalent:
+    if result.tree_equivalent:
+        _restart_review_for_unresolved_findings(session, run, result)
+    else:
         _refuse_unmerged_fixes(session, run, result)
         run = _reset_non_equivalent_merge_to_review(session, run, result)
         return envelope_for(

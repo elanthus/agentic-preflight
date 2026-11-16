@@ -27,6 +27,8 @@ from ._session import (
     require_state,
     require_worktree,
     stage_blocking_severities,
+    unresolved_findings,
+    unresolved_next_hint,
 )
 from .fix_commits import derive_fix_commits, record_fix_commits
 from .review import _skip_docs_if_disabled
@@ -251,6 +253,9 @@ def respond(
     if not remaining and not actionable and run.state in (State.REVIEW_BLOCKED, State.DOCS_BLOCKED):
         envelope.next_instruction = "Nothing blocks this stage any more. Verify it."
         envelope.next_command = "agentic-preflight verify"
+    elif not remaining and not actionable and run.state in (State.REVIEW_GREEN, State.DOCS_GREEN):
+        # A green stage still cannot be left while another stage's finding is open.
+        unresolved_next_hint(session, envelope, unresolved_findings(session, stored))
     return envelope
 
 

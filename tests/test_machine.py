@@ -1,6 +1,7 @@
 import pytest
 
 from agentic_preflight.machine import (
+    RESTART_ACTIONS,
     STATE_DESCRIPTIONS,
     Action,
     IllegalTransition,
@@ -48,6 +49,15 @@ def test_non_equivalent_mergeback_resolution_can_restart_review():
         next_state(State.MERGEBACK_PENDING, Action.INVALIDATE_REVIEW)
         == State.REVIEW_AWAITING_FINDINGS
     )
+
+
+def test_an_unanswered_finding_reopens_review_green_before_mergeback_changes_anything():
+    """Only review and docs accept `respond`, so a run stopped later returns there."""
+    assert next_state(State.TEST_GREEN, Action.REOPEN_FINDINGS) is State.REVIEW_GREEN
+    assert next_state(State.MERGEBACK_PENDING, Action.REOPEN_FINDINGS) is State.REVIEW_GREEN
+    with pytest.raises(IllegalTransition):
+        next_state(State.MERGEBACK_CONFLICT, Action.REOPEN_FINDINGS)
+    assert Action.REOPEN_FINDINGS not in RESTART_ACTIONS
 
 
 def test_findings_submission_goes_directly_to_green_or_blocked():

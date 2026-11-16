@@ -262,3 +262,78 @@ def test_an_oversized_diff_is_reported_without_reading_all_patch_text(feature_re
     measured = {path for path, _ in report.by_file}
     assert measured | set(report.unmeasured_files) == set(full.files)
     assert not measured & set(report.unmeasured_files)
+
+
+SCOPE_PATTERNS = (
+    "docs/**",
+    "/docs/**",
+    "docs/api/*.md",
+    "docs/a?/x.md",
+    "docs/[ab]/*.md",
+    "docs/guide.md",
+    "/Guide/",
+    "src/",
+    "**/*.md",
+    "*.md",
+    "README*",
+    "*/README.md",
+    "d*cs/**",
+    "docs",
+    "../outside/**",
+    "./docs/**",
+    "docs//x.md",
+    "docs\\x/*.md",
+    "",
+)
+SCOPE_PATHS = (
+    "docs",
+    "docs/guide.md",
+    "docs/api/v1.md",
+    "docs/api/v1/deep.md",
+    "docs/ab/x.md",
+    "docs/a/b.md",
+    "docsx/guide.md",
+    "Guide/upper.md",
+    "nested/Guide/upper.md",
+    "src/app.py",
+    "nested/src/app.py",
+    "README.md",
+    "README/inner.md",
+    "pkg/README.md",
+    "dacs/a.md",
+    "notes.md",
+)
+
+
+@pytest.mark.parametrize("pattern", SCOPE_PATTERNS)
+def test_match_scope_contains_every_match(pattern):
+    """A listing limited to the scope still holds every path the pattern matches."""
+    scope = diff.match_scope(pattern)
+    matched = [path for path in SCOPE_PATHS if diff.path_matches(path, pattern)]
+    if scope is None:
+        return
+    assert all(path == scope or path.startswith(f"{scope}/") for path in matched), matched
+
+
+@pytest.mark.parametrize(
+    ("pattern", "scope"),
+    [
+        ("docs/**", "docs"),
+        ("/docs/**", "docs"),
+        ("docs/api/*.md", "docs/api"),
+        ("docs/guide.md", "docs/guide.md"),
+        ("/Guide/", "Guide"),
+        ("src/", None),
+        ("**/*.md", None),
+        ("*.md", None),
+        ("d*cs/**", None),
+        ("../outside/**", None),
+        ("./docs/**", None),
+        ("docs//x.md", None),
+        ("docs\\x/*.md", None),
+        ("docs/\u00e9t\u00e9/*.md", None),
+        ("", None),
+    ],
+)
+def test_match_scope_is_the_literal_leading_directory(pattern, scope):
+    assert diff.match_scope(pattern) == scope

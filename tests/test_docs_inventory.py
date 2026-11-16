@@ -105,6 +105,8 @@ def _repo(root: Path) -> Path:
         ["*/README.md"],
         ["[Dd]ocs/**", "node_modules/*/docs/**"],
         ["../outside/**", "./docs/**", "docs", ""],
+        ["docs/a/**", "Guide/upper.md", "notes.txt", "site/*.md", "missing/**"],
+        ["no*tes.txt", ".", "..", "src/README.md"],
     ],
 )
 def test_inventory_matches_the_full_walk_over_committed_files(tmp_path, extra):
@@ -195,3 +197,18 @@ def test_a_committed_symlink_counts_only_when_it_resolves_to_a_file(tmp_path):
     assert "docs/broken.md" not in paths
     assert "docs/dirlink" not in paths
     assert "docs/dirlink/b.md" not in paths
+
+
+@pytest.mark.parametrize(
+    "variable",
+    ["GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS", "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS"],
+)
+def test_git_pathspec_environment_does_not_change_the_inventory(tmp_path, monkeypatch, variable):
+    """The scoped listing ignores Git's global pathspec switches."""
+    root = _repo(tmp_path)
+    extra = ["site/*.md", "notes.txt"]
+    expected = _rglob_inventory(root, CHANGED, extra)
+
+    monkeypatch.setenv(variable, "1")
+
+    assert _inventory(root, CHANGED, extra) == expected
