@@ -94,6 +94,7 @@ class Action(StrEnum):
     MERGEBACK_OK = "MERGEBACK_OK"
     MERGEBACK_FAILED = "MERGEBACK_FAILED"
     MERGEBACK_RETRY = "MERGEBACK_RETRY"
+    REOPEN_FINDINGS = "REOPEN_FINDINGS"
 
     GATE = "GATE"
     PUSH = "PUSH"
@@ -275,6 +276,7 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         "agentic-preflight mergeback",
         (_A.BEGIN_MERGEBACK, _S.MERGEBACK_PENDING),
         (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
+        (_A.REOPEN_FINDINGS, _S.REVIEW_GREEN),
     ),
     _S.MERGEBACK_PENDING: _state(
         "Retry mergeback to reconcile the recorded operation before continuing.",
@@ -282,6 +284,7 @@ STATE_DESCRIPTIONS: dict[State, StateDescription] = {
         (_A.MERGEBACK_OK, _S.VERIFIED),
         (_A.MERGEBACK_FAILED, _S.MERGEBACK_CONFLICT),
         (_A.INVALIDATE_REVIEW, _S.REVIEW_AWAITING_FINDINGS),
+        (_A.REOPEN_FINDINGS, _S.REVIEW_GREEN),
     ),
     _S.MERGEBACK_CONFLICT: _state(
         "Resolve the reported conflict or restore the affected paths, then retry mergeback.",
