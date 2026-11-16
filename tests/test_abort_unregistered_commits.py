@@ -287,6 +287,19 @@ def test_an_empty_commit_on_the_branch_is_not_work(feature_repo, tmp_path):
     assert env["state"] == "ABORTED"
 
 
+def test_an_empty_commit_alone_does_not_block_abort_on_an_unreadable_history(
+    feature_repo, tmp_path
+):
+    """A branch that no longer descends from the reviewed head is listed plainly."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    git("reset", "-q", "--hard", "HEAD~1", cwd=wt)
+    git("commit", "-q", "--allow-empty", "-m", "nothing", cwd=wt)
+
+    env = agent.run("abort")
+
+    assert env["state"] == "ABORTED"
+
+
 def test_a_missing_reusable_runner_keeps_its_branch(feature_repo, tmp_path):
     """Releasing a missing runner leaves the branch, so its commits are not at risk."""
     configure_base(feature_repo, STRICT.replace("'strict'", "'reusable'"))

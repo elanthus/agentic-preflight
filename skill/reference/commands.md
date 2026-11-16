@@ -784,7 +784,7 @@ lists the recorded commits and those new ones, and with `--force`
 `data.discarded_fix_commits` and the `aborted` event do. When the branch history cannot
 be read, for example because the validation branch holds a merge commit or no longer
 descends from the reviewed head, a plain `abort` also exits 5 with `unmerged_work` if
-any commit follows the reviewed head; `data.fix_commits` then lists them without those
+any non-empty commit follows the reviewed head; `data.fix_commits` then lists them without those
 checks, so after a rebase onto another base it can include commits the new base brought
 in. `--force` still succeeds. A `reusable` runner whose directory is gone keeps its
 branch, so its commits are not counted.

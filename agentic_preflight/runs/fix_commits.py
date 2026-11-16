@@ -208,8 +208,9 @@ def listed_branch_commits(session: Session, run: RunDoc) -> list[str]:
     """Every commit after the reviewed head on ``HEAD`` or the validation branch.
 
     A plain listing, with none of :func:`branch_fix_commits`'s checks: what ``abort``
-    names, and what it weighs, when the history cannot be derived. A tip that does
-    not exist holds nothing; any other failure raises ``gitx.GitError``.
+    names, and what it weighs, when the history cannot be derived. Empty commits
+    change no tree and are left out, as everywhere else. A tip that does not exist
+    holds nothing; any other failure raises ``gitx.GitError``.
     """
     checkout = run.worktree_path
     present = bool(checkout) and Path(str(checkout)).is_dir()
@@ -225,7 +226,7 @@ def listed_branch_commits(session: Session, run: RunDoc) -> list[str]:
         if exists.returncode != 0:
             continue
         commits = gitx.commits_between(root, run.head_sha, tip)
-        listed += [sha for sha in commits if sha not in listed]
+        listed += [sha for sha in commits if sha not in listed and not _is_empty(root, sha)]
     return listed
 
 
