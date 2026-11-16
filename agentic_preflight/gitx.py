@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
-from typing import IO
+from typing import IO, NoReturn
 from urllib.parse import urlsplit, urlunsplit
 
 from agentic_preflight.stages.command import resolve_on_path
@@ -1312,6 +1312,27 @@ def _read_exactly(stream: IO[bytes], size: int) -> bytes:
     return data
 
 
+def _unreadable_blob(
+    process: subprocess.Popen[bytes], args: tuple[str, ...], errors: IO[bytes], oid: str
+) -> NoReturn:
+    """Raise Git's own error for a blob ``cat-file`` could not read.
+
+    In a partial clone, a blob that cannot be fetched from the promisor remote is
+    reported missing, and Git's stderr says why. That is a Git failure, not a bug.
+    """
+    if process.stdin is not None and not process.stdin.closed:
+        process.stdin.close()
+    returncode = process.wait()
+    errors.seek(0)
+    stderr = errors.read().decode("utf-8", errors=_DECODE_ERRORS)
+    raise GitError(
+        list(args),
+        returncode or 1,
+        stderr,
+        message=f"git {' '.join(args)} could not read blob {oid}: {stderr.strip()}",
+    )
+
+
 def _binary_blobs(
     cwd: Path | str, object_ids: Iterable[str], env: Mapping[str, str] | None = None
 ) -> set[str]:
@@ -1346,7 +1367,7 @@ def _binary_blobs(
                 requests.flush()
                 fields = replies.readline().split()
                 if len(fields) != 3 or fields[0].decode("ascii") != oid or fields[1] != b"blob":
-                    raise ValueError(f"git cat-file could not read blob {oid}")
+                    _unreadable_blob(process, args, errors, oid)
                 size = int(fields[2])
                 if size > _BIG_FILE_THRESHOLD:
                     binary.add(oid)
@@ -1354,7 +1375,7 @@ def _binary_blobs(
                 requests.write(f"contents {oid}\n".encode("ascii"))
                 requests.flush()
                 if replies.readline().split() != fields:
-                    raise ValueError(f"git cat-file could not read blob {oid}")
+                    _unreadable_blob(process, args, errors, oid)
                 prefix = _read_exactly(replies, min(size, _BINARY_PREFIX_BYTES))
                 if b"\0" in prefix:
                     binary.add(oid)

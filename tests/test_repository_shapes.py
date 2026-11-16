@@ -151,7 +151,8 @@ def test_partial_clone_fetches_blobs_lazily_for_the_review_diff(tmp_path):
     assert env["error"]["code"] == "git_error"
     message = env["error"]["message"]
     assert "from promisor remote" in message
-    assert re.search(r"\bdiff\b", message)
+    # The binary check reads the blobs with cat-file before the diff runs.
+    assert re.search(r"\b(diff|cat-file)\b", message)
 
     moved.rename(origin)
     env = agent.run("context")
