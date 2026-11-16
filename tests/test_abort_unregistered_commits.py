@@ -136,7 +136,7 @@ def test_an_in_place_abort_is_unchanged(feature_repo, tmp_path):
     env = agent.run("abort")
 
     assert env["state"] == "ABORTED"
-    assert json.loads(json.dumps(env["data"]))["discarded_fix_commits"] == []
+    assert env["data"]["discarded_fix_commits"] == []
 
 
 def test_abort_protects_a_commit_made_in_review_before_respond(feature_repo, tmp_path):
