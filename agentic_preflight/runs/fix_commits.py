@@ -15,8 +15,9 @@ from pathlib import Path
 from .. import gitx, worktree
 from ..envelope import ExitCode
 from ..errors import AgenticError, StaleRun
+from ..machine import State
 from ..models import RunDoc
-from ._session import Session, is_in_place, require_worktree, start_command
+from ._session import Session, is_in_place, require_worktree, start_command, worktree_mode
 
 
 class NonlinearFixHistory(AgenticError):
@@ -57,9 +58,8 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
                 producer=run.producer,
             ),
         )
-    span = f"{run.head_sha}..{current}"
     if not is_in_place(run):
-        merges = gitx._lines(gitx.out(checkout, "rev-list", "--reverse", "--merges", span))
+        merges = gitx.merge_commits_between(checkout, run.head_sha, current)
         if merges:
             raise NonlinearFixHistory(
                 f"the validation history contains merge commit(s) {', '.join(merges)}; "
@@ -143,3 +143,181 @@ def record_fix_commits(run: RunDoc, derived: list[str]) -> list[str]:
     else:
         run.fix_commits = list(derived)
     return added
+
+
+#: States in which the validation branch can hold commits that nothing registered:
+#: from the end of the base synchronization, which fixes ``head_sha``, until
+#: merge-back registers the validated history.
+_UNREGISTERED_STATES = frozenset(
+    {
+        State.SYNC_GREEN,
+        State.REVIEW_AWAITING_FINDINGS,
+        State.REVIEW_COMMAND_RUNNING,
+        State.REVIEW_COMMAND_RED,
+        State.REVIEW_BLOCKED,
+        State.REVIEW_GREEN,
+        State.DOCS_AWAITING_FINDINGS,
+        State.DOCS_BLOCKED,
+        State.DOCS_GREEN,
+        State.LINT_RUNNING,
+        State.LINT_RED,
+        State.LINT_GREEN,
+        State.TEST_RUNNING,
+        State.TEST_RED,
+        State.TEST_GREEN,
+    }
+)
+
+
+class UnreadableFixHistory(Exception):
+    """The validation branch's history could not be read, so it may hold work."""
+
+
+def _tip_exists(cwd: str, tip: str) -> bool:
+    """Whether ``tip`` names a commit; only a missing ref is ``False``.
+
+    Any other failure, such as a checkout Git cannot open, raises ``gitx.GitError``.
+    """
+    args = ("rev-parse", "--verify", "--quiet", f"{tip}^{{commit}}")
+    result = gitx.run(cwd, *args, check=False)
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1 and not result.stderr.strip():
+        return False
+    raise gitx.GitError(list(args), result.returncode, result.stderr)
+
+
+def _tip_commits(run: RunDoc, cwd: str, tip: str, name: str, derived: list[str]) -> list[str]:
+    """Non-empty commits after the reviewed head on ``tip`` that ``derived`` lacks.
+
+    A tip that no longer descends from the reviewed head, or a history with a merge,
+    raises :class:`UnreadableFixHistory`.
+    """
+    if not gitx.is_ancestor(cwd, run.head_sha, tip):
+        raise UnreadableFixHistory(f"{name} no longer descends from the reviewed head")
+    merges = gitx.merge_commits_between(cwd, run.head_sha, tip)
+    if merges:
+        raise UnreadableFixHistory(f"{name} contains merge commit(s) {', '.join(merges)}")
+    return [
+        sha
+        for sha in gitx.commits_between(cwd, run.head_sha, tip)
+        if sha not in derived and not _is_empty(cwd, sha)
+    ]
+
+
+def _branch_only_commits(
+    run: RunDoc, cwd: str, derived: list[str], *, head: str | None = None
+) -> list[str]:
+    """Commits on the validation branch that ``head``, the checkout's ``HEAD``, lacks.
+
+    Release deletes the branch, not ``HEAD``, so a checkout detached at an older
+    commit must not hide what the branch holds.
+    """
+    ref = f"refs/heads/{run.worktree_branch}"
+    if not run.worktree_branch or not _tip_exists(cwd, ref):
+        return []
+    tip = gitx.rev_parse(cwd, ref)
+    if tip == head:
+        return []
+    return _tip_commits(run, cwd, tip, f"the validation branch {run.worktree_branch}", derived)
+
+
+def _changes_tree(cwd: str, sha: str) -> bool:
+    """Whether a commit may hold work: anything but a single-parent empty commit."""
+    try:
+        return not _is_empty(cwd, sha)
+    except gitx.GitError:
+        # A root commit has no parent to compare; count it rather than lose it.
+        return True
+
+
+def _recorded_worktree_head(repo: str, checkout: str) -> str | None:
+    """The ``HEAD`` the shared repository records for a checkout, if it lists one.
+
+    Git keeps each linked worktree's ``HEAD`` in the shared repository, so it can be
+    read even when the checkout's own ``.git`` file is gone.
+    """
+    target = Path(checkout).resolve()
+    for record in gitx.list_worktrees(repo):
+        if "worktree" in record and Path(record["worktree"]).resolve() == target:
+            return record.get("HEAD") or None
+    return None
+
+
+def listed_branch_commits(session: Session, run: RunDoc, *, best_effort: bool = False) -> list[str]:
+    """Every commit after the reviewed head on ``HEAD`` or the validation branch.
+
+    A plain listing, with none of :func:`branch_fix_commits`'s checks: what ``abort``
+    names, and what it weighs, when the history cannot be derived. Empty commits
+    change no tree and are left out, as everywhere else. The branch ref is read from
+    the shared repository, where it lives, and ``HEAD`` both from the checkout when
+    its directory exists and from the shared repository's record of that worktree.
+    A tip that does not exist holds nothing; any other failure, such as a checkout
+    Git cannot open, raises ``gitx.GitError``, or with ``best_effort`` skips that
+    tip, so a report still names what the others hold.
+    """
+    checkout = run.worktree_path
+    tips: list[tuple[str, str]] = []
+    if run.worktree_branch:
+        tips.append((str(session.repo_root), f"refs/heads/{run.worktree_branch}"))
+    if checkout and Path(str(checkout)).is_dir():
+        tips.append((str(checkout), "HEAD"))
+    if checkout:
+        try:
+            recorded = _recorded_worktree_head(str(session.repo_root), str(checkout))
+        except gitx.GitError:
+            if not best_effort:
+                raise
+            recorded = None
+        if recorded:
+            tips.append((str(session.repo_root), recorded))
+    listed: list[str] = []
+    for cwd, tip in tips:
+        try:
+            if not _tip_exists(cwd, tip):
+                continue
+            commits = gitx.commits_between(cwd, run.head_sha, tip)
+        except gitx.GitError:
+            if best_effort:
+                continue
+            raise
+        listed += [sha for sha in commits if sha not in listed and _changes_tree(cwd, sha)]
+    return listed
+
+
+def branch_fix_commits(session: Session, run: RunDoc) -> list[str]:
+    """The fix commits an isolated run's validation branch holds, without recording them.
+
+    Before merge-back, a commit made outside ``respond`` and a red stage's restart is
+    on the branch but not in ``fix_commits``, and releasing the worktree deletes the
+    branch. The result is the recorded list followed by any such commit, read from
+    both ``HEAD`` and the branch. It never drops a recorded commit, because a
+    detached or reset checkout can hide one. When the checkout directory is gone, the
+    branch ref and the worktree ``HEAD``, which the shared repository records until
+    release prunes it, are still read. Any failure raises
+    :class:`UnreadableFixHistory`.
+    """
+    recorded = list(run.fix_commits)
+    if is_in_place(run) or run.state not in _UNREGISTERED_STATES:
+        return recorded
+    checkout = run.worktree_path
+    if not checkout or not Path(checkout).is_dir():
+        if worktree_mode(run) == "reusable":
+            # Releasing a missing runner leaves its branch in place; nothing is lost.
+            return recorded
+        root = str(session.repo_root)
+        try:
+            extra = _branch_only_commits(run, root, [])
+            head = _recorded_worktree_head(root, checkout) if checkout else None
+            if head:
+                extra += _tip_commits(run, root, head, "the recorded worktree HEAD", extra)
+        except (gitx.GitError, OSError) as exc:
+            raise UnreadableFixHistory(str(exc)) from exc
+        return recorded + [sha for sha in extra if sha not in recorded]
+    try:
+        derived = derive_fix_commits(session, run)
+        head = gitx.rev_parse(checkout, "HEAD")
+        derived += _branch_only_commits(run, checkout, derived, head=head)
+    except (AgenticError, gitx.GitError, OSError, worktree.CopiedFileInCommit) as exc:
+        raise UnreadableFixHistory(str(exc)) from exc
+    return recorded + [sha for sha in derived if sha not in recorded]
