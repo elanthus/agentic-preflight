@@ -763,8 +763,9 @@ merge-back, these include commits on the validation branch that no `respond` or 
 registered yet, read from both the checkout's `HEAD` and the branch; `data.fix_commits`
 lists the recorded commits and those new ones, and with `--force`
 `data.discarded_fix_commits` and the `aborted` event do. When the branch history cannot
-be read, for example after a merge or a rebase on the validation branch, a plain
-`abort` also exits 5 with `unmerged_work`; `--force` still succeeds.
+be read, because the validation branch holds a merge commit or no longer descends from
+the reviewed head, a plain `abort` also exits 5 with `unmerged_work`; `--force` still
+succeeds.
 A `strict` validation worktree locked with `git worktree lock` is never deleted:
 the command exits 1 with `git_error` naming the worktree, and the run keeps its state.
 Show the user the message; do not unlock it yourself.
