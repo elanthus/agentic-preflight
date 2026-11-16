@@ -1,5 +1,8 @@
 """The budgeted diff read: identical within budget, bounded far over it."""
 
+import subprocess
+import sys
+
 import pytest
 
 from agentic_preflight import diff, gitx
@@ -166,3 +169,29 @@ def test_a_bounded_windows_stream_stops_early(tmp_repo, monkeypatch):
     assert bounded.partial is not None
     assert bounded.partial[0] == "big.txt"
     assert bounded.partial[1] < 500_000
+
+
+def test_an_early_stop_still_reports_a_git_failure(tmp_path, monkeypatch):
+    patch = b"diff --git a/big b/big\n" + b"+row\n" * 2_000
+    output = b":000000 100644 0 1 A\0big\0\0" + patch
+    script = tmp_path / "fake-git.py"
+    script.write_text(
+        "import sys\n"
+        f"sys.stdout.buffer.write({output!r})\n"
+        "sys.stderr.write('fatal: simulated failure')\n"
+        "sys.exit(3)\n"
+    )
+    real_popen = subprocess.Popen
+
+    def popen(args, **kwargs):
+        process = real_popen([sys.executable, str(script)], **kwargs)
+        process.wait()  # the output fits the pipe buffer, so Git has exited before the stop
+        return process
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+
+    with pytest.raises(gitx.GitError) as error:
+        gitx._streamed_diff_text_by_path(tmp_path, ("diff",), {"big"}, stop_after=100)
+
+    assert error.value.returncode == 3
+    assert "simulated failure" in error.value.stderr

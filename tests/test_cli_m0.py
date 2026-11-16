@@ -735,6 +735,7 @@ def test_context_stops_reading_a_diff_far_over_budget(agent, feature_repo):
     assert data["unmeasured_files"] == ["src/later.py"]
     assert data["total_bytes"] > 500
     assert env["error"]["message"].startswith("the diff is at least ")
+    assert "`data.unmeasured_files`" in env["next"]["instruction"]
 
 
 def test_context_reports_an_exact_budget_overrun_as_complete(agent, feature_repo):
@@ -749,6 +750,7 @@ def test_context_reports_an_exact_budget_overrun_as_complete(agent, feature_repo
     assert env["data"]["complete"] is True
     assert env["data"]["total_bytes"] == sum(size for _, size in env["data"]["by_file"])
     assert env["data"]["unmeasured_files"] == []
+    assert "unmeasured" not in env["next"]["instruction"]
 
 
 def test_context_exclusions_bring_an_oversized_diff_back_under_budget(agent, feature_repo):

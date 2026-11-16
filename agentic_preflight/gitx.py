@@ -1067,6 +1067,9 @@ def _streamed_diff_text_by_path(
                 entries, _diff_chunks(stream, initial), requested, stop_after
             )
             if stopped is not None:
+                # Git may already have failed. Its error, not an early stop, is the result.
+                if process.poll() not in (None, 0):
+                    _finish_streamed_diff(process, args, errors)
                 partial = buffers.pop(stopped)
                 patches = {path: _decode_patch(bytes(data)) for path, data in buffers.items()}
                 return patches, (stopped, len(partial) - partial.count(b"\r"))
@@ -1176,7 +1179,9 @@ def diff_text_by_path_bounded(
     streamed with the same pinned options and environment, and Git is stopped
     as soon as a lower bound on the text read passes ``stop_after_bytes``, so
     an oversized diff costs a bounded read. Only the current patch format is
-    read; the earlier abbreviated form is never bounded.
+    read; the earlier abbreviated form is never bounded. As in
+    :func:`diff_text_by_path`, the unfiltered Windows read still streams the
+    patches of paths that were not requested; only requested text counts.
     """
     unfiltered, batches = _patch_batches(paths)
     env = _patch_env()
