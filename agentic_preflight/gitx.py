@@ -11,10 +11,13 @@ from __future__ import annotations
 import os
 import re
 import secrets
+import signal
 import subprocess
+import sys
 import tempfile
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -22,6 +25,11 @@ from typing import IO
 from urllib.parse import urlsplit, urlunsplit
 
 from agentic_preflight.stages.command import resolve_on_path
+from agentic_preflight.stages.shellstage import (
+    kill_on_termination,
+    kill_process_tree,
+    process_group_kwargs,
+)
 
 MINIMUM_GIT_VERSION = (2, 38)
 
@@ -102,6 +110,29 @@ class NotOnBranch(GitError):
         self.ref = ref
 
 
+class RemoteTimeout(GitError):
+    """A Git command that contacts a remote did not finish within its timeout.
+
+    It is a ``GitError``, so a handler of Git failures still catches it; the
+    commands that report it name the remote and the operation instead.
+    """
+
+    def __init__(self, args: list[str], *, remote: str, timeout: float, stderr: str) -> None:
+        # A remote name such as ``origin`` is kept as given; a URL loses its credentials.
+        looks_like_url = "://" in remote or _SCP_REMOTE.fullmatch(remote) is not None
+        self.remote = remote_identity(remote) if looks_like_url else remote
+        self.operation = args[0] if args else "git"
+        self.timeout = timeout
+        bound = f"{timeout:g} seconds"
+        if self.operation == "push":
+            bound += ", a limit that includes the pre-push hook"
+        message = (
+            f"git {self.operation} with remote {self.remote!r} did not finish within "
+            f"{bound}; check the credentials for that remote and the network"
+        )
+        super().__init__(args, _TIMEOUT_EXIT, stderr, message=message)
+
+
 class GitVersionError(Exception):
     """The installed Git does not meet the supported minimum."""
 
@@ -115,27 +146,159 @@ class OperationInProgress(Exception):
         super().__init__(f"git {operation} is already in progress in {self.path}")
 
 
+#: The exit status that ``timeout(1)`` reports, recorded on a ``RemoteTimeout``.
+_TIMEOUT_EXIT = 124
+#: How long a timed-out remote command has to exit after ``SIGTERM``. Git removes
+#: its lock files on that signal; ``SIGKILL`` would leave them behind.
+_REMOTE_TERMINATE_GRACE_SECONDS = 3
+#: Set for every command that contacts a remote. Git then fails instead of asking
+#: for a username or password on the terminal. Credential helpers still answer.
+REMOTE_ENV = {"GIT_TERMINAL_PROMPT": "0"}
+#: The SSH command for a remote command when the user configured none. With
+#: ``BatchMode`` ssh fails instead of asking for a host key, password, or key
+#: passphrase. Keys from an SSH agent, and keys without a passphrase, still work.
+BATCH_SSH_COMMAND = "ssh -o BatchMode=yes"
+
+
 def run(
     cwd: Path | str,
     *args: str,
     check: bool = True,
     timeout: float | None = None,
     env: Mapping[str, str] | None = None,
+    remote: str | None = None,
 ) -> subprocess.CompletedProcess:
-    """Run a git command in a directory and return the completed process."""
-    result = subprocess.run(
-        [_git_executable(), *args],
+    """Run a git command in a directory and return the completed process.
+
+    Pass ``remote`` for a command that contacts that remote, such as ``fetch`` or
+    ``push``. The command then cannot prompt: see ``_run_remote``.
+    """
+    if remote is not None:
+        result = _run_remote(cwd, list(args), remote=remote, timeout=timeout, env=env)
+    else:
+        result = subprocess.run(
+            [_git_executable(), *args],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors=_DECODE_ERRORS,
+            timeout=timeout,
+            env=env,
+        )
+    if check and result.returncode != 0:
+        raise GitError(list(args), result.returncode, result.stderr)
+    return result
+
+
+def _decode_output(handle: IO[bytes]) -> str:
+    """Decode captured output exactly as a text-mode ``subprocess.run`` does."""
+    handle.seek(0)
+    text = handle.read().decode("utf-8", errors=_DECODE_ERRORS)
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _stop_process_tree(process: subprocess.Popen) -> None:
+    """Stop a remote command together with the helpers it started.
+
+    The command runs in its own process group, so the signal also reaches the
+    transport (``ssh`` or a remote helper). A graceful signal first (``SIGTERM``,
+    or ``CTRL_BREAK_EVENT`` on Windows) lets Git remove its lock files; whatever is
+    still running after the grace period is killed.
+    """
+    if process.poll() is None:
+        signalled = True
+        if sys.platform == "win32":
+            try:
+                process.send_signal(signal.CTRL_BREAK_EVENT)
+            except (OSError, ValueError):
+                signalled = False
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                signalled = False
+        if signalled:
+            with suppress(subprocess.TimeoutExpired):
+                process.wait(timeout=_REMOTE_TERMINATE_GRACE_SECONDS)
+    # The group can outlive its leader, so this runs even after Git has exited.
+    kill_process_tree(process)
+    with suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=_REMOTE_TERMINATE_GRACE_SECONDS)
+
+
+def _run_remote(
+    cwd: Path | str,
+    args: list[str],
+    *,
+    remote: str,
+    timeout: float | None,
+    env: Mapping[str, str] | None,
+) -> subprocess.CompletedProcess:
+    """Run a git command that contacts ``remote`` so that it cannot wait on a person.
+
+    Stdin is empty and Git's own terminal prompt is off (``REMOTE_ENV``). When
+    the user configured no SSH command, ``ssh`` runs in batch mode
+    (``BATCH_SSH_COMMAND``), so it cannot prompt on any platform. The
+    command runs in a new session, so on POSIX it has no controlling terminal and
+    ``ssh`` cannot ask about a host key or a key passphrase. Credential helpers,
+    askpass programs, and an SSH agent still work. Output goes to temporary files,
+    so a helper that outlives Git cannot hold a pipe open. On timeout the whole
+    process group is stopped and ``RemoteTimeout`` is raised.
+    """
+    child_env = {**(os.environ if env is None else env), **REMOTE_ENV}
+    if not _user_ssh_command(cwd, child_env):
+        child_env["GIT_SSH_COMMAND"] = BATCH_SSH_COMMAND
+    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        process = subprocess.Popen(
+            [_git_executable(), *args],
+            cwd=str(cwd),
+            stdin=subprocess.DEVNULL,
+            stdout=stdout_file,
+            stderr=stderr_file,
+            env=child_env,
+            **process_group_kwargs(),
+        )
+        try:
+            # The command runs in its own session, so a SIGTERM or SIGHUP sent to
+            # this process would not reach it; the guard stops it first.
+            with kill_on_termination(process, stop=_stop_process_tree):
+                returncode = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _stop_process_tree(process)
+            raise RemoteTimeout(
+                args,
+                remote=remote,
+                timeout=timeout or 0,
+                stderr=_decode_output(stderr_file),
+            ) from None
+        except BaseException:
+            # An interrupt must not leave the transport running behind the tool.
+            _stop_process_tree(process)
+            raise
+        return subprocess.CompletedProcess(
+            [_git_executable(), *args],
+            returncode,
+            _decode_output(stdout_file),
+            _decode_output(stderr_file),
+        )
+
+
+def _user_ssh_command(cwd: Path | str, env: Mapping[str, str]) -> bool:
+    """Whether the user chose an SSH command, which batch mode must not replace."""
+    if env.get("GIT_SSH_COMMAND") or env.get("GIT_SSH"):
+        return True
+    configured = subprocess.run(
+        [_git_executable(), "config", "--get", "core.sshCommand"],
         cwd=str(cwd),
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors=_DECODE_ERRORS,
-        timeout=timeout,
-        env=env,
+        env=dict(env),
+        stdin=subprocess.DEVNULL,
     )
-    if check and result.returncode != 0:
-        raise GitError(list(args), result.returncode, result.stderr)
-    return result
+    return configured.returncode == 0 and bool(configured.stdout.strip())
 
 
 def _run_bytes(
@@ -260,14 +423,109 @@ def current_branch_or_none(cwd: Path | str) -> str | None:
         return None
 
 
+_FULL_OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+#: Successful lookups of full object IDs inside :func:`object_cache`, keyed on the
+#: repository path and the lookup. ``None`` outside the block, where nothing is cached.
+_OBJECT_LOOKUPS: ContextVar[dict[tuple[str, str], object] | None] = ContextVar(
+    "agentic_preflight_object_lookups", default=None
+)
+
+
+@contextmanager
+def object_cache() -> Iterator[None]:
+    """Memoize lookups of full object IDs until the block ends.
+
+    What a full object ID peels to, and the paths that differ between two of them,
+    cannot change while one verification runs, so the block runs each such
+    lookup once. Symbolic names such as ``HEAD`` or a branch are never cached,
+    and neither is a failure: a lookup that failed runs again and fails as it did.
+    The cache lives only as long as the outermost block, so it never outlasts one
+    verification and never leaks between callers. Nested blocks share it.
+
+    An ID is full only in the repository's own object format: 40 hexadecimal digits
+    with SHA-1, 64 with SHA-256. A peel names an object of that format, so a result
+    is cached only when it is as long as the ID it came from. Otherwise the string
+    may be an abbreviation or a ref name, and the lookup is not cached.
+    """
+    if _OBJECT_LOOKUPS.get() is not None:
+        yield
+        return
+    token = _OBJECT_LOOKUPS.set({})
+    try:
+        yield
+    finally:
+        _OBJECT_LOOKUPS.reset(token)
+
+
+def _peel(cwd: Path | str, ref: str, kind: str, args: Sequence[str]) -> str:
+    lookups = _OBJECT_LOOKUPS.get()
+    if lookups is None or _FULL_OBJECT_ID.fullmatch(ref) is None:
+        return out(cwd, *args)
+    slot = (os.fspath(cwd), f"{ref}^{{{kind}}}")
+    cached = lookups.get(slot)
+    if isinstance(cached, str):
+        return cached
+    answer = out(cwd, *args)
+    if len(answer) == len(ref):
+        lookups[slot] = answer
+    return answer
+
+
+def _known_full_id(lookups: dict[tuple[str, str], object], slot: str, oid: str) -> bool:
+    """Whether a cached peel has shown ``oid`` to be a full ID in this repository."""
+    return any(
+        isinstance(lookups.get((slot, f"{oid}^{{{kind}}}")), str) for kind in ("commit", "tree")
+    )
+
+
+def prime_object_lookups(cwd: Path | str, object_ids: Iterable[str]) -> None:
+    """Resolve the commit and tree of each full object ID in one Git process.
+
+    Only inside :func:`object_cache`, and only for successes: an ID Git cannot
+    peel is left out, so the later :func:`rev_parse` or :func:`tree_sha` for it
+    runs its own command and raises exactly the error it always did. If the
+    batch itself fails, nothing is cached.
+    """
+    lookups = _OBJECT_LOOKUPS.get()
+    if lookups is None:
+        return
+    slot = os.fspath(cwd)
+    wanted = [
+        (oid, f"{oid}^{{{kind}}}")
+        for oid in dict.fromkeys(object_ids)
+        if _FULL_OBJECT_ID.fullmatch(oid) is not None
+        for kind in ("commit", "tree")
+    ]
+    wanted = [(oid, name) for oid, name in wanted if (slot, name) not in lookups]
+    if not wanted:
+        return
+    result = subprocess.run(
+        [_git_executable(), "cat-file", "--batch-check=%(objectname)"],
+        cwd=str(cwd),
+        input=("\n".join(name for _, name in wanted) + "\n").encode("ascii"),
+        capture_output=True,
+    )
+    if result.returncode:
+        return
+    answers = result.stdout.decode("ascii", errors="replace").splitlines()
+    if len(answers) != len(wanted):
+        return
+    for (oid, name), answer in zip(wanted, answers, strict=True):
+        # A name Git cannot peel prints "<name> missing", which is not an object ID,
+        # and an ID in the other object format peels to an answer of another length.
+        if _FULL_OBJECT_ID.fullmatch(answer) is not None and len(answer) == len(oid):
+            lookups[slot, name] = answer
+
+
 def rev_parse(cwd: Path | str, ref: str) -> str:
     """Resolve a ref to a commit SHA."""
-    return out(cwd, "rev-parse", "--verify", f"{ref}^{{commit}}")
+    return _peel(cwd, ref, "commit", ("rev-parse", "--verify", f"{ref}^{{commit}}"))
 
 
 def tree_sha(cwd: Path | str, ref: str = "HEAD") -> str:
     """Return the tree SHA of a ref."""
-    return out(cwd, "rev-parse", f"{ref}^{{tree}}")
+    return _peel(cwd, ref, "tree", ("rev-parse", f"{ref}^{{tree}}"))
 
 
 _PATHSPEC_ENV = (
@@ -669,14 +927,24 @@ _FETCHED_NOTES_PREFIX = "refs/agentic-preflight/fetched-notes-"
 _PUBLISH_NOTES_PREFIX = "refs/notes/agentic-preflight-publish-"
 
 
-def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> str | None:
+def fetch_notes(
+    cwd: Path | str, remote: str, notes_ref: str, *, timeout: float | None = None
+) -> str | None:
     """Reconcile remote notes without discarding locally-created attestations.
 
     Return the remote notes tip that was reconciled, or ``None`` when the remote
     has no notes ref yet.
     """
     fetched_ref = f"{_FETCHED_NOTES_PREFIX}{os.getpid()}"
-    result = run(cwd, "fetch", remote, f"+{notes_ref}:{fetched_ref}", check=False)
+    result = run(
+        cwd,
+        "fetch",
+        remote,
+        f"+{notes_ref}:{fetched_ref}",
+        check=False,
+        remote=remote,
+        timeout=timeout,
+    )
     if result.returncode != 0:
         if "couldn't find remote ref" in result.stderr.lower():
             return None
@@ -717,9 +985,12 @@ def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> str | None:
         run(cwd, "update-ref", "-d", fetched_ref, check=False)
 
 
-def remote_ref_tip(cwd: Path | str, remote: str, ref: str) -> str | None:
+def remote_ref_tip(
+    cwd: Path | str, remote: str, ref: str, *, timeout: float | None = None
+) -> str | None:
     """Return the object a remote ref names now, or ``None`` when it does not exist."""
-    for line in out(cwd, "ls-remote", remote, ref).splitlines():
+    listing = run(cwd, "ls-remote", remote, ref, remote=remote, timeout=timeout).stdout
+    for line in listing.splitlines():
         fields = line.split()
         if len(fields) == 2 and fields[1] == ref:
             return fields[0]
@@ -874,6 +1145,24 @@ def changed_files(cwd: Path | str, base: str, head: str = "HEAD") -> list[str]:
 
 def changed_files_raw(cwd: Path | str, base: str, head: str = "HEAD") -> list[str]:
     """Return changed paths in raw form, suitable only for handing back to Git."""
+    lookups = _OBJECT_LOOKUPS.get()
+    slot = os.fspath(cwd)
+    # Cached only between commits already peeled as full IDs in this repository.
+    if (
+        lookups is None
+        or not _known_full_id(lookups, slot, base)
+        or not _known_full_id(lookups, slot, head)
+    ):
+        return _changed_files_raw(cwd, base, head)
+    key = (slot, f"changed:{base}...{head}")
+    cached = lookups.get(key)
+    if not isinstance(cached, tuple):
+        cached = tuple(_changed_files_raw(cwd, base, head))
+        lookups[key] = cached
+    return list(cached)
+
+
+def _changed_files_raw(cwd: Path | str, base: str, head: str) -> list[str]:
     output = _run_bytes(
         cwd,
         *_PINNED_DIFF_CONFIG,

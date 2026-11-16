@@ -10,7 +10,6 @@ from typing import Literal
 
 import click
 
-from . import runs
 from .cli_contract import ApprovalCheckData, VerifyData
 from .cli_support import command, finish, finish_locked, read_json_file
 from .envelope import Envelope, ExitCode
@@ -56,6 +55,8 @@ def verify(sha: str | None, purpose: Literal["local", "publish"], base_sha: str 
             )
         )
         return
+    from . import runs
+
     finish_locked(runs.verify)
 
 

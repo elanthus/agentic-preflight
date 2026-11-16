@@ -15,8 +15,9 @@ import click
 from .cli_contract import NO_ENVELOPE
 from .config import ConfigError
 from .envelope import Envelope, ExitCode, emit
-from .errors import AgenticError, SourceWorktreeMissing
+from .errors import REMOTE_TIMEOUT_CHECKS, AgenticError, RemoteTimeout, SourceWorktreeMissing
 from .gitx import GitError
+from .gitx import RemoteTimeout as GitRemoteTimeout
 from .store import RunReadError
 from .worktree import CopiedFileInCommit, CopyRefused, WorktreeError
 
@@ -193,6 +194,14 @@ def command(fn):
                     ExitCode.PRECONDITION,
                     "Rewrite the commit without that file, then retry.",
                     "agentic-preflight status",
+                )
+            )
+        except GitRemoteTimeout as exc:
+            fail(
+                RemoteTimeout.from_git(
+                    exc,
+                    next_instruction=f"{REMOTE_TIMEOUT_CHECKS} Then run status and obey next.",
+                    next_command="agentic-preflight status",
                 )
             )
         except (WorktreeError, GitError) as exc:

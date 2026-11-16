@@ -8,10 +8,14 @@ command keeps the agent on the protocol after a failure; an error that says only
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .envelope import Envelope, ExitCode, error_envelope
+from .gitx import redact_remote_credentials
 from .machine import State, recovery_hint
+
+if TYPE_CHECKING:
+    from . import gitx
 
 START_COMMAND = 'agentic-preflight start --intent "<objective and acceptance criteria>"'
 
@@ -168,6 +172,39 @@ class SyncConflictError(AgenticError):
 class SyncFailed(AgenticError):
     code = "sync_failed"
     exit_code = ExitCode.NEEDS_HUMAN
+
+
+#: What to check after a ``remote_timeout``, shared by every command that reports one.
+REMOTE_TIMEOUT_CHECKS = (
+    "Check the credentials for the remote and the network. Git cannot prompt, so a "
+    "credential helper or an SSH agent must supply them, and the SSH host key must already "
+    "be known. If a later Git command reports that a .lock file under .git exists, make "
+    "sure no Git command is still running and delete that file."
+)
+
+
+class RemoteTimeout(AgenticError):
+    """A fetch, push, or remote query did not finish within its timeout.
+
+    ``data`` names the remote, the Git operation, and the timeout. The clone-wide
+    locks the command held are already released when this is reported.
+    """
+
+    code = "remote_timeout"
+    exit_code = ExitCode.NEEDS_HUMAN
+
+    @classmethod
+    def from_git(
+        cls, exc: gitx.RemoteTimeout, *, data: dict[str, Any] | None = None, **kwargs: Any
+    ) -> RemoteTimeout:
+        """Report a ``gitx.RemoteTimeout``, keeping any ``data`` the caller adds."""
+        report = {
+            "remote": exc.remote,
+            "operation": exc.operation,
+            "timeout_seconds": exc.timeout,
+            **(data or {}),
+        }
+        return cls(redact_remote_credentials(str(exc)), data=report, **kwargs)
 
 
 class InvalidFindings(AgenticError):
