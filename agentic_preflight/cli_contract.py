@@ -156,6 +156,8 @@ class ContextData(RunDataBase):
     total_bytes: int | None = None
     max_bytes: int | None = None
     by_file: list[list[Any]] | None = None
+    complete: bool | None = None
+    unmeasured_files: list[str] | None = None
 
 
 class SubmitFindingsData(RunDataBase):

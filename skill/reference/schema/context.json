@@ -44,6 +44,18 @@
       "default": null,
       "title": "Changed Files"
     },
+    "complete": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Complete"
+    },
     "contract_checks": {
       "anyOf": [
         {
@@ -314,6 +326,21 @@
       ],
       "default": null,
       "title": "Total Bytes"
+    },
+    "unmeasured_files": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Unmeasured Files"
     },
     "validation_restarts": {
       "anyOf": [

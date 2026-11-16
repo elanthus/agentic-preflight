@@ -202,17 +202,29 @@ def test_a_note_verifies_under_a_different_git_configuration(feature_repo, tmp_p
         assert attestation.verify(feature_repo, sha, purpose="publish").sha == sha
 
 
+def _simulate_abbreviated_patches(patch, current) -> None:
+    """Make every patch read return the abbreviated text of 0.8.1 and earlier releases."""
+
+    def abbreviated(cwd, base, head, paths, **_):
+        return current(cwd, base, head, paths, full_index=False)
+
+    patch.setattr(gitx, "diff_text_by_path", abbreviated)
+    patch.setattr(
+        gitx,
+        "diff_text_by_path_bounded",
+        lambda cwd, base, head, paths, **_: gitx.BoundedPatches(
+            abbreviated(cwd, base, head, paths), complete=True
+        ),
+    )
+
+
 def test_a_note_written_with_abbreviated_object_ids_still_verifies(
     feature_repo, tmp_path, monkeypatch
 ):
     """A release reads the notes of the previous minor release."""
     current = gitx.diff_text_by_path
     with monkeypatch.context() as earlier_release:
-        earlier_release.setattr(
-            gitx,
-            "diff_text_by_path",
-            lambda cwd, base, head, paths, **_: current(cwd, base, head, paths, full_index=False),
-        )
+        _simulate_abbreviated_patches(earlier_release, current)
         green_run(feature_repo, tmp_path)
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
     note = attestation.read(feature_repo, sha)
@@ -237,11 +249,7 @@ def test_a_run_reviewed_by_an_earlier_release_is_reviewed_again_after_an_upgrade
     agent = ScriptedAgent(feature_repo)
     current = gitx.diff_text_by_path
     with monkeypatch.context() as earlier_release:
-        earlier_release.setattr(
-            gitx,
-            "diff_text_by_path",
-            lambda cwd, base, head, paths, **_: current(cwd, base, head, paths, full_index=False),
-        )
+        _simulate_abbreviated_patches(earlier_release, current)
         agent.run("start")
         agent.run("context")
         agent.run("submit-findings", "--file", findings_json(tmp_path, []))
