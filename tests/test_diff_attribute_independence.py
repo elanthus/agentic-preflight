@@ -245,6 +245,11 @@ def test_an_info_attributes_entry_that_would_change_the_patch_is_refused(
 
     with pytest.raises(gitx.ReviewDiffError, match=r"\$GIT_DIR/info/attributes"):
         diff.build_bundle(repo, base, "HEAD")
+    # `context` and review build the bundle with the bounded read: within the budget
+    # and when it stops after one byte.
+    for max_bytes in (1_000_000, 1):
+        with pytest.raises(gitx.ReviewDiffError, match=r"\$GIT_DIR/info/attributes"):
+            diff.build_bundle_within_budget(repo, base, "HEAD", max_bytes=max_bytes)
 
 
 def _replace_with_binary(repo: Path, blob: str) -> None:

@@ -1391,6 +1391,33 @@ def _hunk_header_drivers(cwd: Path | str, env: Mapping[str, str]) -> set[str]:
     return {_decode_path(key)[len("diff.") :].rsplit(".", 1)[0] for key in keys}
 
 
+def _text_forcing_drivers(cwd: Path | str, env: Mapping[str, str]) -> set[str]:
+    """Return the diff drivers whose configuration sets ``binary`` to false.
+
+    Such a driver makes Git print a binary file's content as text.
+    """
+    result = subprocess.run(
+        [_git_executable(), "config", "-z", "--type=bool", "--get-regexp", r"^diff\..+\.binary$"],
+        cwd=str(cwd),
+        capture_output=True,
+        env=env,
+    )
+    if result.returncode not in (0, 1):
+        raise GitError(
+            ["config", "--get-regexp"],
+            result.returncode,
+            result.stderr.decode("utf-8", errors=_DECODE_ERRORS),
+        )
+    drivers: set[str] = set()
+    for entry in result.stdout.split(b"\0"):
+        if not entry:
+            continue
+        key, _, value = entry.partition(b"\n")
+        if value == b"false":
+            drivers.add(_decode_path(key)[len("diff.") :].rsplit(".", 1)[0])
+    return drivers
+
+
 def _refuse_local_diff_attributes(
     cwd: Path | str, env: Mapping[str, str], paths: Sequence[str], binary_paths: set[str]
 ) -> None:
@@ -1400,7 +1427,9 @@ def _refuse_local_diff_attributes(
     there is harmless, because text patches are built with ``--text``, and so is a
     driver that only sets ``textconv`` or ``command``, which the pinned options
     disable. A driver with a hunk-header pattern, built in or configured, would
-    rewrite hunk headers, and ``diff`` set on a binary file would print its content.
+    rewrite hunk headers, and ``diff`` set on a binary file, or a driver with
+    ``binary`` set to false, would print its content. Refusing these before any
+    patch is read lets a bounded read refuse them wherever it stops.
 
     Every path without a ``diff`` attribute uses Git's ``default`` driver, so a
     pattern configured for it would rewrite every hunk header. Git has no value
@@ -1430,8 +1459,15 @@ def _refuse_local_diff_attributes(
     if len(fields) % 3:
         raise ValueError("git check-attr returned malformed output")
     drivers = _BUILTIN_HUNK_HEADER_DRIVERS | configured
+    text_forcing = _text_forcing_drivers(cwd, env) if binary_paths else set()
     for path, _name, value in zip(fields[0::3], fields[1::3], fields[2::3], strict=True):
         shown = display_path(path)
+        if path in binary_paths and value in text_forcing:
+            raise ReviewDiffError(
+                f"$GIT_DIR/info/attributes sets diff={value} on binary file {shown}, and "
+                f"diff.{value}.binary = false would print its content into the review patch. "
+                "Remove the attribute from that file."
+            )
         if value == "set" and path in binary_paths:
             raise ReviewDiffError(
                 f"$GIT_DIR/info/attributes sets the diff attribute on binary file {shown}, "
