@@ -65,7 +65,8 @@ def _abort_fix_commits(session: Session, run: RunDoc, *, force: bool) -> list[st
 
     Without ``--force``, a branch history that cannot be read may hold work, so the
     abort stops, as ``gc`` does. ``--force`` is the way out of a run, so with it such
-    a history only narrows the report to the recorded commits.
+    a history is listed as fully as a plain ``rev-list`` allows, and any failure only
+    narrows the report to the recorded commits.
     """
     if not force:
         try:
