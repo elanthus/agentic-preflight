@@ -1882,11 +1882,11 @@ _ATTRIBUTE_STATES = frozenset({"unspecified", "unset", "set"})
 
 
 def _diff_driver_config(cwd: Path | str, env: Mapping[str, str]) -> tuple[set[str], set[str]]:
-    """Return the drivers that set a hunk-header pattern, and the state-named ones that
-    print binary content as text.
+    """Return the drivers that set a hunk-header pattern, and those that set ``binary``
+    to false, which makes Git print a binary file's content as text.
 
-    The second set holds only drivers named like an attribute state, which
-    ``check-attr`` cannot tell apart from that state; one query reads both.
+    One query reads both. As in Git, the last value of a key wins. ``default`` is
+    left out of the second set: the pinned options set its ``binary`` to ``auto``.
     """
     result = subprocess.run(
         [_git_executable(), "config", "-z", "--get-regexp", r"^diff\..+\.(x?funcname|binary)$"],
@@ -1911,8 +1911,10 @@ def _diff_driver_config(cwd: Path | str, env: Mapping[str, str]) -> tuple[set[st
             binary[driver] = value if separator else None  # the last value wins
         else:
             headers.add(driver)
-    states = {driver for driver in _ATTRIBUTE_STATES if _forces_text(binary.get(driver))}
-    return headers, states
+    text_forcing = {
+        driver for driver, value in binary.items() if driver != "default" and _forces_text(value)
+    }
+    return headers, text_forcing
 
 
 def _forces_text(value: bytes | None) -> bool:
@@ -1934,35 +1936,6 @@ def _forces_text(value: bytes | None) -> bool:
         return int(number, 0) == 0
     except ValueError:
         return False
-
-
-def _text_forcing_drivers(cwd: Path | str, env: Mapping[str, str]) -> set[str]:
-    """Return the diff drivers whose configuration sets ``binary`` to false.
-
-    Such a driver makes Git print a binary file's content as text. As in Git, the
-    last value of a key wins. ``default`` is left out: the pinned options set its
-    ``binary`` to ``auto``.
-    """
-    result = subprocess.run(
-        [_git_executable(), "config", "-z", "--get-regexp", r"^diff\..+\.binary$"],
-        cwd=str(cwd),
-        capture_output=True,
-        env=env,
-    )
-    if result.returncode not in (0, 1):
-        raise GitError(
-            ["config", "--get-regexp"],
-            result.returncode,
-            result.stderr.decode("utf-8", errors=_DECODE_ERRORS),
-        )
-    last: dict[str, bytes | None] = {}
-    for entry in result.stdout.split(b"\0"):
-        if not entry:
-            continue
-        key, separator, value = entry.partition(b"\n")
-        driver = _decode_path(key)[len("diff.") :].rsplit(".", 1)[0]
-        last[driver] = value if separator else None
-    return {driver for driver, value in last.items() if driver != "default" and _forces_text(value)}
 
 
 def _refuse_local_diff_attributes(
@@ -1988,7 +1961,7 @@ def _refuse_local_diff_attributes(
     """
     if not paths:
         return
-    configured, text_forcing_states = _diff_driver_config(cwd, env)
+    configured, text_forcing = _diff_driver_config(cwd, env)
     if "default" in configured:
         raise ReviewDiffError(
             "Git configuration sets diff.default.xfuncname or diff.default.funcname, which "
@@ -2004,6 +1977,7 @@ def _refuse_local_diff_attributes(
             "would rewrite the hunk headers of the review patch on this machine only. "
             "Remove that setting."
         )
+    text_forcing_states = text_forcing & _ATTRIBUTE_STATES
     if text_forcing_states:
         name = sorted(text_forcing_states)[0]
         raise ReviewDiffError(
@@ -2028,10 +2002,6 @@ def _refuse_local_diff_attributes(
         raise ValueError("git check-attr returned malformed output")
     drivers = _BUILTIN_HUNK_HEADER_DRIVERS | configured
     entries = list(zip(fields[0::3], fields[1::3], fields[2::3], strict=True))
-    names_a_driver = any(
-        path in binary_paths and value not in _ATTRIBUTE_STATES for path, _name, value in entries
-    )
-    text_forcing = _text_forcing_drivers(cwd, env) if names_a_driver else set()
     for path, _name, value in entries:
         shown = display_path(path)
         if path in binary_paths and value in text_forcing:
