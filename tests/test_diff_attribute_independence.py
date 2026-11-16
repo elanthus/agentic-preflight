@@ -106,6 +106,30 @@ def test_a_committed_attribute_neither_hides_nor_dumps_content(change, attribute
     assert (files, per_file, manifest) == _snapshot_from_base_checkout(repo, base, head)
 
 
+@pytest.mark.parametrize("attributes", ["* -diff\n", "* binary\n", "*.txt -diff\n*.bin diff\n"])
+def test_the_budgeted_read_that_context_uses_ignores_attributes_too(change, attributes):
+    """`context` and review build the bundle with a bounded read, not `build_bundle`."""
+    repo, base = change
+    head = _commit_attributes(repo, attributes)
+
+    bundle, report = diff.build_bundle_within_budget(repo, base, head, max_bytes=1_000_000)
+
+    assert report.complete is True
+    assert bundle == diff.build_bundle(repo, base, head)
+    assert bundle is not None
+    assert "+hidden instruction\n" in bundle.per_file["notes.txt"]
+    assert bundle.per_file["logo.bin"].endswith(_MARKER)
+
+
+def test_a_budgeted_read_that_stops_early_still_refuses_an_info_attribute(change):
+    repo, base = change
+    (Path(gitx.git_dir(repo)) / "info").mkdir(exist_ok=True)
+    (Path(gitx.git_dir(repo)) / "info" / "attributes").write_text("*.py diff=python\n")
+
+    with pytest.raises(gitx.ReviewDiffError):
+        diff.build_bundle_within_budget(repo, base, "HEAD", max_bytes=1)
+
+
 def test_an_info_attributes_file_does_not_hide_content(change):
     repo, base = change
     expected = _snapshot(repo, base)
@@ -263,6 +287,13 @@ def test_a_note_that_an_attribute_hid_content_from_does_not_verify(
 
     with monkeypatch.context() as patched:
         patched.setattr(gitx, "diff_text_by_path", earlier_release)
+        patched.setattr(
+            gitx,
+            "diff_text_by_path_bounded",
+            lambda cwd, base, head, paths, **_: gitx.BoundedPatches(
+                earlier_release(cwd, base, head, paths), complete=True
+            ),
+        )
         green_run(feature_repo, tmp_path)
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
     note = attestation.read(feature_repo, sha)

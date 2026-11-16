@@ -1069,23 +1069,41 @@ def _patch_stream_chunks(chunks: Iterable[bytes]) -> Iterator[tuple[bool, bytes]
 
 
 def _select_streamed_patches(
-    entries: list[tuple[str, str]], chunks: Iterable[bytes], requested: set[str]
-) -> tuple[dict[str, list[bytearray]], int, int]:
+    entries: list[tuple[str, str]],
+    chunks: Iterable[bytes],
+    requested: set[str],
+    stop_after: int | None = None,
+) -> tuple[dict[str, list[bytearray]], int, int, str | None]:
+    """Collect the requested patch blocks, stopping early once ``stop_after`` is passed.
+
+    The running count is a lower bound on the decoded size of the collected text:
+    decoding keeps every valid byte, widens an invalid one, and only folds a CR,
+    so the raw byte count less the CR count can never exceed it. Once that bound
+    passes ``stop_after`` the read stops and the path being read is returned last.
+    """
     owners = [path for path, status in entries for _ in range(2 if status == "T" else 1)]
     buffers: dict[str, list[bytearray]] = {}
     target: bytearray | None = None
+    target_path: str | None = None
     count = 0
+    measured = 0
     for header, chunk in _patch_stream_chunks(chunks):
         if header:
             path = owners[count] if count < len(owners) else None
             target = None
+            target_path = None
             if path in requested:
                 target = bytearray()
+                target_path = path
                 buffers.setdefault(path, []).append(target)
             count += 1
         if target is not None:
             target.extend(chunk)
-    return buffers, count, len(owners)
+            if stop_after is not None:
+                measured += len(chunk) - chunk.count(b"\r")
+                if measured > stop_after:
+                    return buffers, count, len(owners), target_path
+    return buffers, count, len(owners), None
 
 
 def _finish_streamed_diff(
@@ -1102,7 +1120,15 @@ def _streamed_diff_text_by_path(
     args: tuple[str, ...],
     requested: set[str],
     env: Mapping[str, str] | None = None,
-) -> dict[str, list[str]]:
+    stop_after: int | None = None,
+) -> tuple[dict[str, list[str]], tuple[str, int] | None]:
+    """Read requested patch blocks from one streamed ``git diff``.
+
+    With ``stop_after``, the read ends once a lower bound on the decoded text
+    passes it. The second value then names the path being read with a lower
+    bound on its decoded size, the first holds only the paths read in full, and
+    Git is stopped without reading the rest of its output.
+    """
     with tempfile.TemporaryFile() as errors:
         process = subprocess.Popen(
             [_git_executable(), *args],
@@ -1122,23 +1148,33 @@ def _streamed_diff_text_by_path(
                 _finish_streamed_diff(process, args, errors)
                 raise ValueError("git diff did not separate its raw inventory from patch output")
             entries = _raw_patch_entries(raw)
-            buffers, count, expected = _select_streamed_patches(
-                entries, _diff_chunks(stream, initial), requested
+            buffers, count, expected, stopped = _select_streamed_patches(
+                entries, _diff_chunks(stream, initial), requested, stop_after
             )
+            if stopped is not None:
+                # Git may already have failed. Its error, not an early stop, is the result.
+                if process.poll() not in (None, 0):
+                    _finish_streamed_diff(process, args, errors)
+                partial = buffers.pop(stopped)
+                size = sum(len(block) - block.count(b"\r") for block in partial)
+                return _decode_blocks(buffers), (stopped, size)
             _finish_streamed_diff(process, args, errors)
             if count != expected:
                 raise ValueError(
                     f"git diff returned {expected} expected patch blocks but {count} patches"
                 )
-            return {
-                path: [_decode_patch(bytes(block)) for block in blocks]
-                for path, blocks in buffers.items()
-            }
+            return _decode_blocks(buffers), None
         finally:
             if process.poll() is None:
                 process.kill()
             process.wait()
             stream.close()
+
+
+def _decode_blocks(buffers: Mapping[str, list[bytearray]]) -> dict[str, list[str]]:
+    return {
+        path: [_decode_patch(bytes(block)) for block in blocks] for path, blocks in buffers.items()
+    }
 
 
 def _pathspec_batches(paths: Sequence[str]) -> Iterator[tuple[list[str], tuple[str, ...], bool]]:
@@ -1190,7 +1226,7 @@ def _patches(
             *pathspecs,
         )
         if unfiltered:
-            parsed = _streamed_diff_text_by_path(cwd, args, set(batch), env)
+            parsed, _ = _streamed_diff_text_by_path(cwd, args, set(batch), env)
         else:
             parsed = _parse_raw_patch_output(_run_bytes(cwd, *args, env=env))
         _require_every_path(batch, parsed)
@@ -1539,6 +1575,121 @@ def _legacy_diff_text_by_path(
         for path in marked:
             _check_binary_markers(path, per_file[path], entries[path], binary, strict=False)
     return {path: "".join(per_file[path]) for path in paths}
+
+
+@dataclass(frozen=True)
+class BoundedPatches:
+    """Per-file patches read until their decoded size passed a bound.
+
+    When ``complete`` is true, ``patches`` equals what :func:`diff_text_by_path`
+    returns for the same paths. Otherwise it holds only the paths read in full,
+    and ``partial``, when set, names the path being read when the read stopped
+    with a lower bound on the UTF-8 size of its decoded patch.
+    """
+
+    patches: dict[str, str]
+    complete: bool
+    partial: tuple[str, int] | None = None
+
+
+def _bounded_patches(
+    cwd: Path | str,
+    base: str,
+    head: str,
+    paths: Sequence[str],
+    *,
+    options: tuple[str, ...],
+    env: Mapping[str, str],
+    stop_after: int,
+    measured: int,
+) -> tuple[dict[str, list[str]], tuple[str, int] | None, int, bool]:
+    """Stream :func:`_patches` with the attribute-free options until past ``stop_after``.
+
+    Returns the blocks of the paths read in full, the partially read path with a
+    lower bound on its size, the running measure, and whether every path was read.
+    """
+    per_file: dict[str, list[str]] = {}
+    for batch, pathspecs, _unfiltered in _pathspec_batches(paths):
+        if measured > stop_after:
+            return per_file, None, measured, False
+        args = (
+            *_PINNED_DIFF_CONFIG,
+            *_ATTRIBUTE_FREE_CONFIG,
+            "diff",
+            *_PINNED_PATCH_OPTIONS,
+            *options,
+            "--raw",
+            "-z",
+            "--patch",
+            f"{base}...{head}",
+            "--",
+            *pathspecs,
+        )
+        parsed, partial = _streamed_diff_text_by_path(
+            cwd, args, set(batch), env, stop_after=stop_after - measured
+        )
+        if partial is not None:
+            per_file.update(parsed)
+            return per_file, partial, measured + partial[1], False
+        _require_every_path(batch, parsed)
+        per_file.update((path, parsed[path]) for path in batch)
+        measured += sum(len("".join(parsed[path]).encode()) for path in batch)
+    return per_file, None, measured, True
+
+
+def diff_text_by_path_bounded(
+    cwd: Path | str, base: str, head: str, paths: Sequence[str], *, stop_after_bytes: int
+) -> BoundedPatches:
+    """Read the patches of :func:`diff_text_by_path`, stopping once they pass a size.
+
+    The size is the UTF-8 length of the decoded patch text. The read uses the same
+    attribute-free environment, binary decisions, refusals, and options as
+    :func:`diff_text_by_path`, and Git is stopped as soon as a lower bound on the
+    text read passes ``stop_after_bytes``, so an oversized diff costs a bounded
+    read of patch text. Deciding which files are binary still reads every changed
+    blob, keeping only its first 8,000 bytes. Only the current patch format is
+    read; the earlier form is never bounded. As in :func:`diff_text_by_path`, the
+    unfiltered Windows read still streams the patches of paths that were not
+    requested; only requested text counts.
+    """
+    if not paths:
+        return BoundedPatches({}, complete=True)
+    with _attribute_free(cwd) as (root, env):
+        entries = _raw_inventory(root, base, head, paths, env)
+        binary = _binary_blobs(root, _entry_blobs(entries.values()), env)
+        binary_paths = {path for path in paths if _entry_blobs([entries[path]]) & binary}
+        _refuse_local_diff_attributes(root, env, paths, binary_paths)
+        per_file: dict[str, list[str]] = {}
+        measured = 0
+        groups = (
+            ([path for path in paths if path not in binary_paths], ("--full-index", "--text")),
+            ([path for path in paths if path in binary_paths], ("--full-index",)),
+        )
+        for group, options in groups:
+            if not group:
+                continue
+            read, partial, measured, complete = _bounded_patches(
+                root,
+                base,
+                head,
+                group,
+                options=options,
+                env=env,
+                stop_after=stop_after_bytes,
+                measured=measured,
+            )
+            per_file |= read
+            if not complete:
+                for path in read:
+                    _check_binary_markers(path, read[path], entries[path], binary, strict=True)
+                return BoundedPatches(
+                    {path: "".join(per_file[path]) for path in paths if path in per_file},
+                    complete=False,
+                    partial=partial,
+                )
+    for path in paths:
+        _check_binary_markers(path, per_file[path], entries[path], binary, strict=True)
+    return BoundedPatches({path: "".join(per_file[path]) for path in paths}, complete=True)
 
 
 # -- working tree -----------------------------------------------------------

@@ -720,6 +720,16 @@ Earlier releases left them out.
 
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
+## Unreleased: an oversized diff is measured with a bounded read
+
+`context` and `review run` can stop reading the diff early once its patch text passes four times `[diff] max_bytes`.
+The `diff_too_large` envelope from `context` adds `data.complete` and `data.unmeasured_files`.
+`data.complete` is `false` only when the read stopped early. Then `data.total_bytes` and the sizes in `data.by_file` are lower bounds over the files read, `data.unmeasured_files` lists the files that were not read, `next.instruction` says to check them too, and the error message reads "the diff is at least N bytes".
+A report with `data.complete` set to `true` is exact, as before. Every diff of up to four times the limit is reported that way.
+A wrapper that treated `data.total_bytes` as the exact diff size must check `data.complete`.
+A diff within the limit produces the same patch text, `diff_sha256`, and review manifest as before.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
 ## Unreleased: review patches no longer depend on Git attributes
 
 Review patches followed the Git attributes of the checkout that built them.
@@ -743,6 +753,7 @@ What changes at upgrade:
   This applies only when that earlier text reproduces the note's digest. A digest that neither text reproduces fails with "review fingerprint does not match the Git diff", whatever the checkout's attributes.
   That text uses Git's default `core.bigFileThreshold`, as the previous entry describes, so a lowered threshold on the verifier does not cause this.
 - Review evidence recorded against attribute-shaped text does not carry to a new head. The review runs again and now sees the content.
+- The bounded read that checks `[diff] max_bytes`, described in the previous entry, builds the same attribute-free text. To decide which files are binary it still reads every changed blob, keeping only the first 8,000 bytes of each, before it reads any patch text.
 - Earlier verifiers rebuild attribute-shaped text, so they reject a note that this release writes for a repository whose attributes changed a patch. Upgrade the protected verifier before, or together with, the local publisher and the hook, as the previous entry already requires.
 
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.

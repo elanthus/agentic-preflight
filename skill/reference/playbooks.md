@@ -212,7 +212,10 @@ global inventory or cleanup failure still fails the command and must be investig
 The diff is never truncated, so reviewing part of it is not an option. Look at
 `data.by_file`; if the bulk is generated (lockfiles, vendored code, snapshots), add
 those globs to `[diff] exclude`. Raise `[diff] max_bytes` only if the change genuinely
-is that large.
+is that large. `data.complete` is `false` only when the read stopped early; then the
+sizes are lower bounds and the files in `data.unmeasured_files` were not measured, so
+check them for generated content too before you choose. A report with `data.complete`
+set to `true` is exact.
 
 ## Diff attribute refused (exit 3, `review_diff_attribute`)
 
