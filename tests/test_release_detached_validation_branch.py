@@ -75,9 +75,9 @@ def test_gc_retains_a_strict_checkout_whose_branch_holds_a_hidden_commit(feature
     assert git("rev-parse", f"refs/heads/ap/{run_id}", cwd=feature_repo) == fix
 
 
-def test_gc_retains_a_strict_checkout_whose_branch_was_rewritten(feature_repo):
-    """A branch that no longer descends from the reviewed head cannot be read: keep it."""
-    configure_base(feature_repo, STRICT)
+def _rewritten_branch(feature_repo: Path, config: str) -> tuple[ScriptedAgent, str, Path, str]:
+    """Start a run, rewrite its validation branch off the reviewed head, then detach there."""
+    configure_base(feature_repo, config)
     agent = ScriptedAgent(feature_repo)
     started = agent.run("start", "--intent", "first objective")
     run_id, wt = started["run_id"], Path(started["data"]["worktree_path"])
@@ -88,6 +88,23 @@ def test_gc_retains_a_strict_checkout_whose_branch_was_rewritten(feature_repo):
     git("commit", "-m", "rewrite the reviewed head", cwd=wt)
     rewritten = git("rev-parse", "HEAD", cwd=wt)
     git("checkout", "-q", "--detach", head, cwd=wt)
+    return agent, run_id, wt, rewritten
+
+
+def test_replace_keeps_a_reusable_runner_whose_branch_was_rewritten(feature_repo):
+    """An unreadable branch history keeps the runner leased for `gc`."""
+    agent, run_id, wt, rewritten = _rewritten_branch(feature_repo, REUSABLE)
+
+    agent.run("start", "--replace", "--intent", "different objective")
+
+    assert _record(feature_repo, run_id)["worktree_released"] is False
+    assert wt.exists()
+    assert git("rev-parse", f"refs/heads/ap/{run_id}", cwd=feature_repo) == rewritten
+
+
+def test_gc_retains_a_strict_checkout_whose_branch_was_rewritten(feature_repo):
+    """A branch that no longer descends from the reviewed head cannot be read: keep it."""
+    agent, run_id, wt, rewritten = _rewritten_branch(feature_repo, STRICT)
     agent.run("start", "--replace", "--intent", "different objective")
 
     env = agent.run("gc")
