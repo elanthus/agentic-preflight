@@ -154,11 +154,11 @@ def _release_idle_runner(session: Session, run: RunDoc) -> None:
         if not gitx.is_clean(path) or gitx.rev_parse(path, "HEAD") != run.head_sha:
             return
         # Release deletes the branch, which a detached checkout does not show.
-        # Like any other hold, an unreadable branch history keeps the runner
-        # leased without an event; `gc` reports it.
+        # Like any other hold, a branch history that cannot be read keeps the
+        # runner leased without an event; `gc` reports it.
         try:
             hidden = bool(_branch_only_commits(run, path, []))
-        except UnreadableFixHistory:
+        except (UnreadableFixHistory, gitx.GitError, OSError):
             hidden = True
         if hidden:
             _reattach_runner(path, run)
