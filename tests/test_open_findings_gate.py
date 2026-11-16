@@ -417,3 +417,36 @@ def test_status_keeps_the_conflict_report_when_it_points_to_abort(
 
     assert status["next"]["command"] == "agentic-preflight abort"
     assert status["data"]["mergeback_conflict"]["conflicting_files"] == ["src/app.py"]
+
+
+def test_the_moved_branch_check_reads_the_source_branch_not_the_checkout(
+    feature_repo, tmp_path, monkeypatch
+):
+    """Another branch checked out at the old tip must not hide that the source branch moved."""
+    configure_base(feature_repo, f"{DOCS_OFF}\n[worktree]\nmode = 'strict'\n")
+    agent = ScriptedAgent(feature_repo)
+    wt = agent.run("start")["data"]["worktree_path"]
+    agent.run("context")
+    high = {**_low_auto_fix(), "severity": "high"}
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, [high]))
+    write(wt, "src/app.py", "def greet(name, loud=False):\n    return 'FIXED'\n")
+    git("add", "-A", cwd=wt)
+    git("commit", "-m", "fix", cwd=wt)
+    agent.run(
+        "respond", "--id", "F001", "--action", "fixed", "--commit", git("rev-parse", "HEAD", cwd=wt)
+    )
+    agent.run("verify")
+    agent.run("context")
+    agent.run("submit-findings", "--file", review_findings_json(tmp_path, []))
+    agent.run("stage", "run", "lint")
+    agent.run("stage", "run", "test")
+    _inject(feature_repo, monkeypatch, _open("F002"))
+    with monkeypatch.context() as patch:
+        patch.setattr(mergeback_module, "require_resolved_findings", lambda *a, **k: None)
+        agent.run("mergeback", expect=ExitCode.ERROR)
+    source_sha = agent.run("status")["data"]["mergeback_attempt"]["source_sha"]
+    git("switch", "-q", "-c", "elsewhere", source_sha, cwd=feature_repo)
+
+    instruction = agent.run("status")["next"]["instruction"]
+
+    assert "already moved your branch" in instruction

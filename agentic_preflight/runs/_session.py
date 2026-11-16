@@ -599,6 +599,14 @@ def open_findings_refusal(session: Session, run: RunDoc, *, command: str) -> Ope
     )
 
 
+def _source_branch_tip(session: Session, run: RunDoc) -> str | None:
+    """The commit the run's source branch names, whatever the checkout has out."""
+    try:
+        return gitx.rev_parse(session.repo_root, f"refs/heads/{run.branch}")
+    except gitx.GitError:
+        return None
+
+
 def _past_respond_instruction(session: Session, run: RunDoc, fix_commits: list[str]) -> str:
     """How to leave a run that can no longer resolve its findings, keeping its fixes."""
     instruction = (
@@ -609,7 +617,7 @@ def _past_respond_instruction(session: Session, run: RunDoc, fix_commits: list[s
     if is_in_place(run) or not fix_commits:
         return instruction
     attempt = run.mergeback_attempt
-    if attempt is not None and gitx.rev_parse(session.repo_root, "HEAD") != attempt.source_sha:
+    if attempt is not None and _source_branch_tip(session, run) not in (None, attempt.source_sha):
         return (
             f"{instruction} An earlier mergeback attempt already moved your branch from "
             f"{attempt.source_sha[:12]}, so it may already hold the fix commits in "
