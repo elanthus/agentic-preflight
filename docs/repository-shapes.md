@@ -176,7 +176,9 @@ Measurements and fixes in the performance issues:
   The documentation surface and grounding now list only the paths their patterns can match.
   A pattern that can match at any depth, such as `**/*.md`, still lists the whole tree.
   See [the documentation surface](configuration.md#the-documentation-surface-docs).
-- [Issue #359](https://github.com/elanthus/agentic-preflight/issues/359): `hook-check` took about 1.3 seconds for one ref with a one-file diff.
+- [Issue #359](https://github.com/elanthus/agentic-preflight/issues/359), fixed: `hook-check` took about 1.2 seconds for one ref.
+  It now runs each Git lookup of a commit once and imports only its own command, and takes about 0.6 seconds.
+  Verification still rebuilds the review manifests, so the time still grows with the diff.
 - [Issue #356](https://github.com/elanthus/agentic-preflight/issues/356), fixed: `context` now stops reading the diff at four times `[diff] max_bytes`.
 
 **Settings that help:**
