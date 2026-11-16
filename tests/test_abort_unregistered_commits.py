@@ -188,6 +188,8 @@ def test_an_unreadable_history_stops_a_plain_abort(feature_repo, tmp_path):
     assert "cannot be read" in refused["error"]["message"]
     assert refused["next"]["command"] == "agentic-preflight abort --force"
     work_and_merge = git("rev-list", f"{head}..HEAD", cwd=wt).split()
+    # The refusal names what the agent should check before forcing.
+    assert sorted(refused["data"]["fix_commits"]) == sorted(work_and_merge)
     forced = agent.run("abort", "--force")
     assert forced["state"] == "ABORTED"
     # The report still names every discarded commit, so it can be recovered.

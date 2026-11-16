@@ -77,7 +77,10 @@ def _abort_fix_commits(session: Session, run: RunDoc, *, force: bool) -> list[st
                 f"that were never merged back: {exc}",
                 state=run.state.value,
                 run_id=run.run_id,
-                data={"fix_commits": list(run.fix_commits), "worktree_path": run.worktree_path},
+                data={
+                    "fix_commits": _listed_fix_commits(session, run),
+                    "worktree_path": run.worktree_path,
+                },
                 next_instruction=(
                     "Inspect the validation worktree and cherry-pick anything worth keeping, "
                     "then abort again with --force to discard the rest."
@@ -86,11 +89,19 @@ def _abort_fix_commits(session: Session, run: RunDoc, *, force: bool) -> list[st
             ) from exc
     with suppress(Exception):  # the report must not block the forced abort
         return branch_fix_commits(session, run)
-    # Name what is discarded as fully as possible, so it can be recovered.
+    return _listed_fix_commits(session, run)
+
+
+def _listed_fix_commits(session: Session, run: RunDoc) -> list[str]:
+    """The recorded fix commits plus a plain listing of the branch, for a report.
+
+    Used when the history cannot be derived, so the commits can still be found and
+    recovered. Any failure narrows the list to the recorded commits.
+    """
     recorded = list(run.fix_commits)
     try:
         listed = listed_branch_commits(session, run)
-    except Exception:  # noqa: BLE001 - the report must not block the forced abort
+    except Exception:  # noqa: BLE001 - a report must not fail the command
         return recorded
     return recorded + [sha for sha in listed if sha not in recorded]
 
