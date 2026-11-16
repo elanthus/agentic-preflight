@@ -1080,6 +1080,7 @@ def test_attestation_notes_written_before_stdin_still_verify(feature_repo, tmp_p
     attestation.verify(feature_repo, sha)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows paths cannot contain line breaks")
 def test_list_worktrees_keeps_a_path_with_line_breaks(tmp_repo, tmp_path):
     """Porcelain output prints paths raw, so records are split on NUL."""
     odd = tmp_path / "line\nbreak\rpath"
