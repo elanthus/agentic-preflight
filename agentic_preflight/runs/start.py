@@ -26,6 +26,7 @@ from ..errors import (
     EmptyDiff,
     IntentRequired,
     NeedsHuman,
+    RemoteTimeout,
     SetupFailed,
     SyncConflictError,
     SyncFailed,
@@ -771,8 +772,8 @@ def _synchronize(
 ) -> tuple[syncmod.SyncResult, list[str]]:
     try:
         with (
-            ctx.session.store.resource("sync"),
-            ctx.session.store.resource("notes"),
+            ctx.session.store.resource("sync", holder=run_id),
+            ctx.session.store.resource("notes", holder=run_id),
             timing.timed_command(ctx.session.store, run_id, "sync"),
         ):
             sync_result = syncmod.synchronize(ctx.repo, wt_path, base_ref=ctx.base_ref)
@@ -814,6 +815,25 @@ def _synchronize(
             ),
             next_command="agentic-preflight abort --force",
         ) from exc
+    except gitx.RemoteTimeout as exc:
+        # The locks were released when the ``with`` above unwound.
+        with ctx.session.store.transaction(run_id) as doc:
+            apply_action(doc, Action.SYNC_FAILED)
+            run = doc
+        error = RemoteTimeout.from_git(
+            exc,
+            data={"base_ref": ctx.base_ref, "worktree_path": str(wt_path)},
+            state=run.state.value,
+            run_id=run_id,
+            next_instruction=(
+                "Check the credentials for the remote and the network. Credential and "
+                "host-key prompts are disabled, so a credential helper or an SSH agent must "
+                "supply them. Then abort this run and start again with the same intent."
+            ),
+            next_command="agentic-preflight abort --force",
+        )
+        ctx.session.store.append_event(run_id, {"event": "remote_timeout", **error.data})
+        raise error from exc
     except (gitx.GitError, subprocess.TimeoutExpired, OSError) as exc:
         with ctx.session.store.transaction(run_id) as doc:
             apply_action(doc, Action.SYNC_FAILED)

@@ -11,10 +11,12 @@ from __future__ import annotations
 import os
 import re
 import secrets
+import signal
 import subprocess
+import sys
 import tempfile
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -22,6 +24,7 @@ from typing import IO
 from urllib.parse import urlsplit, urlunsplit
 
 from agentic_preflight.stages.command import resolve_on_path
+from agentic_preflight.stages.shellstage import kill_process_tree, process_group_kwargs
 
 MINIMUM_GIT_VERSION = (2, 38)
 
@@ -102,6 +105,24 @@ class NotOnBranch(GitError):
         self.ref = ref
 
 
+class RemoteTimeout(GitError):
+    """A Git command that contacts a remote did not finish within its timeout.
+
+    It is a ``GitError``, so a handler of Git failures still catches it; the
+    commands that report it name the remote and the operation instead.
+    """
+
+    def __init__(self, args: list[str], *, remote: str, timeout: float, stderr: str) -> None:
+        self.remote = remote_identity(remote)
+        self.operation = args[0] if args else "git"
+        self.timeout = timeout
+        message = (
+            f"git {self.operation} with remote {self.remote!r} did not finish within "
+            f"{timeout:g} seconds; check the credentials for that remote and the network"
+        )
+        super().__init__(args, _TIMEOUT_EXIT, stderr, message=message)
+
+
 class GitVersionError(Exception):
     """The installed Git does not meet the supported minimum."""
 
@@ -115,27 +136,123 @@ class OperationInProgress(Exception):
         super().__init__(f"git {operation} is already in progress in {self.path}")
 
 
+#: The exit status that ``timeout(1)`` reports, recorded on a ``RemoteTimeout``.
+_TIMEOUT_EXIT = 124
+#: How long a timed-out remote command has to exit after ``SIGTERM``. Git removes
+#: its lock files on that signal; ``SIGKILL`` would leave them behind.
+_REMOTE_TERMINATE_GRACE_SECONDS = 3
+#: Set for every command that contacts a remote. Git then fails instead of asking
+#: for a username or password on the terminal. Credential helpers still answer.
+REMOTE_ENV = {"GIT_TERMINAL_PROMPT": "0"}
+
+
 def run(
     cwd: Path | str,
     *args: str,
     check: bool = True,
     timeout: float | None = None,
     env: Mapping[str, str] | None = None,
+    remote: str | None = None,
 ) -> subprocess.CompletedProcess:
-    """Run a git command in a directory and return the completed process."""
-    result = subprocess.run(
-        [_git_executable(), *args],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors=_DECODE_ERRORS,
-        timeout=timeout,
-        env=env,
-    )
+    """Run a git command in a directory and return the completed process.
+
+    Pass ``remote`` for a command that contacts that remote, such as ``fetch`` or
+    ``push``. The command then cannot prompt: see ``_run_remote``.
+    """
+    if remote is not None:
+        result = _run_remote(cwd, list(args), remote=remote, timeout=timeout, env=env)
+    else:
+        result = subprocess.run(
+            [_git_executable(), *args],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors=_DECODE_ERRORS,
+            timeout=timeout,
+            env=env,
+        )
     if check and result.returncode != 0:
         raise GitError(list(args), result.returncode, result.stderr)
     return result
+
+
+def _decode_output(handle: IO[bytes]) -> str:
+    """Decode captured output exactly as a text-mode ``subprocess.run`` does."""
+    handle.seek(0)
+    text = handle.read().decode("utf-8", errors=_DECODE_ERRORS)
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _stop_process_tree(process: subprocess.Popen) -> None:
+    """Stop a timed-out remote command together with the helpers it started.
+
+    The command runs in its own process group, so the signal also reaches the
+    transport (``ssh`` or a remote helper). ``SIGTERM`` first lets Git remove its
+    lock files; whatever is still running after the grace period is killed.
+    """
+    if sys.platform != "win32":
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+        else:
+            with suppress(subprocess.TimeoutExpired):
+                process.wait(timeout=_REMOTE_TERMINATE_GRACE_SECONDS)
+    # The group can outlive its leader, so this runs even after Git has exited.
+    kill_process_tree(process)
+    with suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=_REMOTE_TERMINATE_GRACE_SECONDS)
+
+
+def _run_remote(
+    cwd: Path | str,
+    args: list[str],
+    *,
+    remote: str,
+    timeout: float | None,
+    env: Mapping[str, str] | None,
+) -> subprocess.CompletedProcess:
+    """Run a git command that contacts ``remote`` so that it cannot wait on a person.
+
+    Stdin is empty and Git's own terminal prompt is off (``REMOTE_ENV``). The
+    command runs in a new session, so on POSIX it has no controlling terminal and
+    ``ssh`` cannot ask about a host key or a key passphrase. Credential helpers,
+    askpass programs, and an SSH agent still work. Output goes to temporary files,
+    so a helper that outlives Git cannot hold a pipe open. On timeout the whole
+    process group is stopped and ``RemoteTimeout`` is raised.
+    """
+    child_env = {**(os.environ if env is None else env), **REMOTE_ENV}
+    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        process = subprocess.Popen(
+            [_git_executable(), *args],
+            cwd=str(cwd),
+            stdin=subprocess.DEVNULL,
+            stdout=stdout_file,
+            stderr=stderr_file,
+            env=child_env,
+            **process_group_kwargs(),
+        )
+        try:
+            returncode = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _stop_process_tree(process)
+            raise RemoteTimeout(
+                args,
+                remote=remote,
+                timeout=timeout or 0,
+                stderr=_decode_output(stderr_file),
+            ) from None
+        except BaseException:
+            # An interrupt must not leave the transport running behind the tool.
+            _stop_process_tree(process)
+            raise
+        return subprocess.CompletedProcess(
+            [_git_executable(), *args],
+            returncode,
+            _decode_output(stdout_file),
+            _decode_output(stderr_file),
+        )
 
 
 def _run_bytes(
@@ -671,7 +788,7 @@ def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> str | None:
     has no notes ref yet.
     """
     fetched_ref = f"{_FETCHED_NOTES_PREFIX}{os.getpid()}"
-    result = run(cwd, "fetch", remote, f"+{notes_ref}:{fetched_ref}", check=False)
+    result = run(cwd, "fetch", remote, f"+{notes_ref}:{fetched_ref}", check=False, remote=remote)
     if result.returncode != 0:
         if "couldn't find remote ref" in result.stderr.lower():
             return None
@@ -714,7 +831,8 @@ def fetch_notes(cwd: Path | str, remote: str, notes_ref: str) -> str | None:
 
 def remote_ref_tip(cwd: Path | str, remote: str, ref: str) -> str | None:
     """Return the object a remote ref names now, or ``None`` when it does not exist."""
-    for line in out(cwd, "ls-remote", remote, ref).splitlines():
+    listing = run(cwd, "ls-remote", remote, ref, remote=remote).stdout
+    for line in listing.splitlines():
         fields = line.split()
         if len(fields) == 2 and fields[1] == ref:
             return fields[0]

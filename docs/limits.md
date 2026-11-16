@@ -83,6 +83,18 @@ Hooks other than the fallback merge's commit hooks, notes copying (`notes.rewrit
 With `commit.gpgSign` set, all three commands sign the commits they write.
 These calls have no timeout, so a signing prompt that waits for input blocks the command (see [#348](https://github.com/elanthus/agentic-preflight/issues/348)).
 
+## Fetch and push cannot ask for credentials
+
+The fetches in `start` and in a manual-mode `gate`, and the pushes and remote query in `push`, run without a terminal.
+Git's own username and password prompt is off (`GIT_TERMINAL_PROMPT=0`), and stdin is empty.
+On Linux and macOS the command also has no controlling terminal, so `ssh` cannot ask you to accept a host key or to type a key passphrase.
+A stored credential still works: a credential helper, an askpass program, an SSH agent, or a key without a passphrase.
+Without one, the command fails with Git's error instead of waiting for an answer.
+Fetch from and push to the remote once yourself first, so that the host key is known and the credential is stored.
+
+`start`, `mergeback`, `gate`, and `push` share clone-wide locks with the other worktrees' runs.
+A command that waits more than five seconds for one of them prints a line on stderr that names the lock and the run and process that hold it.
+
 ## Isolated validation worktrees can differ from your environment
 
 In-place mode uses the checkout's existing dependencies and ignored files.

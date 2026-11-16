@@ -352,6 +352,7 @@ def synchronize(
             "--prune",
             "origin",
             f"+refs/heads/{branch}:{target_ref}",
+            remote="origin",
         )
         # Keep the shared notes history current before this run eventually adds
         # its own attestation. Locally-ahead and disjoint histories are retained;

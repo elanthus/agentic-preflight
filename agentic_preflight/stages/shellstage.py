@@ -152,10 +152,10 @@ class _CopiedFileMutationGuard:
 # definition means each body is only ever checked against the library it uses.
 if sys.platform == "win32":
 
-    def _process_group_kwargs() -> dict:
+    def process_group_kwargs() -> dict:
         return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
 
-    def _kill_process_tree(process: subprocess.Popen) -> None:
+    def kill_process_tree(process: subprocess.Popen) -> None:
         """Kill the timed-out child together with everything it spawned.
 
         Windows has no process group to signal: ``CREATE_NEW_PROCESS_GROUP``
@@ -194,10 +194,10 @@ if sys.platform == "win32":
 
 else:
 
-    def _process_group_kwargs() -> dict:
+    def process_group_kwargs() -> dict:
         return {"start_new_session": True}
 
-    def _kill_process_tree(process: subprocess.Popen) -> None:
+    def kill_process_tree(process: subprocess.Popen) -> None:
         """Kill the timed-out child's whole process group.
 
         ``start_new_session`` made the child a session leader, so its PID is
@@ -231,7 +231,7 @@ if sys.platform == "win32":
         try:
             yield
         except KeyboardInterrupt:
-            _kill_process_tree(process)
+            kill_process_tree(process)
             raise
 
 else:
@@ -247,7 +247,7 @@ else:
             previous.clear()
 
         def handler(signum: int, frame: object) -> None:
-            _kill_process_tree(process)
+            kill_process_tree(process)
             restore()
             signal.raise_signal(signum)
 
@@ -325,7 +325,7 @@ def run_stage(
                     text=True,
                     encoding="utf-8",
                     errors="replace",
-                    **_process_group_kwargs(),
+                    **process_group_kwargs(),
                 )
             except OSError as exc:
                 # The program resolved when the command was planned, but the OS
@@ -344,7 +344,7 @@ def run_stage(
                     process.communicate(input=stdin_text, timeout=timeout_seconds)
             except subprocess.TimeoutExpired:
                 timed_out = True
-                _kill_process_tree(process)
+                kill_process_tree(process)
                 if process.stdin is not None:
                     with suppress(OSError):
                         process.stdin.close()

@@ -525,6 +525,14 @@ A docs stage that is green while the base disables docs now passes. Earlier veri
 Attestation schema 7, fingerprint version 2, and the evidence and configuration digests are unchanged.
 Notes that an earlier release wrote stay readable, and they verify when they satisfy the protected base policy.
 
+## Unreleased: fetch and push cannot prompt
+
+The fetches in `start` and in a manual-mode `gate`, and the pushes and remote query in `push`, now run with `GIT_TERMINAL_PROMPT=0` and an empty stdin.
+On Linux and macOS they also run without a controlling terminal.
+A remote that needs a username, a password, a new host key, or a key passphrase typed at the terminal now fails the command with Git's error instead of waiting.
+Store the credential in a credential helper or an SSH agent, and accept the host key once outside the tool.
+The error codes, the exit codes, run schema 2, and attestation schema 7 are unchanged.
+
 ## Unreleased: reviews re-run the hosted approval check
 
 `human-approval.yml` no longer listens to `pull_request_review`.

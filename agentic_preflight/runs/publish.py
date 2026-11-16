@@ -139,7 +139,7 @@ def gate(session: Session) -> Envelope:
         # Build it now on the remote notes tip. No ref keeps it afterwards. If the
         # remote notes move first, or Git prunes the unreferenced commit, the
         # atomic push is rejected and publishes nothing; the person reruns gate.
-        with session.store.resource("notes"):
+        with session.store.resource("notes", holder=run.run_id):
             gitx.sweep_notes_staging_refs(session.repo_root)
             before = _attestation_or_none(session, run.head_sha)
             remote_tip = gitx.fetch_notes(session.repo_root, "origin", NOTES_REF)
@@ -313,7 +313,7 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
             next_command="agentic-preflight push --confirm <token>",
         )
 
-    with session.store.resource("notes"):
+    with session.store.resource("notes", holder=run.run_id):
         published_notes = _publish(session, run, portable, evidence_refspecs, pushed_commits)
 
     with session.store.transaction(run.run_id) as doc:
@@ -381,7 +381,9 @@ def _publish(
     # servers reject hidden refs before processing the atomic ref transaction;
     # a combined push can otherwise expose the branch despite that rejection.
     if evidence_refspecs:
-        gitx.run(session.repo_root, "push", "--atomic", "origin", *evidence_refspecs)
+        gitx.run(
+            session.repo_root, "push", "--atomic", "origin", *evidence_refspecs, remote="origin"
+        )
     attempt = 1
     while True:
         with gitx.notes_publication(session.repo_root, NOTES_REF, remote_tip, pushed_commits) as (
@@ -392,7 +394,7 @@ def _publish(
                 _push_refspecs(run.head_sha, run.branch, staging),
                 None if staging is None else _notes_lease(remote_tip),
             )
-            result = gitx.run(session.repo_root, *args, check=False)
+            result = gitx.run(session.repo_root, *args, check=False, remote="origin")
             if result.returncode == 0:
                 if staging is not None:
                     gitx.fold_published_notes(session.repo_root, NOTES_REF, staging)
