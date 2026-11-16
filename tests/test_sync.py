@@ -319,3 +319,112 @@ def test_signing_failure_during_rebase_leaves_no_rebase_in_progress(tmp_repo):
     assert gitx.operation_in_progress(tmp_repo) is None
     assert gitx.rev_parse(tmp_repo, "HEAD") == before
     assert git("symbolic-ref", "HEAD", cwd=tmp_repo) == "refs/heads/feat"
+
+
+def _diverge(repo: Path) -> str:
+    """Put ``feat`` one commit ahead of the old ``main``, advance ``main``, check out ``feat``.
+
+    Returns the advanced ``main`` commit.
+    """
+    git("switch", "-c", "feat", cwd=repo)
+    write(repo, "feature.txt", "feature\n")
+    commit_all(repo, "feature")
+    git("switch", "main", cwd=repo)
+    write(repo, "upstream.txt", "upstream\n")
+    base = commit_all(repo, "upstream")
+    git("switch", "feat", cwd=repo)
+    return base
+
+
+def test_sync_rebase_leaves_a_stacked_branch_alone_under_update_refs(tmp_repo):
+    git("switch", "-c", "part1", cwd=tmp_repo)
+    write(tmp_repo, "part1.txt", "part one\n")
+    part1 = commit_all(tmp_repo, "part one")
+    _diverge(tmp_repo)
+    git("config", "rebase.updateRefs", "true", cwd=tmp_repo)
+
+    before, after, merged = sync.sync_onto(tmp_repo, "main")
+
+    assert after != before
+    assert merged is False
+    assert git("rev-parse", "part1", cwd=tmp_repo) == part1
+
+
+def test_strict_start_leaves_a_stacked_branch_alone_under_update_refs(feature_repo):
+    """``rebase.updateRefs`` lives in repository config, which the suite does not isolate."""
+    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
+    commit_all(feature_repo, "use strict worktrees")
+    git("branch", "part1", cwd=feature_repo)
+    part1 = git("rev-parse", "part1", cwd=feature_repo)
+    write(feature_repo, "part2.txt", "part two\n")
+    commit_all(feature_repo, "part two")
+    git("switch", "main", cwd=feature_repo)
+    write(feature_repo, "upstream.txt", "upstream\n")
+    base = commit_all(feature_repo, "advance main")
+    git("switch", "feature/x", cwd=feature_repo)
+    git("config", "rebase.updateRefs", "true", cwd=feature_repo)
+
+    started = ScriptedAgent(feature_repo).run("start")
+
+    worktree_path = Path(started["data"]["worktree_path"])
+    assert gitx.is_ancestor(worktree_path, base, "HEAD"), "start did not rebase"
+    assert git("rev-parse", "part1", cwd=feature_repo) == part1
+    assert len(git("reflog", "part1", cwd=feature_repo).splitlines()) == 1
+
+
+def test_sync_rebase_ignores_rebase_autosquash(tmp_repo):
+    """A guard: Git applies ``rebase.autoSquash`` only to interactive rebases today."""
+    _diverge(tmp_repo)
+    write(tmp_repo, "feature.txt", "feature, amended\n")
+    commit_all(tmp_repo, "fixup! feature")
+    git("config", "rebase.autoSquash", "true", cwd=tmp_repo)
+
+    sync.sync_onto(tmp_repo, "main")
+
+    assert git("log", "--format=%s", "main..HEAD", cwd=tmp_repo).splitlines() == [
+        "fixup! feature",
+        "feature",
+    ]
+
+
+def test_sync_rebase_ignores_rebase_autostash(tmp_repo):
+    """Without autostash Git refuses to rebase a dirty checkout, and so must the sync."""
+    _diverge(tmp_repo)
+    before = gitx.rev_parse(tmp_repo, "HEAD")
+    write(tmp_repo, "feature.txt", "uncommitted\n")
+    git("config", "rebase.autoStash", "true", cwd=tmp_repo)
+
+    with pytest.raises(sync.SyncRebaseFailed):
+        sync.sync_onto(tmp_repo, "main")
+
+    assert gitx.rev_parse(tmp_repo, "HEAD") == before
+    assert (tmp_repo / "feature.txt").read_text(encoding="utf-8") == "uncommitted\n"
+    assert git("stash", "list", cwd=tmp_repo) == ""
+
+
+def test_sync_rebase_ignores_rebase_rebase_merges(tmp_repo):
+    """The fallback-merge logic relies on the rebase dropping merge commits."""
+    base = _diverge(tmp_repo)
+    git("switch", "-c", "side", "feat~1", cwd=tmp_repo)
+    write(tmp_repo, "side.txt", "side\n")
+    commit_all(tmp_repo, "side")
+    git("switch", "feat", cwd=tmp_repo)
+    git("merge", "--no-ff", "--no-edit", "side", cwd=tmp_repo)
+    git("config", "rebase.rebaseMerges", "true", cwd=tmp_repo)
+
+    _before, after, merged = sync.sync_onto(tmp_repo, "main")
+
+    assert merged is False
+    assert git("rev-list", "--merges", f"{base}..{after}", cwd=tmp_repo) == ""
+
+
+def test_sync_rebase_ignores_pull_twohead(tmp_repo):
+    """The rebase reads ``pull.twohead`` as its default strategy; ``ours`` drops the branch."""
+    base = _diverge(tmp_repo)
+    git("config", "pull.twohead", "ours", cwd=tmp_repo)
+
+    _before, after, merged = sync.sync_onto(tmp_repo, "main")
+
+    assert merged is False
+    assert git("log", "--format=%s", f"{base}..{after}", cwd=tmp_repo) == "feature"
+    assert git("show", f"{after}:feature.txt", cwd=tmp_repo) == "feature"

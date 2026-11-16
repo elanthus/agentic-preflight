@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -77,6 +78,68 @@ class SyncResult:
 
     def as_dict(self) -> dict[str, str | bool | None]:
         return asdict(self)
+
+
+# The synchronizing rebase must only replay the branch's own commits onto the base.
+# These options neutralize configuration that would change that: ``rebase.updateRefs``
+# (moves other branches stacked in the rebased range), ``rebase.autoStash`` (rebases a
+# dirty checkout instead of refusing), ``rebase.rebaseMerges`` (keeps merge commits,
+# which ``sync_onto`` relies on the rebase dropping), and ``pull.twohead``, which the
+# rebase also reads as its default merge strategy. ``--strategy`` also forces the merge
+# backend, so ``rebase.backend`` is neutralized as a side effect. ``rebase.autoSquash``
+# applies only to interactive rebases, so ``--no-autosquash`` changes nothing today;
+# it is pinned as a guard. Each option matches Git's default, so an unconfigured
+# repository rebases exactly as before. Not neutralized: commit signing
+# (``commit.gpgSign``), hooks (``pre-rebase``, ``post-checkout``, ``post-rewrite``),
+# rename and conflict settings (``merge.renames``, ``merge.directoryRenames``,
+# ``rerere.*``), and notes copying (``notes.rewriteRef``).
+_PINNED_REBASE_OPTIONS = (
+    "--no-update-refs",
+    "--no-autosquash",
+    "--no-autostash",
+    "--no-rebase-merges",
+    "--strategy=ort",
+)
+# The fallback merge always commits a real two-parent merge with the default strategy
+# and message, never overwrites ignored local files, and skips commit hooks, because
+# the rebase it replaces runs none and the merge adds no user content. These options
+# neutralize ``merge.ff``, ``pull.twohead``, ``merge.verifySignatures``, and
+# ``merge.log``. ``branch.<name>.mergeOptions`` is cleared for the merge by
+# ``_merge_overrides``: Git parses it before the command line, and a ``-s`` there is added
+# to the strategy list ahead of ``--strategy=ort``, so ``-s ours`` would still win.
+# Not neutralized: commit signing (``commit.gpgSign``) and rename and conflict
+# settings. The merge always starts from a clean checkout, so ``merge.autoStash`` has
+# nothing to stash.
+_PINNED_MERGE_OPTIONS = (
+    "--no-ff",
+    "--commit",
+    "--no-squash",
+    "--no-edit",
+    "--no-verify",
+    "--no-overwrite-ignore",
+    "--strategy=ort",
+    "--no-verify-signatures",
+    "--no-log",
+)
+
+
+# An environment variable that holds an empty value, for ``--config-env``.
+_EMPTY_CONFIG_VALUE_ENV = "AGENTIC_PREFLIGHT_EMPTY_CONFIG_VALUE"
+
+
+def _merge_overrides(worktree_path: Path | str) -> tuple[list[str], dict[str, str] | None]:
+    """Git options and environment that clear the branch's ``mergeOptions`` for the merge.
+
+    An empty value drops every option the setting holds, ``-s`` and ``-X`` included.
+    ``--config-env`` is read after every other source, including ``git -c`` settings
+    inherited through ``GIT_CONFIG_PARAMETERS``, so the empty value wins. Unlike
+    ``-c``, it also accepts a branch name that contains ``=``.
+    """
+    branch = gitx.current_branch(worktree_path)
+    if branch == "HEAD":
+        return [], None
+    env = {**os.environ, _EMPTY_CONFIG_VALUE_ENV: ""}
+    return [f"--config-env=branch.{branch}.mergeOptions={_EMPTY_CONFIG_VALUE_ENV}"], env
 
 
 def _origin_base_ref(base_ref: str) -> tuple[str, str]:
@@ -163,20 +226,15 @@ def _merge_base_in(
     worktree_path: Path | str, *, base_ref: str, base_sha: str, before: str, landed: str
 ) -> str:
     """Merge the base into the restored head, or restore it and report a conflict."""
-    # The options override any configured merge behavior: always commit a real merge,
-    # never overwrite ignored local files, and skip commit hooks, because the rebase this
-    # replaces runs none and the merge adds no user content.
+    overrides, env = _merge_overrides(worktree_path)
     result = gitx.run(
         worktree_path,
+        *overrides,
         "merge",
-        "--no-ff",
-        "--commit",
-        "--no-squash",
-        "--no-edit",
-        "--no-verify",
-        "--no-overwrite-ignore",
+        *_PINNED_MERGE_OPTIONS,
         base_sha,
         check=False,
+        env=env,
     )
     if (
         result.returncode == 0
@@ -221,7 +279,7 @@ def sync_onto(worktree_path: Path | str, base_ref: str) -> tuple[str, str, bool]
         raise SyncObstructed(
             base_ref=base_ref, base_sha=base_sha, head_before=before, paths=obstructed
         )
-    result = gitx.run(worktree_path, "rebase", base_sha, check=False)
+    result = gitx.run(worktree_path, "rebase", *_PINNED_REBASE_OPTIONS, base_sha, check=False)
     if result.returncode == 0:
         after = gitx.rev_parse(worktree_path, "HEAD")
         # A conflicted merge has no landed tree; the rebase is then the resolution.
