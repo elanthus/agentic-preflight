@@ -236,6 +236,7 @@ Use this table to find the guide for a task:
 | How do I summarize my runs across repositories? | [Read the report](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md#read-the-report) |
 | Which pushes did the pre-push hook allow or block, and why? | [Hook decisions](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md#hook-decisions) |
 | What can attestations and evidence reuse not prove? | [Limits](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/limits.md) |
+| Does it work in a shallow or partial clone, a sparse checkout, a monorepo, or with submodules or Git LFS? | [Repository shapes](https://github.com/elanthus/agentic-preflight/blob/main/docs/repository-shapes.md) |
 | Which platforms are supported, and what changed between versions? | [Compatibility policy](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/COMPATIBILITY.md) |
 
 ## Design and evidence
