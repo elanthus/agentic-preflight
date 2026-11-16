@@ -12,8 +12,11 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
+
 from agentic_preflight import worktree
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.gitx import GitError
 from tests.conftest import configure_base, git, write
 from tests.driver import ScriptedAgent, findings_json
 
@@ -332,3 +335,92 @@ def test_an_in_place_abort_with_a_commit_is_unchanged(feature_repo, tmp_path):
 
     assert env["state"] == "ABORTED"
     assert git("rev-parse", "HEAD", cwd=feature_repo) == fix
+
+
+def test_a_checkout_git_cannot_open_stops_a_plain_abort(feature_repo, tmp_path):
+    """A missing worktree entry must not read as "nothing follows the reviewed head"."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    fix = _commit(wt, "FIXED", "real work")
+    # As after `git worktree prune`: the checkout and its .git file remain.
+    shutil.rmtree(git("rev-parse", "--absolute-git-dir", cwd=wt))
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert refused["error"]["code"] == "unmerged_work"
+    # The branch ref lives in the shared repository, so it is still listed.
+    assert fix in refused["data"]["fix_commits"]
+    forced = agent.run("abort", "--force")
+    assert fix in forced["data"]["discarded_fix_commits"]
+
+
+def test_a_root_commit_on_the_branch_is_still_listed(feature_repo, tmp_path):
+    """A commit without a parent cannot be compared with one, so it counts as work."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    branch = git("branch", "--show-current", cwd=wt)
+    git("checkout", "-q", "--orphan", "unrelated", cwd=wt)
+    git("commit", "-q", "-m", "unrelated root", cwd=wt)
+    _commit(wt, "MORE", "more work")
+    git("branch", "-q", "-M", "unrelated", branch, cwd=wt)
+    on_branch = git("rev-list", "HEAD", cwd=wt).split()
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+    assert sorted(refused["data"]["fix_commits"]) == sorted(on_branch)
+    forced = agent.run("abort", "--force")
+    assert sorted(forced["data"]["discarded_fix_commits"]) == sorted(on_branch)
+
+
+def test_only_a_missing_ref_reads_as_an_absent_branch(feature_repo, tmp_path):
+    """Both branch readers treat any other failure as unreadable, never as empty."""
+    tip_exists = fix_commits_module._tip_exists
+    assert tip_exists(str(feature_repo), "HEAD")
+    assert not tip_exists(str(feature_repo), "refs/heads/no-such-branch")
+    outside = tmp_path / "not-a-repository"
+    outside.mkdir()
+    with pytest.raises(GitError):
+        tip_exists(str(outside), "HEAD")
+
+
+def test_a_detached_head_is_reported_when_the_checkout_cannot_be_opened(feature_repo, tmp_path):
+    """The shared repository still records the worktree's HEAD."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    on_branch = _commit(wt, "ON BRANCH", "work on the branch")
+    git("checkout", "-q", "--detach", cwd=wt)
+    detached = _commit(wt, "DETACHED", "work on a detached HEAD")
+    (Path(wt) / ".git").unlink()
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert {on_branch, detached} <= set(refused["data"]["fix_commits"])
+    forced = agent.run("abort", "--force")
+    assert {on_branch, detached} <= set(forced["data"]["discarded_fix_commits"])
+
+
+def test_an_unreadable_history_and_uncommitted_changes_are_named_together(feature_repo, tmp_path):
+    """One refusal names both, so a following --force discards nothing unnamed."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    git("switch", "-q", "-c", "side", cwd=wt)
+    _commit(wt, "SIDE", "side work")
+    git("switch", "-q", "-", cwd=wt)
+    write(wt, "README.md", "work on the validation branch\n")
+    git("add", "-A", cwd=wt)
+    git("commit", "-q", "-m", "work", cwd=wt)
+    git("merge", "-q", "--no-ff", "-m", "merge side", "side", cwd=wt)
+    write(wt, "notes.txt", "not committed\n")
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert "cannot be read" in refused["error"]["message"]
+    assert refused["data"]["fix_commits"]
+    assert refused["data"]["uncommitted_paths"] == ["notes.txt"]
+
+
+def test_a_detached_head_counts_when_the_checkout_directory_is_gone(feature_repo, tmp_path):
+    """The shared repository records the worktree's HEAD until release prunes it."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    git("checkout", "-q", "--detach", cwd=wt)
+    detached = _commit(wt, "DETACHED", "work on a detached HEAD")
+    shutil.rmtree(wt)
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert refused["data"]["fix_commits"] == [detached]

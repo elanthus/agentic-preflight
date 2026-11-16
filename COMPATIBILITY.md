@@ -780,13 +780,26 @@ A wrapper that treated `data.total_bytes` as the exact diff size must check `dat
 A diff within the limit produces the same patch text, `diff_sha256`, and review manifest as before.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
+## Unreleased: abort protects uncommitted changes in the validation worktree
+
+In `strict` and `reusable` modes, releasing the validation worktree removes it or resets and cleans the runner, and a plain `abort` used to discard uncommitted changes there without asking.
+`abort` now exits 5 with `unmerged_work` when the validation worktree has uncommitted changes, untracked files included, apart from ignored files and the files `start` copied in: the rule `gc` already applies before it releases a worktree.
+The refusal adds `data.uncommitted_paths`, which lists up to 200 such paths, `data.uncommitted_path_count`, which counts them all, and `data.inspection_error`, and keeps `data.fix_commits` and `data.worktree_path`; when the run also has unmerged fix commits, one refusal names both.
+A validation worktree that exists but cannot be inspected also exits 5 with `unmerged_work`; then `data.inspection_error` holds Git's error and `data.uncommitted_paths` and `data.uncommitted_path_count` are `null`, so a wrapper must not read an empty list as a clean worktree.
+A validation worktree that no longer exists does not stop `abort`.
+`--force` still discards the changes, as before.
+A wrapper or agent that ran a plain `abort` after leaving files in the validation worktree, for example after a setup command that writes untracked files, must handle exit 5 or pass `--force`.
+`in_place` runs are unchanged. The abort schema adds the optional `uncommitted_paths`, `uncommitted_path_count`, and `inspection_error` properties.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
 ## Unreleased: abort protects commits that nothing registered
 
 In isolated worktree modes, `respond` and a red stage's restart register fix commits, and merge-back registers the validated history at `TEST_GREEN`.
 A commit made in the validation worktree outside those points lived only on the validation branch, and a plain `abort` deleted it with the branch.
 `abort` from any state between the end of base synchronization and merge-back now counts such commits, read from both the checkout's `HEAD` and the validation branch, and exits 5 with `unmerged_work`; `--force` still discards them and lists them in `data.discarded_fix_commits` and the `aborted` event.
 A recorded fix commit always counts, even when the validation checkout is detached or reset.
-When the branch history cannot be read, for example because the validation branch holds a merge commit or no longer descends from the reviewed head, a plain `abort` also exits 5 with `unmerged_work` instead of deleting the branch, as long as some non-empty commit follows the reviewed head; `data.fix_commits` then lists those commits without further checks. `--force` still succeeds.
+When the branch history cannot be read, for example because the validation branch holds a merge commit or no longer descends from the reviewed head, a plain `abort` also exits 5 with `unmerged_work` instead of deleting the branch, as long as some non-empty commit follows the reviewed head or Git cannot open the validation checkout; `data.fix_commits` then lists those commits without further checks, reading the branch from the shared repository, so after a rebase onto another base it can include commits the new base brought in. `--force` still succeeds, except for a `reusable` runner whose checkout Git cannot open, which fails to release with `git_error` as it did before.
+A `reusable` runner whose directory is gone keeps its branch when released, so its commits are not counted.
 In-place runs, states before synchronization finishes, and merge-back states are unchanged.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 

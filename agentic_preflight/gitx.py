@@ -1657,17 +1657,22 @@ def remote_url(cwd: Path | str, remote: str = "origin") -> str | None:
 
 
 def list_worktrees(cwd: Path | str) -> list[dict[str, str]]:
-    """Parse ``git worktree list --porcelain`` into records."""
+    """Parse ``git worktree list --porcelain -z`` into records.
+
+    Paths are printed raw, so fields are split on NUL and read as bytes: a path
+    may contain a newline or carriage return. Values are decoded like other
+    paths, so they can be handed back to Git or the filesystem.
+    """
     records: list[dict[str, str]] = []
     current: dict[str, str] = {}
-    for line in out(cwd, "worktree", "list", "--porcelain").splitlines():
-        if not line.strip():
+    for field in _run_bytes(cwd, "worktree", "list", "--porcelain", "-z").split(b"\0"):
+        if not field:
             if current:
                 records.append(current)
                 current = {}
             continue
-        key, _, value = line.partition(" ")
-        current[key] = value
+        key, _, value = field.partition(b" ")
+        current[_decode_path(key)] = _decode_path(value)
     if current:
         records.append(current)
     return records
