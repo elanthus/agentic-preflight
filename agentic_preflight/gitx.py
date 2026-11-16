@@ -1689,8 +1689,8 @@ def diff_text_by_path_bounded(
             )
             per_file |= read
             if not complete:
-                for path in read:
-                    _check_binary_markers(path, read[path], entries[path], binary, strict=True)
+                for path in per_file:
+                    _check_binary_markers(path, per_file[path], entries[path], binary, strict=True)
                 return BoundedPatches(
                     {path: "".join(per_file[path]) for path in paths if path in per_file},
                     complete=False,

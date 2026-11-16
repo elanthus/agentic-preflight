@@ -121,6 +121,29 @@ def test_the_budgeted_read_that_context_uses_ignores_attributes_too(change, attr
     assert bundle.per_file["logo.bin"].endswith(_MARKER)
 
 
+def test_a_read_that_stops_among_binary_files_still_checks_the_text_files(change, monkeypatch):
+    """Text patches come first; stopping in the binary group must not skip their check."""
+    repo, base = change
+    paths = gitx.changed_files_raw(repo, base, "HEAD")
+    full = gitx.diff_text_by_path(repo, base, "HEAD", paths)
+    text_bytes = sum(len(full[path].encode()) for path in paths if path != "logo.bin")
+    checked = []
+    real = gitx._check_binary_markers
+
+    def recording(path, *args, **kwargs):
+        checked.append(path)
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(gitx, "_check_binary_markers", recording)
+
+    read = gitx.diff_text_by_path_bounded(repo, base, "HEAD", paths, stop_after_bytes=text_bytes)
+
+    assert read.complete is False
+    assert read.partial is not None
+    assert read.partial[0] == "logo.bin"
+    assert sorted(checked) == sorted(path for path in paths if path != "logo.bin")
+
+
 def test_a_budgeted_read_that_stops_early_still_refuses_an_info_attribute(change):
     repo, base = change
     (Path(gitx.git_dir(repo)) / "info").mkdir(exist_ok=True)
