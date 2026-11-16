@@ -633,6 +633,8 @@ or an exact conflict resolution,
 the validation worktree adopts that commit and the run returns to review, as for a
 changed resolution, with `context` as `next.command`. The tree is unchanged, so this
 return does not count toward `[stage] max_restarts`. Review then names the open finding.
+Uncommitted changes in the validation worktree stop this return with exit 3 and
+`dirty_tree`, because the reset would discard them.
 
 A merge-back interrupted after synchronizing the source with the base but before reaching
 the recorded verified tree is stale. Follow `status` and restart preflight for the current source;
