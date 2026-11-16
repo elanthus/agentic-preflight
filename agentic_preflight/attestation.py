@@ -181,6 +181,9 @@ def verify(
     if purpose not in {"local", "publish"}:
         raise InvalidAttestation("unknown verification purpose")
     with gitx.object_cache():
+        # One batch peels the commit and its tree; a name it cannot peel is looked
+        # up by rev_parse below, which fails as it always did.
+        gitx.prime_object_lookups(repo, [sha])
         resolved = gitx.rev_parse(repo, sha)
         value = read(repo, resolved)
         if value is None:
@@ -283,9 +286,6 @@ def _verify_value(
             f"attestation names {value.sha}, but it is attached to {resolved}",
             reason="commit_mismatch",
         )
-    # Every commit the note names is peeled again and again below. One batch
-    # resolves them all; anything it cannot resolve is looked up, and fails, as before.
-    gitx.prime_object_lookups(repo, _named_commits(value, resolved))
     actual_tree = gitx.tree_sha(repo, resolved)
     if value.tree_sha != actual_tree:
         raise InvalidAttestation(
@@ -295,6 +295,9 @@ def _verify_value(
     from .refresh_validation import verify_evidence, verify_policy_bindings
 
     try:
+        # Every commit the note names is peeled again and again below. One batch
+        # resolves them all; anything it cannot resolve is looked up, and fails, as before.
+        gitx.prime_object_lookups(repo, _named_commits(value, resolved))
         base_sha = trusted_base(repo, value, base)
         verify_merge_base(repo, value, base_sha)
         policy = committed_config(repo, base_sha)

@@ -7,6 +7,7 @@ that the savings never change a decision.
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import shutil
@@ -17,30 +18,45 @@ from pathlib import Path
 
 import pytest
 
+from agentic_preflight import attestation
 from agentic_preflight.envelope import ExitCode
 from tests.conftest import git
 from tests.driver import green_run
 from tests.test_hook import ZERO, hook_check
 
 #: The most Git processes ``hook-check`` may spawn for one new branch with a green
-#: note, when the remote-tracking base branch exists. 17 when this test was written,
-#: down from 38: the Git version check, 13 to evaluate the push, and 3 that the hook
-#: decision log runs on a background thread to identify the repository.
-MAX_GIT_PROCESSES = 17
+#: note, when the remote-tracking base branch exists: 38 before this bound was set.
+#: The Git version check and 13 processes evaluate the push.
+MAX_GIT_PROCESSES_TO_DECIDE = 14
+#: The hook decision log identifies the repository on a background thread, which
+#: overlaps the evaluation: 3 more processes when the log is on.
+MAX_GIT_PROCESSES_WITH_LOG = MAX_GIT_PROCESSES_TO_DECIDE + 3
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="the Git shim is a sh script")
 
 
 def _git_logging_shim(directory: Path, log: Path) -> dict[str, str]:
-    """Put a ``git`` first on ``PATH`` that appends each argument list to ``log``."""
+    """Put a ``git`` first on ``PATH`` that appends each argument list to ``log``.
+
+    A ``cat-file --batch-check`` reads its object names from stdin, so its line also
+    records them: two batches for different objects are different commands.
+    """
     real = shutil.which("git")
     assert real is not None
     directory.mkdir(parents=True, exist_ok=True)
     shim = directory / "git"
+    quoted_log, quoted_git = shlex.quote(str(log)), shlex.quote(real)
     shim.write_text(
         "#!/bin/sh\n"
-        f"printf '%s\\n' \"$*\" >> {shlex.quote(str(log))}\n"
-        f'exec {shlex.quote(real)} "$@"\n',
+        'case "$*" in\n'
+        "  cat-file\\ --batch-check*)\n"
+        "    input=$(cat)\n"
+        f"    printf '%s <<< %s\\n' \"$*\" \"$(printf '%s' \"$input\" | tr '\\n' ' ')\" >> {quoted_log}\n"
+        f'    printf \'%s\\n\' "$input" | exec {quoted_git} "$@" ;;\n'
+        "  *)\n"
+        f"    printf '%s\\n' \"$*\" >> {quoted_log}\n"
+        f'    exec {quoted_git} "$@" ;;\n'
+        "esac\n",
         encoding="utf-8",
     )
     shim.chmod(0o755)
@@ -48,10 +64,22 @@ def _git_logging_shim(directory: Path, log: Path) -> dict[str, str]:
 
 
 @posix_only
-def test_hook_check_for_one_green_ref_spawns_few_git_processes(feature_repo, tmp_path):
+@pytest.mark.parametrize(
+    ("hook_log", "bound"),
+    [(False, MAX_GIT_PROCESSES_TO_DECIDE), (True, MAX_GIT_PROCESSES_WITH_LOG)],
+)
+def test_hook_check_for_one_green_ref_spawns_few_git_processes(
+    feature_repo, tmp_path, hook_log, bound
+):
     green_run(feature_repo, tmp_path)
     # A clone that pushes has the remote-tracking base the note's base_ref names.
     git("update-ref", "refs/remotes/origin/main", "main", cwd=feature_repo)
+    if not hook_log:
+        # With the log off no background thread starts, so every Git process
+        # counted here decides the push.
+        user_config = Path.home() / ".config" / "agentic-preflight" / "config.toml"
+        user_config.parent.mkdir(parents=True, exist_ok=True)
+        user_config.write_text("[telemetry]\nhook_log = false\n", encoding="utf-8")
     sha = git("rev-parse", "HEAD", cwd=feature_repo)
     log = tmp_path / "git-calls.log"
     env = _git_logging_shim(tmp_path / "shim", log)
@@ -64,7 +92,66 @@ def test_hook_check_for_one_green_ref_spawns_few_git_processes(feature_repo, tmp
     calls = log.read_text(encoding="utf-8").splitlines()
     repeated = {call: count for call, count in Counter(calls).items() if count > 1}
     assert repeated == {}, f"identical Git commands ran more than once: {repeated}"
-    assert len(calls) <= MAX_GIT_PROCESSES, "\n".join(calls)
+    assert len(calls) <= bound, "\n".join(calls)
+
+
+def _forge_note(repo: Path, sha: str, change) -> None:
+    """Rewrite the note on ``sha`` with ``change`` applied to its JSON payload."""
+    payload = json.loads(git("notes", f"--ref={attestation.NOTES_REF}", "show", sha, cwd=repo))
+    change(payload)
+    git(
+        "notes",
+        f"--ref={attestation.NOTES_REF}",
+        "add",
+        "-f",
+        "-m",
+        json.dumps(payload),
+        sha,
+        cwd=repo,
+    )
+
+
+def _missing_merge_base(payload: dict) -> None:
+    payload["merge_base_sha"] = MISSING_COMMIT
+
+
+def _missing_origin_base(payload: dict) -> None:
+    for item in payload["evidence"].values():
+        item["origin"]["base_sha"] = MISSING_COMMIT
+
+
+#: A commit no fixture repository has.
+MISSING_COMMIT = "c" * 40
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [(_missing_merge_base, "base_mismatch"), (_missing_origin_base, "invalid_evidence")],
+)
+def test_a_note_naming_a_missing_commit_blocks_as_before(feature_repo, tmp_path, change, reason):
+    """A commit the batch cannot peel is looked up again and fails as it did without it.
+
+    The exit code, the message, and the verification reason are those of the release
+    before the batch (3cb3527).
+    """
+    green_run(feature_repo, tmp_path)
+    sha = git("rev-parse", "HEAD", cwd=feature_repo)
+    _forge_note(feature_repo, sha, change)
+
+    with pytest.raises(attestation.InvalidAttestation) as caught:
+        attestation.verify(feature_repo, sha, purpose="publish")
+    assert caught.value.reason == reason
+
+    result = hook_check(feature_repo, f"refs/heads/feature/x {sha} refs/heads/feature/x {ZERO}\n")
+    assert result.returncode == ExitCode.HOOK_BLOCK
+    assert result.stderr == (
+        "agentic-preflight: push blocked.\n"
+        f"  commit: {sha[:7]} (no green run recorded for this exact SHA)\n"
+        "  reason: no valid attestation note is attached to this exact SHA\n"
+        "  fix:    invoke the skill (/agentic-preflight in Claude Code, "
+        "$agentic-preflight in Codex)\n"
+        "  bypass: git push --no-verify   (documented escape hatch)\n"
+    )
 
 
 @posix_only
@@ -261,3 +348,23 @@ def test_committed_config_defaults_only_when_the_file_is_absent(tmp_repo):
     assert committed_config(tmp_repo, head) == Config()
     with pytest.raises(gitx.GitError):
         committed_config(tmp_repo, "b" * 40)
+
+
+def test_an_id_in_the_other_object_format_is_never_cached(tmp_repo, monkeypatch):
+    """In a SHA-1 repository 64 hexadecimal digits are a ref name, which can move."""
+    from agentic_preflight import gitx
+
+    name = "d" * 64
+    first = git("rev-parse", "HEAD", cwd=tmp_repo)
+    git("update-ref", f"refs/heads/{name}", first, cwd=tmp_repo)
+    calls = _count_git(monkeypatch)
+    with gitx.object_cache():
+        gitx.prime_object_lookups(tmp_repo, [name])
+        assert gitx.rev_parse(tmp_repo, name) == first
+        git("commit", "--allow-empty", "-m", "move the ref", cwd=tmp_repo)
+        second = git("rev-parse", "HEAD", cwd=tmp_repo)
+        git("update-ref", f"refs/heads/{name}", second, cwd=tmp_repo)
+        assert gitx.rev_parse(tmp_repo, name) == second
+        gitx.changed_files_raw(tmp_repo, first, name)
+        gitx.changed_files_raw(tmp_repo, first, name)
+    assert len(calls) == 2
