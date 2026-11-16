@@ -740,6 +740,7 @@ What changes at upgrade:
 - `diff_sha256`, the review manifest, and the affected unit digests change for a repository whose attributes changed a patch: a `-diff`, `binary`, or `diff` attribute, or a diff driver with a hunk-header pattern. A repository without such attributes gets the same text as the previous entry describes.
 - A note that 0.8.1 or an earlier release wrote still verifies when its text can be rebuilt, as the previous entry describes. That text follows the verifier's attributes, as 0.8.1 did.
   The verifier now rejects such a note when its text shows "Binary files ... differ" for a file whose content is text. The message names the file.
+  This applies only when that earlier text reproduces the note's digest. A digest that neither text reproduces fails with "review fingerprint does not match the Git diff", whatever the checkout's attributes.
   That text uses Git's default `core.bigFileThreshold`, as the previous entry describes, so a lowered threshold on the verifier does not cause this.
 - Review evidence recorded against attribute-shaped text does not carry to a new head. The review runs again and now sees the content.
 - Earlier verifiers rebuild attribute-shaped text, so they reject a note that this release writes for a repository whose attributes changed a patch. Upgrade the protected verifier before, or together with, the local publisher and the hook, as the previous entry already requires.

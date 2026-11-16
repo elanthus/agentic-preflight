@@ -277,6 +277,24 @@ def test_a_note_that_an_attribute_hid_content_from_does_not_verify(
         attestation.verify(feature_repo, sha, purpose="publish")
 
 
+def test_a_mismatched_digest_is_a_plain_mismatch_despite_a_hiding_attribute(feature_repo, tmp_path):
+    """Only a note that the earlier text reproduces can have relied on hidden content."""
+    _commit_attributes(feature_repo, "* -diff\n")
+    green_run(feature_repo, tmp_path)
+    sha = git("rev-parse", "HEAD", cwd=feature_repo)
+    note = attestation.read(feature_repo, sha)
+    assert note is not None
+    origin = note.evidence[Stage.REVIEW].origin
+    forged = origin.model_copy(
+        update={"fingerprint": origin.fingerprint.model_copy(update={"diff_sha256": "0" * 64})}
+    )
+
+    with pytest.raises(ValueError, match="review fingerprint does not match the Git diff"):
+        refresh_validation._manifest(
+            feature_repo, forged, head=origin.head_sha, base=origin.base_sha
+        )
+
+
 def test_context_reports_a_refused_info_attribute_as_a_typed_error(feature_repo):
     (feature_repo / ".git" / "info").mkdir(exist_ok=True)
     (feature_repo / ".git" / "info" / "attributes").write_text(

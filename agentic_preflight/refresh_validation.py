@@ -33,12 +33,16 @@ def _manifest(repo: Path | str, origin: OriginalExecution, *, head: str, base: s
     # 0.8.1 and earlier releases hashed patches whose ``index`` lines abbreviate
     # object IDs and whose text follows the checkout's Git attributes. A digest
     # that the current text does not reproduce is checked against that earlier
-    # text before the note is rejected. Building it raises when an attribute marks
-    # a text file as binary, so the earlier format cannot hide content. It goes
-    # when a release no longer has to read 0.8 notes; see
+    # text before the note is rejected. When that text reproduces the digest, the
+    # note is refused if an attribute marked a text file as binary in it, so the
+    # earlier format cannot hide content. A digest that neither text reproduces is
+    # an ordinary mismatch, whatever the checkout's attributes. The earlier format
+    # goes when a release no longer has to read 0.8 notes; see
     # docs/maintainers/compatibility-removal-plan.md.
     for legacy in (False, True):
-        bundle = diff.build_bundle(repo, base, head, exclude=cfg.diff.exclude, legacy=legacy)
+        bundle = diff.build_bundle(
+            repo, base, head, exclude=cfg.diff.exclude, legacy=legacy, refuse_hidden=False
+        )
         manifest = diff.build_review_manifest(
             repo, bundle, grounding_sha256=fingerprint.grounding_sha256
         )
@@ -46,6 +50,9 @@ def _manifest(repo: Path | str, origin: OriginalExecution, *, head: str, base: s
             break
     else:
         raise ValueError("review fingerprint does not match the Git diff")
+    if legacy:
+        # Raises ReviewDiffError when the matched text hides a text file.
+        diff.build_bundle(repo, base, head, exclude=cfg.diff.exclude, legacy=True)
     if tuple(sorted(manifest.excluded_files)) != fingerprint.excluded_files:
         raise ValueError("review exclusions do not match the Git diff")
     return manifest

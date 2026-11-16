@@ -12,4 +12,6 @@
   because no other machine can rebuild that text. So does `diff.default.xfuncname` or
   `diff.default.funcname`, which would rewrite every hunk header.
 - A note from 0.8.1 or earlier whose review text marked a text file as binary is now
-  rejected. `COMPATIBILITY.md` lists what changes at upgrade.
+  rejected. A note that neither text reproduces still fails as an ordinary mismatch, even
+  where the checkout's attributes mark a text file as binary. `COMPATIBILITY.md` lists
+  what changes at upgrade.

@@ -1466,7 +1466,13 @@ def _check_binary_markers(
 
 
 def diff_text_by_path(
-    cwd: Path | str, base: str, head: str, paths: Sequence[str], *, legacy: bool = False
+    cwd: Path | str,
+    base: str,
+    head: str,
+    paths: Sequence[str],
+    *,
+    legacy: bool = False,
+    refuse_hidden: bool = True,
 ) -> dict[str, str]:
     """Return complete per-file patches using one Git process per bounded batch.
 
@@ -1485,11 +1491,13 @@ def diff_text_by_path(
     the clone, and whose text follows the checkout's attributes. It exists to verify notes
     those releases wrote. It raises :class:`ReviewDiffError` when such text marks
     a text file as binary, so a note cannot rely on an attribute to hide content.
+    ``refuse_hidden=False`` skips that check, for a caller that first needs to know
+    whether the earlier text reproduces a digest at all.
     """
     if not paths:
         return {}
     if legacy:
-        return _legacy_diff_text_by_path(cwd, base, head, paths)
+        return _legacy_diff_text_by_path(cwd, base, head, paths, refuse_hidden=refuse_hidden)
     with _attribute_free(cwd) as (root, env):
         entries = _raw_inventory(root, base, head, paths, env)
         binary = _binary_blobs(root, _entry_blobs(entries.values()), env)
@@ -1519,13 +1527,13 @@ def diff_text_by_path(
 
 
 def _legacy_diff_text_by_path(
-    cwd: Path | str, base: str, head: str, paths: Sequence[str]
+    cwd: Path | str, base: str, head: str, paths: Sequence[str], *, refuse_hidden: bool
 ) -> dict[str, str]:
     per_file = _patches(
         cwd, base, head, paths, config=_LEGACY_ABBREV_CONFIG, env=_patch_environment()
     )
     marked = [path for path in paths if any(map(_has_binary_marker, per_file[path]))]
-    if marked:
+    if refuse_hidden and marked:
         entries = _raw_inventory(cwd, base, head, marked)
         binary = _binary_blobs(cwd, _entry_blobs(entries[path] for path in marked))
         for path in marked:
