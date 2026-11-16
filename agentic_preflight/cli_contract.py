@@ -263,6 +263,7 @@ class StageRunData(RunDataBase, _OutputSummary):
     copied_file: str | None = None
     copied_files: list[str] | None = None
     baseline_red: Any = None
+    baseline_cleanup_failed: Obj | None = None
     mode: str | None = None
     candidates: list[Candidate] | None = None
     attempts: int | None = None

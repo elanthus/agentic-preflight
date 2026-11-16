@@ -54,6 +54,18 @@ def test_configured_root_must_remain_outside_the_repository(feature_repo):
     assert "outside" in str(exc.value)
 
 
+def test_configured_root_must_remain_outside_the_git_common_directory(feature_repo, tmp_path):
+    """From a linked checkout, the common directory is outside the checkout itself."""
+    linked = tmp_path / "linked"
+    git("worktree", "add", "--detach", str(linked), "HEAD", cwd=feature_repo)
+    inside_common = feature_repo / ".git" / "scratch-root"
+
+    with pytest.raises(worktree.WorktreeError) as exc:
+        worktree.resolve_root(linked, str(inside_common))
+
+    assert "outside the Git directory" in str(exc.value)
+
+
 def test_default_root_lives_under_xdg_cache_home_when_set(feature_repo, tmp_path, monkeypatch):
     cache = tmp_path / "xdg"
     monkeypatch.setenv("XDG_CACHE_HOME", str(cache))

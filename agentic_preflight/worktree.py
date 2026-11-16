@@ -77,6 +77,13 @@ def resolve_root(repo: Path | str, configured: str | None = None) -> Path:
             f"[worktree] root must be outside the repository; got {resolved}. "
             "An external path keeps git status clean and lets Jest discover tests."
         )
+    # A linked checkout's Git common directory lies outside the checkout itself.
+    common = gitx.git_common_dir(repo).resolve()
+    if resolved.is_relative_to(common):
+        raise WorktreeError(
+            f"[worktree] root must be outside the Git directory; got {resolved}. "
+            "Test runners such as Jest ignore checkouts inside it."
+        )
     return resolved
 
 
@@ -212,14 +219,9 @@ def remove(repo: Path | str, path: Path | str, *, branch: str | None = None) -> 
     """
     removal = gitx.run(repo, "worktree", "remove", "--force", str(path), check=False)
     if removal.returncode != 0 and Path(path).exists():
-        reason = _lock_reason(repo, path)
+        reason = lock_reason(repo, path)
         if reason is not None:
-            detail = f" ({reason})" if reason else ""
-            raise WorktreeLocked(
-                f"worktree {path} is locked{detail}, so it was not removed. "
-                "Someone locked it on purpose: show this to the user and do not unlock "
-                "it yourself. Retry only after the user unlocks it."
-            )
+            raise WorktreeLocked(locked_message(path, reason, "so it was not removed"))
     if Path(path).exists():
         shutil.rmtree(path, ignore_errors=True)
     if branch:
@@ -227,7 +229,17 @@ def remove(repo: Path | str, path: Path | str, *, branch: str | None = None) -> 
     gitx.run(repo, "worktree", "prune", check=False)
 
 
-def _lock_reason(repo: Path | str, path: Path | str) -> str | None:
+def locked_message(path: Path | str, reason: str, consequence: str) -> str:
+    """The user-facing refusal for a locked worktree; never invites the agent to unlock it."""
+    detail = f" ({reason})" if reason else ""
+    return (
+        f"worktree {path} is locked{detail}, {consequence}. "
+        "Someone locked it on purpose: show this to the user and do not unlock "
+        "it yourself. Retry only after the user unlocks it."
+    )
+
+
+def lock_reason(repo: Path | str, path: Path | str) -> str | None:
     """The lock reason of the registered worktree at ``path``, or ``None`` if unlocked.
 
     An empty string means locked without a reason. A worktree list that cannot

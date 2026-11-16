@@ -508,9 +508,42 @@ no results file, no tests run, **exit 0**. Engine and GUI toolchains are dense w
 these; treat their first green as unverified.
 
 `--baseline` also runs the command against the base commit, so a pre-existing failure
-is reported rather than blamed on the diff. It is also the cheapest way to see the
-command produce two different outcomes — if base and head are byte-identical greens on
-a diff that touches tested code, suspect the command before trusting it.
+is reported rather than blamed on the diff. The base commit is checked out in a scratch
+worktree, `<run-id>-baseline` on branch `ap/<run-id>-baseline`, under the validation
+worktree root (the user cache by default, or `[worktree] root`). This holds in every
+mode, `in_place` included, so the baseline never runs inside `.git`. The scratch
+worktree and its branch are removed afterwards, also when the command fails.
+
+If the scratch worktree was locked, it is left in place without its branch and the
+baseline result still stands. The envelope reports `data.baseline_cleanup_failed`
+(`worktree_path`, `branch`, `detail`), and the event log records the same. A later
+`--baseline` check fails with `setup_failed` and a `next.instruction` that names the
+locked path. Show the user the path. Never run `git worktree unlock` yourself; retry only
+after the user unlocks it, and the retry removes the leftover first.
+
+A baseline that was killed, for example by SIGTERM, cannot clean up after itself. The
+next `--baseline` check removes a leftover that Git still registers as a worktree at
+the scratch path, including one whose directory is gone, when its `HEAD` is still the
+run's base commit; uncommitted changes there do not keep it. A leftover there whose
+`HEAD` moved is kept, and the check fails with `setup_failed` naming it: show it to the
+user, never remove it yourself, and retry only after the user removes it. It deletes a leftover
+`ap/<run-id>-baseline` branch that still points at the run's base commit. A clean,
+unlocked `<run-id>-baseline` checkout at the base that holds the branch elsewhere, such
+as one an earlier release created under `.git`, is removed too. It never deletes an
+unregistered directory at the scratch path. If the branch points anywhere else, the
+check fails with `setup_failed`, names the branch, and leaves it alone: show the user the
+branch, never delete or rename it yourself, and retry only after the user removes or
+renames it. If another worktree has the branch checked out, the failure names that
+worktree: show it to the user, never remove it yourself, and retry only after the user
+removes that worktree. By design, `gc` never reclaims baseline leftovers; the stage
+envelope and the retry report them. A leftover still on its `ap/<run-id>-baseline`
+branch appears in the `start` housekeeping report as `retained`, and `gc` lists its name
+among the orphans. A detached leftover that cleanup could not remove is not listed by
+`gc`, and the housekeeping report lists it only in isolated modes.
+
+`--baseline` is also the cheapest way to see the command produce two different
+outcomes — if base and head are byte-identical greens on a diff that touches tested
+code, suspect the command before trusting it.
 
 ### `agentic-preflight mergeback`
 In in-place mode, attests the already-verified current SHA without creating or
