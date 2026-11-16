@@ -163,7 +163,8 @@ command. Equal base/head trees and matching context
 can preserve review and docs across rewritten commits. Applicable lint and test stages
 rerun in every new run, including commits with identical trees. Read `data.applicability`;
 `invalid` and `unknown` require a fresh stage, and later-stage candidates remain available while earlier stages are pending.
-Refuses a detached HEAD or a branch with no commits yet (exit 3, `no_branch`), a dirty
+Refuses a detached HEAD, a HEAD that points at a ref other than a branch, or a branch
+with no commits yet (exit 3, `no_branch`), a dirty
 tree (exit 3, `dirty_tree`), and a branch with no changes over the base
 (exit 3, `empty_diff`). It also refuses, before any stage runs, a base that verification
 without `--base` cannot resolve to a branch (exit 3, `unsupported_base_ref`): the

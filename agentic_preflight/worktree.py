@@ -163,10 +163,14 @@ def acquire_reusable(repo: Path | str, *, path: Path | str, branch: str, head_sh
 
     if not (path / ".git").is_file():
         raise WorktreeError(f"reusable runner path exists but is not a linked worktree: {path}")
-    current = gitx.current_branch(path)
-    if current != "HEAD":
+    try:
+        current = gitx.current_branch(path)
+        lease = None if current == "HEAD" else f"branch {current!r}"
+    except gitx.NotOnBranch as exc:
+        lease = exc.ref
+    if lease is not None:
         raise WorktreeError(
-            f"reusable runner {path} is still leased on branch {current!r}; "
+            f"reusable runner {path} is still leased on {lease}; "
             "run `agentic-preflight status` and finish, abort, or recover that run first"
         )
     if gitx.run(repo, "rev-parse", "--verify", branch, check=False).returncode == 0:

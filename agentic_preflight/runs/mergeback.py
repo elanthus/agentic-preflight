@@ -64,7 +64,7 @@ def _reconcile_attempt(
     repo = session.repo_root
     if (
         run.stale
-        or gitx.current_branch(repo) != run.branch
+        or gitx.current_branch_or_none(repo) != run.branch
         or gitx.rev_parse(wt, "HEAD") != attempt.validation_sha
         or gitx.tree_sha(wt) != attempt.validation_tree
         or not gitx.is_clean(wt)
@@ -278,7 +278,7 @@ def _record_attempt(session: Session, run: RunDoc, *, retrying_conflict: bool) -
     if run.state not in {State.TEST_GREEN, State.MERGEBACK_CONFLICT}:
         return run
     repo = session.repo_root
-    if gitx.current_branch(repo) != run.branch:
+    if gitx.current_branch_or_none(repo) != run.branch:
         raise StaleRun("mergeback requires the recorded source branch")
     source_sha = gitx.rev_parse(repo, "HEAD")
     attempt = MergebackAttempt(

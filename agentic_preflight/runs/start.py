@@ -427,7 +427,15 @@ class UnsupportedBaseRef(AgenticError):
 
 
 def _require_branch(repo: Path) -> None:
-    if gitx.run(repo, "symbolic-ref", "-q", "HEAD", check=False).returncode != 0:
+    try:
+        detached = gitx.current_branch(repo) == "HEAD"
+    except gitx.NotOnBranch as exc:
+        raise NoBranch(
+            f"{exc}; start validates and publishes a named branch",
+            next_instruction="Check out the branch you want to ship, then start the run.",
+            next_command="git switch <branch>",
+        ) from exc
+    if detached:
         raise NoBranch(
             "HEAD is detached; start validates and publishes a named branch",
             next_instruction="Check out the branch you want to ship, then start the run.",
@@ -704,7 +712,7 @@ def _provision_validation_checkout(
         else:  # strict
             retained_runner = ctx.session.store.worktrees_dir / "runner"
             if retained_runner.exists():
-                if gitx.current_branch(retained_runner) != "HEAD":
+                if gitx.current_branch_or_none(retained_runner) != "HEAD":
                     raise worktree.WorktreeError(
                         f"cannot enter strict mode: reusable runner {retained_runner} "
                         "is still leased; recover or release its run first"
