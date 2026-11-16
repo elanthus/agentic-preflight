@@ -17,7 +17,7 @@ from ..envelope import ExitCode
 from ..errors import AgenticError, StaleRun
 from ..machine import State
 from ..models import RunDoc
-from ._session import Session, is_in_place, require_worktree, start_command
+from ._session import Session, is_in_place, require_worktree, start_command, worktree_mode
 
 
 class NonlinearFixHistory(AgenticError):
@@ -197,14 +197,19 @@ def _branch_only_commits(run: RunDoc, checkout: str, derived: list[str]) -> list
             f"the validation branch {run.worktree_branch} contains merge commit(s) "
             f"{', '.join(merges)}"
         )
-    return [sha for sha in gitx.commits_between(checkout, run.head_sha, tip) if sha not in derived]
+    return [
+        sha
+        for sha in gitx.commits_between(checkout, run.head_sha, tip)
+        if sha not in derived and not _is_empty(checkout, sha)
+    ]
 
 
 def listed_branch_commits(session: Session, run: RunDoc) -> list[str]:
     """Every commit after the reviewed head on ``HEAD`` or the validation branch.
 
-    A plain listing for a report, with none of :func:`branch_fix_commits`'s checks:
-    it is what ``abort --force`` names when the history cannot be derived.
+    A plain listing, with none of :func:`branch_fix_commits`'s checks: what ``abort``
+    names, and what it weighs, when the history cannot be derived. A tip that does
+    not exist holds nothing; any other failure raises ``gitx.GitError``.
     """
     checkout = run.worktree_path
     present = bool(checkout) and Path(str(checkout)).is_dir()
@@ -214,10 +219,12 @@ def listed_branch_commits(session: Session, run: RunDoc) -> list[str]:
         tips.append("HEAD")
     listed: list[str] = []
     for tip in tips:
-        try:
-            commits = gitx.commits_between(root, run.head_sha, tip)
-        except gitx.GitError:
+        exists = gitx.run(
+            root, "rev-parse", "--verify", "--quiet", f"{tip}^{{commit}}", check=False
+        )
+        if exists.returncode != 0:
             continue
+        commits = gitx.commits_between(root, run.head_sha, tip)
         listed += [sha for sha in commits if sha not in listed]
     return listed
 
@@ -238,6 +245,9 @@ def branch_fix_commits(session: Session, run: RunDoc) -> list[str]:
         return recorded
     checkout = run.worktree_path
     if not checkout or not Path(checkout).is_dir():
+        if worktree_mode(run) == "reusable":
+            # Releasing a missing runner leaves its branch in place; nothing is lost.
+            return recorded
         try:
             extra = _branch_only_commits(run, str(session.repo_root), [])
         except (gitx.GitError, OSError) as exc:

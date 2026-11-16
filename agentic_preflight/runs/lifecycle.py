@@ -72,6 +72,10 @@ def _abort_fix_commits(session: Session, run: RunDoc, *, force: bool) -> list[st
         try:
             return branch_fix_commits(session, run)
         except UnreadableFixHistory as exc:
+            # Nothing after the reviewed head on HEAD or the branch: nothing at risk.
+            with suppress(Exception):
+                if not listed_branch_commits(session, run):
+                    return list(run.fix_commits)
             raise UnmergedWork(
                 "the validation branch history cannot be read, so it may hold commits "
                 f"that were never merged back: {exc}",
@@ -82,8 +86,9 @@ def _abort_fix_commits(session: Session, run: RunDoc, *, force: bool) -> list[st
                     "worktree_path": run.worktree_path,
                 },
                 next_instruction=(
-                    "Inspect the validation worktree and cherry-pick anything worth keeping, "
-                    "then abort again with --force to discard the rest."
+                    "Inspect the commits in data.fix_commits, from the validation worktree or "
+                    "the validation branch, and cherry-pick anything worth keeping, then "
+                    "abort again with --force to discard the rest."
                 ),
                 next_command="agentic-preflight abort --force",
             ) from exc
