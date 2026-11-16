@@ -26,11 +26,13 @@ from ._session import (
     assert_fresh,
     check_restart_limit,
     envelope_for,
+    findings_unresolved,
     is_in_place,
     load_current,
     require_state,
     require_worktree,
     start_command,
+    unresolved_findings,
     utc_now,
 )
 from ._shell import _run_protected, _withheld_message
@@ -74,6 +76,15 @@ _STAGE_READY_STATES: dict[str, tuple[State, ...]] = {
     "lint": (State.DOCS_GREEN, State.LINT_RUNNING, State.LINT_RED),
     "test": (State.LINT_GREEN, State.TEST_RUNNING, State.TEST_RED),
 }
+
+
+def _refuse_leaving_docs_with_open_findings(session: Session, run: RunDoc) -> None:
+    """Keep the run where `respond` is legal until every open finding is answered."""
+    if run.state is not State.DOCS_GREEN:
+        return
+    unresolved = unresolved_findings(session, session.store.load_findings(run.run_id))
+    if unresolved:
+        raise findings_unresolved(run, unresolved, step="leaving documentation")
 
 
 def _recover_interrupted_stage(
@@ -372,6 +383,7 @@ def run_stage(
                 next_command="agentic-preflight context",
             )
     require_state(run, *_STAGE_READY_STATES[stage_name], command=f"stage run {stage_name}")
+    _refuse_leaving_docs_with_open_findings(session, run)
     run = _recover_interrupted_stage(session, run, stage, spec)
     record_entry = run.stages.get(stage) or StageRecord()
     worktree_path = require_worktree(run)

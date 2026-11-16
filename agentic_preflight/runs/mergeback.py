@@ -30,10 +30,12 @@ from ._session import (
     assess_risk,
     check_restart_limit,
     envelope_for,
+    findings_unresolved,
     is_in_place,
     load_current,
     require_state,
     require_worktree,
+    unresolved_findings,
     worktree_mode,
 )
 from .fix_commits import derive_fix_commits, patch_matches
@@ -132,6 +134,65 @@ def _reset_non_equivalent_merge_to_review(
     )
     check_restart_limit(run)
     return run
+
+
+def _reopen_unresolved_findings(session: Session, run: RunDoc) -> None:
+    """Return a run with an unanswered finding to review before merge-back changes anything.
+
+    Earlier releases let such a run leave review, so it can reach ``TEST_GREEN``
+    or stop in ``MERGEBACK_PENDING`` while the source still holds no merge-back
+    result. ``REOPEN_FINDINGS`` keeps the review result and discards the later
+    stage results, because ``respond`` is legal only in review and documentation.
+    """
+    unresolved = unresolved_findings(session, session.store.load_findings(run.run_id))
+    if not unresolved:
+        return
+    with session.store.transaction(run.run_id) as doc:
+        for stage in (Stage.DOCS, Stage.LINT, Stage.TEST):
+            invalidate_stage_result(doc, stage)
+        doc.mergeback_attempt = None
+        apply_action(doc, Action.REOPEN_FINDINGS)
+        run = doc
+    session.store.append_event(
+        run.run_id,
+        {"event": "findings_reopened", "findings": [finding.id for finding in unresolved]},
+    )
+    raise findings_unresolved(
+        run,
+        unresolved,
+        step="mergeback",
+        next_instruction=(
+            "The run is back in review and nothing was merged. Fix each named finding and "
+            "cite the commit, or record why it is not worth fixing with `--action accepted "
+            "--note`. Then follow `next.command` through documentation, lint, and tests again."
+        ),
+    )
+
+
+def _restart_review_for_unresolved_findings(
+    session: Session, run: RunDoc, result: mergebackmod.MergebackResult
+) -> None:
+    """Restart review from a source that already holds the validated tree.
+
+    The source cannot return to its earlier commit, so the validation checkout
+    adopts it as the new review snapshot, as for a changed conflict resolution.
+    Review then reports the still-open finding for ``respond``.
+    """
+    unresolved = unresolved_findings(session, session.store.load_findings(run.run_id))
+    if not unresolved:
+        return
+    run = _reset_non_equivalent_merge_to_review(session, run, result)
+    raise findings_unresolved(
+        run,
+        unresolved,
+        step="mergeback",
+        next_instruction=(
+            "The source branch already holds the validated fixes, so the validation "
+            "checkout now matches it and review restarts. Review the complete current "
+            "diff; review then names each open finding to answer with `respond`."
+        ),
+        next_command="agentic-preflight context",
+    )
 
 
 def _register_validated_history(session: Session, run: RunDoc) -> RunDoc:
@@ -515,6 +576,10 @@ def mergeback(session: Session) -> Envelope:
         State.MERGEBACK_CONFLICT,
         command="mergeback",
     )
+    if run.state is State.TEST_GREEN or (
+        run.state is State.MERGEBACK_PENDING and recovered is None and not retrying_conflict
+    ):
+        _reopen_unresolved_findings(session, run)
 
     # Validate saved origins before recording an attempt or changing the source branch.
     run = evidence.archive(session, run)
@@ -582,7 +647,9 @@ def mergeback(session: Session) -> Envelope:
         # The schema models this as an open string-to-count summary.
         summary[finding.severity.value] = summary.get(finding.severity.value, 0) + 1
 
-    if not result.tree_equivalent:
+    if result.tree_equivalent:
+        _restart_review_for_unresolved_findings(session, run, result)
+    else:
         _refuse_unmerged_fixes(session, run, result)
         run = _reset_non_equivalent_merge_to_review(session, run, result)
         return envelope_for(

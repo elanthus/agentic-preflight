@@ -256,6 +256,11 @@ and the `by_file` sizes are then lower bounds over the files read,
 `next.instruction` says to check those files too. A report with `data.complete` set to
 `true` is exact. `review run` refuses the same diff with the same message.
 
+From `REVIEW_GREEN`, `--section docs` exits 3 with `findings_unresolved` while a review
+or docs finding is still open and blocking or `auto_fix`. `error.message` and `blocking`
+name the findings, `next.command` is `respond` for the first one, and the run stays in
+`REVIEW_GREEN`. `status` returns the same `respond` command.
+
 ### `agentic-preflight review run`
 Runs the configured independent reviewer when the effective `[review] executor` is
 `command`. The command receives the exact review `context` data object as one JSON value
@@ -376,6 +381,9 @@ attestation note includes them. Review-command findings are redacted the same wa
 - Non-blocking findings may be resolved after their review or docs stage is green. A
   note-only disposition preserves the green state. A fix that changes the reviewed
   snapshot records the repair commit and returns the run to review before lint or test.
+  An open `auto_fix` finding must be resolved before the run leaves `REVIEW_GREEN` or
+  `DOCS_GREEN`: `context --section docs` and `stage run lint` exit 3 with
+  `findings_unresolved` until then, and disabled docs are not skipped.
 
 ### `agentic-preflight verify [SHA] [--purpose local|publish] [--base REV]`
 Without an argument, confirms nothing blocks the active review/docs stage and advances
@@ -466,6 +474,10 @@ includes `.md`, `.rst`, `.adoc`, root extensionless README/CONTRIBUTING/CHANGELO
 `.txt` on the docs surface. Executable examples, MDX, unknown files, and Jenkinsfiles
 keep tests mandatory even under documentation or CI globs; CI configuration is limited
 to recognized hosted-CI YAML paths.
+
+From `DOCS_GREEN`, `stage run lint` exits 3 with `findings_unresolved` while a review or
+docs finding is still open and blocking or `auto_fix`; `blocking` names the findings and
+`next.command` is `respond` for the first one.
 
 Command resolution: `--command` → `[commands].<name>` → detection. `--record` acknowledges
 that the user chose and approved the `--command` value; the `needs_command` recovery
@@ -609,6 +621,16 @@ its attestation could publish user-level configuration. `gate` and `push` refuse
 run the same way, and their message names the `git notes ... remove` command for a note an
 earlier release already wrote. The error data lists the recorded fix commits; in isolated
 modes, cherry-pick them before aborting. Abort it and start a fresh run.
+
+A run that an earlier release let leave review with an open blocking or `auto_fix`
+finding exits 3 with `findings_unresolved`; `error.message` and `blocking` name the
+findings. From `TEST_GREEN`, or from a pending attempt that has not changed the source, the
+check runs before any Git change or recorded attempt. The run returns to `REVIEW_GREEN`
+with its review result kept, the documentation, lint, and test results discarded, and
+`respond` for the first finding as `next.command`; this is not a validation restart. When
+the source already holds the validated tree, as after an isolated merge-back's cherry-pick,
+the validation worktree adopts that commit and the run returns to review, as for a
+changed resolution, with `context` as `next.command`. Review then names the open finding.
 
 A merge-back interrupted after synchronizing the source with the base but before reaching
 the recorded verified tree is stale. Follow `status` and restart preflight for the current source;
