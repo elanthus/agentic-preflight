@@ -412,3 +412,15 @@ def test_an_unreadable_history_and_uncommitted_changes_are_named_together(featur
     assert "cannot be read" in refused["error"]["message"]
     assert refused["data"]["fix_commits"]
     assert refused["data"]["uncommitted_paths"] == ["notes.txt"]
+
+
+def test_a_detached_head_counts_when_the_checkout_directory_is_gone(feature_repo, tmp_path):
+    """The shared repository records the worktree's HEAD until release prunes it."""
+    agent, wt = _at_test_green(feature_repo, tmp_path)
+    git("checkout", "-q", "--detach", cwd=wt)
+    detached = _commit(wt, "DETACHED", "work on a detached HEAD")
+    shutil.rmtree(wt)
+
+    refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
+
+    assert refused["data"]["fix_commits"] == [detached]
