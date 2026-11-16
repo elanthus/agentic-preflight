@@ -412,5 +412,6 @@ reclaimed automatically; anything unmerged is retained unless the user explicitl
 chooses `--force`. So is a validation worktree holding uncommitted changes or a commit
 that `respond` never recorded. A plain `abort` in `strict` or `reusable` mode likewise
 exits 5 with `unmerged_work` while the validation worktree holds uncommitted changes,
-listed in `data.uncommitted_paths`; show them to the user before any `abort --force`. Run directories remain because they hold stage logs, until
-`[retention] run_days` expires them; report `data.pruned` when it is not empty.
+listed in `data.uncommitted_paths`; show them to the user before any `abort --force`.
+Run directories remain because they hold stage logs, until `[retention] run_days`
+expires them; report `data.pruned` when it is not empty.
