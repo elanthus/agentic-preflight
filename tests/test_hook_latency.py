@@ -358,13 +358,33 @@ def test_an_id_in_the_other_object_format_is_never_cached(tmp_repo, monkeypatch)
     first = git("rev-parse", "HEAD", cwd=tmp_repo)
     git("update-ref", f"refs/heads/{name}", first, cwd=tmp_repo)
     calls = _count_git(monkeypatch)
+    diffs: list[tuple[str, ...]] = []
+    run_bytes = gitx._run_bytes
+
+    def counted_bytes(cwd, *args, **kwargs):
+        diffs.append(args)
+        return run_bytes(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(gitx, "_run_bytes", counted_bytes)
     with gitx.object_cache():
         gitx.prime_object_lookups(tmp_repo, [name])
         assert gitx.rev_parse(tmp_repo, name) == first
-        git("commit", "--allow-empty", "-m", "move the ref", cwd=tmp_repo)
+        assert gitx.changed_files_raw(tmp_repo, first, name) == []
+
+        (tmp_repo / "added.txt").write_text("added\n", encoding="utf-8")
+        git("add", "added.txt", cwd=tmp_repo)
+        git("commit", "-m", "move the ref", cwd=tmp_repo)
         second = git("rev-parse", "HEAD", cwd=tmp_repo)
         git("update-ref", f"refs/heads/{name}", second, cwd=tmp_repo)
+
         assert gitx.rev_parse(tmp_repo, name) == second
-        gitx.changed_files_raw(tmp_repo, first, name)
-        gitx.changed_files_raw(tmp_repo, first, name)
+        assert gitx.changed_files_raw(tmp_repo, first, name) == ["added.txt"]
+        # Both diffs ran: the ref name's result was never cached.
+        assert len(diffs) == 2
+
+        # Control: between two IDs already peeled as full IDs, the diff is cached.
+        gitx.prime_object_lookups(tmp_repo, [first, second])
+        assert gitx.changed_files_raw(tmp_repo, first, second) == ["added.txt"]
+        assert gitx.changed_files_raw(tmp_repo, first, second) == ["added.txt"]
+        assert len(diffs) == 3
     assert len(calls) == 2
