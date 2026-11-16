@@ -1313,7 +1313,11 @@ def _read_exactly(stream: IO[bytes], size: int) -> bytes:
 
 
 def _unreadable_blob(
-    process: subprocess.Popen[bytes], args: tuple[str, ...], errors: IO[bytes], oid: str
+    process: subprocess.Popen[bytes],
+    args: tuple[str, ...],
+    errors: IO[bytes],
+    oid: str,
+    reply: list[bytes],
 ) -> NoReturn:
     """Raise Git's own error for a blob ``cat-file`` could not read.
 
@@ -1325,11 +1329,12 @@ def _unreadable_blob(
     returncode = process.wait()
     errors.seek(0)
     stderr = errors.read().decode("utf-8", errors=_DECODE_ERRORS)
+    detail = stderr.strip() or b" ".join(reply).decode("utf-8", errors=_DECODE_ERRORS)
     raise GitError(
         list(args),
         returncode or 1,
         stderr,
-        message=f"git {' '.join(args)} could not read blob {oid}: {stderr.strip()}",
+        message=f"git {' '.join(args)} could not read blob {oid}: {detail or 'no reply'}",
     )
 
 
@@ -1367,15 +1372,16 @@ def _binary_blobs(
                 requests.flush()
                 fields = replies.readline().split()
                 if len(fields) != 3 or fields[0].decode("ascii") != oid or fields[1] != b"blob":
-                    _unreadable_blob(process, args, errors, oid)
+                    _unreadable_blob(process, args, errors, oid, fields)
                 size = int(fields[2])
                 if size > _BIG_FILE_THRESHOLD:
                     binary.add(oid)
                     continue
                 requests.write(f"contents {oid}\n".encode("ascii"))
                 requests.flush()
-                if replies.readline().split() != fields:
-                    _unreadable_blob(process, args, errors, oid)
+                header = replies.readline().split()
+                if header != fields:
+                    _unreadable_blob(process, args, errors, oid, header)
                 prefix = _read_exactly(replies, min(size, _BINARY_PREFIX_BYTES))
                 if b"\0" in prefix:
                     binary.add(oid)
@@ -1453,13 +1459,34 @@ def _hunk_header_drivers(cwd: Path | str, env: Mapping[str, str]) -> set[str]:
     return {_decode_path(key)[len("diff.") :].rsplit(".", 1)[0] for key in keys}
 
 
+def _forces_text(value: bytes | None) -> bool:
+    """Whether a ``diff.<driver>.binary`` value tells Git to print binary content as text.
+
+    Git reads the setting as a tristate: ``auto`` keeps its own detection, a true
+    boolean (or a key with no ``=``) marks the file binary, and a false one, which
+    includes an empty value and ``0``, prints it as text. Anything else makes
+    Git's own diff fail, so it is left to Git.
+    """
+    if value is None:
+        return False
+    text = value.decode("utf-8", errors=_DECODE_ERRORS).strip().lower()
+    if text in ("false", "no", "off", ""):
+        return True
+    try:
+        return int(text, 0) == 0
+    except ValueError:
+        return False
+
+
 def _text_forcing_drivers(cwd: Path | str, env: Mapping[str, str]) -> set[str]:
     """Return the diff drivers whose configuration sets ``binary`` to false.
 
-    Such a driver makes Git print a binary file's content as text.
+    Such a driver makes Git print a binary file's content as text. As in Git, the
+    last value of a key wins. ``default`` is left out: the pinned options set its
+    ``binary`` to ``auto``.
     """
     result = subprocess.run(
-        [_git_executable(), "config", "-z", "--type=bool", "--get-regexp", r"^diff\..+\.binary$"],
+        [_git_executable(), "config", "-z", "--get-regexp", r"^diff\..+\.binary$"],
         cwd=str(cwd),
         capture_output=True,
         env=env,
@@ -1470,14 +1497,14 @@ def _text_forcing_drivers(cwd: Path | str, env: Mapping[str, str]) -> set[str]:
             result.returncode,
             result.stderr.decode("utf-8", errors=_DECODE_ERRORS),
         )
-    drivers: set[str] = set()
+    last: dict[str, bytes | None] = {}
     for entry in result.stdout.split(b"\0"):
         if not entry:
             continue
-        key, _, value = entry.partition(b"\n")
-        if value == b"false":
-            drivers.add(_decode_path(key)[len("diff.") :].rsplit(".", 1)[0])
-    return drivers
+        key, separator, value = entry.partition(b"\n")
+        driver = _decode_path(key)[len("diff.") :].rsplit(".", 1)[0]
+        last[driver] = value if separator else None
+    return {driver for driver, value in last.items() if driver != "default" and _forces_text(value)}
 
 
 def _refuse_local_diff_attributes(
@@ -1521,8 +1548,13 @@ def _refuse_local_diff_attributes(
     if len(fields) % 3:
         raise ValueError("git check-attr returned malformed output")
     drivers = _BUILTIN_HUNK_HEADER_DRIVERS | configured
-    text_forcing = _text_forcing_drivers(cwd, env) if binary_paths else set()
-    for path, _name, value in zip(fields[0::3], fields[1::3], fields[2::3], strict=True):
+    entries = list(zip(fields[0::3], fields[1::3], fields[2::3], strict=True))
+    names_a_driver = any(
+        path in binary_paths and value not in ("unspecified", "unset", "set")
+        for path, _name, value in entries
+    )
+    text_forcing = _text_forcing_drivers(cwd, env) if names_a_driver else set()
+    for path, _name, value in entries:
         shown = display_path(path)
         if path in binary_paths and value in text_forcing:
             raise ReviewDiffError(

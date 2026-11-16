@@ -292,6 +292,34 @@ def test_a_replacement_object_cannot_pass_the_earlier_format_guard(change):
         diff.build_bundle(repo, base, "HEAD", legacy=True)
 
 
+@pytest.mark.parametrize(
+    "settings",
+    [
+        [("diff.printer.binary", "auto")],
+        [("diff.printer.binary", "true")],
+        [("diff.printer.binary", "false"), ("diff.printer.binary", "true")],
+        [("diff.default.binary", "false")],
+    ],
+    ids=["auto", "true", "last-value-wins", "default-is-pinned"],
+)
+def test_a_driver_that_keeps_a_binary_file_binary_is_not_refused(change, settings):
+    """Only a driver whose effective ``binary`` is false prints binary content."""
+    repo, base = change
+    for key, value in settings:
+        git("config", "--local", "--add", key, value, cwd=repo)
+    (repo / ".git" / "info").mkdir(exist_ok=True)
+    (repo / ".git" / "info" / "attributes").write_text(
+        "*.bin diff=printer\n" if "printer" in settings[0][0] else "*.bin diff=default\n",
+        encoding="utf-8",
+    )
+
+    bundle = diff.build_bundle(repo, base, "HEAD")
+    budgeted, _report = diff.build_bundle_within_budget(repo, base, "HEAD", max_bytes=1_000_000)
+
+    assert bundle.per_file["logo.bin"].endswith(_MARKER)
+    assert budgeted == bundle
+
+
 def test_a_binary_file_is_reported_as_binary_and_not_dumped(change):
     repo, base = change
     patch = diff.build_bundle(repo, base, "HEAD").per_file["logo.bin"]
