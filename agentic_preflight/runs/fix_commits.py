@@ -58,9 +58,8 @@ def derive_fix_commits(session: Session, run: RunDoc) -> list[str]:
                 producer=run.producer,
             ),
         )
-    span = f"{run.head_sha}..{current}"
     if not is_in_place(run):
-        merges = gitx._lines(gitx.out(checkout, "rev-list", "--reverse", "--merges", span))
+        merges = gitx.merge_commits_between(checkout, run.head_sha, current)
         if merges:
             raise NonlinearFixHistory(
                 f"the validation history contains merge commit(s) {', '.join(merges)}; "
@@ -192,7 +191,7 @@ def _branch_only_commits(run: RunDoc, checkout: str, derived: list[str]) -> list
         raise UnreadableFixHistory(
             f"the validation branch {run.worktree_branch} no longer descends from the reviewed head"
         )
-    merges = gitx._lines(gitx.out(checkout, "rev-list", "--merges", f"{run.head_sha}..{tip}"))
+    merges = gitx.merge_commits_between(checkout, run.head_sha, tip)
     if merges:
         raise UnreadableFixHistory(
             f"the validation branch {run.worktree_branch} contains merge commit(s) "

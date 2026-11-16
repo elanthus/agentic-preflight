@@ -489,6 +489,11 @@ def commits_between(cwd: Path | str, base: str, head: str) -> list[str]:
     return _lines(out(cwd, "rev-list", "--reverse", f"{base}..{head}"))
 
 
+def merge_commits_between(cwd: Path | str, base: str, head: str) -> list[str]:
+    """Return the merge commits in base..head, oldest first."""
+    return _lines(out(cwd, "rev-list", "--reverse", "--merges", f"{base}..{head}"))
+
+
 def commit_subject(cwd: Path | str, sha: str) -> str:
     """Return a commit's subject line."""
     return out(cwd, "log", "-1", "--format=%s", sha)
