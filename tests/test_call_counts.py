@@ -515,3 +515,107 @@ def test_documentation_contents_are_hashed_at_most_once_per_command(
         else:
             agent.run(*step)
         assert len(hashed) <= 1, step
+
+
+def _ls_tree_calls(monkeypatch) -> list[tuple[str, ...]]:
+    """Record the arguments of every ``git ls-tree`` the commands start."""
+    from agentic_preflight import gitx
+
+    calls: list[tuple[str, ...]] = []
+    run = gitx.run
+    run_bytes = gitx._run_bytes
+
+    def record(args: tuple[str, ...]) -> None:
+        if "ls-tree" in args:
+            calls.append(args[args.index("ls-tree") :])
+
+    def recorded_run(cwd, *args, **kwargs):
+        record(args)
+        return run(cwd, *args, **kwargs)
+
+    def recorded_run_bytes(cwd, *args, **kwargs):
+        record(args)
+        return run_bytes(cwd, *args, **kwargs)
+
+    monkeypatch.setattr(gitx, "run", recorded_run)
+    monkeypatch.setattr(gitx, "_run_bytes", recorded_run_bytes)
+    return calls
+
+
+def _has_short_flag(args: tuple[str, ...], flag: str) -> bool:
+    """Whether a short option such as ``-r`` appears alone or clustered, as in ``-rl``."""
+    options = args[: args.index("--")] if "--" in args else args
+    return any(arg[:1] == "-" and arg[1:2] != "-" and flag in arg[1:] for arg in options)
+
+
+def _lists_whole_tree(args: tuple[str, ...]) -> bool:
+    unlimited = "--" not in args or args.index("--") == len(args) - 1
+    return _has_short_flag(args, "r") and unlimited
+
+
+def test_fingerprinting_commands_never_list_the_whole_tree(feature_repo, tmp_path, monkeypatch):
+    """The docs surface and grounding sources come from pathspec-limited listings.
+
+    A tree listing grows with the repository, not the documentation, so each
+    fingerprinting command may only ask Git for the paths the documentation
+    patterns can match: one root listing and one limited recursive listing for
+    the docs inventory, one limited recursive listing for grounding, and the
+    one-path configuration lookup.
+    """
+    _prepare(feature_repo)
+    calls = _ls_tree_calls(monkeypatch)
+    agent = ScriptedAgent(feature_repo)
+    payload = tmp_path / "findings.json"
+    for step in LIFECYCLE:
+        calls.clear()
+        if step[0] == "submit-findings":
+            payload.write_text(
+                '{"coverage":{"manifest":"$context","examined":"all"},"findings":[]}'
+                if step[1] == "review"
+                else '{"findings":[]}'
+            )
+            agent.run("submit-findings", "--file", str(payload))
+        else:
+            agent.run(*step)
+        assert not [args for args in calls if _lists_whole_tree(args)], (step, calls)
+        recursive = [args for args in calls if _has_short_flag(args, "r")]
+        assert len(calls) - len(recursive) <= 2, (step, calls)  # config lookup, root listing
+        assert len(recursive) <= 2, (step, calls)  # grounding and docs inventory
+
+
+def test_scoped_listings_leave_review_and_docs_fingerprints_byte_identical(
+    feature_repo, monkeypatch
+):
+    """Forcing the old whole-tree listings yields the same fingerprints."""
+    _prepare(feature_repo)
+    config = (feature_repo / ".agentic-preflight.toml").read_text()
+    config += "[docs]\npaths = ['rules/*.md', 'notes.txt']\n"
+    config += "[context]\nextra_paths = ['rules/*.md']\n"
+    write(feature_repo, ".agentic-preflight.toml", config)
+    write(feature_repo, "rules/style.md", "# Style\n\nsrc/app.py uses greet.\n")
+    write(feature_repo, "rules/deep/other.md", "# Other\n")
+    write(feature_repo, "notes.txt", "notes\n")
+    write(feature_repo, "CHANGELOG.md", "# Changes\n")
+    commit_all(feature_repo, "scoped documentation")
+    ScriptedAgent(feature_repo).run("start")
+
+    def fingerprints() -> dict[Stage, object]:
+        session = open_session(feature_repo)
+        run = load_current(session)
+        return {stage: evidence.fingerprint(session, run, stage) for stage in Stage}
+
+    scoped = fingerprints()
+    whole_tree = _ls_tree_calls(monkeypatch)
+    from agentic_preflight import grounding as groundingmod
+
+    monkeypatch.setattr(docsstage, "match_scope", lambda pattern: None)
+    monkeypatch.setattr(groundingmod, "_source_scopes", lambda extra_paths: None)
+    unscoped = fingerprints()
+
+    full_listings = [args for args in whole_tree if _lists_whole_tree(args)]
+    # Grounding lists sizes with -l; the docs inventory does not.
+    assert [args for args in full_listings if _has_short_flag(args, "l")], "old grounding path"
+    assert [args for args in full_listings if not _has_short_flag(args, "l")], "old docs path"
+    assert {stage: value.model_dump() for stage, value in scoped.items()} == {
+        stage: value.model_dump() for stage, value in unscoped.items()
+    }

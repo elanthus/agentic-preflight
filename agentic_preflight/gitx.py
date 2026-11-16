@@ -116,7 +116,11 @@ class OperationInProgress(Exception):
 
 
 def run(
-    cwd: Path | str, *args: str, check: bool = True, timeout: float | None = None
+    cwd: Path | str,
+    *args: str,
+    check: bool = True,
+    timeout: float | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
     """Run a git command in a directory and return the completed process."""
     result = subprocess.run(
@@ -127,6 +131,7 @@ def run(
         encoding="utf-8",
         errors=_DECODE_ERRORS,
         timeout=timeout,
+        env=env,
     )
     if check and result.returncode != 0:
         raise GitError(list(args), result.returncode, result.stderr)
@@ -265,14 +270,47 @@ def tree_sha(cwd: Path | str, ref: str = "HEAD") -> str:
     return out(cwd, "rev-parse", f"{ref}^{{tree}}")
 
 
-def tree_files(cwd: Path | str, ref: str = "HEAD") -> list[str]:
+_PATHSPEC_ENV = (
+    "GIT_LITERAL_PATHSPECS",
+    "GIT_GLOB_PATHSPECS",
+    "GIT_NOGLOB_PATHSPECS",
+    "GIT_ICASE_PATHSPECS",
+)
+
+
+def literal_pathspec_env() -> dict[str, str]:
+    """Git's environment for ``:(literal)`` pathspecs, free of the global pathspec switches.
+
+    ``GIT_LITERAL_PATHSPECS`` would read ``:(literal)docs`` as a path with that
+    name, and ``GIT_ICASE_PATHSPECS`` makes ``ls-tree`` refuse the pathspec.
+    """
+    return {name: value for name, value in os.environ.items() if name not in _PATHSPEC_ENV}
+
+
+def tree_files(
+    cwd: Path | str,
+    ref: str = "HEAD",
+    *,
+    scopes: Sequence[str] | None = None,
+    recursive: bool = True,
+) -> list[str]:
     """Return the raw path of every blob in a commit's tree, in Git's order.
 
     Submodule entries are commits, not blobs, so they are left out. Paths come
     back undecoded as filesystem names do, so they can be joined to a worktree.
+    ``scopes`` limits the listing to those literal repository paths and
+    everything beneath them, so Git skips the rest of the tree; an empty
+    sequence lists nothing. ``recursive=False`` lists the top level only.
     """
+    if scopes is not None and not scopes:
+        return []
+    args = ["ls-tree", *(("-r",) if recursive else ()), "-z", "--full-tree", ref]
+    env = None
+    if scopes is not None:
+        args += ["--", *(f":(literal){scope}" for scope in scopes)]
+        env = literal_pathspec_env()
     paths: list[str] = []
-    for record in _run_bytes(cwd, "ls-tree", "-r", "-z", "--full-tree", ref).split(b"\0"):
+    for record in _run_bytes(cwd, *args, env=env).split(b"\0"):
         if not record:
             continue
         metadata, path = record.split(b"\t", 1)

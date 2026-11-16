@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from .. import gitx
-from ..diff import path_matches
+from ..diff import literal_scope, match_scope, path_matches
 from ..models import Finding, FindingAction, Severity, Stage
 
 #: The documentation surface every repo is assumed to have. Anything in
@@ -69,10 +69,38 @@ def _iter_candidates(worktree_path: Path, patterns: tuple[str, ...] | list[str])
     """
     found = [
         rel
-        for rel in gitx.tree_files(worktree_path)
+        for rel in _listed_candidates(worktree_path, patterns)
         if any(_matches(rel, pattern) for pattern in patterns) and (worktree_path / rel).is_file()
     ]
     yield from sorted(found, key=lambda rel: worktree_path / rel)
+
+
+def _listed_candidates(worktree_path: Path, patterns: tuple[str, ...] | list[str]) -> set[str]:
+    """Committed files at ``HEAD`` that could match a pattern, without listing the whole tree.
+
+    The listing only narrows: the caller still matches every path, so the result
+    is the same as filtering a full listing. A bare-name pattern with a wildcard
+    can match any top-level file, which a top-level listing covers. Any other
+    pattern either names one literal path or matches beneath a literal scope.
+    A pattern that can match at any depth falls back to the full listing.
+    """
+    scopes: set[str] = set()
+    top_level = False
+    for pattern in patterns:
+        if "/" in pattern:
+            scope = match_scope(pattern)
+            if scope is None:
+                return set(gitx.tree_files(worktree_path))
+            scopes.add(scope)
+        elif literal_scope(pattern) == pattern:
+            scopes.add(pattern)
+        elif pattern not in {"", ".", ".."}:
+            # A wildcard or a backslash; no committed path equals the names skipped.
+            top_level = True
+    found = set(gitx.tree_files(worktree_path, scopes=sorted(scopes)))
+    if top_level:
+        found.update(gitx.tree_files(worktree_path, recursive=False))
+    return found
 
 
 def _matches(rel: str, pattern: str) -> bool:
