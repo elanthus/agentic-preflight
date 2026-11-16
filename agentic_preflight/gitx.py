@@ -138,9 +138,19 @@ def run(
     return result
 
 
-def _run_bytes(cwd: Path | str, *args: str, env: Mapping[str, str] | None = None) -> bytes:
-    """Run a git command and return its raw stdout, without newline translation."""
-    result = subprocess.run([_git_executable(), *args], cwd=str(cwd), capture_output=True, env=env)
+def _run_bytes(
+    cwd: Path | str,
+    *args: str,
+    env: Mapping[str, str] | None = None,
+    input: bytes | None = None,
+) -> bytes:
+    """Run a git command and return its raw stdout, without newline translation.
+
+    ``input`` is written to stdin as raw bytes, also without newline translation.
+    """
+    result = subprocess.run(
+        [_git_executable(), *args], cwd=str(cwd), capture_output=True, env=env, input=input
+    )
     if result.returncode != 0:
         raise GitError(
             list(args), result.returncode, result.stderr.decode("utf-8", errors=_DECODE_ERRORS)
@@ -635,8 +645,17 @@ def read_note(cwd: Path | str, notes_ref: str, sha: str) -> str | None:
 
 
 def write_note(cwd: Path | str, notes_ref: str, sha: str, payload: str) -> None:
-    """Write or replace the note on a commit under a notes ref."""
-    run(cwd, "notes", f"--ref={notes_ref}", "add", "-f", "-m", payload, sha)
+    """Write or replace the note on a commit under a notes ref.
+
+    The payload goes on stdin: as a ``-m`` argument a large note exceeded the
+    operating system's argument limit. ``-F`` and ``-m`` apply the same cleanup,
+    so Git stores the same blob either way. Attestation payloads are ASCII JSON;
+    UTF-8 matches the argument bytes Git received on Windows and in a UTF-8
+    locale. A binary pipe keeps Windows from translating newlines.
+    """
+    _run_bytes(
+        cwd, "notes", f"--ref={notes_ref}", "add", "-f", "-F", "-", sha, input=payload.encode()
+    )
 
 
 #: Temporary refs that notes synchronization and publication create and delete.
