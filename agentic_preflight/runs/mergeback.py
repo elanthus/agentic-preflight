@@ -581,6 +581,8 @@ def mergeback(session: Session) -> Envelope:
                 data=MergebackData(coverage_invalidated=True),
                 next_command="agentic-preflight context",
             )
+        # Refuse before the replay list is rewritten, so no event claims it.
+        _reopen_unresolved_findings(session, run)
         if not in_place:
             run = _register_validated_history(session, run)
     require_state(
@@ -590,9 +592,7 @@ def mergeback(session: Session) -> Envelope:
         State.MERGEBACK_CONFLICT,
         command="mergeback",
     )
-    if run.state is State.TEST_GREEN or (
-        run.state is State.MERGEBACK_PENDING and recovered is None and not retrying_conflict
-    ):
+    if run.state is State.MERGEBACK_PENDING and recovered is None and not retrying_conflict:
         _reopen_unresolved_findings(session, run)
 
     # Validate saved origins before recording an attempt or changing the source branch.
