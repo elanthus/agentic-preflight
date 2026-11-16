@@ -761,3 +761,13 @@ A report with `data.complete` set to `true` is exact, as before. Every diff of u
 A wrapper that treated `data.total_bytes` as the exact diff size must check `data.complete`.
 A diff within the limit produces the same patch text, `diff_sha256`, and review manifest as before.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Unreleased: abort protects commits that nothing registered
+
+In isolated worktree modes, `respond` and a red stage's restart register fix commits, and merge-back registers the validated history at `TEST_GREEN`.
+A commit made in the validation worktree outside those points lived only on the validation branch, and a plain `abort` deleted it with the branch.
+`abort` from a lint or test state now counts such commits and exits 5 with `unmerged_work`; `--force` still discards them and lists them in `data.discarded_fix_commits`.
+A recorded fix commit always counts, even when the validation checkout is detached or reset.
+When the branch history cannot be read, `abort` counts only the recorded commits, as before.
+In-place runs, and states before lint or after test, are unchanged.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.

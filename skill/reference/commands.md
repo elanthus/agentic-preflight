@@ -758,7 +758,11 @@ timestamps are suitable for intervals within one host boot.
 
 ### `agentic-preflight abort [--force] [--reason REASON]`
 Ends the run and releases the worktree. Exits 5 if unmerged fix commits would be lost;
-`--force` discards them.
+`--force` discards them. In isolated modes, from a lint or test state, these include
+commits on the validation branch that no `respond` or stage registered yet;
+`data.fix_commits` lists the recorded commits and those new ones, and with `--force`
+`data.discarded_fix_commits` does. When the branch history cannot be read, only the
+recorded commits count, and `--force` still succeeds.
 A `strict` validation worktree locked with `git worktree lock` is never deleted:
 the command exits 1 with `git_error` naming the worktree, and the run keeps its state.
 Show the user the message; do not unlock it yourself.

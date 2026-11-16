@@ -15,6 +15,7 @@ from pathlib import Path
 from .. import gitx, worktree
 from ..envelope import ExitCode
 from ..errors import AgenticError, StaleRun
+from ..machine import State
 from ..models import RunDoc
 from ._session import Session, is_in_place, require_worktree, start_command
 
@@ -143,3 +144,36 @@ def record_fix_commits(run: RunDoc, derived: list[str]) -> list[str]:
     else:
         run.fix_commits = list(derived)
     return added
+
+
+#: States in which a commit made after the last ``respond`` may not be registered yet.
+#: Merge-back registers the whole validated history at ``TEST_GREEN``.
+_UNREGISTERED_STATES = frozenset(
+    {
+        State.LINT_RUNNING,
+        State.LINT_RED,
+        State.LINT_GREEN,
+        State.TEST_RUNNING,
+        State.TEST_RED,
+        State.TEST_GREEN,
+    }
+)
+
+
+def branch_fix_commits(session: Session, run: RunDoc) -> list[str]:
+    """The fix commits an isolated run's validation branch holds, without recording them.
+
+    Before merge-back, a commit made after the last ``respond`` is on the branch but
+    not yet in ``fix_commits``, and releasing the worktree deletes the branch. The
+    result is the recorded list followed by any such commit. It never drops a
+    recorded commit, because a detached or reset checkout can hide one from
+    ``head_sha..HEAD``, and it is the recorded list when the history cannot be read.
+    """
+    recorded = list(run.fix_commits)
+    if is_in_place(run) or run.state not in _UNREGISTERED_STATES:
+        return recorded
+    try:
+        derived = derive_fix_commits(session, run)
+    except (AgenticError, gitx.GitError, OSError, worktree.CopiedFileInCommit):
+        return recorded
+    return recorded + [sha for sha in derived if sha not in recorded]

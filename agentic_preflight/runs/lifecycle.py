@@ -39,7 +39,7 @@ from ._session import (
     unresolved_next_hint,
     worktree_mode,
 )
-from .fix_commits import patch_unlanded
+from .fix_commits import branch_fix_commits, patch_unlanded
 
 
 def events(session: Session, *, limit: int | None = None) -> Envelope:
@@ -53,6 +53,20 @@ def events(session: Session, *, limit: int | None = None) -> Envelope:
         run,
         data=EventsData(events=history, count=len(history), skipped_lines=log.skipped_lines),
     )
+
+
+def _abort_fix_commits(session: Session, run: RunDoc, *, force: bool) -> list[str]:
+    """The fix commits an isolated abort protects, or with ``force`` reports discarding.
+
+    ``--force`` is the way out of a run, so with it a branch history that cannot be
+    read only narrows the report to the recorded commits; it never blocks the abort.
+    """
+    if not force:
+        return branch_fix_commits(session, run)
+    try:
+        return branch_fix_commits(session, run)
+    except Exception:  # noqa: BLE001 - the report must not block the forced abort
+        return list(run.fix_commits)
 
 
 def abort(session: Session, *, force: bool = False, reason: AbortReason | None = None) -> Envelope:
@@ -70,13 +84,18 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
     run = load_current(session, allow_interrupted=True)
 
     isolated = not is_in_place(run)
-    if isolated and run.fix_commits and not force:
+    # Before merge-back, a commit made after the last `respond` is on the validation
+    # branch but not yet recorded; releasing the worktree would delete it too.
+    fix_commits = (
+        _abort_fix_commits(session, run, force=force) if isolated else list(run.fix_commits)
+    )
+    if isolated and fix_commits and not force:
         raise UnmergedWork(
-            f"this run has {len(run.fix_commits)} fix commit(s) that were never merged "
-            f"back: {', '.join(run.fix_commits)}",
+            f"this run has {len(fix_commits)} fix commit(s) that were never merged "
+            f"back: {', '.join(fix_commits)}",
             state=run.state.value,
             run_id=run.run_id,
-            data={"fix_commits": run.fix_commits, "worktree_path": run.worktree_path},
+            data={"fix_commits": fix_commits, "worktree_path": run.worktree_path},
             next_instruction=(
                 "Those commits exist only in the worktree. Cherry-pick anything worth "
                 "keeping, then abort again with --force to discard the rest."
@@ -101,7 +120,7 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
     return envelope_for(
         run,
         data=AbortData(
-            discarded_fix_commits=run.fix_commits if isolated and force else [],
+            discarded_fix_commits=fix_commits if isolated and force else [],
             preserved_in_place_commits=run.fix_commits if not isolated else [],
         ),
         next_instruction="Run aborted. Start a fresh one when ready.",
