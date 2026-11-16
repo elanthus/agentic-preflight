@@ -180,14 +180,18 @@ def verify(
     """
     if purpose not in {"local", "publish"}:
         raise InvalidAttestation("unknown verification purpose")
-    resolved = gitx.rev_parse(repo, sha)
-    value = read(repo, resolved)
-    if value is None:
-        raise InvalidAttestation(
-            f"commit {resolved} has no agentic-preflight attestation in {NOTES_REF}",
-            reason="missing_note",
-        )
-    return verify_value(repo, value, resolved, purpose=purpose, base=base)
+    with gitx.object_cache():
+        # One batch peels the commit and its tree; a name it cannot peel is looked
+        # up by rev_parse below, which fails as it always did.
+        gitx.prime_object_lookups(repo, [sha])
+        resolved = gitx.rev_parse(repo, sha)
+        value = read(repo, resolved)
+        if value is None:
+            raise InvalidAttestation(
+                f"commit {resolved} has no agentic-preflight attestation in {NOTES_REF}",
+                reason="missing_note",
+            )
+        return verify_value(repo, value, resolved, purpose=purpose, base=base)
 
 
 def _base_candidates(base_ref: str) -> list[str]:
@@ -261,6 +265,18 @@ def verify_value(
     base: str | None = None,
 ) -> Attestation:
     """Validate an already decoded note against the policy of a trusted base."""
+    with gitx.object_cache():
+        return _verify_value(repo, value, resolved, purpose=purpose, base=base)
+
+
+def _verify_value(
+    repo: Path | str,
+    value: Attestation,
+    resolved: str,
+    *,
+    purpose: Literal["local", "publish"],
+    base: str | None,
+) -> Attestation:
     if purpose not in {"local", "publish"}:
         raise InvalidAttestation("unknown verification purpose")
     if value.outcome != "verified":
@@ -279,6 +295,9 @@ def verify_value(
     from .refresh_validation import verify_evidence, verify_policy_bindings
 
     try:
+        # Every commit the note names is peeled again and again below. One batch
+        # resolves them all; anything it cannot resolve is looked up, and fails, as before.
+        gitx.prime_object_lookups(repo, _named_commits(value, resolved))
         base_sha = trusted_base(repo, value, base)
         verify_merge_base(repo, value, base_sha)
         policy = committed_config(repo, base_sha)
@@ -295,6 +314,14 @@ def verify_value(
     except ValueError as exc:
         raise InvalidAttestation(str(exc)) from exc
     return value
+
+
+def _named_commits(value: Attestation, resolved: str) -> list[str]:
+    """The verified head, the note's merge base, and each evidence origin's commits."""
+    commits = [resolved, value.merge_base_sha]
+    for item in (value.evidence or {}).values():
+        commits += [item.origin.head_sha, item.origin.base_sha]
+    return commits
 
 
 class InvalidAttestation(ValueError):
