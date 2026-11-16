@@ -1522,8 +1522,10 @@ def _forces_text(value: bytes | None) -> bool:
     text = value.decode("utf-8", errors=_DECODE_ERRORS).strip().lower()
     if text in ("false", "no", "off", ""):
         return True
+    # Git's integers take an optional k, m, or g unit suffix.
+    number = text[:-1] if text[-1:] in ("k", "m", "g") else text
     try:
-        return int(text, 0) == 0
+        return int(number, 0) == 0
     except ValueError:
         return False
 

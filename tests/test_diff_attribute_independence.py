@@ -230,8 +230,16 @@ def test_an_info_attributes_driver_without_a_header_pattern_is_ignored(change, t
         ("*.py diff=python\n", None),
         ("*.bin diff\n", None),
         ("*.bin diff=printer\n", ("diff.printer.binary", "false")),
+        ("*.bin diff=printer\n", ("diff.printer.binary", "0k")),
     ],
-    ids=["xfuncname", "funcname", "built-in", "binary-as-text", "driver-prints-binary"],
+    ids=[
+        "xfuncname",
+        "funcname",
+        "built-in",
+        "binary-as-text",
+        "driver-prints-binary",
+        "driver-prints-binary-unit-suffix",
+    ],
 )
 def test_an_info_attributes_entry_that_would_change_the_patch_is_refused(
     change, attributes, config
