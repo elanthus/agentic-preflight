@@ -203,22 +203,35 @@ def test_sparse_checkout_review_covers_paths_outside_the_sparse_set(sparse_featu
     assert "allowlist" in env["error"]["message"]
 
 
-def test_isolated_worktree_inherits_the_sparse_checkout(sparse_feature_repo):
+def test_isolated_worktree_inherits_the_sparse_checkout(sparse_feature_repo, tmp_path):
+    # The lint command passes only when it sees the code and not the guide.
+    probe = (
+        "import pathlib, sys; "
+        "sys.exit(0 if pathlib.Path('src/app.py').is_file() "
+        "and not pathlib.Path('docs/guide.md').exists() else 1)"
+    )
+    lint = json.dumps(f'"{sys.executable}" -c "{probe}"')
     git("switch", "main", cwd=sparse_feature_repo)
     write(
         sparse_feature_repo,
         ".agentic-preflight.toml",
-        DOCS_CONFIG + "\n[worktree]\nmode = 'strict'\n",
+        "[docs]\nenabled = false\n\n[worktree]\nmode = 'strict'\n\n"
+        f"[commands]\nlint = {lint}\ntest = 'true'\n",
     )
     commit_all(sparse_feature_repo, "use strict mode")
     git("switch", "feature/x", cwd=sparse_feature_repo)
     git("rebase", "main", cwd=sparse_feature_repo)
 
-    env = ScriptedAgent(sparse_feature_repo).run("start")
+    agent = ScriptedAgent(sparse_feature_repo)
+    env = agent.run("start")
     validation = Path(env["data"]["worktree_path"])
     assert (validation / "src" / "app.py").is_file()
     assert not (validation / "docs").exists()
     assert git("sparse-checkout", "list", cwd=validation) == "src"
+
+    agent.run("context")
+    agent.run("submit-findings", "--file", findings_json(tmp_path, []))
+    assert agent.run("stage", "run", "lint")["state"] == "LINT_GREEN"
 
 
 def test_docs_fingerprint_depends_on_the_sparse_set(sparse_feature_repo, tmp_path):

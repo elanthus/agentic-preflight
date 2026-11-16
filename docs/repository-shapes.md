@@ -77,7 +77,8 @@ Use a full clone, or a clone without a filter, where the network is unreliable.
   A docs finding against it is therefore rejected.
   This is a known issue (pending): [issue #393](https://github.com/elanthus/agentic-preflight/issues/393).
 - A `strict` validation worktree has the same sparse set as the source checkout, because `git worktree add` copies it (Git 2.38 or newer, the supported minimum).
-  Lint and test commands run in that checkout, so they see only the files in the sparse set.
+  Stage commands run in that checkout: a lint command there sees the files in the sparse set and not the others.
+  The test command runs in the same checkout (unverified).
   The `reusable` mode is not tested.
 - The docs fingerprint's tree identities are the same in a sparse and a full checkout of one commit.
   Its `doc_surface_sha256` reads the checkout, so it differs. This is part of [issue #393](https://github.com/elanthus/agentic-preflight/issues/393).
