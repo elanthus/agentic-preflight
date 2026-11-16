@@ -189,7 +189,8 @@ def _obstructed_paths(worktree_path: Path | str, before: str, trees: list[str]) 
     rebase first checks out the base, and a directory rename can move a branch file onto
     an ignored local file.
     """
-    added: list[str] = []
+    # A dict keeps the first-seen order and tests membership in constant time.
+    added: dict[str, None] = {}
     for tree in trees:
         output = gitx.run(
             worktree_path,
@@ -201,7 +202,7 @@ def _obstructed_paths(worktree_path: Path | str, before: str, trees: list[str]) 
             before,
             tree,
         ).stdout
-        added.extend(path for path in output.split("\0") if path and path not in added)
+        added.update(dict.fromkeys(path for path in output.split("\0") if path))
     root = Path(worktree_path)
     candidates = [path for path in added if (root / path).exists() or (root / path).is_symlink()]
     if not candidates:
@@ -215,11 +216,16 @@ def _obstructed_paths(worktree_path: Path | str, before: str, trees: list[str]) 
         ).stdout.split("\0")
         if path
     ]
-    return [
-        path
-        for path in candidates
-        if any(found == path or found.startswith(f"{path}/") for found in untracked)
-    ]
+    # A candidate is obstructed when it is an untracked path or a directory above one, so
+    # collect every untracked path and each of its parent prefixes once.
+    matched: set[str] = set()
+    for found in untracked:
+        matched.add(found)
+        slash = found.find("/")
+        while slash != -1:
+            matched.add(found[:slash])
+            slash = found.find("/", slash + 1)
+    return [path for path in candidates if path in matched]
 
 
 def _merge_base_in(
