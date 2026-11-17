@@ -132,7 +132,8 @@ leave a previous successful invocation's usage behind. JSONL records include:
 
 - `reviewer_call_started`: call index, phase, and one attempted provider CLI request.
 - `reviewer_call`: schema version 1, call index, phase, attempt, provider,
-  `requests: 1`, `wall_seconds`, outcome, and nullable input/output/total tokens.
+  `requests` (1 when the CLI launches, 0 when launch fails), `wall_seconds`,
+  outcome, and nullable input/output/total tokens.
 - `provider_output`: captured provider stdout, kept outside findings.
 - `candidate_rejected`: original candidate and the verifier's reason.
 
