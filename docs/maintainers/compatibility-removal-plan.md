@@ -17,16 +17,21 @@ Under this rule, 0.8.0 must read 0.7.0 records, notes, and snapshots. It need no
 > from stage 1. Every later release number below has therefore moved one minor later than
 > the first draft: stage 1 lands in 0.9.0 and stage 2 in 0.10.0. The rule is unchanged.
 
+> **Schedule note, 2026-11-17.** 0.9.0 ships the fixes from the November review with
+> nothing from stage 1, so that the security fixes are not held back by removals. Stage 1
+> (rows 3 to 6) therefore moves to 0.10.0, where it lands with stage 2. Rows 7 to 13 keep
+> 0.10.0. The rule is unchanged.
+
 ## Inventory and schedule
 
 | # | Shim | Introduced | Protects | Drop in |
 | --- | --- | --- | --- | --- |
 | 1 | `LegacyContractPlan`, `allow_legacy`, `previous_receipt` | after v0.7.0 | schema-1 receipts from unreleased dev builds | 0.8.0 (done) |
 | 2 | `omit_absent_producer` serializer | after v0.7.0 | 0.7.0 reading records 0.8.0 rewrote (downgrade) | 0.8.0 (done) |
-| 3 | `discard_legacy_rebased_tree` | 0.7.0 | 0.6.0 merge-back attempts | 0.9.0 |
-| 4 | `retire_ci_delegation` and `telemetry._effective_state` | 0.7.0 | 0.6.0 delegated runs | 0.9.0 |
-| 5 | `pending-update.json` handling (four sites) | 0.7.0 | 0.6.0 interrupted runs | 0.9.0, one line stays to 0.10.0 |
-| 6 | `REMOVED_CONFIG_KEYS` entries removed in 0.6.0 | 0.6.0 | 0.5.x snapshots | 0.9.0 |
+| 3 | `discard_legacy_rebased_tree` | 0.7.0 | 0.6.0 merge-back attempts | 0.10.0 |
+| 4 | `retire_ci_delegation` and `telemetry._effective_state` | 0.7.0 | 0.6.0 delegated runs | 0.10.0 |
+| 5 | `pending-update.json` handling (four sites) | 0.7.0 | 0.6.0 interrupted runs | 0.10.0, one line stays to 0.11.0 |
+| 6 | `REMOVED_CONFIG_KEYS` entries removed in 0.6.0 | 0.6.0 | 0.5.x snapshots | 0.10.0 |
 | 7 | `discard_retired_null_fields` on attestations | 0.7.0 | 0.6.0 verified notes | 0.10.0 |
 | 8 | `REMOVED_CONFIG_KEYS` entries removed in 0.7.0 | 0.7.0 | 0.6.0 snapshots and config files | 0.10.0 |
 | 9 | `LEGACY_DIRNAME`, `legacy_worktrees`, runner reclamation at the old root | 0.7.0 | worktrees created before 0.7.0 | 0.10.0 |
@@ -87,16 +92,16 @@ bytes of every existing 0.7.0 evidence record and note, which breaks the rule ra
 than applying it. They are wire-shape decisions for attested data, not downgrade shims,
 and belong with any future attestation schema bump.
 
-## Stage 1: 0.9.0
+## Stage 1: 0.10.0
 
 Each item gets a `removed` changelog fragment and one line in `COMPATIBILITY.md` stating
-that 0.9.0 reads 0.8.0 data only. The existing per-feature paragraphs in
+that 0.10.0 reads 0.9.0 data only. The existing per-feature paragraphs in
 `COMPATIBILITY.md` for these shims move to `docs/upgrade-0.7.md`, which is where a reader
 on 0.6.0 looks.
 
 ### 3. `mergeback_attempt.rebased_tree`
 
-Neither 0.7.0 nor 0.8.0 writes the field. Delete `discard_legacy_rebased_tree` from `MergebackAttempt`
+None of 0.7.0, 0.8.0, and 0.9.0 writes the field. Delete `discard_legacy_rebased_tree` from `MergebackAttempt`
 in `agentic_preflight/models.py` and its test in `tests/test_store.py`. A 0.6.0 attempt
 then fails with `extra_forbidden`, which `store.py` already reports as `invalid` with the
 preserve-and-use-a-compatible-tool recovery.
@@ -104,7 +109,7 @@ preserve-and-use-a-compatible-tool recovery.
 ### 4. CI delegation retirement
 
 0.7.0 writes no `test_delegation` key and no `TEST_DELEGATED` or `PUBLICATION_READY` state,
-and its `start`, like 0.8.0's, already orphaned any such run it met.
+and its `start`, like those of 0.8.0 and 0.9.0, already orphaned any such run it met.
 
 - `agentic_preflight/models.py`: delete `retire_ci_delegation`. The states are not in
   `State`, so such a record fails validation naturally.
@@ -117,7 +122,7 @@ and its `start`, like 0.8.0's, already orphaned any such run it met.
 
 ### 5. Interrupted legacy updates
 
-0.7.0 and 0.8.0 orphan a run with `pending-update.json` on the next `start`, so by 0.9.0
+0.7.0, 0.8.0, and 0.9.0 orphan a run with `pending-update.json` on the next `start`, so by 0.10.0
 the only such runs are ones nobody has started since 0.6.0. Collapse the four sites into one.
 
 - `agentic_preflight/store.py`: in `load_run`, treat a nonterminal record with a
@@ -128,8 +133,8 @@ the only such runs are ones nobody has started since 0.6.0. Collapse the four si
   `runs/lifecycle.py` (the `status` branch around line 612 and the
   `interrupted_legacy_update` envelope key).
 - `runs/evidence.py`: keep the single `orphaned_reason == "interrupted legacy update"`
-  comparison through 0.9.0. Records that 0.7.0 orphaned persist that string, and the
-  comparison is what keeps their green evidence out of reuse. Drop it in 0.10.0 together
+  comparison through 0.10.0. Records that 0.7.0 orphaned persist that string, and the
+  comparison is what keeps their green evidence out of reuse. Drop it in 0.11.0 together
   with the string constant. Replace the `pending-update.json` existence check there now,
   since `load_run` rejects those records first.
 - Docs: `skill/reference/commands.md` lines 83 to 90, the row in `skill/SKILL.md` line 200,
@@ -218,7 +223,7 @@ Issue #364 moved the example reviewer wrappers into `agentic_preflight/reviewers
 
 ### 12. Abbreviated review patches
 
-Review patches name full object IDs since the release after 0.8.1. Notes that 0.8.1 and
+Review patches name full object IDs since 0.9.0. Notes that 0.8.1 and
 earlier wrote hash patches whose `index` lines abbreviate them, and the verifier rebuilds
 that text when the full-ID text does not reproduce a note's digest. In 0.10.0 a release
 no longer reads 0.8 notes, so delete:
@@ -244,7 +249,7 @@ no longer reads 0.8 notes, so delete:
   `test_crlf_patch_text_and_digests_match_main`, which pins the abbreviated digests.
 - The fallback paragraphs in `docs/fingerprint-contract.md` (from "Notes from 0.8.1 and
   earlier" to "disambiguates") and the matching upgrade bullets in the `COMPATIBILITY.md`
-  entry "Unreleased: review patches no longer depend on Git configuration". Add a
+  entry "Review patches no longer depend on Git configuration". Add a
   `COMPATIBILITY.md` note that notes from 0.8.1 and earlier no longer verify and must be
   replaced by validating the commit again, and a `removed` changelog fragment.
 
@@ -263,7 +268,7 @@ Add `agentic_preflight/_compat.py` holding one table:
 ```python
 REMOVALS: Final = (
     # (identifier, introduced_in, remove_in)
-    ("models.MergebackAttempt.discard_legacy_rebased_tree", "0.7.0", "0.9.0"),
+    ("models.MergebackAttempt.discard_legacy_rebased_tree", "0.7.0", "0.10.0"),
     ...,
 )
 ```

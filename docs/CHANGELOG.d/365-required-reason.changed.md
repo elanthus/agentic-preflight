@@ -1,1 +1,0 @@
-- Require `--reason` for CLI finding dismissals and acceptances; missing reasons now produce `usage_error` before run mutation. Historical reasonless records remain readable.

@@ -5,6 +5,628 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-17
+
+### Upgrade highlights
+
+- Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged. Run records
+  that 0.8.1 wrote stay readable, and a note that 0.8.1 wrote still verifies in the usual
+  case.
+- Upgrade the protected-base CI verifier before, or together with, the local CLI and the
+  pre-push hook. A 0.8.1 verifier rejects a note that 0.9.0 writes, because review patches
+  no longer depend on Git configuration or Git attributes.
+- Push or abort open runs before you upgrade. 0.9.0 refuses to merge back, gate, or push a
+  run that 0.8.1 started (`needs_human`, `data.reason` `unknown_config_provenance`), and
+  0.8.1 cannot read a run record that 0.9.0 starts.
+- `respond --action dismissed|accepted` now requires `--reason`. Run
+  `agentic-preflight integrations update` so that installed skills pass it.
+- A project that copied the hosted workflows must copy the new versions and add
+  `human-approval-review.yml` and `human-approval-rerun.yml`.
+- This release contains the security fixes listed under "Security". See
+  [Upgrading from 0.8.1 to 0.9.0](COMPATIBILITY.md#upgrading-from-081-to-090) for the
+  rollout order and the changes that affect wrappers and scripts.
+
+### Added
+
+- Python 3.14 is supported. CI tests it on every pull request, and the built-wheel smoke
+  test installs the tool on Python 3.11 and Python 3.14.
+
+- Add packaged reviewer `--retries`, `--budget-seconds`, and optional `--verify`, with per-call measurements and rejected candidates in `AP_REVIEWER_EVENTS_FILE`, plus digest-bound eval adjudication with Wilson precision/recall intervals. Tests use fake provider CLIs without network or model calls.
+- Keep usage partial for unmatched call starts, and retain known provider usage when a parsed response exhausts the total budget.
+- Keep the default total review budget at `AP_REVIEWER_TIMEOUT`; CLI help explains that timeout retries require a larger explicit `--budget-seconds`.
+- Keep verification output instructions separate from discovery, reject malformed scoring inventories before hashing and non-object adjudication documents, and mark reviewer completion only after delivering stdout.
+- Fail immediately on explicit contract-planner provider errors, clear stale telemetry before timeout validation, and report Unicode failures without a traceback.
+
+- `agentic-preflight reviewer run --provider claude|codex` runs the independent command
+  reviewer from the package. Configure it as `[review] command` (and as
+  `[review.contracts] planner_command`). It is the former example wrapper, moved into
+  the package with the same prompts, provider CLI arguments, `AP_*` environment
+  variables, defaults, events file, and output. Unlike the wrapper, it reads and writes
+  its own standard streams as UTF-8 instead of the locale encoding. It shells out to the `claude` or `codex` CLI and adds
+  no model SDK dependency. Like `hook-check`, it prints no JSON envelope, and a usage
+  error exits 2 with Click's usage message. See ADR 0003 and
+  `docs/independent-review.md`.
+
+- Add nullable hosted follow-up commit, human review, classified failed-check, and opt-in capped revert observations, with GET-only sync, rebuild support, and separately denominated escape reporting.
+- Preserve fetched hosted outcomes when an optional escape request fails; keep its observation null and stop further requests on authentication, rate-limit, or connection failures.
+- Add `--reverts` and `--reverts-limit` to `telemetry sync-hosted`, the user-only `telemetry.hosted.local_equivalent_checks` mapping, and `checks.settled` in saved hosted observations.
+- Count unknown revert observations only among synced merged DONE runs, matching the revert component’s named eligible population.
+
+- Run summaries record what the gate caught before the push:
+  `findings.review_blocking_fixed`, `findings.docs_blocking_fixed`, and
+  `stages.lint.red_then_green` and `stages.test.red_then_green`.
+- The tool times each external command that it runs on its own (sync, setup, the review
+  command, the contract planner, the `review compare` shadow reviewer, the baseline
+  check, lint, test, and merge-back) with new `tool_command_started` and
+  `tool_command_finished` events. Summaries add `timing.tool_seconds` and, for runs with
+  a complete transition history, `timing.agent_seconds`.
+- `report` adds `caught` (the share of `DONE` runs with any catch, and a breakdown by
+  source) and `tool_time` (median and p90 tool seconds per `DONE` run and per synced pull
+  request), with "Caught before push" and "Tool time" Markdown sections.
+
+- `gc` deletes the run directory of a reclaimed run whose record last changed more than
+  `[retention] run_days` days ago (default 90; `0` keeps every record). The envelope lists
+  them in `data.pruned`. `[retention]` is excluded from run snapshots and digests.
+
+### Changed
+
+- `context` and `review run` stop reading a diff once its patch text passes four times
+  `[diff] max_bytes`, so a very large diff, such as an unexcluded generated file, no longer
+  costs a full read before it is refused. The `diff_too_large` envelope adds `data.complete`
+  and `data.unmeasured_files`; when the read stopped, `data.total_bytes` and the `data.by_file`
+  sizes are lower bounds over the files read. A diff within the limit is unchanged, and so is
+  its review digest.
+
+- `logs --stage` now returns a bounded window of the stage log instead of the whole log:
+  by default the last 200 lines, at most 64 KiB. `--tail N` and `--head N` choose another
+  line count under the same byte limit, and `--all` returns the whole log. The envelope
+  adds `data.truncated`, `data.total_bytes`, and `data.total_lines`. A cut never splits a
+  UTF-8 character or a `[redacted]` marker.
+
+- `hook-check` is faster. Verifying one pushed ref now spawns 17 Git processes instead of
+  38: 14 decide the push, and 3 identify the repository for the hook decision log on a
+  background thread. Each lookup of a full object ID runs once per verification, and the
+  commits a note names are resolved in one batch. The CLI imports only the module of the
+  command it runs. Measured on an Apple M4 Pro with macOS 27, for one new branch with a
+  green note: 1.19 to 0.61 seconds, and 0.45 to 0.37 seconds for a push with no ref to
+  check. Every hook decision, exit code, and message is unchanged.
+
+- The package now declares `requires-python = ">=3.11,<3.15"`. `pip`, `pipx`, and `uv`'s
+  default interpreter selection no longer install the tool on a Python version that CI does
+  not test. `COMPATIBILITY.md` states how the cap is raised.
+- Pull-request CI runs the test job on Python 3.11 and Python 3.14, the oldest and newest
+  supported versions, as well as on 3.13.
+
+- Require `--reason` for CLI finding dismissals and acceptances; missing reasons now produce `usage_error` before run mutation. Historical reasonless records remain readable.
+
+- `hook-decisions.jsonl` rotates to `hook-decisions.jsonl.1` at 4 MiB, keeping one previous
+  generation. `report` reads both files.
+
+- A pull request review now re-runs the protected-base `Human approval policy` runs for
+  the reviewed head instead of starting a second run beside it. GitHub counts every run
+  of a required check name on a head, so the old failed result used to keep blocking
+  merge after approval. `human-approval.yml` runs only on `pull_request_target`; the new
+  `human-approval-review.yml` records the reviewed pull request number, and the new
+  `human-approval-rerun.yml` verifies it against the API and re-runs each policy run for
+  the head when the evaluation that run recorded in its new `human-approval-policy`
+  artifact shows `peer_review` or `owner_review` mode and a required human approval.
+  The waiting `high-risk human approval` job now says which head needs review, and the
+  passing job names the approved head.
+
+- Each captured stage, setup, and review command stream keeps at most 8 MiB: its first and
+  last 4 MiB around an `[output truncated: N bytes omitted]` line. Output goes to temporary
+  files instead of pipes, so a timed-out stage keeps what it printed even when a descendant
+  escaped the kill; the old `[output truncated: a process outside the stage's group kept
+  its pipe open]` marker is gone.
+
+### Deprecated
+
+- The example reviewer wrappers in `docs/examples/reviewers/` (`claude_review.py`,
+  `codex_review.py`, and `_reviewer_common.py`) are deprecated in favour of
+  `agentic-preflight reviewer run --provider claude|codex`, and are planned for removal in
+  0.10.0. Until then they stay as standard-library copies of the packaged reviewer, which a
+  test keeps identical, so a configured `python3 -S -B docs/examples/reviewers/<provider>_review.py`
+  command keeps working. A wrapper that you copied from an earlier release keeps working
+  but does not receive later fixes.
+
+### Removed
+
+- Run summaries and `agentic-preflight report` drop the recorded hosted outcome: the
+  `hosted.last_ci_outcome` and `hosted.pr_url_recorded` summary fields, the "Hosted
+  outcomes recorded" report section, and the `outcome_recorded`, `outcomes`,
+  `pr_url_recorded`, `pr_url_excluded_runs`, and `note` keys of `data.overall.hosted`.
+  The "Hosted outcomes synced" section and the two `data.limits` entries about hosted
+  checks appear only when at least one run in the report was synced.
+
+### Fixed
+
+- In `reusable` and `strict` worktree modes, the fix commits that `mergeback` replays are
+  now the validation worktree's history from the reviewed head, in commit order, rather
+  than the commits `respond --commit` cited in response order. Responses out of commit
+  order, an uncited regression-test commit, and a commit made after the last `respond` no
+  longer cause a merge-back conflict or a validation reset that drops commits.
+  `respond --commit` still records the cited commit as the finding's `fix_commit`.
+  Empty commits in that history are not replayed, and a merge commit is refused with
+  `nonlinear_fix_history` (exit 3) and a rebase instruction instead of failing as a
+  merge-back conflict.
+- A repair committed after a lint or test process was interrupted is now registered as a
+  fix commit and returns the run to review, in every worktree mode. Previously the
+  recovery stamped the repaired head as the tested one, so the repair was never
+  registered, and in `in_place` mode the retry was refused as stale.
+
+- A `mergeback` retry after a cherry-pick conflict no longer mistakes merge-back's own
+  rebase of the source branch for a human resolution. Previously an untouched retry reset
+  the validation branch to the unfixed source, cleared `fix_commits`, and could go on to
+  attest findings as fixed on a head without the fixes. The retry now replays the fix
+  commits again, and the rebased head is recorded as the run's source head.
+- A conflict retry on a source branch that moved but lacks a recorded fix commit now stops
+  with `fix_commits_unmerged` (exit 4), names the missing commits, and keeps the
+  validation branch and `fix_commits`. A fix counts as present when every path it changes
+  holds the fix's or the validated content, or when the branch has the fix by ancestry,
+  stable patch ID, or cherry-pick and every path it changes holds that content or differs
+  from the fix's parent commit. A human resolution that meets this still returns the run
+  to review on the resolved tree.
+
+- `mergeback` now writes the attestation note to Git on standard input instead of as a
+  command-line argument. A large note, such as one listing thousands of excluded files,
+  exceeded the operating system's argument limit, failed with `internal_error`, and left
+  the run in `MERGEBACK_PENDING`. Git stores the same note bytes as before, so existing
+  notes still verify.
+
+- The run store validates every run and findings record by parsing it back through
+  its own loader before writing it, and writes neither file when either is invalid.
+  A record the loader would reject can no longer strand a run.
+- `respond --note` longer than 4,000 characters exits 6 with `usage_error` and states
+  the limit. It used to exit 0 and write a findings record that `status` and `verify`
+  could not read.
+- Evidence reuse no longer writes a run record that predates its original execution
+  when the system clock is behind. The refresh time is clamped to the original
+  execution time.
+- A command refused with `run_record_unreadable`, including `abort --force` and
+  `start --replace`, now lists the run's ownership pointers in `data.pointer_paths`
+  and names them in `next.instruction` when the record names the `in_place` or
+  `strict` worktree mode. Deleting those files is the manual recovery that lets the
+  worktree start again while the record stays retained. A `reusable` run, which may
+  still lease the clone's runner, or a record whose mode cannot be determined gets an
+  instruction to keep everything and stop for the user instead.
+
+- A run with an open `auto_fix` finding below the blocking severity no longer leaves
+  review or documentation. `context --section docs`, `stage run lint`, and `mergeback`
+  now exit 3 with `findings_unresolved`, name the findings, and return `respond` as the
+  next command. `status` returns `respond` too, a disabled docs stage is not skipped,
+  and reused docs evidence does not move the run past review.
+  Previously the run reached `mergeback`, which failed with `internal_error` after
+  recording the attempt and left the run in `MERGEBACK_PENDING`, where `respond` is not
+  legal.
+- `mergeback` recovers a run that an earlier release left in `TEST_GREEN` or
+  `MERGEBACK_PENDING` with such a finding. Before any Git change, the new
+  `REOPEN_FINDINGS` transition returns it to `REVIEW_GREEN` and keeps the review result.
+  When an isolated merge-back has already cherry-picked the fixes, the run returns to
+  review on the merged source commit instead. Neither return counts toward
+  `[stage] max_restarts`.
+
+- `gc` without `--force` no longer releases a `strict` or `reusable` validation worktree
+  that holds uncommitted changes or a commit not yet answered with `respond`. It retains
+  the run in `data.retained` with the worktree path and the reason. A clean worktree whose
+  `HEAD` is a different commit with the tree of the recorded head or the last recorded
+  fix, such as one a sync rewrote, holds no unrecorded changes and is still released.
+- `gc` no longer reports the branch of a healthy isolated run as an orphan named
+  `+ ap/<run-id>` and no longer suggests `gc --force` for it.
+
+- `start` now resolves the current branch from its full ref, so a branch that shares its name
+  with a tag is recorded as `<name>` instead of `heads/<name>`. Previously `push` then
+  reported success after creating `refs/heads/heads/<name>` on the remote and left the
+  real branch unchanged.
+- `start` refuses a `HEAD` that points at a ref outside `refs/heads/`, such as a tag, with
+  `no_branch` (exit 3), as it does for a detached `HEAD`.
+- A run started before this release on a branch that shares a tag's name recorded
+  `heads/<name>`, so after upgrading `mergeback` stops it as stale; abort it and start a new run.
+
+- The fresh-base rebase no longer follows `rebase.updateRefs`, so `start` never rewrites a
+  branch stacked under the validated branch. It also ignores `rebase.autoStash`,
+  `rebase.rebaseMerges`, and `pull.twohead`, which made it rebase a dirty checkout, keep
+  merge commits, or drop the branch's changes. It now pins `--no-autosquash` too, as a
+  guard: Git applies `rebase.autoSquash` only to interactive rebases today.
+- The fallback base merge ignores `pull.twohead`, `merge.verifySignatures`, and `merge.log`,
+  and the merge-back cherry-pick ignores `pull.twohead`, which emptied every fix commit.
+- The fallback base merge also ignores `branch.<name>.mergeOptions`, where `-s ours` made a
+  clean synchronization report a conflict.
+
+- `start` now recovers a run that an interrupted `start` left in `CREATED` or
+  `WORKTREE_READY`. The next `start` in that source worktree, with or without `--replace`,
+  orphans the interrupted run and creates a fresh one, instead of resuming a run that could
+  never advance. It first reclaims a clean validation checkout the interrupted run
+  provisioned under the worktrees directory (a reusable runner left on its `ap/` branch, or
+  a strict checkout). When that checkout holds changes or commits, `start` exits 4
+  (`needs_human`) naming the checkout and the head it must return to, and leaves the run in
+  place. A later `start` reclaims the runner, or a leftover strict checkout, once it is
+  clean, even if the run was aborted in between. It still refuses while the interrupted
+  run's `start` holds its operation lock. The `WORKTREE_READY` hint now points to `start`
+  rather than to `status`.
+
+- The fetches in `start` and in a manual-mode `gate`, and the pushes, notes fetch, and remote
+  query in `push`, can no longer wait on a prompt while they hold the clone-wide locks. Git's
+  terminal credential prompt is off, stdin is empty, on Linux and macOS the command has no
+  controlling terminal, and `ssh` runs with `-o BatchMode=yes` unless you configured an SSH
+  command. A missing credential now fails the command. Credential helpers, askpass programs,
+  and SSH agents still work. The pre-push hook inside `push` has no terminal either.
+- The new `[general] network_timeout_seconds` key (default 600) stops each of those commands,
+  with the processes it started, when it runs longer. For a push the limit includes the
+  pre-push hook. The command then exits 4 with the new error code `remote_timeout`, naming
+  the remote, and `start` records a `remote_timeout` event.
+- A signal or a terminal hangup that stops the tool now also stops a running fetch or push,
+  and a running lint or test stage on a hangup. A signal that the tool inherited as ignored,
+  for example under `nohup`, stays ignored and leaves the child running.
+- A command that waits more than five seconds for a clone-wide lock now says on stderr which
+  lock it waits for and which process holds it, and which run when a run's command holds it.
+
+- A run whose configuration snapshot holds a key that a later release removed, such as
+  `[hook] enabled`, is governed by that snapshot again. Commands used to reject the snapshot
+  and apply the current user and repository configuration files instead, so `status` could
+  report the files' `pr_mode` and `submit-findings` could treat a finding as non-blocking
+  when the snapshot's `blocking_severities` would block it. A snapshot that cannot be
+  loaded at all still fails state-changing commands with `run_record_unreadable`, and
+  `status` reports the run as unreadable.
+
+- An event appended after an interrupted append no longer joins the torn line, which
+  made `events` and `status` fail with `run_record_unreadable`. Event log lines that
+  are not JSON objects are now skipped, and `events` reports how many as
+  `skipped_lines`. Telemetry summaries read the same log.
+
+- The pre-push hook recognizes Git's 64-character zero object ID. In a repository that
+  uses the SHA-256 object format it no longer blocks every new branch as a force push.
+  It blocks a branch push with a message that says SHA-256 repositories are not
+  supported, and still allows deletions and the other exempt updates.
+
+- `stage run --baseline` in `in_place` mode now checks out the base commit under the external validation-worktree root (the user cache by default, or `[worktree] root`) instead of inside `.git`, so test runners that ignore VCS directories, such as Jest, no longer report a false pre-existing failure. In-place runs themselves still execute in the current checkout. In `in_place` mode, a `[worktree] root` inside the repository, which isolated modes already refuse at `start`, now makes `--baseline` a setup failure. A `[worktree] root` inside the Git common directory, which a linked checkout keeps outside itself, is now refused the same way in every mode.
+- A baseline scratch worktree that cannot be removed, for example because it was locked, no longer replaces the baseline result with an error, and a scratch directory that survives removal is reported the same way. Its `ap/<run-id>-baseline` branch is still deleted, the stage envelope reports `data.baseline_cleanup_failed`, and the run's event log records it. A later `--baseline` check reports the locked path as a setup failure instead of a bare `git worktree add` error, and once the worktree is unlocked it removes the leftover and proceeds.
+- A `--baseline` check reclaims what a killed earlier check of the same run left behind: a scratch path that Git still registers as a worktree, even if its directory is gone, while its `HEAD` is still the run's base commit (a scratch worktree whose `HEAD` moved is refused by name and kept), and an `ap/<run-id>-baseline` branch that still points at the run's base commit and is not checked out. A clean, unlocked `<run-id>-baseline` checkout at the base that an earlier release left under `.git` is removed too. It never deletes an unregistered directory at the scratch path. A branch that points anywhere else is refused by name and left in place, and one checked out in another worktree is refused with that worktree's path; neither is deleted during cleanup any more.
+
+- `gc` and the `[retention] run_days` prune now reclaim a run that `abort --force` ended.
+  That abort already discarded the run's fix commits, so `gc` no longer retains the run as
+  "unmerged fix commits" forever.
+
+- Removing a strict validation worktree that `git worktree lock` protects no longer deletes
+  its directory. `abort` and `finish` stop with an error that names the locked worktree, and
+  `gc` retains it with the reason `validation worktree is locked`.
+
+- A stage or setup command that runs through the login shell now starts in the validation
+  directory even when the login profile changes directory.
+
+- `status` on a run whose independent review command was interrupted now points to
+  `agentic-preflight review run`, the command that records the interruption and retries.
+  It used to point back to `status`, which does not recover the run.
+
+- `telemetry sync-hosted` now counts a check run with the conclusion `startup_failure` as
+  failed. A workflow that could not start used to count toward a `success` outcome.
+
+- Reading a run ID that does not exist no longer creates an empty `runs/<id>/` directory
+  with a lock file that `gc` never removed.
+
+- The command reviewer (the packaged `reviewer run` and the example wrappers) sends the
+  prompt to the provider CLI as UTF-8 and decodes the CLI's output as UTF-8, replacing
+  undecodable bytes, instead of using the locale encoding. A non-ASCII diff under an
+  ASCII or cp1252 locale no longer crashes the reviewer with a traceback.
+- An `AP_REVIEWER_EVENTS_FILE` that cannot be written, such as a path in a missing or
+  read-only directory, now fails the review with one `independent reviewer failed: ...`
+  line instead of a traceback or a misleading "reviewer CLI not found" message.
+- A provider CLI that cannot be started, for example because `AP_CLAUDE_BIN` or
+  `AP_CODEX_BIN` names a file that is not executable, now fails the review with one
+  `independent reviewer failed: ...` line instead of a traceback.
+
+- Report missing merge bases in shallow repositories as `missing_merge_base` with history-fetch guidance, distinguish `unrelated_histories`, and preserve operational Git errors instead of calling them empty diffs.
+
+- Build documentation inventories and surface digests from HEAD blobs, making sparse and full checkouts agree and avoiding symlink targets, smudged LFS bytes, and checkout EOL conversion. Prior docs evidence reruns once where its surface digest changes.
+
+- Refuse non-SHA-1 repositories in `start` and `init` with `unsupported_object_format` and a compatibility link, before creating a run or writing configuration and hooks.
+- Align the contributor test command with the protected preflight policy (`uv run pytest`); it runs the same suite as the former quiet invocation.
+
+- In `strict` and `reusable` worktree modes, a plain `abort` no longer deletes
+  uncommitted changes in the validation worktree. It exits 5 with `unmerged_work` and
+  lists up to 200 paths in the new `data.uncommitted_paths`, with the total in
+  `data.uncommitted_path_count`, alongside any unmerged fix commits; copied files and
+  ignored files do not count, as in `gc`. A worktree that cannot be inspected also
+  stops it, with `data.inspection_error` set and the path fields `null`. `--force`
+  still discards them. `in_place` runs are unchanged.
+
+- In isolated worktree modes, `abort` no longer deletes validation-branch commits that no
+  `respond` or stage registered, from the end of base synchronization until merge-back.
+  It stops with `unmerged_work` (exit 5) and lists them in `data.fix_commits`; `--force`
+  discards them and reports them in `data.discarded_fix_commits` and the `aborted` event.
+  A recorded fix commit always counts, and a checkout detached from the validation
+  branch no longer hides the branch's commits. A history that cannot be read, such as a
+  merge on the validation branch, also stops a plain `abort` when a non-empty commit
+  follows the reviewed head, or when Git cannot open the validation checkout; its listing
+  can then include commits that a rebase onto another base brought in.
+
+- `stage run --baseline` creates its scratch worktree with the validation worktrees. For an
+  `in_place` run it used to create it next to the source checkout.
+
+- The documentation inventory lists only files committed at the head commit. Files not
+  committed there, such as an ignored Sphinx `docs/_build/` tree, an uncommitted
+  generated file, or a nested worktree, no longer enter `doc_surface`, the docs
+  allowlist, or `doc_surface_sha256`. A committed generated file still counts.
+
+- Correct the owner-review and telemetry documentation, clarify configured command review, and align the skill severity examples.
+- Add 0.7-to-0.8 upgrade steps, refresh stale bundled skill links (this release pins them to v0.9.0), and document the Claude Code 2.1.292 stream-result handling.
+
+- In `reusable` mode, `start --replace` and a `start` after the source head moved, and
+  `gc` in both isolated modes, no longer delete commits on a validation branch when the
+  validation checkout is detached at the reviewed head. They read the branch tip as well
+  as `HEAD` before releasing the checkout. `start` puts the runner back on its branch and
+  keeps it leased, so the fresh run exits 4 (`needs_human`) instead of leasing and
+  resetting it. `gc` retains the run with reason `validation worktree holds unrecorded
+  commits`, or `validation worktree could not be inspected` when the branch history
+  cannot be read, and its instruction names the run's `ap/<run_id>` branch.
+  `gc --force` still releases it.
+
+- The review diff no longer depends on the Git configuration of the machine that builds it.
+  Before, `core.abbrev`, `core.quotePath`, `core.bigFileThreshold`, `core.precomposeUnicode`,
+  `diff.noprefix`, `diff.srcPrefix`, `diff.dstPrefix`, `diff.algorithm`, `diff.context`,
+  `diff.interHunkContext`, `diff.indentHeuristic`, `diff.suppressBlankEmpty`,
+  `diff.submodule`, `diff.orderFile`, `diff.default.binary`, the
+  `GIT_DIFF_OPTS` environment variable, and the user-level attributes file each changed
+  the patch text that the review digest hashes. `verify`, `push`, and the pre-push hook then rejected a valid note with
+  "review fingerprint does not match the Git diff" on any machine whose settings differed
+  from the producer's. Git also lengthens abbreviated object IDs as a clone gains objects, so
+  a fresh CI clone could reject a note that verified locally. Review patches now carry full
+  object IDs, and every such setting is fixed to Git's default. `diff.relative` is fixed too,
+  as a precaution: it has no effect when Git runs from the repository root, as preflight
+  does. Git attributes still shape
+  the text: those in `.gitattributes`, `$GIT_DIR/info/attributes`, `attr.tree`,
+  `GIT_ATTR_SOURCE`, and the system-wide attributes file, together with the `diff.<driver>.*`
+  configuration of a driver an attribute names. So do `diff.default.xfuncname` and
+  `diff.default.funcname`. `COMPATIBILITY.md` lists them.
+- Replacement objects under `refs/replace` no longer change the review diff, the changed-file
+  list, or risk classification. They exist in one clone only.
+- `diff.ignoreSubmodules = all`, and `submodule.<name>.ignore = all` in local configuration,
+  no longer hide a submodule pointer change from the review diff, the changed-file list,
+  risk classification, or the list of paths a fix commit changes.
+- `diff.submodule = log` or `diff` no longer stops `context` with an internal error when a
+  change moves a submodule pointer.
+- `core.precomposeUnicode`, which Git on macOS sets at `git init`, no longer stops `context`
+  with an internal error for a path stored in decomposed Unicode.
+- Notes written by 0.8.1 and earlier still verify when their producer left these settings
+  at Git's default and the Git attributes and diff-driver settings that still apply give
+  the verifier the same patch, unless the verifier's clone holds a number of objects for
+  which Git picks a different abbreviation length; the earlier text then differs. A note
+  written with another value, such as `diff.context = 5`, may fail verification, even on the
+  machine that wrote it, when that value changed the patch. A note for a commit whose
+  committed `.gitmodules` sets `submodule.<name>.ignore = all` on a changed submodule always
+  fails, because the earlier patch left that pointer out. If verification fails, validate
+  the commit again to replace the note.
+  The verifier's own `core.abbrev` no longer matters for such a note. Until that format is
+  removed in 0.10.0, a binary or other file-level patch in it binds its content only by an
+  abbreviated object ID.
+  `COMPATIBILITY.md` lists what changes at upgrade.
+
+- The example Claude reviewer wrapper now reads findings from the last `result` envelope even
+  when Claude Code streams further events after it. Claude Code 2.1.292 ends `stream-json`
+  output with system events such as `task_summary`, which made `review run` fail with
+  "reviewer CLI returned no JSON object containing findings". A result envelope marked
+  `is_error` now fails the review with its subtype instead of falling back to another object.
+
+- `start` holds the new run's operation lock until the run is ready for review. It used to
+  release it right after creating the record, so a concurrent `start --replace`, `gc`, or
+  `abort` could orphan the run while its checkout was still being provisioned.
+
+### Security
+
+- `verify`, `approval-check`, `push`, and the pre-push hook take attestation policy from the
+  `.agentic-preflight.toml` committed at the trusted base instead of the note's own
+  configuration snapshot. When the caller passes the protected base with `--base`, as
+  `approval-check` and the hosted workflow do, a branch can no longer skip docs, swap a
+  configured lint, test, or review command, widen review exclusions, or lower the review
+  executor for itself. `push` and the pre-push hook have no `--base`, so they trust the
+  branch the note names; a forged note can still name a branch with a weaker policy there.
+- Without `--base`, a note's fully qualified `base_ref` must name a branch under
+  `refs/heads/` or `refs/remotes/origin/`. A tag or another ref namespace fails with
+  `base_mismatch`, so a note cannot pin the policy of an old tag.
+- `start` refuses a base that verification without `--base` cannot resolve to an existing
+  branch, such as a tag, `upstream/main`, a commit SHA, or `main~1`, with exit 3 and
+  `unsupported_base_ref` before any stage runs, because `push` and the pre-push hook
+  could not verify a note that names it.
+- Verification recomputes the merge base against the trusted base instead of trusting the
+  note's `merge_base_sha`, and rejects a mismatch or an ambiguous merge base with the new
+  `base_mismatch` reason. `verify` gains `--base REV`, and the hosted attestation workflow
+  passes the pull request's base SHA.
+- The README and SECURITY.md now state that attestations are unsigned records, not proof that
+  the stages ran.
+
+- The hosted Dependabot approval exemption and the Dependabot auto-merge and attestation
+  exception now also require that `dependabot[bot]` set the current head. Signed bot
+  commit metadata shows only that GitHub created a commit. The run's event must be a
+  `pull_request_target` `opened` or `synchronize` event for the exact head, sent by the
+  `dependabot[bot]` Bot account with account id `49699333`, on a pull request into the
+  repository's default branch. `.github/scripts/verify_dependabot.py` takes the new
+  required `--event-name` and `--event-file` arguments and reports
+  `head_set_by_other_actor`, `head_actor_unknown`, `event_mismatch`, or
+  `base_not_default_branch` when it fails closed. A head that a person pushed, including a
+  clean **Update branch** merge, and runs from `reopened`, `ready_for_review`, or
+  auto-merge events now follow the ordinary policy: a preflight attestation for the head,
+  plus owner approval where the approval policy requires it. `@dependabot rebase` or
+  `@dependabot recreate` restores eligibility instead. `docs/limits.md`
+  describes the exemption's guarantee. (GHSA-v55v-mgfw-4j8q)
+
+- Git attributes no longer hide content from review or change the review patch.
+  Before, a branch that committed `.gitattributes` with `* -diff` turned every patch into
+  "Binary files ... differ": the reviewer saw no content, each file still counted as
+  reviewed, and local verification and the pre-push hook passed. `$GIT_DIR/info/attributes`,
+  `attr.tree`, `GIT_ATTR_SOURCE`, and a `diff=<driver>` attribute with `diff.<driver>.*`
+  configuration also changed the patch text. Review patches are now built without
+  attributes: text files are diffed as text, and only a file that Git's default rule calls
+  binary gets a "Binary files ... differ" line. Hunk headers no longer follow a diff driver.
+  (GHSA-m8wg-p58p-cqmf)
+- A diff driver with a hunk-header pattern in `$GIT_DIR/info/attributes`, `diff` set
+  there on a binary file, or a driver there that prints a binary file as text, now stops the command with `review_diff_attribute` (exit 3),
+  because no other machine can rebuild that text. So does `diff.default.xfuncname` or
+  `diff.default.funcname`, which would rewrite every hunk header, and a hunk-header
+  pattern or `binary = false` for a driver named `set`, `unset` or `unspecified`, which
+  Git's attribute output cannot tell from those states.
+- A note from 0.8.1 or earlier whose review text marked a text file as binary is now
+  rejected. A note that neither text reproduces still fails as an ordinary mismatch, even
+  where the checkout's attributes mark a text file as binary. `COMPATIBILITY.md` lists
+  what changes at upgrade.
+
+- `approval-check` now chooses each reviewer's latest decisive review across every head
+  of the pull request before checking which head it approves. A changes-requested review,
+  a dismissal, or (for an `owner_review` self-approval) a later Comment review with other
+  text on a different head now revokes an approval of the current head, so returning the
+  branch to an approved commit no longer restores a revoked approval. A later approval of
+  a head with different content also replaces an earlier approval. Previously the
+  exact-head check ignored reviews submitted on other heads. (GHSA-h78r-2g3v-5227)
+- A revoking review now counts even when GitHub reports its `commit_id` as `null`, for
+  example after the reviewed commit is garbage-collected. A decisive review by an
+  eligible reviewer without an integer `id` now fails the check with
+  `attestation_failed` instead of sorting before every other review.
+- In `owner_review` mode on the reviewer's own pull request, a review-thread reply (an
+  empty-body Comment review) on any head now removes an earlier `approved` self-review.
+
+- The `high-risk human approval` job now passes without an approval only when the policy
+  job reports exactly `false` for `requires_approval`. An empty, `null`, or other value
+  fails the job instead of being read as "no approval required".
+- Every `actions/checkout` step in a `pull_request_target` workflow sets
+  `persist-credentials: false`, so the workflow token is not left in the checkout's Git
+  configuration. A governance test keeps new checkouts in those workflows the same.
+- `init` replaces a symlink at the pre-push hook path instead of writing through it.
+  A dangling link no longer creates its target, and `--force` no longer overwrites the
+  file a link points to, which could be a tracked file when `core.hooksPath` points
+  into the repository. A link to exactly the current hook script is replaced with a
+  regular file too. `data.hook_path` now names the link rather than its target, and a
+  `core.hooksPath` that ends in whitespace is kept as configured.
+- Review grounding reads `docs/**`, `AGENTS.md`, `CLAUDE.md`, `[context] extra_paths`,
+  and the `[context]` settings themselves from the run's merge base instead of the branch
+  under review. A change cannot rewrite the conventions shown to its own reviewer, or turn
+  grounding off or shrink it for its own review; a `[context]` change takes effect after
+  it merges. The branch's edits to those files, including files it adds, reach the
+  reviewer through the diff. For a branch that edits those files, the grounding changes,
+  so its earlier review evidence is not reused.
+- `human-approval-rerun.yml` re-runs the approval policy only when the user who submitted,
+  edited, or dismissed the review is an owner, member, or collaborator with a review on
+  the pull request, or has write access. A bot account, such as a GitHub App, re-runs it
+  once it has dismissed an owner, member, or collaborator review of the pull request.
+  When a lookup that decides authorization fails, the policy is re-run, with a warning,
+  rather than skipped, so a stale success cannot stay authoritative. The re-run job
+  retries its own lookups, re-runs the reviewed head's policy runs when the pull request
+  cannot be read, and fails with an error when the policy runs cannot be listed. Comment reviews from other users on a public pull request no longer queue
+  policy re-runs. Eligibility is decided in an `authorize`
+  job before the re-run job joins its concurrency group, which is keyed by the pull
+  request and its head, so an ineligible review, or a re-run for another pull request
+  with the same head, cannot replace an eligible re-run that is waiting in that group.
+- The configuration that `init` writes, and the Claude and Codex reviewer example
+  configurations, add `docs/CODEOWNERS` and the reviewer wrapper directory
+  `docs/examples/reviewers/**` to `human_review_paths`. Existing configuration files are
+  not changed; add these paths by hand to apply them.
+
+- The trusted `pull_request_target` attestation and human-approval workflows no longer run
+  `uv tool install .`. They install only the runtime dependencies pinned in the protected
+  base's `uv.lock` with `uv sync --locked --no-dev --no-install-project`, and run the
+  checker from the base checkout with
+  `uv run --locked --no-dev --no-sync python -m agentic_preflight`. Nothing is resolved
+  from PyPI or built in these jobs, so a new or compromised release of a runtime
+  dependency, the build backend, or a build dependency can no longer run inside them.
+  (GHSA-vp48-82vp-gr6c)
+- Those jobs pin the uv release in `astral-sh/setup-uv`. Maintainers bump it by hand.
+- `pyproject.toml` pins the build backend to `hatchling==1.33.0`, because `uv.lock` does
+  not record it.
+- `install.sh`, `install.ps1`, and `uv tool install agentic-preflight` still resolve runtime
+  dependencies fresh. The installation guide now says so and shows how to run the locked
+  versions.
+
+- The run store (`$GIT_COMMON_DIR/agentic-preflight`) and the telemetry directory are
+  created owner-only (`0700`) on POSIX. An existing run store you own is narrowed when the
+  next run is created, and an existing telemetry directory on its next write. Run records,
+  stage logs, events, and telemetry rows were readable by other local users under a default
+  umask. On Windows these directories still inherit the parent folder's access list.
+- `copy_files` creates each copy at `0600` instead of copying under the umask and narrowing
+  it afterwards, and replaces a file or symlink already at the destination instead of
+  writing through it.
+
+- `push` no longer publishes the whole local `refs/notes/agentic-preflight` ref. It builds a notes
+  commit from the remote notes tip plus only the notes of the commits being pushed (the run's
+  merge base to head). A note on any commit outside that range, with its branch name, findings,
+  file paths, and configuration, stays local. The guarantee is per commit: a pushed commit's
+  note is published even when a run on another branch, such as an aborted one, wrote it, and it
+  then carries that branch's name. A concurrent notes update from another clone is kept: `push`
+  leases the remote notes ref to the fetched tip, so any change to it, including a deletion or
+  rewind, rejects the push, and `push` rebuilds on the new remote tip and retries. In manual
+  gate mode, `gate` rejects a fetch that changes the head's attestation. After the push, the published notes commit is
+  merged into the local notes ref. `gate` and dry runs list the pushed commits that carry a local
+  note in `data.published_notes`, `push` reports the notes it added or changed there, and the
+  manual gate command names the built notes commit. `gc` and publication delete temporary notes
+  refs that an interrupted command left behind.
+  (GHSA-r5jg-frwr-44qc)
+
+- Finding titles, details, suggestions, and `respond --note` text are now redacted for
+  `[worktree] copy_files` values before they are saved, as stage logs already were. A
+  reviewer that quotes a copied secret no longer places it in `findings.json` or in the
+  published attestation note (GHSA-8c37-fpgq-vp36).
+- The published attestation note now leaves out configuration sections from the user
+  configuration file, except `[diff]`, and records `[redacted user-level command]` in
+  place of a command that depends on such a section. Evidence reuse refuses earlier
+  evidence that would carry withheld configuration or unredacted finding text into a
+  note. Attestation schema 7 is unchanged. See `COMPATIBILITY.md`, and
+  `docs/attestations-and-ci.md` for exactly what a note contains.
+- `review compare` redacts copied-file values in compared findings before it writes its
+  summary and event. Its refusals no longer quote rejected values and are redacted for
+  copied-file values.
+- `mergeback`, `gate`, and `push` refuse a run that an earlier release started (exit 4,
+  `needs_human`, `data.reason` `unknown_config_provenance`), because such a run did not
+  record which configuration came from the user file. Abort it and start a fresh run. Run
+  records now always carry `user_config_sections`, so earlier releases cannot read new run
+  records.
+
+- A repository's `.agentic-preflight.toml` can no longer set `[telemetry] path`. Before,
+  a repository's `[telemetry]` section replaced the user's, so a cloned repository could
+  make every `git push` append `hook-decisions.jsonl`, and every finished run append
+  `runs.jsonl`, to a directory it chose, including a Windows UNC path that opens an
+  outbound SMB connection. The repository's `path` is now ignored with a warning, and a
+  repository section can only turn `mirror` and `hook_log` off, never on.
+- `[telemetry] mirror` and `hook_log` accept only `true` and `false`. Before, values
+  such as `1` or `"yes"` were read as `true`, so a repository could use them to turn on a
+  file that the user turned off.
+- Attestation verification applies the same rule to the protected base's configuration,
+  so a `[telemetry] path` there no longer fails verification of a configuration that
+  normal loading accepts.
+
+- A branch can no longer hide a submodule pointer change from review and risk
+  classification by committing a `.gitmodules` file that sets `submodule.<name>.ignore = all`.
+  Git read that file from the checkout and left the path out of the changed-file list and
+  the review diff. The review now lists every submodule pointer change, and so does the list
+  of paths a fix commit changes, which `respond` and merge-back check.
+
+- A branch can no longer replace the reviewer that reviews it without human approval.
+  `[review] command` and `[review.contracts] planner_command` run from the worktree under
+  review, and verification compared only the command string, so a branch could rewrite a
+  repository reviewer script to report nothing and pass with no owner review. Risk
+  classification now treats every repository path these commands name, and every file
+  under that path's directory, as a human-review path. Files beside a script at the
+  repository root are not covered; list them in `[review] trusted_paths`.
+  `approval-check` and attestation verification read the commands from the protected
+  base. (GHSA-3372-q2xp-jr7q)
+- New `[review] trusted_paths` lists further reviewer files, such as prompts or modules
+  loaded by name, whose changes need human review.
+- This repository adds `docs/examples/reviewers/**` to `[policy] human_review_paths` and
+  CODEOWNERS.
+- `docs/limits.md` and `docs/independent-review.md` now say that verification compares
+  command strings, not the scripts that they run.
+- Reviewer path detection also protects directories that a command changes to (`cd`,
+  `pushd`, `-C`, `--directory`, `--cwd`, `--prefix`, `--project`, `--chdir`), directories
+  in `PYTHONPATH` and `NODE_PATH`, the top-level package of a dotted `-m` module (or
+  `name.py` and `name/**` for `-m name`), and the literal
+  path after a leading `$VAR/` or `$(...)/` expansion. Control operators split the command
+  only outside quotes, so a quoted path such as `'reviewers (local)/rev.py'` stays whole.
+- The example Claude wrapper passes `--safe-mode --setting-sources user`, and the example
+  Codex wrapper passes `--config project_doc_max_bytes=0 --ignore-rules`, so the branch
+  under review cannot instruct or reconfigure its reviewer through `CLAUDE.md`,
+  `AGENTS.md`, or `.claude/settings.json`. Codex has no option to skip a project
+  `.codex/config.toml` or repository skills under `.agents/skills`; the Codex example
+  lists `.codex/**` and `.agents/**` in `trusted_paths`. The example configurations
+  run the wrapper with `python3 -S -B`, so a branch-added `sitecustomize` module does
+  not run.
+- This repository adds a root `sitecustomize.py` to `human_review_paths` and CODEOWNERS,
+  because its reviewer command starts with `uv run`.
+
 ## [0.8.1] - 2026-10-28
 
 ### Added

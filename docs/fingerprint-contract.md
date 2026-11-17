@@ -62,8 +62,8 @@ It fixes the other settings to Git's default for that text too, so a note whose 
 A note for a commit whose committed `.gitmodules` hid a changed submodule pointer never verifies, because both texts now list that pointer.
 In that text a file-level patch, such as a binary change, names its blobs only by abbreviated object IDs, which a clone that holds both blobs disambiguates.
 It rejects the note when that text marks a file whose content is text as binary.
-See [the compatibility entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-configuration)
-and [the attributes entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-attributes).
+See [the compatibility entry](../COMPATIBILITY.md#review-patches-no-longer-depend-on-git-configuration)
+and [the attributes entry](../COMPATIBILITY.md#review-patches-no-longer-depend-on-git-attributes).
 
 Configuration digests cover the published configuration snapshot, because a verifier recomputes them from the note.
 That snapshot leaves out sections from the user configuration file, except `[diff]`.
