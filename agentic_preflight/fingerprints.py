@@ -286,10 +286,9 @@ def compute_docs_fingerprint(
 ) -> DocsFingerprint:
     """Fingerprint the inputs a green docs stage against ``head_sha`` depended on.
 
-    The documentation surface is read from HEAD's blobs, so this must be
-    called while ``head_sha`` is actually checked out there, the same
-    convention ``review_protocol.context_data`` and ``grounding.assemble``
-    already rely on. A caller that already holds ``doc_surface`` for these
+    The caller's HEAD must resolve to ``head_sha``. The surface reads its
+    blobs independently of checkout presence or content; context and grounding
+    use the same HEAD identity. A caller that already holds ``doc_surface`` for these
     ``changed_files`` and ``doc_paths`` may pass it as ``surface``.
     """
     if surface is None:

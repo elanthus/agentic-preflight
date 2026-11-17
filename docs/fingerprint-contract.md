@@ -80,6 +80,7 @@ Docs binds the base and head trees, the intent, the grounding, the documentation
 Its digest includes every inventory entry's complete bytes, path, existence, size, and whether the diff touches it.
 The inventory lists only blobs committed at the head commit, so an ignored or untracked document does not enter the digest.
 Existence, size, and content come from those blobs, including outside a sparse checkout.
+The caller pins HEAD to the expected commit; checkout presence and content do not affect the surface.
 A symlink contributes its link-text blob, including dangling or directory-target links; its target is never followed.
 LFS pointers and normalized line endings contribute their committed bytes, without smudge filters or checkout conversion.
 Changes to committed docs between context and submission require fresh context.
