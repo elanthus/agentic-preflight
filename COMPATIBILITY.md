@@ -96,6 +96,8 @@ These shapes are supported:
 Sparse checkouts are supported for review. Lint and test see only the files in the sparse set, and the docs stage sees only the documentation files in it.
 
 Repositories that use the SHA-256 object format are not supported.
+`start` and `init` refuse them with exit 3 and `unsupported_object_format`, before
+creating a run or writing configuration and hooks.
 Run records and attestation notes hold only SHA-1 object IDs, so no commit in such a repository can have a valid attestation.
 See [issue #394](https://github.com/elanthus/agentic-preflight/issues/394).
 
@@ -844,7 +846,7 @@ Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 ## Unreleased: refuse unsupported repository object formats up front
 
 `start` and `init` now exit 3 with `unsupported_object_format` for any object
-format other than `sha1`. The message links this compatibility statement.
+format other than `sha1`. The message links the [Repository shapes](#repository-shapes) compatibility statement.
 Previously a SHA-256 repository could start a run but failed when recording review
 coverage. No run is created or resumed; `init` refuses before writing configuration
 or installing a hook, including with `--force` or `--no-hook`. Existing SHA-1
