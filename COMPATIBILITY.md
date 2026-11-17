@@ -838,4 +838,5 @@ What changes at upgrade:
 - Which files are binary is decided from the blobs the commits hold. A replacement object under `refs/replace` does not change that decision, as it does not change the patch.
 - The bounded read that checks `[diff] max_bytes`, described in [the bounded read entry](#unreleased-an-oversized-diff-is-measured-with-a-bounded-read), builds the same attribute-free text. To decide which files are binary it still reads every changed blob, keeping only the first 8,000 bytes of each, before it reads any patch text.
 - Earlier verifiers rebuild attribute-shaped text, so they reject a note that this release writes for a repository whose attributes changed a patch. Upgrade the protected verifier before, or together with, the local publisher and the hook, as [the Git configuration entry](#unreleased-review-patches-no-longer-depend-on-git-configuration) already requires.
+
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
