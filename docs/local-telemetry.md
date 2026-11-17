@@ -397,7 +397,9 @@ missing metadata, an unmerged PR, or a run beyond the cap is null. This cannot
 detect every manual rollback. Commit messages are inspected transiently and
 never persisted in new fields.
 
-`report` shows each escape component separately under `hosted.escapes`, with
+`report` shows each escape component separately under `hosted.escapes`. Its
+Markdown escape section appears only when at least one run was synced, matching
+the hosted-outcome section; JSON metrics are always present. Each component has
 a named denominator of synced DONE runs with that observation known and an
 excluded-run count. Failure classes require settled checks. Components overlap
 and are never summed. Follow-up work and comments need not indicate defects;

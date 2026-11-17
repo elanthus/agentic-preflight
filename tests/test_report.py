@@ -810,6 +810,7 @@ def _markdown(rows: list[dict[str, Any]]) -> str:
 def test_markdown_shows_hosted_outcomes_only_when_a_run_was_synced():
     rows = _mixed_rows()
     assert "Hosted outcomes synced" not in _markdown(rows)
+    assert "Escape signals" not in _markdown(rows)
 
     rows[0]["hosted"] = {
         **rows[0]["hosted"],
@@ -822,6 +823,7 @@ def test_markdown_shows_hosted_outcomes_only_when_a_run_was_synced():
     text = _markdown(rows)
 
     assert "### Hosted outcomes synced" in text
+    assert "### Escape signals" in text
     assert "| Runs synced | 25.0% | 1 | runs: 4 | n/a |" in text
     limits = text.split("### Limits\n\n", 1)[1]
     assert limits == "".join(f"- {limit}\n" for limit in (*report.LIMITS, *report.HOSTED_LIMITS))
@@ -836,7 +838,6 @@ def test_markdown_has_the_sections_in_order_and_ends_with_the_limits():
         "Source",
         "Runs",
         "Caught before push",
-        "Escape signals",
         "Findings",
         "Finding responses",
         "Stages",

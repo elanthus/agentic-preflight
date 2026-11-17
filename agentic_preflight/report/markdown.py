@@ -190,6 +190,8 @@ def _tool_time_section(metrics: Mapping[str, Any]) -> list[str]:
 
 
 def _escape_section(metrics: Mapping[str, Any]) -> list[str]:
+    if not metrics["hosted"]["synced"]["runs"]["numerator"]:
+        return []
     escapes = metrics["hosted"]["escapes"]
     labels = {
         "local_equivalent": "Local-equivalent failed checks",
