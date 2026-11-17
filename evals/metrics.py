@@ -214,6 +214,15 @@ def _claude_usage(events: list[dict[str, Any]], intact: bool) -> dict[str, Any]:
     return usage_record({}, complete=False, source="claude")
 
 
+def _calls_finished(events: list[dict[str, Any]], calls: list[dict[str, Any]]) -> bool:
+    completed = {call["call"] for call in calls if type(call.get("call")) is int}
+    return all(
+        type(event.get("call")) is int and event["call"] in completed
+        for event in events
+        if event.get("type") == "reviewer_call_started"
+    )
+
+
 def read_usage(path: Path, executor: str, *, require_completion: bool = False) -> dict[str, Any]:
     """Read all complete JSONL records, retaining evidence before a truncated tail."""
     try:
@@ -247,7 +256,7 @@ def read_usage(path: Path, executor: str, *, require_completion: bool = False) -
         records = [
             usage_record(
                 call.get("tokens") if isinstance(call.get("tokens"), dict) else {},
-                complete=call.get("outcome") in {"success", "malformed"},
+                complete=call.get("outcome") in {"success", "malformed", "budget_exhausted"},
                 source="reviewer_call",
             )
             for call in calls
@@ -255,7 +264,9 @@ def read_usage(path: Path, executor: str, *, require_completion: bool = False) -
         aggregate = aggregate_usage(records)
         return usage_record(
             aggregate["observed"],
-            complete=intact and aggregate["status"] == "complete",
+            complete=intact
+            and _calls_finished(events, calls)
+            and aggregate["status"] == "complete",
             source="reviewer_calls",
         )
     if executor == "claude":

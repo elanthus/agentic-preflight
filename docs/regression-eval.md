@@ -309,7 +309,10 @@ The packaged reviewer's `--verify`, `--retries`, and `--budget-seconds` support
 controlled orchestration experiments. Its events include per-call requests
 (CLI invocations), tokens, and wall time. The metrics reader sums disjoint calls
 once, including paid malformed responses, without adding wrapped raw output
-again. Interrupted calls remain unknown. The existing smoke harness still uses
+again. A call-start without a matching completion makes usage partial even when
+the status sidecar is absent. Fully received responses that exceed the budget
+retain their known usage; the failed invocation remains incomplete. Interrupted
+calls remain unknown. The existing smoke harness still uses
 the copied single-call examples; changing its real-mode configuration and
 publishing ablations remain maintainer work.
 

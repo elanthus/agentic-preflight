@@ -270,6 +270,7 @@ class Orchestrator:
                         outcome = "malformed"
                         raise
                     if time.monotonic() >= self.deadline:
+                        outcome = "budget_exhausted"
                         raise common.ReviewerError("reviewer total budget exhausted")
                     outcome = "success"
                 except subprocess.TimeoutExpired:

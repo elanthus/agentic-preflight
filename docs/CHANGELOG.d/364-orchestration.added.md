@@ -1,1 +1,2 @@
 - Add packaged reviewer `--retries`, `--budget-seconds`, and optional `--verify`, with per-call measurements and rejected candidates in `AP_REVIEWER_EVENTS_FILE`, plus digest-bound eval adjudication with Wilson precision/recall intervals. Tests use fake provider CLIs without network or model calls.
+- Keep usage partial for unmatched call starts, and retain known provider usage when a parsed response exhausts the total budget.

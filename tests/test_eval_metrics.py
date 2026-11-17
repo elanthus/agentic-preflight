@@ -388,3 +388,43 @@ def test_outer_review_timeout_preserves_flushed_usage(tmp_path, monkeypatch, exe
     assert result["usage"]["status"] == "partial"
     assert result["usage"]["tokens"]["input_tokens"] == 100
     assert result["workflow"]["final_state"] == "REVIEW_COMMAND_RED"
+
+
+@pytest.mark.parametrize("status", [None, True, False])
+def test_unmatched_reviewer_call_start_keeps_observed_usage_partial(tmp_path, status):
+    path = stream(
+        tmp_path,
+        [
+            {"type": "reviewer_call_started", "call": 1},
+            {
+                "type": "reviewer_call",
+                "call": 1,
+                "outcome": "success",
+                "tokens": {"input_tokens": 15, "output_tokens": 4},
+            },
+            {"type": "reviewer_call_started", "call": 2},
+        ],
+    )
+    if status is not None:
+        Path(str(path) + ".status.json").write_text(json.dumps({"completed": status}))
+    usage = metrics.read_usage(path, "claude")
+    assert usage["status"] == "partial"
+    assert usage["tokens"]["total_tokens"] == 19
+
+
+def test_budget_exhausted_call_retains_complete_provider_usage(tmp_path):
+    path = stream(
+        tmp_path,
+        [
+            {"type": "reviewer_call_started", "call": 1},
+            {
+                "type": "reviewer_call",
+                "call": 1,
+                "outcome": "budget_exhausted",
+                "tokens": {"input_tokens": 15, "output_tokens": 4},
+            },
+        ],
+    )
+    usage = metrics.read_usage(path, "claude")
+    assert usage["status"] == "complete"
+    assert usage["tokens"]["total_tokens"] == 19

@@ -313,3 +313,33 @@ def test_invalid_context_clears_previous_invocation_events(tmp_path):
     assert result.stdout == ""
     assert events.read_text() == ""
     assert json.loads(status.read_text()) == {"completed": False}
+
+
+def test_parsed_response_past_budget_fails_without_losing_known_call_usage(tmp_path, monkeypatch):
+    from agentic_preflight.reviewers import orchestration
+
+    original_call = orchestration.Orchestrator.call
+
+    def expire_after_parsing(self, prompt, phase, parse):
+        def expired(*outputs):
+            result = parse(*outputs)
+            self.deadline = 0
+            return result
+
+        return original_call(self, prompt, phase, expired)
+
+    monkeypatch.setattr(orchestration.Orchestrator, "call", expire_after_parsing)
+    result, events, path = run_fake(
+        tmp_path, "claude", [output([])], "--retries", "1", "--budget-seconds", "5"
+    )
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "budget exhausted" in result.stderr
+    calls = [event for event in events if event["type"] == "reviewer_call"]
+    assert len(calls) == 1
+    assert calls[0]["outcome"] == "budget_exhausted"
+    assert calls[0]["tokens"]["total_tokens"] == 19
+    # The provider response is measured, but the overall review still failed.
+    usage = read_usage(path, "claude", require_completion=True)
+    assert usage["status"] == "partial"
+    assert usage["tokens"]["total_tokens"] == 19

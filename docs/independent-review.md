@@ -139,6 +139,8 @@ leave a previous successful invocation's usage behind. JSONL records include:
 Requests count provider CLI invocations (zero when launch fails), not internal API or tool requests.
 Token totals use complete provider aggregates; missing usage is null. A malformed
 response can still have known usage. These are observations, not billing proof.
+A parsed response that finishes outside the total budget records `budget_exhausted`
+and retains its known provider usage, while the review still fails with no findings.
 Status is true only after the complete review succeeds. A started call without
 a completion record is incomplete; an outer kill can prevent copying its output
 to events. Completed-call records remain. Events can contain sensitive code and
