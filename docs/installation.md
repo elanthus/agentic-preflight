@@ -140,6 +140,7 @@ The commands below select the published 0.9.0 release.
    For a run that 0.8 started, `status` returns `agentic-preflight abort`, and every command
    that would validate or publish the run reports `unknown_config_provenance`.
    Abort it and start a fresh one; in isolated worktree modes, cherry-pick its recorded fix commits first.
+   A run at the validation restart limit gets no returned command: you decide whether to abort it.
    When a note that 0.8 wrote no longer verifies, validate the commit again to replace it.
    When `status --all` or `gc` lists a record from 0.6.0 as unreadable, see
    [Run records from before 0.7.0 are no longer read](../COMPATIBILITY.md#run-records-from-before-070-are-no-longer-read).
