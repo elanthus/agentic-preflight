@@ -219,6 +219,30 @@ An existing directory that you own is narrowed to that mode on the next write.
 When `hook-decisions.jsonl` reaches 4 MiB, the next decision first renames it to `hook-decisions.jsonl.1`.
 That replaces the older generation. `report` reads both files.
 
+### Hosted check classification (`[telemetry.hosted]`)
+
+Set `local_equivalent_checks` only in the user file. It maps exact GitHub check
+names to local stages (`review`, `docs`, `lint`, or `test`):
+
+```toml
+[telemetry.hosted]
+local_equivalent_checks = { "lint" = "lint", "test (ubuntu-latest, py3.13)" = "test" }
+```
+
+A failed named check is `local_equivalent` only when its mapped stage has a
+completed execution in the run, identified from completion events or fresh stage
+provenance. A stage that only skipped or reused evidence, or an unmapped check, is
+`hosted_only`. Missing execution evidence is `unclassified`. The failure-attempt
+counter is not an execution count: a first-pass success still counts as executed.
+Omitting the mapping leaves all failed checks unclassified; an explicit empty
+mapping declares all checks hosted-only. Pending or incomplete check snapshots
+leave all three counts unknown.
+
+A repository's `[telemetry.hosted]` table is ignored with a warning, even when
+malformed. This mapping is excluded from run snapshots and attestations.
+Changing it takes effect at the next `telemetry sync-hosted --refresh`;
+`telemetry rebuild` preserves the saved classification without contacting GitHub.
+
 ## Run record retention (`[retention]`)
 
 Each run keeps a directory under `$GIT_COMMON_DIR/agentic-preflight/runs/`.

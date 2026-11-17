@@ -971,7 +971,7 @@ for each run it orphaned. A telemetry failure never changes a command's result o
 back its transaction. The `aborted` event is now written with the terminal transition
 and carries its `seq`. See [Local run telemetry](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md).
 
-### `agentic-preflight telemetry sync-hosted [--limit N] [--run RUN_ID] [--refresh] [--dry-run]`
+### `agentic-preflight telemetry sync-hosted [--limit N] [--run RUN_ID] [--refresh] [--dry-run] [--reverts] [--reverts-limit N]`
 Joins GitHub pull-request and check outcomes onto this clone's pushed runs. This is the
 only telemetry command that talks to a network service. It only reads: it sends `GET`
 requests to the GitHub API with `gh api --hostname github.com`, and it writes local files
@@ -1006,7 +1006,30 @@ with the `telemetry rebuild` code. The summary's `hosted` object gains `pr_numbe
 `summary.json` does not carry its `hosted.json`, for example after an interrupted sync, is
 regenerated too, without a request. Run records and event logs are not changed.
 
-`data` reports `repo`, `dry_run`, `refresh`, `limit`, `run`, `eligible`, `not_eligible`
+The sync also reads PR commits, reviews, and inline comments after a timestamped
+validated push. It adds nullable `followup_commits`, `changes_requested`,
+`review_comments`, `reverted`, and `failed_checks` counts by
+`local_equivalent`, `hosted_only`, and `unclassified` to the hosted file,
+summary, and mirror. New fields contain only counts, a boolean, or null.
+`checks.settled` records whether the bounded check snapshot is complete and
+settled. See [hosted observations](../../docs/local-telemetry.md#join-hosted-outcomes)
+for timestamp, pagination, human-only, and classification rules.
+`[telemetry.hosted] local_equivalent_checks` is a user-file mapping of check names
+to local stages. Without it failures remain unclassified.
+`--reverts` enables the bounded base-branch scan; `--reverts-limit` accepts 1–50,
+default 10 merged runs. Unscanned or incomplete observations are null.
+Use `--refresh` to enrich already synced runs. Rebuild preserves saved counts.
+
+Optional hosted escape request failures preserve the PR/check outcome and any
+escape observations already fetched. The failed observation remains null.
+Missing optional resources, malformed responses, and ordinary HTTP errors are
+reported in `data.errors`; other observations and runs continue. Authentication,
+permission, rate-limit, network, and process failures stop further requests after
+saving the partial outcome and rebuilding its summary. Use `--refresh` after
+recovery to retry unknown observations in already-synced runs. Core PR/check
+fetch failures retain their existing behavior.
+
+`data` reports `repo`, `dry_run`, `refresh`, `limit`, `reverts`, `reverts_limit`, `run`, `eligible`, `not_eligible`
 (`not_done`, `no_pushed_sha`), `unreadable`, `unreadable_runs`, `already_synced`,
 `selected`, `deferred` (eligible runs past `--limit`), `synced`, `commit_not_found`,
 `stale_summaries` (synced runs whose summary is regenerated without a request),

@@ -216,6 +216,12 @@ class HookSection(_Section):
     allow_force_push: bool = False
 
 
+class HostedTelemetrySection(_Section):
+    """User-defined correspondence between GitHub checks and local stages."""
+
+    local_equivalent_checks: dict[str, Literal["review", "docs", "lint", "test"]] | None = None
+
+
 class TelemetrySection(_Section):
     """Where finished runs and hook decisions are recorded for the user, on this machine only.
 
@@ -228,6 +234,7 @@ class TelemetrySection(_Section):
 
     # Strict, so a repository's ``1`` or ``"yes"`` cannot pass as something other
     # than ``true`` and turn on a file the user turned off (:func:`merge_telemetry`).
+    hosted: HostedTelemetrySection = Field(default_factory=HostedTelemetrySection)
     mirror: StrictBool = True
     #: Append each pre-push hook decision to ``hook-decisions.jsonl``.
     hook_log: StrictBool = True
@@ -385,7 +392,7 @@ def _describe(exc: ValidationError, sources: dict[str, Path], default_source: Pa
 
 def _repo_telemetry_applies(key: str, value: Any) -> bool:
     """Whether a repository ``[telemetry]`` value replaces the user's (:func:`merge_telemetry`)."""
-    return key != "path" and not (key in {"mirror", "hook_log"} and value is True)
+    return key not in {"path", "hosted"} and not (key in {"mirror", "hook_log"} and value is True)
 
 
 def merge_telemetry(user: Any, repo: Any, *, warn_source: Path | None = None) -> Any:
@@ -393,12 +400,12 @@ def merge_telemetry(user: Any, repo: Any, *, warn_source: Path | None = None) ->
 
     A cloned repository must not choose where this machine writes files, or turn
     on logging the user turned off. So the repository's ``path`` is dropped whatever
-    its value, and a ``mirror`` or ``hook_log`` of ``true`` keeps the user's value.
+    its value. The repository cannot set the hosted check mapping either. A ``mirror`` or ``hook_log`` of ``true`` keeps the user's value.
     Any other value, ``false`` or one that is invalid, applies, so validation still
     names a bad ``mirror`` or ``hook_log`` value or an unknown key. A user section
     that is not a table is returned unchanged, so validation reports it instead of
     the repository hiding it. ``warn_source`` names the repository file to print a
-    stderr warning for a dropped ``path``. ``None`` drops it silently.
+    stderr warning for a dropped ``path`` or ``hosted`` setting. ``None`` drops it silently.
     """
     if user is not None and not isinstance(user, dict):
         return user
@@ -406,10 +413,10 @@ def merge_telemetry(user: Any, repo: Any, *, warn_source: Path | None = None) ->
         return repo
     merged: dict[str, Any] = dict(user) if isinstance(user, dict) else {}
     for key, value in repo.items():
-        if key == "path":
+        if key in {"path", "hosted"}:
             if warn_source is not None:
                 print(
-                    f"agentic-preflight: ignoring [telemetry] path in {warn_source}; set it in your user configuration file",
+                    f"agentic-preflight: ignoring [telemetry] {key} in {warn_source}; set it in your user configuration file",
                     file=sys.stderr,
                 )
             continue

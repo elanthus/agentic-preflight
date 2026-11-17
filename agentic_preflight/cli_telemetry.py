@@ -65,7 +65,10 @@ def telemetry_rebuild() -> None:
 SYNC_COMMAND = "agentic-preflight telemetry sync-hosted"
 REPORT_COMMAND = "agentic-preflight report"
 _RUN_ID = re.compile(r"r_[0-9a-f]{10}")
-_RETRY = "Run the sync again after that. It skips the runs that it already synced."
+_RETRY = (
+    "Run the sync again after that. It skips the runs that it already synced. "
+    "Use --refresh to retry unknown observations in already-synced runs."
+)
 
 #: The error code and instruction for each reason a sync stops.
 _STOPS: dict[str, tuple[str, str]] = {
@@ -120,7 +123,7 @@ def _sync_error(data: dict[str, Any]) -> AgenticError | None:
             "GitHub's answer for some commits could not be used; the other runs were synced",
             ExitCode.ERROR,
             "Each failed commit is in `data.errors`. Run the sync again later. It skips the "
-            "runs that it already synced.",
+            "runs that it already synced. Use --refresh to retry unknown observations in those runs.",
         )
         error.data = data
         return error
@@ -183,13 +186,23 @@ def _sync_next(data: dict[str, Any]) -> tuple[str | None, str | None]:
     help="Fetch only this run.",
 )
 @click.option("--refresh", is_flag=True, help="Fetch runs that already have hosted.json again.")
+@click.option("--reverts", is_flag=True, help="Inspect later base commits for explicit reverts.")
+@click.option(
+    "--reverts-limit",
+    type=click.IntRange(min=1, max=50),
+    default=hostedmod.DEFAULT_REVERTS_LIMIT,
+    show_default=True,
+    help="Inspect at most this many merged runs for reverts (only with --reverts).",
+)
 @click.option(
     "--dry-run",
     is_flag=True,
     help="List the runs to fetch. Contacts nothing and writes nothing.",
 )
 @command
-def telemetry_sync_hosted(limit: int, run_id: str | None, refresh: bool, dry_run: bool) -> None:
+def telemetry_sync_hosted(
+    limit: int, run_id: str | None, refresh: bool, dry_run: bool, reverts: bool, reverts_limit: int
+) -> None:
     """Join GitHub pull-request and check outcomes onto pushed runs. Reads GitHub only."""
     from .runs import STATE_DIR_NAME
 
@@ -206,6 +219,8 @@ def telemetry_sync_hosted(limit: int, run_id: str | None, refresh: bool, dry_run
             run_id=run_id,
             refresh=refresh,
             dry_run=dry_run,
+            reverts=reverts,
+            reverts_limit=reverts_limit,
         )
     except hostedmod.UnknownRun as exc:
         raise as_error(

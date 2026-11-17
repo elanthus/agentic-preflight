@@ -33,6 +33,9 @@ from .stages.command import resolve_on_path
 from .store import Store, atomic_write
 
 DEFAULT_LIMIT = 50
+DEFAULT_REVERTS_LIMIT = 10
+_MAX_ESCAPE_PAGES = 10
+_FAILURE_CLASSES = ("local_equivalent", "hosted_only", "unclassified")
 SOURCE = "gh"
 GITHUB_HOST = "github.com"
 GH_TIMEOUT_SECONDS = 60
@@ -278,8 +281,10 @@ def reduce_checks(check_runs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return {"conclusion": conclusion, "total": len(check_runs), "failed": failed}
 
 
-def _check_runs(runner: GhRunner, slug: str, sha: str) -> list[Mapping[str, Any]]:
+def _check_runs(runner: GhRunner, slug: str, sha: str) -> tuple[list[Mapping[str, Any]], bool]:
     runs: list[Mapping[str, Any]] = []
+    complete = True
+    seen = 0
     for page in range(1, _MAX_CHECK_PAGES + 1):
         body = _api(
             runner, f"/repos/{slug}/commits/{sha}/check-runs?per_page={_PAGE_SIZE}&page={page}"
@@ -287,11 +292,15 @@ def _check_runs(runner: GhRunner, slug: str, sha: str) -> list[Mapping[str, Any]
         batch = body.get("check_runs") if isinstance(body, Mapping) else None
         if not isinstance(batch, list):
             raise GhError("invalid_response", "GitHub's check-run list is not a list.")
+        complete = complete and all(isinstance(item, Mapping) for item in batch)
         runs.extend(item for item in batch if isinstance(item, Mapping))
+        seen += len(batch)
         total = body.get("total_count")
-        if len(batch) < _PAGE_SIZE or (type(total) is int and len(runs) >= total):
+        if len(batch) < _PAGE_SIZE or (type(total) is int and seen >= total):
             break
-    return runs
+    else:
+        complete = False
+    return runs, complete
 
 
 def _branch_pull_request(
@@ -337,12 +346,261 @@ def fetch(runner: GhRunner, slug: str, sha: str, branch: str | None) -> dict[str
         pr = choose_pull_request(pulls, sha, branch)
         if pr is None and branch:
             pr = _branch_pull_request(runner, slug, sha, branch)
-        checks = reduce_checks(_check_runs(runner, slug, sha))
+        check_runs, complete = _check_runs(runner, slug, sha)
+        checks = reduce_checks(check_runs)
+        checks["settled"] = complete and all(
+            item.get("status") == "completed" for item in check_runs
+        )
     except GhError as exc:
         if exc.reason != "commit_not_found":
             raise
         return {**document, "missing": True}
     return {**document, "pr": pr, "checks": checks}
+
+
+def _date(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo is not None else None
+    except ValueError:
+        return None
+
+
+def _pushed_at(events: Sequence[Mapping[str, Any]], sha: str) -> datetime | None:
+    matches = [
+        event for event in events if event.get("event") == "pushed" and event.get("sha") == sha
+    ]
+    return _date(matches[-1].get("at")) if matches else None
+
+
+def _list_all(runner: GhRunner, path: str) -> list[Mapping[str, Any]] | None:
+    items: list[Mapping[str, Any]] = []
+    for page in range(1, _MAX_ESCAPE_PAGES + 1):
+        batch = _api(runner, f"{path}?per_page={_PAGE_SIZE}&page={page}")
+        if not isinstance(batch, list) or any(not isinstance(item, Mapping) for item in batch):
+            return None
+        items.extend(batch)
+        if len(batch) < _PAGE_SIZE:
+            return items
+    return None  # A capped response cannot establish a zero or an exact count.
+
+
+def _followups(
+    items: list[Mapping[str, Any]] | None, pushed: datetime, validated: set[str]
+) -> int | None:
+    # GitHub's PR commit endpoint itself stops at 250, even with pagination.
+    if items is None or len(items) >= 250:
+        return None
+    found: set[str] = set()
+    for item in items:
+        sha = item.get("sha")
+        commit = run_summary.as_dict(item.get("commit")) or {}
+        committer = run_summary.as_dict(commit.get("committer")) or {}
+        date = _date(committer.get("date"))
+        if not isinstance(sha, str) or not _SHA.fullmatch(sha) or date is None:
+            return None
+        if date > pushed and sha not in validated:
+            found.add(sha)
+    return len(found)
+
+
+def _human_count(
+    items: list[Mapping[str, Any]] | None,
+    pushed: datetime,
+    *,
+    date_key: str,
+    state: str | None = None,
+) -> int | None:
+    if items is None:
+        return None
+    found: set[int] = set()
+    for item in items:
+        user = run_summary.as_dict(item.get("user")) or {}
+        if user.get("type") == "Bot":
+            continue
+        if user.get("type") != "User":
+            return None
+        if state is not None:
+            if not isinstance(item.get("state"), str):
+                return None
+            if item["state"] != state:
+                continue
+        date = _date(item.get(date_key))
+        identity = item.get("id")
+        if date is None or type(identity) is not int:
+            return None
+        if date > pushed:
+            found.add(identity)
+    return len(found)
+
+
+def _reverted(runner: GhRunner, slug: str, number: int) -> bool | None:
+    pr = _api(runner, f"/repos/{slug}/pulls/{number}")
+    if not isinstance(pr, Mapping):
+        return None
+    sha, merged = pr.get("merge_commit_sha"), _date(pr.get("merged_at"))
+    base = run_summary.as_dict(pr.get("base")) or {}
+    branch = base.get("ref")
+    if (
+        not isinstance(sha, str)
+        or not _SHA.fullmatch(sha)
+        or merged is None
+        or not isinstance(branch, str)
+    ):
+        return None
+    # One bounded page per eligible merged run. A full page without a match is unknown.
+    batch = _api(
+        runner,
+        f"/repos/{slug}/commits?sha={quote(branch, safe='')}&since={quote(merged.isoformat(), safe='')}&per_page={_PAGE_SIZE}",
+    )
+    if not isinstance(batch, list):
+        return None
+    valid = True
+    pattern = re.compile(r"(?im)^This reverts commit " + re.escape(sha) + r"\.?(?:\s|$)")
+    for item in batch:
+        commit = run_summary.as_dict(item.get("commit")) if isinstance(item, Mapping) else None
+        committer = run_summary.as_dict(commit.get("committer")) if commit else None
+        date = _date(committer.get("date")) if committer else None
+        message = commit.get("message") if commit else None
+        if date is None or not isinstance(message, str):
+            valid = False
+        elif date > merged and (
+            pattern.search(message)
+            or (
+                message.startswith('Revert "')
+                and re.search(
+                    r"(?<![0-9a-f])" + re.escape(sha) + r"(?![0-9a-f])", message.partition("\n")[2]
+                )
+            )
+        ):
+            return True
+    return False if valid and len(batch) < _PAGE_SIZE else None
+
+
+def _stage_executions(
+    record: Mapping[str, Any], events: Sequence[Mapping[str, Any]]
+) -> dict[str, bool | None]:
+    # Attempts count failures, not executions: a first-pass success has zero.
+    executed: dict[str, bool | None] = {}
+    stages = run_summary.as_dict(record.get("stages")) or {}
+    for name, value in stages.items():
+        stage = run_summary.as_dict(value) or {}
+        status = run_summary.as_str(stage.get("status"))
+        reused = run_summary.stage_reused(record, name)
+        if status == "skipped" or reused is True:
+            executed[name] = False
+        elif status in {"green", "red"} and reused is False:
+            executed[name] = True
+        else:
+            executed[name] = None
+    # Completion events also retain an earlier execution when the final result
+    # was later replaced by reused evidence or a skipped stage.
+    for event in events:
+        event_name = event.get("event")
+        if event_name in ("lint_finished", "test_finished"):
+            executed[event_name.removesuffix("_finished")] = True
+        elif event_name == "findings_submitted" and event.get("stage") in ("review", "docs"):
+            executed[event["stage"]] = True
+    return executed
+
+
+def _failed_classes(
+    checks: Mapping[str, Any],
+    mapping: Mapping[str, str] | None,
+    executed: Mapping[str, bool | None],
+) -> dict[str, int | None]:
+    failed = checks.get("failed")
+    if not checks.get("settled") or not isinstance(failed, list):
+        return dict.fromkeys(_FAILURE_CLASSES)
+    if mapping is None:
+        return {"local_equivalent": None, "hosted_only": None, "unclassified": len(failed)}
+    counts = dict.fromkeys(_FAILURE_CLASSES, 0)
+    for name in failed:
+        stage = mapping.get(name)
+        if stage is None:
+            category = "hosted_only"
+        else:
+            ran = executed.get(stage)
+            category = (
+                "local_equivalent"
+                if ran is True
+                else "hosted_only"
+                if ran is False
+                else "unclassified"
+            )
+        counts[category] += 1
+    return {name: counts[name] for name in _FAILURE_CLASSES}
+
+
+def _escapes(
+    runner: GhRunner,
+    slug: str,
+    document: dict[str, Any],
+    candidate: _Candidate,
+    validated: set[str],
+    mapping: Mapping[str, str] | None,
+    data: dict[str, Any],
+    *,
+    reverts: bool,
+) -> None:
+    document.update(
+        followup_commits=None,
+        changes_requested=None,
+        review_comments=None,
+        reverted=None,
+        failed_checks=_failed_classes(
+            document.get("checks") or {}, mapping, candidate.executed_stages
+        ),
+    )
+    pr = document.get("pr") or {}
+    number = pr.get("number")
+    if type(number) is not int:
+        return
+    observations: list[tuple[str, Callable[[], Any]]] = []
+    pushed = candidate.pushed_at
+    if pushed is not None:
+        prefix = f"/repos/{slug}/pulls/{number}"
+        observations.extend(
+            [
+                (
+                    "followup_commits",
+                    lambda: _followups(_list_all(runner, prefix + "/commits"), pushed, validated),
+                ),
+                (
+                    "changes_requested",
+                    lambda: _human_count(
+                        _list_all(runner, prefix + "/reviews"),
+                        pushed,
+                        date_key="submitted_at",
+                        state="CHANGES_REQUESTED",
+                    ),
+                ),
+                (
+                    "review_comments",
+                    lambda: _human_count(
+                        _list_all(runner, prefix + "/comments"), pushed, date_key="created_at"
+                    ),
+                ),
+            ]
+        )
+    if reverts and pr.get("merged_at"):
+        observations.append(("reverted", lambda: _reverted(runner, slug, number)))
+    for key, observe in observations:
+        try:
+            document[key] = observe()
+        except GhError as exc:
+            # A missing optional PR resource is not a missing repository: the
+            # core outcome was already fetched successfully.
+            if exc.reason in _COMMIT_ERRORS | {"not_found", "commit_not_found"}:
+                data["errors"].append(exc.describe(candidate.run_id))
+                continue
+            data["stopped"] = exc.describe(candidate.run_id)
+            return
+        except (TypeError, ValueError, KeyError, AttributeError) as exc:
+            reading = f"Optional {key} could not be read ({type(exc).__name__})."
+            data["errors"].append(GhError("invalid_response", reading).describe(candidate.run_id))
 
 
 # -- the sync -----------------------------------------------------------------
@@ -357,6 +615,8 @@ class _Candidate:
     synced: bool
     #: Synced, but ``summary.json`` does not carry this ``hosted.json`` yet.
     summary_stale: bool
+    pushed_at: datetime | None
+    executed_stages: Mapping[str, bool | None]
 
 
 def _summary_fetched_at(store: Store, run_id: str) -> Any:
@@ -401,10 +661,16 @@ def _candidates(
         else:
             existing = telemetry.read_hosted(store, run_id)
             synced = existing is not None and existing.get("sha") == sha
+            try:
+                events = store.load_events(run_id)
+            except OSError:
+                events = []
             eligible.append(
                 _Candidate(
                     run_id=run_id,
                     sha=sha,
+                    pushed_at=_pushed_at(events, sha),
+                    executed_stages=_stage_executions(record, events),
                     branch=run_summary.as_str(record.get("branch")),
                     created_at=run_summary.as_str(record.get("created_at")) or "",
                     synced=synced,
@@ -475,7 +741,16 @@ class UnknownRun(LookupError):
 
 
 def _fetch_all(
-    store: Store, runner: GhRunner, slug: str, selected: Sequence[_Candidate], data: dict[str, Any]
+    store: Store,
+    runner: GhRunner,
+    slug: str,
+    selected: Sequence[_Candidate],
+    data: dict[str, Any],
+    config: Config,
+    validated: set[str],
+    *,
+    reverts: bool,
+    reverts_limit: int,
 ) -> list[str]:
     """Fetch and store each selected run. Returns the runs written.
 
@@ -483,6 +758,7 @@ def _fetch_all(
     the older runs are still fetched. Any other failure stops the loop.
     """
     written: list[str] = []
+    revert_requests = 0
     for candidate in selected:
         try:
             document = fetch(runner, slug, candidate.sha, candidate.branch)
@@ -497,6 +773,20 @@ def _fetch_all(
             reading = f"GitHub's answer could not be read ({type(exc).__name__})."
             data["errors"].append(GhError("invalid_response", reading).describe(candidate.run_id))
             continue
+        eligible_revert = bool(reverts and (document.get("pr") or {}).get("merged_at"))
+        inspect_revert = eligible_revert and revert_requests < reverts_limit
+        if inspect_revert:
+            revert_requests += 1
+        _escapes(
+            runner,
+            slug,
+            document,
+            candidate,
+            validated,
+            config.telemetry.hosted.local_equivalent_checks,
+            data,
+            reverts=inspect_revert,
+        )
         try:
             path = store.run_dir(candidate.run_id) / telemetry.HOSTED_NAME
             atomic_write(path, json.dumps(document, indent=2) + "\n")
@@ -509,6 +799,8 @@ def _fetch_all(
         data["runs"].append(_outcome(candidate, document))
         if document["missing"]:
             data["commit_not_found"] += 1
+        if data["stopped"] is not None:
+            break
     return written
 
 
@@ -521,6 +813,8 @@ def sync_hosted(
     run_id: str | None = None,
     refresh: bool = False,
     dry_run: bool = False,
+    reverts: bool = False,
+    reverts_limit: int = DEFAULT_REVERTS_LIMIT,
     runner: GhRunner | None = None,
 ) -> dict[str, Any]:
     """Join GitHub outcomes onto this clone's pushed runs and return the envelope data.
@@ -540,6 +834,8 @@ def sync_hosted(
         "dry_run": dry_run,
         "refresh": refresh,
         "limit": limit,
+        "reverts": reverts,
+        "reverts_limit": reverts_limit,
         "run": run_id,
         "eligible": 0,
         "not_eligible": {"not_done": 0, "no_pushed_sha": 0},
@@ -569,6 +865,15 @@ def sync_hosted(
     candidates, left_out, unreadable = _candidates(
         store, [run_id] if run_id is not None else store.list_runs()
     )
+    validated: set[str] = set()
+    for retained_id in store.list_runs():
+        try:
+            retained = telemetry.read_record(store, retained_id)
+        except telemetry.UnreadableRecord:
+            continue
+        pushed_sha = retained.get("pushed_sha")
+        if isinstance(pushed_sha, str) and _SHA.fullmatch(pushed_sha):
+            validated.add(pushed_sha)
     pending = [item for item in candidates if refresh or not item.synced]
     selected = pending[:limit]
     chosen = {item.run_id for item in selected}
@@ -593,7 +898,17 @@ def sync_hosted(
         if runner is None:
             data["stopped"] = GhError("gh_unavailable", "gh was not found on PATH.").describe(None)
         else:
-            written = _fetch_all(store, runner, slug, selected, data)
+            written = _fetch_all(
+                store,
+                runner,
+                slug,
+                selected,
+                data,
+                config,
+                validated,
+                reverts=reverts,
+                reverts_limit=reverts_limit,
+            )
     data["synced"] = len(written)
     if written or stale:
         data["summaries"] = resummarize(store, identity, config, [*written, *stale])

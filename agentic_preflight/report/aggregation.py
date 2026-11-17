@@ -606,7 +606,60 @@ def _tool_time(rows: Sequence[SummaryRow]) -> dict[str, Any]:
 
 def _hosted(rows: Sequence[SummaryRow]) -> dict[str, Any]:
     """Hosted outcomes that ``telemetry sync-hosted`` joined."""
-    return {"synced": _hosted_synced(rows)}
+    return {"synced": _hosted_synced(rows), "escapes": _hosted_escapes(rows)}
+
+
+def _hosted_escapes(rows: Sequence[SummaryRow]) -> dict[str, Any]:
+    """Separate observations with explicit eligible-run denominators; never a sum."""
+    done = [row for row in rows if row.get("state") == "DONE"]
+    synced = [
+        row.get("hosted") or {} for row in done if (row.get("hosted") or {}).get("fetched_at")
+    ]
+    result: dict[str, Any] = {}
+    for name in ("followup_commits", "changes_requested", "review_comments", "reverted"):
+        eligible = (
+            [item for item in synced if item.get("merged") is True]
+            if name == "reverted"
+            else synced
+        )
+        population = len(eligible) if name == "reverted" else len(done)
+        known = [
+            item[name]
+            for item in eligible
+            if type(item.get(name)) is (bool if name == "reverted" else int)
+        ]
+        label = (
+            "synced merged DONE runs with a complete revert scan or an observed revert"
+            if name == "reverted"
+            else f"synced DONE runs with known {name}"
+        )
+        result[name] = {
+            "runs": ratio(sum(bool(value) for value in known), len(known), label),
+            "excluded_runs": population - len(known),
+        }
+    for name in ("local_equivalent", "hosted_only", "unclassified"):
+        values = [(item.get("failed_checks") or {}).get(name) for item in synced]
+        known_counts = [
+            value
+            for value in values
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        ]
+        result[name] = {
+            "runs": ratio(
+                sum(value > 0 for value in known_counts),
+                len(known_counts),
+                f"synced DONE runs with settled checks and known {name} classification",
+            ),
+            "excluded_runs": len(done) - len(known_counts),
+        }
+    result["note"] = (
+        "Escape signals are separate, overlapping observations, never a combined score. "
+        "They do not prove escaped defects or causality. Follow-up commits may be routine "
+        "work; human comments need not request fixes; explicit reverts are only one form "
+        "of rollback. Counts describe retained local runs and the bounded GitHub snapshot. "
+        "Unknown observations are excluded, not counted as zero."
+    )
+    return result
 
 
 def _hosted_synced(rows: Sequence[SummaryRow]) -> dict[str, Any]:

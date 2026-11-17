@@ -166,6 +166,11 @@ class HostedRow(TypedDict, total=False):
     merged: bool | None
     checks_conclusion: str | None
     fetched_at: str | None
+    followup_commits: int | None
+    changes_requested: int | None
+    review_comments: int | None
+    reverted: bool | None
+    failed_checks: dict[str, int | None]
 
 
 class TimingRow(TypedDict, total=False):
@@ -414,6 +419,15 @@ def _red_then_green(
     return result
 
 
+def stage_reused(record: Mapping[str, Any], name: str) -> bool | None:
+    """Whether final stage provenance identifies reuse, or is unavailable."""
+    evidence = as_dict(record.get("evidence"))
+    if evidence is None:
+        return None
+    item = as_dict(evidence.get(name))
+    return item is not None and item.get("derivation_reason") is not None
+
+
 def _stages(
     record: Mapping[str, Any],
     events: Sequence[Mapping[str, Any]] | None = None,
@@ -422,15 +436,11 @@ def _stages(
 ) -> dict[str, StageRow]:
     stages = as_dict(record.get("stages")) or {}
     red_then_green = _red_then_green(events, complete)
-    evidence = as_dict(record.get("evidence"))
     summary: dict[str, StageRow] = {}
     for name in sorted(stages, key=stage_order):
         stage = as_dict(stages[name]) or {}
         status = as_str(stage.get("status"))
-        reused: bool | None = None
-        if evidence is not None:
-            item = as_dict(evidence.get(name))
-            reused = item is not None and item.get("derivation_reason") is not None
+        reused = stage_reused(record, name)
         started_at = as_str(stage.get("started_at"))
         finished_at = as_str(stage.get("finished_at"))
         # Only a stage that ran here has a duration: a reused result started in
@@ -571,7 +581,20 @@ def _synced(record: Mapping[str, Any], hosted: Mapping[str, Any] | None) -> Host
         hosted = {}
     pr = as_dict(hosted.get("pr"))
     checks = as_dict(hosted.get("checks")) or {}
+
+    def count(value: Any) -> int | None:
+        return value if type(value) is int and value >= 0 else None
+
+    failures = as_dict(hosted.get("failed_checks")) or {}
     return {
+        "followup_commits": count(hosted.get("followup_commits")),
+        "changes_requested": count(hosted.get("changes_requested")),
+        "review_comments": count(hosted.get("review_comments")),
+        "reverted": hosted.get("reverted") if type(hosted.get("reverted")) is bool else None,
+        "failed_checks": {
+            name: count(failures.get(name))
+            for name in ("local_equivalent", "hosted_only", "unclassified")
+        },
         "pr_number": as_int(pr.get("number")) if pr else None,
         "pr_state": as_str(pr.get("state")) if pr else None,
         "merged": bool(as_str(pr.get("merged_at"))) if pr else None,

@@ -282,7 +282,7 @@ def test_five_durations_give_a_median_and_an_interpolated_p90():
 def test_recorded_hosted_outcomes_are_not_reported():
     hosted = report.aggregate(_mixed_rows())["hosted"]
 
-    assert set(hosted) == {"synced"}
+    assert set(hosted) == {"synced", "escapes"}
     assert hosted["synced"]["runs"] == report.ratio(0, 4, "runs")
 
 
@@ -810,6 +810,7 @@ def _markdown(rows: list[dict[str, Any]]) -> str:
 def test_markdown_shows_hosted_outcomes_only_when_a_run_was_synced():
     rows = _mixed_rows()
     assert "Hosted outcomes synced" not in _markdown(rows)
+    assert "Escape signals" not in _markdown(rows)
 
     rows[0]["hosted"] = {
         **rows[0]["hosted"],
@@ -822,6 +823,7 @@ def test_markdown_shows_hosted_outcomes_only_when_a_run_was_synced():
     text = _markdown(rows)
 
     assert "### Hosted outcomes synced" in text
+    assert "### Escape signals" in text
     assert "| Runs synced | 25.0% | 1 | runs: 4 | n/a |" in text
     limits = text.split("### Limits\n\n", 1)[1]
     assert limits == "".join(f"- {limit}\n" for limit in (*report.LIMITS, *report.HOSTED_LIMITS))
@@ -1205,3 +1207,57 @@ def test_report_points_at_rebuild_for_unmirrored_runs_and_names_unreadable_recor
     instruction = result["next"]["instruction"]
     assert instruction.startswith("Some finished runs in this clone are not in the mirror.")
     assert "data.source.clone.unreadable_runs" in instruction
+
+
+def test_escape_components_have_separate_named_denominators_and_unknown_exclusions():
+    rows = [
+        make_row(
+            "r_known",
+            state="DONE",
+            hosted={
+                "fetched_at": "2026-10-04T00:00:00Z",
+                "followup_commits": 2,
+                "changes_requested": 0,
+                "review_comments": 1,
+                "reverted": None,
+                "failed_checks": {"local_equivalent": 1, "hosted_only": 0, "unclassified": 0},
+            },
+        ),
+        make_row("r_unknown", state="DONE"),
+        make_row("r_aborted", state="ABORTED", hosted={"followup_commits": 5}),
+    ]
+    escapes = report.aggregate(rows)["hosted"]["escapes"]
+    for key in ("followup_commits", "review_comments", "local_equivalent"):
+        assert escapes[key]["runs"]["numerator"] == 1
+        assert escapes[key]["runs"]["denominator"] == 1
+        assert escapes[key]["excluded_runs"] == 1
+        assert "synced DONE runs" in escapes[key]["runs"]["denominator_label"]
+    assert escapes["changes_requested"]["runs"]["value"] == 0
+    assert escapes["reverted"]["runs"]["value"] is None
+    assert escapes["reverted"]["excluded_runs"] == 0
+    assert "total" not in escapes
+    assert "never a combined score" in escapes["note"]
+
+
+def test_revert_exclusions_count_only_synced_merged_done_runs():
+    rows = [
+        make_row(
+            f"r_{index}",
+            state=state,
+            hosted={"fetched_at": fetched, "merged": merged, "reverted": reverted},
+        )
+        for index, (state, fetched, merged, reverted) in enumerate(
+            [
+                ("DONE", "2026-10-04T00:00:00Z", True, True),
+                ("DONE", "2026-10-04T00:00:00Z", True, False),
+                ("DONE", "2026-10-04T00:00:00Z", True, None),
+                ("DONE", "2026-10-04T00:00:00Z", False, False),
+                ("DONE", None, None, None),
+                ("ABORTED", "2026-10-04T00:00:00Z", True, True),
+            ]
+        )
+    ]
+    reverted = report.aggregate(rows)["hosted"]["escapes"]["reverted"]
+    assert reverted["runs"]["numerator"] == 1
+    assert reverted["runs"]["denominator"] == 2
+    assert reverted["excluded_runs"] == 1

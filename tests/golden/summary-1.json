@@ -96,6 +96,15 @@
     "orphaned_reason": null
   },
   "hosted": {
+    "followup_commits": null,
+    "changes_requested": null,
+    "review_comments": null,
+    "reverted": null,
+    "failed_checks": {
+      "local_equivalent": null,
+      "hosted_only": null,
+      "unclassified": null
+    },
     "pr_number": null,
     "pr_state": null,
     "merged": null,

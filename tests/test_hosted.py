@@ -280,7 +280,9 @@ def test_check_runs_are_read_page_by_page_until_the_total():
         page = int(re.search(r"page=(\d+)$", args[-1]).group(1))
         return _ok({"total_count": 101, "check_runs": pages[page]})
 
-    checks = hosted.reduce_checks(hosted._check_runs(runner, "owner/widget", SHA_NEW))
+    runs, complete = hosted._check_runs(runner, "owner/widget", SHA_NEW)
+    checks = hosted.reduce_checks(runs)
+    assert complete
 
     assert checks == {"conclusion": "failure", "total": 101, "failed": ["late"]}
     assert [call.rsplit("page=", 1)[1] for call in calls] == ["1", "2"]
@@ -408,7 +410,19 @@ def test_sync_writes_hosted_json_and_regenerates_summaries_and_mirror_rows(
     assert result["next"]["command"] == "agentic-preflight report"
 
     newest = _hosted_file(github_repo, "r_0000000003")
-    assert set(newest) == {"fetched_at", "sha", "pr", "checks", "missing", "source"}
+    assert set(newest) == {
+        "fetched_at",
+        "sha",
+        "pr",
+        "checks",
+        "missing",
+        "source",
+        "followup_commits",
+        "changes_requested",
+        "review_comments",
+        "reverted",
+        "failed_checks",
+    }
     assert newest["sha"] == SHA_NEW
     assert newest["source"] == "gh"
     assert newest["missing"] is False
@@ -418,7 +432,12 @@ def test_sync_writes_hosted_json_and_regenerates_summaries_and_mirror_rows(
         "state": "open",
         "merged_at": None,
     }
-    assert newest["checks"] == {"conclusion": "failure", "total": 3, "failed": ["test"]}
+    assert newest["checks"] == {
+        "conclusion": "failure",
+        "total": 3,
+        "failed": ["test"],
+        "settled": True,
+    }
     assert _hosted_file(github_repo, "r_0000000002")["pr"] is None
     assert _hosted_file(github_repo, "r_0000000002")["checks"]["conclusion"] == "none"
     assert _hosted_file(github_repo, "r_0000000001")["pr"]["number"] == 4
@@ -429,6 +448,11 @@ def test_sync_writes_hosted_json_and_regenerates_summaries_and_mirror_rows(
         "merged": False,
         "checks_conclusion": "failure",
         "fetched_at": newest["fetched_at"],
+        "followup_commits": None,
+        "changes_requested": None,
+        "review_comments": None,
+        "reverted": None,
+        "failed_checks": {"local_equivalent": None, "hosted_only": None, "unclassified": 1},
     }
     assert _summary_hosted(github_repo, "r_0000000002")["merged"] is None
     assert _summary_hosted(github_repo, "r_0000000002")["checks_conclusion"] == "none"
@@ -1042,3 +1066,403 @@ def test_docs_describe_the_sync_and_say_it_only_reads_github():
     else:
         changelog = (PROJECT_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         assert "telemetry sync-hosted" in changelog
+
+
+# -- escape observations ------------------------------------------------------
+PUSHED_AT = "2026-10-03T12:00:00+00:00"
+AFTER_PUSH = "2026-10-04T12:00:00+00:00"
+ESCAPE_KEYS = (
+    "followup_commits",
+    "changes_requested",
+    "review_comments",
+    "reverted",
+    "failed_checks",
+)
+
+
+class EscapeGh(FakeGh):
+    def __init__(self, responses, commits=None):
+        super().__init__(commits or _commits())
+        self.responses = responses
+
+    def __call__(self, args):
+        if args[-1] in self.responses:
+            self.calls.append(list(args))
+            assert list(args[:5]) == ["api", "--method", "GET", "--hostname", "github.com"]
+            response = self.responses[args[-1]]
+            return response if isinstance(response, hosted.GhResult) else _ok(response)
+        return super().__call__(args)
+
+
+def _escape_responses():
+    human = {"type": "User", "login": "private-human"}
+    bot = {"type": "Bot"}
+
+    def commit(sha, date):
+        return {
+            "sha": sha,
+            "commit": {
+                "committer": {"date": date},
+                "message": "PRIVATE /secret/path https://private.example",
+            },
+        }
+
+    return {
+        "/repos/owner/widget/pulls/9/commits?per_page=100&page=1": [
+            commit(SHA_NEW, PUSHED_AT),
+            commit(SHA_MID, AFTER_PUSH),
+            commit("d" * 40, AFTER_PUSH),
+            commit("d" * 40, AFTER_PUSH),
+        ],
+        "/repos/owner/widget/pulls/9/reviews?per_page=100&page=1": [
+            {
+                "id": 1,
+                "user": human,
+                "state": "CHANGES_REQUESTED",
+                "submitted_at": AFTER_PUSH,
+                "body": "PRIVATE",
+            },
+            {"id": 2, "user": bot, "state": "CHANGES_REQUESTED", "submitted_at": AFTER_PUSH},
+            {"id": 3, "user": human, "state": "APPROVED", "submitted_at": AFTER_PUSH},
+            {"id": 4, "user": human, "state": "CHANGES_REQUESTED", "submitted_at": PUSHED_AT},
+        ],
+        "/repos/owner/widget/pulls/9/comments?per_page=100&page=1": [
+            {
+                "id": 11,
+                "user": human,
+                "created_at": AFTER_PUSH,
+                "body": "PRIVATE",
+                "path": "/secret/path",
+                "html_url": "https://private.example",
+            },
+            {"id": 12, "user": bot, "created_at": AFTER_PUSH},
+        ],
+    }
+
+
+def _set_push(repo, run_id="r_0000000003", sha=SHA_NEW):
+    (_run_dir(repo, run_id) / "events.jsonl").write_text(
+        json.dumps({"event": "pushed", "sha": sha, "at": PUSHED_AT}) + "\n"
+    )
+
+
+def test_escape_sync_gets_only_counts_and_rebuild_preserves_them(github_repo, monkeypatch):
+    _set_push(github_repo)
+    fake = EscapeGh(_escape_responses())
+    _use(monkeypatch, fake)
+    agent = ScriptedAgent(github_repo)
+    agent.run("telemetry", "sync-hosted", "--run", "r_0000000003")
+    counts = {key: _summary_hosted(github_repo, "r_0000000003")[key] for key in ESCAPE_KEYS}
+    assert counts == {
+        "followup_commits": 1,
+        "changes_requested": 1,
+        "review_comments": 1,
+        "reverted": None,
+        "failed_checks": {"local_equivalent": None, "hosted_only": None, "unclassified": 1},
+    }
+    # A validated commit from another run is excluded even with --run.
+    assert all(
+        call[:5] == ["api", "--method", "GET", "--hostname", "github.com"] for call in fake.calls
+    )
+    assert {call[-1] for call in fake.calls} == {
+        "/repos/owner/widget/commits/" + SHA_NEW + "/pulls?per_page=100",
+        "/repos/owner/widget/commits/" + SHA_NEW + "/check-runs?per_page=100&page=1",
+        *_escape_responses(),
+    }
+    (_run_dir(github_repo, "r_0000000003") / "summary.json").unlink()
+    agent.run("telemetry", "rebuild")
+    for row in (
+        _summary_hosted(github_repo, "r_0000000003"),
+        _mirror_rows()["r_0000000003"]["hosted"],
+    ):
+        assert {key: row[key] for key in ESCAPE_KEYS} == counts
+        leaves = [
+            value
+            for key in ESCAPE_KEYS
+            for value in (row[key].values() if isinstance(row[key], dict) else [row[key]])
+        ]
+        assert all(value is None or type(value) in (int, bool) for value in leaves)
+        assert all(
+            marker not in json.dumps({key: row[key] for key in ESCAPE_KEYS})
+            for marker in ("PRIVATE", "/secret/path", "https://", "private-human")
+        )
+
+
+@pytest.mark.parametrize(
+    ("settled", "mapping", "stages", "expected"),
+    [
+        (False, {}, {}, (None, None, None)),
+        (True, None, {}, (None, None, 3)),
+        (True, {}, {}, (0, 3, 0)),
+        (
+            True,
+            {"a": "lint", "b": "test", "c": "docs"},
+            {"lint": True, "test": False},
+            (1, 1, 1),
+        ),
+    ],
+)
+def test_failed_check_classification_keeps_unknown_separate(settled, mapping, stages, expected):
+    result = hosted._failed_classes(
+        {"settled": settled, "failed": ["a", "b", "c"]}, mapping, stages
+    )
+    assert tuple(result.values()) == expected
+
+
+def test_capped_or_malformed_escape_responses_are_unknown():
+    pushed = hosted._date(PUSHED_AT)
+    assert hosted._followups([{}] * 250, pushed, set()) is None
+    assert hosted._followups([{"sha": "a" * 40}], pushed, set()) is None
+    assert hosted._human_count([{"user": {"type": "User"}}], pushed, date_key="created_at") is None
+    calls = []
+
+    def full(args):
+        calls.append(args)
+        return _ok([{}] * 100)
+
+    assert hosted._list_all(full, "/repos/owner/widget/pulls/9/comments") is None
+    assert len(calls) == 10
+
+
+def test_missing_push_timestamp_leaves_counts_unknown_without_extra_requests(
+    github_repo, monkeypatch
+):
+    fake = FakeGh(_commits())
+    _use(monkeypatch, fake)
+    ScriptedAgent(github_repo).run("telemetry", "sync-hosted", "--run", "r_0000000003")
+    row = _summary_hosted(github_repo, "r_0000000003")
+    assert all(row[key] is None for key in ESCAPE_KEYS[:4])
+    assert len(fake.calls) == 2
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("This reverts commit " + "e" * 40 + ".", True),
+        ('Revert "a change"\n\nRollback ' + "e" * 40, True),
+        ('Revert "a change ' + "e" * 40 + '"', False),
+    ],
+)
+def test_revert_detection_is_bounded_and_accepts_explicit_metadata(message, expected):
+    calls = []
+
+    def runner(args):
+        calls.append(args)
+        if args[-1].endswith("/pulls/9"):
+            return _ok(
+                {"merge_commit_sha": "e" * 40, "merged_at": PUSHED_AT, "base": {"ref": "main"}}
+            )
+        return _ok([{"commit": {"committer": {"date": AFTER_PUSH}, "message": message}}])
+
+    assert hosted._reverted(runner, "owner/widget", 9) is expected
+    assert len(calls) == 2
+    assert all(call[1:3] == ["--method", "GET"] for call in calls)
+
+
+def test_revert_scan_limit_leaves_remaining_runs_unknown(github_repo, monkeypatch):
+    commits = _commits()
+    commits[SHA_NEW]["pulls"] = [_pull(9, SHA_NEW)]
+    fake = EscapeGh(
+        {
+            "/repos/owner/widget/pulls/9": {
+                "merge_commit_sha": "e" * 40,
+                "merged_at": PUSHED_AT,
+                "base": {"ref": "main"},
+            },
+            "/repos/owner/widget/commits?sha=main&since=2026-10-03T12%3A00%3A00%2B00%3A00&per_page=100": [],
+        },
+        commits,
+    )
+    _use(monkeypatch, fake)
+    ScriptedAgent(github_repo).run("telemetry", "sync-hosted", "--reverts", "--reverts-limit", "1")
+    assert _summary_hosted(github_repo, "r_0000000003")["reverted"] is False
+    assert _summary_hosted(github_repo, "r_0000000001")["reverted"] is None
+    assert not any(call[-1] == "/repos/owner/widget/pulls/4" for call in fake.calls)
+
+
+@pytest.mark.parametrize(
+    "value", ["private text", "/private/path", "https://private.example", True, -1]
+)
+def test_invalid_new_count_fields_cannot_leak_through_rebuild(github_repo, value):
+    document = {
+        "sha": SHA_NEW,
+        "fetched_at": AFTER_PUSH,
+        **dict.fromkeys(ESCAPE_KEYS, value),
+        "failed_checks": dict.fromkeys(("local_equivalent", "hosted_only", "unclassified"), value),
+    }
+    (_run_dir(github_repo, "r_0000000003") / "hosted.json").write_text(json.dumps(document))
+    ScriptedAgent(github_repo).run("telemetry", "rebuild")
+    for row in (
+        _summary_hosted(github_repo, "r_0000000003"),
+        _mirror_rows()["r_0000000003"]["hosted"],
+    ):
+        assert all(row[key] is None for key in ESCAPE_KEYS[:3])
+        assert all(count is None for count in row["failed_checks"].values())
+        assert row["reverted"] is (True if value is True else None)
+
+
+def test_revert_scan_without_match_is_unknown_at_page_cap():
+    def runner(args):
+        if args[-1].endswith("/pulls/9"):
+            return _ok(
+                {"merge_commit_sha": "e" * 40, "merged_at": PUSHED_AT, "base": {"ref": "main"}}
+            )
+        return _ok(
+            [{"commit": {"committer": {"date": AFTER_PUSH}, "message": "ordinary work"}}] * 100
+        )
+
+    assert hosted._reverted(runner, "owner/widget", 9) is None
+
+
+def test_check_classification_uses_execution_evidence_not_failed_attempt_count():
+    record = {
+        "stages": {
+            "lint": {"status": "green", "attempts": 0},
+            "test": {"status": "skipped", "attempts": 0},
+            "review": {"status": "green", "attempts": 0},
+            "docs": {"status": "green", "attempts": 0},
+        },
+        "evidence": {"review": {"derivation_reason": "equivalent_inputs"}},
+    }
+    executed = hosted._stage_executions(record, [])
+    assert executed == {"lint": True, "test": False, "review": False, "docs": True}
+    assert hosted._failed_classes(
+        {"settled": True, "failed": ["lint", "test", "review", "docs"]},
+        dict(zip(executed, executed, strict=True)),
+        executed,
+    ) == {"local_equivalent": 2, "hosted_only": 2, "unclassified": 0}
+    # Earlier completed executions still count after reuse/skip replaced the result.
+    assert hosted._stage_executions(
+        record,
+        [
+            {"event": "test_finished", "exit_code": 0},
+            {"event": "findings_submitted", "stage": "review", "count": 0},
+        ],
+    ) == dict.fromkeys(executed, True)
+    del record["evidence"]
+    assert hosted._stage_executions(record, []) == {
+        "lint": None,
+        "test": False,
+        "review": None,
+        "docs": None,
+    }
+
+
+def test_malformed_check_items_preserve_core_outcomes_but_leave_classes_unknown():
+    commits = {SHA_NEW: {"checks": [_check("failed", "failure"), "malformed"]}}
+    document = hosted.fetch(FakeGh(commits), "owner/widget", SHA_NEW, None)
+    assert document["checks"] == {
+        "conclusion": "failure",
+        "total": 1,
+        "failed": ["failed"],
+        "settled": False,
+    }
+    assert hosted._failed_classes(document["checks"], {}, {}) == {
+        "local_equivalent": None,
+        "hosted_only": None,
+        "unclassified": None,
+    }
+
+
+def test_capped_check_pages_do_not_establish_complete_classification():
+    def runner(args):
+        return _ok({"total_count": 1001, "check_runs": [_check("test")] * 100})
+
+    runs, complete = hosted._check_runs(runner, "owner/widget", SHA_NEW)
+    assert len(runs) == 1000
+    assert complete is False
+
+
+@pytest.mark.parametrize(
+    ("key", "suffix"),
+    [
+        ("followup_commits", "/commits?per_page=100&page=1"),
+        ("changes_requested", "/reviews?per_page=100&page=1"),
+        ("review_comments", "/comments?per_page=100&page=1"),
+        ("reverted", ""),
+    ],
+)
+@pytest.mark.parametrize(
+    "failure",
+    [
+        _http_error(404, "Not Found"),
+        _http_error(502, "Bad Gateway"),
+        hosted.GhResult(0, "invalid JSON", ""),
+    ],
+)
+def test_optional_escape_failure_preserves_other_observations_and_continues(
+    github_repo, monkeypatch, key, suffix, failure
+):
+    _set_push(github_repo)
+    responses = _escape_responses()
+    responses["/repos/owner/widget/pulls/9" + suffix] = failure
+    commits = _commits()
+    if key == "reverted":
+        commits[SHA_NEW]["pulls"] = [_pull(9, SHA_NEW)]
+    fake = EscapeGh(responses, commits)
+    _use(monkeypatch, fake)
+    flags = ["--reverts", "--reverts-limit", "1"] if key == "reverted" else []
+    result = ScriptedAgent(github_repo).run(
+        "telemetry", "sync-hosted", *flags, expect=ExitCode.ERROR
+    )
+    assert result["data"].get("synced") == 3, result
+    assert result["data"]["stopped"] is None
+    assert len(result["data"]["errors"]) == 1
+    row = _summary_hosted(github_repo, "r_0000000003")
+    assert row["pr_number"] == 9
+    assert row["checks_conclusion"] == "failure"
+    for field in ("followup_commits", "changes_requested", "review_comments"):
+        assert row[field] == (None if field == key else 1)
+    assert row[key] is None
+    assert _mirror_rows()["r_0000000003"]["hosted"] == row
+    assert fake.fetched() == [SHA_NEW, SHA_MID, SHA_OLD]
+    assert all(call[1:3] == ["--method", "GET"] for call in fake.calls)
+
+
+@pytest.mark.parametrize(
+    ("failure", "reason"),
+    [
+        (_http_error(401, "Bad credentials"), "gh_unavailable"),
+        (_http_error(403, "Forbidden"), "forbidden"),
+        (_http_error(429, "Too many requests"), "rate_limited"),
+        (hosted.GhResult(1, "", "error connecting to api.github.com"), "network_error"),
+    ],
+)
+def test_optional_global_failure_saves_partial_outcome_before_stopping(
+    github_repo, monkeypatch, failure, reason
+):
+    _set_push(github_repo)
+    path = "/repos/owner/widget/pulls/9/reviews?per_page=100&page=1"
+    fake = EscapeGh({**_escape_responses(), path: failure})
+    _use(monkeypatch, fake)
+    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.ERROR)
+    assert result["data"]["synced"] == 1
+    assert result["data"]["stopped"]["reason"] == reason
+    assert "--refresh" in result["next"]["instruction"]
+    row = _summary_hosted(github_repo, "r_0000000003")
+    assert row["pr_number"] == 9
+    assert row["checks_conclusion"] == "failure"
+    assert row["followup_commits"] == 1
+    assert row["changes_requested"] is None
+    assert row["review_comments"] is None
+    assert _mirror_rows()["r_0000000003"]["hosted"] == row
+    assert fake.calls[-1][-1] == path
+    assert fake.fetched() == [SHA_NEW]
+    assert _hosted_file(github_repo, "r_0000000002") is None
+    assert all(call[1:3] == ["--method", "GET"] for call in fake.calls)
+
+
+def test_production_event_writer_supplies_push_timestamp_for_hosted_counts(
+    github_repo, monkeypatch
+):
+    monkeypatch.setattr("agentic_preflight.store._utcnow", lambda: PUSHED_AT)
+    store = Store(_state_root(github_repo))
+    # This is the same payload and writer used by runs.publish.push.
+    store.append_event("r_0000000003", {"event": "pushed", "sha": SHA_NEW})
+    fake = EscapeGh(_escape_responses())
+    _use(monkeypatch, fake)
+    ScriptedAgent(github_repo).run("telemetry", "sync-hosted", "--run", "r_0000000003")
+    row = _summary_hosted(github_repo, "r_0000000003")
+    assert row["followup_commits"] == 1
+    assert row["changes_requested"] == 1
+    assert row["review_comments"] == 1
