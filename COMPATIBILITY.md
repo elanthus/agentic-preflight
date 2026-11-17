@@ -802,3 +802,15 @@ When the branch history cannot be read, for example because the validation branc
 A `reusable` runner whose directory is gone keeps its branch when released, so its commits are not counted.
 In-place runs, states before synchronization finishes, and merge-back states are unchanged.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Unreleased: start --replace and gc read the validation branch
+
+`start --replace` (and a moved source head) in `reusable` mode and `gc` in `strict` and `reusable` modes release a validation checkout only after checking its `HEAD`, and the release deletes the validation branch.
+A checkout detached at the reviewed head therefore hid commits on `ap/<run_id>`, which the release deleted.
+Both now also read the branch tip.
+When the branch holds a commit after the reviewed head, or its history cannot be read, `start` orphans the run as before but puts the clean runner back on that branch, so it stays leased: the fresh run's `start` exits 4 with `needs_human` because the runner is still leased, and `gc` then decides.
+Before, a detached runner counted as released, so the fresh run would have leased and reset it.
+`gc` retains such a run in `data.retained` with reason `validation worktree holds unrecorded commits`, or `validation worktree could not be inspected` when the branch holds a merge commit or no longer descends from the recorded head; `gc --force` releases it as before.
+The `gc` instruction for retained validation worktrees now also points at each run's `ap/<run_id>` branch.
+A checkout whose `HEAD` is on its branch, the normal case, behaves as before.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
