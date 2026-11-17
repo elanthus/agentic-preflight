@@ -164,9 +164,8 @@ Individual replacements use flushed, synchronized temporary files.
 A failure between the two replacements can leave new findings beside the previous run state and sequence.
 The next read returns the saved records. There is no automatic roll-forward recovery.
 Run `status` after an interruption and inspect the findings before you continue.
-The next `start` retires interrupted legacy runs that a pending journal identifies.
-It starts fresh and preserves user work.
-See [compatibility](../COMPATIBILITY.md#saved-pending-run-updates).
+A nonterminal run with a `pending-update.json` journal from a release before 0.7.0 is refused as an unreadable record.
+See [compatibility](../COMPATIBILITY.md#run-records-from-before-070-are-no-longer-read).
 Events and reviewer-comparison artifacts are separate diagnostic records.
 They can also be absent after an interruption. They do not rebuild the run state automatically.
 

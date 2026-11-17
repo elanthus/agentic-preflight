@@ -29,11 +29,6 @@ from .digests import json_digest
 from .fingerprints import Classification, DocsFingerprint, ReviewFingerprint, ShellFingerprint
 from .machine import State
 
-# Saved-state membership check that is valid on Python 3.11, where a plain string
-# `in` an enum class raises TypeError, and that mypy accepts.
-_STATE_VALUES = frozenset(state.value for state in State)
-
-
 ReviewUnitId = Annotated[str, Field(pattern=r"^U\d{4,}$")]
 
 
@@ -307,14 +302,6 @@ class MergebackAttempt(BaseModel):
     validation_tree: str = Field(pattern=r"^[0-9a-f]{40}$")
     retrying_conflict: bool = False
 
-    @model_validator(mode="before")
-    @classmethod
-    def discard_legacy_rebased_tree(cls, value: Any) -> Any:
-        """Read older saved attempts without retaining their intermediate tree."""
-        if isinstance(value, dict) and "rebased_tree" in value:
-            return {key: item for key, item in value.items() if key != "rebased_tree"}
-        return value
-
 
 class Producer(BaseModel):
     """Which tool, interpreter, and coding agent created a run.
@@ -408,25 +395,6 @@ class RunDoc(BaseModel):
 
     created_at: str
     updated_at: str | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def retire_ci_delegation(cls, value: object) -> object:
-        """Preserve historical runs while retiring incomplete delegated validation."""
-        if isinstance(value, dict):
-            value = dict(value)
-            delegation = value.pop("test_delegation", None)
-            retired_state = value.get("state") in ("TEST_DELEGATED", "PUBLICATION_READY")
-            if retired_state or (
-                delegation is not None
-                and value.get("state") in _STATE_VALUES
-                and value.get("state") not in ("PUSHED", "DONE", "ABORTED", "ORPHANED")
-            ):
-                value["state"] = "ORPHANED"
-                value["orphaned_reason"] = (
-                    "CI test delegation was removed; start a new local validation run"
-                )
-        return value
 
     @field_validator("schema_version", mode="before")
     @classmethod

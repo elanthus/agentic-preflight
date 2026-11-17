@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict
 
 from . import timing
 from .digests import sha256_text
-from .machine import TERMINAL_STATES, State
+from .machine import TERMINAL_STATES
 from .models import Finding, RunDoc, Stage
 
 SUMMARY_KIND = "agentic-preflight-run-summary"
@@ -37,11 +37,8 @@ TELEMETRY_EVENTS = frozenset({"summary_written", "summary_failed"})
 TERMINAL_MARKER_EVENTS = frozenset({"finished", "aborted", "orphaned"})
 
 _TERMINAL = frozenset(state.value for state in TERMINAL_STATES)
-_STATE_VALUES = frozenset(state.value for state in State)
 #: The stages in workflow order, for sorting summaries and report tables.
 STAGE_ORDER = [stage.value for stage in Stage]
-_RETIRED_DELEGATED_STATES = ("TEST_DELEGATED", "PUBLICATION_READY")
-_RETIRED_DELEGATION_REASON = "CI test delegation was removed; start a new local validation run"
 _DEFAULT_BLOCKING = ("critical", "high")
 #: Finding statuses that ``respond`` records with an agent-chosen reason.
 _REASONED_STATUSES = frozenset({"dismissed", "accepted"})
@@ -273,16 +270,8 @@ def _producer(run: RunDoc | Mapping[str, Any], record: Mapping[str, Any]) -> dic
 
 
 def effective_state(record: Mapping[str, Any]) -> tuple[str | None, str | None]:
-    """Return the state and orphan reason the tool reads, as ``RunDoc`` would load them."""
-    state = as_str(record.get("state"))
-    retired = state in _RETIRED_DELEGATED_STATES or (
-        record.get("test_delegation") is not None
-        and state in _STATE_VALUES
-        and state not in ("PUSHED", *_TERMINAL)
-    )
-    if retired:
-        return "ORPHANED", _RETIRED_DELEGATION_REASON
-    return state, as_str(record.get("orphaned_reason"))
+    """Return the state and orphan reason that a raw run record carries."""
+    return as_str(record.get("state")), as_str(record.get("orphaned_reason"))
 
 
 def _tally(values: Iterable[Any]) -> dict[str, int]:

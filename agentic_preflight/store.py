@@ -51,6 +51,9 @@ class StoreError(Exception):
     """Base class for persistence failures."""
 
 
+#: The record-update journal that releases before 0.7.0 wrote beside ``run.json``.
+PENDING_UPDATE_NAME = "pending-update.json"
+
 RUN_READ_RECOVERY = (
     "Use a compatible tool version or inspect the retained run record. "
     "Do not replace the run or delete its ownership pointers; --force cannot "
@@ -432,6 +435,18 @@ class Store:
                 pointer_paths=self._pointers_to(run_id),
                 worktree_mode=_recorded_worktree_mode(payload),
             ) from exc
+        if run.state not in TERMINAL_STATES and (path.parent / PENDING_UPDATE_NAME).exists():
+            # Releases before 0.7.0 journaled a record update in this file. Only 0.7.0
+            # through 0.8.1 can retire a run whose update was interrupted.
+            raise RunReadError(
+                run_id,
+                path,
+                "invalid",
+                "Run record has an interrupted update from a release before 0.7.0. "
+                "Use agentic-preflight 0.8.1 to abort or replace this run.",
+                pointer_paths=self._pointers_to(run_id),
+                worktree_mode=_recorded_worktree_mode(payload),
+            )
         return run
 
     def _pointers_to(self, run_id: str) -> list[Path]:

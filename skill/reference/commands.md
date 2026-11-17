@@ -123,16 +123,11 @@ beyond the run's starting head makes `start` exit 4 (`needs_human`) with its pat
 `data.worktree_path`, names that head in `next.instruction`, and leaves the run in place. A later
 `start` reclaims the checkout once it is clean at that head, even if the interrupted run
 was aborted in between. A dirty strict checkout does not block a new run and is kept.
-A nonterminal run with a legacy `pending-update.json` is instead orphaned at the next
-`start`, its ownership cleared and journal removed, and a fresh run created. The old
-audit record and user work remain for normal safe cleanup. `status` reports
-`data.interrupted_legacy_update: true` and directs these runs to `start` without
-importing evidence; validation commands exit 3 (`wrong_state`) rather than continuing
-them. Restart guidance identifies the recorded source worktree. At the validation
-restart limit, the existing human stop takes precedence: no restart command is
-advertised, and direct `start` refuses the interrupted run until the user decides
-to abort it. Explicit `abort` remains available. Completed history and runs without
-a journal are unaffected.
+A nonterminal run with a `pending-update.json` journal, which only a release before
+0.7.0 wrote, is an unreadable record: `start`, `abort`, and every other command that
+loads it exit 3 (`run_record_unreadable`), `status` reports the record as unreadable, and
+the record, journal, ownership, and user work stay as they are. Only 0.7.0 through 0.8.1
+can retire such a run. Completed history and runs without a journal are unaffected.
 A moved source head orphans the stale run without deleting its evidence or fixes and then
 starts fresh. In `reusable` mode, an orphaned run with no fix commits releases its runner
 at once, so the fresh run can lease it, but only when the runner is clean and both its

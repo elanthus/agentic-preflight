@@ -451,14 +451,7 @@ def envelope_for(run: RunDoc, *, data: RunDataBase | None = None, **overrides) -
     return Envelope(data=data, **fields)
 
 
-def interrupted_legacy_update(session: Session, run: RunDoc) -> bool:
-    return (
-        run.state not in TERMINAL_STATES
-        and (session.store.run_dir(run.run_id) / "pending-update.json").exists()
-    )
-
-
-def load_current(session: Session, *, allow_interrupted: bool = False) -> RunDoc:
+def load_current(session: Session) -> RunDoc:
     run_id = session.active_run_id()
     if not run_id:
         raise NoRun()
@@ -466,28 +459,6 @@ def load_current(session: Session, *, allow_interrupted: bool = False) -> RunDoc
         run = session.store.load_run(run_id)
     except UnknownRun as exc:
         raise NoRun(f"current run {run_id} is missing from the store") from exc
-    if not allow_interrupted and interrupted_legacy_update(session, run):
-        stopped = restart_limit_reached(run)
-        raise WrongState(
-            "This run has an interrupted update from an older version; validation cannot continue.",
-            state=run.state.value,
-            run_id=run.run_id,
-            data={"source_worktree_path": run.source_worktree_path, "needs_human": stopped},
-            next_instruction=(
-                RESTART_LIMIT_INSTRUCTION
-                if stopped
-                else f"Run start from the source worktree {run.source_worktree_path} "
-                "to discard the interrupted validation and restart."
-            ),
-            next_command=None
-            if stopped
-            else start_command(
-                run.intent,
-                base_ref=run.base_ref,
-                default_base_ref=session.config.general.base_ref,
-                producer=run.producer,
-            ),
-        )
     return run
 
 

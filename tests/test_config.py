@@ -91,9 +91,14 @@ def test_an_unknown_key_is_an_error_naming_the_key(tmp_repo, tmp_path):
 
 
 REMOVED_KEY_VALUES = {
+    ("hook", "enabled"): "false",
+}
+
+#: Keys that 0.6.0 removed. Only 0.5 snapshots hold them, and no release reads those
+#: any more, so nothing treats these keys differently from any other unknown key.
+FORGOTTEN_KEY_VALUES = {
     ("review", "require_fix_commits"): "true",
     ("worktree", "ttl_hours"): "48",
-    ("hook", "enabled"): "false",
 }
 
 
@@ -103,13 +108,36 @@ def test_every_removed_config_key_has_a_rejection_or_warning_case():
 
 @pytest.mark.parametrize(
     ("section", "key", "value"),
-    [(section, key, value) for (section, key), value in REMOVED_KEY_VALUES.items()],
+    [
+        (section, key, value)
+        for (section, key), value in (REMOVED_KEY_VALUES | FORGOTTEN_KEY_VALUES).items()
+    ],
 )
 def test_removed_config_keys_are_unknown(tmp_repo, tmp_path, section, key, value):
     (tmp_repo / ".agentic-preflight.toml").write_text(f"[{section}]\n{key} = {value}\n")
     with pytest.raises(ConfigError) as exc:
         load_config(tmp_repo, user_config_dir=tmp_path / "nowhere")
     assert key in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    ("section", "key", "value"),
+    [(section, key, value) for (section, key), value in FORGOTTEN_KEY_VALUES.items()],
+)
+def test_keys_removed_in_0_6_get_no_tolerance(tmp_repo, tmp_path, capsys, section, key, value):
+    from agentic_preflight.config import snapshot_config
+
+    assert (section, key) not in REMOVED_CONFIG_KEYS
+    (tmp_repo / ".agentic-preflight.toml").write_text(f"[{section}]\n{key} = {value}\n")
+    with pytest.raises(ConfigError) as exc:
+        load_config(tmp_repo, user_config_dir=tmp_path / "nowhere", tolerate_removed_keys=True)
+    assert key in str(exc.value)
+    assert "ignoring removed" not in capsys.readouterr().err
+
+    snapshot = Config().model_dump(mode="json")
+    snapshot[section][key] = True
+    with pytest.raises(ValidationError, match=key):
+        snapshot_config(snapshot)
 
 
 @pytest.mark.parametrize(
@@ -427,8 +455,6 @@ def test_empty_validation_errors_still_have_a_message(tmp_path):
 
 
 def test_owner_review_requires_explicit_reviewer():
-    from pydantic import ValidationError
-
     from agentic_preflight.config import Config
 
     with pytest.raises(ValidationError, match="reviewer must not be empty"):

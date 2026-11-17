@@ -169,22 +169,43 @@ def test_findings_transaction_preserves_each_record_across_write_failure(
     assert not (store.run_dir("r_abc123") / "pending-update.json").exists()
 
 
-def test_legacy_journal_is_preserved_without_replay(store):
+def test_a_nonterminal_run_with_a_legacy_journal_is_refused_and_preserved(store):
     current = store.create_run(make_run())
+    store.set_active(current.source_worktree_id, current.run_id)
     pending = current.model_copy(update={"seq": 1, "state": State.REVIEW_BLOCKED})
     journal = store.run_dir(current.run_id) / "pending-update.json"
     payload = json.dumps({"run": pending.model_dump(mode="json"), "findings": []})
     journal.write_text(payload)
+    record = store.run_path(current.run_id).read_text()
 
-    assert store.load_run(current.run_id) == current
-    assert store.peek(current.run_id, "seq") == {"seq": 0}
-    assert store.load_findings(current.run_id) == []
-    store.save_findings(current.run_id, [])
-    with store.transaction(current.run_id) as run:
+    with pytest.raises(RunReadError, match="interrupted update") as caught:
+        store.load_run(current.run_id)
+    assert caught.value.reason == "invalid"
+    assert "0.8.1" in str(caught.value)
+    assert caught.value.pointer_paths == [store.active_path(current.source_worktree_id)]
+    with pytest.raises(RunReadError), store.transaction(current.run_id) as run:
         run.stale = True
-    assert store.load_run(current.run_id).seq == 1
-    assert store.load_run(current.run_id).state is State.CREATED
+
+    # The raw read still works, and nothing replays or removes the journal.
+    assert store.peek(current.run_id, "seq") == {"seq": 0}
+    assert store.run_path(current.run_id).read_text() == record
     assert journal.read_text() == payload
+    assert store.get_active(current.source_worktree_id) == current.run_id
+
+
+@pytest.mark.parametrize("state", [State.ABORTED, State.ORPHANED, State.DONE])
+def test_a_terminal_run_with_a_legacy_journal_stays_readable(store, state):
+    """Releases 0.7.0 through 0.8.1 could abort such a run and leave the journal."""
+    run = make_run()
+    run.state = state
+    if state is State.DONE:
+        run.pushed_sha = run.head_sha
+    store.create_run(run)
+    journal = store.run_dir(run.run_id) / "pending-update.json"
+    journal.write_text("{}")
+
+    assert store.load_run(run.run_id).state is state
+    assert journal.read_text() == "{}"
 
 
 def test_a_crash_during_replace_leaves_a_valid_document(store, monkeypatch):
@@ -483,7 +504,7 @@ def test_replace_does_not_retry_other_errors(tmp_path, monkeypatch, platform, er
 
 
 @pytest.mark.parametrize("legacy_tree", [None, "d" * 40])
-def test_saved_mergeback_attempt_discards_legacy_rebased_tree(store, legacy_tree):
+def test_a_mergeback_attempt_with_the_removed_rebased_tree_is_refused(store, legacy_tree):
     from agentic_preflight.models import MergebackAttempt
 
     run = make_run()
@@ -497,17 +518,16 @@ def test_saved_mergeback_attempt_discards_legacy_rebased_tree(store, legacy_tree
     original = json.dumps(raw)
     path.write_text(original)
 
-    loaded = store.load_run(run.run_id)
-    assert loaded.mergeback_attempt is not None
-    assert "rebased_tree" not in loaded.mergeback_attempt.model_dump()
-    assert path.read_text() == original
-    with store.transaction(run.run_id):
+    with pytest.raises(RunReadError, match="invalid or unsupported") as caught:
+        store.load_run(run.run_id)
+    assert caught.value.reason == "invalid"
+    with pytest.raises(RunReadError), store.transaction(run.run_id):
         pass
-    assert "rebased_tree" not in json.loads(path.read_text())["mergeback_attempt"]
+    assert path.read_text() == original
 
 
-@pytest.mark.parametrize("state", ["CREATED", "PUBLICATION_READY", "DONE"])
-def test_historical_ci_run_remains_readable_without_rewriting_record(store, state):
+@pytest.mark.parametrize("state", ["CREATED", "DONE"])
+def test_a_run_with_the_retired_ci_section_remains_readable_without_rewriting(store, state):
     from agentic_preflight.config import config_digest, snapshot_run_settings
 
     run = store.create_run(make_run())
@@ -515,18 +535,43 @@ def test_historical_ci_run_remains_readable_without_rewriting_record(store, stat
     raw = json.loads(path.read_text())
     raw["config_snapshot"]["ci"] = {"test_authority": "local"}
     raw["config_digest"] = config_digest(raw["config_snapshot"])
-    raw["test_delegation"] = (
-        {"policy": {"test_authority": "github_actions"}} if state != "CREATED" else None
-    )
     raw["state"] = state
     if state == "DONE":
         raw["pushed_sha"] = raw["head_sha"]
     original = json.dumps(raw)
     path.write_text(original)
     restored = store.load_run(run.run_id)
-    assert restored.state.value == ("ORPHANED" if state == "PUBLICATION_READY" else state)
+    assert restored.state.value == state
     assert snapshot_run_settings(restored.config_snapshot) == (5, "in_place")
     assert restored.config_digest == raw["config_digest"]
+    assert path.read_text() == original
+
+
+@pytest.mark.parametrize(
+    ("state", "delegation"),
+    [
+        ("CREATED", None),
+        ("DONE", None),
+        ("DONE", {"policy": {"test_authority": "github_actions"}}),
+        ("TEST_DELEGATED", {"policy": {"test_authority": "github_actions"}}),
+        ("PUBLICATION_READY", {"policy": {"test_authority": "github_actions"}}),
+    ],
+)
+def test_a_ci_delegation_record_is_refused_and_preserved(store, state, delegation):
+    """Releases before 0.7.0 wrote ``test_delegation`` and the two delegated states."""
+    run = store.create_run(make_run())
+    path = store.run_path(run.run_id)
+    raw = json.loads(path.read_text())
+    raw["test_delegation"] = delegation
+    raw["state"] = state
+    if state == "DONE":
+        raw["pushed_sha"] = raw["head_sha"]
+    original = json.dumps(raw)
+    path.write_text(original)
+
+    with pytest.raises(RunReadError, match="invalid or unsupported") as caught:
+        store.load_run(run.run_id)
+    assert caught.value.reason == "invalid"
     assert path.read_text() == original
 
 
@@ -537,8 +582,6 @@ def test_run_loads_cache_full_snapshot_and_preserve_removed_keys(store):
     path = store.run_path(run.run_id)
     raw = json.loads(path.read_text())
     raw["config_snapshot"].setdefault("hook", {})["enabled"] = True
-    raw["config_snapshot"].setdefault("review", {})["require_fix_commits"] = True
-    raw["config_snapshot"].setdefault("worktree", {})["ttl_hours"] = 24
     raw["config_digest"] = config_digest(raw["config_snapshot"])
     original = json.dumps(raw)
     path.write_text(original)
