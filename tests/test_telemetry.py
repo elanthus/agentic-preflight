@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from agentic_preflight import telemetry
+from agentic_preflight import run_summary, telemetry
 from agentic_preflight.config import Config, ConfigError, config_digest, load_config
 from agentic_preflight.envelope import ExitCode
 from agentic_preflight.machine import State
@@ -601,13 +601,16 @@ def test_unavailable_events_are_null_rather_than_zero():
     assert row["finished_at"] == "2026-10-11T20:10:00+00:00"
 
 
-def test_a_retired_delegated_record_summarizes_as_the_orphan_the_tool_reads():
-    record = {**_schema_2_record(), "state": "TEST_DELEGATED", "test_delegation": {}}
+@pytest.mark.parametrize("state", ["TEST_DELEGATED", "PUBLICATION_READY"])
+def test_a_record_in_a_removed_delegated_state_is_summarized_as_stored(state):
+    """No release since 0.6.0 writes these states, and none rewrites them on load now."""
+    record = {**_schema_2_record(), "state": state, "test_delegation": {}}
 
+    assert run_summary.effective_state(record) == (state, None)
     row = telemetry.summarize(record, None, [], _identity()).model_dump()
 
-    assert row["state"] == "ORPHANED"
-    assert "delegation was removed" in row["terminal"]["orphaned_reason"]
+    assert row["state"] == state
+    assert row["terminal"]["orphaned_reason"] is None
 
 
 def test_a_record_missing_required_identity_fields_is_invalid():

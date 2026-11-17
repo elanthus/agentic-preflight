@@ -34,6 +34,7 @@ from ._session import (
     findings_unresolved,
     load_current,
     require_finding_stage,
+    require_publishable,
     require_state,
     require_worktree,
     stage_blocking_severities,
@@ -115,6 +116,7 @@ def context(session: Session, *, section: str = "review") -> Envelope:
     """Return the review or docs context for the current run."""
     run = load_current(session)
     check_restart_limit(run)
+    require_publishable(run, command="context")
     assert_fresh(session, run)
 
     if section == "docs" and run.state in {
@@ -258,6 +260,7 @@ def submit_findings(
     """Record the agent's findings for the review or docs stage."""
     run = load_current(session)
     check_restart_limit(run)
+    require_publishable(run, command="submit-findings")
     assert_fresh(session, run)
     require_state(
         run,
@@ -405,6 +408,7 @@ def submit_findings(
 def verify(session: Session) -> Envelope:
     """Verify fixes for blocking review findings."""
     run = load_current(session)
+    require_publishable(run, command="verify")
     assert_fresh(session, run)
     require_state(
         run,

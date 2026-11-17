@@ -17,10 +17,9 @@ Under this rule, 0.8.0 must read 0.7.0 records, notes, and snapshots. It need no
 > from stage 1. Every later release number below has therefore moved one minor later than
 > the first draft: stage 1 lands in 0.9.0 and stage 2 in 0.10.0. The rule is unchanged.
 
-> **Schedule note, 2026-11-17.** 0.9.0 ships the fixes from the November review with
-> nothing from stage 1, so that the security fixes are not held back by removals. Stage 1
-> (rows 3 to 6) therefore moves to 0.10.0, where it lands with stage 2. Rows 7 to 13 keep
-> 0.10.0. The rule is unchanged.
+> **Schedule note, 2026-11-17.** 0.9.0 ships the fixes from the November review together
+> with stage 1 (rows 3 to 6), as the previous note scheduled. Rows 7 to 13 keep 0.10.0.
+> The rule is unchanged.
 
 ## Inventory and schedule
 
@@ -28,10 +27,10 @@ Under this rule, 0.8.0 must read 0.7.0 records, notes, and snapshots. It need no
 | --- | --- | --- | --- | --- |
 | 1 | `LegacyContractPlan`, `allow_legacy`, `previous_receipt` | after v0.7.0 | schema-1 receipts from unreleased dev builds | 0.8.0 (done) |
 | 2 | `omit_absent_producer` serializer | after v0.7.0 | 0.7.0 reading records 0.8.0 rewrote (downgrade) | 0.8.0 (done) |
-| 3 | `discard_legacy_rebased_tree` | 0.7.0 | 0.6.0 merge-back attempts | 0.10.0 |
-| 4 | `retire_ci_delegation` and `telemetry._effective_state` | 0.7.0 | 0.6.0 delegated runs | 0.10.0 |
-| 5 | `pending-update.json` handling (four sites) | 0.7.0 | 0.6.0 interrupted runs | 0.10.0, one line stays to 0.11.0 |
-| 6 | `REMOVED_CONFIG_KEYS` entries removed in 0.6.0 | 0.6.0 | 0.5.x snapshots | 0.10.0 |
+| 3 | `discard_legacy_rebased_tree` | 0.7.0 | 0.6.0 merge-back attempts | 0.9.0 (done) |
+| 4 | `retire_ci_delegation` and `telemetry._effective_state` | 0.7.0 | 0.6.0 delegated runs | 0.9.0 (done) |
+| 5 | `pending-update.json` handling (four sites) | 0.7.0 | 0.6.0 interrupted runs | 0.9.0 (done), the two evidence-reuse checks stay |
+| 6 | `REMOVED_CONFIG_KEYS` entries removed in 0.6.0 | 0.6.0 | 0.5.x snapshots | 0.9.0 (done) |
 | 7 | `discard_retired_null_fields` on attestations | 0.7.0 | 0.6.0 verified notes | 0.10.0 |
 | 8 | `REMOVED_CONFIG_KEYS` entries removed in 0.7.0 | 0.7.0 | 0.6.0 snapshots and config files | 0.10.0 |
 | 9 | `LEGACY_DIRNAME`, `legacy_worktrees`, runner reclamation at the old root | 0.7.0 | worktrees created before 0.7.0 | 0.10.0 |
@@ -92,16 +91,25 @@ bytes of every existing 0.7.0 evidence record and note, which breaks the rule ra
 than applying it. They are wire-shape decisions for attested data, not downgrade shims,
 and belong with any future attestation schema bump.
 
-## Stage 1: 0.10.0
+## Stage 1: 0.9.0
 
-Each item gets a `removed` changelog fragment and one line in `COMPATIBILITY.md` stating
-that 0.10.0 reads 0.9.0 data only. The existing per-feature paragraphs in
-`COMPATIBILITY.md` for these shims move to `docs/upgrade-0.7.md`, which is where a reader
-on 0.6.0 looks.
+Stage 1 is complete. The 0.9.0 changelog lists the four removals under "Removed", and the
+`COMPATIBILITY.md` entry "Run records from before 0.7.0 are no longer read" states what
+0.9.0 reads. The per-feature paragraphs in `COMPATIBILITY.md` now say that they describe
+0.7.0 through 0.8.1, and `docs/upgrade-0.7.md` sends a reader on 0.6.0 through 0.8.1 first.
+
+The removal found one thing that the sections below did not expect. 0.6.0 wrote
+`test_delegation` (as `null`) and `mergeback_attempt.rebased_tree` in finished records
+too, and a later release dropped a key only when it rewrote a record, which never happens
+to a finished one. Rows 3 and 4 therefore make those finished records unreadable, not only
+the unfinished ones: `status --all` and `gc` list them, and `gc` keeps them. The package
+ships no migration. The 0.9.0 release has a one-off script instead; see
+[One-off migration scripts](#one-off-migration-scripts). Check for the same effect before
+any later row removes a key that a finished record can hold.
 
 ### 3. `mergeback_attempt.rebased_tree`
 
-None of 0.7.0, 0.8.0, and 0.9.0 writes the field. Delete `discard_legacy_rebased_tree` from `MergebackAttempt`
+Neither 0.7.0 nor 0.8.0 writes the field. Delete `discard_legacy_rebased_tree` from `MergebackAttempt`
 in `agentic_preflight/models.py` and its test in `tests/test_store.py`. A 0.6.0 attempt
 then fails with `extra_forbidden`, which `store.py` already reports as `invalid` with the
 preserve-and-use-a-compatible-tool recovery.
@@ -109,34 +117,42 @@ preserve-and-use-a-compatible-tool recovery.
 ### 4. CI delegation retirement
 
 0.7.0 writes no `test_delegation` key and no `TEST_DELEGATED` or `PUBLICATION_READY` state,
-and its `start`, like those of 0.8.0 and 0.9.0, already orphaned any such run it met.
+and its `start`, like 0.8.0's, already orphaned any such run it met.
 
 - `agentic_preflight/models.py`: delete `retire_ci_delegation`. The states are not in
   `State`, so such a record fails validation naturally.
 - `agentic_preflight/run_summary.py`: delete `_RETIRED_DELEGATED_STATES`,
   `_RETIRED_DELEGATION_REASON`, and the retired branch of `effective_state`, which
-  duplicates the model logic for raw records. `telemetry rebuild` then skips those records
-  as unreadable, which the summary report already counts.
+  duplicates the model logic for raw records. `telemetry rebuild` then reads such a record
+  as it is stored: it skips one in a delegated state because that state is not terminal,
+  and summarizes a finished one that carries the key.
 - Tests: the four `test_models.py` cases at lines 352 to 378, plus the delegation cases in
   `tests/test_store.py` and `tests/test_telemetry.py`.
 
 ### 5. Interrupted legacy updates
 
-0.7.0, 0.8.0, and 0.9.0 orphan a run with `pending-update.json` on the next `start`, so by 0.10.0
+0.7.0 and 0.8.0 orphan a run with `pending-update.json` on the next `start`, so by 0.9.0
 the only such runs are ones nobody has started since 0.6.0. Collapse the four sites into one.
 
 - `agentic_preflight/store.py`: in `load_run`, treat a nonterminal record with a
   `pending-update.json` beside it as a `RunReadError` with reason `invalid` and a message
-  naming 0.7.0 as the release that can finish or abort it.
+  naming 0.8.1 as the release that can abort or replace it.
 - Delete `interrupted_legacy_update` and its callers in `runs/_session.py`
   (`load_current`), `runs/start.py` (the orphan-and-restart branch around line 272), and
   `runs/lifecycle.py` (the `status` branch around line 612 and the
   `interrupted_legacy_update` envelope key).
-- `runs/evidence.py`: keep the single `orphaned_reason == "interrupted legacy update"`
-  comparison through 0.10.0. Records that 0.7.0 orphaned persist that string, and the
-  comparison is what keeps their green evidence out of reuse. Drop it in 0.11.0 together
-  with the string constant. Replace the `pending-update.json` existence check there now,
-  since `load_run` rejects those records first.
+- `runs/evidence.py`: keep both exclusions in `_prior_runs` until another filter replaces
+  them. Do not drop either one on a schedule.
+  - The `pending-update.json` existence check stays. `load_run` will reject only a
+    nonterminal record with a journal. `abort` accepts an interrupted run and moves it to
+    `ABORTED` without removing the journal, and `ABORTED` is a state that evidence reuse
+    accepts. The existence check is the only thing that keeps that record's green evidence
+    out of reuse.
+  - The `orphaned_reason == "interrupted legacy update"` comparison stays. `start` removes
+    the journal when it orphans such a run, so the persisted string is the only mark left
+    on that record, and `ORPHANED` is also a state that evidence reuse accepts.
+  - To remove them, first add one filter that covers both cases. Then drop both checks
+    and the string constant in the same release.
 - Docs: `skill/reference/commands.md` lines 83 to 90, the row in `skill/SKILL.md` line 200,
   `docs/state-machine.md` line 158. `tests/test_docs_match_cli.py` pins the state-machine
   doc, so update the doc and the test fixture together.
@@ -261,6 +277,20 @@ also checks that no attribute turned a text file into a binary marker. It goes w
 attribute-free form always passes `strict=True`, so the parameter can go too) and the
 COMPATIBILITY.md and fingerprint-contract sentences about attribute-shaped notes.
 
+## One-off migration scripts
+
+The package carries no migration code. When a removal strands finished data, the release
+that makes the removal attaches one standalone script to its GitHub Release, and the
+`COMPATIBILITY.md` entry for that removal links to it.
+
+- The script uses only the standard library and imports nothing from the package.
+- It is validated once, before the release, and the pull request records that.
+- It is not stored in this repository, so nothing lints, tests, or updates it.
+- It is never changed after the release. A later problem gets a new script on a later release.
+
+`migrate-finished-records.py` on the 0.9.0 release is the first one. It removes
+`test_delegation` and `mergeback_attempt.rebased_tree` from finished run records.
+
 ## Guardrail: keep this from growing back
 
 Add `agentic_preflight/_compat.py` holding one table:
@@ -268,7 +298,7 @@ Add `agentic_preflight/_compat.py` holding one table:
 ```python
 REMOVALS: Final = (
     # (identifier, introduced_in, remove_in)
-    ("models.MergebackAttempt.discard_legacy_rebased_tree", "0.7.0", "0.10.0"),
+    ("models.Attestation.discard_retired_null_fields", "0.7.0", "0.10.0"),
     ...,
 )
 ```

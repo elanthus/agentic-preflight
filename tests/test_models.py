@@ -349,40 +349,21 @@ def test_pending_attestation_never_verifies(purpose):
         )
 
 
-def test_historical_run_null_delegation_remains_readable():
-    value = _run_doc()
-    payload = value.model_dump(mode="json")
-    payload["test_delegation"] = None
-    assert RunDoc.model_validate(payload) == value
-
-
-@pytest.mark.parametrize(
-    "state", ["TEST_DELEGATED", "PUBLICATION_READY", "AWAITING_PUSH_CONFIRM", "CREATED"]
-)
-def test_active_delegated_run_is_orphaned_instead_of_published(state):
+@pytest.mark.parametrize("delegation", [None, {"policy": {"test_authority": "github_actions"}}])
+@pytest.mark.parametrize("state", ["CREATED", "AWAITING_PUSH_CONFIRM", "PUSHED", "DONE", "ABORTED"])
+def test_a_run_with_the_removed_delegation_key_is_rejected(state, delegation):
+    """Releases before 0.7.0 wrote ``test_delegation``; later ones never did."""
     payload = _run_doc().model_dump(mode="json")
-    payload.update(state=state, test_delegation={"policy": {"test_authority": "github_actions"}})
-    value = RunDoc.model_validate(payload)
-    assert value.state is State.ORPHANED
-    assert "start a new local validation" in value.orphaned_reason
+    payload.update(state=state, test_delegation=delegation)
+    with pytest.raises(ValidationError, match="test_delegation"):
+        RunDoc.model_validate(payload)
 
 
-@pytest.mark.parametrize("state", ["DONE", "PUSHED", "ABORTED"])
-def test_historical_delegated_run_preserves_completed_lifecycle(state):
+@pytest.mark.parametrize("state", ["TEST_DELEGATED", "PUBLICATION_READY"])
+def test_a_run_in_a_removed_delegated_state_is_rejected(state):
     payload = _run_doc().model_dump(mode="json")
-    payload.update(state=state, test_delegation={"policy": {"test_authority": "github_actions"}})
-    assert RunDoc.model_validate(payload).state.value == state
-
-
-@pytest.mark.parametrize("state", [None, "UNKNOWN_STATE"])
-def test_invalid_saved_state_is_not_concealed_by_retired_delegation(state):
-    payload = _run_doc().model_dump(mode="json")
-    payload["test_delegation"] = {"policy": {"test_authority": "github_actions"}}
-    if state is None:
-        payload.pop("state")
-    else:
-        payload["state"] = state
-    with pytest.raises(ValidationError):
+    payload["state"] = state
+    with pytest.raises(ValidationError, match="state"):
         RunDoc.model_validate(payload)
 
 

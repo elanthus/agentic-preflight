@@ -37,7 +37,7 @@ from ..models import (
 )
 from ..refresh_validation import verify_stage
 from ..stages import shellstage
-from ..store import RunReadError, UnknownRun
+from ..store import PENDING_UPDATE_NAME, RunReadError, UnknownRun
 from . import review_protocol
 from ._session import (
     Session,
@@ -221,10 +221,13 @@ def _prior_runs(session: Session, run: RunDoc) -> list[RunDoc]:
         except (OSError, ValueError, ValidationError, RunReadError, UnknownRun):
             continue
         # Keep the audit record, but never reuse validation discarded after an
-        # interrupted legacy update, even after its pending journal is removed.
+        # interrupted update from a release before 0.7.0. A run that 0.7.0 through
+        # 0.8.1 orphaned for it keeps only the reason, and one they aborted keeps
+        # only the journal, so both checks stay. ``load_run`` refuses a nonterminal
+        # record with a journal.
         if (
             old.orphaned_reason == "interrupted legacy update"
-            or (session.store.run_dir(old.run_id) / "pending-update.json").exists()
+            or (session.store.run_dir(old.run_id) / PENDING_UPDATE_NAME).exists()
         ):
             continue
         if old.source_worktree_id != run.source_worktree_id:

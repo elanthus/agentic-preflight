@@ -12,11 +12,17 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged. Run records
   that 0.8.1 wrote stay readable, and a note that 0.8.1 wrote still verifies in the usual
   case.
+- Run records that 0.6.0 wrote, and that no later release rewrote, are no longer read.
+  `status --all` and `gc` list them as unreadable. To upgrade from 0.6.0, upgrade to 0.8.1
+  first. See
+  [Run records from before 0.7.0 are no longer read](COMPATIBILITY.md#run-records-from-before-070-are-no-longer-read).
 - Upgrade the protected-base CI verifier before, or together with, the local CLI and the
   pre-push hook. A 0.8.1 verifier rejects a note that 0.9.0 writes, because review patches
   no longer depend on Git configuration or Git attributes.
-- Push or abort open runs before you upgrade. 0.9.0 refuses to merge back, gate, or push a
-  run that 0.8.1 started (`needs_human`, `data.reason` `unknown_config_provenance`), and
+- Push or abort open runs before you upgrade. 0.9.0 refuses to validate, merge back, gate,
+  or push a run that 0.8.1 started (`needs_human`, `data.reason`
+  `unknown_config_provenance`), and `status` returns `agentic-preflight abort` for it.
+  At the validation restart limit, no command is advertised and the user decides.
   0.8.1 cannot read a run record that 0.9.0 starts.
 - `respond --action dismissed|accepted` now requires `--reason`. Run
   `agentic-preflight integrations update` so that installed skills pass it.
@@ -137,6 +143,25 @@ All notable changes to Agentic Preflight are documented here. This project follo
   `pr_url_recorded`, `pr_url_excluded_runs`, and `note` keys of `data.overall.hosted`.
   The "Hosted outcomes synced" section and the two `data.limits` entries about hosted
   checks appear only when at least one run in the report was synced.
+- Remove the tolerances for run records that 0.6.0 and earlier releases wrote. A release
+  now reads the records of the previous minor release only.
+  `COMPATIBILITY.md` describes what to do with a record that 0.9.0 reports as unreadable,
+  and links to a one-off script on this release that converts finished records.
+  - A run record with the `test_delegation` key, or in the `TEST_DELEGATED` or
+    `PUBLICATION_READY` state, is invalid. Earlier releases dropped the key on load and
+    orphaned a run that still waited for delegated tests.
+  - A run record whose `mergeback_attempt` holds `rebased_tree` is invalid. Earlier
+    releases ignored the field.
+  - A nonterminal run with a `pending-update.json` journal is invalid: every command that
+    loads it exits 3 with `run_record_unreadable`. `start` no longer orphans it, `abort`
+    no longer ends it, and `status` no longer reports `data.interrupted_legacy_update`.
+    A malformed working-copy configuration does not hide that error.
+    Evidence from a run that an earlier release retired for this reason is still never
+    reused.
+  - `[review] require_fix_commits` and `[worktree] ttl_hours`, which 0.6.0 removed, are
+    unknown keys in an attested configuration snapshot too, and `telemetry rebuild`,
+    `telemetry sync-hosted`, `report`, and `gc` no longer skip them in a configuration
+    file with a warning.
 
 ### Fixed
 
@@ -372,11 +397,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
   a fresh CI clone could reject a note that verified locally. Review patches now carry full
   object IDs, and every such setting is fixed to Git's default. `diff.relative` is fixed too,
   as a precaution: it has no effect when Git runs from the repository root, as preflight
-  does. Git attributes still shape
-  the text: those in `.gitattributes`, `$GIT_DIR/info/attributes`, `attr.tree`,
-  `GIT_ATTR_SOURCE`, and the system-wide attributes file, together with the `diff.<driver>.*`
-  configuration of a driver an attribute names. So do `diff.default.xfuncname` and
-  `diff.default.funcname`. `COMPATIBILITY.md` lists them.
+  does. Git attributes, `diff.default.xfuncname`, and `diff.default.funcname` no longer
+  shape the text either: the Git attributes entry under Security (GHSA-m8wg-p58p-cqmf)
+  describes that change.
 - Replacement objects under `refs/replace` no longer change the review diff, the changed-file
   list, or risk classification. They exist in one clone only.
 - `diff.ignoreSubmodules = all`, and `submodule.<name>.ignore = all` in local configuration,
@@ -409,6 +432,20 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - `start` holds the new run's operation lock until the run is ready for review. It used to
   release it right after creating the record, so a concurrent `start --replace`, `gc`, or
   `abort` could orphan the run while its checkout was still being provisioned.
+- `status` on a run that an earlier release started now returns `agentic-preflight abort`
+  as `next.command` and says that this release cannot merge the run back, gate it, or push
+  it. It used to return the state's ordinary next command, and after a refused `mergeback`
+  it pointed back to `mergeback`. `status` also no longer checks or advances such a run's
+  evidence, so it does not reopen review on it. `events`, `logs`, and a `start` that resumes
+  the run report the same next command. A run that an earlier release already pushed is
+  unaffected and still finishes with `finish`. At the validation restart limit, neither
+  `status` nor a refused command advertises `abort`: that decision stays with a person.
+- `context`, `review contracts`, `review run`, `submit-findings`, `respond`, `verify`, and
+  `stage run` now refuse such a run with exit 4, `needs_human`, and `data.reason`
+  `unknown_config_provenance`, as `mergeback`, `gate`, and `push` already did. No review or
+  stage runs for a run that cannot publish.
+- The advice to cherry-pick recorded fix commits before aborting such a run now appears
+  only in isolated modes. In `in_place` mode the fixes are already on the branch.
 
 ### Security
 

@@ -11,14 +11,22 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypeVar
 
+from .. import attestation as attestationmod
 from .. import findings as findingsmod
-from .. import gitx, risk, telemetry, worktree
+from .. import gitx, public_config, risk, telemetry, worktree
 from ..cli_contract import RunDataBase
-from ..config import Config, load_config, snapshot_config, snapshot_run_settings
+from ..config import (
+    Config,
+    ConfigError,
+    load_config,
+    snapshot_config,
+    snapshot_run_settings,
+)
 from ..envelope import Envelope
 from ..errors import (
     FindingsUnresolved,
     MaxRestarts,
+    NeedsHuman,
     NoRun,
     StaleRun,
     WrongState,
@@ -94,15 +102,18 @@ def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) ->
     cfg = None
     current = run_id or store.get_active(owner_id)
     active = None
+    unreadable: RunReadError | None = None
     if current:
         try:
             active = store.load_run(current)
-        except (UnknownRun, RunReadError):
+        except UnknownRun:
+            pass
+        except RunReadError as exc:
             # Inspection must remain available without trusting an unreadable run.
             # The files below only shape that inspection: every command that
             # changes the run loads it again and fails with run_record_unreadable,
             # and status reports it as unreadable rather than quoting this config.
-            pass
+            unreadable = exc
         else:
             # The same tolerant loader the store just validated this snapshot with,
             # so a key a later release removed cannot hand the run to the files.
@@ -115,7 +126,15 @@ def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) ->
             repo_root = source
         else:
             source_worktree_available = False
-    cfg = cfg or load_config(repo_root)
+    if cfg is None:
+        try:
+            cfg = load_config(repo_root)
+        except ConfigError as exc:
+            if unreadable is None:
+                raise
+            # The unreadable run comes first: a configuration error here would hide
+            # its recovery instruction, and the run's own snapshot cannot be used.
+            raise unreadable from exc
     if cfg.worktree.mode != "in_place":
         store.set_worktrees_root(worktree.resolve_root(repo_root, cfg.worktree.root))
     session = Session(
@@ -319,6 +338,108 @@ def start_command(
     return shlex.join(args)
 
 
+#: States in which an earlier release has already written the run's note.
+_ATTESTED_STATES = frozenset({State.VERIFIED, State.AWAITING_PUSH_CONFIRM})
+
+_EARLIER_RELEASE = (
+    "run was started by an earlier release that did not record which "
+    "configuration came from the user file"
+)
+_CANNOT_PUBLISH = "this release cannot merge it back, gate it, or push it"
+_ABORT_AND_RESTART = "Abort this run and start a fresh one with the current release."
+
+
+def unpublishable(run: RunDoc) -> bool:
+    """Whether this release will refuse to merge back, gate, or push ``run``.
+
+    True for a run of unknown configuration provenance that has not been pushed.
+    ``PUSHED`` is left out because ``finish`` publishes nothing, so a run that an
+    earlier release pushed can still be finished.
+    """
+    return (
+        not public_config.provenance_known(run)
+        and run.state not in TERMINAL_STATES
+        and run.state is not State.PUSHED
+    )
+
+
+def _stale_note(run: RunDoc) -> str:
+    return (
+        f"the note on {run.head_sha} may hold user-level configuration; "
+        f"remove it with `git notes --ref={attestationmod.NOTES_REF} remove "
+        f"{run.head_sha}` instead of pushing it"
+    )
+
+
+def _keep_fix_commits(run: RunDoc) -> str:
+    """Advice to save recorded fixes, which only an isolated abort can discard."""
+    if not run.fix_commits or is_in_place(run):
+        return ""
+    return (
+        " Keep the recorded fix commits in data.fix_commits by cherry-picking them onto "
+        "your branch before you abort, because `abort --force` discards them."
+    )
+
+
+def unknown_provenance_hint(run: RunDoc) -> tuple[str, str]:
+    """The next move for a run that :func:`unpublishable` names: abort it."""
+    note = ""
+    if run.state in _ATTESTED_STATES:
+        stale_note = _stale_note(run)
+        note = f" {stale_note[0].upper()}{stale_note[1:]}."
+    return (
+        f"This {_EARLIER_RELEASE}, so {_CANNOT_PUBLISH}.{note} "
+        f"{_ABORT_AND_RESTART}{_keep_fix_commits(run)}",
+        "agentic-preflight abort",
+    )
+
+
+def _unknown_provenance(run: RunDoc, *, command: str, situation: str) -> NeedsHuman:
+    # At the restart limit even the abort is left to a person, as in `envelope_for`.
+    stopped = restart_limit_reached(run)
+    recovery = RESTART_LIMIT_INSTRUCTION if stopped else _ABORT_AND_RESTART
+    return NeedsHuman(
+        f"this {_EARLIER_RELEASE}, so {situation}",
+        state=run.state.value,
+        run_id=run.run_id,
+        data={"reason": "unknown_config_provenance", "fix_commits": list(run.fix_commits)},
+        next_instruction=f"Do not retry `{command}`. {recovery}{_keep_fix_commits(run)}",
+        next_command=None if stopped else "agentic-preflight abort",
+    )
+
+
+def require_known_provenance(run: RunDoc, *, command: str) -> None:
+    """Refuse to attest or publish a run whose user-level configuration is unknown.
+
+    A run that an earlier release started did not record which snapshot sections
+    came from the user file, so its note could publish them. ``mergeback`` and the
+    publication commands check this before they change or push anything.
+    """
+    if public_config.provenance_known(run):
+        return
+    if command == "mergeback":
+        situation = "its attestation could publish user-level configuration"
+    else:
+        situation = _stale_note(run)
+    raise _unknown_provenance(run, command=command, situation=situation)
+
+
+def require_publishable(run: RunDoc, *, command: str) -> None:
+    """Refuse to spend review or stage work on a run that cannot publish.
+
+    ``mergeback``, ``gate``, and ``push`` refuse a run of unknown provenance, so
+    every command that moves such a run toward them stops here first, with the
+    same envelope. Inspection, ``abort``, ``gc``, and ``finish`` do not call this.
+    """
+    if not unpublishable(run):
+        return
+    raise _unknown_provenance(
+        run,
+        command=command,
+        situation=f"{_CANNOT_PUBLISH}, and `{command}` would spend work on a run that cannot publish",
+    )
+
+
 def envelope_for(run: RunDoc, *, data: RunDataBase | None = None, **overrides) -> Envelope:
     """The envelope for ``run``, with the shared run keys added to ``data``."""
     instruction, command = next_hint(run.state)
@@ -326,6 +447,10 @@ def envelope_for(run: RunDoc, *, data: RunDataBase | None = None, **overrides) -
     if stopped:
         # A stopped run must never advertise the state's ordinary next move.
         instruction, command = RESTART_LIMIT_INSTRUCTION, None
+    elif unpublishable(run):
+        # Nor may a run that merge-back and publication will always refuse. The
+        # restart limit stays ahead: it leaves even the abort to a person.
+        instruction, command = unknown_provenance_hint(run)
     fields: dict[str, Any] = {
         "run_id": run.run_id,
         "state": run.state.value,
@@ -344,14 +469,7 @@ def envelope_for(run: RunDoc, *, data: RunDataBase | None = None, **overrides) -
     return Envelope(data=data, **fields)
 
 
-def interrupted_legacy_update(session: Session, run: RunDoc) -> bool:
-    return (
-        run.state not in TERMINAL_STATES
-        and (session.store.run_dir(run.run_id) / "pending-update.json").exists()
-    )
-
-
-def load_current(session: Session, *, allow_interrupted: bool = False) -> RunDoc:
+def load_current(session: Session) -> RunDoc:
     run_id = session.active_run_id()
     if not run_id:
         raise NoRun()
@@ -359,28 +477,6 @@ def load_current(session: Session, *, allow_interrupted: bool = False) -> RunDoc
         run = session.store.load_run(run_id)
     except UnknownRun as exc:
         raise NoRun(f"current run {run_id} is missing from the store") from exc
-    if not allow_interrupted and interrupted_legacy_update(session, run):
-        stopped = restart_limit_reached(run)
-        raise WrongState(
-            "This run has an interrupted update from an older version; validation cannot continue.",
-            state=run.state.value,
-            run_id=run.run_id,
-            data={"source_worktree_path": run.source_worktree_path, "needs_human": stopped},
-            next_instruction=(
-                RESTART_LIMIT_INSTRUCTION
-                if stopped
-                else f"Run start from the source worktree {run.source_worktree_path} "
-                "to discard the interrupted validation and restart."
-            ),
-            next_command=None
-            if stopped
-            else start_command(
-                run.intent,
-                base_ref=run.base_ref,
-                default_base_ref=session.config.general.base_ref,
-                producer=run.producer,
-            ),
-        )
     return run
 
 

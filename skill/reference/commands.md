@@ -123,16 +123,11 @@ beyond the run's starting head makes `start` exit 4 (`needs_human`) with its pat
 `data.worktree_path`, names that head in `next.instruction`, and leaves the run in place. A later
 `start` reclaims the checkout once it is clean at that head, even if the interrupted run
 was aborted in between. A dirty strict checkout does not block a new run and is kept.
-A nonterminal run with a legacy `pending-update.json` is instead orphaned at the next
-`start`, its ownership cleared and journal removed, and a fresh run created. The old
-audit record and user work remain for normal safe cleanup. `status` reports
-`data.interrupted_legacy_update: true` and directs these runs to `start` without
-importing evidence; validation commands exit 3 (`wrong_state`) rather than continuing
-them. Restart guidance identifies the recorded source worktree. At the validation
-restart limit, the existing human stop takes precedence: no restart command is
-advertised, and direct `start` refuses the interrupted run until the user decides
-to abort it. Explicit `abort` remains available. Completed history and runs without
-a journal are unaffected.
+A nonterminal run with a `pending-update.json` journal, which only a release before
+0.7.0 wrote, is an unreadable record: `start`, `abort`, and every other command that
+loads it exit 3 (`run_record_unreadable`), `status` reports the record as unreadable, and
+the record, journal, ownership, and user work stay as they are. Only 0.7.0 through 0.8.1
+can retire such a run. Completed history and runs without a journal are unaffected.
 A moved source head orphans the stale run without deleting its evidence or fixes and then
 starts fresh. In `reusable` mode, an orphaned run with no fix commits releases its runner
 at once, so the fresh run can lease it, but only when the runner is clean and both its
@@ -661,6 +656,12 @@ run the same way, and their message names the `git notes ... remove` command for
 earlier release already wrote. The error data lists the recorded fix commits; in isolated
 modes, cherry-pick them before aborting. Abort it and start a fresh run.
 
+The commands that lead to `mergeback` refuse such a run the same way, so that no review
+or stage runs for a run that cannot publish: `context`, `review contracts`, `review run`,
+`submit-findings`, `respond`, `verify`, and `stage run`. `status`, `events`, and `logs`
+keep working and return `agentic-preflight abort` as `next.command`. `abort` and `gc`
+work as usual, and `finish` still completes a run that an earlier release pushed.
+
 A run that an earlier release let leave review with an open blocking or `auto_fix`
 finding exits 3 with `findings_unresolved`; `error.message` and `blocking` name the
 findings. From `TEST_GREEN`, or from a pending attempt that has not changed the source, the
@@ -775,6 +776,15 @@ The full single-run report also contains `data.producer` from `start`. It is `nu
 a run record that an earlier version wrote.
 In `MERGEBACK_CONFLICT`, it replays the stored conflict report and points back to the
 legal `mergeback` retry.
+For a run that an earlier release started, which `mergeback`, `gate`, and `push` refuse
+with `unknown_config_provenance`, it returns `agentic-preflight abort` as `next.command`
+in every state before `PUSHED`. `next.instruction` says that this release cannot merge
+the run back, gate it, or push it, names the `git notes ... remove` command when an
+earlier release already wrote a note, and in isolated modes says to cherry-pick the
+commits in `data.fix_commits` first. Status reports such a run as it stands: it does not
+check stage-origin digests or advance the run's evidence. At the validation restart
+limit, the human stop takes precedence: neither `status` nor a refused command
+advertises `abort`.
 `--all` inventories stored and active runs across every linked worktree in the clone.
 
 ### `agentic-preflight logs --stage review|lint|test [--tail N | --head N | --all]`

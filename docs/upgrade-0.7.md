@@ -57,7 +57,7 @@ Installation does not rewrite repository configuration, scan saved runs, delete 
 | `[ci]` test authority and delegation | Remove the whole table. File loading ignores it with a warning. It grants no authority. Install local test dependencies. The `ci` commands and pending-test publication are removed. |
 | `[reuse]`, `[reuse.lint]`, `[reuse.test]` | Remove the whole section and its input declarations. Files warn and ignore it. Applicable lint and test stages always execute in new runs, including on identical trees. |
 | `[hook] enabled` | Delete the key. It never controlled the hook. It now fails configuration-file loading. Keep `allow_force_push` only if existing policy needs it. |
-| `[review] require_fix_commits`, `[worktree] ttl_hours` | Already removed in 0.6.0. They stay invalid in files. Known historical snapshot keys are tolerated. |
+| `[review] require_fix_commits`, `[worktree] ttl_hours` | Already removed in 0.6.0. They stay invalid in files. Known historical snapshot keys are tolerated through 0.8.1; 0.9.0 rejects them there too. |
 | `hosted-check` | Replace it with trusted-source Git fetches followed by offline `verify SHA` or `approval-check SHA --base BASE`. See the protected-base workflow. |
 | Malformed CLI invocation | Expect exit 6 and a `usage_error` JSON envelope instead of exit 2 and Click usage text. `hook-check` keeps Click's usage behavior. A bare invocation prints help and exits 0. |
 | Documentation inventory `exists`; command candidate `trust` | Use `path`, `size`, `touched_by_diff`, and candidate `source`. Workflow `run:` lines are no longer command candidates. Configured commands and supported manifests remain. |
@@ -77,6 +77,10 @@ Notes that contain refreshed lint or test evidence require a fresh local run, ev
 Pending-test notes, delegated stages, and non-null delegation declarations are rejected.
 Null retired attestation fields are discarded.
 Schema identity does not imply compatibility with an older verifier.
+
+The rest of this section describes 0.7.0 through 0.8.1.
+Version 0.9.0 no longer reads these 0.6.0 records, so finish this upgrade on 0.8.1 before you move to 0.9.0.
+See [Run records from before 0.7.0 are no longer read](../COMPATIBILITY.md#run-records-from-before-070-are-no-longer-read).
 
 Pending delegated runs become `ORPHANED`. Start a fresh local run.
 Pushed and terminal records stay available for inspection and cleanup.

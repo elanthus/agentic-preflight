@@ -315,6 +315,7 @@ Before you upgrade, read the steps for your current version:
   The retired sections cause a warning and have no effect.
   See the [0.7 upgrade guide](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/upgrade-0.7.md).
   That guide installs 0.7.0. Then follow the 0.7 to 0.8 and the 0.8 to 0.9 upgrade steps.
+  Do not skip to 0.9.0: it does not read run records that 0.6.0 wrote.
 
 ## Help and development
 

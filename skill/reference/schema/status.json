@@ -395,18 +395,6 @@
       "default": null,
       "title": "Intent Source"
     },
-    "interrupted_legacy_update": {
-      "anyOf": [
-        {
-          "type": "boolean"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Interrupted Legacy Update"
-    },
     "max_restarts": {
       "anyOf": [
         {

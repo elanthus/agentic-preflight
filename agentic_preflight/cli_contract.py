@@ -360,7 +360,6 @@ class StatusData(RunDataBase):
     read_failure: Obj | None = None
     evidence_valid: bool | None = None
     evidence_failure: Obj | None = None
-    interrupted_legacy_update: bool | None = None
     seq: int | None = None
     branch: str | None = None
     base_ref: str | None = None

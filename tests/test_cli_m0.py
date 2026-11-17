@@ -588,7 +588,8 @@ def test_start_resumes_a_matching_run_in_the_same_worktree(agent):
     assert env["data"]["resumed"] is True
 
 
-def test_start_retires_interrupted_legacy_validation_and_preserves_work(agent, feature_repo):
+def test_an_interrupted_legacy_update_is_refused_and_preserved(agent, feature_repo):
+    """Only 0.7.0 through 0.8.1 can retire a run whose pre-0.7.0 update was interrupted."""
     write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
     commit_all(feature_repo, "use strict validation")
     first = agent.run("start")
@@ -601,41 +602,24 @@ def test_start_retires_interrupted_legacy_validation_and_preserves_work(agent, f
     before = old_path.read_bytes()
 
     status = agent.run("status")
-    assert status["data"]["interrupted_legacy_update"] is True
-    assert " start " in status["next"]["command"]
+    assert status["data"]["readable"] is False
+    assert status["data"]["read_failure"]["reason"] == "invalid"
+    assert "interrupted update" in status["data"]["read_failure"]["diagnostic"]
+    assert "0.8.1" in status["data"]["read_failure"]["diagnostic"]
+    assert "interrupted_legacy_update" not in status["data"]
+
+    for command in (("context",), ("start",), ("start", "--replace"), ("abort",)):
+        refused = agent.run(*command, expect=ExitCode.PRECONDITION)
+        assert refused["error"]["code"] == "run_record_unreadable"
+        assert refused["run_id"] == first["run_id"]
+        assert "interrupted update" in refused["data"]["diagnostic"]
+    validation = ScriptedAgent(old_worktree)
+    assert validation.run("status")["data"]["readable"] is False
+
     assert old_path.read_bytes() == before
-    blocked = agent.run("context", expect=ExitCode.PRECONDITION)
-    assert " start " in blocked["next"]["command"]
-
-    second = agent.run("start")
-    assert second["run_id"] != first["run_id"]
-    retired = session.store.load_run(first["run_id"])
-    assert retired.state.value == "ORPHANED"
-    assert retired.orphaned_reason == "interrupted legacy update"
-    assert not journal.exists()
+    assert journal.read_text() == "interrupted legacy payload"
     assert (old_worktree / "uncommitted.txt").read_text() == "user work\n"
-    assert session.store.get_active(session.owner_id) == second["run_id"]
-    assert first["run_id"] not in session.store.list_active().values()
-
-
-def test_interrupted_legacy_restart_guidance_identifies_source_worktree(agent, feature_repo):
-    write(feature_repo, ".agentic-preflight.toml", "[worktree]\nmode = 'strict'\n")
-    commit_all(feature_repo, "use strict validation")
-    first = agent.run("start")
-    session = runs.open_session(feature_repo)
-    journal = session.store.run_dir(first["run_id"]) / "pending-update.json"
-    journal.write_text("legacy update")
-    validation = ScriptedAgent(Path(first["data"]["worktree_path"]))
-
-    for result in (
-        validation.run("status"),
-        validation.run("context", expect=ExitCode.PRECONDITION),
-    ):
-        assert result["data"]["source_worktree_path"] == str(feature_repo)
-        assert str(feature_repo) in result["next"]["instruction"]
-        assert "source worktree" in result["next"]["instruction"]
-        assert " start " in result["next"]["command"]
-    assert journal.read_text() == "legacy update"
+    assert session.store.get_active(session.owner_id) == first["run_id"]
 
 
 def test_start_preserves_completed_legacy_history_and_journal(agent, feature_repo):
@@ -653,27 +637,6 @@ def test_start_preserves_completed_legacy_history_and_journal(agent, feature_rep
     assert second["run_id"] != first["run_id"]
     assert path.read_bytes() == before
     assert journal.read_text() == "completed historical journal"
-
-
-def test_failed_legacy_orphan_preserves_journal_and_ownership(agent, feature_repo, monkeypatch):
-    first = agent.run("start")
-    session = runs.open_session(feature_repo)
-    path = session.store.run_path(first["run_id"])
-    journal = path.parent / "pending-update.json"
-    journal.write_text("interrupted legacy payload")
-    before = path.read_bytes()
-    original = store_module.atomic_write
-
-    def fail_orphan(target, payload):
-        if target == path and json.loads(payload)["state"] == "ORPHANED":
-            raise OSError("cannot retire run")
-        original(target, payload)
-
-    monkeypatch.setattr(store_module, "atomic_write", fail_orphan)
-    agent.run("start", expect=1)
-    assert path.read_bytes() == before
-    assert journal.read_text() == "interrupted legacy payload"
-    assert session.store.get_active(session.owner_id) == first["run_id"]
 
 
 def test_start_requires_replace_for_a_different_intent_in_the_same_worktree(agent):
@@ -1129,6 +1092,22 @@ def test_an_unloadable_snapshot_stops_a_state_changing_command(agent, feature_re
     assert status["data"]["readable"] is False
     assert status["data"]["read_failure"]["reason"] == "invalid"
     assert set(status["data"]) == {"has_run", "readable", "read_failure", "hook"}
+
+
+def test_a_malformed_working_copy_config_does_not_hide_an_unreadable_run(agent, feature_repo):
+    run_id = agent.run("start")["run_id"]
+    # A readable run answers from its own snapshot, whatever the working copy holds.
+    write(feature_repo, ".agentic-preflight.toml", "[general\nbase_ref = 'main'\n")
+    assert agent.run("status")["run_id"] == run_id
+
+    session_store = runs.open_session(feature_repo).store
+    (session_store.run_dir(run_id) / "pending-update.json").write_text("interrupted")
+
+    for command in ("status", "context", "abort"):
+        refused = agent.run(command, expect=ExitCode.PRECONDITION)
+        assert refused["error"]["code"] == "run_record_unreadable", command
+        assert refused["run_id"] == run_id
+        assert "interrupted update" in refused["data"]["diagnostic"]
 
 
 # -- verify -----------------------------------------------------------------

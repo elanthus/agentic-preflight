@@ -21,6 +21,7 @@ from ._session import (
     assert_fresh,
     check_restart_limit,
     load_current,
+    require_publishable,
     require_state,
     require_worktree,
     utc_now,
@@ -33,6 +34,7 @@ def run_review_command(session: Session) -> Envelope:
     """Run the configured independent reviewer over the canonical review bundle."""
     run = load_current(session)
     check_restart_limit(run)
+    require_publishable(run, command="review run")
     assert_fresh(session, run)
     require_state(
         run,

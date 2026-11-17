@@ -50,9 +50,7 @@ from ._session import (
     Session,
     apply_action,
     assess_risk,
-    check_restart_limit,
     envelope_for,
-    interrupted_legacy_update,
     new_run_id,
     next_hint,
     release_run_worktree,
@@ -356,7 +354,6 @@ def _orphan(
     run: RunDoc,
     *,
     reason: str,
-    discard_pending: bool = False,
     interrupted_start: bool = False,
 ) -> None:
     """Detach an idle run without destroying its evidence or validation work.
@@ -396,8 +393,6 @@ def _orphan(
         session.store.append_event(run.run_id, {"event": "orphaned", "reason": reason})
         if not interrupted_start:
             _release_idle_runner(session, run)
-        if discard_pending:
-            (session.store.run_dir(run.run_id) / "pending-update.json").unlink()
 
 
 def _resume_existing(session: Session, run: RunDoc) -> Envelope:
@@ -587,12 +582,6 @@ def _resolve_existing_run(ctx: _StartContext, *, replace: bool) -> Envelope | No
                         next_instruction="Run `start` from the recorded source worktree.",
                         next_command="agentic-preflight status",
                     )
-                if interrupted_legacy_update(session, existing):
-                    check_restart_limit(existing)
-                    _orphan(
-                        session, existing, reason="interrupted legacy update", discard_pending=True
-                    )
-                    return None
                 interrupted = _INTERRUPTED_START.get(existing.state)
                 if interrupted is not None:
                     # `start` holds the run's operation lock from before the

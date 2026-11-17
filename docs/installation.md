@@ -92,13 +92,10 @@ For an upgrade from 0.6.0 to 0.7.0, follow the [upgrade guide](upgrade-0.7.md) b
 Align the protected verifier, remove retired configuration, and inspect active runs.
 New runs always execute applicable lint and test stages locally.
 
-Earlier versions wrote run and findings journals.
-After an upgrade from such a version, the next `start` in a source worktree retires an interrupted run that has a pending journal.
-Validation then starts fresh.
-`status` directs an affected run to restart.
-Audit history and user work stay available for normal safe cleanup.
+Version 0.9.0 does not read run records that 0.6.0 wrote and no later release rewrote.
+To upgrade from 0.6.0, upgrade to 0.8.1 first, retire the open runs there, and then upgrade to 0.9.0.
 Package installation does not scan or delete repository runs.
-See [compatibility](../COMPATIBILITY.md#saved-pending-run-updates).
+See [compatibility](../COMPATIBILITY.md#run-records-from-before-070-are-no-longer-read).
 
 ### Upgrading from 0.8 to 0.9
 
@@ -140,9 +137,13 @@ The commands below select the published 0.9.0 release.
    Version 0.9 removes no 0.8 configuration keys, but 0.8 rejects `[general] network_timeout_seconds`,
    `[review] trusted_paths`, `[retention] run_days`, and `[telemetry.hosted] local_equivalent_checks`.
 5. In each source worktree, run `status` and follow its returned command.
-   When `mergeback`, `gate`, or `push` reports `unknown_config_provenance`, 0.8 started that run.
+   For a run that 0.8 started, `status` returns `agentic-preflight abort`, and every command
+   that would validate or publish the run reports `unknown_config_provenance`.
    Abort it and start a fresh one; in isolated worktree modes, cherry-pick its recorded fix commits first.
+   A run at the validation restart limit gets no returned command: you decide whether to abort it.
    When a note that 0.8 wrote no longer verifies, validate the commit again to replace it.
+   When `status --all` or `gc` lists a record from 0.6.0 as unreadable, see
+   [Run records from before 0.7.0 are no longer read](../COMPATIBILITY.md#run-records-from-before-070-are-no-longer-read).
 
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 Run records written by 0.8 remain readable by 0.9.

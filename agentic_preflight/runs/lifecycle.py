@@ -28,13 +28,13 @@ from ._session import (
     assess_risk,
     envelope_for,
     head_moved,
-    interrupted_legacy_update,
     is_in_place,
     load_current,
     max_restarts,
     release_run_worktree,
     restart_limit_reached,
     start_command,
+    unpublishable,
     unresolved_findings,
     unresolved_next_hint,
     worktree_mode,
@@ -113,7 +113,7 @@ def abort(session: Session, *, force: bool = False, reason: AbortReason | None =
     """
     if reason is not None and reason not in ABORT_REASONS:
         raise ValueError(f"abort reason must be one of {', '.join(ABORT_REASONS)}, not {reason!r}")
-    run = load_current(session, allow_interrupted=True)
+    run = load_current(session)
 
     isolated = not is_in_place(run)
     # Before merge-back, a commit made after the last `respond` is on the validation
@@ -908,6 +908,8 @@ def _try_advance_evidence(session: Session, run: RunDoc, findings):
         }
         or head_moved(session, run) is not None
         or restart_limit_reached(run)
+        # Advancing could reopen review on a run that must be aborted.
+        or unpublishable(run)
     ):
         return run, findings, reuse_error
     from . import evidence
@@ -946,6 +948,10 @@ def _set_status_next(
         # that is the person's decision, not the default next move.
         envelope.next_instruction = RESTART_LIMIT_INSTRUCTION
         envelope.next_command = None
+    elif unpublishable(run):
+        # The envelope already points at `abort`. No hint below may replace it:
+        # each one leads back to a command that refuses this run.
+        return
     elif stale:
         envelope.next_instruction = (
             "This run is stale: the source worktree moved after review began. From that "
@@ -1036,34 +1042,9 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             next_command=START_COMMAND,
         )
 
-    if interrupted_legacy_update(session, run):
-        stopped = restart_limit_reached(run)
-        return envelope_for(
-            run,
-            data=StatusData(
-                has_run=True,
-                interrupted_legacy_update=True,
-                hook=hook_status,
-                source_worktree_path=run.source_worktree_path,
-            ),
-            next_instruction=(
-                RESTART_LIMIT_INSTRUCTION
-                if stopped
-                else f"Start a fresh run from the source worktree {run.source_worktree_path} "
-                "to discard this interrupted legacy validation. "
-                "Its audit record and work remain available for safe cleanup."
-            ),
-            next_command=None
-            if stopped
-            else start_command(
-                run.intent,
-                base_ref=run.base_ref,
-                default_base_ref=session.config.general.base_ref,
-                producer=run.producer,
-            ),
-        )
-
-    if run.state not in {State.ABORTED, State.DONE, State.ORPHANED}:
+    # A run this release will not publish is reported as it stands, with `abort`
+    # as its next move; an evidence failure would name a repair it cannot use.
+    if not unpublishable(run) and run.state not in {State.ABORTED, State.DONE, State.ORPHANED}:
         from . import evidence
 
         try:

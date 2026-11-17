@@ -13,12 +13,20 @@ import pytest
 from agentic_preflight import attestation
 from agentic_preflight.config import load_config_layers
 from agentic_preflight.digests import json_digest
+from agentic_preflight.errors import NeedsHuman
 from agentic_preflight.findings import redact_submissions
 from agentic_preflight.fingerprints import docs_relevant_config, review_relevant_config
+from agentic_preflight.machine import State
 from agentic_preflight.models import Finding, FindingSubmission, Stage
 from agentic_preflight.public_config import REDACTED_COMMAND
 from agentic_preflight.runs import evidence
-from agentic_preflight.runs._session import open_session
+from agentic_preflight.runs._session import (
+    envelope_for,
+    open_session,
+    require_known_provenance,
+    require_publishable,
+    unpublishable,
+)
 from agentic_preflight.store import Store
 from tests.conftest import commit_all, git, make_run, write
 from tests.driver import ScriptedAgent, findings_json
@@ -364,6 +372,187 @@ def test_a_note_from_an_earlier_release_run_is_not_pushed(feature_repo, tmp_path
     assert refused["data"]["reason"] == "unknown_config_provenance"
     assert "git notes --ref=refs/notes/agentic-preflight remove" in refused["error"]["message"]
     assert store.load_run(run_id).state.value == "VERIFIED"
+
+
+def _forget_provenance(repo: Path, run_id: str) -> Store:
+    """Rewrite the run record as an earlier release left it, without ``user_config_sections``."""
+    store = Store(repo / ".git" / "agentic-preflight")
+    path = store.run_dir(run_id) / "run.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    del payload["user_config_sections"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return store
+
+
+def test_status_sends_an_earlier_release_run_to_abort_around_a_refused_mergeback(
+    feature_repo, tmp_path
+):
+    # Status used to keep naming `mergeback`, the command that always refuses.
+    _protect(feature_repo, CLEAN_REVIEWER, PROTECTED)
+    agent = ScriptedAgent(feature_repo)
+    run_id = _to_test_green(agent, tmp_path)
+    store = _forget_provenance(feature_repo, run_id)
+
+    before = agent.run("status")
+
+    assert before["state"] == "TEST_GREEN"
+    assert before["next"]["command"] == "agentic-preflight abort"
+    assert "earlier release" in before["next"]["instruction"]
+    assert "cannot merge it back, gate it, or push it" in before["next"]["instruction"]
+    assert "start a fresh one" in before["next"]["instruction"]
+
+    refused = agent.run("mergeback", expect=4)
+    after = agent.run("status")
+
+    assert refused["data"]["reason"] == "unknown_config_provenance"
+    assert after["state"] == "TEST_GREEN"
+    assert after["next"] == before["next"]
+    assert store.load_run(run_id).user_config_sections is None
+
+
+def test_an_earlier_release_run_spends_no_review_or_stage_before_its_abort(feature_repo, tmp_path):
+    # Following status must not buy a review and two shell stages for a run that
+    # merge-back will refuse, so each command that moves the run refuses first.
+    _protect(feature_repo, CLEAN_REVIEWER, PROTECTED)
+    agent = ScriptedAgent(feature_repo)
+    run_id = agent.run("start")["run_id"]
+    store = _forget_provenance(feature_repo, run_id)
+    events_before = len(store.load_events(run_id))
+    plan = tmp_path / "plan.json"
+    plan.write_text("{}", encoding="utf-8")
+
+    status = agent.run("status")
+
+    # Status neither advances the run nor points at the review it cannot use.
+    assert status["state"] == "REVIEW_AWAITING_FINDINGS"
+    assert status["next"]["command"] == "agentic-preflight abort"
+    for command, *args in (
+        ("context",),
+        ("review contracts", "--file", str(plan)),
+        ("review run",),
+        ("submit-findings", "--file", findings_json(tmp_path, [])),
+        ("verify",),
+        ("respond", "--id", "F001", "--action", "fixed", "--commit", "HEAD"),
+        ("stage run lint",),
+        ("stage run test",),
+    ):
+        refused = agent.run(*command.split(), *args, expect=4)
+        assert refused["error"]["code"] == "needs_human", command
+        assert f"`{command}` would spend work" in refused["error"]["message"]
+        assert refused["data"]["reason"] == "unknown_config_provenance", command
+        assert refused["next"]["command"] == "agentic-preflight abort", command
+    run = store.load_run(run_id)
+    assert run.state.value == "REVIEW_AWAITING_FINDINGS"
+    assert run.stages.keys() <= {Stage.REVIEW}
+    assert len(store.load_events(run_id)) == events_before
+
+    # Inspection and the way out keep working, and a fresh run records provenance.
+    history = agent.run("events")
+    assert history["next"]["command"] == "agentic-preflight abort"
+    assert agent.run("abort")["state"] == "ABORTED"
+    fresh = agent.run("start")["run_id"]
+    assert store.load_run(fresh).user_config_sections == []
+
+
+def test_an_earlier_release_run_at_the_restart_limit_gets_the_human_stop(feature_repo, tmp_path):
+    # The commands that check the restart limit report it first, as they do for any run.
+    _protect(feature_repo, CLEAN_REVIEWER, PROTECTED)
+    agent = ScriptedAgent(feature_repo)
+    run_id = agent.run("start")["run_id"]
+    with Store(feature_repo / ".git" / "agentic-preflight").transaction(run_id) as run:
+        run.validation_restarts = 5
+    _forget_provenance(feature_repo, run_id)
+    plan = tmp_path / "plan.json"
+    plan.write_text("{}", encoding="utf-8")
+
+    status = agent.run("status")
+    assert status["next"]["command"] is None
+    assert status["data"]["needs_human"] is True
+    for command, *args in (
+        ("context",),
+        ("review contracts", "--file", str(plan)),
+        ("review run",),
+        ("submit-findings", "--file", findings_json(tmp_path, [])),
+    ):
+        refused = agent.run(*command.split(), *args, expect=4)
+        assert refused["error"]["code"] == "max_restarts", command
+        # The limit's own refusal points at `status`, which advertises nothing.
+        assert refused["next"]["command"] == "agentic-preflight status", command
+    # A command without that check still refuses the run, and offers no abort either.
+    for command in ("verify", "stage run lint"):
+        refused = agent.run(*command.split(), expect=4)
+        assert refused["data"]["reason"] == "unknown_config_provenance", command
+        assert refused["next"]["command"] is None, command
+        assert "Only the user" in refused["next"]["instruction"], command
+
+
+def test_the_abort_hint_follows_what_an_earlier_release_already_did():
+    legacy = make_run()
+    assert legacy.user_config_sections is None
+
+    def at(state: State, **update: object):
+        return legacy.model_copy(update={"state": state, **update})
+
+    # Before merge-back there is no note, and in-place fixes are already on the branch.
+    green = at(State.DOCS_GREEN, fix_commits=["d" * 40])
+    assert unpublishable(green)
+    hint = envelope_for(green)
+    assert hint.next_command == "agentic-preflight abort"
+    assert "git notes" not in hint.next_instruction
+    assert "cherry-picking" not in hint.next_instruction
+
+    # An isolated abort can discard recorded fixes, so the hint says to keep them.
+    isolated = at(
+        State.TEST_GREEN,
+        fix_commits=["d" * 40],
+        config_snapshot={"worktree": {"mode": "strict"}},
+    )
+    assert "cherry-picking" in envelope_for(isolated).next_instruction
+
+    # A note that an earlier release wrote must be removed, not pushed.
+    verified = envelope_for(at(State.VERIFIED))
+    assert verified.next_command == "agentic-preflight abort"
+    assert f"git notes --ref={attestation.NOTES_REF} remove {legacy.head_sha}" in (
+        verified.next_instruction
+    )
+
+    # Finishing publishes nothing, so a run an earlier release pushed can still finish.
+    pushed = at(State.PUSHED)
+    assert not unpublishable(pushed)
+    assert envelope_for(pushed).next_command == "agentic-preflight finish"
+
+    # The restart limit still leaves every move, the abort included, to a person.
+    at_limit = at(State.REVIEW_AWAITING_FINDINGS, validation_restarts=5)
+    stopped = envelope_for(at_limit)
+    assert stopped.next_command is None
+    assert stopped.data.needs_human is True
+
+
+@pytest.mark.parametrize("restarts", [0, 5])
+def test_a_refused_earlier_release_run_is_offered_abort_only_below_the_restart_limit(restarts):
+    """A refusal must not advertise an abort that `status` leaves to a person."""
+    legacy = make_run().model_copy(
+        update={"state": State.REVIEW_AWAITING_FINDINGS, "validation_restarts": restarts}
+    )
+    refusals = []
+    for refuse, command in (
+        (require_publishable, "context"),
+        (require_publishable, "stage run lint"),
+        (require_known_provenance, "mergeback"),
+        (require_known_provenance, "push"),
+    ):
+        with pytest.raises(NeedsHuman) as caught:
+            refuse(legacy, command=command)
+        refusals.append(caught.value)
+
+    for refusal in refusals:
+        assert refusal.data["reason"] == "unknown_config_provenance"
+        assert refusal.next_command == envelope_for(legacy).next_command
+        if restarts:
+            assert refusal.next_command is None
+            assert "Only the user" in refusal.next_instruction
+        else:
+            assert refusal.next_command == "agentic-preflight abort"
 
 
 def test_a_new_run_without_user_config_records_an_empty_list_and_publishes(feature_repo, tmp_path):

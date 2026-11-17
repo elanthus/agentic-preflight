@@ -128,6 +128,18 @@ Optionally, restrict the environment's deployment branches to tags that match `v
    Then it uploads the release artifact.
 7. Approve the pending `publish` job in the Actions run.
    The upload occurs after approval.
+8. Create the GitHub Release for the tag, with the release's changelog section as its notes:
+
+   ```bash
+   release_notes="$(mktemp)"
+   awk -v v="$release_version" 'index($0, "## [" v "]") == 1 {on = 1; next} on && index($0, "## [") == 1 {exit} on' CHANGELOG.md > "$release_notes"
+   gh release create "v$release_version" --verify-tag --title "v$release_version" --notes-file "$release_notes"
+   ```
+
+   When the release's `COMPATIBILITY.md` entries link to a one-off migration script, attach
+   that file to the same command, for example `migrate-finished-records.py` for 0.9.0.
+   The link is a `releases/download/v<version>/<file>` URL, so the file name must match.
+   See [one-off migration scripts](maintainers/compatibility-removal-plan.md#one-off-migration-scripts).
 
 ## Notes
 

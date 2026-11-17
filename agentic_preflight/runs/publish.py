@@ -29,11 +29,12 @@ from ._session import (
     envelope_for,
     load_current,
     release_run_worktree,
+    require_known_provenance,
     require_state,
     worktree_completion,
     worktree_mode,
 )
-from .mergeback import _remote_for, require_known_provenance
+from .mergeback import _remote_for
 
 #: Stands for the notes commit that ``push`` builds when it publishes. It is not
 #: a ref, so a summary that shows it cannot be run as a literal command.

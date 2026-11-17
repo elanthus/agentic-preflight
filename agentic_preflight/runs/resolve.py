@@ -24,6 +24,7 @@ from ._session import (
     is_in_place,
     load_current,
     require_finding_stage,
+    require_publishable,
     require_state,
     require_worktree,
     stage_blocking_severities,
@@ -132,6 +133,7 @@ def respond(
     for telemetry only, so it is checked against the vocabulary and nothing more.
     """
     run = load_current(session)
+    require_publishable(run, command="respond")
     accepting_in_place_fix = is_in_place(run) and action == "fixed" and commit is not None
     if not accepting_in_place_fix:
         assert_fresh(session, run)

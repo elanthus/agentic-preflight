@@ -298,8 +298,6 @@ class Config(BaseModel):
 # entire section, ignored everywhere with a user warning.
 REMOVED_CONFIG_KEYS: frozenset[tuple[str, str]] = frozenset(
     {
-        ("review", "require_fix_commits"),
-        ("worktree", "ttl_hours"),
         ("reuse", "*"),
         ("ci", "*"),
         ("hook", "enabled"),
