@@ -364,11 +364,7 @@ def _date(value: Any) -> datetime | None:
         return None
 
 
-def _pushed_at(store: Store, run_id: str, sha: str) -> datetime | None:
-    try:
-        events = store.load_events(run_id)
-    except OSError:
-        return None
+def _pushed_at(events: Sequence[Mapping[str, Any]], sha: str) -> datetime | None:
     matches = [
         event for event in events if event.get("event") == "pushed" and event.get("sha") == sha
     ]
@@ -479,8 +475,33 @@ def _reverted(runner: GhRunner, slug: str, number: int) -> bool | None:
     return False if valid and len(batch) < _PAGE_SIZE else None
 
 
+def _stage_executions(
+    record: Mapping[str, Any], events: Sequence[Mapping[str, Any]]
+) -> dict[str, bool | None]:
+    # Attempts count failures, not executions: a first-pass success has zero.
+    executed: dict[str, bool | None] = {}
+    for name, stage in run_summary._stages(record).items():
+        if stage["status"] == "skipped" or stage["reused"] is True:
+            executed[name] = False
+        elif stage["status"] in {"green", "red"} and stage["reused"] is False:
+            executed[name] = True
+        else:
+            executed[name] = None
+    # Completion events also retain an earlier execution when the final result
+    # was later replaced by reused evidence or a skipped stage.
+    for event in events:
+        event_name = event.get("event")
+        if event_name in ("lint_finished", "test_finished"):
+            executed[event_name.removesuffix("_finished")] = True
+        elif event_name == "findings_submitted" and event.get("stage") in ("review", "docs"):
+            executed[event["stage"]] = True
+    return executed
+
+
 def _failed_classes(
-    checks: Mapping[str, Any], mapping: Mapping[str, str] | None, stages: Mapping[str, Any]
+    checks: Mapping[str, Any],
+    mapping: Mapping[str, str] | None,
+    executed: Mapping[str, bool | None],
 ) -> dict[str, int | None]:
     failed = checks.get("failed")
     if not checks.get("settled") or not isinstance(failed, list):
@@ -493,15 +514,14 @@ def _failed_classes(
         if stage is None:
             category = "hosted_only"
         else:
-            evidence = run_summary.as_dict(stages.get(stage)) or {}
-            status = evidence.get("status")
-            attempts = evidence.get("attempts")
-            if status == "skipped" or attempts == 0:
-                category = "hosted_only"
-            elif status in {"green", "red"} and type(attempts) is int and attempts > 0:
-                category = "local_equivalent"
-            else:
-                category = "unclassified"
+            ran = executed.get(stage)
+            category = (
+                "local_equivalent"
+                if ran is True
+                else "hosted_only"
+                if ran is False
+                else "unclassified"
+            )
         counts[category] += 1
     return {name: counts[name] for name in _FAILURE_CLASSES}
 
@@ -521,7 +541,9 @@ def _escapes(
         changes_requested=None,
         review_comments=None,
         reverted=None,
-        failed_checks=_failed_classes(document.get("checks") or {}, mapping, candidate.stages),
+        failed_checks=_failed_classes(
+            document.get("checks") or {}, mapping, candidate.executed_stages
+        ),
     )
     pr = document.get("pr") or {}
     number = pr.get("number")
@@ -560,7 +582,7 @@ class _Candidate:
     #: Synced, but ``summary.json`` does not carry this ``hosted.json`` yet.
     summary_stale: bool
     pushed_at: datetime | None
-    stages: Mapping[str, Any]
+    executed_stages: Mapping[str, bool | None]
 
 
 def _summary_fetched_at(store: Store, run_id: str) -> Any:
@@ -605,12 +627,16 @@ def _candidates(
         else:
             existing = telemetry.read_hosted(store, run_id)
             synced = existing is not None and existing.get("sha") == sha
+            try:
+                events = store.load_events(run_id)
+            except OSError:
+                events = []
             eligible.append(
                 _Candidate(
                     run_id=run_id,
                     sha=sha,
-                    pushed_at=_pushed_at(store, run_id, sha),
-                    stages=run_summary.as_dict(record.get("stages")) or {},
+                    pushed_at=_pushed_at(events, sha),
+                    executed_stages=_stage_executions(record, events),
                     branch=run_summary.as_str(record.get("branch")),
                     created_at=run_summary.as_str(record.get("created_at")) or "",
                     synced=synced,

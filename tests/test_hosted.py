@@ -1194,7 +1194,7 @@ def test_escape_sync_gets_only_counts_and_rebuild_preserves_them(github_repo, mo
         (
             True,
             {"a": "lint", "b": "test", "c": "docs"},
-            {"lint": {"status": "green", "attempts": 1}, "test": {"status": "skipped"}},
+            {"lint": True, "test": False},
             (1, 1, 1),
         ),
     ],
@@ -1308,3 +1308,37 @@ def test_revert_scan_without_match_is_unknown_at_page_cap():
         )
 
     assert hosted._reverted(runner, "owner/widget", 9) is None
+
+
+def test_check_classification_uses_execution_evidence_not_failed_attempt_count():
+    record = {
+        "stages": {
+            "lint": {"status": "green", "attempts": 0},
+            "test": {"status": "skipped", "attempts": 0},
+            "review": {"status": "green", "attempts": 0},
+            "docs": {"status": "green", "attempts": 0},
+        },
+        "evidence": {"review": {"derivation_reason": "equivalent_inputs"}},
+    }
+    executed = hosted._stage_executions(record, [])
+    assert executed == {"lint": True, "test": False, "review": False, "docs": True}
+    assert hosted._failed_classes(
+        {"settled": True, "failed": ["lint", "test", "review", "docs"]},
+        dict(zip(executed, executed, strict=True)),
+        executed,
+    ) == {"local_equivalent": 2, "hosted_only": 2, "unclassified": 0}
+    # Earlier completed executions still count after reuse/skip replaced the result.
+    assert hosted._stage_executions(
+        record,
+        [
+            {"event": "test_finished", "exit_code": 0},
+            {"event": "findings_submitted", "stage": "review", "count": 0},
+        ],
+    ) == dict.fromkeys(executed, True)
+    del record["evidence"]
+    assert hosted._stage_executions(record, []) == {
+        "lint": None,
+        "test": False,
+        "review": None,
+        "docs": None,
+    }
