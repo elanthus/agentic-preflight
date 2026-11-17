@@ -465,3 +465,31 @@ def test_intent_digest_bytes_are_unchanged():
 
     assert fp.intent_digest(intent) == expected
     assert attestation.intent_digest is fp.intent_digest
+
+
+def test_doc_surface_batches_without_changing_digest_or_order(tmp_path, monkeypatch):
+    from agentic_preflight.stages.docs import build_inventory
+
+    git("init", "-q", cwd=tmp_path)
+    for name, content in (
+        ("README.md", "root"),
+        ("docs/a.md", "large document"),
+        ("docs/b.md", "b"),
+    ):
+        path = tmp_path / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(content)
+    commit_all(tmp_path, "docs")
+    inventory = build_inventory(tmp_path, [])
+    expected = fp.doc_surface(tmp_path, inventory)
+    real_read = fp.gitx.read_blobs
+    batches = []
+
+    def read(repo, identities):
+        batches.append(list(identities))
+        return real_read(repo, identities)
+
+    monkeypatch.setattr(fp, "_DOC_BLOB_BATCH_BYTES", 4)
+    monkeypatch.setattr(fp.gitx, "read_blobs", read)
+    assert fp.doc_surface(tmp_path, inventory) == expected
+    assert [len(batch) for batch in batches] == [1, 1, 1]

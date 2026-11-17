@@ -143,9 +143,8 @@ def docs_inventory(
 ) -> list[docsstage.DocEntry]:
     """List the documentation surface of the validation worktree once per command.
 
-    The file list comes from the ``HEAD`` commit, which the memo key pins, but
-    each entry's size comes from the worktree, so code that changes the worktree
-    inside a command (a stage command) must clear the session memo.
+    Paths, sizes, and blob identities come from the ``HEAD`` commit, which the
+    memo key pins. Checkout presence and content do not shape the inventory.
     """
     worktree_path = require_worktree(run)
     _, head = _snapshot(session, run, head)

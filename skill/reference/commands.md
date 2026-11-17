@@ -261,7 +261,9 @@ review coverage is stale, it reopens review instead.
   consumers the repository supports.
 - `--section docs` adds `doc_surface`: every file in the configured documentation
   allowlist, with `path`, `size`, and `touched_by_diff`. Entries describe files committed at
-  the head commit; ignored and untracked files are left out. From `REVIEW_GREEN` this
+  the head commit, including outside the sparse set; sizes come from blobs. Symlinks
+  describe their link text, without following targets. Ignored and untracked files are
+  left out. From `REVIEW_GREEN` this
   opens the docs stage.
 
 Both sections also include `data.grounding`, a deterministic, bounded retrieval of

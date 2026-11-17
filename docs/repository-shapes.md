@@ -13,7 +13,7 @@ Statements marked **Unverified** come from reading the code or Git's documentati
 |---|---|---|
 | [Shallow clone](#shallow-clones) | Yes, when the merge base is in the history | `start` fails when the merge base is missing |
 | [Partial clone](#partial-clones) | Yes, with a reachable promisor remote | Commands fetch missing blobs over the network |
-| [Sparse checkout](#sparse-checkouts) | Review: yes. Lint and test: on the sparse set only. Docs: partly | The docs stage sees only the files in the sparse set |
+| [Sparse checkout](#sparse-checkouts) | Review and docs: yes. Lint and test: on the sparse set only | The docs surface includes committed files outside the sparse set |
 | [Submodules](#submodules) | Yes, as pointers | Submodule contents are not reviewed |
 | [Git LFS](#git-lfs) | Yes, as pointers | Review sees pointer files; the LFS hook needs composing |
 | [Monorepo or very large tree](#monorepos-and-very-large-trees) | Yes | Latency grows with the tree; large diffs need `[diff] exclude` |
@@ -77,20 +77,20 @@ Use a full clone, or a clone without a filter, where the network is unreliable.
 
 - The review diff is built from commits, not from the checkout.
   It includes changes to files outside the sparse set.
-- The documentation surface lists only documentation files that are committed at the head commit and present in the checkout.
-  A documentation file outside the sparse set is not on the surface, even when the branch changes it.
-  A docs finding against it is therefore rejected.
-  This is a known issue (pending): [issue #393](https://github.com/elanthus/agentic-preflight/issues/393).
+- The documentation surface uses HEAD's blobs, including documentation outside the sparse set.
+  It has the same paths and sizes as a full checkout, and accepts findings against those files.
 - A `strict` validation worktree has the same sparse set as the source checkout, because `git worktree add` copies it (Git 2.38 or newer, the supported minimum).
   Stage commands run in that checkout: a lint command there sees the files in the sparse set and not the others.
   The test command runs in the same checkout (unverified).
   The `reusable` mode is not tested.
-- The docs fingerprint's tree identities are the same in a sparse and a full checkout of one commit.
-  Its `doc_surface_sha256` reads the checkout, so it differs. This is part of [issue #393](https://github.com/elanthus/agentic-preflight/issues/393).
+- The docs fingerprint's tree identities and `doc_surface_sha256` are equal in sparse
+  and full checkouts of one commit. Content and sizes come from the committed blobs.
 
-**Unverified:** because `doc_surface_sha256` differs, docs evidence from a sparse checkout is not reused by a run in a full checkout of the same commits, and the reverse.
-
-**What helps:** add the documentation directories to the sparse set with `git sparse-checkout add <dir>`, or run from a full checkout.
+These equal inputs permit docs evidence reuse when the other fingerprint and ownership
+requirements also match; they do not enable shell-stage reuse. See the
+[fingerprint migration decision](fingerprint-contract.md#documentation-blob-migration).
+To edit a document outside the sparse set, add its directory with
+`git sparse-checkout add <dir>`, or use a full checkout.
 
 ## Submodules
 

@@ -48,6 +48,7 @@ class DocEntry:
     path: str
     size: int
     touched_by_diff: bool
+    blob_id: str
 
     def as_dict(self) -> dict:
         return {
@@ -58,24 +59,16 @@ class DocEntry:
 
 
 def _iter_candidates(worktree_path: Path, patterns: tuple[str, ...] | list[str]):
-    """Every file committed at ``HEAD`` that matches a documentation pattern.
-
-    Listing the commit, not the directory, keeps ignored and generated files
-    such as a Sphinx ``_build/`` or a nested worktree out of the allowlist, the
-    agent's context, and ``doc_surface_sha256``. Callers hold a clean worktree
-    at ``HEAD``, so the bytes on disk are the committed bytes. A symlink counts
-    only when it resolves to a file. Entries keep the ``Path`` order that the
-    surface digest has always used.
-    """
-    found = [
-        rel
-        for rel in _listed_candidates(worktree_path, patterns)
-        if any(_matches(rel, pattern) for pattern in patterns) and (worktree_path / rel).is_file()
-    ]
-    yield from sorted(found, key=lambda rel: worktree_path / rel)
+    """Matching HEAD blobs in the historical Path order, independent of checkout."""
+    candidates = _listed_candidates(worktree_path, patterns)
+    for rel in sorted(candidates, key=lambda rel: worktree_path / rel):
+        if any(_matches(rel, pattern) for pattern in patterns):
+            yield rel, candidates[rel]
 
 
-def _listed_candidates(worktree_path: Path, patterns: tuple[str, ...] | list[str]) -> set[str]:
+def _listed_candidates(
+    worktree_path: Path, patterns: tuple[str, ...] | list[str]
+) -> dict[str, gitx.TreeBlob]:
     """Committed files at ``HEAD`` that could match a pattern, without listing the whole tree.
 
     The listing only narrows: the caller still matches every path, so the result
@@ -90,16 +83,16 @@ def _listed_candidates(worktree_path: Path, patterns: tuple[str, ...] | list[str
         if "/" in pattern:
             scope = match_scope(pattern)
             if scope is None:
-                return set(gitx.tree_files(worktree_path))
+                return gitx.tree_blobs(worktree_path)
             scopes.add(scope)
         elif literal_scope(pattern) == pattern:
             scopes.add(pattern)
         elif pattern not in {"", ".", ".."}:
             # A wildcard or a backslash; no committed path equals the names skipped.
             top_level = True
-    found = set(gitx.tree_files(worktree_path, scopes=sorted(scopes)))
+    found = gitx.tree_blobs(worktree_path, scopes=sorted(scopes))
     if top_level:
-        found.update(gitx.tree_files(worktree_path, recursive=False))
+        found.update(gitx.tree_blobs(worktree_path, recursive=False))
     return found
 
 
@@ -127,12 +120,12 @@ def build_inventory(
     changed = set(changed_files)
 
     entries: list[DocEntry] = []
-    for rel in _iter_candidates(worktree_path, patterns):
-        full = worktree_path / rel
+    for rel, blob in _iter_candidates(worktree_path, patterns):
         entries.append(
             DocEntry(
                 path=rel,
-                size=full.stat().st_size,
+                size=blob.size,
+                blob_id=blob.object_id,
                 touched_by_diff=rel in changed,
             )
         )

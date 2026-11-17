@@ -93,7 +93,7 @@ These shapes are supported:
 - Submodules, reviewed as pointer changes. Submodule contents are not reviewed.
 - Git LFS files, reviewed as pointer files. The LFS pre-push hook must be combined with `agentic-preflight hook-check`, which runs first.
 
-Sparse checkouts are supported for review. Lint and test see only the files in the sparse set, and the docs stage sees only the documentation files in it.
+Sparse checkouts are supported for review and documentation. The docs surface uses all matching committed blobs. Lint and test still see only the files in the sparse set.
 
 Repositories that use the SHA-256 object format are not supported.
 `start` and `init` refuse them with exit 3 and `unsupported_object_format`, before
@@ -861,3 +861,19 @@ A non-shallow repository with unrelated histories exits 3 with `unrelated_histor
 Other Git failures keep `git_error` (exit 1) and the original diagnostic.
 Consumers matching `empty_diff` for these failures must handle the new codes.
 Actual empty diffs retain `empty_diff`. Neither refusal creates a run.
+
+## Unreleased: documentation surfaces use committed blobs
+
+Documentation existence, size, and content now come from HEAD's blobs rather than
+checkout files. Sparse and full checkouts of the same commit produce the same
+surface and `doc_surface_sha256`. Symlinks contribute link text, including dangling
+and directory-target links; LFS pointers and normalized EOL bytes are hashed as
+committed, without filters or target traversal.
+
+Fingerprint version 2 and the digest's JSON fields and ordering stay unchanged.
+We chose one-time invalidation where the surface differs, rather than globally
+versioning the digest or maintaining a legacy checkout-based fallback. Old run
+records and original attestations remain readable and are not rewritten. Reuse
+that encounters a different digest reports `doc_surface_changed` and reruns docs;
+regular files whose checkout bytes already match Git keep their digest. See
+[the migration decision](docs/fingerprint-contract.md#documentation-blob-migration).
