@@ -215,11 +215,11 @@ def test_git_pathspec_environment_does_not_change_the_inventory(tmp_path, monkey
 
 
 @requires_git_symlinks
-def test_symlink_surface_hashes_link_text_and_never_reads_its_target(tmp_path):
+def test_symlink_surface_hashes_link_text_and_never_reads_its_target(tmp_path, tmp_path_factory):
     import hashlib
 
     root = _repo(tmp_path)
-    target = tmp_path.parent / "outside-doc-target"
+    target = tmp_path_factory.mktemp("outside-doc") / "target"
     target.write_text("private outside content")
     link_text = str(target)
     (root / "docs/external.md").symlink_to(link_text)
