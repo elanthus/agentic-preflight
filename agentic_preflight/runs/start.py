@@ -58,6 +58,7 @@ from ._session import (
     worktree_identity,
     worktree_mode,
 )
+from .fix_commits import UnreadableFixHistory, _branch_only_commits
 
 # Lower-case harness names. Integration ids are accepted as aliases, so
 # `--client claude` (the `integrations install` name) records `claude-code`.
@@ -136,10 +137,13 @@ def build_producer(
 def _release_idle_runner(session: Session, run: RunDoc) -> None:
     """Free an orphaned run's reusable runner when it provably holds no work.
 
-    Releasing resets and cleans the checkout, so it happens only when no fix
-    commits were recorded, the runner is clean, and its HEAD is still the
-    reviewed head. Otherwise, or on any failure, the runner stays leased for
-    ``gc`` and a later start reports it as before.
+    Releasing resets and cleans the checkout and deletes its branch, so it
+    happens only when no fix commits were recorded, the runner is clean, and
+    both its HEAD and its validation branch are still the reviewed head.
+    Otherwise, or on any failure, the runner stays leased for ``gc`` and a
+    later start reports it as before. A runner held because its branch holds
+    commits, or a branch history that cannot be read, is detached; it is put
+    back on that branch so the next run cannot lease it.
     """
     if run.fix_commits or run.worktree_released or worktree_mode(run) != "reusable":
         return
@@ -149,6 +153,16 @@ def _release_idle_runner(session: Session, run: RunDoc) -> None:
     try:
         if not gitx.is_clean(path) or gitx.rev_parse(path, "HEAD") != run.head_sha:
             return
+        # Release deletes the branch, which a detached checkout does not show.
+        # Like any other hold, a branch history that cannot be read keeps the
+        # runner leased without an event; `gc` reports it.
+        try:
+            hidden = bool(_branch_only_commits(run, path, [], head=run.head_sha))
+        except (UnreadableFixHistory, gitx.GitError, OSError):
+            hidden = True
+        if hidden:
+            _reattach_runner(path, run)
+            return
         release_run_worktree(session, run)
         with session.store.transaction(run.run_id) as doc:
             doc.worktree_released = True
@@ -156,6 +170,17 @@ def _release_idle_runner(session: Session, run: RunDoc) -> None:
         session.store.append_event(
             run.run_id, {"event": "runner_release_failed", "error": str(exc)[:500]}
         )
+
+
+def _reattach_runner(path: str, run: RunDoc) -> None:
+    """Put a held, detached runner back on its run's branch, so it stays leased.
+
+    A detached runner counts as released, and the next run would lease it and
+    reset it. The runner is clean at the reviewed head, which the source branch
+    still reaches, so switching to the validation branch loses nothing.
+    """
+    if run.worktree_branch and gitx.current_branch(path) == "HEAD":
+        gitx.run(path, "switch", "--quiet", run.worktree_branch)
 
 
 def _interrupted_checkouts(session: Session, run: RunDoc) -> list[Path]:
