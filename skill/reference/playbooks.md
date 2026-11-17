@@ -347,13 +347,20 @@ you debug the code — a native module built for another ABI fails as missing bi
 not as a version error. A repo with no `.nvmrc` (or equivalent) has nothing pinning it,
 so this bites fresh clones and CI too, not just stages.
 
-## No merge base in a shallow clone (exit 3, `empty_diff`)
+## No merge base in a shallow clone (exit 3, `missing_merge_base`)
 
-When the `empty_diff` message says `cannot find a merge base`, check
-`git rev-parse --is-shallow-repository`. If it prints `true`, the history is too short
-to hold the merge base of the branch and the base. Tell the user, and ask before you
-run `git fetch --unshallow`: in a large repository it downloads the whole history.
-Then start again. See [repository shapes](https://github.com/elanthus/agentic-preflight/blob/main/docs/repository-shapes.md#shallow-clones).
+`start` checked `git rev-parse --is-shallow-repository`: the repository is shallow,
+and its available history has no common ancestor with the base. `next` suggests
+`git fetch --unshallow`, or `git fetch --deepen=<n>` for incremental deepening.
+Tell the user, and ask before fetching the whole history unless already authorized;
+a large repository can require a substantial download. Then start again.
+A shallow clone may also have unrelated histories; deepening cannot guarantee a common ancestor.
+
+In a non-shallow repository, `unrelated_histories` (exit 3) means no common ancestor
+exists in the complete history. Check the selected base and branch history; fetching
+with `--unshallow` is not the remedy. Other Git failures retain `git_error` and their
+diagnostic. `empty_diff` is reserved for a branch with no changes over its base.
+See [repository shapes](https://github.com/elanthus/agentic-preflight/blob/main/docs/repository-shapes.md#shallow-clones).
 
 ## Existing pre-push hook (exit 3, `hook_exists`)
 

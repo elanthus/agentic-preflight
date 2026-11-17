@@ -183,7 +183,12 @@ Refuses a non-SHA-1 repository before creating or resuming a run (exit 3,
 Refuses a detached HEAD, a HEAD that points at a ref other than a branch, or a branch
 with no commits yet (exit 3, `no_branch`), a dirty
 tree (exit 3, `dirty_tree`), and a branch with no changes over the base
-(exit 3, `empty_diff`). It also refuses, before any stage runs, a base that verification
+(exit 3, `empty_diff`). A shallow repository with no available merge base instead exits
+3 with `missing_merge_base`; `next` suggests `git fetch --unshallow` or
+`git fetch --deepen=<n>` before restarting. A non-shallow repository with no common
+ancestor exits 3 with `unrelated_histories` and guidance to check the base and branch
+history. Other merge-base Git failures retain `git_error` (exit 1).
+It also refuses, before any stage runs, a base that verification
 without `--base` cannot resolve to a branch (exit 3, `unsupported_base_ref`): the
 `--base-ref` or `[general] base_ref` value must name an existing
 `refs/remotes/origin/<branch>` or `refs/heads/<branch>`, written as `<branch>`,

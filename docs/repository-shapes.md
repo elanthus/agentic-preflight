@@ -26,9 +26,10 @@ Statements marked **Unverified** come from reading the code or Git's documentati
 
 - In a `--depth 1` clone where the branch starts at the fetched base tip, a run completes. `gate`, `push`, and the pre-push hook succeed.
 - When the merge base of the branch and the base is not in the shallow history, `start` exits with code 3.
-  The error code is `empty_diff`, and the message starts with `cannot find a merge base with 'main'`.
-  `next` is `null`, so the envelope suggests no fix.
-  The error code and the missing suggestion are a known issue (pending): [issue #392](https://github.com/elanthus/agentic-preflight/issues/392).
+  The error code is `missing_merge_base`, and the message identifies the shallow repository.
+  `next` suggests `git fetch --unshallow` or incremental `git fetch --deepen=<n>`.
+- In a non-shallow repository, a missing common ancestor is reported separately as
+  `unrelated_histories` (exit 3). Operational Git failures retain `git_error`.
 - After `git fetch --unshallow`, `start` succeeds.
 
 **What helps:** fetch the missing history, then start again.

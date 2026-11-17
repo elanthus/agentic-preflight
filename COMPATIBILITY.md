@@ -851,3 +851,13 @@ Previously a SHA-256 repository could start a run but failed when recording revi
 coverage. No run is created or resumed; `init` refuses before writing configuration
 or installing a hook, including with `--force` or `--no-hook`. Existing SHA-1
 repositories are unaffected. SHA-256 support is not added by this change.
+
+## Unreleased: distinguish missing merge bases from empty diffs
+
+`start` no longer maps every merge-base failure to `empty_diff`.
+A shallow repository whose available history has no common ancestor with the base
+now exits 3 with `missing_merge_base` and fetch/deepening guidance in `next`.
+A non-shallow repository with unrelated histories exits 3 with `unrelated_histories`.
+Other Git failures keep `git_error` (exit 1) and the original diagnostic.
+Consumers matching `empty_diff` for these failures must handle the new codes.
+Actual empty diffs retain `empty_diff`. Neither refusal creates a run.
