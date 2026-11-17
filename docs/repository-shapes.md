@@ -196,7 +196,10 @@ Measurements and fixes in the performance issues:
 Repositories that use the SHA-256 object format are not supported.
 Run records and attestation notes hold only SHA-1 object IDs, so no commit in such a repository can have a valid attestation.
 
-**Verified:** `start` and `context` succeed, and `submit-findings` exits with code 1 and error code `internal_error`.
+**Verified:** `start` and `init` refuse with exit code 3 and error code
+`unsupported_object_format`, linking the compatibility statement. `start` creates no
+run, and `init` writes neither configuration nor a hook, including with `--force`
+or `--no-hook`.
 
 See [issue #394](https://github.com/elanthus/agentic-preflight/issues/394) and [COMPATIBILITY.md](../COMPATIBILITY.md#repository-shapes).
 

@@ -31,6 +31,7 @@ from ..errors import (
     SetupFailed,
     SyncConflictError,
     SyncFailed,
+    UnsupportedObjectFormat,
     WrongState,
 )
 from ..errors import (
@@ -480,6 +481,9 @@ def _check_preconditions(
     session: Session, *, base_ref: str | None, intent: str | None, producer: Producer
 ) -> _StartContext:
     repo = session.caller_root
+    object_format = gitx.out(repo, "rev-parse", "--show-object-format")
+    if object_format != "sha1":
+        raise UnsupportedObjectFormat(object_format)
     # Starting is the one command that deliberately reads the working copy.
     # Every later command uses the snapshot persisted below.
     cfg, user_config_sections = load_config_layers(repo)

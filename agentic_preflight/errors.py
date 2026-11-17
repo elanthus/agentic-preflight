@@ -138,6 +138,22 @@ class DirtyTree(AgenticError):
     exit_code = ExitCode.PRECONDITION
 
 
+class UnsupportedObjectFormat(AgenticError):
+    """Run records and attestations currently require SHA-1 object IDs."""
+
+    code = "unsupported_object_format"
+    exit_code = ExitCode.PRECONDITION
+
+    def __init__(self, object_format: str) -> None:
+        super().__init__(
+            f"repository object format {object_format!r} is not supported; "
+            "Agentic Preflight requires SHA-1 object IDs. See "
+            "https://github.com/elanthus/agentic-preflight/blob/main/COMPATIBILITY.md"
+            "#repository-shapes",
+            next_instruction="Stop: runs require a repository using the sha1 object format.",
+        )
+
+
 class EmptyDiff(AgenticError):
     code = "empty_diff"
     exit_code = ExitCode.PRECONDITION

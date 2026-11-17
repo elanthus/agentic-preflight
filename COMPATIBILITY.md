@@ -840,3 +840,12 @@ What changes at upgrade:
 - Earlier verifiers rebuild attribute-shaped text, so they reject a note that this release writes for a repository whose attributes changed a patch. Upgrade the protected verifier before, or together with, the local publisher and the hook, as [the Git configuration entry](#unreleased-review-patches-no-longer-depend-on-git-configuration) already requires.
 
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+
+## Unreleased: refuse unsupported repository object formats up front
+
+`start` and `init` now exit 3 with `unsupported_object_format` for any object
+format other than `sha1`. The message links this compatibility statement.
+Previously a SHA-256 repository could start a run but failed when recording review
+coverage. No run is created or resumed; `init` refuses before writing configuration
+or installing a hook, including with `--force` or `--no-hook`. Existing SHA-1
+repositories are unaffected. SHA-256 support is not added by this change.

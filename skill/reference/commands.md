@@ -58,6 +58,8 @@ Single-run `status` reports the read failure without `data.pointer_paths`.
 ## Setup
 
 ### `agentic-preflight init [--force] [--no-hook]`
+Refuses a non-SHA-1 repository before writing anything (exit 3,
+`unsupported_object_format`), with a link to [COMPATIBILITY.md](../../COMPATIBILITY.md#repository-shapes).
 Installs the pre-push hook and writes `.agentic-preflight.toml` if absent. Refuses to
 replace a pre-push hook it did not write (exit 3, `hook_exists`) — `--force`
 overrides. A hook that is byte for byte one an earlier version installed is replaced
@@ -176,6 +178,8 @@ command. Equal base/head trees and matching context
 can preserve review and docs across rewritten commits. Applicable lint and test stages
 rerun in every new run, including commits with identical trees. Read `data.applicability`;
 `invalid` and `unknown` require a fresh stage, and later-stage candidates remain available while earlier stages are pending.
+Refuses a non-SHA-1 repository before creating or resuming a run (exit 3,
+`unsupported_object_format`), with a link to [COMPATIBILITY.md](../../COMPATIBILITY.md#repository-shapes).
 Refuses a detached HEAD, a HEAD that points at a ref other than a branch, or a branch
 with no commits yet (exit 3, `no_branch`), a dirty
 tree (exit 3, `dirty_tree`), and a branch with no changes over the base

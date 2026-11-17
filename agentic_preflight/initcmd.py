@@ -8,6 +8,7 @@ from . import gitx, hook, worktree
 from .cli_contract import InitData
 from .config import REPO_CONFIG_NAME, load_config
 from .envelope import Envelope
+from .errors import UnsupportedObjectFormat
 
 DEFAULT_CONFIG = """# agentic-preflight configuration. Committed, so the gate is the same for everyone.
 [general]
@@ -98,6 +99,9 @@ allow_force_push = false
 def init(repo_root: Path | str, *, force: bool = False, install_hook: bool = True) -> Envelope:
     """Set up agentic-preflight in a repository."""
     repo_root = Path(repo_root)
+    object_format = gitx.out(repo_root, "rev-parse", "--show-object-format")
+    if object_format != "sha1":
+        raise UnsupportedObjectFormat(object_format)
     git_dir = gitx.git_common_dir(repo_root)
 
     config_path = repo_root / REPO_CONFIG_NAME
