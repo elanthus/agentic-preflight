@@ -19,7 +19,7 @@ Run all four before reporting a change as done:
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
-uv run pytest -q
+uv run pytest
 ```
 
 The test suite creates temporary Git repositories, so it needs a working `git` binary and

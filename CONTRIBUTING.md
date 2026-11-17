@@ -26,7 +26,7 @@ Run the same checks that [AGENTS.md](AGENTS.md) lists:
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
-uv run pytest -q
+uv run pytest
 ```
 
 CI also enforces an 85% coverage floor.
