@@ -661,6 +661,12 @@ run the same way, and their message names the `git notes ... remove` command for
 earlier release already wrote. The error data lists the recorded fix commits; in isolated
 modes, cherry-pick them before aborting. Abort it and start a fresh run.
 
+The commands that lead to `mergeback` refuse such a run the same way, so that no review
+or stage runs for a run that cannot publish: `context`, `review contracts`, `review run`,
+`submit-findings`, `respond`, `verify`, and `stage run`. `status`, `events`, and `logs`
+keep working and return `agentic-preflight abort` as `next.command`. `abort` and `gc`
+work as usual, and `finish` still completes a run that an earlier release pushed.
+
 A run that an earlier release let leave review with an open blocking or `auto_fix`
 finding exits 3 with `findings_unresolved`; `error.message` and `blocking` name the
 findings. From `TEST_GREEN`, or from a pending attempt that has not changed the source, the
@@ -775,6 +781,14 @@ The full single-run report also contains `data.producer` from `start`. It is `nu
 a run record that an earlier version wrote.
 In `MERGEBACK_CONFLICT`, it replays the stored conflict report and points back to the
 legal `mergeback` retry.
+For a run that an earlier release started, which `mergeback`, `gate`, and `push` refuse
+with `unknown_config_provenance`, it returns `agentic-preflight abort` as `next.command`
+in every state before `PUSHED`. `next.instruction` says that this release cannot merge
+the run back, gate it, or push it, names the `git notes ... remove` command when an
+earlier release already wrote a note, and in isolated modes says to cherry-pick the
+commits in `data.fix_commits` first. Status reports such a run as it stands: it does not
+check stage-origin digests or advance the run's evidence. At the validation restart
+limit, the human stop takes precedence and no command is advertised.
 `--all` inventories stored and active runs across every linked worktree in the clone.
 
 ### `agentic-preflight logs --stage review|lint|test [--tail N | --head N | --all]`

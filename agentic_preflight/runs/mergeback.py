@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 
 from .. import attestation as attestationmod
-from .. import gitx, public_config, timing, worktree
+from .. import gitx, timing, worktree
 from .. import mergeback as mergebackmod
 from .. import sync as syncmod
 from ..cli_contract import MergebackData
@@ -33,6 +33,7 @@ from ._session import (
     findings_unresolved,
     is_in_place,
     load_current,
+    require_known_provenance,
     require_state,
     require_worktree,
     unresolved_findings,
@@ -520,43 +521,6 @@ def _perform_merge(
         run.fix_commits,
         worktree_branch=worktree_branch,
         worktree_path=worktree_path,
-    )
-
-
-def require_known_provenance(run: RunDoc, *, command: str) -> None:
-    """Refuse to attest or publish a run whose user-level configuration is unknown.
-
-    A run that an earlier release started did not record which snapshot sections
-    came from the user file, so its note could publish them. ``mergeback`` and the
-    publication commands check this before they change or push anything.
-    """
-    if public_config.provenance_known(run):
-        return
-    if command == "mergeback":
-        situation = "its attestation could publish user-level configuration"
-    else:
-        situation = (
-            f"the note on {run.head_sha} may hold user-level configuration; "
-            f"remove it with `git notes --ref={attestationmod.NOTES_REF} remove "
-            f"{run.head_sha}` instead of pushing it"
-        )
-    keep = (
-        " Keep the recorded fix commits in data.fix_commits by cherry-picking them onto "
-        "your branch before you abort, because `abort --force` discards them."
-        if run.fix_commits
-        else ""
-    )
-    raise NeedsHuman(
-        "this run was started by an earlier release that did not record which "
-        f"configuration came from the user file, so {situation}",
-        state=run.state.value,
-        run_id=run.run_id,
-        data={"reason": "unknown_config_provenance", "fix_commits": list(run.fix_commits)},
-        next_instruction=(
-            f"Do not retry `{command}`. Abort this run and start a fresh one with the "
-            f"current release.{keep}"
-        ),
-        next_command="agentic-preflight abort",
     )
 
 

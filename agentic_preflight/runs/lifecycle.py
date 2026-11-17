@@ -35,6 +35,7 @@ from ._session import (
     release_run_worktree,
     restart_limit_reached,
     start_command,
+    unpublishable,
     unresolved_findings,
     unresolved_next_hint,
     worktree_mode,
@@ -908,6 +909,8 @@ def _try_advance_evidence(session: Session, run: RunDoc, findings):
         }
         or head_moved(session, run) is not None
         or restart_limit_reached(run)
+        # Advancing could reopen review on a run that must be aborted.
+        or unpublishable(run)
     ):
         return run, findings, reuse_error
     from . import evidence
@@ -946,6 +949,10 @@ def _set_status_next(
         # that is the person's decision, not the default next move.
         envelope.next_instruction = RESTART_LIMIT_INSTRUCTION
         envelope.next_command = None
+    elif unpublishable(run):
+        # The envelope already points at `abort`. No hint below may replace it:
+        # each one leads back to a command that refuses this run.
+        return
     elif stale:
         envelope.next_instruction = (
             "This run is stale: the source worktree moved after review began. From that "
@@ -1063,7 +1070,9 @@ def status(session: Session, *, all_runs: bool = False) -> Envelope:
             ),
         )
 
-    if run.state not in {State.ABORTED, State.DONE, State.ORPHANED}:
+    # A run this release will not publish is reported as it stands, with `abort`
+    # as its next move; an evidence failure would name a repair it cannot use.
+    if not unpublishable(run) and run.state not in {State.ABORTED, State.DONE, State.ORPHANED}:
         from . import evidence
 
         try:

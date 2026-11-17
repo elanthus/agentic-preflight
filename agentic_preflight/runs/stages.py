@@ -29,6 +29,7 @@ from ._session import (
     findings_unresolved,
     is_in_place,
     load_current,
+    require_publishable,
     require_state,
     require_worktree,
     start_command,
@@ -363,6 +364,7 @@ def run_stage(
 ) -> Envelope:
     """Run a deterministic shell stage. Pass/fail is the exit code, nothing else."""
     run = load_current(session)
+    require_publishable(run, command=f"stage run {stage_name}")
     spec = _STAGE_STATES[stage_name]
     stage = Stage(stage_name)
     record_entry = run.stages.get(stage) or StageRecord()

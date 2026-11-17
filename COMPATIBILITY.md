@@ -186,6 +186,9 @@ Every run record that this release starts carries `user_config_sections`, an emp
 A record without the field was started by an earlier release, and its user-level sections cannot be identified.
 `mergeback`, `gate`, and `push` refuse such a run with exit 4, `needs_human`, and `data.reason` `unknown_config_provenance`.
 `mergeback` refuses before it changes the source branch or writes a note.
+`context`, `review contracts`, `review run`, `submit-findings`, `respond`, `verify`, and `stage run` refuse such a run the same way, so no review or stage runs for a run that cannot publish.
+`status` reports the run without checking or advancing its evidence and returns `agentic-preflight abort` as `next.command`. `status`, `events`, `logs`, `abort`, and `gc` keep working on it.
+A run that an earlier release already pushed publishes nothing more, so `finish` still completes it.
 A run that an earlier release already merged back has a note that may hold user-level configuration; `gate` and `push` refuse it, and the error names the `git notes` command that removes that note.
 Abort the run and start a fresh one after upgrading. In isolated modes, cherry-pick any recorded fix commits (`data.fix_commits`) first, because `abort --force` discards them.
 The field makes every new run record unreadable to earlier releases, which forbid unknown keys.

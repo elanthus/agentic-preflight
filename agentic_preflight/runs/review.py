@@ -34,6 +34,7 @@ from ._session import (
     findings_unresolved,
     load_current,
     require_finding_stage,
+    require_publishable,
     require_state,
     require_worktree,
     stage_blocking_severities,
@@ -114,6 +115,7 @@ def _skip_test_if_not_applicable(session: Session, run: RunDoc) -> RunDoc:
 def context(session: Session, *, section: str = "review") -> Envelope:
     """Return the review or docs context for the current run."""
     run = load_current(session)
+    require_publishable(run, command="context")
     check_restart_limit(run)
     assert_fresh(session, run)
 
@@ -257,6 +259,7 @@ def submit_findings(
 ) -> Envelope:
     """Record the agent's findings for the review or docs stage."""
     run = load_current(session)
+    require_publishable(run, command="submit-findings")
     check_restart_limit(run)
     assert_fresh(session, run)
     require_state(
@@ -405,6 +408,7 @@ def submit_findings(
 def verify(session: Session) -> Envelope:
     """Verify fixes for blocking review findings."""
     run = load_current(session)
+    require_publishable(run, command="verify")
     assert_fresh(session, run)
     require_state(
         run,

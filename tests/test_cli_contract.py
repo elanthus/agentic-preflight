@@ -243,7 +243,6 @@ EMITTED_NOT_DOCUMENTED: dict[str, set[str]] = {
         "dangling_run_id",
         "findings",
         "findings_summary",
-        "fix_commits",
         "gate_token",
         "has_run",
         "head_sha",
