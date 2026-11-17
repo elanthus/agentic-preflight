@@ -249,7 +249,7 @@ no longer reads 0.8 notes, so delete:
   `test_crlf_patch_text_and_digests_match_main`, which pins the abbreviated digests.
 - The fallback paragraphs in `docs/fingerprint-contract.md` (from "Notes from 0.8.1 and
   earlier" to "disambiguates") and the matching upgrade bullets in the `COMPATIBILITY.md`
-  entry "Unreleased: review patches no longer depend on Git configuration". Add a
+  entry "Review patches no longer depend on Git configuration". Add a
   `COMPATIBILITY.md` note that notes from 0.8.1 and earlier no longer verify and must be
   replaced by validating the commit again, and a `removed` changelog fragment.
 
