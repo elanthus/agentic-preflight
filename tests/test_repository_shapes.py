@@ -477,7 +477,7 @@ def test_a_large_generated_change_is_refused_until_excluded(tmp_repo):
 # -- SHA-256 object format -----------------------------------------------------
 
 
-def test_sha256_repository_starts_but_cannot_record_a_review(tmp_path):
+def test_sha256_repository_refuses_to_start(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     git("init", "-b", "main", "--object-format=sha256", cwd=repo)
@@ -489,11 +489,26 @@ def test_sha256_repository_starts_but_cannot_record_a_review(tmp_path):
     commit_all(repo, "feature")
 
     agent = ScriptedAgent(repo)
-    agent.run("start")
-    agent.run("context")
-    # Unsupported (issue #394): run records hold only SHA-1 object IDs.
-    env = agent.run("submit-findings", "--file", findings_json(tmp_path, []), expect=ExitCode.ERROR)
-    assert env["error"]["code"] == "internal_error"
+    env = agent.run("start", expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "unsupported_object_format"
+    assert "sha256" in env["error"]["message"]
+    assert "COMPATIBILITY.md#repository-shapes" in env["error"]["message"]
+    assert env["run_id"] is None
+    assert not list((repo / ".git/agentic-preflight/runs").glob("r_*"))
+
+
+@pytest.mark.parametrize("options", [(), ("--force",), ("--no-hook",)])
+def test_sha256_init_refuses_before_writing_configuration_or_hook(tmp_path, options):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git("init", "-b", "main", "--object-format=sha256", cwd=repo)
+    hook = repo / ".git/hooks/pre-push"
+    hook.write_text("#!/bin/sh\nexit 0\n")
+    env = ScriptedAgent(repo).run("init", *options, expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "unsupported_object_format"
+    assert "COMPATIBILITY.md#repository-shapes" in env["error"]["message"]
+    assert not (repo / ".agentic-preflight.toml").exists()
+    assert hook.read_text() == "#!/bin/sh\nexit 0\n"
 
 
 # -- worktrees and bare repositories -------------------------------------------

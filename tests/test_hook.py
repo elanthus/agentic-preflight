@@ -849,7 +849,8 @@ def _sha256_repo_with_remote(tmp_path: Path) -> Path:
 
 def test_a_real_push_of_a_new_branch_in_a_sha256_repository_says_it_is_unsupported(tmp_path):
     repo = _sha256_repo_with_remote(tmp_path)
-    ScriptedAgent(repo).run("init")
+    # Model a hook installed before init began refusing SHA-256 repositories.
+    hook.install(repo)
     git("switch", "-c", "feature/x", cwd=repo)
     write(repo, "src/app.py", "x = 1\n")
     git("add", "-A", cwd=repo)
@@ -866,7 +867,8 @@ def test_a_real_push_of_a_new_branch_in_a_sha256_repository_says_it_is_unsupport
 
 def test_a_real_branch_deletion_in_a_sha256_repository_is_allowed(tmp_path):
     repo = _sha256_repo_with_remote(tmp_path)
-    ScriptedAgent(repo).run("init")
+    # Model a hook installed before init began refusing SHA-256 repositories.
+    hook.install(repo)
     result = subprocess.run(
         ["git", "push", "origin", "--delete", "stale"], cwd=repo, capture_output=True, text=True
     )
