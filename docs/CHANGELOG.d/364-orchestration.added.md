@@ -2,3 +2,4 @@
 - Keep usage partial for unmatched call starts, and retain known provider usage when a parsed response exhausts the total budget.
 - Keep the default total review budget at `AP_REVIEWER_TIMEOUT`; CLI help explains that timeout retries require a larger explicit `--budget-seconds`.
 - Keep verification output instructions separate from discovery, reject malformed scoring inventories before hashing and non-object adjudication documents, and mark reviewer completion only after delivering stdout.
+- Fail immediately on explicit contract-planner provider errors, clear stale telemetry before timeout validation, and report Unicode failures without a traceback.

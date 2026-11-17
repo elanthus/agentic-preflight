@@ -104,7 +104,8 @@ Codex requests JSONL events with `--json`. Claude requests `stream-json` with `-
 The packaged command accepts `--retries N` (0–5, default 0) and
 `--budget-seconds SECONDS` (finite and positive; default `AP_REVIEWER_TIMEOUT`,
 normally 600). Retries apply per phase to malformed output and timeouts.
-Provider launch failures, nonzero exits, and explicit error results fail immediately. Every attempt
+Provider launch failures, nonzero exits, and explicit error results fail immediately,
+including in the contract-planning phase. Every attempt
 uses fresh output files; a failed last result never falls back to earlier
 findings. One total wall-time budget covers both phases and every retry.
 Each call also respects `AP_REVIEWER_TIMEOUT`. The default total budget does not
@@ -146,6 +147,9 @@ Token totals use complete provider aggregates; missing usage is null. A malforme
 response can still have known usage. These are observations, not billing proof.
 A parsed response that finishes outside the total budget records `budget_exhausted`
 and retains its known provider usage, while the review still fails with no findings.
+Events and completion status are reset before reading context or validating the default
+timeout, so invalid setup cannot retain a previous successful invocation. Unicode
+failures use the same one-line failure diagnostic as other reviewer errors.
 Status is true only after the complete review succeeds and its submission is
 written and flushed to stdout. A started call without
 a completion record is incomplete; an outer kill can prevent copying its output

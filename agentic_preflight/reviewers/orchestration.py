@@ -182,11 +182,11 @@ def _tokens(provider: str, text: str) -> dict[str, int | None]:
 
 
 class Orchestrator:
-    def __init__(self, provider: str, context: dict[str, Any], retries: int, budget: float):
+    def __init__(self, provider: str, context: dict[str, Any], retries: int, budget: float | None):
         self.provider = provider
         self.context = context
         self.retries = retries
-        self.deadline = time.monotonic() + budget
+        started = time.monotonic()
         self.call_count = 0
         self.events_path = os.environ.get("AP_REVIEWER_EVENTS_FILE")
         if self.events_path:
@@ -195,6 +195,9 @@ class Orchestrator:
                 self.status(False)
             except OSError as exc:
                 raise common.ReviewerError(f"cannot write AP_REVIEWER_EVENTS_FILE: {exc}") from exc
+
+        # Resolve defaults only after removing telemetry from a prior invocation.
+        self.deadline = started + (common.timeout_seconds() if budget is None else budget)
 
     def status(self, completed: bool) -> None:
         if self.events_path:
@@ -316,6 +319,7 @@ class Orchestrator:
                 raise common.ReviewerError("--verify applies to findings, not contract plans")
 
             def plan(*outputs: str) -> str:
+                _object(*outputs)  # Explicit provider errors must not become retryable.
                 buffer = io.StringIO()
                 with contextlib.redirect_stdout(buffer):
                     common.emit_review_output(context, *outputs)
@@ -395,7 +399,7 @@ def main(provider: str, retries: int, budget_seconds: float | None, verify: bool
     try:
         # Keep the existing total limit; retries and verification do not expand it.
         # A timeout retry needs an explicit budget above the per-call timeout.
-        runner = Orchestrator(provider, {}, retries, budget_seconds or common.timeout_seconds())
+        runner = Orchestrator(provider, {}, retries, budget_seconds)
         runner.context = common.read_context()
         if budget_seconds is not None and (
             not math.isfinite(budget_seconds) or budget_seconds <= 0
@@ -407,6 +411,6 @@ def main(provider: str, retries: int, budget_seconds: float | None, verify: bool
         sys.stdout.write(output.getvalue())
         sys.stdout.flush()
         runner.status(True)
-    except (common.ReviewerError, OSError) as exc:
+    except (common.ReviewerError, OSError, UnicodeError) as exc:
         return common.report_error(common.ReviewerError(str(exc)))
     return 0

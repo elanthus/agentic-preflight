@@ -57,7 +57,7 @@ else:
 """
 
 
-def run_fake(tmp_path, provider, steps, *flags):
+def run_fake(tmp_path, provider, steps, *flags, context=None):
     fake = tmp_path / "provider.py"
     fake.write_text(f"#!{sys.executable} -S\n" + SCRIPT)
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
@@ -69,7 +69,7 @@ def run_fake(tmp_path, provider, steps, *flags):
     result = CliRunner().invoke(
         main,
         ["reviewer", "run", "--provider", provider, *flags],
-        input=json.dumps(CONTEXT),
+        input=json.dumps(CONTEXT if context is None else context),
         env={
             f"AP_{provider.upper()}_BIN": str(executable),
             "AP_REVIEWER_EVENTS_FILE": str(events),
@@ -285,7 +285,8 @@ def test_failed_verification_preserves_known_discovery_usage_as_partial(tmp_path
 
 
 @pytest.mark.parametrize("provider", ["claude", "codex"])
-def test_explicit_provider_error_result_is_not_retried(tmp_path, provider):
+@pytest.mark.parametrize("section", ["review", "contracts"])
+def test_explicit_provider_error_result_is_not_retried(tmp_path, provider, section):
     result, events, _ = run_fake(
         tmp_path,
         provider,
@@ -294,6 +295,7 @@ def test_explicit_provider_error_result_is_not_retried(tmp_path, provider):
         "5",
         "--budget-seconds",
         "5",
+        context={**CONTEXT, "section": section},
     )
     assert result.exit_code == 1
     assert "error result" in result.stderr
@@ -301,7 +303,8 @@ def test_explicit_provider_error_result_is_not_retried(tmp_path, provider):
     assert len([event for event in events if event["type"] == "reviewer_call"]) == 1
 
 
-def test_invalid_context_clears_previous_invocation_events(tmp_path):
+@pytest.mark.parametrize("invalid", ["context", "timeout"])
+def test_invalid_setup_clears_previous_invocation_events(tmp_path, invalid):
     events = tmp_path / "events.jsonl"
     events.write_text('{"type":"reviewer_call","requests":1}\n')
     status = events.with_name(events.name + ".status.json")
@@ -309,8 +312,11 @@ def test_invalid_context_clears_previous_invocation_events(tmp_path):
     result = CliRunner().invoke(
         main,
         ["reviewer", "run", "--provider", "claude"],
-        input="not JSON",
-        env={"AP_REVIEWER_EVENTS_FILE": str(events)},
+        input="not JSON" if invalid == "context" else json.dumps(CONTEXT),
+        env={
+            "AP_REVIEWER_EVENTS_FILE": str(events),
+            "AP_REVIEWER_TIMEOUT": "bad" if invalid == "timeout" else "1",
+        },
     )
     assert result.exit_code == 1
     assert result.stdout == ""
@@ -374,3 +380,25 @@ def test_stdout_delivery_failure_never_records_completed_status(tmp_path, monkey
     assert orchestration.main("claude", 0, 5, False) == 1
     assert "output delivery failed" in sys.stderr.getvalue()
     assert json.loads(Path(str(events) + ".status.json").read_text()) == {"completed": False}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX argument encoding")
+def test_unencodable_codex_path_reports_failure_without_traceback(tmp_path):
+    result, events, path = run_fake(
+        tmp_path,
+        "codex",
+        [output([])],
+        "--retries",
+        "1",
+        context={**CONTEXT, "worktree_path": "\ud800"},
+    )
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("independent reviewer failed:")
+    assert "Traceback" not in result.stderr
+    assert len(result.stderr.splitlines()) == 1
+    assert not (tmp_path / "state").exists()
+    calls = [event for event in events if event["type"] == "reviewer_call"]
+    assert len(calls) == 1
+    assert calls[0]["requests"] == 0
+    assert json.loads(Path(str(path) + ".status.json").read_text()) == {"completed": False}
