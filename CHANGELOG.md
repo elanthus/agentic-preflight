@@ -22,6 +22,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
 - Push or abort open runs before you upgrade. 0.9.0 refuses to validate, merge back, gate,
   or push a run that 0.8.1 started (`needs_human`, `data.reason`
   `unknown_config_provenance`), and `status` returns `agentic-preflight abort` for it.
+  At the validation restart limit, no command is advertised and the user decides.
   0.8.1 cannot read a run record that 0.9.0 starts.
 - `respond --action dismissed|accepted` now requires `--reason`. Run
   `agentic-preflight integrations update` so that installed skills pass it.
@@ -144,7 +145,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
   checks appear only when at least one run in the report was synced.
 - Remove the tolerances for run records that 0.6.0 and earlier releases wrote. A release
   now reads the records of the previous minor release only.
-  `COMPATIBILITY.md` describes what to do with a record that 0.9.0 reports as unreadable.
+  `COMPATIBILITY.md` describes what to do with a record that 0.9.0 reports as unreadable,
+  and links to a one-off script on this release that converts finished records.
   - A run record with the `test_delegation` key, or in the `TEST_DELEGATED` or
     `PUBLICATION_READY` state, is invalid. Earlier releases dropped the key on load and
     orphaned a run that still waited for delegated tests.
@@ -153,6 +155,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
   - A nonterminal run with a `pending-update.json` journal is invalid: every command that
     loads it exits 3 with `run_record_unreadable`. `start` no longer orphans it, `abort`
     no longer ends it, and `status` no longer reports `data.interrupted_legacy_update`.
+    A malformed working-copy configuration does not hide that error.
     Evidence from a run that an earlier release retired for this reason is still never
     reused.
   - `[review] require_fix_commits` and `[worktree] ttl_hours`, which 0.6.0 removed, are

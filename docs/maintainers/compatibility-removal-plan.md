@@ -102,9 +102,10 @@ The removal found one thing that the sections below did not expect. 0.6.0 wrote
 `test_delegation` (as `null`) and `mergeback_attempt.rebased_tree` in finished records
 too, and a later release dropped a key only when it rewrote a record, which never happens
 to a finished one. Rows 3 and 4 therefore make those finished records unreadable, not only
-the unfinished ones: `status --all` and `gc` list them, and `gc` keeps them. 0.9.0 ships no
-migration. `COMPATIBILITY.md` gives the manual remedy. Check for the same effect before any
-later row removes a key that a finished record can hold.
+the unfinished ones: `status --all` and `gc` list them, and `gc` keeps them. The package
+ships no migration. The 0.9.0 release has a one-off script instead; see
+[One-off migration scripts](#one-off-migration-scripts). Check for the same effect before
+any later row removes a key that a finished record can hold.
 
 ### 3. `mergeback_attempt.rebased_tree`
 
@@ -275,6 +276,20 @@ also checks that no attribute turned a text file into a binary marker. It goes w
 12, in the same change: delete the `strict=False` branch of `_check_binary_markers` (the
 attribute-free form always passes `strict=True`, so the parameter can go too) and the
 COMPATIBILITY.md and fingerprint-contract sentences about attribute-shaped notes.
+
+## One-off migration scripts
+
+The package carries no migration code. When a removal strands finished data, the release
+that makes the removal attaches one standalone script to its GitHub Release, and the
+`COMPATIBILITY.md` entry for that removal links to it.
+
+- The script uses only the standard library and imports nothing from the package.
+- It is validated once, before the release, and the pull request records that.
+- It is not stored in this repository, so nothing lints, tests, or updates it.
+- It is never changed after the release. A later problem gets a new script on a later release.
+
+`migrate-finished-records.py` on the 0.9.0 release is the first one. It removes
+`test_delegation` and `mergeback_attempt.rebased_tree` from finished run records.
 
 ## Guardrail: keep this from growing back
 

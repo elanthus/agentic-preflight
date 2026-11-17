@@ -15,7 +15,13 @@ from .. import attestation as attestationmod
 from .. import findings as findingsmod
 from .. import gitx, public_config, risk, telemetry, worktree
 from ..cli_contract import RunDataBase
-from ..config import Config, load_config, snapshot_config, snapshot_run_settings
+from ..config import (
+    Config,
+    ConfigError,
+    load_config,
+    snapshot_config,
+    snapshot_run_settings,
+)
 from ..envelope import Envelope
 from ..errors import (
     FindingsUnresolved,
@@ -96,15 +102,18 @@ def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) ->
     cfg = None
     current = run_id or store.get_active(owner_id)
     active = None
+    unreadable: RunReadError | None = None
     if current:
         try:
             active = store.load_run(current)
-        except (UnknownRun, RunReadError):
+        except UnknownRun:
+            pass
+        except RunReadError as exc:
             # Inspection must remain available without trusting an unreadable run.
             # The files below only shape that inspection: every command that
             # changes the run loads it again and fails with run_record_unreadable,
             # and status reports it as unreadable rather than quoting this config.
-            pass
+            unreadable = exc
         else:
             # The same tolerant loader the store just validated this snapshot with,
             # so a key a later release removed cannot hand the run to the files.
@@ -117,7 +126,15 @@ def open_session(cwd: Path | str | None = None, *, run_id: str | None = None) ->
             repo_root = source
         else:
             source_worktree_available = False
-    cfg = cfg or load_config(repo_root)
+    if cfg is None:
+        try:
+            cfg = load_config(repo_root)
+        except ConfigError as exc:
+            if unreadable is None:
+                raise
+            # The unreadable run comes first: a configuration error here would hide
+            # its recovery instruction, and the run's own snapshot cannot be used.
+            raise unreadable from exc
     if cfg.worktree.mode != "in_place":
         store.set_worktrees_root(worktree.resolve_root(repo_root, cfg.worktree.root))
     session = Session(

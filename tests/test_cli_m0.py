@@ -1094,6 +1094,22 @@ def test_an_unloadable_snapshot_stops_a_state_changing_command(agent, feature_re
     assert set(status["data"]) == {"has_run", "readable", "read_failure", "hook"}
 
 
+def test_a_malformed_working_copy_config_does_not_hide_an_unreadable_run(agent, feature_repo):
+    run_id = agent.run("start")["run_id"]
+    # A readable run answers from its own snapshot, whatever the working copy holds.
+    write(feature_repo, ".agentic-preflight.toml", "[general\nbase_ref = 'main'\n")
+    assert agent.run("status")["run_id"] == run_id
+
+    session_store = runs.open_session(feature_repo).store
+    (session_store.run_dir(run_id) / "pending-update.json").write_text("interrupted")
+
+    for command in ("status", "context", "abort"):
+        refused = agent.run(command, expect=ExitCode.PRECONDITION)
+        assert refused["error"]["code"] == "run_record_unreadable", command
+        assert refused["run_id"] == run_id
+        assert "interrupted update" in refused["data"]["diagnostic"]
+
+
 # -- verify -----------------------------------------------------------------
 
 

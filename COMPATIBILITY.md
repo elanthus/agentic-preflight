@@ -188,9 +188,10 @@ A record without the field was started by an earlier release, and its user-level
 `mergeback` refuses before it changes the source branch or writes a note.
 `context`, `review contracts`, `review run`, `submit-findings`, `respond`, `verify`, and `stage run` refuse such a run the same way, so no review or stage runs for a run that cannot publish.
 `status` reports the run without checking or advancing its evidence and returns `agentic-preflight abort` as `next.command`. `status`, `events`, `logs`, `abort`, and `gc` keep working on it.
+At the validation restart limit, neither `status` nor a refused command advertises `abort`: the decision to abort such a run stays with the user.
 A run that an earlier release already pushed publishes nothing more, so `finish` still completes it.
 A run that an earlier release already merged back has a note that may hold user-level configuration; `gate` and `push` refuse it, and the error names the `git notes` command that removes that note.
-Abort the run and start a fresh one after upgrading. In isolated modes, cherry-pick any recorded fix commits (`data.fix_commits`) first, because `abort --force` discards them.
+Below that limit, abort the run and start a fresh one after upgrading. In isolated modes, cherry-pick any recorded fix commits (`data.fix_commits`) first, because `abort --force` discards them.
 The field makes every new run record unreadable to earlier releases, which forbid unknown keys.
 Before downgrading, finish or abort the runs that this release started. A record that an earlier release wrote stays without the field and stays readable to that release.
 
@@ -521,7 +522,8 @@ No fingerprint, evidence digest, configuration digest, or attestation reads thes
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 Run records that 0.8.1 wrote stay readable.
 Run records that 0.6.0 wrote, and that no later release rewrote, do not; see [Run records from before 0.7.0 are no longer read](#run-records-from-before-070-are-no-longer-read).
-0.9.0 removes no configuration keys that 0.8.1 accepts in a configuration file.
+0.9.0 removes no configuration keys that 0.8.1 accepts in a configuration file for a workflow command.
+`telemetry rebuild`, `telemetry sync-hosted`, `report`, and the `[retention]` read in `gc` skipped `[review] require_fix_commits` and `[worktree] ttl_hours` with a warning in 0.8.1; in 0.9.0 they fail on either key with a configuration error. Delete the key from the file.
 It ignores `path` in a repository's `[telemetry]` section, and it accepts only `true` and `false` for `mirror` and `hook_log`; see [Repository telemetry settings can only turn telemetry off](#repository-telemetry-settings-can-only-turn-telemetry-off).
 
 Upgrade the protected-base CI verifier before, or together with, the local CLI and the pre-push hook.
@@ -539,7 +541,7 @@ Validate the commit again to replace such a note.
 Push or abort every open run before you upgrade.
 0.9.0 cannot merge back, gate, or push a run that 0.8.1 started, because the record does not say which configuration came from the user file.
 `status` returns `agentic-preflight abort` as `next.command` for such a run. Every command that would validate or publish it exits 4 with `needs_human` and `data.reason` `unknown_config_provenance`.
-Abort such a run and start a fresh one; see [Attestation note content without user-level configuration](#attestation-note-content-without-user-level-configuration).
+Abort such a run and start a fresh one, unless it has reached the validation restart limit, where no command is advertised and the user decides; see [Attestation note content without user-level configuration](#attestation-note-content-without-user-level-configuration).
 Review evidence that 0.8.1 recorded does not carry to a new head.
 0.8.1 cannot read a run record that 0.9.0 starts, so finish or abort those runs before a downgrade.
 
@@ -596,8 +598,11 @@ A clone that ran 0.6.0 can therefore hold finished records that 0.9.0 reports as
 0.9.0 has no command that converts or deletes them.
 
 - Before you upgrade, use 0.8.1 to retire the unfinished ones: run `status --all`, then `start` or `abort` in each listed source worktree, then `gc`.
-- A finished record (`DONE`, `ABORTED`, or `ORPHANED`) becomes readable again when `test_delegation` and `mergeback_attempt.rebased_tree` are deleted from its `run.json`.
-  That is the change 0.7.0 through 0.8.1 made when they rewrote a record. Keep a copy, and change nothing else.
+- A finished record (`PUSHED`, `DONE`, `ABORTED`, or `ORPHANED`) becomes readable again when `test_delegation` and `mergeback_attempt.rebased_tree` are deleted from its `run.json`.
+  That is the change 0.7.0 through 0.8.1 made when they rewrote a record.
+  The 0.9.0 release has a one-off script that makes exactly this change in a clone and keeps a copy of each original: [`migrate-finished-records.py`](https://github.com/elanthus/agentic-preflight/releases/download/v0.9.0/migrate-finished-records.py).
+  Run it once in the clone, first without options to see what it would change, then with `--apply`.
+  The script is not part of the package and is not maintained after the release.
 - For an interrupted run that 0.9.0 refuses, install 0.8.1 again, `abort` the run or `start` over it, and upgrade.
 
 ## Attestation verification reads the protected base
