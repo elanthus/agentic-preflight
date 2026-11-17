@@ -16,7 +16,7 @@ from .cli_contract import NO_ENVELOPE
 from .config import ConfigError
 from .envelope import Envelope, ExitCode, emit
 from .errors import REMOTE_TIMEOUT_CHECKS, AgenticError, RemoteTimeout, SourceWorktreeMissing
-from .gitx import GitError
+from .gitx import GitError, ReviewDiffError
 from .gitx import RemoteTimeout as GitRemoteTimeout
 from .store import RunReadError
 from .worktree import CopiedFileInCommit, CopyRefused, WorktreeError
@@ -193,6 +193,19 @@ def command(fn):
                     str(exc),
                     ExitCode.PRECONDITION,
                     "Rewrite the commit without that file, then retry.",
+                    "agentic-preflight status",
+                )
+            )
+        except ReviewDiffError as exc:
+            fail(
+                as_error(
+                    "review_diff_attribute",
+                    str(exc),
+                    ExitCode.PRECONDITION,
+                    "Do what the message says: remove the $GIT_DIR/info/attributes entry "
+                    "or Git setting it names, or validate the commit again when it is about "
+                    "an earlier note, then retry. Review patches must not depend on "
+                    "attributes that only this machine has.",
                     "agentic-preflight status",
                 )
             )

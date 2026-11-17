@@ -174,7 +174,7 @@ def test_the_inventory_lists_every_path_from_a_subdirectory_under_diff_relative(
 def test_the_abbreviated_format_reproduces_the_patches_of_earlier_releases(varied_repo):
     """Notes written before full object IDs hash this text, so it must stay available."""
     repo, base = varied_repo
-    legacy = diff.build_bundle(repo, base, "HEAD", full_index=False)
+    legacy = diff.build_bundle(repo, base, "HEAD", legacy=True)
 
     assert legacy.files == diff.build_bundle(repo, base, "HEAD").files
     for path in legacy.files:
@@ -206,7 +206,7 @@ def _simulate_abbreviated_patches(patch, current) -> None:
     """Make every patch read return the abbreviated text of 0.8.1 and earlier releases."""
 
     def abbreviated(cwd, base, head, paths, **_):
-        return current(cwd, base, head, paths, full_index=False)
+        return current(cwd, base, head, paths, legacy=True)
 
     patch.setattr(gitx, "diff_text_by_path", abbreviated)
     patch.setattr(
@@ -446,8 +446,8 @@ def test_a_decomposed_path_builds_under_precompose_unicode(tmp_repo):
 def test_the_abbreviated_format_ignores_the_verifiers_abbreviation_setting(varied_repo):
     """0.8.1 notes were written with Git's default length; the verifier's own does not apply."""
     repo, base = varied_repo
-    expected = diff.build_bundle(repo, base, "HEAD", full_index=False).per_file
+    expected = diff.build_bundle(repo, base, "HEAD", legacy=True).per_file
 
     git("config", "--local", "core.abbrev", "12", cwd=repo)
 
-    assert diff.build_bundle(repo, base, "HEAD", full_index=False).per_file == expected
+    assert diff.build_bundle(repo, base, "HEAD", legacy=True).per_file == expected

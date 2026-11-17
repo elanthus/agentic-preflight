@@ -31,13 +31,17 @@ def _manifest(repo: Path | str, origin: OriginalExecution, *, head: str, base: s
     if not isinstance(fingerprint, ReviewFingerprint):
         raise ValueError("review origin has the wrong fingerprint")
     # 0.8.1 and earlier releases hashed patches whose ``index`` lines abbreviate
-    # object IDs. A digest that the current text does not reproduce is checked
-    # against that earlier text before the note is rejected. The second format
+    # object IDs and whose text follows the checkout's Git attributes. A digest
+    # that the current text does not reproduce is checked against that earlier
+    # text before the note is rejected. When that text reproduces the digest, the
+    # note is refused if an attribute marked a text file as binary in it, so the
+    # earlier format cannot hide content. A digest that neither text reproduces is
+    # an ordinary mismatch, whatever the checkout's attributes. The earlier format
     # goes when a release no longer has to read 0.8 notes; see
     # docs/maintainers/compatibility-removal-plan.md.
-    for full_index in (True, False):
+    for legacy in (False, True):
         bundle = diff.build_bundle(
-            repo, base, head, exclude=cfg.diff.exclude, full_index=full_index
+            repo, base, head, exclude=cfg.diff.exclude, legacy=legacy, refuse_hidden=False
         )
         manifest = diff.build_review_manifest(
             repo, bundle, grounding_sha256=fingerprint.grounding_sha256
@@ -46,6 +50,16 @@ def _manifest(repo: Path | str, origin: OriginalExecution, *, head: str, base: s
             break
     else:
         raise ValueError("review fingerprint does not match the Git diff")
+    if legacy:
+        # Rebuild with the hidden-content check, which raises ReviewDiffError when the
+        # text hides a text file, and return that bundle's manifest: attributes are
+        # read again for each build, so the checked text must be the matched text.
+        checked = diff.build_bundle(repo, base, head, exclude=cfg.diff.exclude, legacy=True)
+        manifest = diff.build_review_manifest(
+            repo, checked, grounding_sha256=fingerprint.grounding_sha256
+        )
+        if manifest.diff_sha256 != fingerprint.diff_sha256:
+            raise ValueError("review fingerprint does not match the Git diff")
     if tuple(sorted(manifest.excluded_files)) != fingerprint.excluded_files:
         raise ValueError("review exclusions do not match the Git diff")
     return manifest

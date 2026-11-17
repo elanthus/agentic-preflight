@@ -21,7 +21,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
-from typing import IO
+from typing import IO, NoReturn
 from urllib.parse import urlsplit, urlunsplit
 
 from agentic_preflight.stages.command import resolve_on_path
@@ -1080,15 +1080,15 @@ _NO_RENAMES = "--no-renames"
 # ``diff.*`` configuration, so the settings that change a byte or drop a path are
 # fixed here instead of being read from whoever runs the command. Each value is
 # Git's own default, with two exceptions that are switched off: replacement
-# objects and the user-level attributes file. A clone with neither, and with no
-# such configuration, produces the same text as before apart from the ``index``
-# line, which now carries full object IDs. ``/dev/null`` is the spelling Git
+# objects and the user-level attributes file. A clone with neither, with no such
+# configuration, and with no attributes that change a patch, produces the same
+# text as before apart from the ``index`` line, which now carries full object IDs.
+# ``/dev/null`` is the spelling Git
 # documents for "no file" and resolves itself on Windows.
 #
-# Not fixed: attributes in the checkout, in ``$GIT_DIR/info/attributes``, from
-# ``attr.tree`` or ``GIT_ATTR_SOURCE``, or system-wide, and the ``diff.<driver>.*``
-# definition of a driver they name; and ``diff.default.xfuncname`` and
-# ``diff.default.funcname``, which shape hunk headers and have no reset value.
+# Attributes, and ``diff.default.xfuncname`` and ``diff.default.funcname``, which
+# shape hunk headers and have no reset value, are handled by ``diff_text_by_path``
+# below.
 #
 # Replacement objects (``refs/replace``) exist in one clone only and would show
 # content that the commits do not hold, so they are ignored. Settings with no
@@ -1136,6 +1136,51 @@ _PINNED_PATCH_OPTIONS = (
     "--inter-hunk-context=0",
     "--submodule=short",
 )
+
+# Attributes also shape patch text. ``-diff`` (or ``binary``) turns a text file's
+# patch into "Binary files ... differ", which hides its content from review, and
+# ``diff=<driver>`` lets ``diff.<driver>.xfuncname`` rewrite every hunk header.
+# Git reads them from ``.gitattributes`` files, which for a diff between two
+# commits means the files in the directory the command runs in, not in either
+# commit; from the index; from ``attr.tree`` (Git 2.42) or ``GIT_ATTR_SOURCE``
+# (Git 2.40); from the user and system files; and from ``$GIT_DIR/info/attributes``.
+# None of these is reproducible by a verifier on another machine.
+#
+# Review patches therefore run in an environment that has no attributes: the
+# command runs in an empty directory that is also the work tree, with an empty
+# index, the system file disabled, ``GIT_ATTR_SOURCE`` removed, and ``attr.tree``
+# set to a value that names no tree, which Git reads as an empty tree. Every one
+# of these works from Git 2.38, the supported minimum; ``--attr-source`` would
+# need Git 2.40 and still read ``$GIT_DIR/info/attributes``.
+#
+# Git always reads ``$GIT_DIR/info/attributes``, so two more rules cover it.
+# Patches are built with ``--text`` and the tool decides which files are binary
+# with Git's own heuristic, so ``-diff`` there has no effect. A driver there
+# with a hunk-header pattern, or ``diff`` set on a binary file, is refused with
+# ``ReviewDiffError``.
+_ATTRIBUTE_FREE_CONFIG = ("-c", "attr.tree=")
+# Git's ``buffer_is_binary`` looks for a NUL byte in this many leading bytes.
+_BINARY_PREFIX_BYTES = 8000
+# Git's default ``core.bigFileThreshold``, which ``_PINNED_DIFF_CONFIG`` fixes.
+# Git treats a larger blob as binary without reading it, so the tool does too.
+_BIG_FILE_THRESHOLD = 512 * 1024 * 1024
+# Path variables that a command run from another directory must see as absolute.
+_REPOSITORY_PATH_VARIABLES = ("GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY")
+_NO_BLOB_MODES = ("000000", "160000")
+# Git's built-in diff drivers that set a hunk-header pattern, as of Git 2.54.
+# A driver Git adds later is not refused; its headers then differ on this
+# machine only, so a verifier elsewhere rejects the note instead of accepting it.
+_BUILTIN_HUNK_HEADER_DRIVERS = frozenset(
+    {
+        "ada", "bash", "bibtex", "cpp", "csharp", "css", "dts", "elixir", "fortran",
+        "fountain", "golang", "html", "ini", "java", "kotlin", "markdown", "matlab",
+        "objc", "pascal", "perl", "php", "python", "r", "ruby", "rust", "scheme", "tex",
+    }
+)  # fmt: skip
+
+
+class ReviewDiffError(ValueError):
+    """Git attributes would hide or reshape part of a review patch."""
 
 
 def changed_files(cwd: Path | str, base: str, head: str = "HEAD") -> list[str]:
@@ -1275,32 +1320,61 @@ def _split_patches(data: bytes) -> list[str]:
     ]
 
 
-def _raw_patch_entries(raw: bytes) -> list[tuple[str, str]]:
+@dataclass(frozen=True)
+class _RawEntry:
+    """One record of ``git diff --raw``: a path, its status, and both sides."""
+
+    path: str
+    status: str
+    old_mode: str
+    new_mode: str
+    old_oid: str
+    new_oid: str
+
+    def blocks(self) -> tuple[tuple[tuple[str, ...], bool], ...]:
+        """The blobs behind each patch block Git prints, and whether content changed.
+
+        A type change prints a deletion and then an addition. A submodule side
+        and a missing side have no blob.
+        """
+        old = () if self.old_mode in _NO_BLOB_MODES else (self.old_oid,)
+        new = () if self.new_mode in _NO_BLOB_MODES else (self.new_oid,)
+        if self.status == "T":
+            return ((old, True), (new, True))
+        return (((*old, *new), self.old_oid != self.new_oid),)
+
+
+def _raw_entries(raw: bytes) -> list[_RawEntry]:
     fields = [_decode_path(field) for field in raw.split(b"\0")]
-    entries: list[tuple[str, str]] = []
+    entries: list[_RawEntry] = []
     position = 0
     while position < len(fields):
         metadata = fields[position]
         position += 1
-        if not metadata.startswith(":"):
+        parts = metadata[1:].split(" ")
+        if not metadata.startswith(":") or len(parts) != 5:
             raise ValueError("git diff returned malformed raw metadata")
-        status = metadata.rsplit(" ", 1)[-1]
+        old_mode, new_mode, old_oid, new_oid, status = parts
         if status.startswith(("R", "C")):
             raise ValueError("git diff reported a rename or copy although renames are disabled")
         if position >= len(fields):
             raise ValueError("git diff raw metadata omitted a path")
-        entries.append((fields[position], status))
+        entries.append(_RawEntry(fields[position], status, old_mode, new_mode, old_oid, new_oid))
         position += 1
 
     return entries
 
 
-def _parse_raw_patch_output(data: bytes) -> dict[str, str]:
-    """Map patches to paths using Git's NUL-delimited raw prelude.
+def _raw_patch_entries(raw: bytes) -> list[tuple[str, str]]:
+    return [(entry.path, entry.status) for entry in _raw_entries(raw)]
+
+
+def _parse_raw_patch_output(data: bytes) -> dict[str, list[str]]:
+    """Map patch blocks to paths using Git's NUL-delimited raw prelude.
 
     Git represents a file-type change as one raw record but emits the content
-    change as a deletion patch followed by an addition patch. Keep both blocks
-    together so the result remains byte-for-byte equivalent to a per-path diff.
+    change as a deletion patch followed by an addition patch. Both blocks map to
+    the path, in order, so their concatenation is byte-for-byte a per-path diff.
     """
     try:
         raw, patch_data = data.split(b"\0\0", 1)
@@ -1310,14 +1384,14 @@ def _parse_raw_patch_output(data: bytes) -> dict[str, str]:
     entries = _raw_patch_entries(raw)
 
     patches = _split_patches(patch_data)
-    per_file: dict[str, str] = {}
+    per_file: dict[str, list[str]] = {}
     patch_position = 0
     for path, status in entries:
         patch_count = 2 if status == "T" else 1
         patch_end = patch_position + patch_count
         if patch_end > len(patches):
             raise ValueError(f"git diff omitted patch blocks for raw entry {path!r} ({status})")
-        per_file[path] = per_file.get(path, "") + "".join(patches[patch_position:patch_end])
+        per_file.setdefault(path, []).extend(patches[patch_position:patch_end])
         patch_position = patch_end
 
     if patch_position != len(patches):
@@ -1384,8 +1458,8 @@ def _select_streamed_patches(
     chunks: Iterable[bytes],
     requested: set[str],
     stop_after: int | None = None,
-) -> tuple[dict[str, bytearray], int, int, str | None]:
-    """Collect the requested patches, stopping early once ``stop_after`` is passed.
+) -> tuple[dict[str, list[bytearray]], int, int, str | None]:
+    """Collect the requested patch blocks, stopping early once ``stop_after`` is passed.
 
     The running count is a lower bound on the decoded size of the collected text:
     decoding keeps every valid byte, widens an invalid one, and only folds a CR,
@@ -1393,7 +1467,7 @@ def _select_streamed_patches(
     passes ``stop_after`` the read stops and the path being read is returned last.
     """
     owners = [path for path, status in entries for _ in range(2 if status == "T" else 1)]
-    buffers: dict[str, bytearray] = {}
+    buffers: dict[str, list[bytearray]] = {}
     target: bytearray | None = None
     target_path: str | None = None
     count = 0
@@ -1401,8 +1475,12 @@ def _select_streamed_patches(
     for header, chunk in _patch_stream_chunks(chunks):
         if header:
             path = owners[count] if count < len(owners) else None
-            target_path = path if path in requested else None
-            target = buffers.setdefault(path, bytearray()) if path in requested else None
+            target = None
+            target_path = None
+            if path in requested:
+                target = bytearray()
+                target_path = path
+                buffers.setdefault(path, []).append(target)
             count += 1
         if target is not None:
             target.extend(chunk)
@@ -1428,8 +1506,8 @@ def _streamed_diff_text_by_path(
     requested: set[str],
     env: Mapping[str, str] | None = None,
     stop_after: int | None = None,
-) -> tuple[dict[str, str], tuple[str, int] | None]:
-    """Read requested patches from one streamed ``git diff``.
+) -> tuple[dict[str, list[str]], tuple[str, int] | None]:
+    """Read requested patch blocks from one streamed ``git diff``.
 
     With ``stop_after``, the read ends once a lower bound on the decoded text
     passes it. The second value then names the path being read with a lower
@@ -1463,14 +1541,14 @@ def _streamed_diff_text_by_path(
                 if process.poll() not in (None, 0):
                     _finish_streamed_diff(process, args, errors)
                 partial = buffers.pop(stopped)
-                patches = {path: _decode_patch(bytes(data)) for path, data in buffers.items()}
-                return patches, (stopped, len(partial) - partial.count(b"\r"))
+                size = sum(len(block) - block.count(b"\r") for block in partial)
+                return _decode_blocks(buffers), (stopped, size)
             _finish_streamed_diff(process, args, errors)
             if count != expected:
                 raise ValueError(
                     f"git diff returned {expected} expected patch blocks but {count} patches"
                 )
-            return {path: _decode_patch(bytes(data)) for path, data in buffers.items()}, None
+            return _decode_blocks(buffers), None
         finally:
             if process.poll() is None:
                 process.kill()
@@ -1478,73 +1556,629 @@ def _streamed_diff_text_by_path(
             stream.close()
 
 
-def _patch_diff_args(
-    base: str, head: str, batch: Sequence[str], *, full_index: bool, unfiltered: bool
-) -> tuple[str, ...]:
-    """The pinned ``git diff`` invocation that prints one batch's raw inventory and patches."""
-    return (
-        *_PINNED_DIFF_CONFIG,
-        *(() if full_index else _LEGACY_ABBREV_CONFIG),
-        "diff",
-        *_PINNED_PATCH_OPTIONS,
-        *(("--full-index",) if full_index else ()),
-        "--raw",
-        "-z",
-        "--patch",
-        f"{base}...{head}",
-        "--",
-        *(f":(literal){path}" for path in batch if not unfiltered),
-    )
+def _decode_blocks(buffers: Mapping[str, list[bytearray]]) -> dict[str, list[str]]:
+    return {
+        path: [_decode_patch(bytes(block)) for block in blocks] for path, blocks in buffers.items()
+    }
 
 
-def _patch_batches(paths: Sequence[str]) -> tuple[bool, list[list[str]]]:
-    """Return whether paths must be filtered from the full diff, and the batches to read.
+def _pathspec_batches(paths: Sequence[str]) -> Iterator[tuple[list[str], tuple[str, ...], bool]]:
+    """Yield each batch of raw paths, its pathspec arguments, and whether it is unfiltered.
 
     Windows arguments cannot carry surrogateescaped Git names. For those names,
-    the full diff is streamed once and only the requested raw entries are kept.
+    a command runs once over the whole diff and keeps only the requested paths.
     """
     unfiltered = _WINDOWS_PATH_ARGUMENTS and any(
         "\udc80" <= char <= "\udcff" for path in paths for char in path
     )
-    return unfiltered, [list(paths)] if unfiltered else list(_path_batches(paths))
+    if unfiltered:
+        yield list(paths), (), True
+        return
+    for batch in _path_batches(paths):
+        yield batch, tuple(f":(literal){path}" for path in batch), False
 
 
-def _patch_env() -> dict[str, str]:
-    """Git's environment for patch text: ``GIT_DIFF_OPTS`` would change the context length."""
-    return {name: value for name, value in os.environ.items() if name != "GIT_DIFF_OPTS"}
+def _require_every_path(batch: Sequence[str], found: Mapping[str, object]) -> None:
+    missing = [path for path in batch if path not in found]
+    if missing:
+        raise ValueError("git diff omitted requested changed paths: " + ", ".join(missing))
 
 
-def diff_text_by_path(
-    cwd: Path | str, base: str, head: str, paths: Sequence[str], *, full_index: bool = True
-) -> dict[str, str]:
-    """Return complete per-file patches using one Git process per bounded batch.
-
-    ``paths`` and the returned keys are raw paths from :func:`changed_files_raw`.
-    Windows arguments cannot carry surrogateescaped Git names. For those names,
-    stream the full diff once and retain only requested raw inventory entries.
-
-    The pinned options above keep ``core.*`` and ``diff.*`` configuration out of
-    the text; attributes still shape it. ``GIT_DIFF_OPTS`` would override the
-    context length, so it is removed from Git's environment. ``full_index=False``
-    reproduces the patches of 0.8.1 and earlier releases, whose ``index`` lines
-    abbreviate object IDs to Git's default length, which grows with the clone. It
-    exists to verify notes those releases wrote. Besides the attributes that shape
-    both forms, it also varies with the number of objects in the clone.
-    """
-    unfiltered, batches = _patch_batches(paths)
-    env = _patch_env()
-    per_file: dict[str, str] = {}
-    for batch in batches:
-        args = _patch_diff_args(base, head, batch, full_index=full_index, unfiltered=unfiltered)
+def _patches(
+    cwd: Path | str,
+    base: str,
+    head: str,
+    paths: Sequence[str],
+    *,
+    config: tuple[str, ...] = (),
+    options: tuple[str, ...] = (),
+    env: Mapping[str, str] | None = None,
+) -> dict[str, list[str]]:
+    """Return each path's patch blocks using one Git process per bounded batch."""
+    per_file: dict[str, list[str]] = {}
+    for batch, pathspecs, unfiltered in _pathspec_batches(paths):
+        args = (
+            *_PINNED_DIFF_CONFIG,
+            *config,
+            "diff",
+            *_PINNED_PATCH_OPTIONS,
+            *options,
+            "--raw",
+            "-z",
+            "--patch",
+            f"{base}...{head}",
+            "--",
+            *pathspecs,
+        )
         if unfiltered:
             parsed, _ = _streamed_diff_text_by_path(cwd, args, set(batch), env)
         else:
             parsed = _parse_raw_patch_output(_run_bytes(cwd, *args, env=env))
-        missing = [path for path in batch if path not in parsed]
-        if missing:
-            raise ValueError("git diff omitted requested changed paths: " + ", ".join(missing))
+        _require_every_path(batch, parsed)
         per_file.update((path, parsed[path]) for path in batch)
     return per_file
+
+
+def _raw_inventory(
+    cwd: Path | str,
+    base: str,
+    head: str,
+    paths: Sequence[str],
+    env: Mapping[str, str] | None = None,
+) -> dict[str, _RawEntry]:
+    """Return the modes and full object IDs on both sides of each requested path."""
+    found: dict[str, _RawEntry] = {}
+    for batch, pathspecs, _unfiltered in _pathspec_batches(paths):
+        output = _run_bytes(
+            cwd,
+            *_PINNED_DIFF_CONFIG,
+            "diff",
+            *_PINNED_INVENTORY_OPTIONS,
+            "--raw",
+            "-z",
+            "--no-abbrev",
+            f"{base}...{head}",
+            "--",
+            *pathspecs,
+            env=env,
+        )
+        requested = set(batch)
+        entries = _raw_entries(output.removesuffix(b"\0")) if output else []
+        found.update((entry.path, entry) for entry in entries if entry.path in requested)
+        _require_every_path(batch, found)
+    return found
+
+
+def _read_exactly(stream: IO[bytes], size: int) -> bytes:
+    data = stream.read(size)
+    if len(data) != size:
+        raise ValueError("git cat-file returned an incomplete object")
+    return data
+
+
+def _unreadable_blob(
+    process: subprocess.Popen[bytes],
+    args: tuple[str, ...],
+    errors: IO[bytes],
+    oid: str,
+    reply: list[bytes],
+) -> NoReturn:
+    """Raise Git's own error for a blob ``cat-file`` could not read.
+
+    In a partial clone, a blob that cannot be fetched from the promisor remote is
+    reported missing, and Git's stderr says why. That is a Git failure, not a bug.
+    """
+    if process.stdin is not None and not process.stdin.closed:
+        process.stdin.close()
+    returncode = process.wait()
+    errors.seek(0)
+    stderr = errors.read().decode("utf-8", errors=_DECODE_ERRORS)
+    detail = stderr.strip() or b" ".join(reply).decode("utf-8", errors=_DECODE_ERRORS)
+    raise GitError(
+        list(args),
+        returncode or 1,
+        stderr,
+        message=f"git {' '.join(args)} could not read blob {oid}: {detail or 'no reply'}",
+    )
+
+
+def _binary_blobs(
+    cwd: Path | str, object_ids: Iterable[str], env: Mapping[str, str] | None = None
+) -> set[str]:
+    """Return the blobs that Git's own heuristic, without attributes, calls binary.
+
+    A blob is binary when it is larger than Git's default big-file threshold or
+    has a NUL byte in its first 8,000 bytes. Only that prefix is kept in memory.
+    """
+    wanted = sorted(set(object_ids))
+    if not wanted:
+        return set()
+    binary: set[str] = set()
+    # Like the diff, read the blobs the commits hold, not a clone-local replacement.
+    args = ("--no-replace-objects", "cat-file", "--batch-command")
+    with tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(
+            [_git_executable(), *args],
+            cwd=str(cwd),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=errors,
+            env=env,
+        )
+        requests, replies = process.stdin, process.stdout
+        if requests is None or replies is None:
+            process.kill()
+            process.wait()
+            raise RuntimeError("git cat-file streams are unavailable")
+        try:
+            for oid in wanted:
+                requests.write(f"info {oid}\n".encode("ascii"))
+                requests.flush()
+                fields = replies.readline().split()
+                if len(fields) != 3 or fields[0].decode("ascii") != oid or fields[1] != b"blob":
+                    _unreadable_blob(process, args, errors, oid, fields)
+                size = int(fields[2])
+                if size > _BIG_FILE_THRESHOLD:
+                    binary.add(oid)
+                    continue
+                requests.write(f"contents {oid}\n".encode("ascii"))
+                requests.flush()
+                header = replies.readline().split()
+                if header != fields:
+                    _unreadable_blob(process, args, errors, oid, header)
+                prefix = _read_exactly(replies, min(size, _BINARY_PREFIX_BYTES))
+                if b"\0" in prefix:
+                    binary.add(oid)
+                remaining = size - len(prefix)
+                while remaining:
+                    remaining -= len(_read_exactly(replies, min(remaining, _DIFF_STREAM_BYTES)))
+                if _read_exactly(replies, 1) != b"\n":
+                    raise ValueError("git cat-file returned an incomplete object")
+            requests.close()
+            _finish_streamed_diff(process, args, errors)
+        finally:
+            if not requests.closed:
+                requests.close()
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            replies.close()
+    return binary
+
+
+def _patch_environment() -> dict[str, str]:
+    """Copy the environment without ``GIT_DIFF_OPTS``, which overrides ``--unified``."""
+    return {name: value for name, value in os.environ.items() if name != "GIT_DIFF_OPTS"}
+
+
+_C_ESCAPES = {
+    ord("a"): 7,
+    ord("b"): 8,
+    ord("f"): 12,
+    ord("n"): 10,
+    ord("r"): 13,
+    ord("t"): 9,
+    ord("v"): 11,
+    ord("\\"): ord("\\"),
+    ord('"'): ord('"'),
+}
+
+
+def _unquote_c_style(value: bytes, start: int) -> tuple[bytes, int] | None:
+    """Git's ``unquote_c_style``: the path quoted at ``start`` and the index after it.
+
+    Returns ``None`` for broken quoting, which Git then reads as an unquoted path.
+    """
+    out = bytearray()
+    index = start + 1
+    while index < len(value):
+        byte = value[index]
+        index += 1
+        if byte == ord('"'):
+            return bytes(out), index
+        if byte != ord("\\"):
+            out.append(byte)
+            continue
+        if index >= len(value):
+            return None
+        escape = value[index]
+        index += 1
+        if escape in _C_ESCAPES:
+            out.append(_C_ESCAPES[escape])
+        elif ord("0") <= escape <= ord("3"):
+            digits = value[index : index + 2]
+            if len(digits) < 2 or not all(ord("0") <= digit <= ord("7") for digit in digits):
+                return None
+            out.append((escape - 48) << 6 | (digits[0] - 48) << 3 | (digits[1] - 48))
+            index += 2
+        else:
+            return None
+    return None
+
+
+def _alternate_entries(value: str) -> list[str]:
+    """Split ``GIT_ALTERNATE_OBJECT_DIRECTORIES`` as Git's ``parse_alt_odb_entry`` does.
+
+    An entry that starts with ``"`` is C-quoted and may contain the separator, one
+    that starts with ``#`` is a comment, and empty entries are skipped.
+    """
+    raw = os.fsencode(value)
+    separator = os.fsencode(os.pathsep)[0]
+    entries: list[str] = []
+    index = 0
+    while index < len(raw):
+        quoted = _unquote_c_style(raw, index) if raw[index] == ord('"') else None
+        if quoted is not None:
+            entry, index = quoted
+            index += 1 if index < len(raw) else 0
+        else:
+            end = raw.find(separator, index)
+            end = len(raw) if end < 0 else end
+            entry = b"" if raw[index] == ord("#") else raw[index:end]
+            index = end + 1
+        if entry:
+            entries.append(os.fsdecode(entry))
+    return entries
+
+
+def _quote_alternate(path: str) -> str:
+    """Write an alternate so Git reads it back as exactly ``path``."""
+    raw = os.fsencode(path)
+    plain = (
+        raw[:1] not in (b'"', b"#")
+        and os.fsencode(os.pathsep) not in raw
+        and all(byte >= 0x20 and byte != 0x7F for byte in raw)
+    )
+    if plain:
+        return path
+    escaped = bytearray(b'"')
+    for byte in raw:
+        if byte in (ord('"'), ord("\\")):
+            escaped += bytes((ord("\\"), byte))
+        elif byte < 0x20 or byte == 0x7F:
+            escaped += f"\\{byte:03o}".encode()
+        else:
+            escaped.append(byte)
+    escaped.append(ord('"'))
+    return os.fsdecode(bytes(escaped))
+
+
+def _absolute_repository_variables(cwd: Path | str) -> dict[str, str]:
+    """Copy the patch environment with repository paths resolved against ``cwd``.
+
+    Git resolves relative alternates, quoted or not, against its working directory,
+    which for a review patch is an empty temporary one.
+    """
+    env = _patch_environment()
+    base = Path(cwd).resolve()
+    for name in _REPOSITORY_PATH_VARIABLES:
+        if env.get(name):
+            env[name] = str(base / env[name])
+    alternates = env.get("GIT_ALTERNATE_OBJECT_DIRECTORIES")
+    if alternates:
+        env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = os.pathsep.join(
+            _quote_alternate(str(base / entry)) for entry in _alternate_entries(alternates)
+        )
+    return env
+
+
+@contextmanager
+def _attribute_free(cwd: Path | str) -> Iterator[tuple[str, dict[str, str]]]:
+    """Yield a directory and environment in which Git sees no attributes but its info file.
+
+    Commands must also pass ``_ATTRIBUTE_FREE_CONFIG``. See the comment above it.
+    """
+    repository = git_dir(cwd)
+    env = _absolute_repository_variables(cwd)
+    env.pop("GIT_ATTR_SOURCE", None)
+    with tempfile.TemporaryDirectory(prefix="agentic-preflight-diff-") as empty:
+        env.update(
+            GIT_DIR=str(repository),
+            GIT_WORK_TREE=empty,
+            GIT_INDEX_FILE=str(Path(empty) / "index"),
+            GIT_ATTR_NOSYSTEM="1",
+        )
+        yield empty, env
+
+
+#: The values ``git check-attr`` prints for an attribute's states. A driver with one
+#: of these names prints the same value, so the output cannot tell the two apart.
+_ATTRIBUTE_STATES = frozenset({"unspecified", "unset", "set"})
+
+
+def _diff_driver_config(cwd: Path | str, env: Mapping[str, str]) -> tuple[set[str], set[str]]:
+    """Return the drivers that set a hunk-header pattern, and those whose ``binary``
+    value is false, which makes Git print a binary file's content as text, or is one
+    Git would reject (see :func:`_forces_text`).
+
+    One query reads both. As in Git, the last value of a key wins. ``default`` is
+    left out of the second set: the pinned options set its ``binary`` to ``auto``.
+    """
+    result = subprocess.run(
+        [_git_executable(), "config", "-z", "--get-regexp", r"^diff\..+\.(x?funcname|binary)$"],
+        cwd=str(cwd),
+        capture_output=True,
+        env=env,
+    )
+    if result.returncode not in (0, 1):
+        raise GitError(
+            ["config", "--get-regexp"],
+            result.returncode,
+            result.stderr.decode("utf-8", errors=_DECODE_ERRORS),
+        )
+    headers: set[str] = set()
+    binary: dict[str, bytes | None] = {}
+    for entry in result.stdout.split(b"\0"):
+        if not entry:
+            continue
+        key, separator, value = entry.partition(b"\n")
+        driver, _, variable = _decode_path(key)[len("diff.") :].rpartition(".")
+        if variable == "binary":
+            binary[driver] = value if separator else None  # the last value wins
+        else:
+            headers.add(driver)
+    text_forcing = {
+        driver for driver, value in binary.items() if driver != "default" and _forces_text(value)
+    }
+    return headers, text_forcing
+
+
+def _forces_text(value: bytes | None) -> bool:
+    """Whether a ``diff.<driver>.binary`` value may make Git print binary content as text.
+
+    Git reads the setting as a tristate: ``auto`` keeps its own detection, a true
+    boolean (or a key with no ``=``) marks the file binary, and a false one, which
+    includes an empty value and any integer equal to zero, prints it as text. Git
+    parses integers with ``strtoimax`` in base 0 (``0x`` hex, a leading ``0`` octal)
+    and an optional ``k``, ``m`` or ``g`` suffix. The zero test reads the digits
+    instead of converting them, so a zero of any length counts. Any value Git would
+    reject also counts: Git's own diff then fails, so refusing it costs nothing.
+    """
+    if value is None:
+        return False
+    text = value.decode("utf-8", errors=_DECODE_ERRORS).strip().lower()
+    if text in ("auto", "true", "yes", "on"):
+        return False
+    if text in ("false", "no", "off", ""):
+        return True
+    number = text[:-1] if text[-1:] in ("k", "m", "g") else text
+    digits = number[1:] if number[:1] in ("+", "-") else number
+    if digits.startswith("0x"):
+        body, allowed = digits[2:], set("0123456789abcdef")
+    elif digits.startswith("0"):
+        body, allowed = digits[1:], set("01234567")
+    elif digits:
+        body, allowed = digits, set("0123456789")
+    else:
+        return True
+    return not set(body) <= allowed or set(body) <= {"0"}
+
+
+def _refuse_local_diff_attributes(
+    cwd: Path | str, env: Mapping[str, str], paths: Sequence[str], binary_paths: set[str]
+) -> None:
+    """Refuse a ``diff`` attribute in ``$GIT_DIR/info/attributes`` that would change a patch.
+
+    In the attribute-free environment that file is the only source left. ``-diff``
+    there is harmless, because text patches are built with ``--text``, and so is a
+    driver that only sets ``textconv`` or ``command``, which the pinned options
+    disable. A driver with a hunk-header pattern, built in or configured, would
+    rewrite hunk headers, and ``diff`` set on a binary file, or a driver with
+    ``binary`` set to false, would print its content. Refusing these before any
+    patch is read lets a bounded read refuse them wherever it stops.
+
+    Every path without a ``diff`` attribute uses Git's ``default`` driver, so a
+    pattern configured for it would rewrite every hunk header. Git has no value
+    that restores the built-in rule, so that configuration is refused too. So is a
+    pattern, or ``binary`` set to false, for a driver named ``set``, ``unset`` or
+    ``unspecified``: ``check-attr`` prints ``diff=unset`` exactly as it prints
+    ``-diff``, yet Git applies the driver, so the attribute cannot be told from the
+    harmless state.
+    """
+    if not paths:
+        return
+    configured, text_forcing = _diff_driver_config(cwd, env)
+    if "default" in configured:
+        raise ReviewDiffError(
+            "Git configuration sets diff.default.xfuncname or diff.default.funcname, which "
+            "rewrites the hunk headers of the review patch on this machine only. "
+            "Remove that setting."
+        )
+    colliding = sorted(configured & _ATTRIBUTE_STATES)
+    if colliding:
+        raise ReviewDiffError(
+            f"Git configuration sets diff.{colliding[0]}.xfuncname or "
+            f"diff.{colliding[0]}.funcname. Git cannot tell a driver named "
+            f"{colliding[0]!r} from the attribute state of that name, and the driver "
+            "would rewrite the hunk headers of the review patch on this machine only. "
+            "Remove that setting."
+        )
+    text_forcing_states = text_forcing & _ATTRIBUTE_STATES
+    if text_forcing_states:
+        name = sorted(text_forcing_states)[0]
+        raise ReviewDiffError(
+            f"Git configuration sets diff.{name}.binary to false. Git cannot tell a "
+            f"driver named {name!r} from the attribute state of that name, and the driver "
+            "would print binary content into the review patch on this machine only. "
+            "Remove that setting."
+        )
+    output = _run_bytes(
+        cwd,
+        *_PINNED_DIFF_CONFIG,
+        *_ATTRIBUTE_FREE_CONFIG,
+        "check-attr",
+        "-z",
+        "--stdin",
+        "diff",
+        env=env,
+        input=b"".join(path.encode("utf-8", errors=_PATH_ERRORS) + b"\0" for path in paths),
+    )
+    fields = [_decode_path(field) for field in output.split(b"\0")[:-1]]
+    if len(fields) % 3:
+        raise ValueError("git check-attr returned malformed output")
+    drivers = _BUILTIN_HUNK_HEADER_DRIVERS | configured
+    entries = list(zip(fields[0::3], fields[1::3], fields[2::3], strict=True))
+    for path, _name, value in entries:
+        shown = display_path(path)
+        if path in binary_paths and value in text_forcing:
+            raise ReviewDiffError(
+                f"$GIT_DIR/info/attributes sets diff={value} on binary file {shown}, and "
+                f"diff.{value}.binary = false would print its content into the review patch. "
+                "Remove the attribute from that file."
+            )
+        if value == "set" and path in binary_paths:
+            raise ReviewDiffError(
+                f"$GIT_DIR/info/attributes sets the diff attribute on binary file {shown}, "
+                "which would print its content into the review patch. "
+                "Remove the attribute from that file."
+            )
+        if value in _ATTRIBUTE_STATES:
+            continue
+        if value in drivers:
+            raise ReviewDiffError(
+                f"$GIT_DIR/info/attributes sets diff={value} on {shown}. That driver rewrites "
+                "hunk headers on this machine only. Remove the attribute from that file."
+            )
+
+
+def _entry_blobs(entries: Iterable[_RawEntry]) -> set[str]:
+    return {oid for entry in entries for blobs, _changed in entry.blocks() for oid in blobs}
+
+
+def _patch_lines(patch: str) -> list[str]:
+    # Split on LF only: a lone CR or form feed in file content is not a Git line break.
+    lines = [line + "\n" for line in patch.split("\n")]
+    lines[-1] = lines[-1][:-1]
+    return lines if lines[-1] else lines[:-1]
+
+
+def _has_binary_marker(block: str) -> bool:
+    """Whether a patch block is Git's "Binary files ... differ" form.
+
+    The marker is the last line of a block that has no hunks. Lines split on LF
+    only, so file content can put a marker-like line in a block only inside a
+    hunk, and a block with a hunk is not binary.
+    """
+    lines = _patch_lines(block)
+    return (
+        bool(lines)
+        and lines[-1].startswith("Binary files ")
+        and lines[-1].rstrip("\n").endswith(" differ")
+        and not any(line.startswith("@@ ") for line in lines)
+    )
+
+
+def _check_binary_markers(
+    path: str, blocks: list[str], entry: _RawEntry, binary: set[str], *, strict: bool
+) -> None:
+    """Refuse a patch whose binary markers disagree with the blobs behind it.
+
+    A "Binary files ... differ" block for content that is not binary hides that
+    content from review. With ``strict``, binary content printed as text is
+    refused too, because a verifier without the same attributes prints a marker.
+    """
+    expected = entry.blocks()
+    if len(blocks) != len(expected):
+        raise ValueError(f"git diff returned {len(blocks)} patch blocks for {path!r}")
+    shown = display_path(path)
+    for block, (blobs, changed) in zip(blocks, expected, strict=True):
+        marked = _has_binary_marker(block)
+        is_binary = any(oid in binary for oid in blobs)
+        if marked and not is_binary:
+            if strict:
+                raise ReviewDiffError(
+                    f"Git reported {shown} as binary, but its content is text, so the review "
+                    "would not see it. $GIT_DIR/info/attributes is the only attribute source "
+                    "left; remove the entry there that applies to this file."
+                )
+            raise ReviewDiffError(
+                f"The earlier review text shows {shown} as binary, but its content is "
+                "text, so that review never saw it. Validate the commit again to "
+                "replace the note."
+            )
+        if strict and changed and is_binary and not marked:
+            raise ReviewDiffError(
+                f"Git printed binary file {shown} as text. A diff driver that "
+                "$GIT_DIR/info/attributes names for it, such as one with "
+                "diff.<driver>.binary = false, prints its content on this machine only. "
+                "Remove that entry."
+            )
+
+
+def diff_text_by_path(
+    cwd: Path | str,
+    base: str,
+    head: str,
+    paths: Sequence[str],
+    *,
+    legacy: bool = False,
+    refuse_hidden: bool = True,
+) -> dict[str, str]:
+    """Return complete per-file patches using one Git process per bounded batch.
+
+    ``paths`` and the returned keys are raw paths from :func:`changed_files_raw`.
+
+    The text depends only on the two commits. The pinned options above keep
+    ``core.*`` and ``diff.*`` configuration out of it, ``GIT_DIFF_OPTS`` is removed
+    from Git's environment, and Git runs without attributes. Text files are diffed with ``--text``; a file is binary when
+    either side is binary by Git's own heuristic, and its patch is Git's
+    "Binary files ... differ" marker. A ``diff`` attribute in
+    ``$GIT_DIR/info/attributes``, which Git always reads, raises
+    :class:`ReviewDiffError` when it would still change the text.
+
+    ``legacy=True`` reproduces the patches of 0.8.1 and earlier releases, whose
+    ``index`` lines abbreviate object IDs to Git's default length, which grows with
+    the clone, and whose text follows the checkout's attributes. It exists to verify notes
+    those releases wrote. It raises :class:`ReviewDiffError` when such text marks
+    a text file as binary, so a note cannot rely on an attribute to hide content.
+    ``refuse_hidden=False`` skips that check, for a caller that first needs to know
+    whether the earlier text reproduces a digest at all.
+    """
+    if not paths:
+        return {}
+    if legacy:
+        return _legacy_diff_text_by_path(cwd, base, head, paths, refuse_hidden=refuse_hidden)
+    with _attribute_free(cwd) as (root, env):
+        entries = _raw_inventory(root, base, head, paths, env)
+        binary = _binary_blobs(root, _entry_blobs(entries.values()), env)
+        binary_paths = {path for path in paths if _entry_blobs([entries[path]]) & binary}
+        _refuse_local_diff_attributes(root, env, paths, binary_paths)
+        per_file = _patches(
+            root,
+            base,
+            head,
+            [path for path in paths if path not in binary_paths],
+            config=_ATTRIBUTE_FREE_CONFIG,
+            options=("--full-index", "--text"),
+            env=env,
+        )
+        per_file |= _patches(
+            root,
+            base,
+            head,
+            [path for path in paths if path in binary_paths],
+            config=_ATTRIBUTE_FREE_CONFIG,
+            options=("--full-index",),
+            env=env,
+        )
+    for path in paths:
+        _check_binary_markers(path, per_file[path], entries[path], binary, strict=True)
+    return {path: "".join(per_file[path]) for path in paths}
+
+
+def _legacy_diff_text_by_path(
+    cwd: Path | str, base: str, head: str, paths: Sequence[str], *, refuse_hidden: bool
+) -> dict[str, str]:
+    per_file = _patches(
+        cwd, base, head, paths, config=_LEGACY_ABBREV_CONFIG, env=_patch_environment()
+    )
+    marked = [path for path in paths if any(map(_has_binary_marker, per_file[path]))]
+    if refuse_hidden and marked:
+        entries = _raw_inventory(cwd, base, head, marked)
+        binary = _binary_blobs(cwd, _entry_blobs(entries[path] for path in marked))
+        for path in marked:
+            _check_binary_markers(path, per_file[path], entries[path], binary, strict=False)
+    return {path: "".join(per_file[path]) for path in paths}
 
 
 @dataclass(frozen=True)
@@ -1562,39 +2196,104 @@ class BoundedPatches:
     partial: tuple[str, int] | None = None
 
 
+def _bounded_patches(
+    cwd: Path | str,
+    base: str,
+    head: str,
+    paths: Sequence[str],
+    *,
+    options: tuple[str, ...],
+    env: Mapping[str, str],
+    stop_after: int,
+    measured: int,
+) -> tuple[dict[str, list[str]], tuple[str, int] | None, int, bool]:
+    """Stream :func:`_patches` with the attribute-free options until past ``stop_after``.
+
+    Returns the blocks of the paths read in full, the partially read path with a
+    lower bound on its size, the running measure, and whether every path was read.
+    """
+    per_file: dict[str, list[str]] = {}
+    for batch, pathspecs, _unfiltered in _pathspec_batches(paths):
+        if measured > stop_after:
+            return per_file, None, measured, False
+        args = (
+            *_PINNED_DIFF_CONFIG,
+            *_ATTRIBUTE_FREE_CONFIG,
+            "diff",
+            *_PINNED_PATCH_OPTIONS,
+            *options,
+            "--raw",
+            "-z",
+            "--patch",
+            f"{base}...{head}",
+            "--",
+            *pathspecs,
+        )
+        parsed, partial = _streamed_diff_text_by_path(
+            cwd, args, set(batch), env, stop_after=stop_after - measured
+        )
+        if partial is not None:
+            per_file.update(parsed)
+            return per_file, partial, measured + partial[1], False
+        _require_every_path(batch, parsed)
+        per_file.update((path, parsed[path]) for path in batch)
+        measured += sum(len("".join(parsed[path]).encode()) for path in batch)
+    return per_file, None, measured, True
+
+
 def diff_text_by_path_bounded(
     cwd: Path | str, base: str, head: str, paths: Sequence[str], *, stop_after_bytes: int
 ) -> BoundedPatches:
     """Read the patches of :func:`diff_text_by_path`, stopping once they pass a size.
 
-    The size is the UTF-8 length of the decoded patch text. Every batch is
-    streamed with the same pinned options and environment, and Git is stopped
-    as soon as a lower bound on the text read passes ``stop_after_bytes``, so
-    an oversized diff costs a bounded read. Only the current patch format is
-    read; the earlier abbreviated form is never bounded. As in
-    :func:`diff_text_by_path`, the unfiltered Windows read still streams the
-    patches of paths that were not requested; only requested text counts.
+    The size is the UTF-8 length of the decoded patch text. The read uses the same
+    attribute-free environment, binary decisions, refusals, and options as
+    :func:`diff_text_by_path`, and Git is stopped as soon as a lower bound on the
+    text read passes ``stop_after_bytes``, so an oversized diff costs a bounded
+    read of patch text. Deciding which files are binary still reads every changed
+    blob, keeping only its first 8,000 bytes. Only the current patch format is
+    read; the earlier form is never bounded. As in :func:`diff_text_by_path`, the
+    unfiltered Windows read still streams the patches of paths that were not
+    requested; only requested text counts.
     """
-    unfiltered, batches = _patch_batches(paths)
-    env = _patch_env()
-    per_file: dict[str, str] = {}
-    measured = 0
-    for batch in batches:
-        if measured > stop_after_bytes:
-            return BoundedPatches(per_file, complete=False)
-        args = _patch_diff_args(base, head, batch, full_index=True, unfiltered=unfiltered)
-        parsed, partial = _streamed_diff_text_by_path(
-            cwd, args, set(batch), env, stop_after=stop_after_bytes - measured
+    if not paths:
+        return BoundedPatches({}, complete=True)
+    with _attribute_free(cwd) as (root, env):
+        entries = _raw_inventory(root, base, head, paths, env)
+        binary = _binary_blobs(root, _entry_blobs(entries.values()), env)
+        binary_paths = {path for path in paths if _entry_blobs([entries[path]]) & binary}
+        _refuse_local_diff_attributes(root, env, paths, binary_paths)
+        per_file: dict[str, list[str]] = {}
+        measured = 0
+        groups = (
+            ([path for path in paths if path not in binary_paths], ("--full-index", "--text")),
+            ([path for path in paths if path in binary_paths], ("--full-index",)),
         )
-        if partial is not None:
-            per_file.update(parsed)
-            return BoundedPatches(per_file, complete=False, partial=partial)
-        missing = [path for path in batch if path not in parsed]
-        if missing:
-            raise ValueError("git diff omitted requested changed paths: " + ", ".join(missing))
-        per_file.update((path, parsed[path]) for path in batch)
-        measured += sum(len(parsed[path].encode()) for path in batch)
-    return BoundedPatches(per_file, complete=True)
+        for group, options in groups:
+            if not group:
+                continue
+            read, partial, measured, complete = _bounded_patches(
+                root,
+                base,
+                head,
+                group,
+                options=options,
+                env=env,
+                stop_after=stop_after_bytes,
+                measured=measured,
+            )
+            per_file |= read
+            if not complete:
+                for path in per_file:
+                    _check_binary_markers(path, per_file[path], entries[path], binary, strict=True)
+                return BoundedPatches(
+                    {path: "".join(per_file[path]) for path in paths if path in per_file},
+                    complete=False,
+                    partial=partial,
+                )
+    for path in paths:
+        _check_binary_markers(path, per_file[path], entries[path], binary, strict=True)
+    return BoundedPatches({path: "".join(per_file[path]) for path in paths}, complete=True)
 
 
 # -- working tree -----------------------------------------------------------

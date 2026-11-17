@@ -49,9 +49,9 @@ Treeless clones (`--filter=tree:0`) are not tested.
 - In `in_place` mode, on a branch that does not change `.agentic-preflight.toml` and with no earlier run on the branch, `start` fetches no blob.
   It compares trees, which a blobless clone has, and reads the configuration from the checkout.
 - `context` needs the merge-base version of each changed file.
-  Git fetches the missing blobs from the promisor remote while the tool runs `git diff`.
+  Git fetches the missing blobs from the promisor remote while the tool reads them, with `git cat-file` to decide which files are binary and then with `git diff`.
 - When the promisor remote is unreachable, `context` exits with code 1 and error code `git_error`.
-  The message is Git's error for the failed `git diff`.
+  The message is Git's error for the failed `git cat-file` or `git diff`.
 
 **Unverified:**
 

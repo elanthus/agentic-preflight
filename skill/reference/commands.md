@@ -269,6 +269,19 @@ and the `by_file` sizes are then lower bounds over the files read,
 `next.instruction` says to check those files too. A report with `data.complete` set to
 `true` is exact. `review run` refuses the same diff with the same message.
 
+The diff does not follow Git attributes: text files are shown as text even under
+`-diff`, a file is binary only by Git's default content rule, and hunk headers ignore
+diff drivers. Exits 3 with `review_diff_attribute` when `$GIT_DIR/info/attributes`, which
+Git always reads, sets a diff driver with a hunk-header pattern, sets `diff` on a
+binary file, or names a driver that prints a binary file as text (such as one with
+`diff.<driver>.binary = false`), or when Git configuration sets `diff.default.xfuncname`
+or `diff.default.funcname`, or a hunk-header pattern or `binary = false` for a driver
+named `set`, `unset` or `unspecified`, which Git's attribute output cannot tell from
+those states. The user
+removes that entry or setting. Verification also
+refuses a note from 0.8.1 or earlier whose review text showed a text file as binary;
+the message says so, and validating the commit again replaces the note.
+
 From `REVIEW_GREEN`, `--section docs` exits 3 with `findings_unresolved` while a review
 or docs finding is still open and blocking or `auto_fix`. `error.message` and `blocking`
 name the findings, `next.command` is `respond` for the first one, and the run stays in

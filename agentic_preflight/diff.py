@@ -317,15 +317,19 @@ def build_bundle(
     head: str = "HEAD",
     *,
     exclude: list[str] | tuple[str, ...] | None = None,
-    full_index: bool = True,
+    legacy: bool = False,
+    refuse_hidden: bool = True,
 ) -> DiffBundle:
     """Build the review diff bundle between two refs, applying excludes.
 
-    ``full_index=False`` builds the patch text of 0.8.1 and earlier releases; see
+    ``legacy=True`` builds the patch text of 0.8.1 and earlier releases, and
+    ``refuse_hidden`` controls its check for attribute-hidden content; see
     :func:`agentic_preflight.gitx.diff_text_by_path`.
     """
     display, kept_raw, dropped = _inventory(repo, base, head, exclude)
-    raw_patches = gitx.diff_text_by_path(repo, base, head, kept_raw, full_index=full_index)
+    raw_patches = gitx.diff_text_by_path(
+        repo, base, head, kept_raw, legacy=legacy, refuse_hidden=refuse_hidden
+    )
     return _bundle(base, head, display, kept_raw, dropped, raw_patches)
 
 

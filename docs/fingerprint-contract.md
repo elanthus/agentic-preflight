@@ -46,16 +46,24 @@ Neither fingerprint includes `[general] network_timeout_seconds`, which bounds o
 The included diff bytes are the patch text that Git prints for the merge base and the head.
 The tool fixes the `core.*` and `diff.*` settings that shape that text, removes `GIT_DIFF_OPTS`, ignores replacement objects, and each patch names full object IDs.
 Thus, two machines whose Git configuration differs in those settings build the same bytes from the same commits.
-Attributes are the exception.
-A `-diff` attribute or a `diff` driver in a `.gitattributes` file in the checkout, in `$GIT_DIR/info/attributes`, from `attr.tree` or `GIT_ATTR_SOURCE`, or in a system-wide attributes file still changes the text.
-So does the `diff.<driver>.*` configuration of a driver that an attribute names, and `diff.default.xfuncname` or `diff.default.funcname`, which set the hunk headers of every other file.
-Notes from 0.8.1 and earlier hash patches with abbreviated object IDs, whose length depends on the clone.
+Git attributes do not shape the text either.
+Git runs without `.gitattributes` files, the index, `attr.tree`, `GIT_ATTR_SOURCE`, and the user and system attributes files.
+Text files are diffed with `--text`.
+A file is binary when either side is larger than 512 MiB or has a NUL byte in its first 8,000 bytes, which is Git's own default rule.
+Its patch is Git's `Binary files ... differ` line, and its content is never printed.
+Hunk headers use Git's built-in rule; `diff.default.xfuncname` or `diff.default.funcname`, which would replace it for every file, stops the command with `review_diff_attribute`, as does a hunk-header pattern for a driver named `set`, `unset` or `unspecified`. Such a driver with `binary` set to false is refused the same way, because it would print a binary file as text.
+Git always reads `$GIT_DIR/info/attributes`.
+`-diff` there has no effect.
+A diff driver there with a hunk-header pattern, or `diff` set on a binary file, stops the command with `review_diff_attribute`, because the text would differ on this machine only.
+Notes from 0.8.1 and earlier hash patches with abbreviated object IDs, whose length depends on the clone, and whose text followed the checkout's attributes.
 Git picks the default length from the clone's object count, so such a note can fail in a clone whose count gives a different length, even when its producer used every default.
 A verifier builds that text only when the current text does not reproduce a note's digest.
 It fixes the other settings to Git's default for that text too, so a note whose producer changed one of them may not verify, if the change altered the patch.
 A note for a commit whose committed `.gitmodules` hid a changed submodule pointer never verifies, because both texts now list that pointer.
 In that text a file-level patch, such as a binary change, names its blobs only by abbreviated object IDs, which a clone that holds both blobs disambiguates.
-See [the compatibility entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-configuration).
+It rejects the note when that text marks a file whose content is text as binary.
+See [the compatibility entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-configuration)
+and [the attributes entry](../COMPATIBILITY.md#unreleased-review-patches-no-longer-depend-on-git-attributes).
 
 Configuration digests cover the published configuration snapshot, because a verifier recomputes them from the note.
 That snapshot leaves out sections from the user configuration file, except `[diff]`.
