@@ -372,11 +372,9 @@ All notable changes to Agentic Preflight are documented here. This project follo
   a fresh CI clone could reject a note that verified locally. Review patches now carry full
   object IDs, and every such setting is fixed to Git's default. `diff.relative` is fixed too,
   as a precaution: it has no effect when Git runs from the repository root, as preflight
-  does. Git attributes still shape
-  the text: those in `.gitattributes`, `$GIT_DIR/info/attributes`, `attr.tree`,
-  `GIT_ATTR_SOURCE`, and the system-wide attributes file, together with the `diff.<driver>.*`
-  configuration of a driver an attribute names. So do `diff.default.xfuncname` and
-  `diff.default.funcname`. `COMPATIBILITY.md` lists them.
+  does. Git attributes, `diff.default.xfuncname`, and `diff.default.funcname` no longer
+  shape the text either: the Git attributes entry under Security (GHSA-m8wg-p58p-cqmf)
+  describes that change.
 - Replacement objects under `refs/replace` no longer change the review diff, the changed-file
   list, or risk classification. They exist in one clone only.
 - `diff.ignoreSubmodules = all`, and `submodule.<name>.ignore = all` in local configuration,

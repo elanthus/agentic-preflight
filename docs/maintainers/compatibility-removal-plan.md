@@ -30,7 +30,7 @@ Under this rule, 0.8.0 must read 0.7.0 records, notes, and snapshots. It need no
 | 2 | `omit_absent_producer` serializer | after v0.7.0 | 0.7.0 reading records 0.8.0 rewrote (downgrade) | 0.8.0 (done) |
 | 3 | `discard_legacy_rebased_tree` | 0.7.0 | 0.6.0 merge-back attempts | 0.10.0 |
 | 4 | `retire_ci_delegation` and `telemetry._effective_state` | 0.7.0 | 0.6.0 delegated runs | 0.10.0 |
-| 5 | `pending-update.json` handling (four sites) | 0.7.0 | 0.6.0 interrupted runs | 0.10.0, one line stays to 0.11.0 |
+| 5 | `pending-update.json` handling (four sites) | 0.7.0 | 0.6.0 interrupted runs | 0.10.0, the two evidence-reuse checks stay |
 | 6 | `REMOVED_CONFIG_KEYS` entries removed in 0.6.0 | 0.6.0 | 0.5.x snapshots | 0.10.0 |
 | 7 | `discard_retired_null_fields` on attestations | 0.7.0 | 0.6.0 verified notes | 0.10.0 |
 | 8 | `REMOVED_CONFIG_KEYS` entries removed in 0.7.0 | 0.7.0 | 0.6.0 snapshots and config files | 0.10.0 |
@@ -132,11 +132,18 @@ the only such runs are ones nobody has started since 0.6.0. Collapse the four si
   (`load_current`), `runs/start.py` (the orphan-and-restart branch around line 272), and
   `runs/lifecycle.py` (the `status` branch around line 612 and the
   `interrupted_legacy_update` envelope key).
-- `runs/evidence.py`: keep the single `orphaned_reason == "interrupted legacy update"`
-  comparison through 0.10.0. Records that 0.7.0 orphaned persist that string, and the
-  comparison is what keeps their green evidence out of reuse. Drop it in 0.11.0 together
-  with the string constant. Replace the `pending-update.json` existence check there now,
-  since `load_run` rejects those records first.
+- `runs/evidence.py`: keep both exclusions in `_prior_runs` until another filter replaces
+  them. Do not drop either one on a schedule.
+  - The `pending-update.json` existence check stays. `load_run` will reject only a
+    nonterminal record with a journal. `abort` accepts an interrupted run and moves it to
+    `ABORTED` without removing the journal, and `ABORTED` is a state that evidence reuse
+    accepts. The existence check is the only thing that keeps that record's green evidence
+    out of reuse.
+  - The `orphaned_reason == "interrupted legacy update"` comparison stays. `start` removes
+    the journal when it orphans such a run, so the persisted string is the only mark left
+    on that record, and `ORPHANED` is also a state that evidence reuse accepts.
+  - To remove them, first add one filter that covers both cases. Then drop both checks
+    and the string constant in the same release.
 - Docs: `skill/reference/commands.md` lines 83 to 90, the row in `skill/SKILL.md` line 200,
   `docs/state-machine.md` line 158. `tests/test_docs_match_cli.py` pins the state-machine
   doc, so update the doc and the test fixture together.
