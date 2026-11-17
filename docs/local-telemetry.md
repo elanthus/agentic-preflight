@@ -342,7 +342,12 @@ The command writes `hosted.json` in the run directory:
   "fetched_at": "2026-10-21T09:30:00+00:00",
   "sha": "<the pushed commit>",
   "pr": {"number": 295, "url": "https://github.com/owner/widget/pull/295", "state": "closed", "merged_at": "2026-10-21T09:00:00Z"},
-  "checks": {"conclusion": "failure", "total": 14, "failed": ["test / test (ubuntu-latest, py3.13)"]},
+  "checks": {"conclusion": "failure", "total": 14, "failed": ["test / test (ubuntu-latest, py3.13)"], "settled": true},
+  "followup_commits": 1,
+  "changes_requested": 0,
+  "review_comments": 2,
+  "reverted": null,
+  "failed_checks": {"local_equivalent": 1, "hosted_only": 0, "unclassified": 0},
   "missing": false,
   "source": "gh"
 }
@@ -366,7 +371,7 @@ It uses the same code as `telemetry rebuild`. The `hosted` object of the summary
 | `review_comments` | Human inline review comments created after the push, counted by unique comment ID. No comment bodies or paths are stored. |
 | `failed_checks.local_equivalent` | Distinct failed check names mapped to a stage this run executed. |
 | `failed_checks.hosted_only` | Distinct failed check names unmapped or mapped to a stage known not to have executed. |
-| `failed_checks.unclassified` | Distinct failed check names without a mapping or sufficient stage execution evidence. |
+| `failed_checks.unclassified` | Every distinct failed check name when no mapping is configured, or names mapped to a stage whose execution is unknown. |
 | `reverted` | Boolean observation from the optional bounded revert scan; `null` when not scanned or incomplete. |
 
 All scalar keys and each failed-check count are `null` for a run that was not synced.

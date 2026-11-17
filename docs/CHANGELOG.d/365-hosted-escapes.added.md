@@ -1,2 +1,3 @@
 - Add nullable hosted follow-up commit, human review, classified failed-check, and opt-in capped revert observations, with GET-only sync, rebuild support, and separately denominated escape reporting.
 - Preserve fetched hosted outcomes when an optional escape request fails; keep its observation null and stop further requests on authentication, rate-limit, or connection failures.
+- Add `--reverts` and `--reverts-limit` to `telemetry sync-hosted`, the user-only `telemetry.hosted.local_equivalent_checks` mapping, and `checks.settled` in saved hosted observations.

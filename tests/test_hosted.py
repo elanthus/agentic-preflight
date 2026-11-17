@@ -1450,3 +1450,19 @@ def test_optional_global_failure_saves_partial_outcome_before_stopping(
     assert fake.fetched() == [SHA_NEW]
     assert _hosted_file(github_repo, "r_0000000002") is None
     assert all(call[1:3] == ["--method", "GET"] for call in fake.calls)
+
+
+def test_production_event_writer_supplies_push_timestamp_for_hosted_counts(
+    github_repo, monkeypatch
+):
+    monkeypatch.setattr("agentic_preflight.store._utcnow", lambda: PUSHED_AT)
+    store = Store(_state_root(github_repo))
+    # This is the same payload and writer used by runs.publish.push.
+    store.append_event("r_0000000003", {"event": "pushed", "sha": SHA_NEW})
+    fake = EscapeGh(_escape_responses())
+    _use(monkeypatch, fake)
+    ScriptedAgent(github_repo).run("telemetry", "sync-hosted", "--run", "r_0000000003")
+    row = _summary_hosted(github_repo, "r_0000000003")
+    assert row["followup_commits"] == 1
+    assert row["changes_requested"] == 1
+    assert row["review_comments"] == 1
