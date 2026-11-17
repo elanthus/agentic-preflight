@@ -165,3 +165,10 @@ digests are not rewritten. When local evidence discovery compares an old surface
 with a different blob-based surface, `doc_surface_changed` requires a fresh docs
 stage. No fallback to checkout bytes is used for evidence reuse. The base/head
 tree, grounding, and other fingerprint bindings continue to apply independently.
+
+## Packaged reviewer orchestration telemetry
+
+Retries, verification decisions, and per-call usage are local reviewer events,
+not stage evidence fields. Flags in the configured command remain part of its
+existing executor binding. No metadata enters attestations and fingerprint
+version 2 is unchanged. Events do not establish reviewer identity or quality.

@@ -201,7 +201,7 @@ Issue #364 moved the example reviewer wrappers into `agentic_preflight/reviewers
 `agentic-preflight reviewer run --provider claude|codex`. The three files in
 `docs/examples/reviewers/` stay for one release as standard-library copies, which
 `test_example_wrappers_stay_in_sync_with_the_packaged_reviewer` in
-`tests/test_reviewer_examples.py` keeps identical to the package, so that a configured
+`tests/test_reviewer_examples.py` keeps identical to the legacy adapter modules in the package, so that a configured
 `python3 -S -B docs/examples/reviewers/<provider>_review.py` command keeps working. In 0.10.0:
 
 - Before the removal, switch the callers that still run a copy: this repository's

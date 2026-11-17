@@ -909,3 +909,20 @@ permission, rate-limit, network, and process failures stop further requests afte
 saving the partial outcome and rebuilding its summary. Use `--refresh` after
 recovery to retry unknown observations in already-synced runs. Core PR/check
 fetch failures retain their existing behavior.
+
+## Unreleased: packaged reviewer orchestration and adjudication
+
+The packaged reviewer adds opt-in `--retries` and `--verify`, with a shared
+`--budget-seconds` limit. Defaults retain one discovery call and no verification.
+The default total budget stays at `AP_REVIEWER_TIMEOUT` even with retries or
+verification enabled; timeout retries need an explicitly larger budget.
+Malformed findings and ambiguous or undelivered units fail before submission.
+Events now hold versioned call records and wrapped raw output, with rejected
+candidates outside findings; status describes the complete review. Legacy copied
+wrappers keep raw streams. Eval metrics accept both formats. Request counters
+count CLI calls, not internal API requests.
+
+Adjudication schema 1 binds complete labels to an inventory digest. Precision
+includes duplicates in its denominator; recall counts distinct seeded defects.
+Both have Wilson 95% intervals and null empty denominators. Stage evidence and
+fingerprint wire formats are unchanged.

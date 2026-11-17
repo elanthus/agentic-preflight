@@ -14,7 +14,8 @@ agentic-preflight reviewer run --provider claude
 agentic-preflight reviewer run --provider codex
 ```
 
-The reviewer uses only the Python standard library and shells out to the provider CLI.
+The provider adapters use the Python standard library and shell out to the provider CLI.
+Packaged orchestration also uses the package’s existing finding-schema validators; it adds no dependency.
 It imports no model SDK. Install the provider CLI and sign in to it separately.
 [ADR 0003](adr/0003-ship-a-packaged-reviewer.md) records this dependency policy.
 
@@ -23,11 +24,11 @@ It imports no model SDK. Install the provider CLI and sign in to it separately.
 On a failure, it exits 1 and writes one `independent reviewer failed: ...` line on stderr, which `review run` records in the review log.
 A usage error, such as a missing or unknown `--provider`, keeps Click's usage message on stderr and exits 2.
 
-For one release, `docs/examples/reviewers/` also keeps standard-library copies of the same reviewer: the
+For one release, `docs/examples/reviewers/` also keeps standard-library copies of the legacy single-call adapters: the
 [Codex wrapper](examples/reviewers/codex_review.py), the
 [Claude wrapper](examples/reviewers/claude_review.py), and the shared
 [_reviewer_common.py helper](examples/reviewers/_reviewer_common.py).
-A test keeps each copy identical to its packaged counterpart, apart from the shebang, the module docstring, the import of the shared helper, and the `__main__` block.
+A test keeps each copy identical to its legacy adapter counterpart in the package, apart from the shebang, the module docstring, the import of the shared helper, and the `__main__` block.
 The copies import nothing from Agentic Preflight. They are deprecated and will be removed in a later release.
 
 The example [Codex configuration](examples/codex-reviewer.toml) and
@@ -98,15 +99,72 @@ They do not inherit CLI effort defaults.
 These calls can consume paid model quota.
 Codex requests JSONL events with `--json`. Claude requests `stream-json` with `--verbose`.
 
-To capture CLI stdout, set `AP_REVIEWER_EVENTS_FILE` to an absolute file path.
-This does not add measurements to the strict findings submission.
-The reviewer overwrites that file and `<path>.status.json`.
-The status file records whether the CLI exited successfully.
-Flushed events remain available after a CLI failure or timeout.
+### Retries, verification, and call events
 
-The evaluation harness sets this interface automatically.
-It normalizes measurements as described in
+The packaged command accepts `--retries N` (0–5, default 0) and
+`--budget-seconds SECONDS` (finite and positive; default `AP_REVIEWER_TIMEOUT`,
+normally 600). Retries apply per phase to malformed output and timeouts.
+Provider launch failures, nonzero exits, and explicit error results fail immediately,
+including in the contract-planning phase. Every attempt
+uses fresh output files; a failed last result never falls back to earlier
+findings. One total wall-time budget covers both phases and every retry.
+Each call also respects `AP_REVIEWER_TIMEOUT`. The default total budget does not
+grow with retries or verification. To retry a timed-out call, set
+`--budget-seconds` above `AP_REVIEWER_TIMEOUT`; verification also shares the
+remaining budget. Timeout cleanup kills the provider
+process tree and can add bounded cleanup time after the deadline.
+
+Add `--verify` for a second call after candidate discovery:
+
+~~~toml
+[review]
+executor = "command"
+command = "agentic-preflight reviewer run --provider claude --retries 1 --budget-seconds 900 --verify"
+~~~
+
+Verification receives all candidates and the same code/context as data, without
+the discovery prompt’s findings-output instructions. It must confirm
+or reject every candidate exactly once, with a reason. Confirmed findings retain
+their content and order. Rejected candidates appear only in the events file.
+Missing, duplicate, or invalid decisions fail that attempt; retrying verification
+does not repeat discovery. Empty findings need no second call. `--verify` rejects
+contract-plan contexts before calling a provider. The original examined-all
+manifest remains; verification is another judgment, not proof of correctness.
+
+Set `AP_REVIEWER_EVENTS_FILE` to an absolute local path. The packaged command
+overwrites it and `<path>.status.json` before reading context, so invalid input cannot
+leave a previous successful invocation's usage behind. JSONL records include:
+
+- `reviewer_call_started`: call index, phase, and one attempted provider CLI request.
+- `reviewer_call`: schema version 1, call index, phase, attempt, provider,
+  `requests` (1 when the CLI launches, 0 when launch fails), `wall_seconds`,
+  outcome, and nullable input/output/total tokens.
+- `provider_output`: captured provider stdout, kept outside findings.
+- `candidate_rejected`: original candidate and the verifier's reason.
+
+Requests count provider CLI invocations (zero when launch fails), not internal API or tool requests.
+Token totals use complete provider aggregates; missing usage is null. A malformed
+response can still have known usage. These are observations, not billing proof.
+A parsed response that finishes outside the total budget records `budget_exhausted`
+and retains its known provider usage, while the review still fails with no findings.
+Events and completion status are reset before reading context or validating the default
+timeout, so invalid setup cannot retain a previous successful invocation. Unicode
+failures use the same one-line failure diagnostic as other reviewer errors.
+Status is true only after the complete review succeeds and its submission is
+written and flushed to stdout. A started call without
+a completion record is incomplete; an outer kill can prevent copying its output
+to events. Completed-call records remain. Events can contain sensitive code and
+findings; keep them local.
+
+Legacy copied examples retain their single-call raw-stream event format.
+This repository's configured reviewer still uses that legacy path. The packaged
+command supplies the new flags. Eval metrics accept both event formats; see
 [eval telemetry](regression-eval.md#runtime-findings-states-and-tokens).
+
+No call metadata is added to stage evidence. Command flags participate in the
+existing executor binding; the [fingerprint contract](fingerprint-contract.md)
+and fingerprint version are unchanged by orchestration.
+
 Provider guidance recommends task-specific evaluation to select effort, rather than model age alone.
 See [OpenAI's latest-model guide](https://developers.openai.com/api/docs/guides/latest-model),
 [OpenAI's GPT-5.6 guide](https://openai.com/index/builders-guide-to-gpt-5-6/),
@@ -125,7 +183,7 @@ The reviewer copies the manifest. The product CLI validates the protocol determi
 An `examined: "all"` receipt accounts for delivered units. It does not prove that the reviewer understood them.
 
 For optional behavioral evidence before final review, enable [contract checks](review-contracts.md).
-Set `review.contracts.planner_command` to the same reviewer command as `[review] command`.
+Set `review.contracts.planner_command` to the same provider command as `[review] command`, omitting `--verify` when present. Verification applies only to findings.
 The reviewer uses a planning prompt for `section: "contracts"`.
 The final reviewer receives the execution receipt that the product records.
 Planning can add one paid model invocation. It is disabled by default.

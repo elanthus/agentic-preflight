@@ -214,6 +214,15 @@ def _claude_usage(events: list[dict[str, Any]], intact: bool) -> dict[str, Any]:
     return usage_record({}, complete=False, source="claude")
 
 
+def _calls_finished(events: list[dict[str, Any]], calls: list[dict[str, Any]]) -> bool:
+    completed = {call["call"] for call in calls if type(call.get("call")) is int}
+    return all(
+        type(event.get("call")) is int and event["call"] in completed
+        for event in events
+        if event.get("type") == "reviewer_call_started"
+    )
+
+
 def read_usage(path: Path, executor: str, *, require_completion: bool = False) -> dict[str, Any]:
     """Read all complete JSONL records, retaining evidence before a truncated tail."""
     try:
@@ -242,6 +251,24 @@ def read_usage(path: Path, executor: str, *, require_completion: bool = False) -
             events.append(event)
         else:
             intact = False
+    calls = [event for event in events if event.get("type") == "reviewer_call"]
+    if calls:
+        records = [
+            usage_record(
+                call.get("tokens") if isinstance(call.get("tokens"), dict) else {},
+                complete=call.get("outcome") in {"success", "malformed", "budget_exhausted"},
+                source="reviewer_call",
+            )
+            for call in calls
+        ]
+        aggregate = aggregate_usage(records)
+        return usage_record(
+            aggregate["observed"],
+            complete=intact
+            and _calls_finished(events, calls)
+            and aggregate["status"] == "complete",
+            source="reviewer_calls",
+        )
     if executor == "claude":
         return _claude_usage(events, intact)
     completed = [event for event in events if event.get("type") == "turn.completed"]
@@ -347,4 +374,174 @@ def aggregate_states(results: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "complete": all(result["workflow"]["complete"] for result in results),
         "states": states,
+    }
+
+
+def wilson95(successes: int, total: int) -> dict[str, Any]:
+    """Wilson score interval with z=1.959963984540054; no continuity correction."""
+    import math
+
+    if type(successes) is not int or type(total) is not int or not 0 <= successes <= total:
+        raise ValueError("counts must be integers with 0 <= successes <= total")
+    if total == 0:
+        return {"numerator": 0, "denominator": 0, "value": None, "lower": None, "upper": None}
+    z = 1.959963984540054
+    p = successes / total
+    scale = 1 + z * z / total
+    center = (p + z * z / (2 * total)) / scale
+    radius = z * math.sqrt(p * (1 - p) / total + z * z / (4 * total * total)) / scale
+    return {
+        "numerator": successes,
+        "denominator": total,
+        "value": p,
+        "lower": max(0.0, center - radius),
+        "upper": min(1.0, center + radius),
+    }
+
+
+def _label_text(value: Any) -> bool:
+    return (
+        isinstance(value, str) and bool(value.strip()) and "\n" not in value and "\r" not in value
+    )
+
+
+def adjudication_digest(trials: list[dict[str, Any]]) -> str:
+    """Bind labels to the exact ordered findings and scorer-owned seed inventory."""
+    import hashlib
+
+    try:
+        encoded = json.dumps(trials, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("trial inventory must contain JSON data") from exc
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _trial_inventory(trials: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    inventory: dict[str, dict[str, Any]] = {}
+    if not isinstance(trials, list):
+        raise ValueError("trial inventory must be a list")
+    for trial in trials:
+        if not isinstance(trial, dict):
+            raise ValueError("each trial must be an object")
+        identity = trial.get("id")
+        seeds, findings = trial.get("seeded_defects"), trial.get("findings")
+        if (
+            not _label_text(identity)
+            or identity in inventory
+            or not isinstance(findings, list)
+            or not isinstance(seeds, list)
+            or any(not _label_text(seed) for seed in seeds)
+            or len(seeds) != len(set(seeds))
+        ):
+            raise ValueError("invalid or duplicate trial inventory")
+        inventory[identity] = trial
+    return inventory
+
+
+def _validate_duplicates(indexed: dict[tuple[str, int], dict[str, Any]]) -> None:
+    for key, label in indexed.items():
+        if label["label"] == "duplicate":
+            target = label.get("duplicate_of")
+            original = indexed.get((key[0], target)) if type(target) is int else None
+            if target == key[1] or original is None or original["label"] != "true_positive":
+                raise ValueError("duplicate_of must name a true positive in the same trial")
+
+
+def adjudication_score(
+    trials: list[dict[str, Any]], adjudication: dict[str, Any]
+) -> dict[str, Any]:
+    """Score complete labels against a scorer-owned inventory, never location matches.
+
+    Trials: {id, findings: [...], seeded_defects: [id, ...]}. Adjudication:
+    {schema_version: 1, run_id: str, inventory_sha256: str, labels: [{trial, finding, label, reason,
+    labeller, seeded_defect?: str, duplicate_of?: int}]}.
+    Duplicate labels remain in the precision denominator but never add a TP.
+    A TP may concern an unseeded real defect; only an explicit seeded_defect match
+    increases recall. Repeated trials use distinct IDs and distinct denominators.
+    """
+
+    if (
+        not isinstance(adjudication, dict)
+        or type(adjudication.get("schema_version")) is not int
+        or adjudication["schema_version"] != 1
+        or not _label_text(adjudication.get("run_id"))
+    ):
+        raise ValueError("adjudication requires schema_version 1 and a run_id")
+    inventory = _trial_inventory(trials)
+    if adjudication.get("inventory_sha256") != adjudication_digest(trials):
+        raise ValueError("adjudication inventory digest does not match these trials")
+    labels = adjudication.get("labels")
+    if not isinstance(labels, list):
+        raise ValueError("adjudication requires labels")
+    indexed: dict[tuple[str, int], dict[str, Any]] = {}
+    found: set[tuple[str, str]] = set()
+    labellers: set[str] = set()
+    correct = 0
+    duplicates = 0
+    for label in labels:
+        if not isinstance(label, dict) or set(label) - {
+            "trial",
+            "finding",
+            "label",
+            "reason",
+            "labeller",
+            "seeded_defect",
+            "duplicate_of",
+        }:
+            raise ValueError("malformed adjudication label")
+        trial_id, index = label.get("trial"), label.get("finding")
+        if (
+            not isinstance(trial_id, str)
+            or trial_id not in inventory
+            or type(index) is not int
+            or not 0 <= index < len(inventory[trial_id]["findings"])
+        ):
+            raise ValueError("label references an unknown finding")
+        key = (trial_id, index)
+        verdict = label.get("label")
+        if (
+            key in indexed
+            or verdict not in ("true_positive", "false_positive", "duplicate")
+            or not _label_text(label.get("reason"))
+            or not _label_text(label.get("labeller"))
+        ):
+            raise ValueError("duplicate label or invalid verdict, reason, or labeller")
+        indexed[key] = label
+        labellers.add(label["labeller"])
+        seed = label.get("seeded_defect")
+        if seed is not None:
+            if verdict != "true_positive" or seed not in inventory[trial_id]["seeded_defects"]:
+                raise ValueError("only a true positive can match a known seeded defect")
+            if (trial_id, seed) in found:
+                raise ValueError(
+                    "multiple true positives for one seed; label duplicates explicitly"
+                )
+            found.add((trial_id, seed))
+        if verdict == "true_positive":
+            correct += 1
+        elif verdict == "duplicate":
+            duplicates += 1
+        if verdict != "duplicate" and "duplicate_of" in label:
+            raise ValueError("duplicate_of requires a duplicate label")
+    expected = {
+        (trial_id, index)
+        for trial_id, trial in inventory.items()
+        for index in range(len(trial["findings"]))
+    }
+    if set(indexed) != expected:
+        raise ValueError("every finding must be adjudicated before scoring")
+    _validate_duplicates(indexed)
+    precision = wilson95(correct, len(expected))
+    recall = wilson95(len(found), sum(len(trial["seeded_defects"]) for trial in trials))
+    return {
+        "run_id": adjudication["run_id"],
+        "labellers": sorted(labellers),
+        "precision": {
+            **precision,
+            "denominator_label": "all adjudicated findings, including duplicates",
+        },
+        "recall": {**recall, "denominator_label": "seeded defects across supplied trials"},
+        "duplicates": duplicates,
+        "trials": len(trials),
+        "note": "Labels are supplied judgments, not location matches. Wilson 95% intervals describe binomial uncertainty; correlated cases and repeat runs limit that interpretation.",
     }
