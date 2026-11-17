@@ -281,8 +281,10 @@ def reduce_checks(check_runs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return {"conclusion": conclusion, "total": len(check_runs), "failed": failed}
 
 
-def _check_runs(runner: GhRunner, slug: str, sha: str) -> list[Mapping[str, Any]]:
+def _check_runs(runner: GhRunner, slug: str, sha: str) -> tuple[list[Mapping[str, Any]], bool]:
     runs: list[Mapping[str, Any]] = []
+    complete = True
+    seen = 0
     for page in range(1, _MAX_CHECK_PAGES + 1):
         body = _api(
             runner, f"/repos/{slug}/commits/{sha}/check-runs?per_page={_PAGE_SIZE}&page={page}"
@@ -290,13 +292,15 @@ def _check_runs(runner: GhRunner, slug: str, sha: str) -> list[Mapping[str, Any]
         batch = body.get("check_runs") if isinstance(body, Mapping) else None
         if not isinstance(batch, list):
             raise GhError("invalid_response", "GitHub's check-run list is not a list.")
-        if any(not isinstance(item, Mapping) for item in batch):
-            raise GhError("invalid_response", "GitHub returned a malformed check run.")
-        runs.extend(batch)
+        complete = complete and all(isinstance(item, Mapping) for item in batch)
+        runs.extend(item for item in batch if isinstance(item, Mapping))
+        seen += len(batch)
         total = body.get("total_count")
-        if len(batch) < _PAGE_SIZE or (type(total) is int and len(runs) >= total):
+        if len(batch) < _PAGE_SIZE or (type(total) is int and seen >= total):
             break
-    return runs
+    else:
+        complete = False
+    return runs, complete
 
 
 def _branch_pull_request(
@@ -342,9 +346,9 @@ def fetch(runner: GhRunner, slug: str, sha: str, branch: str | None) -> dict[str
         pr = choose_pull_request(pulls, sha, branch)
         if pr is None and branch:
             pr = _branch_pull_request(runner, slug, sha, branch)
-        check_runs = _check_runs(runner, slug, sha)
+        check_runs, complete = _check_runs(runner, slug, sha)
         checks = reduce_checks(check_runs)
-        checks["settled"] = len(check_runs) < _MAX_CHECK_PAGES * _PAGE_SIZE and all(
+        checks["settled"] = complete and all(
             item.get("status") == "completed" for item in check_runs
         )
     except GhError as exc:
@@ -467,7 +471,7 @@ def _reverted(runner: GhRunner, slug: str, number: int) -> bool | None:
             or (
                 message.startswith('Revert "')
                 and re.search(
-                    r"(?<![0-9a-f])" + re.escape(sha) + r"(?![0-9a-f])", message.split("\n", 1)[-1]
+                    r"(?<![0-9a-f])" + re.escape(sha) + r"(?![0-9a-f])", message.partition("\n")[2]
                 )
             )
         ):

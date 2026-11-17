@@ -383,7 +383,8 @@ after dismissal; these are observations at sync time, not an immutable history.
 Configure exact check-name-to-stage mappings in the user-only
 [`telemetry.hosted` table](configuration.md#hosted-check-classification-telemetryhosted).
 Classification requires all returned checks to be settled and a complete
-snapshot. An absent mapping leaves `local_equivalent` and `hosted_only` null,
+snapshot. Malformed check entries are skipped for the existing core outcome,
+but leave all new classification counts unknown. An absent mapping leaves `local_equivalent` and `hosted_only` null,
 with the observed failures in `unclassified`. Counts use distinct failed
 names, matching `checks.failed`.
 

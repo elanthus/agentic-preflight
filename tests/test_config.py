@@ -579,7 +579,11 @@ def test_hosted_check_mapping_is_user_only_and_not_attested(tmp_repo, tmp_path, 
     cfg = load_config(tmp_repo, user_config_dir=user_dir)
     assert cfg.telemetry.hosted.local_equivalent_checks == {"CI test": "test"}
     assert "ignoring [telemetry] hosted" in capsys.readouterr().err
-    assert "telemetry" not in cfg.model_dump(mode="json")
+    snapshot = cfg.model_dump(mode="json")
+    assert "telemetry" not in snapshot
+    cfg.telemetry.hosted.local_equivalent_checks = {"another check": "lint"}
+    assert cfg.model_dump(mode="json") == snapshot
+    assert config_digest(cfg.model_dump(mode="json")) == config_digest(snapshot)
     (user_dir / "config.toml").write_text(
         '[telemetry.hosted]\nlocal_equivalent_checks = {"CI test" = "unknown-stage"}\n'
     )

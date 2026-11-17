@@ -280,7 +280,9 @@ def test_check_runs_are_read_page_by_page_until_the_total():
         page = int(re.search(r"page=(\d+)$", args[-1]).group(1))
         return _ok({"total_count": 101, "check_runs": pages[page]})
 
-    checks = hosted.reduce_checks(hosted._check_runs(runner, "owner/widget", SHA_NEW))
+    runs, complete = hosted._check_runs(runner, "owner/widget", SHA_NEW)
+    checks = hosted.reduce_checks(runs)
+    assert complete
 
     assert checks == {"conclusion": "failure", "total": 101, "failed": ["late"]}
     assert [call.rsplit("page=", 1)[1] for call in calls] == ["1", "2"]
@@ -1233,13 +1235,14 @@ def test_missing_push_timestamp_leaves_counts_unknown_without_extra_requests(
 
 
 @pytest.mark.parametrize(
-    "message",
+    ("message", "expected"),
     [
-        "This reverts commit " + "e" * 40 + ".",
-        'Revert "a change"\n\nRollback ' + "e" * 40,
+        ("This reverts commit " + "e" * 40 + ".", True),
+        ('Revert "a change"\n\nRollback ' + "e" * 40, True),
+        ('Revert "a change ' + "e" * 40 + '"', False),
     ],
 )
-def test_revert_detection_is_bounded_and_accepts_explicit_metadata(message):
+def test_revert_detection_is_bounded_and_accepts_explicit_metadata(message, expected):
     calls = []
 
     def runner(args):
@@ -1250,7 +1253,7 @@ def test_revert_detection_is_bounded_and_accepts_explicit_metadata(message):
             )
         return _ok([{"commit": {"committer": {"date": AFTER_PUSH}, "message": message}}])
 
-    assert hosted._reverted(runner, "owner/widget", 9) is True
+    assert hosted._reverted(runner, "owner/widget", 9) is expected
     assert len(calls) == 2
     assert all(call[1:3] == ["--method", "GET"] for call in calls)
 
@@ -1342,3 +1345,28 @@ def test_check_classification_uses_execution_evidence_not_failed_attempt_count()
         "review": None,
         "docs": None,
     }
+
+
+def test_malformed_check_items_preserve_core_outcomes_but_leave_classes_unknown():
+    commits = {SHA_NEW: {"checks": [_check("failed", "failure"), "malformed"]}}
+    document = hosted.fetch(FakeGh(commits), "owner/widget", SHA_NEW, None)
+    assert document["checks"] == {
+        "conclusion": "failure",
+        "total": 1,
+        "failed": ["failed"],
+        "settled": False,
+    }
+    assert hosted._failed_classes(document["checks"], {}, {}) == {
+        "local_equivalent": None,
+        "hosted_only": None,
+        "unclassified": None,
+    }
+
+
+def test_capped_check_pages_do_not_establish_complete_classification():
+    def runner(args):
+        return _ok({"total_count": 1001, "check_runs": [_check("test")] * 100})
+
+    runs, complete = hosted._check_runs(runner, "owner/widget", SHA_NEW)
+    assert len(runs) == 1000
+    assert complete is False
