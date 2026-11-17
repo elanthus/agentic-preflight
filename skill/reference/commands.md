@@ -109,7 +109,7 @@ preserved unless `--force` is explicit. At least one agent or custom target is r
 
 ### `agentic-preflight start --intent TEXT [--base-ref REF] [--replace] [--client NAME] [--model NAME]`
 Creates a run and prepares its validation worktree according to the configured
-[worktree mode](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/worktree-modes.md).
+[worktree mode](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/worktree-modes.md).
 The intent is persisted as the user's objective and acceptance criteria. The parser
 accepts `start` without `--intent`, but the command then fails with exit 3 and
 `intent_required`.
@@ -214,7 +214,7 @@ next `start` detects it again. A malformed value exits 6 with `usage_error` befo
 is created.
 
 Returns `data.worktree_path` — **absolute**. Use it; do not rely on `cd` persisting.
-See [isolated worktree locations](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git)
+See [isolated worktree locations](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git)
 for the default location and `[worktree] root` override.
 
 Returns `data.housekeeping`, a read-only inventory of this clone's validation
@@ -229,7 +229,7 @@ exists. A released reusable runner whose source remains is `retained` with reaso
 `data.housekeeping` is `{"error": "..."}` and `start` still succeeds.
 
 For dependency installation, ignored build inputs, caches, and `setup_command`,
-see [Preparing the validation worktree](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/worktree-modes.md#preparing-the-validation-worktree).
+see [Preparing the validation worktree](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/worktree-modes.md#preparing-the-validation-worktree).
 Use `copy_files` only for ignored files such as `.env`; directories are refused with a
 setup instruction.
 
@@ -348,7 +348,7 @@ Checks supply evidence to the final review; failures are candidate counterexampl
 not automatic findings or a replacement for lint/tests. Read omitted evidence and
 verify the oracle before reporting a defect. Challenge declared input coverage and
 unsupported consumer assumptions for passed checks as well. See
-[contract checks](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/review-contracts.md) for execution restrictions and limits.
+[contract checks](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/review-contracts.md) for execution restrictions and limits.
 
 ### `agentic-preflight review compare [--file PATH]`
 Compares the run's accepted review submission with an independent second submission while
@@ -688,7 +688,7 @@ commit, such as an aborted or never-pushed branch, stay local. In manual mode th
 exact: only the notes that the built commit adds or changes. The summary also includes the configured PR mode, `automated_cleanup` setting, and
 deterministic risk classification and verdict. Whether the agent may push without
 asking follows
-[push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/configuration.md#push-and-pull-request-authorization).
+[push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/configuration.md#push-and-pull-request-authorization).
 Follow the skill's [PR lifecycle and cleanup](../SKILL.md#pull-request-lifecycle-and-cleanup)
 and [merge approval guidance](../SKILL.md#escalation-etiquette) for the returned policy.
 Only `[gate] mode = "manual"` exits 4 and puts the literal `git push` command in
@@ -921,7 +921,7 @@ After it decides, it appends one JSON line to `hook-decisions.jsonl` in the user
 telemetry directory, unless `[telemetry] hook_log = false`, or unless the repository has
 no network remote and `[telemetry] path` is not set: no network remote in `origin` or,
 without `origin`, in the push remote, wherever the repository lives (see
-[Repositories without a network remote](https://github.com/elanthus/agentic-preflight/blob/main/docs/local-telemetry.md#repositories-without-a-network-remote)). The
+[Repositories without a network remote](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/local-telemetry.md#repositories-without-a-network-remote)). The
 line has `at`, `repo` (the summary's repository identity), `remote` (the remote name
 from `AGENTIC_PREFLIGHT_PUSH_REMOTE`,
 which the installed hook sets from Git's first argument; a URL is reduced to host and
@@ -933,7 +933,7 @@ update the hook did not examine). `reason` is one of `attested`, `already_on_rem
 it waits at most 2 seconds after the decision, ignores every failure, and never changes
 the exit code or the stderr message. `agentic-preflight report` counts these decisions
 in `data.hook_decisions`. See
-[Hook decisions](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md#hook-decisions).
+[Hook decisions](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/local-telemetry.md#hook-decisions).
 
 ### `agentic-preflight telemetry rebuild`
 Regenerates `summary.json` for every terminal run record in this clone, of run schema 1
@@ -969,7 +969,7 @@ run it was creating. The event log then gains `summary_written` (with `summary_p
 `data.telemetry`; `gc` reports a list there, one item
 for each run it orphaned. A telemetry failure never changes a command's result or rolls
 back its transaction. The `aborted` event is now written with the terminal transition
-and carries its `seq`. See [Local run telemetry](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md).
+and carries its `seq`. See [Local run telemetry](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/local-telemetry.md).
 
 ### `agentic-preflight telemetry sync-hosted [--limit N] [--run RUN_ID] [--refresh] [--dry-run] [--reverts] [--reverts-limit N]`
 Joins GitHub pull-request and check outcomes onto this clone's pushed runs. This is the
@@ -1061,7 +1061,7 @@ their outcomes. Each entry of `errors` and `stopped` gives `reason`, `run_id`,
 
 A `--run` that names no stored run exits 3 with `no_run`. Messages never copy `gh` output
 or tokens, and remotes are shown without credentials. See
-[Join hosted outcomes](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md#join-hosted-outcomes).
+[Join hosted outcomes](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/local-telemetry.md#join-hosted-outcomes).
 
 ### `agentic-preflight report [--since TIME] [--until TIME] [--repo NAME_OR_REMOTE] [--state STATE] [--all-repos] [--format json|markdown] [--rows]`
 Counts finished runs from the local run summaries. It reads files only and writes
@@ -1164,7 +1164,7 @@ report as compact Markdown tables in `data.markdown`, which ends with the limits
 output is still one JSON envelope. `--rows` includes the filtered summary rows in
 `data.rows`. Otherwise, `data.markdown` and `data.rows` are `null`. A mirror that exists
 but cannot be read exits 1 with error code `telemetry_mirror_unreadable` and its path in
-`data`. See [Read the report](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/local-telemetry.md#read-the-report).
+`data`. See [Read the report](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/local-telemetry.md#read-the-report).
 
 ## Command reviewer
 
@@ -1187,7 +1187,7 @@ default `claude` or `codex`), `AP_REVIEWER_MODEL` (default `claude-sonnet-5` or
 `gpt-5.3-codex`), `AP_REVIEWER_EFFORT` (default `high` or `medium`),
 `AP_REVIEWER_TIMEOUT` (seconds, default 600), and `AP_REVIEWER_EVENTS_FILE` (an absolute
 path that receives call records, wrapped provider output, and rejected candidates, with `<path>.status.json` beside it). See
-[Independent review and agreement](https://github.com/elanthus/agentic-preflight/blob/main/docs/independent-review.md).
+[Independent review and agreement](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/independent-review.md).
 
 `--retries` accepts 0–5 (default 0) additional attempts per phase for malformed
 output or timeouts. Other provider failures stop immediately. `--budget-seconds`

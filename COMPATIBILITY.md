@@ -356,7 +356,8 @@ Notes that 0.7.0 wrote stay verifiable, and run records that 0.7.0 wrote stay re
 Upgrade every machine that shares a clone before you enable the new configuration, and use 0.8.0 or later to inspect or clean up runs that 0.8.0 touched.
 Pin the CI verifier to 0.8.0 as well; see [Attestations and CI](docs/attestations-and-ci.md).
 
-The sections from here to the end of this file describe the 0.8.0 changes.
+The sections from here to [Upgrading from 0.8.1 to 0.9.0](#upgrading-from-081-to-090) describe the 0.8.0 changes, with two exceptions.
+[Run record retention](#run-record-retention) is new in 0.9.0, and [Repositories without a network remote and telemetry](#repositories-without-a-network-remote-and-telemetry) describes a 0.8.1 change.
 [Evaluation report compatibility](#evaluation-report-compatibility) and [Opt-in contract-check evidence](#opt-in-contract-check-evidence) above are also new in 0.8.0.
 
 ## Producer identity on run records
@@ -489,7 +490,7 @@ In `agentic-preflight report`, `data.source.clone` adds `temporary_runs`, and `u
 The summary schema 1, the hook decision lines, run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 No fingerprint, evidence digest, configuration digest, or attestation reads these keys.
 
-## Unreleased: repositories without a network remote and telemetry
+## Repositories without a network remote and telemetry
 
 The exclusion from the default telemetry location no longer depends on where a repository lives.
 Without an explicit `[telemetry] path`, runs and hook decisions of every repository without a network remote stay out of the telemetry directory, under the system temporary directory or anywhere else.
@@ -510,7 +511,54 @@ The normalized form of a relative local remote, for example an `origin` of `fixt
 The summary schema 1, the hook decision lines, run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 No fingerprint, evidence digest, configuration digest, or attestation reads these keys.
 
-## Unreleased: attestation verification reads the protected base
+## Upgrading from 0.8.1 to 0.9.0
+
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+Run records that 0.8.1 wrote stay readable.
+0.9.0 removes no configuration keys.
+It ignores `path` in a repository's `[telemetry]` section, and it accepts only `true` and `false` for `mirror` and `hook_log`; see [Repository telemetry settings can only turn telemetry off](#repository-telemetry-settings-can-only-turn-telemetry-off).
+
+Upgrade the protected-base CI verifier before, or together with, the local CLI and the pre-push hook.
+The review digest now hashes patch text that does not depend on Git configuration or Git attributes, so a 0.8.1 verifier rejects a note that 0.9.0 writes with "review fingerprint does not match the Git diff".
+See [Review patches no longer depend on Git configuration](#review-patches-no-longer-depend-on-git-configuration) and [Review patches no longer depend on Git attributes](#review-patches-no-longer-depend-on-git-attributes).
+
+A note that 0.8.1 wrote still verifies under 0.9.0 in the usual case. These are the exceptions:
+
+- The note's patch text cannot be rebuilt, for example because its producer changed a diff setting or the verifier's clone abbreviates object IDs to a different length.
+- The note relied on an attribute that showed a text file as binary.
+- The note does not satisfy the policy committed at the protected base; see [Attestation verification reads the protected base](#attestation-verification-reads-the-protected-base).
+
+Validate the commit again to replace such a note.
+
+Push or abort every open run before you upgrade.
+0.9.0 cannot merge back, gate, or push a run that 0.8.1 started. Those commands exit 4 with `needs_human` and `data.reason` `unknown_config_provenance`, because the record does not say which configuration came from the user file.
+Abort such a run and start a fresh one; see [Attestation note content without user-level configuration](#attestation-note-content-without-user-level-configuration).
+Review evidence that 0.8.1 recorded does not carry to a new head.
+0.8.1 cannot read a run record that 0.9.0 starts, so finish or abort those runs before a downgrade.
+
+0.8.1 rejects these new configuration keys as unknown: `[general] network_timeout_seconds`, `[review] trusted_paths`, `[retention] run_days`, and `[telemetry.hosted] local_equivalent_checks`.
+Upgrade every machine that shares a clone, and the protected verifier, before you set one of them in a repository file.
+
+Check wrappers, scripts, and copied skills against these changes:
+
+- `respond --action dismissed|accepted` requires `--reason`; see [Require response reasons in the CLI](#require-response-reasons-in-the-cli). Run `agentic-preflight integrations update` so that installed skills pass it.
+- `logs --stage` returns a bounded window. Pass `--all` for the whole log; see [`logs` returns a bounded window](#logs-returns-a-bounded-window).
+- In `strict` and `reusable` modes, a plain `abort` exits 5 with `unmerged_work` when the validation worktree holds uncommitted changes or unregistered commits; see [Abort protects uncommitted changes in the validation worktree](#abort-protects-uncommitted-changes-in-the-validation-worktree) and [Abort protects commits that nothing registered](#abort-protects-commits-that-nothing-registered).
+- Fetches and pushes cannot prompt, and they time out; see [Fetch and push cannot prompt, and time out](#fetch-and-push-cannot-prompt-and-time-out).
+- `push` publishes only the pushed commits' notes, and `data.refspec`, `data.push_commands`, and `data.would_push` no longer hold runnable notes refspecs; see [Push publishes only the pushed commits' notes](#push-publishes-only-the-pushed-commits-notes).
+- New error codes: `unsupported_base_ref`, `unsupported_object_format`, `missing_merge_base`, and `unrelated_histories` from `start`; `findings_unresolved` from `context --section docs`, `stage run lint`, and `mergeback`; `remote_timeout` from `start`, `gate`, and `push`; and `review_diff_attribute` from `context` and review.
+- Run summaries and `agentic-preflight report` no longer hold the recorded hosted outcome: the `hosted.last_ci_outcome` and `hosted.pr_url_recorded` summary fields, the "Hosted outcomes recorded" report section, and the `outcome_recorded`, `outcomes`, `pr_url_recorded`, `pr_url_excluded_runs`, and `note` keys of `data.overall.hosted`.
+
+A project that copied the hosted workflows must copy the new versions and add `human-approval-review.yml` and `human-approval-rerun.yml`; see [Reviews re-run the hosted approval check](#reviews-re-run-the-hosted-approval-check) and [Hosted workflow hardening](#hosted-workflow-hardening).
+A pull request that edits a configured reviewer script now needs the configured human approval; see [The reviewer's own files need human review](#the-reviewers-own-files-need-human-review).
+The example reviewer wrappers in `docs/examples/reviewers/` are deprecated in favour of `agentic-preflight reviewer run` and are planned for removal in 0.10.0; see [Packaged command reviewer](#packaged-command-reviewer).
+
+The package now declares `requires-python = ">=3.11,<3.15"`; see [Python versions](#python-versions).
+
+The sections from here to the end of this file describe the 0.9.0 changes.
+[Python versions](#python-versions), [Repository shapes](#repository-shapes), [Attestation note content without user-level configuration](#attestation-note-content-without-user-level-configuration), and [Run record retention](#run-record-retention) above are also new in 0.9.0.
+
+## Attestation verification reads the protected base
 
 `verify SHA`, `approval-check`, `push`, and the pre-push hook no longer take policy or the merge base from the note.
 They recompute the merge base against the trusted base, which is `--base` when given and otherwise the note's `base_ref` resolved to `refs/remotes/origin/<branch>` or `refs/heads/<branch>`.
@@ -527,7 +575,7 @@ A docs stage that is green while the base disables docs now passes. Earlier veri
 Attestation schema 7, fingerprint version 2, and the evidence and configuration digests are unchanged.
 Notes that an earlier release wrote stay readable, and they verify when they satisfy the protected base policy.
 
-## Unreleased: fetch and push cannot prompt, and time out
+## Fetch and push cannot prompt, and time out
 
 The fetches in `start` and in a manual-mode `gate`, and the pushes, notes fetch, and remote query in `push`, now run with `GIT_TERMINAL_PROMPT=0` and an empty stdin.
 On Linux and macOS they also run without a controlling terminal.
@@ -545,7 +593,7 @@ An earlier release rejects a configuration that sets the key, as an unknown key.
 `start` records a new `remote_timeout` event and leaves the run in `SYNC_CONFLICT`, as for `sync_failed`. `push` leaves the run in `AWAITING_PUSH_CONFIRM`.
 Run schema 2 and attestation schema 7 are unchanged.
 
-## Unreleased: reviews re-run the hosted approval check
+## Reviews re-run the hosted approval check
 
 `human-approval.yml` no longer listens to `pull_request_review`.
 Two new workflow files handle reviews: `human-approval-review.yml` records the reviewed pull request number, and `human-approval-rerun.yml` re-runs each protected-base policy run for the head.
@@ -557,7 +605,7 @@ It re-runs only runs whose record shows a review mode and a required human appro
 GitHub allows a re-run for 30 days after the original run. An older pull request needs a new push before approval can land.
 The `approval-check` command, its outputs, and the attestation schema are unchanged.
 
-## Unreleased: documentation inventory lists committed files
+## Documentation inventory lists committed files
 
 The documentation inventory now lists only files committed at the head commit.
 Files not committed at the head commit that match a documentation pattern, such as a Sphinx `docs/_build/` tree or a nested worktree under `.claude/worktrees/`, no longer appear in `doc_surface`, in the docs allowlist, or in the docs fingerprint.
@@ -566,7 +614,7 @@ In a repository with such files, `doc_surface_sha256` changes, so docs evidence 
 In a repository without them, the inventory and its digest are unchanged.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
-## Unreleased: repository telemetry settings can only turn telemetry off
+## Repository telemetry settings can only turn telemetry off
 
 A `[telemetry]` section in `.agentic-preflight.toml` no longer replaces the user's section.
 Its `path` is ignored, and every command that loads the configuration prints a warning that names the file. The pre-push hook stays silent.
@@ -578,7 +626,7 @@ Invalid `mirror` and `hook_log` values and unknown keys in the repository sectio
 Attestation verification reads the protected base's `[telemetry]` section by the same rule, so a `path` there no longer fails verification.
 No configuration digest, snapshot, fingerprint, or attestation changes, because none of them contains `[telemetry]`.
 
-## Unreleased: event logs skip torn lines
+## Event logs skip torn lines
 
 An event appended after an interrupted append now starts on a new line instead of joining the torn line.
 A run's event log line that is not a JSON object, such as a torn line, is now skipped wherever it appears.
@@ -587,7 +635,7 @@ Earlier releases skipped only a torn final line and reported a malformed earlier
 The `events` envelope adds `data.skipped_lines`, the number of lines skipped.
 Run schema 2, attestation schema 7, and the event format are unchanged.
 
-## Unreleased: push publishes only the pushed commits' notes
+## Push publishes only the pushed commits' notes
 
 `push` no longer pushes the local `refs/notes/agentic-preflight` ref.
 It pushes a notes commit built from the remote notes tip plus the notes of the commits it pushes.
@@ -602,7 +650,7 @@ A wrapper that ran those strings as commands must run `push` instead.
 In manual gate mode, `gate` now fetches the remote notes, and `data.manual_command` names the notes commit's SHA.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
-## Unreleased: run and findings records are validated before they are written
+## Run and findings records are validated before they are written
 
 The run store parses each run and findings record back through its loader before writing it, and writes neither file of a transaction when either is invalid.
 Such a refusal is reported as `internal_error`; the earlier files stay unchanged.
@@ -611,7 +659,7 @@ A `run_record_unreadable` error envelope from a mutating command adds `data.poin
 Single-run `status`, `status --all`, and `gc` output are unchanged.
 Run schema 2, attestation schema 7, fingerprint version 2, and the findings format are unchanged.
 
-## Unreleased: open `auto_fix` findings keep the run in review
+## Open `auto_fix` findings keep the run in review
 
 `context --section docs`, `stage run lint`, and `mergeback` have a new error code, `findings_unresolved`, with exit 3.
 They return it while a review or docs finding is still open and either blocking or `auto_fix`. `error.message` and `blocking` name the findings.
@@ -621,7 +669,7 @@ The transition table adds `REOPEN_FINDINGS`, from `TEST_GREEN` and `MERGEBACK_PE
 `mergeback` uses it, or a return to review, to recover a run that an earlier release left in `TEST_GREEN` or `MERGEBACK_PENDING` with such a finding.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
-## Unreleased: `logs` returns a bounded window
+## `logs` returns a bounded window
 
 `logs --stage` no longer returns the whole stage log by default.
 `data.output` now holds the last 200 lines, cut to at most 64 KiB.
@@ -631,7 +679,7 @@ A wrapper that read the whole log from `data.output` must pass `--all` or read t
 The stored log, its redaction, and its location are unchanged.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
-## Unreleased: grounding reads the merge base
+## Grounding reads the merge base
 
 `data.grounding` now reads `docs/**`, `AGENTS.md`, `CLAUDE.md`, the files that `[context] extra_paths` selects, and the `[context]` section itself from `.agentic-preflight.toml` at the run's merge base.
 Earlier releases read them from the branch head and the working-tree configuration.
@@ -641,7 +689,7 @@ For a branch that edits those files or `[context]`, the grounding and `grounding
 For other branches the grounding is unchanged.
 Run schema 2, attestation schema 7, fingerprint version 2, and the configuration digest are unchanged.
 
-## Unreleased: hook path names a symlink, not its target
+## Hook path names a symlink, not its target
 
 `init` now replaces a symlink at the pre-push hook path with a regular file instead of writing through it.
 A dangling link, or a link to exactly the current hook script, is replaced without `--force`. Any other link to an existing file is judged by that file's content, as before.
@@ -649,14 +697,14 @@ A dangling link, or a link to exactly the current hook script, is replaced witho
 Earlier releases reported the link's target, or the missing target of a dangling link.
 The hooks directory, including `core.hooksPath`, is still resolved to an absolute path.
 
-## Unreleased: hosted workflow hardening
+## Hosted workflow hardening
 
 The `high-risk human approval` job now fails unless the policy job reports `requires_approval` as exactly `true` or `false`.
 The checkouts in `attestation.yml` and `human-approval.yml` set `persist-credentials: false`. A private repository that copies them must authenticate the later `git fetch` itself; see [Portable attestations and CI enforcement](docs/attestations-and-ci.md#required-github-check).
 `human-approval-rerun.yml` now has an `authorize` job and a `rerun` job, and re-runs the policy only for a review from an owner, member, or collaborator, an action by a user with write access, or an action by a bot account that has dismissed an owner, member, or collaborator review of the pull request. When a lookup that decides this fails, it re-runs the policy with a warning instead of skipping it. A project that copied the companion should copy the new version.
 The required check keeps its name, and `approval-check`, its outputs, and the attestation schema are unchanged.
 
-## Unreleased: the reviewer's own files need human review
+## The reviewer's own files need human review
 
 Risk classification now treats the repository paths that `[review] command` and `[review.contracts] planner_command` name as human-review paths, together with every file under each named file's directory.
 Directories that a command changes to or adds to `PYTHONPATH` or `NODE_PATH`, and the top-level package of a dotted `-m` module, are protected as whole directories. `-m name` protects `name.py` and `name/**`.
@@ -677,7 +725,7 @@ The Codex wrapper now passes `--config project_doc_max_bytes=0` and `--ignore-ru
 An older CLI that lacks one of these options fails the review with a visible error. Update the CLI, or remove the option from your copy of the wrapper and protect the files that it would read with `trusted_paths`.
 With `--safe-mode`, the Claude reviewer also ignores your user `CLAUDE.md`, skills, hooks, and MCP servers.
 
-## Unreleased: outcome fields in run summaries and the report
+## Outcome fields in run summaries and the report
 
 The run summary keeps `schema_version = 1`. The new keys are inside objects that the summary already has:
 `findings.review_blocking_fixed`, `findings.docs_blocking_fixed`, `stages.<name>.red_then_green`, `timing.tool_seconds`, and `timing.agent_seconds`.
@@ -692,7 +740,7 @@ Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
 In `agentic-preflight report`, each group of statistics adds `caught` and `tool_time`, and the Markdown has two new sections, "Caught before push" and "Tool time".
 
-## Unreleased: the pre-push hook recognizes the SHA-256 zero object ID
+## The pre-push hook recognizes the SHA-256 zero object ID
 
 `hook-check` now treats Git's 64-character zero object ID as a ref that does not exist, as it treats the 40-character one.
 In a SHA-256 repository it no longer blocks every new branch as a force push.
@@ -703,7 +751,7 @@ Deletions, tags, the attestation notes ref, evidence refs, and pushes of a commi
 The exit codes, the reason codes, and the hook decision lines are unchanged. Behavior in a SHA-1 repository is unchanged.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
-## Unreleased: packaged command reviewer
+## Packaged command reviewer
 
 `agentic-preflight reviewer run --provider claude|codex` is a new command.
 Like `hook-check`, it prints no JSON envelope and keeps Click's usage output and exit code 2 on a usage error.
@@ -713,7 +761,7 @@ It passes the same provider CLI options as the example wrappers, including `--sa
 The example wrappers in `docs/examples/reviewers/` stay as deprecated standard-library copies for one release. A test keeps them identical to the packaged reviewer, and they still run with `python3 -S -B`.
 The configuration file, the review submission, and the attestation schema are unchanged.
 
-## Unreleased: the baseline check runs outside the Git directory
+## The baseline check runs outside the Git directory
 
 `stage run --baseline` now checks out the base commit under the validation-worktree root in every mode, including `in_place`, instead of under `.git` in `in_place` mode.
 The root is the user cache by default, or `[worktree] root`.
@@ -723,7 +771,7 @@ The `stage run` envelope adds an optional `data.baseline_cleanup_failed` object 
 A baseline setup failure can carry the same `data.baseline_cleanup_failed` object.
 The `stage-run.json` schema gains that property. Run schema 2 and attestation schema 7 are unchanged.
 
-## Unreleased: review patches no longer depend on Git configuration
+## Review patches no longer depend on Git configuration
 
 The review digest hashes the patch text of the change, and a verifier accepts a note only when it can rebuild that text.
 Earlier releases built it with the Git configuration of the machine that ran the command.
@@ -741,7 +789,7 @@ Review patches now have one form on every machine:
 - Replacement objects under `refs/replace` are ignored. They exist in one clone only, and a review built with them could show content that the commits do not hold.
 - The user-level attributes file (`core.attributesFile`, by default `$XDG_CONFIG_HOME/git/attributes`) is not read for review patches.
 
-Attributes in the checkout, and `diff.default.xfuncname` and `diff.default.funcname`, are covered by [the Git attributes entry](#unreleased-review-patches-no-longer-depend-on-git-attributes).
+Attributes in the checkout, and `diff.default.xfuncname` and `diff.default.funcname`, are covered by [the Git attributes entry](#review-patches-no-longer-depend-on-git-attributes).
 
 What changes at upgrade:
 
@@ -760,7 +808,7 @@ What changes at upgrade:
 - Review evidence that an earlier release recorded does not carry to a new head. The review runs again.
 - A run that an earlier release reviewed and that is still open reopens review at its next command.
   The shell stages run again after the new review.
-- 0.8.1 and earlier verifiers reject a note that this release writes, with "review fingerprint does not match the Git diff".
+- 0.8.1 and earlier verifiers reject a note that 0.9.0 writes, with "review fingerprint does not match the Git diff".
   Upgrade the protected verifier before, or together with, the local publisher and the hook.
 
 A repository that sets `diff.ignoreSubmodules = all`, or `submodule.<name>.ignore = all` in its configuration or its committed `.gitmodules`, now sees submodule pointer changes in the review diff, the changed-file list, risk classification, and the list of paths a fix commit changes.
@@ -768,7 +816,7 @@ Earlier releases left them out.
 
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
-## Unreleased: an oversized diff is measured with a bounded read
+## An oversized diff is measured with a bounded read
 
 `context` and `review run` can stop reading the diff early once its patch text passes four times `[diff] max_bytes`.
 The `diff_too_large` envelope from `context` adds `data.complete` and `data.unmeasured_files`.
@@ -778,7 +826,7 @@ A wrapper that treated `data.total_bytes` as the exact diff size must check `dat
 A diff within the limit produces the same patch text, `diff_sha256`, and review manifest as before.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
-## Unreleased: abort protects uncommitted changes in the validation worktree
+## Abort protects uncommitted changes in the validation worktree
 
 In `strict` and `reusable` modes, releasing the validation worktree removes it or resets and cleans the runner, and a plain `abort` used to discard uncommitted changes there without asking.
 `abort` now exits 5 with `unmerged_work` when the validation worktree has uncommitted changes, untracked files included, apart from ignored files and the files `start` copied in: the rule `gc` already applies before it releases a worktree.
@@ -790,7 +838,7 @@ A wrapper or agent that ran a plain `abort` after leaving files in the validatio
 `in_place` runs are unchanged. The abort schema adds the optional `uncommitted_paths`, `uncommitted_path_count`, and `inspection_error` properties.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
-## Unreleased: abort protects commits that nothing registered
+## Abort protects commits that nothing registered
 
 In isolated worktree modes, `respond` and a red stage's restart register fix commits, and merge-back registers the validated history at `TEST_GREEN`.
 A commit made in the validation worktree outside those points lived only on the validation branch, and a plain `abort` deleted it with the branch.
@@ -801,7 +849,7 @@ A `reusable` runner whose directory is gone keeps its branch when released, so i
 In-place runs, states before synchronization finishes, and merge-back states are unchanged.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
-## Unreleased: start --replace and gc read the validation branch
+## `start --replace` and `gc` read the validation branch
 
 `start --replace` (and a moved source head) in `reusable` mode and `gc` in `strict` and `reusable` modes release a validation checkout only after checking its `HEAD`, and the release deletes the validation branch.
 A checkout detached at the reviewed head therefore hid commits on `ap/<run_id>`, which the release deleted.
@@ -813,7 +861,7 @@ The `gc` instruction for retained validation worktrees now also points at each r
 A checkout whose `HEAD` is on its branch, the normal case, behaves as before.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
-## Unreleased: review patches no longer depend on Git attributes
+## Review patches no longer depend on Git attributes
 
 Review patches followed the Git attributes of the checkout that built them.
 A branch that committed `.gitattributes` with `* -diff` turned every patch into "Binary files ... differ", so the reviewer saw no content while each file still counted as reviewed.
@@ -831,19 +879,19 @@ Review patches now have one form whatever the attributes:
 
 What changes at upgrade:
 
-- `diff_sha256`, the review manifest, and the affected unit digests change for a repository whose attributes changed a patch: a `-diff`, `binary`, or `diff` attribute, or a diff driver with a hunk-header pattern. A repository without such attributes gets the same text as [the Git configuration entry](#unreleased-review-patches-no-longer-depend-on-git-configuration) describes.
-- A note that 0.8.1 or an earlier release wrote still verifies when its text can be rebuilt, as [the Git configuration entry](#unreleased-review-patches-no-longer-depend-on-git-configuration) describes. That text follows the verifier's attributes, as 0.8.1 did.
+- `diff_sha256`, the review manifest, and the affected unit digests change for a repository whose attributes changed a patch: a `-diff`, `binary`, or `diff` attribute, or a diff driver with a hunk-header pattern. A repository without such attributes gets the same text as [the Git configuration entry](#review-patches-no-longer-depend-on-git-configuration) describes.
+- A note that 0.8.1 or an earlier release wrote still verifies when its text can be rebuilt, as [the Git configuration entry](#review-patches-no-longer-depend-on-git-configuration) describes. That text follows the verifier's attributes, as 0.8.1 did.
   The verifier now rejects such a note when its text shows "Binary files ... differ" for a file whose content is text. The message names the file.
   This applies only when that earlier text reproduces the note's digest. A digest that neither text reproduces fails with "review fingerprint does not match the Git diff", whatever the checkout's attributes.
-  That text uses Git's default `core.bigFileThreshold`, as [the Git configuration entry](#unreleased-review-patches-no-longer-depend-on-git-configuration) describes, so a lowered threshold on the verifier does not cause this.
+  That text uses Git's default `core.bigFileThreshold`, as [the Git configuration entry](#review-patches-no-longer-depend-on-git-configuration) describes, so a lowered threshold on the verifier does not cause this.
 - Review evidence recorded against attribute-shaped text does not carry to a new head. The review runs again and now sees the content.
 - Which files are binary is decided from the blobs the commits hold. A replacement object under `refs/replace` does not change that decision, as it does not change the patch.
-- The bounded read that checks `[diff] max_bytes`, described in [the bounded read entry](#unreleased-an-oversized-diff-is-measured-with-a-bounded-read), builds the same attribute-free text. To decide which files are binary it still reads every changed blob, keeping only the first 8,000 bytes of each, before it reads any patch text.
-- Earlier verifiers rebuild attribute-shaped text, so they reject a note that this release writes for a repository whose attributes changed a patch. Upgrade the protected verifier before, or together with, the local publisher and the hook, as [the Git configuration entry](#unreleased-review-patches-no-longer-depend-on-git-configuration) already requires.
+- The bounded read that checks `[diff] max_bytes`, described in [the bounded read entry](#an-oversized-diff-is-measured-with-a-bounded-read), builds the same attribute-free text. To decide which files are binary it still reads every changed blob, keeping only the first 8,000 bytes of each, before it reads any patch text.
+- Earlier verifiers rebuild attribute-shaped text, so they reject a note that 0.9.0 writes for a repository whose attributes changed a patch. Upgrade the protected verifier before, or together with, the local publisher and the hook, as [the Git configuration entry](#review-patches-no-longer-depend-on-git-configuration) already requires.
 
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
 
-## Unreleased: refuse unsupported repository object formats up front
+## Refuse unsupported repository object formats up front
 
 `start` and `init` now exit 3 with `unsupported_object_format` for any object
 format other than `sha1`. The message links the [Repository shapes](#repository-shapes) compatibility statement.
@@ -852,7 +900,7 @@ coverage. No run is created or resumed; `init` refuses before writing configurat
 or installing a hook, including with `--force` or `--no-hook`. Existing SHA-1
 repositories are unaffected. SHA-256 support is not added by this change.
 
-## Unreleased: distinguish missing merge bases from empty diffs
+## Distinguish missing merge bases from empty diffs
 
 `start` no longer maps every merge-base failure to `empty_diff`.
 A shallow repository whose available history has no common ancestor with the base
@@ -862,7 +910,7 @@ Other Git failures keep `git_error` (exit 1) and the original diagnostic.
 Consumers matching `empty_diff` for these failures must handle the new codes.
 Actual empty diffs retain `empty_diff`. Neither refusal creates a run.
 
-## Unreleased: documentation surfaces use committed blobs
+## Documentation surfaces use committed blobs
 
 Documentation existence, size, and content now come from HEAD's blobs rather than
 checkout files. Sparse and full checkouts of the same commit produce the same
@@ -878,7 +926,7 @@ that encounters a different digest reports `doc_surface_changed` and reruns docs
 regular files whose checkout bytes already match Git keep their digest. See
 [the migration decision](docs/fingerprint-contract.md#documentation-blob-migration).
 
-## Unreleased: require response reasons in the CLI
+## Require response reasons in the CLI
 
 `respond --action dismissed|accepted` now requires `--reason` as well as `--note`.
 Omitting the reason exits 6 with `usage_error` before opening or mutating a run.
@@ -889,7 +937,7 @@ their existing optional-reason behavior. Stored historical findings and events
 without reasons remain readable; their telemetry stays `unspecified`. No record,
 attestation, fingerprint, or summary schema version changes.
 
-## Unreleased: hosted escape observations
+## Hosted escape observations
 
 Summary schema version 1 gains nullable hosted activity counts, failed-check
 counts by class, and an optional revert boolean. Old hosted files rebuild with
@@ -910,7 +958,7 @@ saving the partial outcome and rebuilding its summary. Use `--refresh` after
 recovery to retry unknown observations in already-synced runs. Core PR/check
 fetch failures retain their existing behavior.
 
-## Unreleased: packaged reviewer orchestration and adjudication
+## Packaged reviewer orchestration and adjudication
 
 The packaged reviewer adds opt-in `--retries` and `--verify`, with a shared
 `--budget-seconds` limit. Defaults retain one discovery call and no verification.

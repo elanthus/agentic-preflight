@@ -38,7 +38,7 @@ for every run.
    always need separate approval. `[pr] mode = "auto"` is standing authorization to
    open or reuse the pull request after the authorized push and the run finish. The
    canonical rule is in
-   [push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/configuration.md#push-and-pull-request-authorization).
+   [push and pull-request authorization](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/configuration.md#push-and-pull-request-authorization).
    Follow [Pull-request lifecycle and cleanup](#pull-request-lifecycle-and-cleanup)
    for PR mode, `[pr] automated_cleanup = true` monitoring, and cleanup boundaries.
 6. **Treat merge-back conflicts as a bounded recovery, never a shortcut.** On exit 4,
@@ -241,7 +241,7 @@ to summarize the user's run history.
 
 In a shallow or partial clone, a sparse checkout, a repository with submodules or Git
 LFS, a very large tree, a SHA-256 repository, or a bare repository, read
-[repository shapes](https://github.com/elanthus/agentic-preflight/blob/main/docs/repository-shapes.md)
+[repository shapes](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/repository-shapes.md)
 before you recover from a failure. It lists what each shape cannot do and what helps.
 
 ## Escalation etiquette

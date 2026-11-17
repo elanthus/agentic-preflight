@@ -100,6 +100,55 @@ Audit history and user work stay available for normal safe cleanup.
 Package installation does not scan or delete repository runs.
 See [compatibility](../COMPATIBILITY.md#saved-pending-run-updates).
 
+### Upgrading from 0.8 to 0.9
+
+Upgrade the protected CI verifier, the CLI, and copied skills to the same reviewed 0.9 release.
+The commands below select the published 0.9.0 release.
+
+1. Before upgrading, run `agentic-preflight status --all` in each clone.
+   Push or abort each open run: 0.9 refuses to merge back, gate, or push a run that 0.8 started.
+   Preserve unmerged fixes and local skill customizations, and record the current verifier pin.
+2. Move the protected-base CI verifier to 0.9.0 first, or in the same change as the producers.
+   A 0.8 verifier rejects a note that 0.9.0 writes, with "review fingerprint does not match the Git diff".
+   A 0.9.0 verifier still accepts a note that 0.8.1 wrote in the usual case.
+   For a package-based verifier, pin `agentic-preflight==0.9.0`.
+   For a source-based verifier, use the matching reviewed source revision.
+   A project that copied the hosted workflows must copy the new versions and add
+   `human-approval-review.yml` and `human-approval-rerun.yml`.
+   See [protected-base fetch and verification](attestations-and-ci.md#protected-base-fetch-and-verification).
+3. Upgrade every machine that shares a clone before setting new configuration keys or letting
+   the new CLI write shared run records:
+
+   ```bash
+   uv tool install --force 'agentic-preflight==0.9.0'
+   agentic-preflight --version
+   agentic-preflight integrations status
+   agentic-preflight integrations update
+   agentic-preflight integrations status
+   ```
+
+   Expect version 0.9.0 and `current` for each managed installed integration.
+   From a reviewed 0.9.0 source checkout, use `./install.sh` or `.\install.ps1` instead.
+   Update project copies with `integrations update --scope project` and custom targets with `--target PATH`.
+   Preserve modified or unmanaged skill copies before an intentional `--force` replacement.
+   Restart running agents so they read the refreshed skills.
+4. Update wrappers and scripts that call the CLI.
+   `respond --action dismissed|accepted` now requires `--reason`.
+   `logs --stage` returns a bounded window; pass `--all` for the whole log.
+   In `strict` and `reusable` modes, a plain `abort` exits 5 when the validation worktree holds
+   uncommitted changes or unregistered commits.
+   Version 0.9 removes no 0.8 configuration keys, but 0.8 rejects `[general] network_timeout_seconds`,
+   `[review] trusted_paths`, `[retention] run_days`, and `[telemetry.hosted] local_equivalent_checks`.
+5. In each source worktree, run `status` and follow its returned command.
+   When `mergeback`, `gate`, or `push` reports `unknown_config_provenance`, 0.8 started that run.
+   Abort it and start a fresh one; in isolated worktree modes, cherry-pick its recorded fix commits first.
+   When a note that 0.8 wrote no longer verifies, validate the commit again to replace it.
+
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.
+Run records written by 0.8 remain readable by 0.9.
+Schema numbers alone do not establish compatibility with an older reader.
+See [0.9 compatibility changes](../COMPATIBILITY.md#upgrading-from-081-to-090) for details.
+
 ### Upgrading from 0.7 to 0.8
 
 Upgrade the CLI, copied skills, and protected CI verifier together. Use the same reviewed

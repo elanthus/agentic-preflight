@@ -111,7 +111,7 @@ head and its note. Unsupported schemas require the current producer and protecte
 verifier. Malformed evidence or wrong commit/tree bindings need valid evidence for the
 exact head. Local `verify SHA` and `approval-check` never fetch or retry. Human approval
 and manual-merge requirements remain independent of transport recovery.
-See [the CI guide](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/attestations-and-ci.md#protected-base-fetch-and-verification).
+See [the CI guide](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/attestations-and-ci.md#protected-base-fetch-and-verification).
 
 ## Push rejects the note against the protected base policy (exit 2, `attestation_failed`)
 
@@ -308,7 +308,7 @@ verdict, or the attestation, so never choose one to make a run look better.
 
 ## Stage far slower than normal
 
-Check `[worktree] mode` and follow the [worktree setup and cache guidance](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/worktree-modes.md#when-a-stage-is-much-slower-than-expected).
+Check `[worktree] mode` and follow the [worktree setup and cache guidance](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/worktree-modes.md#when-a-stage-is-much-slower-than-expected).
 Do not raise `[stage] max_attempts` to paper over missing preparation.
 
 ## Locked validation worktree (exit 1, `git_error`, or `gc` retains `validation worktree is locked`)
@@ -328,7 +328,7 @@ pushed.
 ## Stage reports zero files to work on
 
 Check whether `worktree_path` is under `.git/`; tools that skip VCS directories cannot
-see it. See [why isolated worktrees live outside `.git`](https://github.com/elanthus/agentic-preflight/blob/v0.8.1/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git).
+see it. See [why isolated worktrees live outside `.git`](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/worktree-modes.md#why-isolated-validation-worktrees-live-outside-git).
 Symlinks do not help — real paths are resolved. Confirm by
 running the same command in a worktree outside `.git`; if that finds files, point the
 stage command at a script that checks the commit under test out to a non-`.git` path
@@ -360,7 +360,7 @@ In a non-shallow repository, `unrelated_histories` (exit 3) means no common ance
 exists in the complete history. Check the selected base and branch history; fetching
 with `--unshallow` is not the remedy. Other Git failures retain `git_error` and their
 diagnostic. `empty_diff` is reserved for a branch with no changes over its base.
-See [repository shapes](https://github.com/elanthus/agentic-preflight/blob/main/docs/repository-shapes.md#shallow-clones).
+See [repository shapes](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/repository-shapes.md#shallow-clones).
 
 ## Existing pre-push hook (exit 3, `hook_exists`)
 
@@ -370,7 +370,7 @@ hook and removes what it did. Git LFS writes such a hook, and replacing it stops
 from uploading LFS objects. To keep both, the user combines them in one hook that runs
 `agentic-preflight hook-check` first, so that a blocked push sends nothing, and the
 existing command only after it passes, each with its own copy of standard input, as
-[repository shapes](https://github.com/elanthus/agentic-preflight/blob/main/docs/repository-shapes.md#git-lfs)
+[repository shapes](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/repository-shapes.md#git-lfs)
 shows. A later `git lfs install --force` or `git lfs update --force` replaces the
 combined hook; `status` then reports the hook as inactive.
 
