@@ -545,6 +545,30 @@ def literal_pathspec_env() -> dict[str, str]:
     return {name: value for name, value in os.environ.items() if name not in _PATHSPEC_ENV}
 
 
+def _tree_records(
+    cwd: Path | str,
+    ref: str,
+    *,
+    scopes: Sequence[str] | None,
+    recursive: bool,
+    with_size: bool = False,
+) -> Iterator[tuple[list[bytes], str]]:
+    if scopes is not None and not scopes:
+        return
+    args = ["ls-tree", *(("-r",) if recursive else ()), "-z", "--full-tree"]
+    if with_size:
+        args.append("--long")
+    args.append(ref)
+    env = None
+    if scopes is not None:
+        args += ["--", *(f":(literal){scope}" for scope in scopes)]
+        env = literal_pathspec_env()
+    for record in _run_bytes(cwd, *args, env=env).split(b"\0"):
+        if record:
+            metadata, path = record.split(b"\t", 1)
+            yield metadata.split(), _decode_path(path)
+
+
 def tree_files(
     cwd: Path | str,
     ref: str = "HEAD",
@@ -552,29 +576,40 @@ def tree_files(
     scopes: Sequence[str] | None = None,
     recursive: bool = True,
 ) -> list[str]:
-    """Return the raw path of every blob in a commit's tree, in Git's order.
+    """Return every blob path in a commit, in Git's order, excluding gitlinks.
 
-    Submodule entries are commits, not blobs, so they are left out. Paths come
-    back undecoded as filesystem names do, so they can be joined to a worktree.
-    ``scopes`` limits the listing to those literal repository paths and
-    everything beneath them, so Git skips the rest of the tree; an empty
-    sequence lists nothing. ``recursive=False`` lists the top level only.
+    Scopes are literal repository paths and their descendants; an empty sequence
+    lists nothing. ``recursive=False`` lists only the top level. Paths round-trip
+    as filesystem names, including tabs and newlines.
     """
-    if scopes is not None and not scopes:
-        return []
-    args = ["ls-tree", *(("-r",) if recursive else ()), "-z", "--full-tree", ref]
-    env = None
-    if scopes is not None:
-        args += ["--", *(f":(literal){scope}" for scope in scopes)]
-        env = literal_pathspec_env()
-    paths: list[str] = []
-    for record in _run_bytes(cwd, *args, env=env).split(b"\0"):
-        if not record:
-            continue
-        metadata, path = record.split(b"\t", 1)
-        if metadata.split()[1] == b"blob":
-            paths.append(_decode_path(path))
-    return paths
+    return [
+        path
+        for metadata, path in _tree_records(cwd, ref, scopes=scopes, recursive=recursive)
+        if metadata[1] == b"blob"
+    ]
+
+
+@dataclass(frozen=True)
+class TreeBlob:
+    object_id: str
+    size: int
+
+
+def tree_blobs(
+    cwd: Path | str,
+    ref: str = "HEAD",
+    *,
+    scopes: Sequence[str] | None = None,
+    recursive: bool = True,
+) -> dict[str, TreeBlob]:
+    """Return blob identities and sizes from the tree, never from checkout files."""
+    return {
+        path: TreeBlob(metadata[2].decode("ascii"), int(metadata[3]))
+        for metadata, path in _tree_records(
+            cwd, ref, scopes=scopes, recursive=recursive, with_size=True
+        )
+        if metadata[1] == b"blob"
+    }
 
 
 def git_common_dir(cwd: Path | str) -> Path:

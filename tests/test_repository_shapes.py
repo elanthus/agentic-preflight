@@ -210,9 +210,14 @@ def test_sparse_checkout_review_covers_paths_outside_the_sparse_set(sparse_featu
 
     agent.run("submit-findings", "--file", findings_json(tmp_path, []))
     surface = agent.run("context", "--section", "docs")["data"]["doc_surface"]
-    # Known issue (pending), #393: the documentation surface lists only files present in
-    # the checkout, so a changed guide outside the sparse set is not on it.
-    assert [entry["path"] for entry in surface] == ["README.md"]
+    full = tmp_path / "full"
+    git("worktree", "add", "--detach", str(full), "HEAD", cwd=sparse_feature_repo)
+    git("sparse-checkout", "disable", cwd=full)
+    from agentic_preflight.stages.docs import build_inventory
+
+    complete = [entry.as_dict() for entry in build_inventory(full, env["data"]["changed_files"])]
+    assert surface == complete
+    assert [entry["path"] for entry in surface] == ["README.md", "docs/guide.md"]
     finding = {
         "path": "docs/guide.md",
         "severity": "medium",
@@ -221,9 +226,8 @@ def test_sparse_checkout_review_covers_paths_outside_the_sparse_set(sparse_featu
     }
     docs_findings = tmp_path / "docs-findings.json"
     docs_findings.write_text(json.dumps({"findings": [finding]}), encoding="utf-8")
-    env = agent.run("submit-findings", "--file", str(docs_findings), expect=ExitCode.PRECONDITION)
-    assert env["error"]["code"] == "invalid_findings"
-    assert "allowlist" in env["error"]["message"]
+    env = agent.run("submit-findings", "--file", str(docs_findings))
+    assert env["data"]["accepted"][0]["path"] == "docs/guide.md"
 
 
 def test_isolated_worktree_inherits_the_sparse_checkout(sparse_feature_repo, tmp_path):
@@ -257,7 +261,7 @@ def test_isolated_worktree_inherits_the_sparse_checkout(sparse_feature_repo, tmp
     assert agent.run("stage", "run", "lint")["state"] == "LINT_GREEN"
 
 
-def test_docs_fingerprint_depends_on_the_sparse_set(sparse_feature_repo, tmp_path):
+def test_docs_fingerprint_is_independent_of_the_sparse_set(sparse_feature_repo, tmp_path):
     full = tmp_path / "full"
     git("worktree", "add", "--detach", str(full), "feature/x", cwd=sparse_feature_repo)
     git("sparse-checkout", "disable", cwd=full)
@@ -278,7 +282,7 @@ def test_docs_fingerprint_depends_on_the_sparse_set(sparse_feature_repo, tmp_pat
         complete.base_tree_sha,
         complete.head_tree_sha,
     )
-    assert sparse.doc_surface_sha256 != complete.doc_surface_sha256
+    assert sparse.doc_surface_sha256 == complete.doc_surface_sha256
 
 
 # -- submodules ----------------------------------------------------------------

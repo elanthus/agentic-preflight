@@ -2,10 +2,10 @@
 
 ``build_inventory`` feeds the allowlist, the agent's context, and
 ``doc_surface_sha256``. It lists the files committed at ``HEAD``, so ignored,
-generated, and untracked files stay out. For committed files it must still give
-what the original ``rglob`` walk gave: the same entries, in the same order, so a
-repository without ignored docs keeps its surface digest. ``_rglob_inventory``
-is that original walk, kept as the oracle.
+generated, and untracked files stay out. Ordinary committed files whose checkout
+bytes match Git keep the historical entries and Path order. ``_rglob_inventory``
+is the original walk, kept as an oracle for those ordinary-file fixtures.
+Sparse checkouts, symlinks, and converted content are tested against blobs.
 """
 
 from __future__ import annotations
@@ -173,18 +173,18 @@ def test_submodule_contents_stay_out(tmp_path):
     assert "vendor/lib/README.md" not in _paths(root, ["vendor/**"])
 
 
-def test_a_committed_file_missing_from_disk_is_skipped(tmp_path):
+def test_a_committed_file_missing_from_disk_stays_in_the_surface(tmp_path):
     root = _repo(tmp_path)
     (root / "docs" / "a.md").unlink()
 
     paths = _paths(root)
 
-    assert "docs/a.md" not in paths
+    assert "docs/a.md" in paths
     assert "docs/Z.md" in paths
 
 
 @requires_git_symlinks
-def test_a_committed_symlink_counts_only_when_it_resolves_to_a_file(tmp_path):
+def test_committed_symlinks_count_without_following_their_targets(tmp_path):
     root = _repo(tmp_path)
     (root / "docs" / "linked.md").symlink_to("../README.md")
     (root / "docs" / "broken.md").symlink_to("missing.md")
@@ -194,8 +194,8 @@ def test_a_committed_symlink_counts_only_when_it_resolves_to_a_file(tmp_path):
     paths = _paths(root, ["**/*"])
 
     assert "docs/linked.md" in paths
-    assert "docs/broken.md" not in paths
-    assert "docs/dirlink" not in paths
+    assert "docs/broken.md" in paths
+    assert "docs/dirlink" in paths
     assert "docs/dirlink/b.md" not in paths
 
 
@@ -212,3 +212,43 @@ def test_git_pathspec_environment_does_not_change_the_inventory(tmp_path, monkey
     monkeypatch.setenv(variable, "1")
 
     assert _inventory(root, CHANGED, extra) == expected
+
+
+@requires_git_symlinks
+def test_symlink_surface_hashes_link_text_and_never_reads_its_target(tmp_path, tmp_path_factory):
+    import hashlib
+
+    root = _repo(tmp_path)
+    target = tmp_path_factory.mktemp("outside-doc") / "target"
+    target.write_text("private outside content")
+    link_text = str(target)
+    (root / "docs/external.md").symlink_to(link_text)
+    commit_all(root, "external link")
+    before = doc_surface(root, docs.build_inventory(root, []))
+    entry = next(item for item in before if item["path"] == "docs/external.md")
+    assert entry["size"] == len(link_text.encode())
+    assert entry["content_sha256"] == hashlib.sha256(link_text.encode()).hexdigest()
+    target.unlink()
+    assert doc_surface(root, docs.build_inventory(root, [])) == before
+
+
+def test_surface_uses_committed_bytes_despite_checkout_conversion(tmp_path):
+    import hashlib
+
+    root = _repo(tmp_path)
+    write(root, ".gitattributes", "docs/eol.md text eol=crlf\n")
+    write(root, "docs/eol.md", "one\ntwo\n")
+    pointer = (
+        b"version https://git-lfs.github.com/spec/v1\noid sha256:" + b"a" * 64 + b"\nsize 100\n"
+    )
+    (root / "docs/pointer.md").write_bytes(pointer)
+    commit_all(root, "stored docs")
+    (root / "docs/eol.md").unlink()
+    git("checkout", "--", "docs/eol.md", cwd=root)
+    assert (root / "docs/eol.md").read_bytes() == b"one\r\ntwo\r\n"
+    # A smudge filter can leave arbitrary large content behind a committed pointer.
+    (root / "docs/pointer.md").write_bytes(b"smudged checkout content" * 100)
+    entries = {item["path"]: item for item in doc_surface(root, docs.build_inventory(root, []))}
+    for path, content in (("docs/eol.md", b"one\ntwo\n"), ("docs/pointer.md", pointer)):
+        assert entries[path]["size"] == len(content)
+        assert entries[path]["content_sha256"] == hashlib.sha256(content).hexdigest()

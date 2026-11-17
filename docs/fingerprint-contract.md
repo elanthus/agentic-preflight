@@ -78,8 +78,12 @@ Configuration and documentation-surface digests hash JSON with sorted keys and c
 
 Docs binds the base and head trees, the intent, the grounding, the documentation content, and the `[general]`, `[docs]`, `[diff]`, `[context]`, and `[policy]` sections.
 Its digest includes every inventory entry's complete bytes, path, existence, size, and whether the diff touches it.
-The inventory lists only files committed at the head commit, so an ignored or untracked document does not enter the digest.
-Changed docs between context and submission require fresh context.
+The inventory lists only blobs committed at the head commit, so an ignored or untracked document does not enter the digest.
+Existence, size, and content come from those blobs, including outside a sparse checkout.
+The caller pins HEAD to the expected commit; checkout presence and content do not affect the surface.
+A symlink contributes its link-text blob, including dangling or directory-target links; its target is never followed.
+LFS pointers and normalized line endings contribute their committed bytes, without smudge filters or checkout conversion.
+Changes to committed docs between context and submission require fresh context.
 
 An unrelated user-level test-command change leaves the review configuration unchanged.
 A committed configuration edit changes the head tree. The edit itself must be reviewed.
@@ -145,3 +149,19 @@ Missing originals cannot be reconstructed from hashes.
 
 The clean-checkout, synchronization, merge-back, publication authorization, and atomic branch and notes push rules still apply.
 A refresh authorizes no force-push, merge, or cleanup.
+
+## Documentation blob migration
+
+The migration from checkout bytes to head-commit blobs keeps fingerprint version 2
+and the existing canonical JSON fields and ordering. We considered a versioned
+digest, which would invalidate all docs evidence, and dual legacy/new digests,
+which would retain checkout-dependent semantics. We instead accept a one-time
+invalidation only where the computed surface changes: missing sparse files,
+symlink targets, smudged LFS content, or converted line endings. Ordinary files
+whose checkout bytes equal their blobs keep their surface digest.
+
+Existing run records and original attestations remain readable; their recorded
+digests are not rewritten. When local evidence discovery compares an old surface
+with a different blob-based surface, `doc_surface_changed` requires a fresh docs
+stage. No fallback to checkout bytes is used for evidence reuse. The base/head
+tree, grounding, and other fingerprint bindings continue to apply independently.

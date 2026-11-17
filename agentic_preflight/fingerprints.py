@@ -235,17 +235,41 @@ def compute_review_fingerprint(
     )
 
 
+_DOC_BLOB_BATCH_BYTES = 8 * 1024 * 1024
+
+
 def doc_surface(repo: Path | str, inventory: Iterable[DocEntry]) -> list[dict[str, Any]]:
-    """Describe each inventory entry together with the SHA-256 of its current bytes."""
-    return [
-        {
-            **entry.as_dict(),
-            # Preserve the historical fingerprint input after removing the CLI field.
-            "exists": True,
-            "content_sha256": hashlib.sha256((Path(repo) / entry.path).read_bytes()).hexdigest(),
-        }
-        for entry in inventory
-    ]
+    """Hash committed blobs, bounding each batch to avoid buffering all docs at once.
+
+    A single large document is read alone, as it was with checkout reads. The
+    inventory's byte sizes and identities come from the same committed tree.
+    """
+    surface: list[dict[str, Any]] = []
+    batch: list[DocEntry] = []
+    size = 0
+
+    def append_batch() -> None:
+        blobs = gitx.read_blobs(repo, [entry.blob_id for entry in batch])
+        surface.extend(
+            {
+                **entry.as_dict(),
+                # Preserve the historical fingerprint input after removing the CLI field.
+                "exists": True,
+                "content_sha256": hashlib.sha256(blob).hexdigest(),
+            }
+            for entry, blob in zip(batch, blobs, strict=True)
+        )
+
+    for entry in inventory:
+        if batch and (size + entry.size > _DOC_BLOB_BATCH_BYTES or len(batch) >= 256):
+            append_batch()
+            batch = []
+            size = 0
+        batch.append(entry)
+        size += entry.size
+    if batch:
+        append_batch()
+    return surface
 
 
 def compute_docs_fingerprint(
@@ -262,10 +286,9 @@ def compute_docs_fingerprint(
 ) -> DocsFingerprint:
     """Fingerprint the inputs a green docs stage against ``head_sha`` depended on.
 
-    The documentation surface is read from the worktree, so this must be
-    called while ``head_sha`` is actually checked out there, the same
-    convention ``review_protocol.context_data`` and ``grounding.assemble``
-    already rely on. A caller that already holds ``doc_surface`` for these
+    The caller's HEAD must resolve to ``head_sha``. The surface reads its
+    blobs independently of checkout presence or content; context and grounding
+    use the same HEAD identity. A caller that already holds ``doc_surface`` for these
     ``changed_files`` and ``doc_paths`` may pass it as ``surface``.
     """
     if surface is None:
