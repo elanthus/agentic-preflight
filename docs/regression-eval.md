@@ -267,7 +267,8 @@ ordered `findings` list, and a `seeded_defects` list of distinct seed IDs.
 Include vulnerable and fixed snapshots together; controls have no seeds.
 Keep the inventory and labels outside the reviewer-visible tree.
 
-An adjudication file has this versioned format:
+An adjudication file must contain a JSON object; other top-level values raise
+`ValueError`. It has this versioned format:
 
 ~~~json
 {

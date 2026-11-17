@@ -101,3 +101,10 @@ def test_non_json_inventory_is_rejected_as_invalid_input():
     trials[0]["findings"][0]["unsupported"] = {1, 2}
     with pytest.raises(ValueError, match="JSON data"):
         adjudication_score(trials, labels)
+
+
+@pytest.mark.parametrize("document", [None, [], "invalid", 1, True])
+def test_adjudication_document_must_be_an_object(document):
+    trials, _ = fixtures()
+    with pytest.raises(ValueError, match="adjudication"):
+        adjudication_score(trials, document)

@@ -461,7 +461,8 @@ def adjudication_score(
     """
 
     if (
-        type(adjudication.get("schema_version")) is not int
+        not isinstance(adjudication, dict)
+        or type(adjudication.get("schema_version")) is not int
         or adjudication["schema_version"] != 1
         or not _label_text(adjudication.get("run_id"))
     ):
