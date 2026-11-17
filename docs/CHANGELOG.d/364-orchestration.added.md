@@ -1,1 +1,1 @@
-- Add bounded packaged reviewer retries, optional candidate verification, per-call local events, and digest-bound eval adjudication with Wilson precision/recall intervals, tested with fake provider CLIs.
+- Add packaged reviewer `--retries`, `--budget-seconds`, and optional `--verify`, with per-call measurements and rejected candidates in `AP_REVIEWER_EVENTS_FILE`, plus digest-bound eval adjudication with Wilson precision/recall intervals. Tests use fake provider CLIs without network or model calls.
