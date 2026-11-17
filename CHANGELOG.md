@@ -348,7 +348,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
   allowlist, or `doc_surface_sha256`. A committed generated file still counts.
 
 - Correct the owner-review and telemetry documentation, clarify configured command review, and align the skill severity examples.
-- Add 0.7-to-0.8 upgrade steps, refresh bundled skill links to 0.8.1, and document the Claude Code 2.1.292 stream-result handling.
+- Add 0.7-to-0.8 upgrade steps, refresh stale bundled skill links (this release pins them to v0.9.0), and document the Claude Code 2.1.292 stream-result handling.
 
 - In `reusable` mode, `start --replace` and a `start` after the source head moved, and
   `gc` in both isolated modes, no longer delete commits on a validation branch when the
