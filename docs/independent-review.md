@@ -14,7 +14,8 @@ agentic-preflight reviewer run --provider claude
 agentic-preflight reviewer run --provider codex
 ```
 
-The reviewer uses only the Python standard library and shells out to the provider CLI.
+The provider adapters use the Python standard library and shell out to the provider CLI.
+Packaged orchestration also uses the package’s existing finding-schema validators; it adds no dependency.
 It imports no model SDK. Install the provider CLI and sign in to it separately.
 [ADR 0003](adr/0003-ship-a-packaged-reviewer.md) records this dependency policy.
 
@@ -23,11 +24,11 @@ It imports no model SDK. Install the provider CLI and sign in to it separately.
 On a failure, it exits 1 and writes one `independent reviewer failed: ...` line on stderr, which `review run` records in the review log.
 A usage error, such as a missing or unknown `--provider`, keeps Click's usage message on stderr and exits 2.
 
-For one release, `docs/examples/reviewers/` also keeps standard-library copies of the same reviewer: the
+For one release, `docs/examples/reviewers/` also keeps standard-library copies of the legacy single-call adapters: the
 [Codex wrapper](examples/reviewers/codex_review.py), the
 [Claude wrapper](examples/reviewers/claude_review.py), and the shared
 [_reviewer_common.py helper](examples/reviewers/_reviewer_common.py).
-A test keeps each copy identical to its packaged counterpart, apart from the shebang, the module docstring, the import of the shared helper, and the `__main__` block.
+A test keeps each copy identical to its legacy adapter counterpart in the package, apart from the shebang, the module docstring, the import of the shared helper, and the `__main__` block.
 The copies import nothing from Agentic Preflight. They are deprecated and will be removed in a later release.
 
 The example [Codex configuration](examples/codex-reviewer.toml) and
@@ -103,7 +104,7 @@ Codex requests JSONL events with `--json`. Claude requests `stream-json` with `-
 The packaged command accepts `--retries N` (0–5, default 0) and
 `--budget-seconds SECONDS` (finite and positive; default `AP_REVIEWER_TIMEOUT`,
 normally 600). Retries apply per phase to malformed output and timeouts.
-Provider launch failures and nonzero exits fail immediately. Every attempt
+Provider launch failures, nonzero exits, and explicit error results fail immediately. Every attempt
 uses fresh output files; a failed last result never falls back to earlier
 findings. One total wall-time budget covers both phases and every retry.
 Each call also respects `AP_REVIEWER_TIMEOUT`. Timeout cleanup kills the provider
@@ -128,13 +129,13 @@ manifest remains; verification is another judgment, not proof of correctness.
 Set `AP_REVIEWER_EVENTS_FILE` to an absolute local path. The packaged command
 overwrites it and `<path>.status.json` for each invocation. JSONL records include:
 
-- `reviewer_call_started`: call index, phase, and one provider CLI request.
+- `reviewer_call_started`: call index, phase, and one attempted provider CLI request.
 - `reviewer_call`: schema version 1, call index, phase, attempt, provider,
   `requests: 1`, `wall_seconds`, outcome, and nullable input/output/total tokens.
 - `provider_output`: captured provider stdout, kept outside findings.
 - `candidate_rejected`: original candidate and the verifier's reason.
 
-Requests count provider CLI invocations, not internal API or tool requests.
+Requests count provider CLI invocations (zero when launch fails), not internal API or tool requests.
 Token totals use complete provider aggregates; missing usage is null. A malformed
 response can still have known usage. These are observations, not billing proof.
 Status is true only after the complete review succeeds. A started call without
@@ -169,7 +170,7 @@ The reviewer copies the manifest. The product CLI validates the protocol determi
 An `examined: "all"` receipt accounts for delivered units. It does not prove that the reviewer understood them.
 
 For optional behavioral evidence before final review, enable [contract checks](review-contracts.md).
-Set `review.contracts.planner_command` to the same reviewer command as `[review] command`.
+Set `review.contracts.planner_command` to the same provider command as `[review] command`, omitting `--verify` when present. Verification applies only to findings.
 The reviewer uses a planning prompt for `section: "contracts"`.
 The final reviewer receives the execution receipt that the product records.
 Planning can add one paid model invocation. It is disabled by default.

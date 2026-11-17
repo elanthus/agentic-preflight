@@ -258,7 +258,8 @@ It does not reproduce the private corpus or measure model quality.
 Location matches remain the smoke scorer's heuristic, not correctness labels.
 `evals.metrics.adjudication_score(trials, adjudication)` scores a separate local
 file with Wilson 95% intervals (z = 1.959963984540054, no continuity correction).
-It does not call a model or label findings.
+It does not call a model or label findings. The interval follows
+[Wilson (1927), *Journal of the American Statistical Association*](https://doi.org/10.1080/01621459.1927.10502953).
 
 Build a scorer-only trial inventory from saved results. Each trial has a unique
 `id` (include case, snapshot, grounding, configuration, and repetition), the

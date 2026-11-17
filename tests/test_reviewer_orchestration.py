@@ -40,6 +40,9 @@ if step.get("sleep"):
     time.sleep(step["sleep"])
 if step.get("exit"):
     sys.exit(step["exit"])
+if step.get("error_result"):
+    print(json.dumps({"type": "result", "is_error": True, "subtype": "provider_failure"}))
+    sys.exit(0)
 answer = step.get("output", "")
 if "-o" in sys.argv and step.get("final"):
     Path(sys.argv[sys.argv.index("-o")+1]).write_text(answer)
@@ -276,3 +279,20 @@ def test_failed_verification_preserves_known_discovery_usage_as_partial(tmp_path
     usage = read_usage(path, "claude", require_completion=True)
     assert usage["status"] == "partial"
     assert usage["tokens"]["total_tokens"] == 19
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+def test_explicit_provider_error_result_is_not_retried(tmp_path, provider):
+    result, events, _ = run_fake(
+        tmp_path,
+        provider,
+        [{"error_result": True}, output([])],
+        "--retries",
+        "5",
+        "--budget-seconds",
+        "5",
+    )
+    assert result.exit_code == 1
+    assert "error result" in result.stderr
+    assert result.stdout == ""
+    assert len([event for event in events if event["type"] == "reviewer_call"]) == 1

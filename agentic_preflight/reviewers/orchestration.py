@@ -24,6 +24,10 @@ from . import common
 VERSION = 1
 
 
+class ProviderReportedError(common.ReviewerError):
+    """A failed provider result is not malformed output to retry."""
+
+
 def provider_argv(provider: str, context: dict[str, Any], final: Path) -> list[str]:
     """Keep the legacy adapters' isolation flags and model/effort defaults."""
     if provider == "claude":
@@ -72,7 +76,7 @@ def _object(*outputs: str) -> dict[str, Any]:
     results = [obj for obj in objects if obj.get("type") == "result"]
     candidate = results[-1] if results else objects[-1] if objects else None
     if candidate and candidate.get("is_error"):
-        raise common.ReviewerError("provider returned an error result")
+        raise ProviderReportedError("provider returned an error result")
     if candidate and isinstance(candidate.get("result"), str):
         candidate = common._last_json_object(candidate["result"])
     if not isinstance(candidate, dict):
@@ -81,8 +85,14 @@ def _object(*outputs: str) -> dict[str, Any]:
 
 
 def _findings(context: dict[str, Any], *outputs: str) -> list[dict[str, Any]]:
+    try:
+        candidate = _object(*outputs)
+    except ProviderReportedError:
+        raise
+    except common.ReviewerError:
+        candidate = {}
     raw = common.extract_findings(*outputs)
-    if set(_object(*outputs)) != {"findings"}:
+    if set(candidate) != {"findings"}:
         raise common.ReviewerError("reviewer output must contain only findings")
     units = context["review_coverage"].get("units", [])
     by_id = {unit["id"]: unit for unit in units}
@@ -139,6 +149,8 @@ def _tokens(provider: str, text: str) -> dict[str, int | None]:
         if result.get("is_error") or not isinstance(models, dict):
             return dict.fromkeys(("input_tokens", "output_tokens", "total_tokens"))
         usage = [value for value in models.values() if isinstance(value, dict)]
+        if len(usage) != len(models):
+            return dict.fromkeys(("input_tokens", "output_tokens", "total_tokens"))
         inputs = [
             total(
                 [
@@ -212,6 +224,7 @@ class Orchestrator:
             )
             started = time.monotonic()
             outcome = "failed"
+            launched = False
             retryable = False
             output = ""
             error: common.ReviewerError | None = None
@@ -234,6 +247,7 @@ class Orchestrator:
                             errors="replace",
                             **process_group_kwargs(),
                         )
+                        launched = True
                         try:
                             process.communicate(input=prompt, timeout=timeout)
                         except BaseException:
@@ -249,6 +263,8 @@ class Orchestrator:
                         )
                     try:
                         parsed = parse(output, common.read_optional(final))
+                    except ProviderReportedError:
+                        raise
                     except common.ReviewerError:
                         retryable = True
                         outcome = "malformed"
@@ -278,7 +294,7 @@ class Orchestrator:
                             "phase": phase,
                             "attempt": attempt + 1,
                             "provider": self.provider,
-                            "requests": 1,
+                            "requests": int(launched),
                             "wall_seconds": time.monotonic() - started,
                             "outcome": outcome,
                             "tokens": _tokens(self.provider, output),
@@ -370,6 +386,8 @@ class Orchestrator:
                         )
                 findings = [finding for index, finding in enumerate(findings) if index in confirmed]
             common.emit_submission(context, findings)
+        if time.monotonic() >= self.deadline:
+            raise common.ReviewerError("reviewer total budget exhausted")
         self.status(True)
 
 

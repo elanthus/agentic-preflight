@@ -78,3 +78,12 @@ That step must first check [the fingerprint contract](../fingerprint-contract.md
 A repository that runs the packaged reviewer gets it from the installed package, not from its own tree.
 Its `human_review_paths` therefore cannot cover a change to the reviewer.
 The installed version of Agentic Preflight decides which reviewer runs.
+
+## Follow-up: orchestration
+
+The packaged command now uses bounded orchestration around the same provider CLI
+arguments. Legacy adapter modules and their standalone copies retain parity for
+the promised compatibility window. New retries, verification, and call-event
+format belong to the packaged command only. Finding validation reuses the core
+package's existing schemas; no model SDK or other dependency is added.
+Reviewer metadata remains outside stage evidence in this step.
