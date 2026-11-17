@@ -252,3 +252,66 @@ The separate [public evaluation implementation](https://github.com/elanthus/pref
 publishes the decision-quality library, synthetic paired replay, and versioned limits of the aggregate results.
 Its offline replay uses scripted adjudication and makes no provider calls.
 It does not reproduce the private corpus or measure model quality.
+
+## Adjudication files and precision/recall
+
+Location matches remain the smoke scorer's heuristic, not correctness labels.
+`evals.metrics.adjudication_score(trials, adjudication)` scores a separate local
+file with Wilson 95% intervals (z = 1.959963984540054, no continuity correction).
+It does not call a model or label findings.
+
+Build a scorer-only trial inventory from saved results. Each trial has a unique
+`id` (include case, snapshot, grounding, configuration, and repetition), the
+ordered `findings` list, and a `seeded_defects` list of distinct seed IDs.
+Include vulnerable and fixed snapshots together; controls have no seeds.
+Keep the inventory and labels outside the reviewer-visible tree.
+
+An adjudication file has this versioned format:
+
+~~~json
+{
+  "schema_version": 1,
+  "run_id": "local-eval-run",
+  "inventory_sha256": "<evals.metrics.adjudication_digest(trials)>",
+  "labels": [
+    {
+      "trial": "case/vulnerable/on/verified/repeat-1",
+      "finding": 0,
+      "label": "true_positive",
+      "seeded_defect": "seed-1",
+      "reason": "The branch permits the invalid operation.",
+      "labeller": "human:maintainer"
+    }
+  ]
+}
+~~~
+
+Every finding needs exactly one `true_positive`, `false_positive`, or `duplicate`
+label, a nonempty one-line reason, and labeller identity. Use `model:<id>` for
+model pre-labels; never present those as human adjudication. A true positive may
+identify an unseeded real defect, so `seeded_defect` is optional. When present,
+it must identify a seed in that trial. A duplicate requires `duplicate_of` with
+the zero-based index of a true positive in the same trial. Duplicate chains,
+missing or repeated labels, unknown seeds, and multiple true positives for one
+seed are rejected. The digest binds labels to the exact findings and seeds.
+
+Precision is true positives divided by **all adjudicated findings**, including
+duplicates, across vulnerable and fixed snapshots. Recall is distinct seeds
+found divided by **all seeded defects** in supplied trials. An unseeded true
+positive increases precision's numerator but not recall's. Both outputs include
+numerator, denominator, denominator label, value, and lower/upper Wilson bounds.
+Empty denominators produce null values and bounds. The result names labellers.
+Intervals do not account for correlated cases or model run-to-run variance;
+repeat configurations and report variation separately.
+
+The packaged reviewer's `--verify`, `--retries`, and `--budget-seconds` support
+controlled orchestration experiments. Its events include per-call requests
+(CLI invocations), tokens, and wall time. The metrics reader sums disjoint calls
+once, including paid malformed responses, without adding wrapped raw output
+again. Interrupted calls remain unknown. The existing smoke harness still uses
+the copied single-call examples; changing its real-mode configuration and
+publishing ablations remain maintainer work.
+
+This format and scorer do not add human labels, run real evaluations, publish
+quality claims, expand the corpus, or implement fan-out. Real mode still requires
+`AP_EVAL_AUTHORIZED=1`; CI and tests use fake CLIs without network access.

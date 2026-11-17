@@ -1168,7 +1168,7 @@ but cannot be read exits 1 with error code `telemetry_mirror_unreadable` and its
 
 ## Command reviewer
 
-### `agentic-preflight reviewer run --provider claude|codex`
+### `agentic-preflight reviewer run --provider claude|codex [--retries N] [--budget-seconds SECONDS] [--verify]`
 The packaged independent reviewer. Configure it as `[review] command` (and, for contract
 checks, `[review.contracts] planner_command`); `review run` and `review compare` then
 start it. Not for you to call in a workflow — follow `next.command` instead.
@@ -1186,8 +1186,25 @@ Environment variables: `AP_CLAUDE_BIN` or `AP_CODEX_BIN` (the provider executabl
 default `claude` or `codex`), `AP_REVIEWER_MODEL` (default `claude-sonnet-5` or
 `gpt-5.3-codex`), `AP_REVIEWER_EFFORT` (default `high` or `medium`),
 `AP_REVIEWER_TIMEOUT` (seconds, default 600), and `AP_REVIEWER_EVENTS_FILE` (an absolute
-path that receives the provider CLI's stdout, with `<path>.status.json` beside it). See
+path that receives call records, wrapped provider output, and rejected candidates, with `<path>.status.json` beside it). See
 [Independent review and agreement](https://github.com/elanthus/agentic-preflight/blob/main/docs/independent-review.md).
+
+`--retries` accepts 0–5 (default 0) additional attempts per phase for malformed
+output or timeouts. Other provider failures stop immediately. `--budget-seconds`
+is a finite positive total wall-time budget across discovery, retries, and
+verification; its default is `AP_REVIEWER_TIMEOUT`. Each call has that variable's
+per-call timeout too. Budget exhaustion fails with no findings output.
+
+`--verify` sends candidates and code/context to a second call. Every candidate
+needs exactly one confirm/reject decision with a reason. Rejected candidates
+go to events, never findings. Empty findings skip verification; contract-plan
+contexts reject the flag. No fallback to stale findings is allowed.
+
+The events file records `reviewer_call_started`, `reviewer_call` (schema version 1,
+phase, attempt, provider, requests, wall seconds, outcome, nullable token counts),
+`provider_output`, and `candidate_rejected`. Requests count CLI calls, not internal
+API requests. Completion status describes the whole review. Legacy copies keep
+raw provider events. No metadata enters stage evidence or changes fingerprint v2.
 
 ## Exit codes
 

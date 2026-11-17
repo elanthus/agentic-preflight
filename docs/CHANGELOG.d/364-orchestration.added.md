@@ -1,0 +1,1 @@
+- Add bounded packaged reviewer retries, optional candidate verification, per-call local events, and digest-bound eval adjudication with Wilson precision/recall intervals, tested with fake provider CLIs.

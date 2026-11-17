@@ -72,7 +72,7 @@ CONTEXT = {
     "intent": "exercise the requested behavior safely",
     "changed_files": ["src/app.py"],
     "diff": "diff --git a/src/app.py b/src/app.py",
-    "review_coverage": {"manifest": "a" * 64, "units": [{"id": "U0001"}]},
+    "review_coverage": {"manifest": "a" * 64, "units": [{"id": "U0002", "path": "src/app.py"}]},
 }
 
 
@@ -311,7 +311,10 @@ def test_reviewer_run_writes_the_events_file(tmp_path, clean_reviewer_env, provi
     )
 
     assert result.exit_code == 0, result.output
-    assert '{"findings": []}' in events.read_text(encoding="utf-8")
+    assert any(
+        event.get("type") == "reviewer_call"
+        for event in map(json.loads, events.read_text(encoding="utf-8").splitlines())
+    )
     status = json.loads(Path(f"{events}.status.json").read_text(encoding="utf-8"))
     assert status == {"completed": True}
     assert json.loads(result.stdout)["findings"] == []
@@ -380,7 +383,7 @@ def test_reviewer_run_returns_a_code_bound_contract_plan(tmp_path, clean_reviewe
     [
         ({"FAKE_NO_JSON": "1"}, "no JSON object containing findings"),
         ({"FAKE_EXIT": "3"}, "reviewer CLI exited 3: provider diagnostic"),
-        ({"FAKE_SLEEP": "1", "AP_REVIEWER_TIMEOUT": "1"}, "timed out after 1 seconds"),
+        ({"FAKE_SLEEP": "1", "AP_REVIEWER_TIMEOUT": "1"}, "timed out after"),
         ({"FAKE_CONTRACT_PLAN": '{"units": []}'}, "only units and checks"),
     ],
 )
