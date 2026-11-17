@@ -454,6 +454,38 @@ def test_an_earlier_release_run_spends_no_review_or_stage_before_its_abort(featu
     assert store.load_run(fresh).user_config_sections == []
 
 
+def test_an_earlier_release_run_at_the_restart_limit_gets_the_human_stop(feature_repo, tmp_path):
+    # The commands that check the restart limit report it first, as they do for any run.
+    _protect(feature_repo, CLEAN_REVIEWER, PROTECTED)
+    agent = ScriptedAgent(feature_repo)
+    run_id = agent.run("start")["run_id"]
+    with Store(feature_repo / ".git" / "agentic-preflight").transaction(run_id) as run:
+        run.validation_restarts = 5
+    _forget_provenance(feature_repo, run_id)
+    plan = tmp_path / "plan.json"
+    plan.write_text("{}", encoding="utf-8")
+
+    status = agent.run("status")
+    assert status["next"]["command"] is None
+    assert status["data"]["needs_human"] is True
+    for command, *args in (
+        ("context",),
+        ("review contracts", "--file", str(plan)),
+        ("review run",),
+        ("submit-findings", "--file", findings_json(tmp_path, [])),
+    ):
+        refused = agent.run(*command.split(), *args, expect=4)
+        assert refused["error"]["code"] == "max_restarts", command
+        # The limit's own refusal points at `status`, which advertises nothing.
+        assert refused["next"]["command"] == "agentic-preflight status", command
+    # A command without that check still refuses the run, and offers no abort either.
+    for command in ("verify", "stage run lint"):
+        refused = agent.run(*command.split(), expect=4)
+        assert refused["data"]["reason"] == "unknown_config_provenance", command
+        assert refused["next"]["command"] is None, command
+        assert "Only the user" in refused["next"]["instruction"], command
+
+
 def test_the_abort_hint_follows_what_an_earlier_release_already_did():
     legacy = make_run()
     assert legacy.user_config_sections is None

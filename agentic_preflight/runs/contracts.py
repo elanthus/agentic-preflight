@@ -347,8 +347,8 @@ def check_contracts(session: Session, payload: Any) -> Envelope:
     from . import review_protocol
 
     run = load_current(session)
-    require_publishable(run, command="review contracts")
     check_restart_limit(run)
+    require_publishable(run, command="review contracts")
     assert_fresh(session, run)
     require_state(run, State.REVIEW_AWAITING_FINDINGS, command="review contracts")
     record_plan(session, run, payload, review_protocol.bundle_for(session, run))

@@ -33,8 +33,8 @@ from .review import submit_findings
 def run_review_command(session: Session) -> Envelope:
     """Run the configured independent reviewer over the canonical review bundle."""
     run = load_current(session)
-    require_publishable(run, command="review run")
     check_restart_limit(run)
+    require_publishable(run, command="review run")
     assert_fresh(session, run)
     require_state(
         run,
