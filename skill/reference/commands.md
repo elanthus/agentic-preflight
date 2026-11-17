@@ -783,7 +783,8 @@ the run back, gate it, or push it, names the `git notes ... remove` command when
 earlier release already wrote a note, and in isolated modes says to cherry-pick the
 commits in `data.fix_commits` first. Status reports such a run as it stands: it does not
 check stage-origin digests or advance the run's evidence. At the validation restart
-limit, the human stop takes precedence and no command is advertised.
+limit, the human stop takes precedence: neither `status` nor a refused command
+advertises `abort`.
 `--all` inventories stored and active runs across every linked worktree in the clone.
 
 ### `agentic-preflight logs --stage review|lint|test [--tail N | --head N | --all]`

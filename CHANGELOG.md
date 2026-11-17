@@ -435,7 +435,8 @@ All notable changes to Agentic Preflight are documented here. This project follo
   it pointed back to `mergeback`. `status` also no longer checks or advances such a run's
   evidence, so it does not reopen review on it. `events`, `logs`, and a `start` that resumes
   the run report the same next command. A run that an earlier release already pushed is
-  unaffected and still finishes with `finish`.
+  unaffected and still finishes with `finish`. At the validation restart limit, neither
+  `status` nor a refused command advertises `abort`: that decision stays with a person.
 - `context`, `review contracts`, `review run`, `submit-findings`, `respond`, `verify`, and
   `stage run` now refuse such a run with exit 4, `needs_human`, and `data.reason`
   `unknown_config_provenance`, as `mergeback`, `gate`, and `push` already did. No review or

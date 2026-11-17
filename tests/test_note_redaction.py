@@ -13,13 +13,20 @@ import pytest
 from agentic_preflight import attestation
 from agentic_preflight.config import load_config_layers
 from agentic_preflight.digests import json_digest
+from agentic_preflight.errors import NeedsHuman
 from agentic_preflight.findings import redact_submissions
 from agentic_preflight.fingerprints import docs_relevant_config, review_relevant_config
 from agentic_preflight.machine import State
 from agentic_preflight.models import Finding, FindingSubmission, Stage
 from agentic_preflight.public_config import REDACTED_COMMAND
 from agentic_preflight.runs import evidence
-from agentic_preflight.runs._session import envelope_for, open_session, unpublishable
+from agentic_preflight.runs._session import (
+    envelope_for,
+    open_session,
+    require_known_provenance,
+    require_publishable,
+    unpublishable,
+)
 from agentic_preflight.store import Store
 from tests.conftest import commit_all, git, make_run, write
 from tests.driver import ScriptedAgent, findings_json
@@ -483,9 +490,37 @@ def test_the_abort_hint_follows_what_an_earlier_release_already_did():
     assert envelope_for(pushed).next_command == "agentic-preflight finish"
 
     # The restart limit still leaves every move, the abort included, to a person.
-    stopped = envelope_for(at(State.REVIEW_AWAITING_FINDINGS, validation_restarts=5))
+    at_limit = at(State.REVIEW_AWAITING_FINDINGS, validation_restarts=5)
+    stopped = envelope_for(at_limit)
     assert stopped.next_command is None
     assert stopped.data.needs_human is True
+
+
+@pytest.mark.parametrize("restarts", [0, 5])
+def test_a_refused_earlier_release_run_is_offered_abort_only_below_the_restart_limit(restarts):
+    """A refusal must not advertise an abort that `status` leaves to a person."""
+    legacy = make_run().model_copy(
+        update={"state": State.REVIEW_AWAITING_FINDINGS, "validation_restarts": restarts}
+    )
+    refusals = []
+    for refuse, command in (
+        (require_publishable, "context"),
+        (require_publishable, "stage run lint"),
+        (require_known_provenance, "mergeback"),
+        (require_known_provenance, "push"),
+    ):
+        with pytest.raises(NeedsHuman) as caught:
+            refuse(legacy, command=command)
+        refusals.append(caught.value)
+
+    for refusal in refusals:
+        assert refusal.data["reason"] == "unknown_config_provenance"
+        assert refusal.next_command == envelope_for(legacy).next_command
+        if restarts:
+            assert refusal.next_command is None
+            assert "Only the user" in refusal.next_instruction
+        else:
+            assert refusal.next_command == "agentic-preflight abort"
 
 
 def test_a_new_run_without_user_config_records_an_empty_list_and_publishes(feature_repo, tmp_path):

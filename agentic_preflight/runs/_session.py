@@ -378,15 +378,16 @@ def unknown_provenance_hint(run: RunDoc) -> tuple[str, str]:
 
 
 def _unknown_provenance(run: RunDoc, *, command: str, situation: str) -> NeedsHuman:
+    # At the restart limit even the abort is left to a person, as in `envelope_for`.
+    stopped = restart_limit_reached(run)
+    recovery = RESTART_LIMIT_INSTRUCTION if stopped else _ABORT_AND_RESTART
     return NeedsHuman(
         f"this {_EARLIER_RELEASE}, so {situation}",
         state=run.state.value,
         run_id=run.run_id,
         data={"reason": "unknown_config_provenance", "fix_commits": list(run.fix_commits)},
-        next_instruction=(
-            f"Do not retry `{command}`. {_ABORT_AND_RESTART}{_keep_fix_commits(run)}"
-        ),
-        next_command="agentic-preflight abort",
+        next_instruction=f"Do not retry `{command}`. {recovery}{_keep_fix_commits(run)}",
+        next_command=None if stopped else "agentic-preflight abort",
     )
 
 
