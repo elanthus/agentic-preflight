@@ -105,6 +105,8 @@ def test_respond_refuses_a_commit_for_a_dismissal_at_the_cli(blocked):
         "F001",
         "--action",
         "dismissed",
+        "--reason",
+        "other",
         "--commit",
         "deadbeef",
         "--note",

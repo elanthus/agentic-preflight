@@ -160,7 +160,7 @@ def review_contracts(file_path: str) -> None:
     "--reason",
     default=None,
     type=click.Choice(RESPONSE_REASONS),
-    help="The closest reason for a dismissal or acceptance (refused for `fixed`).",
+    help="Required for dismissed or accepted; refused for fixed.",
 )
 @command
 def respond(
@@ -182,6 +182,13 @@ def respond(
         fail_usage(
             click.UsageError(
                 "--reason is only valid with --action dismissed or accepted, not --action fixed",
+                ctx=click.get_current_context(),
+            )
+        )
+    if action in {"dismissed", "accepted"} and reason is None:
+        fail_usage(
+            click.UsageError(
+                f"--reason is required with --action {action}",
                 ctx=click.get_current_context(),
             )
         )

@@ -84,6 +84,8 @@ def test_dismissing_a_finding_requires_a_note(blocked):
         "F001",
         "--action",
         "dismissed",
+        "--reason",
+        "other",
         expect=ExitCode.PRECONDITION,
     )
     assert env["error"]["code"] == "invalid_response"
@@ -98,6 +100,8 @@ def test_dismissing_with_a_note_clears_the_finding(blocked):
         "F001",
         "--action",
         "dismissed",
+        "--reason",
+        "other",
         "--note",
         "intentional: the flag ships next PR",
     )
@@ -120,6 +124,8 @@ def test_respond_points_to_the_next_finding_while_the_stage_remains_blocked(agen
         "F001",
         "--action",
         "dismissed",
+        "--reason",
+        "other",
         "--note",
         "not part of this change",
     )
@@ -158,6 +164,8 @@ def test_respond_tolerates_the_stage_advancing_before_the_transaction_lock(block
         "F001",
         "--action",
         "dismissed",
+        "--reason",
+        "other",
         "--note",
         "resolved concurrently",
     )
@@ -273,6 +281,8 @@ def test_an_unknown_finding_id_lists_the_valid_ids(blocked):
         "F999",
         "--action",
         "dismissed",
+        "--reason",
+        "other",
         "--note",
         "x",
         expect=ExitCode.PRECONDITION,
@@ -291,6 +301,8 @@ def test_responding_twice_to_the_same_finding_is_rejected(blocked):
         "F001",
         "--action",
         "dismissed",
+        "--reason",
+        "other",
         "--note",
         "x",
         expect=ExitCode.PRECONDITION,
@@ -306,6 +318,8 @@ def test_respond_is_illegal_before_findings_are_submitted(agent):
         "F001",
         "--action",
         "dismissed",
+        "--reason",
+        "other",
         "--note",
         "x",
         expect=ExitCode.PRECONDITION,

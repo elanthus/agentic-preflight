@@ -131,7 +131,7 @@ quiet while code verifies that no delivered unit disappears.
 
 A low- or medium-severity `auto_fix` finding does not make the stage red, but it still
 needs an explicit disposition before following the normal stage continuation. Use
-`fixed --commit <sha>` to register the repair, or `accepted --note <reason>` to record
+`fixed --commit <sha>` to register the repair, or `accepted --reason <reason> --note <note>` to record
 why the valid finding is not worth fixing. `--commit` cites the repair for the audit
 record; in isolated modes every commit in the validation worktree merges back in commit
 order, cited or not. A green-stage repair changes the reviewed
@@ -141,6 +141,8 @@ stage, or `mergeback` for an older run, exits 3 with `findings_unresolved` and n
 Run `status` and obey `next`.
 
 Always pass `--reason` when you dismiss or accept a finding, and when you abort a run.
+The CLI requires it for `dismissed` and `accepted`; omitting it exits 6 with `usage_error`
+before changing the run. It remains optional for `abort`.
 Choose the closest term from the closed list, and `other` when none fits. Put the
 specifics in `--note`; `abort` has no note, so tell the user the specifics instead. Never
 pass `--reason` with `fixed`. See

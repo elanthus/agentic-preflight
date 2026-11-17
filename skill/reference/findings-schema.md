@@ -92,7 +92,7 @@ which keeps routine documentation nits non-blocking without downgrading code-own
 requirements such as a mandatory changelog update.
 
 A non-blocking finding may still be dispositioned while its review or docs stage is
-green. Use `fixed --commit <sha>` to register a repair, or `accepted --note <reason>`
+green. Use `fixed --commit <sha>` to register a repair, or `accepted --reason <reason> --note <note>`
 to preserve why a valid finding is not worth fixing. Repair commits change the reviewed
 snapshot, so they return the run to review; note-only dispositions keep the stage green.
 

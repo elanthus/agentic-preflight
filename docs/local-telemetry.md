@@ -146,8 +146,9 @@ Each reason is one term from a closed list:
 | `abort` | `user_cancelled`, `superseded`, `wrong_base`, `environment_failure`, `tool_error`, `no_longer_needed`, `other` |
 
 The agent chooses the reason. It is a label, not a verified cause.
-The reason is optional in this version, so older installed skills keep working.
-A response or an abort without a reason is `null` in the record and `unspecified` in the counts.
+The CLI requires a reason for dismissals and acceptances; it remains optional for aborts.
+Historical responses, direct Python API callers, and aborts without a reason remain
+`null` in events and `unspecified` in counts. No reason is inferred for old records.
 `respond --action fixed` refuses `--reason`.
 
 The finding keeps the reason as `response_reason` in `findings.json`. The `finding_resolved` event repeats it as `reason`.

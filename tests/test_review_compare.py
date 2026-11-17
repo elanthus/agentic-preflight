@@ -246,6 +246,8 @@ def test_compare_uses_grounded_context_manifest(feature_repo, tmp_path):
         "F001",
         "--action",
         "accepted",
+        "--reason",
+        "other",
         "--note",
         "Accepted to keep the reviewed HEAD unchanged.",
     )

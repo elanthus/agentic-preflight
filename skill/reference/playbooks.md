@@ -285,8 +285,8 @@ ran, so do not replace that recovery with `logs --stage`.
 This entry is not a failure recovery. Use it every time you dismiss or accept a finding,
 or abort a run, including when you follow a returned `abort --force` command.
 
-1. Always pass `--reason`. It is optional only so that older installed skills keep
-   working.
+1. Always pass `--reason`. The CLI requires it for dismissals and acceptances
+   (omission exits 6 with `usage_error`); it remains optional for `abort`.
 2. Choose the closest term. If no term fits, pass `other`. Do not invent a term: an
    unknown value exits 6 with `usage_error`.
    - `respond --action dismissed|accepted`: `false_positive` (the finding is wrong),
