@@ -409,14 +409,20 @@ def adjudication_digest(trials: list[dict[str, Any]]) -> str:
     """Bind labels to the exact ordered findings and scorer-owned seed inventory."""
     import hashlib
 
-    return hashlib.sha256(
-        json.dumps(trials, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
-    ).hexdigest()
+    try:
+        encoded = json.dumps(trials, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("trial inventory must contain JSON data") from exc
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _trial_inventory(trials: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     inventory: dict[str, dict[str, Any]] = {}
+    if not isinstance(trials, list):
+        raise ValueError("trial inventory must be a list")
     for trial in trials:
+        if not isinstance(trial, dict):
+            raise ValueError("each trial must be an object")
         identity = trial.get("id")
         seeds, findings = trial.get("seeded_defects"), trial.get("findings")
         if (
@@ -460,9 +466,9 @@ def adjudication_score(
         or not _label_text(adjudication.get("run_id"))
     ):
         raise ValueError("adjudication requires schema_version 1 and a run_id")
+    inventory = _trial_inventory(trials)
     if adjudication.get("inventory_sha256") != adjudication_digest(trials):
         raise ValueError("adjudication inventory digest does not match these trials")
-    inventory = _trial_inventory(trials)
     labels = adjudication.get("labels")
     if not isinstance(labels, list):
         raise ValueError("adjudication requires labels")

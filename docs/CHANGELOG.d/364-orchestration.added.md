@@ -1,3 +1,4 @@
 - Add packaged reviewer `--retries`, `--budget-seconds`, and optional `--verify`, with per-call measurements and rejected candidates in `AP_REVIEWER_EVENTS_FILE`, plus digest-bound eval adjudication with Wilson precision/recall intervals. Tests use fake provider CLIs without network or model calls.
 - Keep usage partial for unmatched call starts, and retain known provider usage when a parsed response exhausts the total budget.
 - Keep the default total review budget at `AP_REVIEWER_TIMEOUT`; CLI help explains that timeout retries require a larger explicit `--budget-seconds`.
+- Keep verification output instructions separate from discovery, reject malformed scoring inventories before hashing, and mark reviewer completion only after delivering stdout.

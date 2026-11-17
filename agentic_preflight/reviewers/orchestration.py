@@ -337,7 +337,7 @@ class Orchestrator:
                     "Do not add or rewrite findings.\nCandidates:\n"
                     + json.dumps(findings)
                     + "\nCode and context:\n"
-                    + common.reviewer_prompt(context)
+                    + json.dumps(context, ensure_ascii=False)
                 )
 
                 def decisions(*outputs: str) -> list[dict[str, Any]]:
@@ -389,7 +389,6 @@ class Orchestrator:
             common.emit_submission(context, findings)
         if time.monotonic() >= self.deadline:
             raise common.ReviewerError("reviewer total budget exhausted")
-        self.status(True)
 
 
 def main(provider: str, retries: int, budget_seconds: float | None, verify: bool) -> int:
@@ -406,6 +405,8 @@ def main(provider: str, retries: int, budget_seconds: float | None, verify: bool
         with contextlib.redirect_stdout(output):
             runner.review(verify)
         sys.stdout.write(output.getvalue())
+        sys.stdout.flush()
+        runner.status(True)
     except (common.ReviewerError, OSError) as exc:
         return common.report_error(common.ReviewerError(str(exc)))
     return 0

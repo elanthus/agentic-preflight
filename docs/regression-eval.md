@@ -294,7 +294,8 @@ identify an unseeded real defect, so `seeded_defect` is optional. When present,
 it must identify a seed in that trial. A duplicate requires `duplicate_of` with
 the zero-based index of a true positive in the same trial. Duplicate chains,
 missing or repeated labels, unknown seeds, and multiple true positives for one
-seed are rejected. The digest binds labels to the exact findings and seeds.
+seed are rejected. The digest binds labels to the exact findings and seeds. Malformed or non-JSON
+trial inventories raise `ValueError` before digest comparison.
 
 Precision is true positives divided by **all adjudicated findings**, including
 duplicates, across vulnerable and fixed snapshots. Recall is distinct seeds

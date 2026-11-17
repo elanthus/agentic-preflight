@@ -121,7 +121,8 @@ executor = "command"
 command = "agentic-preflight reviewer run --provider claude --retries 1 --budget-seconds 900 --verify"
 ~~~
 
-Verification receives all candidates and the same code/context. It must confirm
+Verification receives all candidates and the same code/context as data, without
+the discovery prompt’s findings-output instructions. It must confirm
 or reject every candidate exactly once, with a reason. Confirmed findings retain
 their content and order. Rejected candidates appear only in the events file.
 Missing, duplicate, or invalid decisions fail that attempt; retrying verification
@@ -145,7 +146,8 @@ Token totals use complete provider aggregates; missing usage is null. A malforme
 response can still have known usage. These are observations, not billing proof.
 A parsed response that finishes outside the total budget records `budget_exhausted`
 and retains its known provider usage, while the review still fails with no findings.
-Status is true only after the complete review succeeds. A started call without
+Status is true only after the complete review succeeds and its submission is
+written and flushed to stdout. A started call without
 a completion record is incomplete; an outer kill can prevent copying its output
 to events. Completed-call records remain. Events can contain sensitive code and
 findings; keep them local.

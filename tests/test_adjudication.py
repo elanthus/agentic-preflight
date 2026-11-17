@@ -87,3 +87,17 @@ def test_stale_labels_cannot_score_a_changed_finding_inventory():
     trials[0]["findings"][0]["title"] = "different finding at same index"
     with pytest.raises(ValueError, match="digest"):
         adjudication_score(trials, labels)
+
+
+@pytest.mark.parametrize("trials", [None, {}, [None], ["bad trial"], [{"id": "bad"}]])
+def test_malformed_inventory_is_rejected_before_digest_comparison(trials):
+    _, labels = fixtures()
+    with pytest.raises(ValueError, match=r"inventory|trial"):
+        adjudication_score(trials, labels)
+
+
+def test_non_json_inventory_is_rejected_as_invalid_input():
+    trials, labels = fixtures()
+    trials[0]["findings"][0]["unsupported"] = {1, 2}
+    with pytest.raises(ValueError, match="JSON data"):
+        adjudication_score(trials, labels)

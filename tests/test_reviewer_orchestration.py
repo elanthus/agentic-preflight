@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import io
 import json
 import stat
 import sys
 import time
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -165,6 +167,7 @@ def test_verification_keeps_only_confirmed_candidates_and_logs_rejections(tmp_pa
     prompts = [json.loads(line) for line in (tmp_path / "prompts").read_text().splitlines()]
     assert CONTEXT["diff"] in prompts[1]
     assert "U0001" in prompts[1]
+    assert "Return one JSON object with only a findings array" not in prompts[1]
 
 
 @pytest.mark.parametrize(
@@ -343,3 +346,31 @@ def test_parsed_response_past_budget_fails_without_losing_known_call_usage(tmp_p
     usage = read_usage(path, "claude", require_completion=True)
     assert usage["status"] == "partial"
     assert usage["tokens"]["total_tokens"] == 19
+
+
+@pytest.mark.parametrize("failure", ["write", "flush"])
+def test_stdout_delivery_failure_never_records_completed_status(tmp_path, monkeypatch, failure):
+    from agentic_preflight.reviewers import orchestration
+
+    class FailingOutput(io.StringIO):
+        def write(self, value):
+            if failure == "write":
+                raise OSError("output delivery failed")
+            return super().write(value)
+
+        def flush(self):
+            if failure == "flush":
+                raise OSError("output delivery failed")
+            return super().flush()
+
+    events = tmp_path / "events.jsonl"
+    monkeypatch.setenv("AP_REVIEWER_EVENTS_FILE", str(events))
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(CONTEXT)))
+    monkeypatch.setattr(sys, "stdout", FailingOutput())
+    monkeypatch.setattr(sys, "stderr", io.StringIO())
+    monkeypatch.setattr(
+        orchestration.Orchestrator, "review", lambda self, verify: print('{"findings":[]}')
+    )
+    assert orchestration.main("claude", 0, 5, False) == 1
+    assert "output delivery failed" in sys.stderr.getvalue()
+    assert json.loads(Path(str(events) + ".status.json").read_text()) == {"completed": False}
