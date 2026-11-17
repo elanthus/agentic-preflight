@@ -411,6 +411,15 @@ Earlier `hosted.json` files have unknown new fields until a refresh.
 hosted observations without network access. No new field contains text, paths,
 URLs, or log output. Summary schema version remains 1.
 
+Optional hosted escape request failures preserve the PR/check outcome and any
+escape observations already fetched. The failed observation remains null.
+Missing optional resources, malformed responses, and ordinary HTTP errors are
+reported in `data.errors`; other observations and runs continue. Authentication,
+permission, rate-limit, network, and process failures stop further requests after
+saving the partial outcome and rebuilding its summary. Use `--refresh` after
+recovery to retry unknown observations in already-synced runs. Core PR/check
+fetch failures retain their existing behavior.
+
 If a sync stops before it writes the summaries, the next sync writes them, without a request to GitHub.
 `data.stale_summaries` counts these runs.
 

@@ -900,3 +900,12 @@ affect configuration digests or attestations. Repository values are ignored.
 `telemetry sync-hosted` adds `--reverts` and `--reverts-limit` (1–50, default 10).
 All GitHub requests remain GETs. Report components have separate named
 denominators and are never combined into an escape score.
+
+Optional hosted escape request failures preserve the PR/check outcome and any
+escape observations already fetched. The failed observation remains null.
+Missing optional resources, malformed responses, and ordinary HTTP errors are
+reported in `data.errors`; other observations and runs continue. Authentication,
+permission, rate-limit, network, and process failures stop further requests after
+saving the partial outcome and rebuilding its summary. Use `--refresh` after
+recovery to retry unknown observations in already-synced runs. Core PR/check
+fetch failures retain their existing behavior.

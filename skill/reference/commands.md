@@ -1020,6 +1020,15 @@ to local stages. Without it failures remain unclassified.
 default 10 merged runs. Unscanned or incomplete observations are null.
 Use `--refresh` to enrich already synced runs. Rebuild preserves saved counts.
 
+Optional hosted escape request failures preserve the PR/check outcome and any
+escape observations already fetched. The failed observation remains null.
+Missing optional resources, malformed responses, and ordinary HTTP errors are
+reported in `data.errors`; other observations and runs continue. Authentication,
+permission, rate-limit, network, and process failures stop further requests after
+saving the partial outcome and rebuilding its summary. Use `--refresh` after
+recovery to retry unknown observations in already-synced runs. Core PR/check
+fetch failures retain their existing behavior.
+
 `data` reports `repo`, `dry_run`, `refresh`, `limit`, `reverts`, `reverts_limit`, `run`, `eligible`, `not_eligible`
 (`not_done`, `no_pushed_sha`), `unreadable`, `unreadable_runs`, `already_synced`,
 `selected`, `deferred` (eligible runs past `--limit`), `synced`, `commit_not_found`,

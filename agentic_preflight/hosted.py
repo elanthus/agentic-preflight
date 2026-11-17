@@ -541,6 +541,7 @@ def _escapes(
     candidate: _Candidate,
     validated: set[str],
     mapping: Mapping[str, str] | None,
+    data: dict[str, Any],
     *,
     reverts: bool,
 ) -> None:
@@ -557,24 +558,49 @@ def _escapes(
     number = pr.get("number")
     if type(number) is not int:
         return
-    if candidate.pushed_at is not None:
+    observations: list[tuple[str, Callable[[], Any]]] = []
+    pushed = candidate.pushed_at
+    if pushed is not None:
         prefix = f"/repos/{slug}/pulls/{number}"
-        document["followup_commits"] = _followups(
-            _list_all(runner, prefix + "/commits"), candidate.pushed_at, validated
-        )
-        document["changes_requested"] = _human_count(
-            _list_all(runner, prefix + "/reviews"),
-            candidate.pushed_at,
-            date_key="submitted_at",
-            state="CHANGES_REQUESTED",
-        )
-        document["review_comments"] = _human_count(
-            _list_all(runner, prefix + "/comments"),
-            candidate.pushed_at,
-            date_key="created_at",
+        observations.extend(
+            [
+                (
+                    "followup_commits",
+                    lambda: _followups(_list_all(runner, prefix + "/commits"), pushed, validated),
+                ),
+                (
+                    "changes_requested",
+                    lambda: _human_count(
+                        _list_all(runner, prefix + "/reviews"),
+                        pushed,
+                        date_key="submitted_at",
+                        state="CHANGES_REQUESTED",
+                    ),
+                ),
+                (
+                    "review_comments",
+                    lambda: _human_count(
+                        _list_all(runner, prefix + "/comments"), pushed, date_key="created_at"
+                    ),
+                ),
+            ]
         )
     if reverts and pr.get("merged_at"):
-        document["reverted"] = _reverted(runner, slug, number)
+        observations.append(("reverted", lambda: _reverted(runner, slug, number)))
+    for key, observe in observations:
+        try:
+            document[key] = observe()
+        except GhError as exc:
+            # A missing optional PR resource is not a missing repository: the
+            # core outcome was already fetched successfully.
+            if exc.reason in _COMMIT_ERRORS | {"not_found", "commit_not_found"}:
+                data["errors"].append(exc.describe(candidate.run_id))
+                continue
+            data["stopped"] = exc.describe(candidate.run_id)
+            return
+        except (TypeError, ValueError, KeyError, AttributeError) as exc:
+            reading = f"Optional {key} could not be read ({type(exc).__name__})."
+            data["errors"].append(GhError("invalid_response", reading).describe(candidate.run_id))
 
 
 # -- the sync -----------------------------------------------------------------
@@ -736,19 +762,6 @@ def _fetch_all(
     for candidate in selected:
         try:
             document = fetch(runner, slug, candidate.sha, candidate.branch)
-            eligible_revert = bool(reverts and (document.get("pr") or {}).get("merged_at"))
-            inspect_revert = eligible_revert and revert_requests < reverts_limit
-            if inspect_revert:
-                revert_requests += 1
-            _escapes(
-                runner,
-                slug,
-                document,
-                candidate,
-                validated,
-                config.telemetry.hosted.local_equivalent_checks,
-                reverts=inspect_revert,
-            )
         except GhError as exc:
             if exc.reason in _COMMIT_ERRORS:
                 data["errors"].append(exc.describe(candidate.run_id))
@@ -760,6 +773,20 @@ def _fetch_all(
             reading = f"GitHub's answer could not be read ({type(exc).__name__})."
             data["errors"].append(GhError("invalid_response", reading).describe(candidate.run_id))
             continue
+        eligible_revert = bool(reverts and (document.get("pr") or {}).get("merged_at"))
+        inspect_revert = eligible_revert and revert_requests < reverts_limit
+        if inspect_revert:
+            revert_requests += 1
+        _escapes(
+            runner,
+            slug,
+            document,
+            candidate,
+            validated,
+            config.telemetry.hosted.local_equivalent_checks,
+            data,
+            reverts=inspect_revert,
+        )
         try:
             path = store.run_dir(candidate.run_id) / telemetry.HOSTED_NAME
             atomic_write(path, json.dumps(document, indent=2) + "\n")
@@ -772,6 +799,8 @@ def _fetch_all(
         data["runs"].append(_outcome(candidate, document))
         if document["missing"]:
             data["commit_not_found"] += 1
+        if data["stopped"] is not None:
+            break
     return written
 
 

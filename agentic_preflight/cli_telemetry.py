@@ -65,7 +65,10 @@ def telemetry_rebuild() -> None:
 SYNC_COMMAND = "agentic-preflight telemetry sync-hosted"
 REPORT_COMMAND = "agentic-preflight report"
 _RUN_ID = re.compile(r"r_[0-9a-f]{10}")
-_RETRY = "Run the sync again after that. It skips the runs that it already synced."
+_RETRY = (
+    "Run the sync again after that. It skips the runs that it already synced. "
+    "Use --refresh to retry unknown observations in already-synced runs."
+)
 
 #: The error code and instruction for each reason a sync stops.
 _STOPS: dict[str, tuple[str, str]] = {
@@ -120,7 +123,7 @@ def _sync_error(data: dict[str, Any]) -> AgenticError | None:
             "GitHub's answer for some commits could not be used; the other runs were synced",
             ExitCode.ERROR,
             "Each failed commit is in `data.errors`. Run the sync again later. It skips the "
-            "runs that it already synced.",
+            "runs that it already synced. Use --refresh to retry unknown observations in those runs.",
         )
         error.data = data
         return error

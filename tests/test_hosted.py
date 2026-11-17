@@ -1089,7 +1089,8 @@ class EscapeGh(FakeGh):
         if args[-1] in self.responses:
             self.calls.append(list(args))
             assert list(args[:5]) == ["api", "--method", "GET", "--hostname", "github.com"]
-            return _ok(self.responses[args[-1]])
+            response = self.responses[args[-1]]
+            return response if isinstance(response, hosted.GhResult) else _ok(response)
         return super().__call__(args)
 
 
@@ -1370,3 +1371,82 @@ def test_capped_check_pages_do_not_establish_complete_classification():
     runs, complete = hosted._check_runs(runner, "owner/widget", SHA_NEW)
     assert len(runs) == 1000
     assert complete is False
+
+
+@pytest.mark.parametrize(
+    ("key", "suffix"),
+    [
+        ("followup_commits", "/commits?per_page=100&page=1"),
+        ("changes_requested", "/reviews?per_page=100&page=1"),
+        ("review_comments", "/comments?per_page=100&page=1"),
+        ("reverted", ""),
+    ],
+)
+@pytest.mark.parametrize(
+    "failure",
+    [
+        _http_error(404, "Not Found"),
+        _http_error(502, "Bad Gateway"),
+        hosted.GhResult(0, "invalid JSON", ""),
+    ],
+)
+def test_optional_escape_failure_preserves_other_observations_and_continues(
+    github_repo, monkeypatch, key, suffix, failure
+):
+    _set_push(github_repo)
+    responses = _escape_responses()
+    responses["/repos/owner/widget/pulls/9" + suffix] = failure
+    commits = _commits()
+    if key == "reverted":
+        commits[SHA_NEW]["pulls"] = [_pull(9, SHA_NEW)]
+    fake = EscapeGh(responses, commits)
+    _use(monkeypatch, fake)
+    flags = ["--reverts", "--reverts-limit", "1"] if key == "reverted" else []
+    result = ScriptedAgent(github_repo).run(
+        "telemetry", "sync-hosted", *flags, expect=ExitCode.ERROR
+    )
+    assert result["data"].get("synced") == 3, result
+    assert result["data"]["stopped"] is None
+    assert len(result["data"]["errors"]) == 1
+    row = _summary_hosted(github_repo, "r_0000000003")
+    assert row["pr_number"] == 9
+    assert row["checks_conclusion"] == "failure"
+    for field in ("followup_commits", "changes_requested", "review_comments"):
+        assert row[field] == (None if field == key else 1)
+    assert row[key] is None
+    assert _mirror_rows()["r_0000000003"]["hosted"] == row
+    assert fake.fetched() == [SHA_NEW, SHA_MID, SHA_OLD]
+    assert all(call[1:3] == ["--method", "GET"] for call in fake.calls)
+
+
+@pytest.mark.parametrize(
+    ("failure", "reason"),
+    [
+        (_http_error(401, "Bad credentials"), "gh_unavailable"),
+        (_http_error(403, "Forbidden"), "forbidden"),
+        (_http_error(429, "Too many requests"), "rate_limited"),
+        (hosted.GhResult(1, "", "error connecting to api.github.com"), "network_error"),
+    ],
+)
+def test_optional_global_failure_saves_partial_outcome_before_stopping(
+    github_repo, monkeypatch, failure, reason
+):
+    _set_push(github_repo)
+    path = "/repos/owner/widget/pulls/9/reviews?per_page=100&page=1"
+    fake = EscapeGh({**_escape_responses(), path: failure})
+    _use(monkeypatch, fake)
+    result = ScriptedAgent(github_repo).run("telemetry", "sync-hosted", expect=ExitCode.ERROR)
+    assert result["data"]["synced"] == 1
+    assert result["data"]["stopped"]["reason"] == reason
+    assert "--refresh" in result["next"]["instruction"]
+    row = _summary_hosted(github_repo, "r_0000000003")
+    assert row["pr_number"] == 9
+    assert row["checks_conclusion"] == "failure"
+    assert row["followup_commits"] == 1
+    assert row["changes_requested"] is None
+    assert row["review_comments"] is None
+    assert _mirror_rows()["r_0000000003"]["hosted"] == row
+    assert fake.calls[-1][-1] == path
+    assert fake.fetched() == [SHA_NEW]
+    assert _hosted_file(github_repo, "r_0000000002") is None
+    assert all(call[1:3] == ["--method", "GET"] for call in fake.calls)
