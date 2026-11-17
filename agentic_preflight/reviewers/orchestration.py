@@ -394,6 +394,8 @@ class Orchestrator:
 
 def main(provider: str, retries: int, budget_seconds: float | None, verify: bool) -> int:
     try:
+        # Keep the existing total limit; retries and verification do not expand it.
+        # A timeout retry needs an explicit budget above the per-call timeout.
         runner = Orchestrator(provider, {}, retries, budget_seconds or common.timeout_seconds())
         runner.context = common.read_context()
         if budget_seconds is not None and (

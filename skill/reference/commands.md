@@ -1193,7 +1193,9 @@ path that receives call records, wrapped provider output, and rejected candidate
 output or timeouts. Other provider failures stop immediately. `--budget-seconds`
 is a finite positive total wall-time budget across discovery, retries, and
 verification; its default is `AP_REVIEWER_TIMEOUT`. Each call has that variable's
-per-call timeout too. Budget exhaustion fails with no findings output.
+per-call timeout too. The default total limit does not grow with retries or
+verification. Timeout retries need `--budget-seconds` above `AP_REVIEWER_TIMEOUT`.
+Budget exhaustion fails with no findings output.
 
 `--verify` sends candidates and code/context to a second call. Every candidate
 needs exactly one confirm/reject decision with a reason. Rejected candidates

@@ -107,7 +107,10 @@ normally 600). Retries apply per phase to malformed output and timeouts.
 Provider launch failures, nonzero exits, and explicit error results fail immediately. Every attempt
 uses fresh output files; a failed last result never falls back to earlier
 findings. One total wall-time budget covers both phases and every retry.
-Each call also respects `AP_REVIEWER_TIMEOUT`. Timeout cleanup kills the provider
+Each call also respects `AP_REVIEWER_TIMEOUT`. The default total budget does not
+grow with retries or verification. To retry a timed-out call, set
+`--budget-seconds` above `AP_REVIEWER_TIMEOUT`; verification also shares the
+remaining budget. Timeout cleanup kills the provider
 process tree and can add bounded cleanup time after the deadline.
 
 Add `--verify` for a second call after candidate discovery:

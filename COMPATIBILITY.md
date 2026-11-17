@@ -914,6 +914,8 @@ fetch failures retain their existing behavior.
 
 The packaged reviewer adds opt-in `--retries` and `--verify`, with a shared
 `--budget-seconds` limit. Defaults retain one discovery call and no verification.
+The default total budget stays at `AP_REVIEWER_TIMEOUT` even with retries or
+verification enabled; timeout retries need an explicitly larger budget.
 Malformed findings and ambiguous or undelivered units fail before submission.
 Events now hold versioned call records and wrapped raw output, with rejected
 candidates outside findings; status describes the complete review. Legacy copied

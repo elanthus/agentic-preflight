@@ -24,7 +24,10 @@ def reviewer() -> None:
     type=click.IntRange(0, 5),
     default=0,
     show_default=True,
-    help="Retries per phase on malformed output or timeout.",
+    help=(
+        "Retries per phase on malformed output or timeout. "
+        "Timeout retries need --budget-seconds above AP_REVIEWER_TIMEOUT."
+    ),
 )
 @click.option(
     "--budget-seconds",
