@@ -296,3 +296,20 @@ def test_explicit_provider_error_result_is_not_retried(tmp_path, provider):
     assert "error result" in result.stderr
     assert result.stdout == ""
     assert len([event for event in events if event["type"] == "reviewer_call"]) == 1
+
+
+def test_invalid_context_clears_previous_invocation_events(tmp_path):
+    events = tmp_path / "events.jsonl"
+    events.write_text('{"type":"reviewer_call","requests":1}\n')
+    status = events.with_name(events.name + ".status.json")
+    status.write_text('{"completed":true}\n')
+    result = CliRunner().invoke(
+        main,
+        ["reviewer", "run", "--provider", "claude"],
+        input="not JSON",
+        env={"AP_REVIEWER_EVENTS_FILE": str(events)},
+    )
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert events.read_text() == ""
+    assert json.loads(status.read_text()) == {"completed": False}

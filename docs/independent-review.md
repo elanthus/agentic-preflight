@@ -127,7 +127,8 @@ contract-plan contexts before calling a provider. The original examined-all
 manifest remains; verification is another judgment, not proof of correctness.
 
 Set `AP_REVIEWER_EVENTS_FILE` to an absolute local path. The packaged command
-overwrites it and `<path>.status.json` for each invocation. JSONL records include:
+overwrites it and `<path>.status.json` before reading context, so invalid input cannot
+leave a previous successful invocation's usage behind. JSONL records include:
 
 - `reviewer_call_started`: call index, phase, and one attempted provider CLI request.
 - `reviewer_call`: schema version 1, call index, phase, attempt, provider,

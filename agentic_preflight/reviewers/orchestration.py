@@ -393,14 +393,12 @@ class Orchestrator:
 
 def main(provider: str, retries: int, budget_seconds: float | None, verify: bool) -> int:
     try:
-        context = common.read_context()
+        runner = Orchestrator(provider, {}, retries, budget_seconds or common.timeout_seconds())
+        runner.context = common.read_context()
         if budget_seconds is not None and (
             not math.isfinite(budget_seconds) or budget_seconds <= 0
         ):
             raise common.ReviewerError("total budget must be finite and positive")
-        runner = Orchestrator(
-            provider, context, retries, budget_seconds or common.timeout_seconds()
-        )
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             runner.review(verify)
