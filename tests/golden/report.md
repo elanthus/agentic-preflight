@@ -67,6 +67,20 @@ Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs wit
 | widget (github.com/owner/widget) | 2 | 0 | 0.0% | 2 of 2 | 100.0% |
 | widget (github.com/owner/widget) | 1 | 0 | 0.0% | 1 of 1 | 100.0% |
 
+### Escape signals
+
+Escape signals are separate, overlapping observations, never a combined score. They do not prove escaped defects or causality. Follow-up commits may be routine work; human comments need not request fixes; explicit reverts are only one form of rollback. Counts describe retained local runs and the bounded GitHub snapshot. Unknown observations are excluded, not counted as zero.
+
+| Measure | Rate | Count | Denominator | Excluded runs |
+|---|---|---|---|---|
+| Local-equivalent failed checks | n/a | 0 | synced DONE runs with settled checks and known local_equivalent classification: 0 | 4 |
+| Hosted-only failed checks | n/a | 0 | synced DONE runs with settled checks and known hosted_only classification: 0 | 4 |
+| Unclassified failed checks | n/a | 0 | synced DONE runs with settled checks and known unclassified classification: 0 | 4 |
+| Unvalidated follow-up commits | n/a | 0 | synced DONE runs with known followup_commits: 0 | 4 |
+| Human changes requested | n/a | 0 | synced DONE runs with known changes_requested: 0 | 4 |
+| Human review comments | n/a | 0 | synced DONE runs with known review_comments: 0 | 4 |
+| Explicit reverts | n/a | 0 | synced merged DONE runs with a complete revert scan or an observed revert: 0 | 4 |
+
 ### Findings
 
 | Measure | Value | Denominator | Excluded runs |

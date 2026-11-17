@@ -432,6 +432,72 @@
      "success": 2
     },
     "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
+   },
+   "escapes": {
+    "followup_commits": {
+     "runs": {
+      "value": null,
+      "numerator": 0,
+      "denominator": 0,
+      "denominator_label": "synced DONE runs with known followup_commits"
+     },
+     "excluded_runs": 4
+    },
+    "changes_requested": {
+     "runs": {
+      "value": null,
+      "numerator": 0,
+      "denominator": 0,
+      "denominator_label": "synced DONE runs with known changes_requested"
+     },
+     "excluded_runs": 4
+    },
+    "review_comments": {
+     "runs": {
+      "value": null,
+      "numerator": 0,
+      "denominator": 0,
+      "denominator_label": "synced DONE runs with known review_comments"
+     },
+     "excluded_runs": 4
+    },
+    "reverted": {
+     "runs": {
+      "value": null,
+      "numerator": 0,
+      "denominator": 0,
+      "denominator_label": "synced merged DONE runs with a complete revert scan or an observed revert"
+     },
+     "excluded_runs": 4
+    },
+    "local_equivalent": {
+     "runs": {
+      "value": null,
+      "numerator": 0,
+      "denominator": 0,
+      "denominator_label": "synced DONE runs with settled checks and known local_equivalent classification"
+     },
+     "excluded_runs": 4
+    },
+    "hosted_only": {
+     "runs": {
+      "value": null,
+      "numerator": 0,
+      "denominator": 0,
+      "denominator_label": "synced DONE runs with settled checks and known hosted_only classification"
+     },
+     "excluded_runs": 4
+    },
+    "unclassified": {
+     "runs": {
+      "value": null,
+      "numerator": 0,
+      "denominator": 0,
+      "denominator_label": "synced DONE runs with settled checks and known unclassified classification"
+     },
+     "excluded_runs": 4
+    },
+    "note": "Escape signals are separate, overlapping observations, never a combined score. They do not prove escaped defects or causality. Follow-up commits may be routine work; human comments need not request fixes; explicit reverts are only one form of rollback. Counts describe retained local runs and the bounded GitHub snapshot. Unknown observations are excluded, not counted as zero."
    }
   },
   "orphaned_reasons": {
@@ -881,6 +947,72 @@
        "success": 2
       },
       "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
+     },
+     "escapes": {
+      "followup_commits": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known followup_commits"
+       },
+       "excluded_runs": 3
+      },
+      "changes_requested": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known changes_requested"
+       },
+       "excluded_runs": 3
+      },
+      "review_comments": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known review_comments"
+       },
+       "excluded_runs": 3
+      },
+      "reverted": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced merged DONE runs with a complete revert scan or an observed revert"
+       },
+       "excluded_runs": 3
+      },
+      "local_equivalent": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known local_equivalent classification"
+       },
+       "excluded_runs": 3
+      },
+      "hosted_only": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known hosted_only classification"
+       },
+       "excluded_runs": 3
+      },
+      "unclassified": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known unclassified classification"
+       },
+       "excluded_runs": 3
+      },
+      "note": "Escape signals are separate, overlapping observations, never a combined score. They do not prove escaped defects or causality. Follow-up commits may be routine work; human comments need not request fixes; explicit reverts are only one form of rollback. Counts describe retained local runs and the bounded GitHub snapshot. Unknown observations are excluded, not counted as zero."
      }
     },
     "orphaned_reasons": {},
@@ -1273,6 +1405,72 @@
       "pr_states": {},
       "checks_conclusions": {},
       "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
+     },
+     "escapes": {
+      "followup_commits": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known followup_commits"
+       },
+       "excluded_runs": 1
+      },
+      "changes_requested": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known changes_requested"
+       },
+       "excluded_runs": 1
+      },
+      "review_comments": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known review_comments"
+       },
+       "excluded_runs": 1
+      },
+      "reverted": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced merged DONE runs with a complete revert scan or an observed revert"
+       },
+       "excluded_runs": 1
+      },
+      "local_equivalent": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known local_equivalent classification"
+       },
+       "excluded_runs": 1
+      },
+      "hosted_only": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known hosted_only classification"
+       },
+       "excluded_runs": 1
+      },
+      "unclassified": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known unclassified classification"
+       },
+       "excluded_runs": 1
+      },
+      "note": "Escape signals are separate, overlapping observations, never a combined score. They do not prove escaped defects or causality. Follow-up commits may be routine work; human comments need not request fixes; explicit reverts are only one form of rollback. Counts describe retained local runs and the bounded GitHub snapshot. Unknown observations are excluded, not counted as zero."
      }
     },
     "orphaned_reasons": {
@@ -1653,6 +1851,72 @@
        "failure": 1
       },
       "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
+     },
+     "escapes": {
+      "followup_commits": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known followup_commits"
+       },
+       "excluded_runs": 0
+      },
+      "changes_requested": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known changes_requested"
+       },
+       "excluded_runs": 0
+      },
+      "review_comments": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known review_comments"
+       },
+       "excluded_runs": 0
+      },
+      "reverted": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced merged DONE runs with a complete revert scan or an observed revert"
+       },
+       "excluded_runs": 0
+      },
+      "local_equivalent": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known local_equivalent classification"
+       },
+       "excluded_runs": 0
+      },
+      "hosted_only": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known hosted_only classification"
+       },
+       "excluded_runs": 0
+      },
+      "unclassified": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known unclassified classification"
+       },
+       "excluded_runs": 0
+      },
+      "note": "Escape signals are separate, overlapping observations, never a combined score. They do not prove escaped defects or causality. Follow-up commits may be routine work; human comments need not request fixes; explicit reverts are only one form of rollback. Counts describe retained local runs and the bounded GitHub snapshot. Unknown observations are excluded, not counted as zero."
      }
     },
     "orphaned_reasons": {},
@@ -2104,6 +2368,72 @@
        "success": 2
       },
       "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
+     },
+     "escapes": {
+      "followup_commits": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known followup_commits"
+       },
+       "excluded_runs": 3
+      },
+      "changes_requested": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known changes_requested"
+       },
+       "excluded_runs": 3
+      },
+      "review_comments": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known review_comments"
+       },
+       "excluded_runs": 3
+      },
+      "reverted": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced merged DONE runs with a complete revert scan or an observed revert"
+       },
+       "excluded_runs": 3
+      },
+      "local_equivalent": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known local_equivalent classification"
+       },
+       "excluded_runs": 3
+      },
+      "hosted_only": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known hosted_only classification"
+       },
+       "excluded_runs": 3
+      },
+      "unclassified": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known unclassified classification"
+       },
+       "excluded_runs": 3
+      },
+      "note": "Escape signals are separate, overlapping observations, never a combined score. They do not prove escaped defects or causality. Follow-up commits may be routine work; human comments need not request fixes; explicit reverts are only one form of rollback. Counts describe retained local runs and the bounded GitHub snapshot. Unknown observations are excluded, not counted as zero."
      }
     },
     "orphaned_reasons": {
@@ -2463,6 +2793,72 @@
       "pr_states": {},
       "checks_conclusions": {},
       "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
+     },
+     "escapes": {
+      "followup_commits": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known followup_commits"
+       },
+       "excluded_runs": 1
+      },
+      "changes_requested": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known changes_requested"
+       },
+       "excluded_runs": 1
+      },
+      "review_comments": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known review_comments"
+       },
+       "excluded_runs": 1
+      },
+      "reverted": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced merged DONE runs with a complete revert scan or an observed revert"
+       },
+       "excluded_runs": 1
+      },
+      "local_equivalent": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known local_equivalent classification"
+       },
+       "excluded_runs": 1
+      },
+      "hosted_only": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known hosted_only classification"
+       },
+       "excluded_runs": 1
+      },
+      "unclassified": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known unclassified classification"
+       },
+       "excluded_runs": 1
+      },
+      "note": "Escape signals are separate, overlapping observations, never a combined score. They do not prove escaped defects or causality. Follow-up commits may be routine work; human comments need not request fixes; explicit reverts are only one form of rollback. Counts describe retained local runs and the bounded GitHub snapshot. Unknown observations are excluded, not counted as zero."
      }
     },
     "orphaned_reasons": {},
@@ -2910,6 +3306,72 @@
        "success": 2
       },
       "note": "Fetched from GitHub by `telemetry sync-hosted`. Only synced runs count. Runs with pending checks are left out of the failed share. A conclusion of `unknown` is a run whose commit GitHub did not know."
+     },
+     "escapes": {
+      "followup_commits": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known followup_commits"
+       },
+       "excluded_runs": 4
+      },
+      "changes_requested": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known changes_requested"
+       },
+       "excluded_runs": 4
+      },
+      "review_comments": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with known review_comments"
+       },
+       "excluded_runs": 4
+      },
+      "reverted": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced merged DONE runs with a complete revert scan or an observed revert"
+       },
+       "excluded_runs": 4
+      },
+      "local_equivalent": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known local_equivalent classification"
+       },
+       "excluded_runs": 4
+      },
+      "hosted_only": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known hosted_only classification"
+       },
+       "excluded_runs": 4
+      },
+      "unclassified": {
+       "runs": {
+        "value": null,
+        "numerator": 0,
+        "denominator": 0,
+        "denominator_label": "synced DONE runs with settled checks and known unclassified classification"
+       },
+       "excluded_runs": 4
+      },
+      "note": "Escape signals are separate, overlapping observations, never a combined score. They do not prove escaped defects or causality. Follow-up commits may be routine work; human comments need not request fixes; explicit reverts are only one form of rollback. Counts describe retained local runs and the bounded GitHub snapshot. Unknown observations are excluded, not counted as zero."
      }
     },
     "orphaned_reasons": {
@@ -3152,11 +3614,20 @@
     "orphaned_reason": null
    },
    "hosted": {
+    "changes_requested": null,
     "checks_conclusion": null,
+    "failed_checks": {
+     "hosted_only": null,
+     "local_equivalent": null,
+     "unclassified": null
+    },
     "fetched_at": null,
+    "followup_commits": null,
     "merged": null,
     "pr_number": null,
-    "pr_state": null
+    "pr_state": null,
+    "reverted": null,
+    "review_comments": null
    },
    "worktree_mode": "in_place",
    "pr_mode": null,
@@ -3660,11 +4131,20 @@
     "orphaned_reason": null
    },
    "hosted": {
+    "changes_requested": null,
     "checks_conclusion": "failure",
+    "failed_checks": {
+     "hosted_only": null,
+     "local_equivalent": null,
+     "unclassified": null
+    },
     "fetched_at": "2026-11-01T00:00:00+00:00",
+    "followup_commits": null,
     "merged": true,
     "pr_number": 7,
-    "pr_state": "closed"
+    "pr_state": "closed",
+    "reverted": null,
+    "review_comments": null
    },
    "worktree_mode": "reusable",
    "pr_mode": "manual",
@@ -3836,11 +4316,20 @@
     "orphaned_reason": null
    },
    "hosted": {
+    "changes_requested": null,
     "checks_conclusion": null,
+    "failed_checks": {
+     "hosted_only": null,
+     "local_equivalent": null,
+     "unclassified": null
+    },
     "fetched_at": null,
+    "followup_commits": null,
     "merged": null,
     "pr_number": null,
-    "pr_state": null
+    "pr_state": null,
+    "reverted": null,
+    "review_comments": null
    },
    "worktree_mode": "reusable",
    "pr_mode": "manual",
