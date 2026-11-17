@@ -463,6 +463,8 @@ class TelemetryRebuildData(CommandData):
 
 
 class TelemetrySyncHostedData(CommandData):
+    reverts: bool | None = None
+    reverts_limit: int | None = None
     repo: Obj | None = None
     dry_run: bool | None = None
     refresh: bool | None = None

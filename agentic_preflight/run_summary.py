@@ -166,6 +166,11 @@ class HostedRow(TypedDict, total=False):
     merged: bool | None
     checks_conclusion: str | None
     fetched_at: str | None
+    followup_commits: int | None
+    changes_requested: int | None
+    review_comments: int | None
+    reverted: bool | None
+    failed_checks: dict[str, int | None]
 
 
 class TimingRow(TypedDict, total=False):
@@ -571,7 +576,20 @@ def _synced(record: Mapping[str, Any], hosted: Mapping[str, Any] | None) -> Host
         hosted = {}
     pr = as_dict(hosted.get("pr"))
     checks = as_dict(hosted.get("checks")) or {}
+
+    def count(value: Any) -> int | None:
+        return value if type(value) is int and value >= 0 else None
+
+    failures = as_dict(hosted.get("failed_checks")) or {}
     return {
+        "followup_commits": count(hosted.get("followup_commits")),
+        "changes_requested": count(hosted.get("changes_requested")),
+        "review_comments": count(hosted.get("review_comments")),
+        "reverted": hosted.get("reverted") if type(hosted.get("reverted")) is bool else None,
+        "failed_checks": {
+            name: count(failures.get(name))
+            for name in ("local_equivalent", "hosted_only", "unclassified")
+        },
         "pr_number": as_int(pr.get("number")) if pr else None,
         "pr_state": as_str(pr.get("state")) if pr else None,
         "merged": bool(as_str(pr.get("merged_at"))) if pr else None,

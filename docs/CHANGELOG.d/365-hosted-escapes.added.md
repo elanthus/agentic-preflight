@@ -1,0 +1,1 @@
+- Add nullable hosted follow-up commit, human review, classified failed-check, and opt-in capped revert observations, with GET-only sync, rebuild support, and separately denominated escape reporting.

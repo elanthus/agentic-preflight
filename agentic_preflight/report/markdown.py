@@ -189,6 +189,30 @@ def _tool_time_section(metrics: Mapping[str, Any]) -> list[str]:
     ]
 
 
+def _escape_section(metrics: Mapping[str, Any]) -> list[str]:
+    escapes = metrics["hosted"]["escapes"]
+    labels = {
+        "local_equivalent": "Local-equivalent failed checks",
+        "hosted_only": "Hosted-only failed checks",
+        "unclassified": "Unclassified failed checks",
+        "followup_commits": "Unvalidated follow-up commits",
+        "changes_requested": "Human changes requested",
+        "review_comments": "Human review comments",
+        "reverted": "Explicit reverts",
+    }
+    rows = [
+        _rate_row(label, escapes[key]["runs"], escapes[key]["excluded_runs"])
+        for key, label in labels.items()
+    ]
+    return [
+        "### Escape signals",
+        "",
+        escapes["note"],
+        "",
+        *_table(["Measure", "Rate", "Count", "Denominator", "Excluded runs"], rows),
+    ]
+
+
 def _hosted_sync_section(
     metrics: Mapping[str, Any], repositories: Sequence[Mapping[str, Any]]
 ) -> list[str]:
@@ -633,6 +657,7 @@ def render_markdown(data: Mapping[str, Any]) -> str:
         *_runs_section(overall),
         *_caught_section(overall),
         *_hosted_sync_section(overall, repositories),
+        *_escape_section(overall),
         *_findings_section(overall),
         *_finding_responses_section(overall, repositories),
         *_stages_section(overall),

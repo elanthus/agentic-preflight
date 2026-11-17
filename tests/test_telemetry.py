@@ -438,7 +438,22 @@ def _findings() -> list[dict]:
 
 
 #: The ``hosted`` keys that only ``telemetry sync-hosted`` fills in.
-NOT_SYNCED = dict.fromkeys(("pr_number", "pr_state", "merged", "checks_conclusion", "fetched_at"))
+NOT_SYNCED = {
+    **dict.fromkeys(
+        (
+            "pr_number",
+            "pr_state",
+            "merged",
+            "checks_conclusion",
+            "fetched_at",
+            "followup_commits",
+            "changes_requested",
+            "review_comments",
+            "reverted",
+        )
+    ),
+    "failed_checks": dict.fromkeys(("local_equivalent", "hosted_only", "unclassified")),
+}
 
 
 def test_a_schema_1_record_summarizes_with_unknown_values_left_null():

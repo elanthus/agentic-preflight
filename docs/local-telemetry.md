@@ -132,7 +132,7 @@ An unknown value is `null`. It is never `0`. Older run records do not have many 
 | `fix_commits`, `validation_restarts` | The number of repair commits, and the number of returns to review. |
 | `event_counts` | The number of events of each name. An event line that is not an object with a text name is not counted. The `finished`, `aborted`, and `orphaned` markers repeat `state`, and the summary events describe the summary itself. These are not counted. |
 | `terminal` | For an aborted run: `aborted_forced`, `abort_reason`, and `aborted_from_state`, the state that the run left. For an orphaned run: `orphaned_reason`. |
-| `hosted` | `pr_number`, `pr_state`, `merged`, `checks_conclusion`, and `fetched_at`, from `telemetry sync-hosted`. All are `null` until a sync joins the run. See [Join hosted outcomes](#join-hosted-outcomes). |
+| `hosted` | `pr_number`, `pr_state`, `merged`, `checks_conclusion`, `fetched_at`, nullable escape counts `followup_commits`, `changes_requested`, `review_comments`, `failed_checks` by class, and nullable `reverted`, from `telemetry sync-hosted`. All are `null` until a sync joins the run. See [Join hosted outcomes](#join-hosted-outcomes). |
 | `worktree_mode`, `pr_mode`, `config_digest` | From the run's configuration snapshot. |
 
 ## Reasons for responses and aborts
@@ -361,9 +361,52 @@ It uses the same code as `telemetry rebuild`. The `hosted` object of the summary
 | `merged` | `true` when the pull request merged, `false` when it did not. `null` without a pull request. |
 | `checks_conclusion` | `failure`, `pending`, `success`, or `none`. |
 | `fetched_at` | When the command read the outcome. |
+| `followup_commits` | Unique PR commits with committer dates after this run's push, excluding every readable retained run's validated `pushed_sha` in this clone. |
+| `changes_requested` | Human reviews currently in `CHANGES_REQUESTED`, submitted after the push. |
+| `review_comments` | Human inline review comments created after the push, counted by unique comment ID. No comment bodies or paths are stored. |
+| `failed_checks.local_equivalent` | Distinct failed check names mapped to a stage this run executed. |
+| `failed_checks.hosted_only` | Distinct failed check names unmapped or mapped to a stage known not to have executed. |
+| `failed_checks.unclassified` | Distinct failed check names without a mapping or sufficient stage execution evidence. |
+| `reverted` | Boolean observation from the optional bounded revert scan; `null` when not scanned or incomplete. |
 
-All five keys are `null` for a run that was not synced.
+All scalar keys and each failed-check count are `null` for a run that was not synced.
 For a commit that GitHub does not know, only `fetched_at` has a value.
+
+Escape counts require a matching timestamped `pushed` event. Without one, the
+three PR activity counts are unknown, not zero. The sync reads
+`/pulls/{n}/commits`, `/pulls/{n}/reviews`, and `/pulls/{n}/comments`,
+up to ten pages of 100 items each. GitHub caps PR commits at 250, so a result
+at that limit is also unknown. Malformed or capped lists do not establish zero.
+Bots are excluded from review counts. The current review state can change
+after dismissal; these are observations at sync time, not an immutable history.
+
+Configure exact check-name-to-stage mappings in the user-only
+[`telemetry.hosted` table](configuration.md#hosted-check-classification-telemetryhosted).
+Classification requires all returned checks to be settled and a complete
+snapshot. An absent mapping leaves `local_equivalent` and `hosted_only` null,
+with the observed failures in `unclassified`. Counts use distinct failed
+names, matching `checks.failed`.
+
+Reverts are opt-in: `telemetry sync-hosted --refresh --reverts --reverts-limit 10`.
+The limit is 1–50 (default 10) merged runs per invocation, within `--limit`.
+Each eligible scan reads the PR's merge SHA and base branch, then at most 100
+base-branch commits since the merge. It recognizes standard `This reverts commit
+<SHA>` metadata or a `Revert "..."` subject with the full merge SHA in its body.
+A match is true; a complete short page without a match is false; a capped scan,
+missing metadata, an unmerged PR, or a run beyond the cap is null. This cannot
+detect every manual rollback. Commit messages are inspected transiently and
+never persisted in new fields.
+
+`report` shows each escape component separately under `hosted.escapes`, with
+a named denominator of synced DONE runs with that observation known and an
+excluded-run count. Failure classes require settled checks. Components overlap
+and are never summed. Follow-up work and comments need not indicate defects;
+these observations do not prove causality or reviewer recall.
+
+Earlier `hosted.json` files have unknown new fields until a refresh.
+`telemetry rebuild` reconstructs the new summary and mirror fields from saved
+hosted observations without network access. No new field contains text, paths,
+URLs, or log output. Summary schema version remains 1.
 
 If a sync stops before it writes the summaries, the next sync writes them, without a request to GitHub.
 `data.stale_summaries` counts these runs.

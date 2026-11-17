@@ -282,7 +282,7 @@ def test_five_durations_give_a_median_and_an_interpolated_p90():
 def test_recorded_hosted_outcomes_are_not_reported():
     hosted = report.aggregate(_mixed_rows())["hosted"]
 
-    assert set(hosted) == {"synced"}
+    assert set(hosted) == {"synced", "escapes"}
     assert hosted["synced"]["runs"] == report.ratio(0, 4, "runs")
 
 
@@ -836,6 +836,7 @@ def test_markdown_has_the_sections_in_order_and_ends_with_the_limits():
         "Source",
         "Runs",
         "Caught before push",
+        "Escape signals",
         "Findings",
         "Finding responses",
         "Stages",
@@ -1205,3 +1206,33 @@ def test_report_points_at_rebuild_for_unmirrored_runs_and_names_unreadable_recor
     instruction = result["next"]["instruction"]
     assert instruction.startswith("Some finished runs in this clone are not in the mirror.")
     assert "data.source.clone.unreadable_runs" in instruction
+
+
+def test_escape_components_have_separate_named_denominators_and_unknown_exclusions():
+    rows = [
+        make_row(
+            "r_known",
+            state="DONE",
+            hosted={
+                "fetched_at": "2026-10-04T00:00:00Z",
+                "followup_commits": 2,
+                "changes_requested": 0,
+                "review_comments": 1,
+                "reverted": None,
+                "failed_checks": {"local_equivalent": 1, "hosted_only": 0, "unclassified": 0},
+            },
+        ),
+        make_row("r_unknown", state="DONE"),
+        make_row("r_aborted", state="ABORTED", hosted={"followup_commits": 5}),
+    ]
+    escapes = report.aggregate(rows)["hosted"]["escapes"]
+    for key in ("followup_commits", "review_comments", "local_equivalent"):
+        assert escapes[key]["runs"]["numerator"] == 1
+        assert escapes[key]["runs"]["denominator"] == 1
+        assert escapes[key]["excluded_runs"] == 1
+        assert "synced DONE runs" in escapes[key]["runs"]["denominator_label"]
+    assert escapes["changes_requested"]["runs"]["value"] == 0
+    assert escapes["reverted"]["runs"]["value"] is None
+    assert escapes["reverted"]["excluded_runs"] == 2
+    assert "total" not in escapes
+    assert "never a combined score" in escapes["note"]

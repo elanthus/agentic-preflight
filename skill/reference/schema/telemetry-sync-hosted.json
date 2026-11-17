@@ -141,6 +141,30 @@
       "default": null,
       "title": "Repo"
     },
+    "reverts": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reverts"
+    },
+    "reverts_limit": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reverts Limit"
+    },
     "run": {
       "anyOf": [
         {

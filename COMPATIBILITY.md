@@ -888,3 +888,15 @@ use `other` when no specific term fits, and explain the decision in `--note`.
 their existing optional-reason behavior. Stored historical findings and events
 without reasons remain readable; their telemetry stays `unspecified`. No record,
 attestation, fingerprint, or summary schema version changes.
+
+## Unreleased: hosted escape observations
+
+Summary schema version 1 gains nullable hosted activity counts, failed-check
+counts by class, and an optional revert boolean. Old hosted files rebuild with
+null new observations until refreshed; saved new observations rebuild without
+network access. Unknown is never silently converted to zero.
+The user-only `[telemetry.hosted] local_equivalent_checks` mapping does not
+affect configuration digests or attestations. Repository values are ignored.
+`telemetry sync-hosted` adds `--reverts` and `--reverts-limit` (1–50, default 10).
+All GitHub requests remain GETs. Report components have separate named
+denominators and are never combined into an escape score.
