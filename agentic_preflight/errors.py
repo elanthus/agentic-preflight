@@ -154,6 +154,20 @@ class UnsupportedObjectFormat(AgenticError):
         )
 
 
+class MissingMergeBase(AgenticError):
+    """The available shallow history has no common ancestor with the base."""
+
+    code = "missing_merge_base"
+    exit_code = ExitCode.PRECONDITION
+
+
+class UnrelatedHistories(AgenticError):
+    """Complete histories have no common ancestor."""
+
+    code = "unrelated_histories"
+    exit_code = ExitCode.PRECONDITION
+
+
 class EmptyDiff(AgenticError):
     code = "empty_diff"
     exit_code = ExitCode.PRECONDITION

@@ -233,7 +233,7 @@ to summarize the user's run history.
 | Copy refused (exit 3) | `copy_files` entry is not gitignored; do not work around it |
 | Stage reports zero files to work on | Check whether `worktree_path` is under `.git/` |
 | Green in your shell, red in a stage | Compare the stage's non-interactive toolchain and `PATH` with your shell |
-| No merge base in a shallow clone (exit 3, `empty_diff`) | Tell the user; with their approval deepen the history, then start again |
+| No merge base in a shallow clone (exit 3, `missing_merge_base`) | Tell the user; with their approval deepen the history, then start again |
 | Existing pre-push hook (exit 3, `hook_exists`) | Show the hook path; never replace it without the user's decision; the user composes it with `hook-check` |
 | Summarize preflight history (the user asks how well the tool works) | Rebuild stale mirrors, run `report --all-repos --format markdown`, show it with its limits |
 

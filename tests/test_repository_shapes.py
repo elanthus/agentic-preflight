@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from agentic_preflight import fingerprints
+from agentic_preflight import fingerprints, gitx
 from agentic_preflight.config import Config
 from agentic_preflight.envelope import ExitCode
 from tests.conftest import commit_all, git, write
@@ -113,14 +113,36 @@ def test_shallow_clone_without_the_merge_base_cannot_start(tmp_path):
 
     agent = ScriptedAgent(clone)
     env = agent.run("start", expect=ExitCode.PRECONDITION)
-    # Known issue (pending), #392: the code says the diff is empty, and nothing suggests
-    # deepening the history.
-    assert env["error"]["code"] == "empty_diff"
-    assert "cannot find a merge base with 'main'" in env["error"]["message"]
-    assert env["next"] is None
+    assert env["error"]["code"] == "missing_merge_base"
+    assert "shallow" in env["error"]["message"]
+    assert "'main'" in env["error"]["message"]
+    assert env["next"]["command"] == "git fetch --unshallow"
+    assert "git fetch --deepen=<n>" in env["next"]["instruction"]
+    assert env["run_id"] is None
 
     git("fetch", "--unshallow", cwd=clone)
     assert agent.run("start")["state"] == "REVIEW_AWAITING_FINDINGS"
+
+
+def test_complete_unrelated_histories_are_not_reported_as_shallow(tmp_repo):
+    git("checkout", "--orphan", "unrelated", cwd=tmp_repo)
+    write(tmp_repo, "unrelated.txt", "independent history\n")
+    commit_all(tmp_repo, "unrelated root")
+    env = ScriptedAgent(tmp_repo).run("start", expect=ExitCode.PRECONDITION)
+    assert env["error"]["code"] == "unrelated_histories"
+    assert "unrelated histories" in env["error"]["message"]
+    assert "--unshallow" not in env["next"]["instruction"]
+    assert env["run_id"] is None
+
+
+def test_merge_base_operational_failures_keep_the_git_error(feature_repo, monkeypatch):
+    def fail(*args):
+        raise gitx.GitError(["merge-base", "main", "HEAD"], 128, "cannot read commit object")
+
+    monkeypatch.setattr(gitx, "merge_base", fail)
+    env = ScriptedAgent(feature_repo).run("start", expect=ExitCode.ERROR)
+    assert env["error"]["code"] == "git_error"
+    assert "cannot read commit object" in env["error"]["message"]
 
 
 # -- partial clones ------------------------------------------------------------

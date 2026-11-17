@@ -26,11 +26,13 @@ from ..errors import (
     DirtyTree,
     EmptyDiff,
     IntentRequired,
+    MissingMergeBase,
     NeedsHuman,
     RemoteTimeout,
     SetupFailed,
     SyncConflictError,
     SyncFailed,
+    UnrelatedHistories,
     WrongState,
 )
 from ..errors import (
@@ -647,7 +649,30 @@ def _require_changes(ctx: _StartContext) -> str:
     try:
         merge_base = gitx.merge_base(ctx.repo, ctx.base_ref, "HEAD")
     except gitx.GitError as exc:
-        raise EmptyDiff(f"cannot find a merge base with {ctx.base_ref!r}: {exc}") from exc
+        # Git uses status 1 for no common ancestor. Operational failures (for
+        # example unreadable objects) must keep their original Git diagnostic.
+        if exc.returncode != 1:
+            raise
+        if gitx.out(ctx.repo, "rev-parse", "--is-shallow-repository") == "true":
+            raise MissingMergeBase(
+                f"repository is shallow; the available history has no merge base "
+                f"with {ctx.base_ref!r}",
+                next_instruction=(
+                    "Fetch the missing history with git fetch --unshallow, or deepen "
+                    "it incrementally with git fetch --deepen=<n>, then start again. "
+                    "If the complete histories still have no common ancestor, check the base branch."
+                ),
+                next_command="git fetch --unshallow",
+            ) from exc
+        raise UnrelatedHistories(
+            f"HEAD and {ctx.base_ref!r} have unrelated histories: no merge base exists "
+            "in this non-shallow repository",
+            next_instruction=(
+                "Check that the base branch and feature branch belong to the same history. "
+                "Choose the correct base or resolve the unrelated histories before starting again."
+            ),
+            next_command="git log --oneline --graph --all",
+        ) from exc
 
     # Criss-cross history can hide a change from the single merge base, such as an
     # ``-s ours`` merge that reverts a branch already in the base; synchronization keeps it.
