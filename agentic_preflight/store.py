@@ -748,13 +748,16 @@ def _process_alive(pid: int) -> bool:
     if sys.platform == "win32":
         # ``os.kill`` on Windows terminates the process, so it cannot probe one.
         return True
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
+    else:
+        # An ``else`` branch, not a fall-through: on Windows mypy skips it as
+        # platform-specific instead of reporting the probe as unreachable.
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
         return True
-    return True
 
 
 def _report_resource_wait(name: str, holder_path: Path) -> None:
