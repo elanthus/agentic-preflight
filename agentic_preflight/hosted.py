@@ -480,10 +480,14 @@ def _stage_executions(
 ) -> dict[str, bool | None]:
     # Attempts count failures, not executions: a first-pass success has zero.
     executed: dict[str, bool | None] = {}
-    for name, stage in run_summary._stages(record).items():
-        if stage["status"] == "skipped" or stage["reused"] is True:
+    stages = run_summary.as_dict(record.get("stages")) or {}
+    for name, value in stages.items():
+        stage = run_summary.as_dict(value) or {}
+        status = run_summary.as_str(stage.get("status"))
+        reused = run_summary.stage_reused(record, name)
+        if status == "skipped" or reused is True:
             executed[name] = False
-        elif stage["status"] in {"green", "red"} and stage["reused"] is False:
+        elif status in {"green", "red"} and reused is False:
             executed[name] = True
         else:
             executed[name] = None

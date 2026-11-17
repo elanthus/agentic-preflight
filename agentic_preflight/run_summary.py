@@ -419,6 +419,15 @@ def _red_then_green(
     return result
 
 
+def stage_reused(record: Mapping[str, Any], name: str) -> bool | None:
+    """Whether final stage provenance identifies reuse, or is unavailable."""
+    evidence = as_dict(record.get("evidence"))
+    if evidence is None:
+        return None
+    item = as_dict(evidence.get(name))
+    return item is not None and item.get("derivation_reason") is not None
+
+
 def _stages(
     record: Mapping[str, Any],
     events: Sequence[Mapping[str, Any]] | None = None,
@@ -427,15 +436,11 @@ def _stages(
 ) -> dict[str, StageRow]:
     stages = as_dict(record.get("stages")) or {}
     red_then_green = _red_then_green(events, complete)
-    evidence = as_dict(record.get("evidence"))
     summary: dict[str, StageRow] = {}
     for name in sorted(stages, key=stage_order):
         stage = as_dict(stages[name]) or {}
         status = as_str(stage.get("status"))
-        reused: bool | None = None
-        if evidence is not None:
-            item = as_dict(evidence.get(name))
-            reused = item is not None and item.get("derivation_reason") is not None
+        reused = stage_reused(record, name)
         started_at = as_str(stage.get("started_at"))
         finished_at = as_str(stage.get("finished_at"))
         # Only a stage that ran here has a duration: a reused result started in
