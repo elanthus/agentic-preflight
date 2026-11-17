@@ -150,7 +150,7 @@ class UnsupportedObjectFormat(AgenticError):
             "Agentic Preflight requires SHA-1 object IDs. See "
             "https://github.com/elanthus/agentic-preflight/blob/main/COMPATIBILITY.md"
             "#repository-shapes",
-            next_instruction="Stop: runs require a repository using the sha1 object format.",
+            next_instruction="Stop: Agentic Preflight requires a repository using the sha1 object format.",
         )
 
 
