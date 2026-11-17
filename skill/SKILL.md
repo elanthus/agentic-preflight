@@ -141,6 +141,8 @@ stage, or `mergeback` for an older run, exits 3 with `findings_unresolved` and n
 Run `status` and obey `next`.
 
 Always pass `--reason` when you dismiss or accept a finding, and when you abort a run.
+The CLI requires it for `dismissed` and `accepted`; omitting it exits 6 with `usage_error`
+before changing the run. It remains optional for `abort`.
 Choose the closest term from the closed list, and `other` when none fits. Put the
 specifics in `--note`; `abort` has no note, so tell the user the specifics instead. Never
 pass `--reason` with `fixed`. See

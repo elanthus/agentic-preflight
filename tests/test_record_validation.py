@@ -159,6 +159,8 @@ def test_an_over_long_note_is_a_usage_error_and_findings_stay_loadable(blocked, 
         "F001",
         "--action",
         "dismissed",
+        "--reason",
+        "other",
         "--note",
         "x" * (RESPONSE_NOTE_LIMIT + 1),
         expect=ExitCode.USAGE_ERROR,
@@ -177,7 +179,15 @@ def test_a_note_at_the_limit_is_accepted(blocked):
     agent, _ = blocked
 
     env = agent.run(
-        "respond", "--id", "F001", "--action", "dismissed", "--note", "x" * RESPONSE_NOTE_LIMIT
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        "dismissed",
+        "--reason",
+        "other",
+        "--note",
+        "x" * RESPONSE_NOTE_LIMIT,
     )
 
     assert env["data"]["finding"]["status"] == "dismissed"

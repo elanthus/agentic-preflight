@@ -104,20 +104,27 @@ def test_a_dismissal_records_its_reason_on_the_finding_and_the_event(blocked, fe
     assert (resolved["action"], resolved["reason"]) == ("dismissed", "false_positive")
 
 
-def test_an_acceptance_without_a_reason_is_still_valid_and_stores_no_key(blocked, feature_repo):
+@pytest.mark.parametrize("action", ["dismissed", "accepted"])
+def test_a_response_without_a_reason_is_refused_without_mutation(blocked, feature_repo, action):
     agent, run_id = blocked
-
+    directory = _run_dir(feature_repo, run_id)
+    before = {
+        name: (directory / name).read_bytes()
+        for name in ("run.json", "findings.json", "events.jsonl")
+    }
     env = agent.run(
-        "respond", "--id", "F001", "--action", "accepted", "--note", "worth it, not now"
+        "respond",
+        "--id",
+        "F001",
+        "--action",
+        action,
+        "--note",
+        "worth it, not now",
+        expect=ExitCode.USAGE_ERROR,
     )
-
-    assert env["data"]["finding"]["status"] == "accepted"
-    assert "response_reason" not in env["data"]["finding"]
-    stored = json.loads((_run_dir(feature_repo, run_id) / "findings.json").read_text())
-    # Written exactly as earlier versions wrote it, so they can still read it.
-    assert "response_reason" not in stored[0]
-    (resolved,) = _events(feature_repo, run_id, "finding_resolved")
-    assert resolved["reason"] is None
+    assert env["error"]["code"] == "usage_error"
+    assert "--reason is required" in env["error"]["message"]
+    assert {name: (directory / name).read_bytes() for name in before} == before
 
 
 def test_a_reason_is_refused_for_a_fix_at_the_cli(blocked):

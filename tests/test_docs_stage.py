@@ -238,6 +238,8 @@ def test_a_nonblocking_docs_finding_can_be_accepted_with_a_note(review_green, tm
         "F001",
         "--action",
         "accepted",
+        "--reason",
+        "other",
         "--note",
         "Correct, but the flag is intentionally undocumented until it is stable.",
     )

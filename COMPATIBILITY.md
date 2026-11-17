@@ -877,3 +877,14 @@ records and original attestations remain readable and are not rewritten. Reuse
 that encounters a different digest reports `doc_surface_changed` and reruns docs;
 regular files whose checkout bytes already match Git keep their digest. See
 [the migration decision](docs/fingerprint-contract.md#documentation-blob-migration).
+
+## Unreleased: require response reasons in the CLI
+
+`respond --action dismissed|accepted` now requires `--reason` as well as `--note`.
+Omitting the reason exits 6 with `usage_error` before opening or mutating a run.
+Older skills and scripts must add a value from the existing reason vocabulary;
+use `other` when no specific term fits, and explain the decision in `--note`.
+`fixed` still refuses `--reason`. `abort` and the direct Python response API keep
+their existing optional-reason behavior. Stored historical findings and events
+without reasons remain readable; their telemetry stays `unspecified`. No record,
+attestation, fingerprint, or summary schema version changes.

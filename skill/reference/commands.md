@@ -402,11 +402,13 @@ attestation note includes them. Review-command findings are redacted the same wa
   Python `respond` API raises `invalid_response`.
 - `--reason` labels a `dismissed` or `accepted` response with one of `false_positive`,
   `out_of_scope`, `duplicate`, `already_fixed`, `accepted_risk`, `deferred`, or `other`.
-  It is optional. Any other value exits 6 with `usage_error`. Passing `--reason` with
+  It is required by the CLI for both actions: omission exits 6 with `usage_error`
+  before any run mutation. Any other value exits 6 with `usage_error`. Passing `--reason` with
   `--action fixed` exits 6 with `usage_error`, and the Python `respond` API raises
   `invalid_response`. The finding stores it as `response_reason`, and the
-  `finding_resolved` event repeats it as `reason` (`null` when absent). A finding without
-  a reason has no `response_reason` key. The reason is telemetry only: it never enters
+  `finding_resolved` event repeats it as `reason`. Historical records and direct Python
+  API callers may still omit it: their reason is `null` in events and the finding has
+  no `response_reason` key. The reason is telemetry only: it never enters
   stage evidence or the attestation. Put the specifics in `--note`.
 - `--note` text has copied-file values replaced by `[redacted]` before it is saved; the
   note is published in the attestation. A `copy_files` file that cannot be read for

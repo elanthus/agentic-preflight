@@ -176,8 +176,8 @@ def _reopen_unresolved_findings(session: Session, run: RunDoc) -> None:
         step="mergeback",
         next_instruction=(
             "The run is back in review and nothing was merged. Fix each named finding and "
-            "cite the commit, or record why it is not worth fixing with `--action accepted "
-            "--note`. Then follow `next.command` through documentation, lint, and tests again."
+            "cite the commit, or record why it is not worth fixing with `--action accepted --reason <reason> "
+            "--note <note>`. Then follow `next.command` through documentation, lint, and tests again."
         ),
     )
 

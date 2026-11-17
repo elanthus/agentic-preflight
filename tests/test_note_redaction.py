@@ -112,6 +112,8 @@ def test_a_copied_value_quoted_by_a_reviewer_is_redacted_in_findings_and_the_not
         "F001",
         "--action",
         "dismissed",
+        "--reason",
+        "other",
         "--note",
         f"{COPIED_VALUE} is a fixture",
     )

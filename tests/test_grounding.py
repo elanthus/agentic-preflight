@@ -110,6 +110,8 @@ def grounded_repo(feature_repo, tmp_path):
         "F001",
         "--action",
         "accepted",
+        "--reason",
+        "other",
         "--note",
         "Recorded for later grounded review.",
     )
@@ -299,6 +301,8 @@ def test_policy_grounding_stays_stable_after_a_finding_is_accepted(feature_repo,
         "F001",
         "--action",
         "accepted",
+        "--reason",
+        "other",
         "--note",
         "Accepted to keep the reviewed snapshot unchanged.",
     )

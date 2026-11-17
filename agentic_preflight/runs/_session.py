@@ -484,7 +484,7 @@ def findings_next_hint(
     elif actionable:
         envelope.next_instruction = (
             "This stage is green, but an auto-fix finding is still open. Fix it, "
-            "or record why it is not worth fixing with `--action accepted --note`."
+            "or record why it is not worth fixing with `--action accepted --reason <reason> --note <note>`."
         )
         envelope.next_command = _respond_command(actionable[0].id)
 
@@ -540,7 +540,7 @@ def findings_unresolved(
         next_instruction=next_instruction
         or (
             "Fix each named finding and cite the commit, or record why it is not worth "
-            "fixing with `--action accepted --note`. Then follow `next.command` again."
+            "fixing with `--action accepted --reason <reason> --note <note>`. Then follow `next.command` again."
         ),
         next_command=next_command or _respond_command(unresolved[0].id),
     )

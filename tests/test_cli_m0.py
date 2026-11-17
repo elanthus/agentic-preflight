@@ -920,6 +920,8 @@ def test_disabled_docs_waits_for_every_actionable_review_finding(feature_repo, t
         "F001",
         "--action",
         "accepted",
+        "--reason",
+        "other",
         "--note",
         "Not worth changing in this pull request.",
     )
@@ -932,6 +934,8 @@ def test_disabled_docs_waits_for_every_actionable_review_finding(feature_repo, t
         "F002",
         "--action",
         "accepted",
+        "--reason",
+        "other",
         "--note",
         "Also not worth changing in this pull request.",
     )
