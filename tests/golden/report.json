@@ -468,7 +468,7 @@
       "denominator": 0,
       "denominator_label": "synced merged DONE runs with a complete revert scan or an observed revert"
      },
-     "excluded_runs": 4
+     "excluded_runs": 2
     },
     "local_equivalent": {
      "runs": {
@@ -983,7 +983,7 @@
         "denominator": 0,
         "denominator_label": "synced merged DONE runs with a complete revert scan or an observed revert"
        },
-       "excluded_runs": 3
+       "excluded_runs": 2
       },
       "local_equivalent": {
        "runs": {
@@ -1441,7 +1441,7 @@
         "denominator": 0,
         "denominator_label": "synced merged DONE runs with a complete revert scan or an observed revert"
        },
-       "excluded_runs": 1
+       "excluded_runs": 0
       },
       "local_equivalent": {
        "runs": {
@@ -2404,7 +2404,7 @@
         "denominator": 0,
         "denominator_label": "synced merged DONE runs with a complete revert scan or an observed revert"
        },
-       "excluded_runs": 3
+       "excluded_runs": 2
       },
       "local_equivalent": {
        "runs": {
@@ -2829,7 +2829,7 @@
         "denominator": 0,
         "denominator_label": "synced merged DONE runs with a complete revert scan or an observed revert"
        },
-       "excluded_runs": 1
+       "excluded_runs": 0
       },
       "local_equivalent": {
        "runs": {
@@ -3342,7 +3342,7 @@
         "denominator": 0,
         "denominator_label": "synced merged DONE runs with a complete revert scan or an observed revert"
        },
-       "excluded_runs": 4
+       "excluded_runs": 2
       },
       "local_equivalent": {
        "runs": {

@@ -79,7 +79,7 @@ Escape signals are separate, overlapping observations, never a combined score. T
 | Unvalidated follow-up commits | n/a | 0 | synced DONE runs with known followup_commits: 0 | 4 |
 | Human changes requested | n/a | 0 | synced DONE runs with known changes_requested: 0 | 4 |
 | Human review comments | n/a | 0 | synced DONE runs with known review_comments: 0 | 4 |
-| Explicit reverts | n/a | 0 | synced merged DONE runs with a complete revert scan or an observed revert: 0 | 4 |
+| Explicit reverts | n/a | 0 | synced merged DONE runs with a complete revert scan or an observed revert: 0 | 2 |
 
 ### Findings
 

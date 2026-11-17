@@ -617,9 +617,15 @@ def _hosted_escapes(rows: Sequence[SummaryRow]) -> dict[str, Any]:
     ]
     result: dict[str, Any] = {}
     for name in ("followup_commits", "changes_requested", "review_comments", "reverted"):
+        eligible = (
+            [item for item in synced if item.get("merged") is True]
+            if name == "reverted"
+            else synced
+        )
+        population = len(eligible) if name == "reverted" else len(done)
         known = [
             item[name]
-            for item in synced
+            for item in eligible
             if type(item.get(name)) is (bool if name == "reverted" else int)
         ]
         label = (
@@ -629,7 +635,7 @@ def _hosted_escapes(rows: Sequence[SummaryRow]) -> dict[str, Any]:
         )
         result[name] = {
             "runs": ratio(sum(bool(value) for value in known), len(known), label),
-            "excluded_runs": len(done) - len(known),
+            "excluded_runs": population - len(known),
         }
     for name in ("local_equivalent", "hosted_only", "unclassified"):
         values = [(item.get("failed_checks") or {}).get(name) for item in synced]

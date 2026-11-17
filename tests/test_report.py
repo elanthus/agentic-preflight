@@ -1234,6 +1234,30 @@ def test_escape_components_have_separate_named_denominators_and_unknown_exclusio
         assert "synced DONE runs" in escapes[key]["runs"]["denominator_label"]
     assert escapes["changes_requested"]["runs"]["value"] == 0
     assert escapes["reverted"]["runs"]["value"] is None
-    assert escapes["reverted"]["excluded_runs"] == 2
+    assert escapes["reverted"]["excluded_runs"] == 0
     assert "total" not in escapes
     assert "never a combined score" in escapes["note"]
+
+
+def test_revert_exclusions_count_only_synced_merged_done_runs():
+    rows = [
+        make_row(
+            f"r_{index}",
+            state=state,
+            hosted={"fetched_at": fetched, "merged": merged, "reverted": reverted},
+        )
+        for index, (state, fetched, merged, reverted) in enumerate(
+            [
+                ("DONE", "2026-10-04T00:00:00Z", True, True),
+                ("DONE", "2026-10-04T00:00:00Z", True, False),
+                ("DONE", "2026-10-04T00:00:00Z", True, None),
+                ("DONE", "2026-10-04T00:00:00Z", False, False),
+                ("DONE", None, None, None),
+                ("ABORTED", "2026-10-04T00:00:00Z", True, True),
+            ]
+        )
+    ]
+    reverted = report.aggregate(rows)["hosted"]["escapes"]["reverted"]
+    assert reverted["runs"]["numerator"] == 1
+    assert reverted["runs"]["denominator"] == 2
+    assert reverted["excluded_runs"] == 1

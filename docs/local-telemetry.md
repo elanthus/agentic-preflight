@@ -407,7 +407,10 @@ never persisted in new fields.
 Markdown escape section appears only when at least one run was synced, matching
 the hosted-outcome section; JSON metrics are always present. Each component has
 a named denominator of synced DONE runs with that observation known and an
-excluded-run count. Failure classes require settled checks. Components overlap
+excluded-run count. For reverts, eligible runs are synced merged DONE runs;
+unmerged and unsynced runs are outside both the denominator and excluded count.
+The excluded count includes eligible runs whose revert observation is unknown.
+Failure classes require settled checks. Components overlap
 and are never summed. Follow-up work and comments need not indicate defects;
 these observations do not prove causality or reviewer recall.
 
