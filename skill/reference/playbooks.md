@@ -141,6 +141,23 @@ Read `data.applicability` and follow `next.command`. The same fingerprint refres
 handles unchanged commits and history-only rewrites. Equivalent evidence can survive;
 changed content and unknown shell inputs require fresh stages.
 
+## Event log broken (exit 3, `event_log_broken`)
+
+`mergeback` or `events --verify` found a line of the run's `events.jsonl` that does not
+follow from the line before it. Something changed the run's history after the CLI wrote
+it, so the run cannot be attested.
+
+1. Show the user `data.chain.breaks`. Each entry names a line number and a reason.
+2. Never edit, reorder, or delete lines of `events.jsonl` to make the chain pass.
+   `agentic-preflight events` still reads the log for inspection.
+3. Run `agentic-preflight abort` without `--force`. If it reports unmerged work, show it
+   and follow its instruction. Then start a fresh run with the original intent.
+
+A run that crossed an upgrade stays valid: lines from the earlier release are counted as
+unchained, and the chain starts at the first line the new release wrote. A run that an
+earlier release appended to again after the upgrade is broken, because that release
+writes lines without `prev_sha256`.
+
 ## Base synchronization failed at start (exit 4, `sync_conflict` or `sync_failed`)
 
 `start` fetched the fresh base and could not rebase or merge the branch onto it. Nothing

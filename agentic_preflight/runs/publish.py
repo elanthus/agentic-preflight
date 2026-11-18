@@ -20,7 +20,7 @@ from ..errors import (
     RemoteTimeout,
 )
 from ..machine import Action, State
-from ..models import Attestation, RunDoc
+from ..models import PUSH_AUTHORIZATIONS, Attestation, PushAuthorization, RunDoc
 from ._session import (
     Session,
     apply_action,
@@ -224,7 +224,16 @@ def gate(session: Session) -> Envelope:
         )
 
     summary.token = mint_token()
-    with session.store.transaction(run.run_id) as doc:
+    # What the gate showed, committed with the token it minted. The token itself
+    # stays out of the log.
+    shown = {
+        "event": "gate_minted",
+        "sha": run.head_sha,
+        "commits": pushed_commits,
+        "published_notes": published_notes,
+        "risk": summary.risk,
+    }
+    with session.store.transaction(run.run_id, events=[shown]) as doc:
         doc.gate_token = summary.token
         if doc.state is State.VERIFIED:
             apply_action(doc, Action.GATE)
@@ -290,8 +299,23 @@ def gate(session: Session) -> Envelope:
     )
 
 
-def push(session: Session, *, confirm: str | None = None, dry_run: bool = False) -> Envelope:
-    """Push the run's branch after the confirmation token is checked."""
+def push(
+    session: Session,
+    *,
+    confirm: str | None = None,
+    dry_run: bool = False,
+    authorization: PushAuthorization | None = None,
+) -> Envelope:
+    """Push the run's branch after the confirmation token is checked.
+
+    ``authorization`` is the agent's label for what authorized the push. The log
+    records it as a claim with its source; nothing checks it.
+    """
+    if authorization is not None and authorization not in PUSH_AUTHORIZATIONS:
+        raise ValueError(
+            f"push authorization must be one of {', '.join(PUSH_AUTHORIZATIONS)}, "
+            f"not {authorization!r}"
+        )
     run = load_current(session)
     assert_fresh(session, run)
     require_state(run, State.AWAITING_PUSH_CONFIRM, command="push")
@@ -340,6 +364,17 @@ def push(session: Session, *, confirm: str | None = None, dry_run: bool = False)
             next_command="agentic-preflight push --confirm <token>",
         )
 
+    # Recorded before the push starts, so an attempt that times out still shows
+    # that the token was presented and on what stated basis.
+    session.store.append_event(
+        run.run_id,
+        {
+            "event": "push_authorized",
+            "sha": run.head_sha,
+            "authorization": authorization,
+            "authorization_source": None if authorization is None else "flag",
+        },
+    )
     try:
         with session.store.resource("notes", holder=run.run_id):
             published_notes = _publish(session, run, portable, evidence_refspecs, pushed_commits)

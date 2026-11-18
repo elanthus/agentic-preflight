@@ -91,6 +91,11 @@ AbortReason = Literal[
 ]
 ABORT_REASONS: tuple[str, ...] = get_args(AbortReason)
 
+#: What the agent says authorized a push. It is the agent's own label, recorded
+#: with its source like :class:`Producer` values: a claim, never a measurement.
+PushAuthorization = Literal["user_request", "standing_instruction"]
+PUSH_AUTHORIZATIONS: tuple[str, ...] = get_args(PushAuthorization)
+
 
 class RiskLevel(StrEnum):
     LOW = "low"
