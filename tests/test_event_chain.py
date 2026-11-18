@@ -146,6 +146,21 @@ def test_a_log_from_an_earlier_release_is_unchained_then_intact(store):
     assert json.loads(_lines(store)[-1])[CHAIN_KEY] == hashlib.sha256(legacy[1]).hexdigest()
 
 
+def test_a_log_stripped_of_every_link_reads_as_an_earlier_release(store):
+    # A stated limit, pinned so that it changes on purpose: run schema 2 has no field
+    # that says a log must be chained, so this cannot be told from an old log.
+    store.create_run(make_run())
+    store.append_event(RUN, {"event": "one"})
+    stripped = []
+    for line in _lines(store):
+        event = json.loads(line)
+        del event[CHAIN_KEY]
+        stripped.append(json.dumps(event, sort_keys=True).encode())
+    _rewrite(store, stripped)
+
+    assert store.verify_events(RUN).status == "unchained"
+
+
 def test_the_previous_line_is_found_beyond_one_read_block(store):
     store.create_run(make_run())
     store.append_event(RUN, {"event": "big", "text": "x" * 20_000})
