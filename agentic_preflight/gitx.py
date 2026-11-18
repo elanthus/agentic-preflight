@@ -11,10 +11,12 @@ from __future__ import annotations
 import os
 import re
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar
@@ -1906,7 +1908,8 @@ def _attribute_free(cwd: Path | str) -> Iterator[tuple[str, dict[str, str]]]:
     repository = git_dir(cwd)
     env = _absolute_repository_variables(cwd)
     env.pop("GIT_ATTR_SOURCE", None)
-    with tempfile.TemporaryDirectory(prefix="agentic-preflight-diff-") as empty:
+    empty = tempfile.mkdtemp(prefix="agentic-preflight-diff-")
+    try:
         env.update(
             GIT_DIR=str(repository),
             GIT_WORK_TREE=empty,
@@ -1914,6 +1917,36 @@ def _attribute_free(cwd: Path | str) -> Iterator[tuple[str, dict[str, str]]]:
             GIT_ATTR_NOSYSTEM="1",
         )
         yield empty, env
+    finally:
+        _remove_scratch_directory(empty)
+
+
+#: How long to wait for a stopped Git to leave the scratch directory before leaving it behind.
+_SCRATCH_REMOVAL_WAIT_SECONDS = 5.0
+
+
+def _remove_scratch_directory(path: str) -> None:
+    """Remove the attribute-free scratch directory. It never fails the patch read.
+
+    Windows refuses to remove a directory while a process has it as its working
+    directory. A bounded read stops Git early, and on Windows the ``git`` that was
+    started can be a wrapper around the Git that does the work, which exits a
+    moment after its wrapper is killed. The removal is retried for that moment.
+    A directory that is still held afterwards is left to the system's cleanup of
+    temporary files: the caller already has its patches, or the error that ended
+    the read, and a leftover empty directory must not replace either.
+    """
+    deadline = time.monotonic() + _SCRATCH_REMOVAL_WAIT_SECONDS
+    while True:
+        try:
+            shutil.rmtree(path)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            if time.monotonic() >= deadline:
+                return
+            time.sleep(0.05)
 
 
 #: The values ``git check-attr`` prints for an attribute's states. A driver with one

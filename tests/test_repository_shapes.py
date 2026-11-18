@@ -217,7 +217,8 @@ def test_sparse_checkout_review_covers_paths_outside_the_sparse_set(sparse_featu
 
     complete = [entry.as_dict() for entry in build_inventory(full, env["data"]["changed_files"])]
     assert surface == complete
-    assert [entry["path"] for entry in surface] == ["README.md", "docs/guide.md"]
+    # Path order, which ignores case on Windows.
+    assert [entry["path"] for entry in surface] == sorted(["README.md", "docs/guide.md"], key=Path)
     finding = {
         "path": "docs/guide.md",
         "severity": "medium",

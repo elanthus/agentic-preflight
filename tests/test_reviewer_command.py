@@ -33,12 +33,14 @@ PLATFORM = sys.platform
 
 FAKE_PROVIDER = """\
 #!{python}
+import io
 import json
 import os
 import sys
 import time
 
-prompt = sys.stdin.read()
+# UTF-8 whatever the locale, as the provider CLIs read it.
+prompt = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8").read()
 if os.environ.get("FAKE_SLEEP"):
     time.sleep(2)
 if os.environ.get("FAKE_CAPTURE"):

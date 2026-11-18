@@ -755,7 +755,11 @@ def _timed_out_process(direct_kills: list[bool]):
     class TimedOutProcess:
         pid = 4242
         returncode = 1
+        stdin = None
         calls = 0
+
+        def wait(self, timeout=None):
+            return self.returncode
 
         def communicate(self, **_kwargs):
             self.calls += 1
@@ -1431,8 +1435,9 @@ def test_a_baseline_branch_checked_out_elsewhere_names_the_worktree_to_remove(
     assert env["error"]["code"] == "setup_failed"
     assert branch in env["error"]["message"]
     assert "checked out" in env["error"]["message"]
-    assert str(elsewhere.resolve()) in env["error"]["message"]
-    assert str(elsewhere.resolve()) in env["next"]["instruction"]
+    # Git reports a worktree's path with forward slashes on every platform.
+    assert elsewhere.resolve().as_posix() in env["error"]["message"]
+    assert elsewhere.resolve().as_posix() in env["next"]["instruction"]
     assert "removes that worktree" in env["next"]["instruction"]
     assert "--baseline" in env["next"]["command"]
     assert elsewhere.exists()
@@ -1618,7 +1623,8 @@ def test_captured_output_keeps_only_the_head_and_tail_beyond_the_cap(tmp_path, m
     script = tmp_path / "loud.py"
     script.write_text(
         "import sys\n"
-        "sys.stdout.write('HEAD\\n' + 'x' * 100_000 + '\\nTAIL\\n')\n"
+        # Bytes, so the count below is the same where text mode would write CRLF.
+        "sys.stdout.buffer.write(b'HEAD\\n' + b'x' * 100_000 + b'\\nTAIL\\n')\n"
         "sys.stderr.write('ERR' * 1000)\n",
         encoding="utf-8",
     )

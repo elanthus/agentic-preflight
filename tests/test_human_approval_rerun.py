@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
@@ -87,8 +88,19 @@ def _pull_request(*, state="open", head_sha=HEAD, base_sha=BASE, head_repo=None)
     }
 
 
+def _skip_on_windows():
+    """Skip a test that executes a workflow step.
+
+    The steps run on Linux runners only. Git Bash on Windows is not that shell: a
+    script passed with ``-c`` reaches it altered, and a native ``jq`` writes CRLF.
+    """
+    if sys.platform == "win32":
+        pytest.skip("workflow steps run on Linux runners; Git Bash is not that environment")
+
+
 @pytest.fixture
 def rerun(tmp_path):
+    _skip_on_windows()
     bash = shutil.which("bash")
     if bash is None or shutil.which("jq") is None:
         pytest.skip("Bash and jq are required to execute the workflow step")
@@ -840,6 +852,7 @@ def test_companion_reruns_for_a_bot_when_the_issue_events_are_unreadable(rerun):
 
 @pytest.fixture
 def enforce(tmp_path):
+    _skip_on_windows()
     bash = shutil.which("bash")
     if bash is None:
         pytest.skip("Bash is unavailable")

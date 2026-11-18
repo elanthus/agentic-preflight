@@ -221,8 +221,9 @@ def test_symlink_surface_hashes_link_text_and_never_reads_its_target(tmp_path, t
     root = _repo(tmp_path)
     target = tmp_path_factory.mktemp("outside-doc") / "target"
     target.write_text("private outside content")
-    link_text = str(target)
-    (root / "docs/external.md").symlink_to(link_text)
+    (root / "docs/external.md").symlink_to(target)
+    # Git for Windows stores a link's text with forward slashes.
+    link_text = target.as_posix()
     commit_all(root, "external link")
     before = doc_surface(root, docs.build_inventory(root, []))
     entry = next(item for item in before if item["path"] == "docs/external.md")
