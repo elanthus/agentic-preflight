@@ -343,7 +343,7 @@ def _spans(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
 def documented_fields(lines: list[tuple[int, str]]) -> dict[str, int]:
     found: dict[str, int] = {}
     for number, span in _spans(lines):
-        match = re.match(r"data\.([a-z_]+)", span)
+        match = re.match(r"data\.([a-z][a-z0-9_]*)", span)
         if match:
             found.setdefault(match.group(1), number)
     return found
@@ -353,7 +353,7 @@ def mentioned_names(lines: list[tuple[int, str]]) -> set[str]:
     names: set[str] = set()
     for _, span in _spans(lines):
         span = span.removeprefix("data.")
-        match = re.match(r"([a-z_]+)(?=[.\s=]|$)", span)
+        match = re.match(r"([a-z][a-z0-9_]*)(?=[.\s=]|$)", span)
         if match:
             names.add(match.group(1))
     return names

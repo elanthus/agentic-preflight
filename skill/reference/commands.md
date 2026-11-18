@@ -376,7 +376,7 @@ to `review-compare.json`, appends a `review_compared` event, and returns the sum
 have copied-file values replaced by `[redacted]`; a copied file that cannot be read for
 that redaction exits 3. It is legal from `REVIEW_GREEN` onward and never advances the run.
 
-### `agentic-preflight submit-findings --file PATH`
+### `agentic-preflight submit-findings --file PATH [--transcript PATH]`
 `PATH` may be `-` for stdin. Review requires
 `{"coverage":{"manifest":"<from context>","examined":"all"},"findings":[...]}`.
 The manifest must match the current diff. Docs requires `{"findings": [...]}`; an empty
@@ -392,6 +392,22 @@ All-or-nothing — one bad finding rejects the batch.
 Accepted finding titles, details, and suggestions have copied-file values replaced by
 `[redacted]` before they are saved or returned, as in stage logs, because the published
 attestation note includes them. Review-command findings are redacted the same way.
+
+`--transcript` names an optional UTF-8 text file with the agent's own review notes: what
+it examined in each unit and why it judged it clean or not. The file is read before
+anything else; one over 1 MiB (1,048,576 bytes) or not valid UTF-8 exits 3 with
+`invalid_findings` and changes nothing. Copied-file values are replaced by `[redacted]`
+exactly as in stage logs; when a `copy_files` file cannot be read for that redaction,
+the whole submission exits 3 with `invalid_findings` and changes nothing. Only when the
+submission is accepted is the redacted text written to `logs/review-transcript.txt` or
+`logs/docs-transcript.txt` in the run directory, replacing any earlier transcript for
+that stage, and one `transcript_recorded` event is appended with `stage`, `sha256` and
+`bytes` of the stored file, and `source` `flag`. The envelope then adds
+`data.transcript_sha256`, `data.transcript_bytes`, and `data.transcript_path`; without
+`--transcript` these are absent and no file or event is written. The transcript is the
+agent's claim: nothing checks it, and it does not enter the attestation note, the stage
+fingerprint, or any evidence digest. `review run` takes no transcript; its reviewer's
+output is already kept as the review log.
 
 ### `agentic-preflight respond --id F001 --action fixed|dismissed|accepted [--commit SHA] [--note TEXT] [--reason REASON]`
 - `fixed` requires `--commit`. The commit is verified four ways: it exists, it touches

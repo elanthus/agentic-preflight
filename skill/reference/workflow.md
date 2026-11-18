@@ -44,7 +44,8 @@ $ agentic-preflight context
 # strict submission through the same validation path.
 $ agentic-preflight review run
 
-# You read the diff and decide. Write findings.json, then:
+# You read the diff and decide. Write findings.json, then (optionally adding
+# --transcript notes.txt with what you examined in each unit and why):
 $ agentic-preflight submit-findings --file findings.json
 {"ok":true,"state":"REVIEW_BLOCKED","blocking":[{"id":"F001","severity":"high",...}],
  "next":{"command":"agentic-preflight respond --id F001 --action fixed --commit <sha>"}}

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from .. import diff as diffmod
 from .. import findings as findingsmod
 from .. import gitx
@@ -22,6 +24,7 @@ from ..models import (
 )
 from ..stages import docs as docsstage
 from ..stages import shellstage
+from ..store import atomic_write
 from . import evidence, review_compare, review_coverage, review_protocol
 from ._session import (
     Session,
@@ -234,13 +237,13 @@ def _parse_stage_submission(session: Session, run: RunDoc, stage: Stage, payload
     return submissions, manifest, coverage
 
 
-def _copied_file_secrets(run: RunDoc) -> list[str]:
+def _copied_file_secrets(run: RunDoc, *, what: str = "findings") -> list[str]:
     """Read copied-file values to redact finding text, failing closed like stage logs."""
     try:
         return shellstage.read_secrets(require_worktree(run), run.copied_files)
     except shellstage.SecretRedactionError as exc:
         raise InvalidFindings(
-            "findings cannot be recorded because copied-file redaction is unavailable",
+            f"{what} cannot be recorded because copied-file redaction is unavailable",
             state=run.state.value,
             run_id=run.run_id,
             data={"copied_file": str(exc.path)},
@@ -251,13 +254,67 @@ def _copied_file_secrets(run: RunDoc) -> list[str]:
         ) from exc
 
 
+#: Largest review transcript `submit-findings --transcript` accepts, in bytes.
+TRANSCRIPT_MAX_BYTES = 1024 * 1024
+
+
+def _redacted_transcript(run: RunDoc, transcript: str | None) -> str | None:
+    """Bound and redact the agent's review notes before anything is accepted.
+
+    The transcript is the agent's claim: it is kept beside the run for audit and
+    never enters the attestation, the stage fingerprint, or any evidence digest.
+    """
+    if transcript is None:
+        return None
+    if len(transcript.encode("utf-8")) > TRANSCRIPT_MAX_BYTES:
+        raise InvalidFindings(
+            f"the transcript is larger than the {TRANSCRIPT_MAX_BYTES}-byte limit",
+            state=run.state.value,
+            run_id=run.run_id,
+            next_instruction="Shorten the transcript, then resubmit. Nothing was recorded.",
+        )
+    secrets = _copied_file_secrets(run, what="the transcript")
+    return shellstage.redact(transcript, secrets)
+
+
+def _record_transcript(session: Session, run: RunDoc, stage: Stage, text: str) -> dict:
+    """Replace the stage's stored transcript and append one event naming its digest."""
+    path = session.store.logs_dir(run.run_id) / f"{stage.value}-transcript.txt"
+    # atomic_write translates no newlines, so the file holds exactly these bytes.
+    atomic_write(path, text)
+    stored = text.encode("utf-8")
+    digest = hashlib.sha256(stored).hexdigest()
+    session.store.append_event(
+        run.run_id,
+        {
+            "event": "transcript_recorded",
+            "stage": stage.value,
+            "sha256": digest,
+            "bytes": len(stored),
+            "source": "flag",
+        },
+    )
+    return {
+        "transcript_sha256": digest,
+        "transcript_bytes": len(stored),
+        "transcript_path": str(path),
+    }
+
+
 def submit_findings(
     session: Session,
     payload,
     *,
+    transcript: str | None = None,
     _executor: review_protocol.ReviewExecutor = "in_harness",
 ) -> Envelope:
-    """Record the agent's findings for the review or docs stage."""
+    """Record the agent's findings for the review or docs stage.
+
+    ``transcript`` is the in-harness agent's own review notes. It is redacted and
+    validated before the findings are accepted, then stored only once they are.
+    """
+    if transcript is not None and _executor != "in_harness":
+        raise ValueError("a review command keeps its own log; it takes no transcript")
     run = load_current(session)
     check_restart_limit(run)
     require_publishable(run, command="submit-findings")
@@ -285,6 +342,7 @@ def submit_findings(
             next_instruction="Run the independent reviewer for this risk level.",
             next_command="agentic-preflight review run",
         )
+    redacted_transcript = _redacted_transcript(run, transcript)
     worktree_path = require_worktree(run)
     bundle = review_protocol.bundle_for(session, run)
     submissions, manifest, coverage = _parse_stage_submission(session, run, stage, payload, bundle)
@@ -364,6 +422,14 @@ def submit_findings(
         apply_action(doc, Action.SUBMIT_BLOCKING if blocking else Action.SUBMIT_CLEAN)
         run = doc
 
+    # Written once the submission is accepted, before later steps that may fail,
+    # so an accepted submission always keeps the notes it came with.
+    transcript_data = (
+        {}
+        if redacted_transcript is None
+        else _record_transcript(session, run, stage, redacted_transcript)
+    )
+
     if stage is Stage.REVIEW and manifest is not None and coverage is not None:
         review_compare.persist_submission(
             session,
@@ -398,6 +464,7 @@ def submit_findings(
             total=len(combined),
             coverage=coverage.summary() if coverage is not None else None,
             risk=assessment.model_dump(mode="json"),
+            **transcript_data,
         ),
         blocking=[f.model_dump(mode="json") for f in blocking],
     )

@@ -1036,3 +1036,12 @@ New events: `gate_minted`, `push_authorized`, `reviewer_reported`, and `reviewer
 `push` adds the optional `--authorization user_request|standing_instruction`. Without it, `push_authorized` records `null`.
 `reviewer run` now writes one `agentic_preflight_reviewer` JSON line on stderr after a successful review. Its stdout is unchanged. The line is part of the captured review output, so it enters the stage log and its `output_sha256`.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged. No new field enters the attestation note.
+
+## Review transcripts
+
+`submit-findings` adds the optional `--transcript PATH`, a UTF-8 text file of at most 1 MiB with the agent's own review notes.
+An accepted submission stores a copy with copied-file values redacted as `logs/review-transcript.txt` or `logs/docs-transcript.txt` in the run directory, and replaces an earlier copy for the same stage.
+New event: `transcript_recorded`, with `stage`, `sha256`, `bytes`, and `source` `flag`.
+`submit-findings` data adds the optional `transcript_sha256`, `transcript_bytes`, and `transcript_path`. Without `--transcript`, the command behaves as before.
+The transcript is the agent's claim. Nothing checks it, and `review run` takes none.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged. The transcript does not enter the attestation note, the stage fingerprint, or any evidence digest.

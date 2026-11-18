@@ -156,6 +156,35 @@ def read_json_file(file_path: str, label: str) -> Any:
         raise _unreadable_input(f"{label} is not valid JSON: {exc}") from exc
 
 
+def read_transcript_file(file_path: str, limit: int) -> str:
+    """Read a review transcript as UTF-8 text, refusing an oversized or undecodable file.
+
+    At most ``limit + 1`` bytes are read, so an oversized file is refused without
+    loading it. Refusals use the same envelope as an unreadable findings file.
+    """
+    try:
+        with open(file_path, "rb") as handle:
+            raw = handle.read(limit + 1)
+    except OSError as exc:
+        raise _unreadable_transcript(f"transcript file could not be read: {exc}") from exc
+    if len(raw) > limit:
+        raise _unreadable_transcript(f"transcript file is larger than the {limit}-byte limit")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise _unreadable_transcript(f"transcript file is not valid UTF-8 text: {exc}") from exc
+
+
+def _unreadable_transcript(message: str) -> AgenticError:
+    return as_error(
+        "invalid_findings",
+        message,
+        ExitCode.PRECONDITION,
+        "Write the transcript as a UTF-8 text file within the size limit, then retry. "
+        "Nothing was recorded.",
+    )
+
+
 def command(fn):
     """Wrap a command body so every failure still emits a valid envelope."""
 
