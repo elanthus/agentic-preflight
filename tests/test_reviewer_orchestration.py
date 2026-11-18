@@ -19,9 +19,10 @@ import pytest
 from click.testing import CliRunner
 
 from agentic_preflight.cli import main
-from agentic_preflight.reviewers import common
+from agentic_preflight.reviewers import common, orchestration
 from agentic_preflight.stages import shellstage
 from evals.metrics import read_usage
+from tests.liveness import HeldFifo
 
 # Seconds for a call, or a whole review, that a test expects to finish. A fake starts in
 # well under a second on most machines, but a loaded Windows runner has needed more.
@@ -470,46 +471,53 @@ REVIEWER_STAGE = (
 )
 
 
-@pytest.fixture
-def sleeping_provider(tmp_path, monkeypatch):
-    """A provider CLI that records its pid and then waits to be stopped.
+class SleepingProvider:
+    """A provider CLI that records its pid and then waits to be stopped."""
 
-    Yields a function that waits for the provider to start and returns its pid.
-    """
-    pid_file = tmp_path / "provider.pid"
-    fake = tmp_path / "provider"
-    fake.write_text(f'#!/bin/sh\necho $$ > "{pid_file}"\nexec sleep 120\n')
-    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
-    monkeypatch.setenv("AP_CLAUDE_BIN", str(fake))
-    monkeypatch.setenv("AP_REVIEWER_TIMEOUT", "60")
+    def __init__(self, tmp_path: Path) -> None:
+        self.pid_file = tmp_path / "provider.pid"
+        self.held = HeldFifo(tmp_path / "provider.alive")
+        self.executable = tmp_path / "provider"
+        # The FIFO is opened before the pid is written, and ``sleep`` inherits it.
+        self.executable.write_text(
+            f'#!/bin/sh\nexec 3> "{self.held.path}"\necho $$ > "{self.pid_file}"\nexec sleep 120\n'
+        )
+        self.executable.chmod(self.executable.stat().st_mode | stat.S_IXUSR)
 
-    def started(starter: subprocess.Popen | None = None) -> int:
+    def _recorded_pid(self) -> int | None:
+        text = self.pid_file.read_text().strip() if self.pid_file.exists() else ""
+        return int(text) if text else None
+
+    def wait_until_started(self, starter: subprocess.Popen | None = None) -> None:
         deadline = time.monotonic() + 30
-        while not pid_file.exists() or not pid_file.read_text().strip():
+        while self._recorded_pid() is None:
             assert time.monotonic() < deadline, "the provider never started"
             if starter is not None:
                 assert starter.poll() is None, "the process exited before the provider started"
             time.sleep(0.05)
-        return int(pid_file.read_text())
 
-    try:
-        yield started
-    finally:
+    def assert_stopped(self) -> None:
+        assert self._recorded_pid() is not None, "the provider never started"
+        assert self.held.closed_by_all(), "the provider is still running"
+
+    def cleanup(self) -> None:
         # Ending the provider also ends a reviewer that a failed test left waiting for it.
-        if pid_file.exists() and pid_file.read_text().strip():
+        pid = self._recorded_pid()
+        if pid is not None:
             with contextlib.suppress(ProcessLookupError):
-                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+                os.kill(pid, signal.SIGKILL)
+        self.held.close()
 
 
-def assert_exits(pid: int) -> None:
-    deadline = time.monotonic() + 10
-    while True:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return
-        assert time.monotonic() < deadline, "the provider is still running"
-        time.sleep(0.05)
+@pytest.fixture
+def sleeping_provider(tmp_path, monkeypatch):
+    provider = SleepingProvider(tmp_path)
+    monkeypatch.setenv("AP_CLAUDE_BIN", str(provider.executable))
+    monkeypatch.setenv("AP_REVIEWER_TIMEOUT", "60")
+    try:
+        yield provider
+    finally:
+        provider.cleanup()
 
 
 def start_reviewer(**popen_kwargs) -> subprocess.Popen:
@@ -537,11 +545,11 @@ def test_a_signal_to_the_reviewer_stops_the_provider_it_started(sleeping_provide
     # The provider CLI runs in its own session, so nothing else forwards the signal.
     reviewer = start_reviewer()
     try:
-        provider_pid = sleeping_provider(reviewer)
+        sleeping_provider.wait_until_started(reviewer)
         reviewer.send_signal(signum)
         reviewer.wait(timeout=30)
         assert reviewer.returncode == -signum
-        assert_exits(provider_pid)
+        sleeping_provider.assert_stopped()
     finally:
         if reviewer.poll() is None:
             reviewer.kill()
@@ -553,10 +561,10 @@ def test_killing_the_reviewers_process_group_stops_the_provider_it_started(sleep
     # provider is in another process group, so the reviewer cannot forward this one.
     reviewer = start_reviewer(start_new_session=True)
     try:
-        provider_pid = sleeping_provider(reviewer)
+        sleeping_provider.wait_until_started(reviewer)
         os.killpg(reviewer.pid, signal.SIGKILL)
         reviewer.wait(timeout=30)
-        assert_exits(provider_pid)
+        sleeping_provider.assert_stopped()
     finally:
         if reviewer.poll() is None:
             reviewer.kill()
@@ -573,11 +581,11 @@ def test_terminating_the_tool_stops_the_provider_its_reviewer_started(tmp_path, 
     )
     tool = subprocess.Popen([sys.executable, str(driver)], cwd=Path(__file__).parent.parent)
     try:
-        provider_pid = sleeping_provider(tool)
+        sleeping_provider.wait_until_started(tool)
         tool.send_signal(signal.SIGTERM)
         tool.wait(timeout=30)
         assert tool.returncode == -signal.SIGTERM
-        assert_exits(provider_pid)
+        sleeping_provider.assert_stopped()
     finally:
         if tool.poll() is None:
             tool.kill()
@@ -590,4 +598,33 @@ def test_a_stage_timeout_stops_the_provider_the_reviewer_started(tmp_path, sleep
         tmp_path, REVIEWER_STAGE, timeout_seconds=5, stdin_text=json.dumps(CONTEXT)
     )
     assert result.timed_out
-    assert_exits(sleeping_provider())
+    sleeping_provider.assert_stopped()
+
+
+def test_the_termination_guard_is_given_the_provider_before_the_parent_death_watcher(
+    tmp_path, monkeypatch
+):
+    # On Windows the termination guard stops only a process it has been given, and
+    # an interrupt can arrive during whatever runs before it is.
+    bound: list[str] = []
+
+    def recording(name, real):
+        @contextlib.contextmanager
+        def guard_block():
+            with real() as guard:
+                real_bind = guard.bind
+
+                def bind(process):
+                    bound.append(name)
+                    real_bind(process)
+
+                guard.bind = bind
+                yield guard
+
+        return guard_block
+
+    for name in ("kill_on_termination", "kill_when_parent_dies"):
+        monkeypatch.setattr(orchestration, name, recording(name, getattr(orchestration, name)))
+    result, _events, _path = run_fake(tmp_path, "claude", [output([])])
+    assert result.exit_code == 0, result.output
+    assert bound == ["kill_on_termination", "kill_when_parent_dies"]

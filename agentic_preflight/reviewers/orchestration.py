@@ -261,8 +261,10 @@ class Orchestrator:
                             errors="replace",
                             **process_group_kwargs(),
                         )
-                        orphaned.bind(process)
+                        # The termination guard first: on Windows it stops only a
+                        # process it has been given, and an interrupt can arrive here.
                         termination.bind(process)
+                        orphaned.bind(process)
                         launched = True
                         try:
                             process.communicate(input=prompt, timeout=timeout)
