@@ -5,7 +5,7 @@ All notable changes to Agentic Preflight are documented here. This project follo
 
 ## [Unreleased]
 
-## [0.9.0] - 2026-11-17
+## [0.9.0] - 2026-11-18
 
 ### Upgrade highlights
 
