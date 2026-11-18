@@ -181,6 +181,9 @@ def git(*args: str, cwd: Path) -> str:
         cwd=cwd,
         capture_output=True,
         text=True,
+        # Git writes paths and messages as UTF-8 whatever the locale. The Windows
+        # locale encoding would turn a committed non-ASCII name into other characters.
+        encoding="utf-8",
         check=True,
     )
     return result.stdout.strip()
@@ -189,7 +192,9 @@ def git(*args: str, cwd: Path) -> str:
 def write(repo: Path | str, relpath: str, content: str) -> Path:
     path = Path(repo) / relpath
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    # The same bytes on every platform: text mode on Windows would write CRLF, and
+    # the blobs, patches, and sizes that tests compare would differ from POSIX.
+    path.write_text(content, encoding="utf-8", newline="\n")
     return path
 
 

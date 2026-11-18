@@ -597,7 +597,8 @@ def test_a_quoted_alternate_with_a_separator_still_supplies_objects(
     store = empty / f"cache{gitx.os.pathsep}one" / "objects"
     shutil.copytree(repo / ".git" / "objects", store)
     entry = store.relative_to(empty) if relative else store
-    monkeypatch.setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", f'"{entry}"')
+    # Forward slashes: inside the quotes Git reads a backslash as an escape.
+    monkeypatch.setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", f'"{entry.as_posix()}"')
 
     assert _snapshot(empty, base, head) == expected
 

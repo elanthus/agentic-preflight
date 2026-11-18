@@ -139,12 +139,23 @@ def test_in_place_abort_leaves_uncommitted_changes_alone(agent, feature_repo):
     assert (wt / "notes" / "draft.txt").read_text(encoding="utf-8") == "half-finished fix\n"
 
 
+def _point_gitfile_nowhere(worktree: Path) -> None:
+    """Make ``worktree`` unreadable to Git by pointing its ``.git`` file at nothing.
+
+    The file is replaced, not rewritten: Git for Windows marks it hidden, and
+    Windows refuses to open a hidden file for writing.
+    """
+    gitfile = worktree / ".git"
+    gitfile.unlink()
+    gitfile.write_text("gitdir: /nonexistent/agentic-preflight-test\n", encoding="utf-8")
+
+
 @pytest.mark.parametrize("mode", ["strict", "reusable"])
 def test_abort_refuses_when_the_worktree_cannot_be_inspected(agent, feature_repo, mode):
     """A worktree Git cannot read may still hold work, so a plain abort stops."""
     _, wt = _start(agent, feature_repo, mode)
     write(wt, "notes/draft.txt", "half-finished fix\n")
-    (wt / ".git").write_text("gitdir: /nonexistent/agentic-preflight-test\n", encoding="utf-8")
+    _point_gitfile_nowhere(wt)
 
     refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
 
@@ -170,7 +181,7 @@ def test_an_uninspectable_worktree_refusal_still_names_the_fix_commits(
     git("commit", "-m", "fix the flag", cwd=wt)
     sha = git("rev-parse", "HEAD", cwd=wt)
     agent.run("respond", "--id", "F001", "--action", "fixed", "--commit", sha)
-    (wt / ".git").write_text("gitdir: /nonexistent/agentic-preflight-test\n", encoding="utf-8")
+    _point_gitfile_nowhere(wt)
 
     refused = agent.run("abort", expect=ExitCode.NEEDS_CONFIRM)
 
