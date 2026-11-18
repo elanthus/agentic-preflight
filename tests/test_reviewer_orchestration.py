@@ -12,12 +12,18 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from click.testing import CliRunner
 
 from agentic_preflight.cli import main
+from agentic_preflight.reviewers import common
 from evals.metrics import read_usage
+
+# Seconds for a call, or a whole review, that a test expects to finish. A fake starts in
+# well under a second on most machines, but a loaded Windows runner has needed more.
+GENEROUS = "60"
 
 FINDING = {
     "unit": "U0001",
@@ -35,11 +41,12 @@ SCRIPT = r"""
 import json, os, sys, time
 from pathlib import Path
 prompt = sys.stdin.read()
-state = Path(os.environ["FAKE_STATE"])
-index = int(state.read_text()) if state.exists() else 0
-state.write_text(str(index + 1))
+# The orchestrator logs each call before it starts the provider, so this count names the
+# call even when an earlier fake was stopped before it could write anything.
+events = Path(os.environ["AP_REVIEWER_EVENTS_FILE"]).read_text().splitlines()
+started = sum(json.loads(line)["type"] == "reviewer_call_started" for line in events)
 steps = json.loads(os.environ["FAKE_STEPS"])
-step = steps[min(index, len(steps)-1)]
+step = steps[min(started, len(steps))-1]
 with open(os.environ["FAKE_PROMPTS"], "a") as out:
     out.write(json.dumps(prompt) + "\n")
 if step.get("sleep"):
@@ -62,6 +69,11 @@ else:
 
 
 def run_fake(tmp_path, provider, steps, *flags, context=None):
+    """Run the reviewer against a fake CLI that plays one step per call; the last repeats.
+
+    A step that sleeps is a call the test expects to time out, so that call gets one
+    second. Every other call gets GENEROUS seconds: how fast a fake starts is not under test.
+    """
     fake = tmp_path / "provider.py"
     fake.write_text(f"#!{sys.executable} -S\n" + SCRIPT)
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
@@ -70,20 +82,33 @@ def run_fake(tmp_path, provider, steps, *flags, context=None):
         executable = tmp_path / "provider.cmd"
         executable.write_text(f'@"{sys.executable}" -S "{fake}" %*\n')
     events = tmp_path / "events.jsonl"
-    result = CliRunner().invoke(
-        main,
-        ["reviewer", "run", "--provider", provider, *flags],
-        input=json.dumps(CONTEXT if context is None else context),
-        env={
-            f"AP_{provider.upper()}_BIN": str(executable),
-            "AP_REVIEWER_EVENTS_FILE": str(events),
-            "AP_REVIEWER_TIMEOUT": "1",
-            "FAKE_STATE": str(tmp_path / "state"),
-            "FAKE_STEPS": json.dumps(steps),
-            "FAKE_PROVIDER": provider,
-            "FAKE_PROMPTS": str(tmp_path / "prompts"),
-        },
-    )
+
+    def call_timeout():
+        # The orchestrator asks before it logs the call, so the count is that call's index.
+        started = sum(
+            json.loads(line)["type"] == "reviewer_call_started"
+            for line in events.read_text().splitlines()
+        )
+        return 1 if steps[min(started, len(steps) - 1)].get("sleep") else int(GENEROUS)
+
+    # AP_REVIEWER_TIMEOUT is one value for every call. Only a test with a call that must
+    # time out needs a different one per call, so only that test replaces the lookup.
+    hangs = any(step.get("sleep") for step in steps)
+    lookup = call_timeout if hangs else common.timeout_seconds
+    with mock.patch.object(common, "timeout_seconds", lookup):
+        result = CliRunner().invoke(
+            main,
+            ["reviewer", "run", "--provider", provider, *flags],
+            input=json.dumps(CONTEXT if context is None else context),
+            env={
+                f"AP_{provider.upper()}_BIN": str(executable),
+                "AP_REVIEWER_EVENTS_FILE": str(events),
+                "AP_REVIEWER_TIMEOUT": GENEROUS,
+                "FAKE_STEPS": json.dumps(steps),
+                "FAKE_PROVIDER": provider,
+                "FAKE_PROMPTS": str(tmp_path / "prompts"),
+            },
+        )
     return result, [json.loads(line) for line in events.read_text().splitlines()], events
 
 
@@ -100,7 +125,7 @@ def test_malformed_output_retries_once_with_fresh_output_and_accounts_each_call(
         "--retries",
         "1",
         "--budget-seconds",
-        "5",
+        GENEROUS,
     )
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["findings"] == []
@@ -115,7 +140,13 @@ def test_malformed_output_retries_once_with_fresh_output_and_accounts_each_call(
 @pytest.mark.parametrize("provider", ["claude", "codex"])
 def test_timeout_can_retry_with_remaining_total_budget(tmp_path, provider):
     result, events, _ = run_fake(
-        tmp_path, provider, [{"sleep": 2}, output([])], "--retries", "1", "--budget-seconds", "4"
+        tmp_path,
+        provider,
+        [{"sleep": 30}, output([])],
+        "--retries",
+        "1",
+        "--budget-seconds",
+        GENEROUS,
     )
     assert result.exit_code == 0, result.output
     calls = [event for event in events if event["type"] == "reviewer_call"]
@@ -126,8 +157,9 @@ def test_timeout_can_retry_with_remaining_total_budget(tmp_path, provider):
 @pytest.mark.parametrize("provider", ["claude", "codex"])
 def test_budget_exhaustion_never_returns_candidates_from_an_earlier_call(tmp_path, provider):
     started = time.monotonic()
-    # The budget leaves the first call the same second every other call here gets.
-    # A smaller one ran out on a slow runner before verification could start.
+    # This budget is real wall time and has to cover the first call, so that call must
+    # start and answer in under four seconds. Two seconds ran out on a slow runner before
+    # verification could start. The test takes as long as the budget, so it stays small.
     result, events, path = run_fake(
         tmp_path,
         provider,
@@ -136,7 +168,7 @@ def test_budget_exhaustion_never_returns_candidates_from_an_earlier_call(tmp_pat
         "--retries",
         "5",
         "--budget-seconds",
-        "2",
+        "4",
     )
     assert result.exit_code == 1
     assert result.stdout == ""
@@ -170,7 +202,7 @@ def test_verification_keeps_only_confirmed_candidates_and_logs_rejections(tmp_pa
         ],
         "--verify",
         "--budget-seconds",
-        "5",
+        GENEROUS,
     )
     assert result.exit_code == 0, result.output
     submitted = json.loads(result.stdout)
@@ -202,7 +234,7 @@ def test_verification_rejects_missing_duplicate_and_boolean_indices(tmp_path, de
         [output([FINDING]), {"output": json.dumps({"decisions": decisions})}],
         "--verify",
         "--budget-seconds",
-        "5",
+        GENEROUS,
     )
     assert result.exit_code == 1
     assert result.stdout == ""
@@ -225,7 +257,7 @@ def test_verification_retry_does_not_repeat_the_initial_review(tmp_path):
         "--retries",
         "1",
         "--budget-seconds",
-        "5",
+        GENEROUS,
     )
     assert result.exit_code == 0, result.output
     assert [event["phase"] for event in events if event["type"] == "reviewer_call"] == [
@@ -243,7 +275,7 @@ def test_undelivered_unit_is_malformed_and_retried(tmp_path):
         "--retries",
         "1",
         "--budget-seconds",
-        "5",
+        GENEROUS,
     )
     assert result.exit_code == 0
     assert [event["outcome"] for event in events if event["type"] == "reviewer_call"] == [
@@ -254,7 +286,13 @@ def test_undelivered_unit_is_malformed_and_retried(tmp_path):
 
 def test_provider_exit_is_not_retried(tmp_path):
     result, events, _ = run_fake(
-        tmp_path, "claude", [{"exit": 7}, output([])], "--retries", "5", "--budget-seconds", "5"
+        tmp_path,
+        "claude",
+        [{"exit": 7}, output([])],
+        "--retries",
+        "5",
+        "--budget-seconds",
+        GENEROUS,
     )
     assert result.exit_code == 1
     assert len([event for event in events if event["type"] == "reviewer_call"]) == 1
@@ -271,7 +309,7 @@ def test_codex_retry_cannot_reuse_a_previous_final_output_file(tmp_path):
         "--retries",
         "1",
         "--budget-seconds",
-        "5",
+        GENEROUS,
     )
     assert result.exit_code == 1
     assert result.stdout == ""
@@ -290,7 +328,12 @@ def test_nonfinite_total_budgets_fail_before_calling_a_provider(tmp_path, budget
 
 def test_failed_verification_preserves_known_discovery_usage_as_partial(tmp_path):
     result, _, path = run_fake(
-        tmp_path, "claude", [output([FINDING]), {"sleep": 30}], "--verify", "--budget-seconds", "2"
+        tmp_path,
+        "claude",
+        [output([FINDING]), {"sleep": 30}],
+        "--verify",
+        "--budget-seconds",
+        GENEROUS,
     )
     assert result.exit_code == 1
     usage = read_usage(path, "claude", require_completion=True)
@@ -308,7 +351,7 @@ def test_explicit_provider_error_result_is_not_retried(tmp_path, provider, secti
         "--retries",
         "5",
         "--budget-seconds",
-        "5",
+        GENEROUS,
         context={**CONTEXT, "section": section},
     )
     assert result.exit_code == 1
@@ -353,7 +396,7 @@ def test_parsed_response_past_budget_fails_without_losing_known_call_usage(tmp_p
 
     monkeypatch.setattr(orchestration.Orchestrator, "call", expire_after_parsing)
     result, events, path = run_fake(
-        tmp_path, "claude", [output([])], "--retries", "1", "--budget-seconds", "5"
+        tmp_path, "claude", [output([])], "--retries", "1", "--budget-seconds", GENEROUS
     )
     assert result.exit_code == 1
     assert result.stdout == ""
@@ -411,7 +454,7 @@ def test_unencodable_codex_path_reports_failure_without_traceback(tmp_path):
     assert result.stderr.startswith("independent reviewer failed:")
     assert "Traceback" not in result.stderr
     assert len(result.stderr.splitlines()) == 1
-    assert not (tmp_path / "state").exists()
+    assert not (tmp_path / "prompts").exists()
     calls = [event for event in events if event["type"] == "reviewer_call"]
     assert len(calls) == 1
     assert calls[0]["requests"] == 0
