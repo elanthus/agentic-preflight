@@ -338,6 +338,13 @@ class NoLog(AgenticError):
     exit_code = ExitCode.PRECONDITION
 
 
+class EventLogBroken(AgenticError):
+    """The run's event log no longer follows its own hash chain."""
+
+    code = "event_log_broken"
+    exit_code = ExitCode.PRECONDITION
+
+
 class NeedsHuman(AgenticError):
     code = "needs_human"
     exit_code = ExitCode.NEEDS_HUMAN

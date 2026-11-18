@@ -12,6 +12,7 @@ invocations need it.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -22,7 +23,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, BinaryIO, Literal, NamedTuple
 
 from pydantic import ValidationError
 
@@ -205,6 +206,79 @@ class EventLog(NamedTuple):
 
     events: list[dict[str, Any]]
     skipped_lines: int
+
+
+#: The event key that holds the SHA-256 of the line before it. The first line of a
+#: log holds ``None``.
+CHAIN_KEY = "prev_sha256"
+_TAIL_BLOCK = 4096
+
+ChainStatus = Literal["empty", "unchained", "intact", "broken"]
+ChainBreakReason = Literal["prev_mismatch", "unchained_line"]
+
+
+class ChainBreak(NamedTuple):
+    """One line that does not follow from the line before it."""
+
+    line: int
+    reason: ChainBreakReason
+
+
+class EventChain(NamedTuple):
+    """What the hash chain of a run's event log shows.
+
+    Each event names the SHA-256 of the previous line's bytes, so an edited,
+    removed, inserted, or reordered line stops matching the line after it. The
+    chain does not show a removed tail, or a log rewritten from the edit to the end:
+    nothing outside the log holds ``head_sha256`` yet.
+    """
+
+    status: ChainStatus
+    lines: int
+    chained_lines: int
+    unchained_lines: int
+    torn_lines: int
+    breaks: list[ChainBreak]
+    head_sha256: str | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {**self._asdict(), "breaks": [item._asdict() for item in self.breaks]}
+
+
+def chain_status(lines: int, chained_lines: int, breaks: list[ChainBreak]) -> ChainStatus:
+    """Classify an event log's chain. Only ``broken`` stops ``mergeback``.
+
+    A torn line is what an interrupted append leaves, and the next line chains to
+    its bytes, so it does not break the chain. A log that an earlier release wrote
+    has no chain at all (``unchained``), and a log that such a release started is
+    ``intact`` from its first chained line on.
+    """
+    if not lines:
+        return "empty"
+    if breaks:
+        return "broken"
+    return "intact" if chained_lines else "unchained"
+
+
+def _line_digest(line: bytes) -> str:
+    return hashlib.sha256(line).hexdigest()
+
+
+def _last_line(handle: BinaryIO) -> bytes | None:
+    """Return the last line that has content, without its newline, or ``None``."""
+    position = handle.seek(0, os.SEEK_END)
+    tail = b""
+    while position > 0:
+        step = min(_TAIL_BLOCK, position)
+        position -= step
+        handle.seek(position)
+        tail = handle.read(step) + tail
+        lines = tail.split(b"\n")
+        # Before the start of the file is reached, the first piece may be partial.
+        for line in reversed(lines if position == 0 else lines[1:]):
+            if line.strip():
+                return line
+    return None
 
 
 def _recorded_worktree_mode(payload: str) -> str | None:
@@ -573,10 +647,14 @@ class Store:
 
         An interrupted append can leave a partial last line with no newline. The
         next append starts a new line first, so the torn line stays on its own line
-        and readers skip it instead of the new event being glued onto it."""
+        and readers skip it instead of the new event being glued onto it.
+
+        Each event records the SHA-256 of the previous line's bytes under
+        :data:`CHAIN_KEY`, torn or not, so :meth:`verify_events` can tell when a
+        line was changed, removed, or inserted afterwards."""
         path = self.events_path(run_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        line = json.dumps({"at": _utcnow(), **event}, sort_keys=True)
+        at = _utcnow()
         with (
             filelock.exclusive(self.run_dir(run_id) / ".events.lock"),
             open(path, "a+b") as handle,
@@ -587,6 +665,9 @@ class Store:
                 handle.seek(end - 1)
                 if handle.read(1) != b"\n":
                     prefix = b"\n"
+            previous = _last_line(handle)
+            link = None if previous is None else _line_digest(previous)
+            line = json.dumps({"at": at, **event, CHAIN_KEY: link}, sort_keys=True)
             handle.write(prefix + (line + "\n").encode("utf-8"))
 
     def read_events(self, run_id: str) -> EventLog:
@@ -615,6 +696,48 @@ class Store:
 
     def load_events(self, run_id: str) -> list[dict]:
         return self.read_events(run_id).events
+
+    def verify_events(self, run_id: str) -> EventChain:
+        """Check each event against the line before it; see :class:`EventChain`.
+
+        Line numbers count every line of the file from 1, blank lines included. A
+        line without :data:`CHAIN_KEY` is one an earlier release wrote, and counts
+        as a break only after a chained line.
+        """
+        path = self.events_path(run_id)
+        content = path.read_bytes() if path.exists() else b""
+        previous: bytes | None = None
+        lines = chained = unchained = torn = 0
+        breaks: list[ChainBreak] = []
+        for number, raw in enumerate(content.split(b"\n"), start=1):
+            if not raw.strip():
+                continue
+            lines += 1
+            try:
+                event = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                event = None
+            if not isinstance(event, dict):
+                torn += 1
+            elif CHAIN_KEY not in event:
+                unchained += 1
+                if chained:
+                    breaks.append(ChainBreak(number, "unchained_line"))
+            else:
+                chained += 1
+                expected = None if previous is None else _line_digest(previous)
+                if event[CHAIN_KEY] != expected:
+                    breaks.append(ChainBreak(number, "prev_mismatch"))
+            previous = raw
+        return EventChain(
+            status=chain_status(lines, chained, breaks),
+            lines=lines,
+            chained_lines=chained,
+            unchained_lines=unchained,
+            torn_lines=torn,
+            breaks=breaks,
+            head_sha256=None if previous is None else _line_digest(previous),
+        )
 
     # -- active-run pointers -------------------------------------------------
 

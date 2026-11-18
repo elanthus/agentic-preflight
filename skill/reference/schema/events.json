@@ -1,6 +1,20 @@
 {
   "additionalProperties": true,
   "properties": {
+    "chain": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "With --verify, the hash chain of the event log: status (empty, unchained, intact, or broken), line counts, breaks, and head_sha256.",
+      "title": "Chain"
+    },
     "count": {
       "anyOf": [
         {

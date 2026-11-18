@@ -34,7 +34,9 @@ for every run.
    pushing fixes for existing PR feedback to that PR's head branch). A request only to
    implement or commit, or a generic "proceed", is not push authorization. After `gate`,
    show the summary; if it matches the authorization, push without asking again,
-   otherwise ask and wait. Force-push, merge, destructive actions, and broader work
+   otherwise ask and wait. Add `--authorization user_request` or
+   `--authorization standing_instruction` to the push command to record which one
+   applied; never choose a label that does not match what happened. Force-push, merge, destructive actions, and broader work
    always need separate approval. `[pr] mode = "auto"` is standing authorization to
    open or reuse the pull request after the authorized push and the run finish. The
    canonical rule is in
@@ -218,6 +220,7 @@ to summarize the user's run history.
 | Hosted CI failed | Inspect the failure; unchanged-source CI reruns preserve local evidence, while source repairs revalidate affected stages |
 | Merge in the validation history (exit 3, `nonlinear_fix_history`) | Remove the named merge commits from the validation branch, keeping your own repairs as linear commits on the reviewed head, then rerun the command |
 | Stale head (exit 3, `stale_run`) | Run `start` again; it preserves the old run as `ORPHANED` |
+| Event log broken (exit 3, `event_log_broken`) | Show the user `data.chain.breaks`; never edit `events.jsonl`. `abort` without `--force`, then start a fresh run |
 | Base synchronization failed at start (exit 4, `sync_conflict` or `sync_failed`) | Print the whole `data` object; the user resolves the listed conflicts, moves or removes listed local files, or fixes the remote, then `abort --force` and `start` again |
 | Fetch or push timed out (exit 4, `remote_timeout`) | Print the whole `data` object; the user fixes credentials, the host key, or the network. After `start`, `abort --force` and `start` again; after `push`, run `status` first, because the push may have landed |
 | Run left in `CREATED` or `WORKTREE_READY` after `start` died | Run `start` again; it preserves the interrupted run as `ORPHANED` and creates a fresh one. If it exits 4 (`needs_human`) naming a checkout and the head it must return to, show it to the user; do not discard its changes yourself. Once the user has made it clean at that head, `start` again |

@@ -22,6 +22,9 @@ It imports no model SDK. Install the provider CLI and sign in to it separately.
 `review run` sends the review context as JSON on stdin.
 `reviewer run` prints the strict submission as one JSON line on stdout. It prints no JSON envelope.
 On a failure, it exits 1 and writes one `independent reviewer failed: ...` line on stderr, which `review run` records in the review log.
+After a successful review, it writes one JSON line on stderr that names the provider, the model, the effort, and the SHA-256 of the prompt sent in each phase.
+`review run` records that line in the review log and copies it into a `reviewer_reported` event in the run's event log.
+The line is the reviewer's own statement. Nothing checks that the named model produced the findings.
 A usage error, such as a missing or unknown `--provider`, keeps Click's usage message on stderr and exits 2.
 
 For one release, `docs/examples/reviewers/` also keeps standard-library copies of the legacy single-call adapters: the

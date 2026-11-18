@@ -24,6 +24,7 @@ from ..config import (
 )
 from ..envelope import Envelope
 from ..errors import (
+    EventLogBroken,
     FindingsUnresolved,
     MaxRestarts,
     NeedsHuman,
@@ -43,7 +44,7 @@ from ..machine import (
 )
 from ..models import Finding, Producer, RiskAssessment, RunDoc, Stage, StageRecord
 from ..run_summary import utc_now
-from ..store import RunReadError, Store, UnknownRun
+from ..store import EventChain, RunReadError, Store, UnknownRun
 
 STATE_DIR_NAME = "agentic-preflight"
 
@@ -272,6 +273,31 @@ def require_worktree(run: RunDoc) -> str:
             run_id=run.run_id,
         )
     return run.worktree_path
+
+
+EVENT_LOG_BROKEN_RECOVERY = (
+    "Show the user data.chain.breaks: each names a line of the run's events.jsonl that "
+    "does not follow from the line before it, so the run's history was changed after it "
+    "was written. Do not edit the log. Abort without --force, preserving any unmerged "
+    "work reported by abort, then start a fresh run."
+)
+
+
+def require_event_chain(session: Session, run: RunDoc) -> EventChain:
+    """Return the run's event chain, or refuse when the log was changed after writing."""
+    chain = session.store.verify_events(run.run_id)
+    if chain.status == "broken":
+        first = chain.breaks[0]
+        raise EventLogBroken(
+            f"the event log of run {run.run_id} is broken at line {first.line} "
+            f"({first.reason}); {len(chain.breaks)} line(s) do not follow from the line before",
+            state=run.state.value,
+            run_id=run.run_id,
+            data={"chain": chain.as_dict()},
+            next_instruction=EVENT_LOG_BROKEN_RECOVERY,
+            next_command="agentic-preflight abort",
+        )
+    return chain
 
 
 def require_finding_stage(run: RunDoc) -> Stage:

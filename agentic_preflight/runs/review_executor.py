@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from .. import diff as diffmod
@@ -13,6 +14,7 @@ from ..envelope import Envelope
 from ..errors import DiffTooLarge, InvalidFindings, MaxAttempts, StageFailed
 from ..machine import Action, State
 from ..models import RunDoc, Stage, StageRecord, StageStatus
+from ..reviewers.orchestration import REPORT_TYPE
 from ..stages import shellstage
 from . import contracts, review_protocol
 from ._session import (
@@ -28,6 +30,54 @@ from ._session import (
 )
 from ._shell import _run_protected, _withheld_message
 from .review import submit_findings
+
+# A reviewer's report is reviewer-controlled text. Only values that match these
+# narrow shapes reach the event log, so it cannot carry prose or a copied secret.
+_REPORT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+\[\]-]{0,99}")
+_REPORT_PHASE = re.compile(r"[a-z_]{1,40}")
+_REPORT_SHA256 = re.compile(r"[0-9a-f]{64}")
+_REPORT_PROMPT_LIMIT = 8
+
+
+def reviewer_report(clean_output: str) -> dict[str, Any] | None:
+    """Return what the reviewer says reviewed the change, or ``None``.
+
+    The packaged reviewer ends its stderr with one JSON line of type
+    :data:`REPORT_TYPE`. The last such line in the redacted output is read, the
+    same bytes the stage log and its digest hold. A report with a missing or
+    malformed value is ignored whole. It is the reviewer's claim: nothing checks
+    that the named model produced the findings.
+    """
+    for line in reversed(clean_output.splitlines()):
+        if REPORT_TYPE not in line:
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and value.get("type") == REPORT_TYPE:
+            return _checked_report(value)
+    return None
+
+
+def _checked_report(value: dict[str, Any]) -> dict[str, Any] | None:
+    names = {key: value.get(key) for key in ("provider", "model", "effort")}
+    prompts = value.get("prompts")
+    if not all(isinstance(name, str) and _REPORT_NAME.fullmatch(name) for name in names.values()):
+        return None
+    if not isinstance(prompts, list) or len(prompts) > _REPORT_PROMPT_LIMIT:
+        return None
+    for prompt in prompts:
+        if (
+            not isinstance(prompt, dict)
+            or set(prompt) != {"phase", "sha256"}
+            or not isinstance(prompt["phase"], str)
+            or not _REPORT_PHASE.fullmatch(prompt["phase"])
+            or not isinstance(prompt["sha256"], str)
+            or not _REPORT_SHA256.fullmatch(prompt["sha256"])
+        ):
+            return None
+    return {**names, "prompts": prompts}
 
 
 def run_review_command(session: Session) -> Envelope:
@@ -184,6 +234,17 @@ def run_review_command(session: Session) -> Envelope:
         clean_output=clean_output,
         log_path=log_path,
     )
+    claim = reviewer_report(clean_output)
+    if claim is not None:
+        session.store.append_event(
+            run.run_id,
+            {
+                "event": "reviewer_reported",
+                "stage": Stage.REVIEW.value,
+                "source": "command_output",
+                **claim,
+            },
+        )
     try:
         envelope = submit_findings(session, payload, _executor="command")
     except InvalidFindings as exc:

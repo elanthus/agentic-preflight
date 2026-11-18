@@ -497,7 +497,7 @@ def test_a_real_run_times_each_command_the_tool_runs(feature_repo, bare_remote, 
     assert {"sync", "lint", "test", "mergeback"} <= set(started)
     assert sorted(started) == sorted(event["command"] for event in finished)
     assert all(isinstance(event["seconds"], float) for event in finished)
-    assert set(finished[0]) == {"at", "event", "command", "seconds"}
+    assert set(finished[0]) == {"at", "event", "command", "seconds", "prev_sha256"}
 
     common = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=feature_repo))
     summary = json.loads(

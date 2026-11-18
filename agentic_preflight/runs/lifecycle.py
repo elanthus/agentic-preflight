@@ -32,6 +32,7 @@ from ._session import (
     load_current,
     max_restarts,
     release_run_worktree,
+    require_event_chain,
     restart_limit_reached,
     start_command,
     unpublishable,
@@ -48,17 +49,18 @@ from .fix_commits import (
 )
 
 
-def events(session: Session, *, limit: int | None = None) -> Envelope:
-    """Return the current run's event history."""
+def events(session: Session, *, limit: int | None = None, verify: bool = False) -> Envelope:
+    """Return the current run's event history, and check its hash chain on request."""
     run = load_current(session)
+    chain = require_event_chain(session, run) if verify else None
     log = session.store.read_events(run.run_id)
     history = log.events
     if limit:
         history = history[-limit:]
-    return envelope_for(
-        run,
-        data=EventsData(events=history, count=len(history), skipped_lines=log.skipped_lines),
-    )
+    data = EventsData(events=history, count=len(history), skipped_lines=log.skipped_lines)
+    if chain is not None:
+        data.chain = chain.as_dict()
+    return envelope_for(run, data=data)
 
 
 def _abort_fix_commits(
