@@ -1559,7 +1559,9 @@ def _group_alive(pgid: int) -> bool:
     return True
 
 
-def _wait_for_group_exit(pgid: int, seconds: float = 3.0) -> bool:
+# A killed group stays visible until its members are reaped, which a loaded runner can
+# take seconds to do. The wait ends as soon as the group is gone.
+def _wait_for_group_exit(pgid: int, seconds: float = 15.0) -> bool:
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if not _group_alive(pgid):
@@ -1744,3 +1746,33 @@ def test_redaction_falls_back_for_deeply_nested_secret_prefixes(monkeypatch):
     # Too deep for one pattern, so each secret is replaced in turn, as before.
     assert shellstage.redact(text, secrets) == _replace_one_at_a_time(text, secrets)
     assert len(fallbacks) == 1
+
+
+def test_a_scratch_directory_still_in_use_is_removed_once_it_is_released(monkeypatch):
+    """Windows keeps a stopped child's directory locked for a moment after the child is killed."""
+    real_rmtree = shutil.rmtree
+    attempts = []
+
+    def in_use_twice(path):
+        attempts.append(path)
+        if len(attempts) < 3:
+            raise PermissionError(13, "The process cannot access the file", str(path))
+        real_rmtree(path)
+
+    monkeypatch.setattr(shellstage.shutil, "rmtree", in_use_twice)
+
+    with shellstage.scratch_directory("agentic-preflight-test-") as path:
+        (Path(path) / "output.txt").write_text("kept until exit\n", encoding="utf-8")
+
+    assert len(attempts) == 3
+    assert not Path(path).exists()
+
+
+def test_a_scratch_directory_is_removed_when_its_block_raises():
+    with (
+        pytest.raises(RuntimeError, match="child failed"),
+        shellstage.scratch_directory("agentic-preflight-test-") as path,
+    ):
+        raise RuntimeError("child failed")
+
+    assert not Path(path).exists()

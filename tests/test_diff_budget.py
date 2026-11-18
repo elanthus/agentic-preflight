@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from agentic_preflight import diff, gitx
+from agentic_preflight.stages import shellstage
 from tests.conftest import commit_all, git, requires_git_symlinks, write
 
 
@@ -201,35 +202,15 @@ def test_an_early_stop_still_reports_a_git_failure(tmp_path, monkeypatch):
     assert "simulated failure" in error.value.stderr
 
 
-def test_a_scratch_directory_still_in_use_is_removed_once_it_is_released(tmp_path, monkeypatch):
-    """Windows refuses to remove a stopped Git's working directory until that Git exits."""
-    scratch = tmp_path / "scratch"
-    scratch.mkdir()
-    real_rmtree = shutil.rmtree
-    attempts = []
-
-    def in_use_twice(path):
-        attempts.append(path)
-        if len(attempts) < 3:
-            raise PermissionError(13, "The process cannot access the file", str(path))
-        real_rmtree(path)
-
-    monkeypatch.setattr(gitx.shutil, "rmtree", in_use_twice)
-
-    gitx._remove_scratch_directory(str(scratch))
-
-    assert len(attempts) == 3
-    assert not scratch.exists()
-
-
 def test_a_scratch_directory_that_stays_in_use_does_not_fail_the_read(tmp_repo, monkeypatch):
-    monkeypatch.setattr(gitx, "_SCRATCH_REMOVAL_WAIT_SECONDS", 0.1)
+    """Windows keeps a stopped Git's working directory locked until that Git exits."""
+    monkeypatch.setattr(shellstage, "_SCRATCH_REMOVAL_WAIT_SECONDS", 0.1)
     real_rmtree = shutil.rmtree
 
     def in_use(path):
         raise PermissionError(13, "The process cannot access the file", str(path))
 
-    monkeypatch.setattr(gitx.shutil, "rmtree", in_use)
+    monkeypatch.setattr(shellstage.shutil, "rmtree", in_use)
 
     with gitx._attribute_free(tmp_repo) as (root, _env):
         pass

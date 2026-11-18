@@ -9,7 +9,6 @@ import math
 import os
 import subprocess
 import sys
-import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -18,7 +17,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from ..models import FindingSubmission
-from ..stages.shellstage import kill_process_tree, process_group_kwargs
+from ..stages.shellstage import kill_process_tree, process_group_kwargs, scratch_directory
 from . import common
 
 VERSION = 1
@@ -231,7 +230,7 @@ class Orchestrator:
             retryable = False
             output = ""
             error: common.ReviewerError | None = None
-            with tempfile.TemporaryDirectory(prefix="ap-review-call-") as directory:
+            with scratch_directory("ap-review-call-") as directory:
                 final = Path(directory) / "final.txt"
                 raw = Path(directory) / "events.jsonl"
                 argv = provider_argv(self.provider, self.context, final)

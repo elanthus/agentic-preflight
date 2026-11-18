@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field, replace
@@ -33,6 +35,8 @@ TAIL_LINES = 200
 # Conventional "command not found": the configuration named something this
 # machine cannot execute at all.
 EXIT_UNRUNNABLE = 127
+# How long a scratch directory's removal waits for a stopped process to let go of it.
+_SCRATCH_REMOVAL_WAIT_SECONDS = 5.0
 # Generous for a process-tree kill, and short enough that a wedged taskkill
 # cannot hold a stage open indefinitely after its own timeout has fired.
 _TASKKILL_TIMEOUT_SECONDS = 30
@@ -385,6 +389,37 @@ def run_stage(
         copied_files_changed = guard.stop()
     result.copied_files_changed = copied_files_changed
     return result
+
+
+@contextmanager
+def scratch_directory(prefix: str) -> Iterator[str]:
+    """Yield a temporary directory for a child process. Removing it never raises.
+
+    Windows refuses to remove a directory that a process still has as its working
+    directory, and a file that a process still has open. A child that was just
+    stopped can hold either for a moment: the program that was started can be a
+    wrapper (Git for Windows' ``git``, or a ``.cmd`` shim) around the process that
+    does the work, and that process exits a moment after its wrapper. The removal
+    is retried for that moment. A directory that is still held afterwards is left
+    to the system's cleanup of temporary files: the caller already has its result,
+    or the error that ended the child, and a leftover directory must not replace
+    either.
+    """
+    path = tempfile.mkdtemp(prefix=prefix)
+    try:
+        yield path
+    finally:
+        deadline = time.monotonic() + _SCRATCH_REMOVAL_WAIT_SECONDS
+        while True:
+            try:
+                shutil.rmtree(path)
+                break
+            except FileNotFoundError:
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(0.05)
 
 
 REDACTED = "[redacted]"
