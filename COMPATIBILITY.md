@@ -1030,6 +1030,7 @@ An earlier release that appends to the same run after this release writes a line
 `events --verify` adds `data.chain` and exits 3 with the new error code `event_log_broken` for a broken chain. `events` without the flag is unchanged apart from the new key on each event.
 `mergeback` now exits 3 with `event_log_broken`, before it changes anything, when the chain is broken. Abort that run and start a fresh one.
 A torn line does not break the chain.
+The check catches a partial edit of the log. It does not catch a deliberate rewrite: a removed tail, a log rewritten from the edit to its end, a log with `prev_sha256` removed from every line, or a deleted log. Run schema 2 has no field that records that a log must be chained, and nothing outside the log holds its last digest.
 
 New events: `gate_minted`, `push_authorized`, `reviewer_reported`, and `reviewer_report_ignored`.
 `push` adds the optional `--authorization user_request|standing_instruction`. Without it, `push_authorized` records `null`.

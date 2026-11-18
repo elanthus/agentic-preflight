@@ -228,9 +228,13 @@ class EventChain(NamedTuple):
     """What the hash chain of a run's event log shows.
 
     Each event names the SHA-256 of the previous line's bytes, so an edited,
-    removed, inserted, or reordered line stops matching the line after it. The
-    chain does not show a removed tail, or a log rewritten from the edit to the end:
-    nothing outside the log holds ``head_sha256`` yet.
+    removed, inserted, or reordered line stops matching the line after it.
+
+    That catches a partial edit, not a deliberate rewrite. Nothing outside the log
+    holds ``head_sha256`` yet, or records that the log was chained, so the chain
+    does not show a removed tail, a log rewritten from the edit to the end, a log
+    with the key removed from every line (``unchained``), or a deleted log
+    (``empty``).
     """
 
     status: ChainStatus
@@ -251,7 +255,9 @@ def chain_status(lines: int, chained_lines: int, breaks: list[ChainBreak]) -> Ch
     A torn line is what an interrupted append leaves, and the next line chains to
     its bytes, so it does not break the chain. A log that an earlier release wrote
     has no chain at all (``unchained``), and a log that such a release started is
-    ``intact`` from its first chained line on.
+    ``intact`` from its first chained line on. The run record has no field that
+    says its log must be chained, so a log stripped of every key cannot be told
+    from an earlier release's and is not ``broken``.
     """
     if not lines:
         return "empty"
