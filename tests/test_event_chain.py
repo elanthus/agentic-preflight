@@ -13,7 +13,7 @@ from click.testing import CliRunner
 
 from agentic_preflight.cli import main
 from agentic_preflight.envelope import ExitCode
-from agentic_preflight.reviewers.orchestration import Orchestrator
+from agentic_preflight.reviewers.orchestration import REPORT_PROMPT_LIMIT, Orchestrator
 from agentic_preflight.runs.review_executor import reviewer_report
 from agentic_preflight.store import CHAIN_KEY, Store
 from tests.conftest import commit_all, configure_base, git, make_run, write
@@ -278,7 +278,10 @@ REPORT = {
     "effort": "high",
     "prompts": [{"phase": "discovery", "sha256": "a" * 64}],
 }
-REPORTED = {key: REPORT[key] for key in ("provider", "model", "effort", "prompts")}
+REPORTED = {
+    **{key: REPORT[key] for key in ("provider", "model", "effort", "prompts")},
+    "prompts_omitted": 0,
+}
 
 
 def test_the_last_report_line_in_the_output_is_read():
@@ -302,7 +305,10 @@ def test_the_last_report_line_in_the_output_is_read():
             {"prompts": [{"phase": "discovery", "sha256": "a" * 64, "text": "the prompt"}]},
             "invalid_prompts",
         ),
-        ({"prompts": [{"phase": "discovery", "sha256": "a" * 64}] * 9}, "too_many_prompts"),
+        ({"prompts": [{"phase": "discovery", "sha256": "a" * 64}] * 65}, "too_many_prompts"),
+        ({"prompts_omitted": -1}, "invalid_prompts"),
+        ({"prompts_omitted": True}, "invalid_prompts"),
+        ({"prompts_omitted": "many"}, "invalid_prompts"),
     ],
 )
 def test_a_malformed_report_is_ignored_whole_and_names_the_problem(change, problem):
@@ -322,6 +328,20 @@ def test_every_distinct_prompt_of_a_phase_is_reported_once(monkeypatch):
     assert prompts[0]["sha256"] == hashlib.sha256(b"first chunk").hexdigest()
     assert prompts[1]["sha256"] == hashlib.sha256(b"second chunk").hexdigest()
     assert reviewer_report(json.dumps(runner.report())).problem is None
+
+
+def test_a_review_with_more_prompts_than_the_limit_still_reports(monkeypatch):
+    monkeypatch.delenv("AP_REVIEWER_EVENTS_FILE", raising=False)
+    runner = Orchestrator("codex", {}, 0, None)
+    for number in range(REPORT_PROMPT_LIMIT + 6):
+        runner.note_prompt("discovery", f"chunk {number}")
+
+    claim = reviewer_report(json.dumps(runner.report()))
+
+    assert claim.problem is None
+    assert len(claim.report["prompts"]) == REPORT_PROMPT_LIMIT
+    assert claim.report["prompts"][0]["sha256"] == hashlib.sha256(b"chunk 0").hexdigest()
+    assert claim.report["prompts_omitted"] == 6
 
 
 REVIEWER = """\

@@ -14,7 +14,7 @@ from ..envelope import Envelope
 from ..errors import DiffTooLarge, InvalidFindings, MaxAttempts, StageFailed
 from ..machine import Action, State
 from ..models import RunDoc, Stage, StageRecord, StageStatus
-from ..reviewers.orchestration import REPORT_TYPE
+from ..reviewers.orchestration import REPORT_PROMPT_LIMIT, REPORT_TYPE
 from ..stages import shellstage
 from . import contracts, review_protocol
 from ._session import (
@@ -36,7 +36,7 @@ from .review import submit_findings
 _REPORT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+\[\]-]{0,99}")
 _REPORT_PHASE = re.compile(r"[a-z_]{1,40}")
 _REPORT_SHA256 = re.compile(r"[0-9a-f]{64}")
-_REPORT_PROMPT_LIMIT = 8
+_REPORT_OMITTED_LIMIT = 1_000_000
 
 
 ReportProblem = Literal["invalid_name", "invalid_prompts", "too_many_prompts"]
@@ -78,8 +78,11 @@ def _checked_report(value: dict[str, Any]) -> ReviewerReport:
         return ReviewerReport(None, "invalid_name")
     if not isinstance(prompts, list):
         return ReviewerReport(None, "invalid_prompts")
-    if len(prompts) > _REPORT_PROMPT_LIMIT:
+    if len(prompts) > REPORT_PROMPT_LIMIT:
         return ReviewerReport(None, "too_many_prompts")
+    omitted = value.get("prompts_omitted", 0)
+    if type(omitted) is not int or not 0 <= omitted <= _REPORT_OMITTED_LIMIT:
+        return ReviewerReport(None, "invalid_prompts")
     for prompt in prompts:
         if (
             not isinstance(prompt, dict)
@@ -90,7 +93,7 @@ def _checked_report(value: dict[str, Any]) -> ReviewerReport:
             or not _REPORT_SHA256.fullmatch(prompt["sha256"])
         ):
             return ReviewerReport(None, "invalid_prompts")
-    return ReviewerReport({**names, "prompts": prompts}, None)
+    return ReviewerReport({**names, "prompts": prompts, "prompts_omitted": omitted}, None)
 
 
 def run_review_command(session: Session) -> Envelope:
