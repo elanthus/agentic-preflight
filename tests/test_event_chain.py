@@ -13,6 +13,7 @@ from click.testing import CliRunner
 
 from agentic_preflight.cli import main
 from agentic_preflight.envelope import ExitCode
+from agentic_preflight.reviewers.orchestration import Orchestrator
 from agentic_preflight.runs.review_executor import reviewer_report
 from agentic_preflight.store import CHAIN_KEY, Store
 from tests.conftest import commit_all, configure_base, git, make_run, write
@@ -283,26 +284,44 @@ REPORTED = {key: REPORT[key] for key in ("provider", "model", "effort", "prompts
 def test_the_last_report_line_in_the_output_is_read():
     earlier = {**REPORT, "model": "earlier"}
     output = "\n".join(['{"findings": []}', json.dumps(earlier), "noise", json.dumps(REPORT)])
-    assert reviewer_report(output) == REPORTED
+    assert reviewer_report(output) == (REPORTED, None)
     assert reviewer_report('{"findings": []}\n') is None
 
 
 @pytest.mark.parametrize(
-    "change",
+    ("change", "problem"),
     [
-        {"model": "a model name with prose in it"},
-        {"model": ""},
-        {"provider": 7},
-        {"effort": None},
-        {"prompts": "none"},
-        {"prompts": [{"phase": "discovery", "sha256": "short"}]},
-        {"prompts": [{"phase": "Discovery!", "sha256": "a" * 64}]},
-        {"prompts": [{"phase": "discovery", "sha256": "a" * 64, "text": "the prompt"}]},
-        {"prompts": [{"phase": "discovery", "sha256": "a" * 64}] * 9},
+        ({"model": "a model name with prose in it"}, "invalid_name"),
+        ({"model": ""}, "invalid_name"),
+        ({"provider": 7}, "invalid_name"),
+        ({"effort": None}, "invalid_name"),
+        ({"prompts": "none"}, "invalid_prompts"),
+        ({"prompts": [{"phase": "discovery", "sha256": "short"}]}, "invalid_prompts"),
+        ({"prompts": [{"phase": "Discovery!", "sha256": "a" * 64}]}, "invalid_prompts"),
+        (
+            {"prompts": [{"phase": "discovery", "sha256": "a" * 64, "text": "the prompt"}]},
+            "invalid_prompts",
+        ),
+        ({"prompts": [{"phase": "discovery", "sha256": "a" * 64}] * 9}, "too_many_prompts"),
     ],
 )
-def test_a_malformed_report_is_ignored_whole(change):
-    assert reviewer_report(json.dumps({**REPORT, **change})) is None
+def test_a_malformed_report_is_ignored_whole_and_names_the_problem(change, problem):
+    assert reviewer_report(json.dumps({**REPORT, **change})) == (None, problem)
+
+
+def test_every_distinct_prompt_of_a_phase_is_reported_once(monkeypatch):
+    monkeypatch.delenv("AP_REVIEWER_EVENTS_FILE", raising=False)
+    runner = Orchestrator("claude", {}, 0, None)
+    runner.note_prompt("discovery", "first chunk")
+    runner.note_prompt("discovery", "first chunk")
+    runner.note_prompt("discovery", "second chunk")
+    runner.note_prompt("verification", "first chunk")
+
+    prompts = runner.report()["prompts"]
+    assert [prompt["phase"] for prompt in prompts] == ["discovery", "discovery", "verification"]
+    assert prompts[0]["sha256"] == hashlib.sha256(b"first chunk").hexdigest()
+    assert prompts[1]["sha256"] == hashlib.sha256(b"second chunk").hexdigest()
+    assert reviewer_report(json.dumps(runner.report())).problem is None
 
 
 REVIEWER = """\
@@ -353,6 +372,21 @@ def test_review_run_records_nothing_for_a_reviewer_that_reports_nothing(feature_
     agent.run("review", "run")
 
     assert _named(agent, "reviewer_reported") == []
+    assert _named(agent, "reviewer_report_ignored") == []
+
+
+def test_review_run_records_that_a_malformed_report_was_ignored(feature_repo, monkeypatch):
+    monkeypatch.setitem(REPORT, "model", "a model name with prose in it")
+    _configure_reviewer(feature_repo, "report")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+
+    agent.run("review", "run")
+
+    assert _named(agent, "reviewer_reported") == []
+    (ignored,) = _named(agent, "reviewer_report_ignored")
+    assert ignored["reason"] == "invalid_name"
+    assert "prose" not in json.dumps(agent.run("events")["data"]["events"])
 
 
 def test_the_packaged_reviewer_reports_its_model_and_prompt_digest(tmp_path, monkeypatch):
@@ -391,7 +425,9 @@ def test_the_packaged_reviewer_reports_its_model_and_prompt_digest(tmp_path, mon
 
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["findings"] == []
-    report = reviewer_report(result.stderr)
+    claim = reviewer_report(result.stderr)
+    assert claim is not None
+    report = claim.report
     assert report is not None
     assert (report["provider"], report["model"], report["effort"]) == (
         "claude",
