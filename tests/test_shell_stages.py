@@ -1644,9 +1644,24 @@ def test_captured_output_keeps_only_the_head_and_tail_beyond_the_cap(tmp_path, m
 @posix_only
 def test_terminating_the_cli_kills_the_running_stage_process_group(tmp_path):
     pid_file = tmp_path / "stage.pid"
+    guarded = tmp_path / "guarded"
     driver = tmp_path / "driver.py"
+    # The driver says when the stage runner's termination guard is in place. The
+    # stage writes its pid within a millisecond of starting, and a signal sent then
+    # can reach the runner before it has installed the guard. That signal ends the
+    # runner and leaves the stage running: a window in the runner that this test
+    # does not cover, and that made it fail by chance on a busy machine.
     driver.write_text(
+        "from contextlib import contextmanager\n"
+        "from pathlib import Path\n"
         "from agentic_preflight.stages import shellstage\n"
+        "guard = shellstage.kill_on_termination\n"
+        "@contextmanager\n"
+        "def announced(process):\n"
+        "    with guard(process):\n"
+        f"        Path({str(guarded)!r}).touch()\n"
+        "        yield\n"
+        "shellstage.kill_on_termination = announced\n"
         f"shellstage.run_stage({str(tmp_path)!r}, "
         f"\"sh -c 'echo $$ > {pid_file}; sleep 60 & sleep 60'\", timeout_seconds=60)\n",
         encoding="utf-8",
@@ -1654,7 +1669,7 @@ def test_terminating_the_cli_kills_the_running_stage_process_group(tmp_path):
     cli = subprocess.Popen([sys.executable, str(driver)], cwd=Path(__file__).parent.parent)
     try:
         deadline = time.monotonic() + 10
-        while not pid_file.exists() or not pid_file.read_text().strip():
+        while not (guarded.exists() and pid_file.exists() and pid_file.read_text().strip()):
             assert time.monotonic() < deadline, "stage never started"
             time.sleep(0.05)
         pgid = int(pid_file.read_text().strip())
@@ -1744,3 +1759,33 @@ def test_redaction_falls_back_for_deeply_nested_secret_prefixes(monkeypatch):
     # Too deep for one pattern, so each secret is replaced in turn, as before.
     assert shellstage.redact(text, secrets) == _replace_one_at_a_time(text, secrets)
     assert len(fallbacks) == 1
+
+
+def test_a_scratch_directory_still_in_use_is_removed_once_it_is_released(monkeypatch):
+    """Windows keeps a stopped child's directory locked for a moment after the child is killed."""
+    real_rmtree = shutil.rmtree
+    attempts = []
+
+    def in_use_twice(path):
+        attempts.append(path)
+        if len(attempts) < 3:
+            raise PermissionError(13, "The process cannot access the file", str(path))
+        real_rmtree(path)
+
+    monkeypatch.setattr(shellstage.shutil, "rmtree", in_use_twice)
+
+    with shellstage.scratch_directory("agentic-preflight-test-") as path:
+        (Path(path) / "output.txt").write_text("kept until exit\n", encoding="utf-8")
+
+    assert len(attempts) == 3
+    assert not Path(path).exists()
+
+
+def test_a_scratch_directory_is_removed_when_its_block_raises():
+    with (
+        pytest.raises(RuntimeError, match="child failed"),
+        shellstage.scratch_directory("agentic-preflight-test-") as path,
+    ):
+        raise RuntimeError("child failed")
+
+    assert not Path(path).exists()

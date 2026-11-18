@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
@@ -24,6 +25,7 @@ from agentic_preflight.envelope import ExitCode
 from agentic_preflight.models import FindingAction, Severity
 from agentic_preflight.reviewers import common
 from agentic_preflight.runs._session import open_session
+from agentic_preflight.stages import shellstage
 from tests.conftest import commit_all, write
 from tests.driver import ScriptedAgent
 
@@ -403,6 +405,38 @@ def test_reviewer_run_failures_exit_1_with_a_stderr_diagnostic(
     assert result.stdout == ""
     assert result.stderr.startswith("independent reviewer failed: ")
     assert expected in result.stderr
+
+
+@pytest.mark.parametrize("provider", ["codex", "claude"])
+def test_a_timeout_is_reported_when_the_call_directory_is_still_in_use(
+    tmp_path, monkeypatch, clean_reviewer_env, provider
+):
+    """Windows keeps a stopped CLI's files locked for a moment. The timeout is still the result."""
+    fake = install_fake(tmp_path / "bin" / provider)
+    real_rmtree = shutil.rmtree
+    held: list[str] = []
+
+    def in_use(path, *args, **kwargs):
+        if "ap-review-call-" not in str(path):
+            return real_rmtree(path, *args, **kwargs)
+        held.append(str(path))
+        raise PermissionError(13, "The process cannot access the file", str(path))
+
+    monkeypatch.setattr(shellstage, "_SCRATCH_REMOVAL_WAIT_SECONDS", 0.1)
+    monkeypatch.setattr(shellstage.shutil, "rmtree", in_use)
+
+    result = invoke(
+        provider,
+        CONTEXT,
+        **{f"AP_{provider.upper()}_BIN": str(fake), "FAKE_SLEEP": "1", "AP_REVIEWER_TIMEOUT": "1"},
+    )
+
+    for path in set(held):
+        real_rmtree(path, ignore_errors=True)
+    assert held
+    assert result.exit_code != 0
+    assert "timed out" in result.stderr
+    assert "cannot access the file" not in result.stderr
 
 
 @pytest.mark.parametrize("provider", ["codex", "claude"])
