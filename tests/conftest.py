@@ -379,6 +379,29 @@ def __getattr__(name: str):
     raise AttributeError(name)
 
 
+def held_popen_prelude(release: Path | str) -> str:
+    """Source for a driver script whose ``Popen`` holds back a child it started.
+
+    A child started in its own session is running, but ``Popen`` does not return
+    its process until the file ``release`` exists. A signal sent to the driver
+    before ``release`` is written therefore arrives after the child started and
+    before the code that started it can name the child's process.
+    """
+    return (
+        "import subprocess, time\n"
+        "from pathlib import Path\n"
+        "real_popen = subprocess.Popen\n"
+        "def held_popen(*args, **kwargs):\n"
+        "    process = real_popen(*args, **kwargs)\n"
+        "    if kwargs.get('start_new_session'):\n"
+        "        deadline = time.monotonic() + 30\n"
+        f"        while not Path({str(release)!r}).exists() and time.monotonic() < deadline:\n"
+        "            time.sleep(0.01)\n"
+        "    return process\n"
+        "subprocess.Popen = held_popen\n"
+    )
+
+
 requires_posix_permissions = pytest.mark.skipif(
     sys.platform == "win32",
     reason="making a file unreadable by mode bits has no effect on Windows",

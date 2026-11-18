@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
+import os
+import signal
 import stat
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -412,3 +416,54 @@ def test_unencodable_codex_path_reports_failure_without_traceback(tmp_path):
     assert len(calls) == 1
     assert calls[0]["requests"] == 0
     assert json.loads(Path(str(path) + ".status.json").read_text()) == {"completed": False}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals and process groups")
+@pytest.mark.parametrize("signum", [signal.SIGTERM, getattr(signal, "SIGHUP", signal.SIGTERM)])
+def test_a_signal_to_the_reviewer_stops_the_provider_it_started(tmp_path, signum):
+    # The provider CLI runs in its own session, so nothing else forwards the signal.
+    pid_file = tmp_path / "provider.pid"
+    fake = tmp_path / "provider"
+    fake.write_text(f'#!/bin/sh\necho $$ > "{pid_file}"\nexec sleep 120\n')
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    reviewer = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "from agentic_preflight.cli import main; main()",
+            *("reviewer", "run", "--provider", "claude"),
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        cwd=Path(__file__).parent.parent,
+        env={**os.environ, "AP_CLAUDE_BIN": str(fake), "AP_REVIEWER_TIMEOUT": "60"},
+    )
+    try:
+        assert reviewer.stdin is not None
+        reviewer.stdin.write(json.dumps(CONTEXT).encode())
+        reviewer.stdin.close()
+        deadline = time.monotonic() + 30
+        while not pid_file.exists() or not pid_file.read_text().strip():
+            assert time.monotonic() < deadline, "the provider never started"
+            assert reviewer.poll() is None, "the reviewer exited before the provider started"
+            time.sleep(0.05)
+        provider_pid = int(pid_file.read_text())
+
+        reviewer.send_signal(signum)
+        reviewer.wait(timeout=30)
+        assert reviewer.returncode == -signum
+
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                os.kill(provider_pid, 0)
+            except ProcessLookupError:
+                break
+            assert time.monotonic() < deadline, "the provider is still running"
+            time.sleep(0.05)
+    finally:
+        if reviewer.poll() is None:
+            reviewer.kill()
+        if pid_file.exists() and pid_file.read_text().strip():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(int(pid_file.read_text()), signal.SIGKILL)

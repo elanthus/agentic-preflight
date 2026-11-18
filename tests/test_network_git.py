@@ -21,7 +21,7 @@ import pytest
 from agentic_preflight import filelock, gitx, runs
 from agentic_preflight import store as storemod
 from agentic_preflight.envelope import ExitCode
-from tests.conftest import configure_base, git
+from tests.conftest import configure_base, git, held_popen_prelude
 from tests.driver import ScriptedAgent, findings_json
 
 posix_only = pytest.mark.skipif(
@@ -172,6 +172,41 @@ def test_a_signal_to_the_tool_stops_a_running_remote_command(
             tool.kill()
 
     assert tool.returncode == -signum
+    assert _process_stops(helper_pid)
+
+
+@posix_only
+def test_a_signal_that_arrives_while_a_remote_command_is_starting_still_stops_it(
+    tmp_repo, tmp_path, monkeypatch
+):
+    url = _remote_helper(
+        tmp_path, monkeypatch, "stall", 'echo $$ > "$AP_TEST_OUT"\nexec sleep 120\n'
+    )
+    pid_file = tmp_path / "stall.pid"
+    release = tmp_path / "release"
+    monkeypatch.setenv("AP_TEST_OUT", str(pid_file))
+    script = (
+        held_popen_prelude(release) + "import sys\n"
+        "from agentic_preflight import gitx\n"
+        "gitx.run(sys.argv[1], 'fetch', sys.argv[2], remote='origin')\n"
+    )
+    tool = subprocess.Popen([sys.executable, "-c", script, str(tmp_repo), url])
+    try:
+        deadline = time.monotonic() + 30
+        while not pid_file.exists() or not pid_file.read_text(encoding="utf-8").strip():
+            assert time.monotonic() < deadline, "the remote helper never started"
+            assert tool.poll() is None, "the tool exited before the helper started"
+            time.sleep(0.05)
+        helper_pid = int(pid_file.read_text(encoding="utf-8"))
+
+        tool.send_signal(signal.SIGTERM)
+        release.touch()
+        tool.wait(timeout=30)
+    finally:
+        if tool.poll() is None:
+            tool.kill()
+
+    assert tool.returncode == -signal.SIGTERM
     assert _process_stops(helper_pid)
 
 
