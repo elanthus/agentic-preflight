@@ -310,8 +310,10 @@ review; validated derivation retains original process evidence and coverage prov
 
 A review command may end its output with one JSON line that names what reviewed the
 change, as `reviewer run` does: `type` `agentic_preflight_reviewer`, `provider`,
-`model`, `effort`, and `prompts`, a list of at most eight `{phase, sha256}` objects, one
-for each distinct prompt sent. `review run` copies the last such line into a
+`model`, `effort`, and `prompts`, a list of at most 64 `{phase, sha256}` objects, one
+for each distinct prompt sent. An optional `prompts_omitted` counts the prompts beyond
+that limit; `reviewer run` lists the first 64 and counts the rest, so a long review
+still reports. `review run` copies the last such line into a
 `reviewer_reported` event with `source` `command_output`. It writes the event before it
 validates the submission, so the event shows what the command printed, not that the
 review was accepted. Names are limited to 100 characters of letters, digits, and
