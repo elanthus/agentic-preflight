@@ -845,8 +845,11 @@ with blank lines included, and a `reason`: `prev_mismatch` (the line does not na
 digest of the line before it, so that line was edited, removed, or inserted) or
 `unchained_line` (a line without `prev_sha256` after a chained one). `next.command` is
 `agentic-preflight abort`; show the user the breaks and never edit the log. The chain
-cannot show a removed tail or a log rewritten from the edit to its end, because nothing
-outside the log records `head_sha256`. Without `--verify`, the command still reads a
+catches a partial edit. It does not catch a deliberate rewrite, because nothing outside
+the log records `head_sha256` or that the log was chained. It cannot show a removed
+tail, or a log rewritten from the edit to its end. A log with `prev_sha256` removed
+from every line reports `unchained`, like a log from an earlier release, and a deleted
+log reports `empty`; neither is refused. Without `--verify`, the command still reads a
 broken log.
 New runs include `state_transition` events for creation and committed state changes,
 including intermediate states within a transaction. Events carry `from`, `to`, `action`,
