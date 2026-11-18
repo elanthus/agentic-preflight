@@ -1,7 +1,9 @@
 """The budgeted diff read: identical within budget, bounded far over it."""
 
+import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -172,7 +174,9 @@ def test_a_bounded_windows_stream_stops_early(tmp_repo, monkeypatch):
 
 
 def test_an_early_stop_still_reports_a_git_failure(tmp_path, monkeypatch):
-    patch = b"diff --git a/big b/big\n" + b"+row\n" * 2_000
+    # Small enough for the smallest pipe buffer (4,096 bytes on Windows), and well
+    # over the stop below: the fake Git must be able to exit before anything reads.
+    patch = b"diff --git a/big b/big\n" + b"+row\n" * 400
     output = b":000000 100644 0 1 A\0big\0\0" + patch
     script = tmp_path / "fake-git.py"
     script.write_text(
@@ -185,7 +189,7 @@ def test_an_early_stop_still_reports_a_git_failure(tmp_path, monkeypatch):
 
     def popen(args, **kwargs):
         process = real_popen([sys.executable, str(script)], **kwargs)
-        process.wait()  # the output fits the pipe buffer, so Git has exited before the stop
+        process.wait()  # the output fits a pipe buffer, so Git has exited before the stop
         return process
 
     monkeypatch.setattr(subprocess, "Popen", popen)
@@ -195,3 +199,40 @@ def test_an_early_stop_still_reports_a_git_failure(tmp_path, monkeypatch):
 
     assert error.value.returncode == 3
     assert "simulated failure" in error.value.stderr
+
+
+def test_a_scratch_directory_still_in_use_is_removed_once_it_is_released(tmp_path, monkeypatch):
+    """Windows refuses to remove a stopped Git's working directory until that Git exits."""
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    real_rmtree = shutil.rmtree
+    attempts = []
+
+    def in_use_twice(path):
+        attempts.append(path)
+        if len(attempts) < 3:
+            raise PermissionError(13, "The process cannot access the file", str(path))
+        real_rmtree(path)
+
+    monkeypatch.setattr(gitx.shutil, "rmtree", in_use_twice)
+
+    gitx._remove_scratch_directory(str(scratch))
+
+    assert len(attempts) == 3
+    assert not scratch.exists()
+
+
+def test_a_scratch_directory_that_stays_in_use_does_not_fail_the_read(tmp_repo, monkeypatch):
+    monkeypatch.setattr(gitx, "_SCRATCH_REMOVAL_WAIT_SECONDS", 0.1)
+    real_rmtree = shutil.rmtree
+
+    def in_use(path):
+        raise PermissionError(13, "The process cannot access the file", str(path))
+
+    monkeypatch.setattr(gitx.shutil, "rmtree", in_use)
+
+    with gitx._attribute_free(tmp_repo) as (root, _env):
+        pass
+
+    assert Path(root).is_dir()
+    real_rmtree(root)
