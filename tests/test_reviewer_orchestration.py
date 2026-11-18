@@ -122,19 +122,21 @@ def test_timeout_can_retry_with_remaining_total_budget(tmp_path, provider):
 @pytest.mark.parametrize("provider", ["claude", "codex"])
 def test_budget_exhaustion_never_returns_candidates_from_an_earlier_call(tmp_path, provider):
     started = time.monotonic()
+    # The budget leaves the first call the same second every other call here gets.
+    # A smaller one ran out on a slow runner before verification could start.
     result, events, path = run_fake(
         tmp_path,
         provider,
-        [output([FINDING]), {"sleep": 3}],
+        [output([FINDING]), {"sleep": 30}],
         "--verify",
         "--retries",
         "5",
         "--budget-seconds",
-        "0.5",
+        "2",
     )
     assert result.exit_code == 1
     assert result.stdout == ""
-    assert time.monotonic() - started < 3
+    assert time.monotonic() - started < 20
     assert not json.loads(path.with_name(path.name + ".status.json").read_text())["completed"]
     assert any(event.get("phase") == "verification" for event in events)
 
@@ -276,7 +278,7 @@ def test_nonfinite_total_budgets_fail_before_calling_a_provider(tmp_path, budget
 
 def test_failed_verification_preserves_known_discovery_usage_as_partial(tmp_path):
     result, _, path = run_fake(
-        tmp_path, "claude", [output([FINDING]), {"sleep": 3}], "--verify", "--budget-seconds", "0.5"
+        tmp_path, "claude", [output([FINDING]), {"sleep": 30}], "--verify", "--budget-seconds", "2"
     )
     assert result.exit_code == 1
     usage = read_usage(path, "claude", require_completion=True)
