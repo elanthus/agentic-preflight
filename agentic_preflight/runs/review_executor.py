@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, Literal, NamedTuple
 
 from .. import diff as diffmod
 from .. import gitx
@@ -39,14 +39,25 @@ _REPORT_SHA256 = re.compile(r"[0-9a-f]{64}")
 _REPORT_PROMPT_LIMIT = 8
 
 
-def reviewer_report(clean_output: str) -> dict[str, Any] | None:
-    """Return what the reviewer says reviewed the change, or ``None``.
+ReportProblem = Literal["invalid_name", "invalid_prompts", "too_many_prompts"]
+
+
+class ReviewerReport(NamedTuple):
+    """A reviewer's report, or why the one it printed was ignored. Exactly one is set."""
+
+    report: dict[str, Any] | None
+    problem: ReportProblem | None
+
+
+def reviewer_report(clean_output: str) -> ReviewerReport | None:
+    """Return what the reviewer says reviewed the change, or ``None`` for no report.
 
     The packaged reviewer ends its stderr with one JSON line of type
     :data:`REPORT_TYPE`. The last such line in the redacted output is read, the
     same bytes the stage log and its digest hold. A report with a missing or
-    malformed value is ignored whole. It is the reviewer's claim: nothing checks
-    that the named model produced the findings.
+    malformed value is ignored whole, and the result names the problem so the
+    log can say that a report was printed and dropped. A report is the
+    reviewer's claim: nothing checks that the named model produced the findings.
     """
     for line in reversed(clean_output.splitlines()):
         if REPORT_TYPE not in line:
@@ -60,13 +71,15 @@ def reviewer_report(clean_output: str) -> dict[str, Any] | None:
     return None
 
 
-def _checked_report(value: dict[str, Any]) -> dict[str, Any] | None:
+def _checked_report(value: dict[str, Any]) -> ReviewerReport:
     names = {key: value.get(key) for key in ("provider", "model", "effort")}
     prompts = value.get("prompts")
     if not all(isinstance(name, str) and _REPORT_NAME.fullmatch(name) for name in names.values()):
-        return None
-    if not isinstance(prompts, list) or len(prompts) > _REPORT_PROMPT_LIMIT:
-        return None
+        return ReviewerReport(None, "invalid_name")
+    if not isinstance(prompts, list):
+        return ReviewerReport(None, "invalid_prompts")
+    if len(prompts) > _REPORT_PROMPT_LIMIT:
+        return ReviewerReport(None, "too_many_prompts")
     for prompt in prompts:
         if (
             not isinstance(prompt, dict)
@@ -76,8 +89,8 @@ def _checked_report(value: dict[str, Any]) -> dict[str, Any] | None:
             or not isinstance(prompt["sha256"], str)
             or not _REPORT_SHA256.fullmatch(prompt["sha256"])
         ):
-            return None
-    return {**names, "prompts": prompts}
+            return ReviewerReport(None, "invalid_prompts")
+    return ReviewerReport({**names, "prompts": prompts}, None)
 
 
 def run_review_command(session: Session) -> Envelope:
@@ -236,14 +249,12 @@ def run_review_command(session: Session) -> Envelope:
     )
     claim = reviewer_report(clean_output)
     if claim is not None:
+        origin = {"stage": Stage.REVIEW.value, "source": "command_output"}
         session.store.append_event(
             run.run_id,
-            {
-                "event": "reviewer_reported",
-                "stage": Stage.REVIEW.value,
-                "source": "command_output",
-                **claim,
-            },
+            {"event": "reviewer_reported", **origin, **claim.report}
+            if claim.report is not None
+            else {"event": "reviewer_report_ignored", **origin, "reason": claim.problem},
         )
     try:
         envelope = submit_findings(session, payload, _executor="command")

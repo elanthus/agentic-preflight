@@ -210,8 +210,9 @@ class Orchestrator:
         self.retries = retries
         started = time.monotonic()
         self.call_count = 0
-        #: The SHA-256 of the prompt sent in each phase, in the order first sent.
-        self.prompts: dict[str, str] = {}
+        #: The phase and SHA-256 of each distinct prompt sent, in the order first sent.
+        #: A retry sends the same prompt again and adds nothing.
+        self.prompts: list[tuple[str, str]] = []
         self.events_path = os.environ.get("AP_REVIEWER_EVENTS_FILE")
         if self.events_path:
             try:
@@ -242,13 +243,17 @@ class Orchestrator:
             "provider": self.provider,
             "model": reviewer_model(self.provider),
             "effort": reviewer_effort(self.provider),
-            "prompts": [
-                {"phase": phase, "sha256": digest} for phase, digest in self.prompts.items()
-            ],
+            "prompts": [{"phase": phase, "sha256": digest} for phase, digest in self.prompts],
         }
 
+    def note_prompt(self, phase: str, prompt: str) -> None:
+        """Remember a prompt for the report, once for each distinct phase and text."""
+        sent = (phase, hashlib.sha256(prompt.encode("utf-8")).hexdigest())
+        if sent not in self.prompts:
+            self.prompts.append(sent)
+
     def call(self, prompt: str, phase: str, parse: Callable[..., Any]) -> Any:
-        self.prompts[phase] = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        self.note_prompt(phase, prompt)
         for attempt in range(self.retries + 1):
             remaining = self.deadline - time.monotonic()
             if remaining <= 0:
