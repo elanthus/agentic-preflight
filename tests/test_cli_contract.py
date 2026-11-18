@@ -454,12 +454,13 @@ def test_real_envelopes_match_the_models(feature_repo, bare_remote, tmp_path) ->
     agent.run("push", "--confirm", token, "--dry-run")
     agent.run("push", "--confirm", token)
     agent.run("finish")
+    agent.run("audit")
     agent.run("status")
     agent.run("gc")
 
     seen = {command for command, _ in agent.captured}
     assert seen >= {"status", "finish", "start", "gate", "context", "submit-findings"}
-    assert seen >= {"stage run", "logs", "mergeback", "events", "push", "gc"}
+    assert seen >= {"stage run", "logs", "mergeback", "events", "push", "gc", "audit"}
     for command, payload in agent.captured:
         model = COMMAND_MODELS[command]
         data = payload["data"]

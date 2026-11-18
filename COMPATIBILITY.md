@@ -1036,3 +1036,12 @@ New events: `gate_minted`, `push_authorized`, `reviewer_reported`, and `reviewer
 `push` adds the optional `--authorization user_request|standing_instruction`. Without it, `push_authorized` records `null`.
 `reviewer run` now writes one `agentic_preflight_reviewer` JSON line on stderr after a successful review. Its stdout is unchanged. The line is part of the captured review output, so it enters the stage log and its `output_sha256`.
 Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged. No new field enters the attestation note.
+
+## HTML audit report
+
+`audit` is a new command. It reads a run's record, findings, event log, and the head's attestation note, and writes one self-contained HTML file. Its envelope adds the `audit` data schema.
+It only reads: it changes no run state, appends no event, and writes nothing but the report, by default `audit.html` in the run's directory.
+It reads records from earlier releases, including logs without `prev_sha256` and runs without the newer events, which the report marks as not recorded.
+By default the report leaves out absolute local paths and the user-level configuration sections and commands that the published note leaves out. A run that does not record which sections came from the user configuration file withholds its whole configuration snapshot and its stage commands.
+The report's layout is not a stable interface; parse the run's JSON records or the command envelopes instead.
+Run schema 2, attestation schema 7, and fingerprint version 2 are unchanged.

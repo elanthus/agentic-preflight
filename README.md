@@ -200,6 +200,19 @@ This requires forge configuration. A committed `.agentic-preflight.toml` file al
 See [Portable attestations and CI enforcement](https://github.com/elanthus/agentic-preflight/blob/v0.9.0/docs/attestations-and-ci.md)
 for setup and verification commands.
 
+## Audit report
+
+`agentic-preflight audit` writes one run's audit trail as a single HTML file that you can read or attach to a pull request.
+It starts with what the record proves and what it does not.
+It then shows the intent, who acted, each stage, each finding and how it was resolved, and every event in the run's log.
+Values that an agent or reviewer reported about itself are marked as self-reported, apart from values the tool measured.
+The command changes nothing in the run.
+By default the file leaves out local paths and user-level configuration, so you can share it.
+
+[![The top of an audit report: the run's repository and branch, an intact event log banner, and what the record does and does not prove.](https://raw.githubusercontent.com/elanthus/agentic-preflight/main/docs/assets/audit-report.png)](https://github.com/elanthus/agentic-preflight/blob/main/docs/examples/audit-report.html)
+
+The [example report](https://github.com/elanthus/agentic-preflight/blob/main/docs/examples/audit-report.html) comes from a small sample run. Download it and open it in a browser.
+
 ## Limits
 
 **Agentic Preflight is an advisory pre-push check. It is not a security boundary.**

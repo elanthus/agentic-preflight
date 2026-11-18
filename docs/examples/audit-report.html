@@ -1,0 +1,835 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>Audit: sample-service feature/bulk-discount (r_51245ed9d6)</title><style>
+:root{
+  --paper:#f5f6f3;--sheet:#ffffff;--ink:#1d2430;--muted:#5d6675;--rule:#d9ddd6;
+  --accent:#23466e;--accent-soft:#e6edf5;
+  --ok:#006e52;--ok-soft:#e1f2ec;--bad:#a53a00;--bad-soft:#fbe9df;
+  --warn:#7d5300;--warn-soft:#f8efd9;--neutral:#545c68;--neutral-soft:#eceeea;
+  --info:#23466e;--info-soft:#e6edf5;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Charter,"Bitstream Charter",Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --paper:#12161c;--sheet:#1a1f27;--ink:#e4e7ea;--muted:#9aa3ae;--rule:#2d343e;
+  --accent:#9cbce3;--accent-soft:#1f2b3a;
+  --ok:#5fd0a8;--ok-soft:#14302a;--bad:#ff9a6b;--bad-soft:#3a2219;
+  --warn:#e9be62;--warn-soft:#352b15;--neutral:#aab2bc;--neutral-soft:#252b33;
+  --info:#9cbce3;--info-soft:#1f2b3a;
+}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 var(--sans)}
+.page{max-width:62rem;margin:0 auto;padding:2.5rem 1.25rem 4rem}
+h1,h2,h3{font-family:var(--serif);font-weight:600;line-height:1.2;margin:0}
+h2{font-size:1.6rem;margin:0 0 .4rem;padding-top:.25rem}
+h3{font-size:1.1rem}
+code,pre,.hash{font-family:var(--mono);font-size:.86em}
+code{overflow-wrap:anywhere}
+.hash{word-break:break-all}
+a{color:var(--accent)}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.muted{color:var(--muted)}
+.kicker{margin:0 0 .5rem;color:var(--muted);font-size:.95rem}
+.masthead h1{font-size:clamp(1.9rem,5vw,2.8rem);display:flex;flex-wrap:wrap;gap:.2rem .7rem;align-items:baseline}
+.masthead .branch{font-family:var(--mono);font-size:.5em;font-weight:400;color:var(--muted);overflow-wrap:anywhere}
+.tally{margin:.4rem 0 1.4rem;color:var(--muted)}
+.seal{display:flex;gap:1rem;align-items:flex-start;padding:1.1rem 1.25rem;border:2px solid currentColor;border-radius:.5rem;margin:0 0 1.5rem;background:var(--sheet)}
+.seal p{margin:0;color:var(--ink)}
+.seal__glyph{flex:none;display:grid;place-items:center;width:2.6rem;height:2.6rem;border-radius:50%;border:2px solid currentColor;font-size:1.3rem;font-weight:700}
+.seal__headline{font-family:var(--serif);font-size:1.35rem;font-weight:600}
+.seal__detail{margin-top:.2rem!important;max-width:44rem}
+.seal--ok{color:var(--ok)}.seal--bad{color:var(--bad)}.seal--warn{color:var(--warn)}
+.seal--bad{border-width:3px;background:var(--bad-soft)}
+.facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(13rem,1fr));gap:.9rem 1.5rem;margin:0}
+.facts div{min-width:0}
+.facts dt{font-size:.8rem;color:var(--muted)}
+.facts dd{margin:.1rem 0 0;min-width:0;overflow-wrap:anywhere}
+.facts--compact{margin-top:1rem}
+.facts--stage{grid-template-columns:1fr;gap:.45rem}
+.facts--stage div{display:grid;grid-template-columns:7.5rem minmax(0,1fr);gap:.5rem}
+.facts--stage dd{margin:0}
+.notice{margin:1.25rem 0 0;padding:.75rem 1rem;border-left:4px solid var(--accent);background:var(--accent-soft);border-radius:0 .35rem .35rem 0;font-size:.93rem}
+.notice p{margin:.2rem 0}.notice ul{margin:.3rem 0;padding-left:1.2rem}
+.notice--warn{border-color:var(--warn);background:var(--warn-soft)}
+.notice--bad{border-color:var(--bad);background:var(--bad-soft)}
+.toc{margin:2rem 0 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.toc ol{list-style:none;margin:0;padding:.6rem 0;display:flex;flex-wrap:wrap;gap:.3rem 1.3rem;font-size:.93rem}
+section{padding:2.4rem 0 .4rem;border-bottom:1px solid var(--rule)}
+section:last-child{border-bottom:0}
+.lede{margin:0 0 1.2rem;color:var(--muted);max-width:44rem}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-top:1rem}
+.split__col{background:var(--sheet);border:1px solid var(--rule);border-radius:.5rem;padding:1rem 1.2rem}
+.split__col h3{margin-bottom:.5rem}
+.split__col ul{margin:0;padding-left:1.1rem}
+.split__col li{margin:.35rem 0}
+.split__col--yes{border-top:4px solid var(--ok)}
+.split__col--no{border-top:4px solid var(--bad)}
+.intent{margin:0;padding:1rem 1.25rem;font-family:var(--serif);font-size:1.2rem;line-height:1.5;background:var(--sheet);border-left:4px solid var(--accent);border-radius:0 .5rem .5rem 0;white-space:pre-wrap;overflow-wrap:anywhere;max-width:48rem}
+.actors{display:grid;grid-template-columns:repeat(auto-fit,minmax(18rem,1fr));gap:1.25rem}
+.actor{background:var(--sheet);border:1px solid var(--rule);border-radius:.5rem;padding:1rem 1.2rem;min-width:0}
+.actor--wide{grid-column:1/-1}
+.actor h3{margin-bottom:.6rem}
+.sub{margin:.9rem 0 .3rem;font-size:.85rem;color:var(--muted)}
+.ledger{margin:0}
+.ledger .row{display:grid;grid-template-columns:minmax(7rem,38%) 1fr;gap:.6rem;padding:.45rem 0;border-top:1px solid var(--rule)}
+.ledger .row:first-child{border-top:0}
+.ledger dt{color:var(--muted);font-size:.9rem}
+.ledger dd{margin:0;display:flex;flex-wrap:wrap;gap:.25rem .5rem;align-items:center;min-width:0}
+.value{overflow-wrap:anywhere}
+.value--claim{font-style:italic;text-decoration:underline dashed var(--warn);text-underline-offset:3px}
+.value--measure{font-weight:600}
+.source{font-size:.8rem;color:var(--muted)}
+.badge{display:inline-flex;align-items:center;gap:.3rem;padding:.08rem .5rem;border-radius:1rem;font-size:.8rem;font-weight:600;line-height:1.5;border:1px solid currentColor;white-space:nowrap}
+.badge__glyph{font-weight:700}
+.badge--ok{color:var(--ok);background:var(--ok-soft)}
+.badge--bad{color:var(--bad);background:var(--bad-soft)}
+.badge--warn{color:var(--warn);background:var(--warn-soft)}
+.badge--neutral{color:var(--neutral);background:var(--neutral-soft)}
+.badge--info{color:var(--info);background:var(--info-soft)}
+.badge--claim{border-style:dashed;background:transparent}
+.badge--measured{background:var(--info-soft)}
+.badge--sev{font-weight:500}
+.stages{display:grid;grid-template-columns:repeat(auto-fit,minmax(22rem,1fr));gap:1rem}
+.stage{background:var(--sheet);border:1px solid var(--rule);border-top:4px solid var(--neutral);border-radius:.5rem;padding:.9rem 1rem;min-width:0;font-size:.92rem}
+.stage header{display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:.7rem}
+.stage--ok{border-top-color:var(--ok)}.stage--bad{border-top-color:var(--bad)}.stage--warn{border-top-color:var(--warn)}
+.stage .facts dt{font-size:.8rem}
+.finding{background:var(--sheet);border:1px solid var(--rule);border-left:4px solid var(--neutral);border-radius:.5rem;padding:1rem 1.2rem;margin:0 0 1rem}
+.finding--ok{border-left-color:var(--ok)}.finding--bad{border-left-color:var(--bad)}.finding--warn{border-left-color:var(--warn)}
+.finding header{display:flex;gap:.75rem;align-items:baseline}
+.finding h3{overflow-wrap:anywhere}
+.fid{font-family:var(--mono);font-size:.85rem;color:var(--muted);flex:none}
+.finding .meta{display:flex;flex-wrap:wrap;gap:.4rem .6rem;align-items:center;margin:.5rem 0 0;font-size:.88rem}
+.loc{overflow-wrap:anywhere}
+.detail{margin:.7rem 0 0;max-width:46rem;white-space:pre-wrap;overflow-wrap:anywhere}
+.resolution{margin-top:.8rem;padding-top:.7rem;border-top:1px dashed var(--rule);font-size:.92rem}
+.resolution ul{margin:0;padding-left:1.1rem}
+.note{margin:.5rem 0 0;padding:.4rem .9rem;border-left:3px solid var(--rule);color:var(--ink);font-style:italic;white-space:pre-wrap;overflow-wrap:anywhere}
+.more{margin-top:.7rem}
+.more summary,.ev__raw summary{cursor:pointer;color:var(--accent);font-size:.88rem}
+.files,.commits,.prompts,.breaks{margin:.3rem 0 0;padding-left:1.1rem;font-size:.9rem}
+.files li,.commits li{overflow-wrap:anywhere}
+.timeline{list-style:none;margin:0;padding:0;border-left:2px solid var(--rule)}
+.ev{position:relative;padding:0 0 0 1.4rem}
+.ev::before{content:"";position:absolute;left:-.45rem;top:.85rem;width:.7rem;height:.7rem;border-radius:50%;background:var(--sheet);border:2px solid var(--neutral)}
+.ev summary{display:grid;grid-template-columns:12.5rem 1fr auto;gap:.2rem 1rem;align-items:baseline;padding:.45rem .5rem;margin-left:-.5rem;border-radius:.35rem;cursor:pointer;list-style:none}
+.ev summary::-webkit-details-marker{display:none}
+.ev summary:hover,.ev details[open] summary{background:var(--accent-soft)}
+.ev--state::before{border-color:var(--accent)}
+.ev--finding::before{border-color:var(--warn);border-radius:2px}
+.ev--claim::before{border-style:dashed;border-color:var(--warn)}
+.ev--publish::before{background:var(--ok);border-color:var(--ok)}
+.ev--trace::before{width:.45rem;height:.45rem;left:-.33rem;top:.95rem}
+.ev--trace .ev__text{color:var(--muted);font-size:.92rem}
+.ev__time{font-family:var(--mono);font-size:.8rem;color:var(--muted)}
+.ev__text{overflow-wrap:anywhere}
+.ev--finding .ev__text,.ev--claim .ev__text,.ev--publish .ev__text{font-weight:600}
+.ev__more{font-size:.78rem;color:var(--accent);white-space:nowrap}
+.ev .raw{margin:.2rem 0 .6rem}
+.raw{margin:.4rem 0 0;padding:.75rem;background:var(--paper);border:1px solid var(--rule);border-radius:.35rem;overflow-x:auto;font-size:.8rem;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.colophon{margin-top:2.5rem;color:var(--muted);font-size:.85rem}
+@media (max-width:40rem){
+  .page{padding:1.5rem 1rem 3rem}
+  .split{grid-template-columns:1fr}
+  .stages{grid-template-columns:1fr}
+  .ev summary{grid-template-columns:1fr auto}
+  .ev__time{grid-column:1/-1}
+  .seal{padding:.9rem 1rem}
+  .ledger .row{grid-template-columns:1fr}
+}
+@media print{
+  :root{--paper:#fff;--sheet:#fff;--ink:#000;--muted:#444;--rule:#bbb}
+  body{font-size:10.5pt}
+  .page{max-width:none;padding:0}
+  .toc,.ev__more,.ev .raw,.more{display:none}
+  section{break-inside:auto;padding-top:1.2rem}
+  .finding,.stage,.actor,.seal,.split__col,.ev{break-inside:avoid}
+  h2{break-after:avoid}
+  a{color:inherit;text-decoration:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style></head><body><div class="page"><header class="masthead"><p class="kicker">Agentic Preflight audit trail</p><h1><span class="repo">sample-service</span><span class="branch">feature/bulk-discount</span></h1><p class="tally">2 findings: 1 fixed, 1 dismissed, 0 accepted, 0 open.</p><div class="seal seal--ok" role="status"><span class="seal__glyph" aria-hidden="true">✓</span><div><p class="seal__headline">Event log intact</p><p class="seal__detail">Every line of the event log follows from the line before it, so no line was edited, removed, or inserted after it was written. This catches a partial edit, not a deliberate rewrite of the whole log.</p></div></div><dl class="facts"><div><dt>Branch</dt><dd><code>feature/bulk-discount</code></dd></div><div><dt>Base</dt><dd><code>main</code> at <code class="hash" title="9420a7b7839b50e7487851ad13bb92544361f444">9420a7b7839b</code></dd></div><div><dt>Head commit</dt><dd><code class="hash" title="b8744baa9a73673d7ac84e84fba081c21e053f8a">b8744baa9a73673d7ac84e84fba081c21e053f8a</code></dd></div><div><dt>Run</dt><dd><code>r_51245ed9d6</code></dd></div><div><dt>Final state</dt><dd><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>DONE</span></dd></div><div><dt>Started</dt><dd><time datetime="2026-11-18T21:55:48+00:00">2026-11-18 21:55:48 UTC</time></dd></div><div><dt>Last updated</dt><dd><time datetime="2026-11-18T21:55:56+00:00">2026-11-18 21:55:56 UTC</time></dd></div></dl><div class="notice"><p><strong>Shareable view.</strong> Left out of this copy:</p><ul><li>absolute local paths, shown as &lt;repository&gt;, &lt;run store&gt;, and similar markers</li></ul><p>Run <code>agentic-preflight audit --local-details</code> to include them.</p></div></header><nav class="toc" aria-label="Sections"><ol><li><a href="#proves">What this proves</a></li><li><a href="#intent">Intent</a></li><li><a href="#actors">Who acted</a></li><li><a href="#stages">Stages</a></li><li><a href="#findings">Findings</a></li><li><a href="#timeline">Timeline</a></li><li><a href="#integrity">Integrity</a></li></ol></nav><main><section id="proves" aria-labelledby="proves-h"><h2 id="proves-h">What this record proves</h2><div class="split"><div class="split__col split__col--yes"><h3>A completed run shows</h3><ul><li>The review executor accounted for every included review unit of a diff manifest bound to the reviewed commit. Excluded files stay outside that coverage.</li><li>Each green lint and test command exited zero against the commit it recorded, and the digest of its redacted output is kept.</li><li>Every finding was resolved by a recorded decision: a fix commit, a dismissal, or an accepted risk, each with its stated reason.</li><li>A skipped stage records why it was skipped, not that it succeeded.</li></ul></div><div class="split__col split__col--no"><h3>It does not show</h3><ul><li>That the review was good, or that the agent understood every unit it marked clean. The same diff reviewed twice can yield different findings.</li><li>Who acted. The client, the agent&#x27;s model, the reviewer&#x27;s model, and the push authorization are self-reported claims, marked as such below.</li><li>That the record is authentic. Neither this report nor the attestation note is signed; anyone who can update the notes ref can replace a note.</li><li>That the event log is complete. Its hash chain catches a partial edit, but not a removed tail or a log rewritten from the edit to its end, because nothing outside the log records its last digest.</li><li>Anything CI or a human reviewer would check. Treat this as an audit trail, not a replacement for either.</li></ul></div></div></section><section id="intent" aria-labelledby="intent-h"><h2 id="intent-h">Intent</h2><p class="lede">The user's objective as the agent recorded it. It is the agent's text, quoted as written.</p><blockquote class="intent">Add a 10% bulk discount for orders of ten or more units, without changing single-unit prices.</blockquote><dl class="facts facts--compact"><div><dt>Source</dt><dd>user</dd></div><div><dt>Changed files</dt><dd>1</dd></div><div><dt>Review units</dt><dd>1 total, 0 cited, 1 clean</dd></div><div><dt>Risk</dt><dd>high</dd></div><div><dt>Verdict</dt><dd>needs_human</dd></div><div><dt>Validation restarts</dt><dd>1</dd></div></dl><details class="more"><summary>Changed files</summary><ul class="files"><li><code>src/pricing.py</code></li></ul></details></section><section id="actors" aria-labelledby="actors-h"><h2 id="actors-h">Who acted</h2><p class="lede"><span class="badge badge--info badge--measured"><span class="badge__glyph" aria-hidden="true">•</span>Measured</span> values were derived by the tool's own code. <span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span> values are what an agent or reviewer said about itself; nothing checked them.</p><div class="actors"><div class="actor"><h3>Producer</h3><dl class="ledger"><div class="row row--measure"><dt>Agentic Preflight version</dt><dd><span class="value value--measure">0.9.0</span><span class="badge badge--info badge--measured"><span class="badge__glyph" aria-hidden="true">•</span>Measured</span></dd></div><div class="row row--measure"><dt>Python</dt><dd><span class="value value--measure">3.13.15</span><span class="badge badge--info badge--measured"><span class="badge__glyph" aria-hidden="true">•</span>Measured</span></dd></div><div class="row row--measure"><dt>Platform</dt><dd><span class="value value--measure">darwin</span><span class="badge badge--info badge--measured"><span class="badge__glyph" aria-hidden="true">•</span>Measured</span></dd></div><div class="row row--claim"><dt>Coding agent</dt><dd><span class="value value--claim">claude-code</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">stated with a command-line flag</span></dd></div><div class="row row--claim"><dt>Agent&#x27;s model</dt><dd><span class="value value--claim">claude-opus-5</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">stated with a command-line flag</span></dd></div></dl></div><div class="actor"><h3>Reviewer</h3><dl class="ledger"><div class="row row--measure"><dt>Review executor</dt><dd><span class="value value--measure">command</span><span class="badge badge--info badge--measured"><span class="badge__glyph" aria-hidden="true">•</span>Measured</span></dd></div></dl><p class="sub">Reported at <time datetime="2026-11-18T21:55:49+00:00">2026-11-18 21:55:49 UTC</time>, <time datetime="2026-11-18T21:55:50+00:00">2026-11-18 21:55:50 UTC</time></p><dl class="ledger"><div class="row row--claim"><dt>Provider</dt><dd><span class="value value--claim">claude</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">printed by the reviewer process</span></dd></div><div class="row row--claim"><dt>Model</dt><dd><span class="value value--claim">claude-sonnet-5</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">printed by the reviewer process</span></dd></div><div class="row row--claim"><dt>Effort</dt><dd><span class="value value--claim">high</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">printed by the reviewer process</span></dd></div></dl><p class="sub">Prompt digests (self-reported)</p><ul class="prompts"><li>discovery <code class="hash" title="3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f">3f3f3f3f3f3f</code></li></ul></div><div class="actor"><h3>Push authorization</h3><p class="sub">For <code class="hash" title="b8744baa9a73673d7ac84e84fba081c21e053f8a">b8744baa9a73</code> at <time datetime="2026-11-18T21:55:56+00:00">2026-11-18 21:55:56 UTC</time></p><dl class="ledger"><div class="row row--claim"><dt>Push authorized by</dt><dd><span class="value value--claim">user_request</span><span class="badge badge--warn badge--claim"><span class="badge__glyph" aria-hidden="true">!</span>Self-reported</span><span class="source">stated with a command-line flag</span></dd></div></dl></div></div></section><section id="stages" aria-labelledby="stages-h"><h2 id="stages-h">Stages</h2><p class="lede">Status, exit codes, and digests are recorded by the tool, not reported by the agent.</p><div class="stages"><article class="stage stage--ok"><header><h3>Review</h3><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Passed</span></header><dl class="facts facts--stage"><div><dt>Executor</dt><dd>command</dd></div><div><dt>Command</dt><dd><code>python tools/reviewer.py</code></dd></div><div><dt>Exit code</dt><dd>0</dd></div><div><dt>Output digest</dt><dd><code class="hash" title="ea17d7b65cfe2278aa9409339966c16ad599ad1ef6b4a7401f77355742de54d7">ea17d7b65cfe</code></dd></div><div><dt>Command time</dt><dd>0.08 s</dd></div><div><dt>Started</dt><dd><time datetime="2026-11-18T21:55:50+00:00">2026-11-18 21:55:50 UTC</time></dd></div><div><dt>Stage time</dt><dd>1 s</dd></div><div><dt>Commit</dt><dd><code class="hash" title="b8744baa9a73673d7ac84e84fba081c21e053f8a">b8744baa9a73</code></dd></div><div><dt>Attempts</dt><dd>0</dd></div><div><dt>Log</dt><dd><code>&lt;run store&gt;/runs/r_51245ed9d6/logs/review.txt</code></dd></div></dl></article><article class="stage stage--neutral"><header><h3>Docs</h3><span class="badge badge--neutral"><span class="badge__glyph" aria-hidden="true">–</span>Skipped</span></header><dl class="facts facts--stage"><div><dt>Reason</dt><dd>disabled by configuration</dd></div><div><dt>Commit</dt><dd><code class="hash" title="b8744baa9a73673d7ac84e84fba081c21e053f8a">b8744baa9a73</code></dd></div><div><dt>Attempts</dt><dd>0</dd></div></dl></article><article class="stage stage--ok"><header><h3>Lint</h3><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Passed</span></header><dl class="facts facts--stage"><div><dt>Command</dt><dd><code>python -B -m tabnanny src</code></dd></div><div><dt>Exit code</dt><dd>0</dd></div><div><dt>Output digest</dt><dd><code class="hash" title="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855">e3b0c44298fc</code></dd></div><div><dt>Command time</dt><dd>0.05 s</dd></div><div><dt>Started</dt><dd><time datetime="2026-11-18T21:55:51+00:00">2026-11-18 21:55:51 UTC</time></dd></div><div><dt>Stage time</dt><dd>1 s</dd></div><div><dt>Commit</dt><dd><code class="hash" title="b8744baa9a73673d7ac84e84fba081c21e053f8a">b8744baa9a73</code></dd></div><div><dt>Attempts</dt><dd>0</dd></div><div><dt>Log</dt><dd><code>&lt;run store&gt;/runs/r_51245ed9d6/logs/lint.txt</code></dd></div></dl></article><article class="stage stage--ok"><header><h3>Test</h3><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Passed</span></header><dl class="facts facts--stage"><div><dt>Command</dt><dd><code>python -B -m unittest discover -s tests -t .</code></dd></div><div><dt>Exit code</dt><dd>0</dd></div><div><dt>Output digest</dt><dd><code class="hash" title="fb184ea57734512b1f088f9181209901b9cd46df3eb7eaa2500ea9e48dde20b5">fb184ea57734</code></dd></div><div><dt>Command time</dt><dd>0.21 s</dd></div><div><dt>Started</dt><dd><time datetime="2026-11-18T21:55:52+00:00">2026-11-18 21:55:52 UTC</time></dd></div><div><dt>Stage time</dt><dd>1 s</dd></div><div><dt>Commit</dt><dd><code class="hash" title="b8744baa9a73673d7ac84e84fba081c21e053f8a">b8744baa9a73</code></dd></div><div><dt>Attempts</dt><dd>0</dd></div><div><dt>Log</dt><dd><code>&lt;run store&gt;/runs/r_51245ed9d6/logs/test.txt</code></dd></div></dl></article></div></section><section id="findings" aria-labelledby="findings-h"><h2 id="findings-h">Findings</h2><p class="lede">Titles, details, and notes are the agent's words. Statuses and fix commits are recorded by the tool.</p><article class="finding finding--ok"><header><span class="fid">F001</span><h3>Division by zero when quantity is 0</h3></header><p class="meta"><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Fixed</span><span class="badge badge--bad badge--sev"><span class="badge__glyph" aria-hidden="true">✕</span>High</span><code class="loc">src/pricing.py:2</code><span class="muted">review stage</span></p><p class="detail">unit_price divides by quantity without a guard, so an empty order raises ZeroDivisionError.</p><details class="more"><summary>Suggestion</summary><p>Reject a quantity below 1 before dividing.</p></details><div class="resolution"><ul><li>Fixed by <code class="hash" title="b8744baa9a73673d7ac84e84fba081c21e053f8a">b8744baa9a73</code> Reject a non-positive quantity in unit_price</li><li>Resolved <time datetime="2026-11-18T21:55:50+00:00">2026-11-18 21:55:50 UTC</time></li></ul></div></article><article class="finding finding--neutral"><header><span class="fid">F002</span><h3>Consider Decimal for currency amounts</h3></header><p class="meta"><span class="badge badge--neutral"><span class="badge__glyph" aria-hidden="true">–</span>Dismissed</span><span class="badge badge--neutral badge--sev"><span class="badge__glyph" aria-hidden="true">–</span>Low</span><code class="loc">src/pricing.py:5</code><span class="muted">review stage</span></p><p class="detail">Floating point can round currency values.</p><div class="resolution"><ul><li>Reason: out of scope</li><li>Resolved <time datetime="2026-11-18T21:55:50+00:00">2026-11-18 21:55:50 UTC</time></li></ul><blockquote class="note">Prices are stored in integer cents elsewhere; this function only divides them.</blockquote></div></article></section><section id="timeline" aria-labelledby="timeline-h"><h2 id="timeline-h">Timeline</h2><p class="lede">Every event in the run's log, oldest first. Select an entry to read it exactly as stored.</p><ol class="timeline"><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:48+00:00">2026-11-18 21:55:48 UTC</time></span><span class="ev__text">Run created in CREATED</span><span class="ev__more">event 1</span></summary><pre class="raw">{
+  &quot;action&quot;: null,
+  &quot;at&quot;: &quot;2026-11-18T21:55:48+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: null,
+  &quot;monotonic_ns&quot;: 1348428722751375,
+  &quot;prev_sha256&quot;: null,
+  &quot;to&quot;: &quot;CREATED&quot;
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:48+00:00">2026-11-18 21:55:48 UTC</time></span><span class="ev__text">Run created at head 1776a48a0599</span><span class="ev__more">event 2</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:48+00:00&quot;,
+  &quot;command_timing&quot;: 1,
+  &quot;config_digest&quot;: &quot;afb732c754478d83c47ef881d3a54f21361d2bc1b4b7a17bcb758164878c21cb&quot;,
+  &quot;config_snapshot&quot;: {
+    &quot;approval&quot;: {
+      &quot;environment&quot;: &quot;high-risk-review&quot;,
+      &quot;mode&quot;: &quot;manual_merge&quot;,
+      &quot;reviewer&quot;: &quot;&quot;
+    },
+    &quot;commands&quot;: {
+      &quot;lint&quot;: &quot;python -B -m tabnanny src&quot;,
+      &quot;test&quot;: &quot;python -B -m unittest discover -s tests -t .&quot;
+    },
+    &quot;context&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;entry_max_bytes&quot;: 4000,
+      &quot;extra_paths&quot;: [],
+      &quot;max_bytes&quot;: 24000
+    },
+    &quot;diff&quot;: {
+      &quot;exclude&quot;: [
+        &quot;*.lock&quot;,
+        &quot;*-lock.json&quot;,
+        &quot;vendor/**&quot;,
+        &quot;**/*.min.js&quot;,
+        &quot;**/*.min.css&quot;,
+        &quot;**/__snapshots__/**&quot;,
+        &quot;**/*.pb.go&quot;,
+        &quot;**/*_pb2.py&quot;
+      ],
+      &quot;max_bytes&quot;: 200000
+    },
+    &quot;docs&quot;: {
+      &quot;blocking_severities&quot;: [
+        &quot;critical&quot;,
+        &quot;high&quot;
+      ],
+      &quot;enabled&quot;: false,
+      &quot;paths&quot;: [],
+      &quot;require_changelog&quot;: false
+    },
+    &quot;gate&quot;: {
+      &quot;mode&quot;: &quot;token&quot;
+    },
+    &quot;general&quot;: {
+      &quot;base_ref&quot;: &quot;main&quot;
+    },
+    &quot;hook&quot;: {
+      &quot;allow_force_push&quot;: false
+    },
+    &quot;policy&quot;: {
+      &quot;high_risk_paths&quot;: [],
+      &quot;human_review_paths&quot;: [],
+      &quot;medium_risk_paths&quot;: []
+    },
+    &quot;pr&quot;: {
+      &quot;automated_cleanup&quot;: false,
+      &quot;mode&quot;: &quot;auto&quot;
+    },
+    &quot;review&quot;: {
+      &quot;blocking_severities&quot;: [
+        &quot;critical&quot;,
+        &quot;high&quot;
+      ],
+      &quot;command&quot;: &quot;python tools/reviewer.py&quot;,
+      &quot;executor&quot;: &quot;command&quot;,
+      &quot;max_findings&quot;: 50,
+      &quot;require_command_for&quot;: []
+    },
+    &quot;stage&quot;: {
+      &quot;max_attempts&quot;: 5,
+      &quot;max_restarts&quot;: 5,
+      &quot;timeout_seconds&quot;: 600
+    },
+    &quot;worktree&quot;: {
+      &quot;copy_files&quot;: [
+        &quot;.env&quot;
+      ],
+      &quot;mode&quot;: &quot;in_place&quot;,
+      &quot;root&quot;: null,
+      &quot;setup_command&quot;: null
+    }
+  },
+  &quot;event&quot;: &quot;run_created&quot;,
+  &quot;head_sha&quot;: &quot;1776a48a05994cbef7418b343018416a1689f51c&quot;,
+  &quot;intent&quot;: &quot;Add a 10% bulk discount for orders of ten or more units, without changing single-unit prices.&quot;,
+  &quot;intent_source&quot;: &quot;user&quot;,
+  &quot;prev_sha256&quot;: &quot;61d98d7b60fdd23b7c58d962aca5f89757d2dcf6de296030ec585ed0fe4865c4&quot;,
+  &quot;producer&quot;: {
+    &quot;client&quot;: &quot;claude-code&quot;,
+    &quot;client_source&quot;: &quot;flag&quot;,
+    &quot;platform&quot;: &quot;darwin&quot;,
+    &quot;python_version&quot;: &quot;3.13.15&quot;,
+    &quot;reported_model&quot;: &quot;claude-opus-5&quot;,
+    &quot;reported_model_source&quot;: &quot;flag&quot;,
+    &quot;tool_version&quot;: &quot;0.9.0&quot;
+  }
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:48+00:00">2026-11-18 21:55:48 UTC</time></span><span class="ev__text">CREATED to WORKTREE_READY (CREATE_WORKTREE)</span><span class="ev__more">event 3</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;CREATE_WORKTREE&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:48+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;CREATED&quot;,
+  &quot;monotonic_ns&quot;: 1348428744070750,
+  &quot;prev_sha256&quot;: &quot;58196f9dc40f8d4301ebf470c73b5b9152e627319b41ce9fa4d75d5be7da6176&quot;,
+  &quot;seq&quot;: 2,
+  &quot;to&quot;: &quot;WORKTREE_READY&quot;
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:48+00:00">2026-11-18 21:55:48 UTC</time></span><span class="ev__text">WORKTREE_READY to SYNC_RUNNING (BEGIN_SYNC)</span><span class="ev__more">event 4</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;BEGIN_SYNC&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:48+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;WORKTREE_READY&quot;,
+  &quot;monotonic_ns&quot;: 1348428744137083,
+  &quot;prev_sha256&quot;: &quot;ffd8bb8a47ab4cac7e7b6a764dfe768953fa315ad866759a7d61c53316822933&quot;,
+  &quot;seq&quot;: 2,
+  &quot;to&quot;: &quot;SYNC_RUNNING&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:48+00:00">2026-11-18 21:55:48 UTC</time></span><span class="ev__text">Started the sync command</span><span class="ev__more">event 5</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:48+00:00&quot;,
+  &quot;command&quot;: &quot;sync&quot;,
+  &quot;event&quot;: &quot;tool_command_started&quot;,
+  &quot;prev_sha256&quot;: &quot;1b24445310a24ad17812189794b41d83e6d008d2a3bd0e199aa935bae4afe698&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:48+00:00">2026-11-18 21:55:48 UTC</time></span><span class="ev__text">Finished the sync command in 0.324 s</span><span class="ev__more">event 6</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:48+00:00&quot;,
+  &quot;command&quot;: &quot;sync&quot;,
+  &quot;event&quot;: &quot;tool_command_finished&quot;,
+  &quot;prev_sha256&quot;: &quot;c93d2a3713ac4828938767554e1d6dc83ec98265400882d82a65d0126983e816&quot;,
+  &quot;seconds&quot;: 0.324
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:48+00:00">2026-11-18 21:55:48 UTC</time></span><span class="ev__text">SYNC_RUNNING to SYNC_GREEN (SYNC_PASSED)</span><span class="ev__more">event 7</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;SYNC_PASSED&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:48+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;SYNC_RUNNING&quot;,
+  &quot;monotonic_ns&quot;: 1348429107845583,
+  &quot;prev_sha256&quot;: &quot;dfe5e92216d48271c315e7c91bc509e23ea8b02143138a596e7cb74318348c81&quot;,
+  &quot;seq&quot;: 5,
+  &quot;to&quot;: &quot;SYNC_GREEN&quot;
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:48+00:00">2026-11-18 21:55:48 UTC</time></span><span class="ev__text">SYNC_GREEN to REVIEW_AWAITING_FINDINGS (BEGIN_REVIEW)</span><span class="ev__more">event 8</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;BEGIN_REVIEW&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:48+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;SYNC_GREEN&quot;,
+  &quot;monotonic_ns&quot;: 1348429107871750,
+  &quot;prev_sha256&quot;: &quot;03052dd24c1507b5bc109b1716dc927c95db7b1ef4ef095e7c737abdb7d80db1&quot;,
+  &quot;seq&quot;: 5,
+  &quot;to&quot;: &quot;REVIEW_AWAITING_FINDINGS&quot;
+}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:48+00:00">2026-11-18 21:55:48 UTC</time></span><span class="ev__text">Validation worktree ready (in_place mode)</span><span class="ev__more">event 9</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:48+00:00&quot;,
+  &quot;event&quot;: &quot;worktree_ready&quot;,
+  &quot;mode&quot;: &quot;in_place&quot;,
+  &quot;path&quot;: &quot;&lt;validation worktree&gt;&quot;,
+  &quot;prev_sha256&quot;: &quot;ee85773d0fa01cf275cc362c917bd815d5e57b9a0720bf0c0902c57c8967e326&quot;,
+  &quot;risk&quot;: {
+    &quot;level&quot;: &quot;low&quot;,
+    &quot;reasons&quot;: [],
+    &quot;requires_human_review&quot;: false,
+    &quot;verdict&quot;: &quot;pass&quot;
+  },
+  &quot;sync&quot;: {
+    &quot;base_ref&quot;: &quot;refs/remotes/origin/main&quot;,
+    &quot;base_sha&quot;: &quot;9420a7b7839b50e7487851ad13bb92544361f444&quot;,
+    &quot;head_after&quot;: &quot;1776a48a05994cbef7418b343018416a1689f51c&quot;,
+    &quot;head_before&quot;: &quot;1776a48a05994cbef7418b343018416a1689f51c&quot;,
+    &quot;merged&quot;: false,
+    &quot;rebased&quot;: false,
+    &quot;remote&quot;: &quot;origin&quot;
+  }
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:49+00:00">2026-11-18 21:55:49 UTC</time></span><span class="ev__text">REVIEW_AWAITING_FINDINGS to REVIEW_COMMAND_RUNNING (RUN_REVIEW_COMMAND)</span><span class="ev__more">event 10</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;RUN_REVIEW_COMMAND&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:49+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;REVIEW_AWAITING_FINDINGS&quot;,
+  &quot;monotonic_ns&quot;: 1348429518101041,
+  &quot;prev_sha256&quot;: &quot;0e34104b8ac2fd4a7d90d9e59260ed39a9b54a56a76a8634c4901222314ddf92&quot;,
+  &quot;seq&quot;: 9,
+  &quot;to&quot;: &quot;REVIEW_COMMAND_RUNNING&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:49+00:00">2026-11-18 21:55:49 UTC</time></span><span class="ev__text">Started the review command</span><span class="ev__more">event 11</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:49+00:00&quot;,
+  &quot;command&quot;: &quot;review&quot;,
+  &quot;event&quot;: &quot;tool_command_started&quot;,
+  &quot;prev_sha256&quot;: &quot;06a97f790d7c70f849b25e3ed8ee22b3c5e7b8040ad1b94d84d0ec2f47c9c594&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:49+00:00">2026-11-18 21:55:49 UTC</time></span><span class="ev__text">Finished the review command in 0.044 s</span><span class="ev__more">event 12</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:49+00:00&quot;,
+  &quot;command&quot;: &quot;review&quot;,
+  &quot;event&quot;: &quot;tool_command_finished&quot;,
+  &quot;prev_sha256&quot;: &quot;a56ab872e08a7617922407f621eccfe7c8ce6714a172f19912c51e14853e3a99&quot;,
+  &quot;seconds&quot;: 0.044
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:49+00:00">2026-11-18 21:55:49 UTC</time></span><span class="ev__text">REVIEW_COMMAND_RUNNING to REVIEW_AWAITING_FINDINGS (REVIEW_COMMAND_PASSED)</span><span class="ev__more">event 13</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;REVIEW_COMMAND_PASSED&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:49+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;REVIEW_COMMAND_RUNNING&quot;,
+  &quot;monotonic_ns&quot;: 1348429602055041,
+  &quot;prev_sha256&quot;: &quot;1f78a87aa281d19e0ae16680da8141aaf853194d8f3a38a8b491b13810bbecf1&quot;,
+  &quot;seq&quot;: 10,
+  &quot;to&quot;: &quot;REVIEW_AWAITING_FINDINGS&quot;
+}</pre></details></li><li class="ev ev--claim"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:49+00:00">2026-11-18 21:55:49 UTC</time></span><span class="ev__text">Reviewer reported claude / claude-sonnet-5 (self-reported)</span><span class="ev__more">event 14</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:49+00:00&quot;,
+  &quot;effort&quot;: &quot;high&quot;,
+  &quot;event&quot;: &quot;reviewer_reported&quot;,
+  &quot;model&quot;: &quot;claude-sonnet-5&quot;,
+  &quot;prev_sha256&quot;: &quot;e77b6534259c31be0e3313cee3245cd080287b29349af8d02c9aa263f98a3561&quot;,
+  &quot;prompts&quot;: [
+    {
+      &quot;phase&quot;: &quot;discovery&quot;,
+      &quot;sha256&quot;: &quot;3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f&quot;
+    }
+  ],
+  &quot;prompts_omitted&quot;: 0,
+  &quot;provider&quot;: &quot;claude&quot;,
+  &quot;source&quot;: &quot;command_output&quot;,
+  &quot;stage&quot;: &quot;review&quot;
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:49+00:00">2026-11-18 21:55:49 UTC</time></span><span class="ev__text">REVIEW_AWAITING_FINDINGS to REVIEW_BLOCKED (SUBMIT_BLOCKING)</span><span class="ev__more">event 15</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;SUBMIT_BLOCKING&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:49+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;REVIEW_AWAITING_FINDINGS&quot;,
+  &quot;monotonic_ns&quot;: 1348429935822916,
+  &quot;prev_sha256&quot;: &quot;c56ef743c89be8625616448310c637c8d6b0214578c9064781f0b39e3dcac88f&quot;,
+  &quot;seq&quot;: 11,
+  &quot;to&quot;: &quot;REVIEW_BLOCKED&quot;
+}</pre></details></li><li class="ev ev--finding"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:49+00:00">2026-11-18 21:55:49 UTC</time></span><span class="ev__text">2 findings submitted for review</span><span class="ev__more">event 16</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:49+00:00&quot;,
+  &quot;count&quot;: 2,
+  &quot;coverage&quot;: {
+    &quot;cited_units&quot;: [
+      &quot;U0001&quot;
+    ],
+    &quot;clean_units&quot;: [],
+    &quot;excluded_files&quot;: [],
+    &quot;grounding_sha256&quot;: &quot;c0e5ae964981cd37b44de592620f33b655e857f6c0de0cab41cf5a5f368a7daa&quot;,
+    &quot;head_sha&quot;: &quot;1776a48a05994cbef7418b343018416a1689f51c&quot;,
+    &quot;manifest&quot;: &quot;781fa86e13be2106a2d5707ab4a6bf508787f953021d86d17615b1755d09a9ea&quot;,
+    &quot;total_units&quot;: 1
+  },
+  &quot;event&quot;: &quot;findings_submitted&quot;,
+  &quot;prev_sha256&quot;: &quot;42adeaafca9da5a800d68e859b54a14c884e74100bc8ed9070e4be8660182002&quot;,
+  &quot;risk&quot;: {
+    &quot;level&quot;: &quot;high&quot;,
+    &quot;reasons&quot;: [
+      {
+        &quot;finding_id&quot;: &quot;F001&quot;,
+        &quot;kind&quot;: &quot;finding&quot;,
+        &quot;level&quot;: &quot;high&quot;,
+        &quot;path&quot;: &quot;src/pricing.py&quot;,
+        &quot;pattern&quot;: null,
+        &quot;severity&quot;: &quot;high&quot;
+      }
+    ],
+    &quot;requires_human_review&quot;: true,
+    &quot;verdict&quot;: &quot;changes_required&quot;
+  },
+  &quot;stage&quot;: &quot;review&quot;
+}</pre></details></li><li class="ev ev--finding"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:50+00:00">2026-11-18 21:55:50 UTC</time></span><span class="ev__text">F001 marked fixed by b8744baa9a73</span><span class="ev__more">event 17</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;fixed&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:50+00:00&quot;,
+  &quot;commit&quot;: &quot;b8744baa9a73673d7ac84e84fba081c21e053f8a&quot;,
+  &quot;event&quot;: &quot;finding_resolved&quot;,
+  &quot;id&quot;: &quot;F001&quot;,
+  &quot;prev_sha256&quot;: &quot;aeeae653e410f4c6449073a1445d25ed46116626b94b66da88b4f1c8afe88149&quot;,
+  &quot;reason&quot;: null,
+  &quot;risk&quot;: {
+    &quot;level&quot;: &quot;high&quot;,
+    &quot;reasons&quot;: [
+      {
+        &quot;finding_id&quot;: &quot;F001&quot;,
+        &quot;kind&quot;: &quot;finding&quot;,
+        &quot;level&quot;: &quot;high&quot;,
+        &quot;path&quot;: &quot;src/pricing.py&quot;,
+        &quot;pattern&quot;: null,
+        &quot;severity&quot;: &quot;high&quot;
+      }
+    ],
+    &quot;requires_human_review&quot;: true,
+    &quot;verdict&quot;: &quot;needs_human&quot;
+  }
+}</pre></details></li><li class="ev ev--finding"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:50+00:00">2026-11-18 21:55:50 UTC</time></span><span class="ev__text">F002 marked dismissed (out_of_scope)</span><span class="ev__more">event 18</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;dismissed&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:50+00:00&quot;,
+  &quot;commit&quot;: null,
+  &quot;event&quot;: &quot;finding_resolved&quot;,
+  &quot;id&quot;: &quot;F002&quot;,
+  &quot;prev_sha256&quot;: &quot;057e48d0c133cab2146b313276317e43c698f007c0b55360908e417b35ce06a0&quot;,
+  &quot;reason&quot;: &quot;out_of_scope&quot;,
+  &quot;risk&quot;: {
+    &quot;level&quot;: &quot;high&quot;,
+    &quot;reasons&quot;: [
+      {
+        &quot;finding_id&quot;: &quot;F001&quot;,
+        &quot;kind&quot;: &quot;finding&quot;,
+        &quot;level&quot;: &quot;high&quot;,
+        &quot;path&quot;: &quot;src/pricing.py&quot;,
+        &quot;pattern&quot;: null,
+        &quot;severity&quot;: &quot;high&quot;
+      }
+    ],
+    &quot;requires_human_review&quot;: true,
+    &quot;verdict&quot;: &quot;needs_human&quot;
+  }
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:50+00:00">2026-11-18 21:55:50 UTC</time></span><span class="ev__text">REVIEW_BLOCKED to REVIEW_AWAITING_FINDINGS (INVALIDATE_REVIEW)</span><span class="ev__more">event 19</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;INVALIDATE_REVIEW&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:50+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;REVIEW_BLOCKED&quot;,
+  &quot;monotonic_ns&quot;: 1348430559169416,
+  &quot;prev_sha256&quot;: &quot;ef89c51c7578e8a4f8db6becf72196a17d0cefaba773e6189c7a1d234671cc06&quot;,
+  &quot;seq&quot;: 14,
+  &quot;to&quot;: &quot;REVIEW_AWAITING_FINDINGS&quot;
+}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:50+00:00">2026-11-18 21:55:50 UTC</time></span><span class="ev__text">Review coverage invalidated</span><span class="ev__more">event 20</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:50+00:00&quot;,
+  &quot;current_head&quot;: &quot;b8744baa9a73673d7ac84e84fba081c21e053f8a&quot;,
+  &quot;event&quot;: &quot;review_coverage_invalidated&quot;,
+  &quot;prev_sha256&quot;: &quot;a8381362c6f66f2d7e0a51caef548dce57addd3b1181d9797d16ebea1b33568f&quot;,
+  &quot;reviewed_head&quot;: &quot;1776a48a05994cbef7418b343018416a1689f51c&quot;
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:50+00:00">2026-11-18 21:55:50 UTC</time></span><span class="ev__text">REVIEW_AWAITING_FINDINGS to REVIEW_COMMAND_RUNNING (RUN_REVIEW_COMMAND)</span><span class="ev__more">event 21</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;RUN_REVIEW_COMMAND&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:50+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;REVIEW_AWAITING_FINDINGS&quot;,
+  &quot;monotonic_ns&quot;: 1348430953292875,
+  &quot;prev_sha256&quot;: &quot;07d64f4e9cfcb079c8e4c6ff4763a4294ab5cbc374982fcf70dc5ee0991f91ef&quot;,
+  &quot;seq&quot;: 15,
+  &quot;to&quot;: &quot;REVIEW_COMMAND_RUNNING&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:50+00:00">2026-11-18 21:55:50 UTC</time></span><span class="ev__text">Started the review command</span><span class="ev__more">event 22</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:50+00:00&quot;,
+  &quot;command&quot;: &quot;review&quot;,
+  &quot;event&quot;: &quot;tool_command_started&quot;,
+  &quot;prev_sha256&quot;: &quot;007d790cebdfa685eea5ba7059a7c007b59f63a90ec5a6c3f63cb19d22a2c5e4&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:50+00:00">2026-11-18 21:55:50 UTC</time></span><span class="ev__text">Finished the review command in 0.081 s</span><span class="ev__more">event 23</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:50+00:00&quot;,
+  &quot;command&quot;: &quot;review&quot;,
+  &quot;event&quot;: &quot;tool_command_finished&quot;,
+  &quot;prev_sha256&quot;: &quot;75a0cadd2e8d7a7857f3f65dd9c92cfb37910e94e84d3b180d0049b21bbee0eb&quot;,
+  &quot;seconds&quot;: 0.081
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:50+00:00">2026-11-18 21:55:50 UTC</time></span><span class="ev__text">REVIEW_COMMAND_RUNNING to REVIEW_AWAITING_FINDINGS (REVIEW_COMMAND_PASSED)</span><span class="ev__more">event 24</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;REVIEW_COMMAND_PASSED&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:50+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;REVIEW_COMMAND_RUNNING&quot;,
+  &quot;monotonic_ns&quot;: 1348431084870708,
+  &quot;prev_sha256&quot;: &quot;0c6bb2a5ef3dea9156c08c747d7908573aa713f84801b4cf72cdce734af2a139&quot;,
+  &quot;seq&quot;: 16,
+  &quot;to&quot;: &quot;REVIEW_AWAITING_FINDINGS&quot;
+}</pre></details></li><li class="ev ev--claim"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:50+00:00">2026-11-18 21:55:50 UTC</time></span><span class="ev__text">Reviewer reported claude / claude-sonnet-5 (self-reported)</span><span class="ev__more">event 25</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:50+00:00&quot;,
+  &quot;effort&quot;: &quot;high&quot;,
+  &quot;event&quot;: &quot;reviewer_reported&quot;,
+  &quot;model&quot;: &quot;claude-sonnet-5&quot;,
+  &quot;prev_sha256&quot;: &quot;c73ad288bdd84681638f2cd248b402b1bc09764c27e3e84ee9a18392d1f46164&quot;,
+  &quot;prompts&quot;: [
+    {
+      &quot;phase&quot;: &quot;discovery&quot;,
+      &quot;sha256&quot;: &quot;3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f&quot;
+    }
+  ],
+  &quot;prompts_omitted&quot;: 0,
+  &quot;provider&quot;: &quot;claude&quot;,
+  &quot;source&quot;: &quot;command_output&quot;,
+  &quot;stage&quot;: &quot;review&quot;
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:51+00:00">2026-11-18 21:55:51 UTC</time></span><span class="ev__text">REVIEW_AWAITING_FINDINGS to REVIEW_GREEN (SUBMIT_CLEAN)</span><span class="ev__more">event 26</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;SUBMIT_CLEAN&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:51+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;REVIEW_AWAITING_FINDINGS&quot;,
+  &quot;monotonic_ns&quot;: 1348431506601208,
+  &quot;prev_sha256&quot;: &quot;af8958e4f8081e245e3a51aa1b3e02ca7892a0499957f0042c0caeb884a4f981&quot;,
+  &quot;seq&quot;: 17,
+  &quot;to&quot;: &quot;REVIEW_GREEN&quot;
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:51+00:00">2026-11-18 21:55:51 UTC</time></span><span class="ev__text">REVIEW_GREEN to DOCS_GREEN (SKIP_DOCS)</span><span class="ev__more">event 27</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;SKIP_DOCS&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:51+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;REVIEW_GREEN&quot;,
+  &quot;monotonic_ns&quot;: 1348431638083625,
+  &quot;prev_sha256&quot;: &quot;d5318cfdfa0ddcf86ed2a08c71d31eceeb4be33cffdef8892b36e44137164c7f&quot;,
+  &quot;seq&quot;: 18,
+  &quot;to&quot;: &quot;DOCS_GREEN&quot;
+}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:51+00:00">2026-11-18 21:55:51 UTC</time></span><span class="ev__text">Docs stage skipped (disabled)</span><span class="ev__more">event 28</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:51+00:00&quot;,
+  &quot;event&quot;: &quot;docs_skipped&quot;,
+  &quot;prev_sha256&quot;: &quot;58f6d4c32709046d0f385cc103873bd14831e0a07d8dfd4630fa3b629e167a8f&quot;,
+  &quot;reason&quot;: &quot;disabled&quot;
+}</pre></details></li><li class="ev ev--finding"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:51+00:00">2026-11-18 21:55:51 UTC</time></span><span class="ev__text">0 findings submitted for review</span><span class="ev__more">event 29</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:51+00:00&quot;,
+  &quot;count&quot;: 0,
+  &quot;coverage&quot;: {
+    &quot;cited_units&quot;: [],
+    &quot;clean_units&quot;: [
+      &quot;U0001&quot;
+    ],
+    &quot;excluded_files&quot;: [],
+    &quot;grounding_sha256&quot;: &quot;c0e5ae964981cd37b44de592620f33b655e857f6c0de0cab41cf5a5f368a7daa&quot;,
+    &quot;head_sha&quot;: &quot;b8744baa9a73673d7ac84e84fba081c21e053f8a&quot;,
+    &quot;manifest&quot;: &quot;2eda55e18849ebc3d2625682817ddb98f412dd53faa0b64e8d456dcd8027ca2c&quot;,
+    &quot;total_units&quot;: 1
+  },
+  &quot;event&quot;: &quot;findings_submitted&quot;,
+  &quot;prev_sha256&quot;: &quot;a5d0b89e601f24e2d6f9736fdcb4db83c19b21f02c70b93fa13fe0d97a27999c&quot;,
+  &quot;risk&quot;: {
+    &quot;level&quot;: &quot;high&quot;,
+    &quot;reasons&quot;: [
+      {
+        &quot;finding_id&quot;: &quot;F001&quot;,
+        &quot;kind&quot;: &quot;finding&quot;,
+        &quot;level&quot;: &quot;high&quot;,
+        &quot;path&quot;: &quot;src/pricing.py&quot;,
+        &quot;pattern&quot;: null,
+        &quot;severity&quot;: &quot;high&quot;
+      }
+    ],
+    &quot;requires_human_review&quot;: true,
+    &quot;verdict&quot;: &quot;needs_human&quot;
+  },
+  &quot;stage&quot;: &quot;review&quot;
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:51+00:00">2026-11-18 21:55:51 UTC</time></span><span class="ev__text">DOCS_GREEN to LINT_RUNNING (RUN_LINT)</span><span class="ev__more">event 30</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;RUN_LINT&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:51+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;DOCS_GREEN&quot;,
+  &quot;monotonic_ns&quot;: 1348432025833250,
+  &quot;prev_sha256&quot;: &quot;060e9d1ad6a88dd2535b6eb7c50484eb9440954a92564d993ec0c64cb20d381c&quot;,
+  &quot;seq&quot;: 21,
+  &quot;to&quot;: &quot;LINT_RUNNING&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:51+00:00">2026-11-18 21:55:51 UTC</time></span><span class="ev__text">Started the lint command</span><span class="ev__more">event 31</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:51+00:00&quot;,
+  &quot;command&quot;: &quot;lint&quot;,
+  &quot;event&quot;: &quot;tool_command_started&quot;,
+  &quot;prev_sha256&quot;: &quot;b39c2c857dd8ac2b70f46b9d29a545b6b576e20d2e76bf6a95788d6a5f038f43&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:51+00:00">2026-11-18 21:55:51 UTC</time></span><span class="ev__text">Finished the lint command in 0.049 s</span><span class="ev__more">event 32</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:51+00:00&quot;,
+  &quot;command&quot;: &quot;lint&quot;,
+  &quot;event&quot;: &quot;tool_command_finished&quot;,
+  &quot;prev_sha256&quot;: &quot;3d97e546ccb796383ed66b6f29544d455703a6cf249374426ace95828da14d0c&quot;,
+  &quot;seconds&quot;: 0.049
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:52+00:00">2026-11-18 21:55:52 UTC</time></span><span class="ev__text">LINT_RUNNING to LINT_GREEN (LINT_PASSED)</span><span class="ev__more">event 33</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;LINT_PASSED&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:52+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;LINT_RUNNING&quot;,
+  &quot;monotonic_ns&quot;: 1348432241823375,
+  &quot;prev_sha256&quot;: &quot;dc69769871cb4a167f1842f80d85af9ac20827c3b048764a23b38a48c2e956e5&quot;,
+  &quot;seq&quot;: 22,
+  &quot;to&quot;: &quot;LINT_GREEN&quot;
+}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:52+00:00">2026-11-18 21:55:52 UTC</time></span><span class="ev__text">Lint finished</span><span class="ev__more">event 34</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:52+00:00&quot;,
+  &quot;event&quot;: &quot;lint_finished&quot;,
+  &quot;exit_code&quot;: 0,
+  &quot;prev_sha256&quot;: &quot;862db53d92f6fb3cbeac33dae7ef701eb4298cc895759b26358baf52e9c57964&quot;
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:52+00:00">2026-11-18 21:55:52 UTC</time></span><span class="ev__text">LINT_GREEN to TEST_RUNNING (RUN_TEST)</span><span class="ev__more">event 35</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;RUN_TEST&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:52+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;LINT_GREEN&quot;,
+  &quot;monotonic_ns&quot;: 1348432840349041,
+  &quot;prev_sha256&quot;: &quot;49d93ed6943c2a3cebdd73c3ba02671792a309d79e8e0ab7d31a7498ef9ed559&quot;,
+  &quot;seq&quot;: 25,
+  &quot;to&quot;: &quot;TEST_RUNNING&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:52+00:00">2026-11-18 21:55:52 UTC</time></span><span class="ev__text">Started the test command</span><span class="ev__more">event 36</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:52+00:00&quot;,
+  &quot;command&quot;: &quot;test&quot;,
+  &quot;event&quot;: &quot;tool_command_started&quot;,
+  &quot;prev_sha256&quot;: &quot;70970d6de2d0013e66ed9271b56860c1c3778f62d8fe95020ef7a4ab89198085&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:52+00:00">2026-11-18 21:55:52 UTC</time></span><span class="ev__text">Finished the test command in 0.213 s</span><span class="ev__more">event 37</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:52+00:00&quot;,
+  &quot;command&quot;: &quot;test&quot;,
+  &quot;event&quot;: &quot;tool_command_finished&quot;,
+  &quot;prev_sha256&quot;: &quot;91c6d2c2dc8f3666f82383fca3b563a3eb2bcd4cf2633df932b8dc32978c8def&quot;,
+  &quot;seconds&quot;: 0.213
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:53+00:00">2026-11-18 21:55:53 UTC</time></span><span class="ev__text">TEST_RUNNING to TEST_GREEN (TEST_PASSED)</span><span class="ev__more">event 38</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;TEST_PASSED&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:53+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;TEST_RUNNING&quot;,
+  &quot;monotonic_ns&quot;: 1348433211804958,
+  &quot;prev_sha256&quot;: &quot;ce89058aa80e60aebb913b31b0bd13c688cdc367c8d0c2fed83faadd960f712f&quot;,
+  &quot;seq&quot;: 26,
+  &quot;to&quot;: &quot;TEST_GREEN&quot;
+}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:53+00:00">2026-11-18 21:55:53 UTC</time></span><span class="ev__text">Test finished</span><span class="ev__more">event 39</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:53+00:00&quot;,
+  &quot;event&quot;: &quot;test_finished&quot;,
+  &quot;exit_code&quot;: 0,
+  &quot;prev_sha256&quot;: &quot;c08396b3b9a4e789b9d5adb745f7387aece23c1610eb1d16ed7a857c01acd502&quot;
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:54+00:00">2026-11-18 21:55:54 UTC</time></span><span class="ev__text">TEST_GREEN to MERGEBACK_PENDING (BEGIN_MERGEBACK)</span><span class="ev__more">event 40</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;BEGIN_MERGEBACK&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:54+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;TEST_GREEN&quot;,
+  &quot;monotonic_ns&quot;: 1348434700270708,
+  &quot;prev_sha256&quot;: &quot;bf8719a6af972449ead158cd75256e6387876926925042d0e2d0e86a46198c05&quot;,
+  &quot;seq&quot;: 32,
+  &quot;to&quot;: &quot;MERGEBACK_PENDING&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:54+00:00">2026-11-18 21:55:54 UTC</time></span><span class="ev__text">Started the mergeback command</span><span class="ev__more">event 41</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:54+00:00&quot;,
+  &quot;command&quot;: &quot;mergeback&quot;,
+  &quot;event&quot;: &quot;tool_command_started&quot;,
+  &quot;prev_sha256&quot;: &quot;ab2346661de63017600fb30d604af98b41f4c1b8f2cfc42ecaf40a67b195a3a0&quot;
+}</pre></details></li><li class="ev ev--trace"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:54+00:00">2026-11-18 21:55:54 UTC</time></span><span class="ev__text">Finished the mergeback command in 0.034 s</span><span class="ev__more">event 42</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:54+00:00&quot;,
+  &quot;command&quot;: &quot;mergeback&quot;,
+  &quot;event&quot;: &quot;tool_command_finished&quot;,
+  &quot;prev_sha256&quot;: &quot;72ecad47ff9cfea0bda53767425fc5ffcf662b7a7ebfcf42d0db95e0c89a17b3&quot;,
+  &quot;seconds&quot;: 0.034
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:55+00:00">2026-11-18 21:55:55 UTC</time></span><span class="ev__text">MERGEBACK_PENDING to VERIFIED (MERGEBACK_OK)</span><span class="ev__more">event 43</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;MERGEBACK_OK&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:55+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;MERGEBACK_PENDING&quot;,
+  &quot;monotonic_ns&quot;: 1348435523832666,
+  &quot;prev_sha256&quot;: &quot;39c0684acc5c3cdf6f0f9bbdac5623930715f8006ecabca6902e838f236bcc5d&quot;,
+  &quot;seq&quot;: 33,
+  &quot;to&quot;: &quot;VERIFIED&quot;
+}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:55+00:00">2026-11-18 21:55:55 UTC</time></span><span class="ev__text">Verified fixes merged back</span><span class="ev__more">event 44</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:55+00:00&quot;,
+  &quot;event&quot;: &quot;mergeback_ok&quot;,
+  &quot;post_sha&quot;: &quot;b8744baa9a73673d7ac84e84fba081c21e053f8a&quot;,
+  &quot;prev_sha256&quot;: &quot;389cf1d30d822690a8fa8d04763b71d440821e1d398ae9128fe2da78ca9005ae&quot;,
+  &quot;tree_equivalent&quot;: true
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:55+00:00">2026-11-18 21:55:55 UTC</time></span><span class="ev__text">VERIFIED to AWAITING_PUSH_CONFIRM (GATE)</span><span class="ev__more">event 45</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;GATE&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:55+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;VERIFIED&quot;,
+  &quot;monotonic_ns&quot;: 1348435959467375,
+  &quot;prev_sha256&quot;: &quot;5281c4a650b7eaeae673f3941c861ce3947ce49eac179227de2ff65ed15028fa&quot;,
+  &quot;seq&quot;: 34,
+  &quot;to&quot;: &quot;AWAITING_PUSH_CONFIRM&quot;
+}</pre></details></li><li class="ev ev--publish"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:55+00:00">2026-11-18 21:55:55 UTC</time></span><span class="ev__text">Gate listed 2 commits for b8744baa9a73</span><span class="ev__more">event 46</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:55+00:00&quot;,
+  &quot;commits&quot;: [
+    &quot;1776a48a05994cbef7418b343018416a1689f51c&quot;,
+    &quot;b8744baa9a73673d7ac84e84fba081c21e053f8a&quot;
+  ],
+  &quot;event&quot;: &quot;gate_minted&quot;,
+  &quot;prev_sha256&quot;: &quot;79ecf596e890f1f5ca35e312e4255939bfe40759823d70f4820f8c7f89bd37a3&quot;,
+  &quot;published_notes&quot;: [
+    &quot;b8744baa9a73673d7ac84e84fba081c21e053f8a&quot;
+  ],
+  &quot;risk&quot;: {
+    &quot;level&quot;: &quot;high&quot;,
+    &quot;reasons&quot;: [
+      {
+        &quot;finding_id&quot;: &quot;F001&quot;,
+        &quot;kind&quot;: &quot;finding&quot;,
+        &quot;level&quot;: &quot;high&quot;,
+        &quot;path&quot;: &quot;src/pricing.py&quot;,
+        &quot;pattern&quot;: null,
+        &quot;severity&quot;: &quot;high&quot;
+      }
+    ],
+    &quot;requires_human_review&quot;: true,
+    &quot;verdict&quot;: &quot;needs_human&quot;
+  },
+  &quot;seq&quot;: 34,
+  &quot;sha&quot;: &quot;b8744baa9a73673d7ac84e84fba081c21e053f8a&quot;
+}</pre></details></li><li class="ev ev--claim"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:56+00:00">2026-11-18 21:55:56 UTC</time></span><span class="ev__text">Push authorized: user_request (self-reported)</span><span class="ev__more">event 47</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:56+00:00&quot;,
+  &quot;authorization&quot;: &quot;user_request&quot;,
+  &quot;authorization_source&quot;: &quot;flag&quot;,
+  &quot;event&quot;: &quot;push_authorized&quot;,
+  &quot;prev_sha256&quot;: &quot;bfb4678305da0e73d0219b3df09a0f71dd9f4311a0edafd90d0e0630550b961a&quot;,
+  &quot;sha&quot;: &quot;b8744baa9a73673d7ac84e84fba081c21e053f8a&quot;
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:56+00:00">2026-11-18 21:55:56 UTC</time></span><span class="ev__text">AWAITING_PUSH_CONFIRM to PUSHED (PUSH)</span><span class="ev__more">event 48</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;PUSH&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:56+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;AWAITING_PUSH_CONFIRM&quot;,
+  &quot;monotonic_ns&quot;: 1348437027025416,
+  &quot;prev_sha256&quot;: &quot;2073cfd3ae61209c3d7229a2bbf9f087167efeeeb1257f64135d52243ec8cdf5&quot;,
+  &quot;seq&quot;: 35,
+  &quot;to&quot;: &quot;PUSHED&quot;
+}</pre></details></li><li class="ev ev--publish"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:56+00:00">2026-11-18 21:55:56 UTC</time></span><span class="ev__text">Pushed b8744baa9a73</span><span class="ev__more">event 49</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:56+00:00&quot;,
+  &quot;event&quot;: &quot;pushed&quot;,
+  &quot;prev_sha256&quot;: &quot;99814e8ae0d85a7de5395be0a35981f1b523cb65f93c2f32c01f1c9938918346&quot;,
+  &quot;sha&quot;: &quot;b8744baa9a73673d7ac84e84fba081c21e053f8a&quot;
+}</pre></details></li><li class="ev ev--state"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:56+00:00">2026-11-18 21:55:56 UTC</time></span><span class="ev__text">PUSHED to DONE (FINISH)</span><span class="ev__more">event 50</span></summary><pre class="raw">{
+  &quot;action&quot;: &quot;FINISH&quot;,
+  &quot;at&quot;: &quot;2026-11-18T21:55:56+00:00&quot;,
+  &quot;event&quot;: &quot;state_transition&quot;,
+  &quot;from&quot;: &quot;PUSHED&quot;,
+  &quot;monotonic_ns&quot;: 1348437074503625,
+  &quot;prev_sha256&quot;: &quot;1920178c362a3ebf3a20dcdcb89b4e050cb0c2f9ab84b3e39e63305e1b8b2c85&quot;,
+  &quot;seq&quot;: 36,
+  &quot;to&quot;: &quot;DONE&quot;
+}</pre></details></li><li class="ev ev--other"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:56+00:00">2026-11-18 21:55:56 UTC</time></span><span class="ev__text">Summary written</span><span class="ev__more">event 51</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:56+00:00&quot;,
+  &quot;error&quot;: null,
+  &quot;event&quot;: &quot;summary_written&quot;,
+  &quot;mirror_path&quot;: null,
+  &quot;mirrored&quot;: false,
+  &quot;prev_sha256&quot;: &quot;5c8b682c40accf72c62f0373f33a39d52fab6288f41185ab0100c13694179121&quot;,
+  &quot;reason&quot;: &quot;no_network_remote&quot;,
+  &quot;summary_path&quot;: &quot;&lt;run store&gt;/runs/r_51245ed9d6/summary.json&quot;
+}</pre></details></li><li class="ev ev--publish"><details><summary><span class="ev__time"><time datetime="2026-11-18T21:55:56+00:00">2026-11-18 21:55:56 UTC</time></span><span class="ev__text">Run finished</span><span class="ev__more">event 52</span></summary><pre class="raw">{
+  &quot;at&quot;: &quot;2026-11-18T21:55:56+00:00&quot;,
+  &quot;event&quot;: &quot;finished&quot;,
+  &quot;prev_sha256&quot;: &quot;a583fdad7563fa26961ef6519b9be1f5797f38a4841ed58d7dca8491ceca0734&quot;
+}</pre></details></li></ol></section><section id="integrity" aria-labelledby="integrity-h"><h2 id="integrity-h">Integrity and publication</h2><div class="actors"><div class="actor"><h3>Event log chain</h3><dl class="facts"><div><dt>Status</dt><dd><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>Event log intact</span></dd></div><div><dt>Lines</dt><dd>52</dd></div><div><dt>Chained lines</dt><dd>52</dd></div><div><dt>Unchained lines</dt><dd>0</dd></div><div><dt>Torn lines</dt><dd>0</dd></div><div><dt>Last line digest</dt><dd><code class="hash" title="7c8ad4a647bca6d04ecfa1bc8fa8d3014de1107981b38cb08962cde1294ea0d1">7c8ad4a647bca6d04ecfa1bc8fa8d3014de1107981b38cb08962cde1294ea0d1</code></dd></div></dl></div><div class="actor"><h3>Attestation note</h3><p class="sub">On <code class="hash" title="b8744baa9a73673d7ac84e84fba081c21e053f8a">b8744baa9a73</code></p><dl class="facts"><div><dt>Outcome</dt><dd><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>verified</span></dd></div><div><dt>Schema</dt><dd>7</dd></div><div><dt>Run</dt><dd><span class="badge badge--ok"><span class="badge__glyph" aria-hidden="true">✓</span>This run</span></dd></div><div><dt>Green at</dt><dd><time datetime="2026-11-18T21:55:54+00:00">2026-11-18 21:55:54 UTC</time></dd></div><div><dt>Stages</dt><dd>docs skipped, lint green, review green, test green</dd></div><div><dt>Findings</dt><dd>1 dismissed, 1 fixed, 1 high, 1 low</dd></div><div><dt>Config digest</dt><dd><code class="hash" title="afb732c754478d83c47ef881d3a54f21361d2bc1b4b7a17bcb758164878c21cb">afb732c75447</code></dd></div></dl><p class="muted">A note is a record, not a signature.</p></div><div class="actor"><h3>Publication</h3><p class="sub">The gate at <time datetime="2026-11-18T21:55:55+00:00">2026-11-18 21:55:55 UTC</time> listed</p><ul class="commits"><li><code class="hash" title="1776a48a05994cbef7418b343018416a1689f51c">1776a48a0599</code> Add a bulk discount</li><li><code class="hash" title="b8744baa9a73673d7ac84e84fba081c21e053f8a">b8744baa9a73</code> Reject a non-positive quantity in unit_price</li></ul><p class="sub">Notes to publish: 1</p><p class="sub">Pushed</p><ul class="commits"><li><code class="hash" title="b8744baa9a73673d7ac84e84fba081c21e053f8a">b8744baa9a73</code> at <time datetime="2026-11-18T21:55:56+00:00">2026-11-18 21:55:56 UTC</time></li></ul><p class="sub">Fix commits</p><ul class="commits"><li><code class="hash" title="b8744baa9a73673d7ac84e84fba081c21e053f8a">b8744baa9a73</code> Reject a non-positive quantity in unit_price</li></ul></div><div class="actor actor--wide"><h3>Configuration</h3><dl class="facts"><div><dt>Digest</dt><dd><code class="hash" title="afb732c754478d83c47ef881d3a54f21361d2bc1b4b7a17bcb758164878c21cb">afb732c754478d83c47ef881d3a54f21361d2bc1b4b7a17bcb758164878c21cb</code></dd></div></dl><details class="more"><summary>Configuration snapshot</summary><pre class="raw">{
+  &quot;approval&quot;: {
+    &quot;environment&quot;: &quot;high-risk-review&quot;,
+    &quot;mode&quot;: &quot;manual_merge&quot;,
+    &quot;reviewer&quot;: &quot;&quot;
+  },
+  &quot;commands&quot;: {
+    &quot;lint&quot;: &quot;python -B -m tabnanny src&quot;,
+    &quot;test&quot;: &quot;python -B -m unittest discover -s tests -t .&quot;
+  },
+  &quot;context&quot;: {
+    &quot;enabled&quot;: true,
+    &quot;entry_max_bytes&quot;: 4000,
+    &quot;extra_paths&quot;: [],
+    &quot;max_bytes&quot;: 24000
+  },
+  &quot;diff&quot;: {
+    &quot;exclude&quot;: [
+      &quot;*.lock&quot;,
+      &quot;*-lock.json&quot;,
+      &quot;vendor/**&quot;,
+      &quot;**/*.min.js&quot;,
+      &quot;**/*.min.css&quot;,
+      &quot;**/__snapshots__/**&quot;,
+      &quot;**/*.pb.go&quot;,
+      &quot;**/*_pb2.py&quot;
+    ],
+    &quot;max_bytes&quot;: 200000
+  },
+  &quot;docs&quot;: {
+    &quot;blocking_severities&quot;: [
+      &quot;critical&quot;,
+      &quot;high&quot;
+    ],
+    &quot;enabled&quot;: false,
+    &quot;paths&quot;: [],
+    &quot;require_changelog&quot;: false
+  },
+  &quot;gate&quot;: {
+    &quot;mode&quot;: &quot;token&quot;
+  },
+  &quot;general&quot;: {
+    &quot;base_ref&quot;: &quot;main&quot;
+  },
+  &quot;hook&quot;: {
+    &quot;allow_force_push&quot;: false
+  },
+  &quot;policy&quot;: {
+    &quot;high_risk_paths&quot;: [],
+    &quot;human_review_paths&quot;: [],
+    &quot;medium_risk_paths&quot;: []
+  },
+  &quot;pr&quot;: {
+    &quot;automated_cleanup&quot;: false,
+    &quot;mode&quot;: &quot;auto&quot;
+  },
+  &quot;review&quot;: {
+    &quot;blocking_severities&quot;: [
+      &quot;critical&quot;,
+      &quot;high&quot;
+    ],
+    &quot;command&quot;: &quot;python tools/reviewer.py&quot;,
+    &quot;executor&quot;: &quot;command&quot;,
+    &quot;max_findings&quot;: 50,
+    &quot;require_command_for&quot;: []
+  },
+  &quot;stage&quot;: {
+    &quot;max_attempts&quot;: 5,
+    &quot;max_restarts&quot;: 5,
+    &quot;timeout_seconds&quot;: 600
+  },
+  &quot;worktree&quot;: {
+    &quot;copy_files&quot;: [
+      &quot;.env&quot;
+    ],
+    &quot;mode&quot;: &quot;in_place&quot;,
+    &quot;root&quot;: null,
+    &quot;setup_command&quot;: null
+  }
+}</pre></details></div></div></section></main><footer class="colophon"><p>Generated by agentic-preflight 0.9.0 at <time datetime="2026-11-18T21:55:57+00:00">2026-11-18 21:55:57 UTC</time>, audit format 1. This file is a rendering of local run records; it is not signed.</p></footer></div></body></html>

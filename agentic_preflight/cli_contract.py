@@ -437,6 +437,29 @@ class EventsData(RunDataBase):
     )
 
 
+class AuditData(RunDataBase):
+    path: str | None = Field(default=None, description="Where the HTML report was written.")
+    size_bytes: int | None = Field(default=None, description="Size of the report in bytes.")
+    run_selection: str | None = Field(
+        default=None,
+        description="How the run was chosen: selected (--run), active, or most_recent.",
+    )
+    local_details: bool | None = Field(
+        default=None,
+        description="True when the report includes local paths and user-level configuration.",
+    )
+    chain_status: str | None = Field(
+        default=None,
+        description="The event log's hash chain: intact, broken, unchained, empty, or unreadable.",
+    )
+    findings_by_status: dict[str, int] | None = Field(
+        default=None, description="The run's findings counted by status."
+    )
+    attested: bool | None = Field(
+        default=None, description="True when the head commit carries a valid attestation note."
+    )
+
+
 class AbortData(RunDataBase):
     discarded_fix_commits: list[str] | None = None
     preserved_in_place_commits: list[str] | None = None
@@ -536,6 +559,7 @@ COMMAND_MODELS: dict[str, type[BaseModel]] = {
     "status": StatusData,
     "logs": LogsData,
     "events": EventsData,
+    "audit": AuditData,
     "abort": AbortData,
     "gc": GcData,
     "telemetry rebuild": TelemetryRebuildData,

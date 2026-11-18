@@ -860,6 +860,37 @@ backfilled. A line that is not a JSON object, such as one an interrupted write l
 unreadable, is skipped, and `skipped_lines` counts the skipped lines. Monotonic
 timestamps are suitable for intervals within one host boot.
 
+### `agentic-preflight audit [--output PATH] [--local-details]`
+Writes the run's audit trail as one self-contained HTML file that a person can read
+or share: what the run was for, who acted, each stage, each finding and how it was
+resolved, the event timeline with each raw event, the event log's hash chain, the head's
+attestation note, and what the gate listed and push pushed. It opens with what the
+record does and does not prove, and marks each self-reported value (the client, the
+agent's model, the reviewer's report, the push authorization) apart from values the
+tool measured. The page has inline CSS and no script, font, image, or network request.
+`audit` never changes run state and appends no event. It works in every state and on
+records from earlier releases; a missing log, a broken chain, or an unreadable
+`findings.json` is shown in the report rather than refused.
+The run is the one `--run` selects, else the worktree's active run, else the newest
+run that this worktree started, so `audit` still works after `finish` releases the run.
+`data.run_selection` says which: `selected`, `active`, or `most_recent`. With no run
+to report on it exits 3 with `no_run`.
+The report goes to `--output`, or to `audit.html` in the run's directory in the run
+store. `data.path` is where it was written and `data.size_bytes` its size.
+`data.chain_status` is the event log's chain, as `events --verify` reports it
+(`intact`, `broken`, `unchained`, or `empty`), or `unreadable` when the log could not
+be read; a broken chain does not change the exit code. `data.findings_by_status`
+counts findings by status, and `data.attested` is `true` when the head commit carries
+a valid attestation note in this clone.
+By default the report leaves out what describes one machine: absolute local paths,
+shown as markers such as `<repository>` and `<run store>`, the configuration sections
+that came from the user configuration file, and the commands they define, shown as
+`[redacted user-level command]`, by the same rules as the published note. A run that
+does not record which sections came from the user file withholds its whole snapshot
+and its stage commands. `--local-details` includes them, and `data.local_details`
+says whether it was given; check such a report before you share it. Finding text,
+notes, and intent are included as written, as the published note includes them.
+
 ### `agentic-preflight abort [--force] [--reason REASON]`
 Ends the run and releases the worktree. Exits 5 with `unmerged_work` if unmerged fix
 commits would be lost; `--force` discards them. In `strict` and `reusable` modes it also
