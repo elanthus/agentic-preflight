@@ -138,7 +138,15 @@ def test_budget_exhaustion_never_returns_candidates_from_an_earlier_call(tmp_pat
     assert result.stdout == ""
     assert time.monotonic() - started < 20
     assert not json.loads(path.with_name(path.name + ".status.json").read_text())["completed"]
-    assert any(event.get("phase") == "verification" for event in events)
+    # The budget ended the review, not the retries: each of the six verification
+    # attempts the retries allow would time out on its own after a second.
+    assert "reviewer total budget exhausted" in result.stderr
+    verification = [
+        event
+        for event in events
+        if event["type"] == "reviewer_call" and event.get("phase") == "verification"
+    ]
+    assert 0 < len(verification) < 6
 
 
 @pytest.mark.parametrize("provider", ["claude", "codex"])
