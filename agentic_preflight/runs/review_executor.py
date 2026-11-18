@@ -64,7 +64,10 @@ def reviewer_report(clean_output: str) -> ReviewerReport | None:
             continue
         try:
             value = json.loads(line)
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):
+            # Not only JSONDecodeError: an integer past the interpreter's digit
+            # limit raises a plain ValueError, and deep nesting a RecursionError.
+            # The report is optional, so neither may stop the findings.
             continue
         if isinstance(value, dict) and value.get("type") == REPORT_TYPE:
             return _checked_report(value)

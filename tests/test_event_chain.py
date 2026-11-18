@@ -372,6 +372,10 @@ json.dump(
 sys.stdout.write("\\n")
 if sys.argv[1] == "report":
     print(json.dumps(REPORT), file=sys.stderr)
+if sys.argv[1] == "oversized":
+    # Built from text: an integer past the interpreter's digit limit cannot be a literal.
+    print('{"type": "agentic_preflight_reviewer", "prompts_omitted": ' + "9" * 5000 + "}",
+          file=sys.stderr)
 """
 
 
@@ -422,6 +426,30 @@ def test_review_run_records_that_a_malformed_report_was_ignored(feature_repo, mo
     (ignored,) = _named(agent, "reviewer_report_ignored")
     assert ignored["reason"] == "invalid_name"
     assert "prose" not in json.dumps(agent.run("events")["data"]["events"])
+
+
+def test_a_report_line_that_cannot_be_decoded_is_skipped():
+    oversized = '{"type": "agentic_preflight_reviewer", "prompts_omitted": ' + "9" * 5000 + "}"
+    nested = '{"type": "agentic_preflight_reviewer", "prompts": ' + "[" * 100_000 + "}"
+
+    # json.loads raises a plain ValueError for the first and a RecursionError for the
+    # second, not JSONDecodeError. Neither may escape, and an earlier report still counts.
+    assert reviewer_report(oversized) is None
+    assert reviewer_report(nested) is None
+    assert reviewer_report("\n".join([json.dumps(REPORT), oversized])) == (REPORTED, None)
+
+
+def test_review_run_accepts_findings_beside_a_report_it_cannot_decode(feature_repo):
+    _configure_reviewer(feature_repo, "oversized")
+    agent = ScriptedAgent(feature_repo)
+    agent.run("start")
+
+    env = agent.run("review", "run")
+
+    assert env["state"] == "DOCS_GREEN"
+    assert _named(agent, "reviewer_reported") == []
+    assert _named(agent, "reviewer_report_ignored") == []
+    assert len(_named(agent, "findings_submitted")) == 1
 
 
 def test_the_packaged_reviewer_reports_its_model_and_prompt_digest(tmp_path, monkeypatch):
