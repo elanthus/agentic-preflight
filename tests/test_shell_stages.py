@@ -1814,6 +1814,79 @@ def test_an_ignored_signal_stays_ignored_while_a_process_is_starting(events):
     assert signal.getsignal(signal.SIGHUP) is signal.SIG_IGN
 
 
+@posix_only
+def test_a_parent_that_is_killed_outright_takes_the_bound_process_group_with_it(tmp_path):
+    pid_file = tmp_path / "child.pid"
+    driver = tmp_path / "driver.py"
+    driver.write_text(
+        "import subprocess, time\n"
+        "from agentic_preflight.stages import shellstage\n"
+        "with shellstage.kill_when_parent_dies() as orphaned:\n"
+        "    child = subprocess.Popen(\n"
+        f"        ['sh', '-c', 'echo $$ > {pid_file}; sleep 60 & sleep 60'],\n"
+        "        **shellstage.process_group_kwargs(),\n"
+        "    )\n"
+        "    orphaned.bind(child)\n"
+        "    time.sleep(60)\n",
+        encoding="utf-8",
+    )
+    parent = subprocess.Popen([sys.executable, str(driver)], cwd=Path(__file__).parent.parent)
+    try:
+        deadline = time.monotonic() + 10
+        while not (pid_file.exists() and pid_file.read_text().strip()):
+            assert time.monotonic() < deadline, "child never started"
+            time.sleep(0.05)
+        pgid = int(pid_file.read_text().strip())
+        # SIGKILL runs no handler and no ``finally`` in the parent.
+        parent.kill()
+        parent.wait(timeout=5)
+        assert _wait_for_group_exit(pgid)
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            parent.kill()
+        if pid_file.exists() and pid_file.read_text().strip():
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(int(pid_file.read_text().strip()), signal.SIGKILL)
+
+
+@posix_only
+def test_leaving_the_parent_death_block_stops_the_watcher_and_not_the_bound_process(monkeypatch):
+    started: list[subprocess.Popen] = []
+    real_popen = subprocess.Popen
+
+    def recording_popen(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        started.append(process)
+        return process
+
+    monkeypatch.setattr(shellstage.subprocess, "Popen", recording_popen)
+    with shellstage.kill_when_parent_dies() as orphaned:
+        child = subprocess.Popen(["sleep", "60"], **shellstage.process_group_kwargs())
+        orphaned.bind(child)
+    try:
+        watcher, bound = started
+        assert bound is child
+        # Reaped, so it is not left behind and cannot act on its closed pipe.
+        assert watcher.returncode == -signal.SIGKILL
+        assert child.poll() is None
+    finally:
+        child.kill()
+        child.wait()
+
+
+@posix_only
+def test_a_parent_death_watcher_that_cannot_start_does_not_stop_the_block(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "no-such-python"))
+    with shellstage.kill_when_parent_dies() as orphaned:
+        child = subprocess.Popen(["sleep", "60"], **shellstage.process_group_kwargs())
+        try:
+            orphaned.bind(child)
+            assert child.poll() is None
+        finally:
+            child.kill()
+            child.wait()
+
+
 def test_termination_handling_off_the_main_thread_does_not_raise(tmp_path):
     results: list[object] = []
 

@@ -6,6 +6,7 @@ import contextlib
 import io
 import json
 import os
+import shlex
 import signal
 import stat
 import subprocess
@@ -17,6 +18,7 @@ import pytest
 from click.testing import CliRunner
 
 from agentic_preflight.cli import main
+from agentic_preflight.stages import shellstage
 from evals.metrics import read_usage
 
 FINDING = {
@@ -418,14 +420,56 @@ def test_unencodable_codex_path_reports_failure_without_traceback(tmp_path):
     assert json.loads(Path(str(path) + ".status.json").read_text()) == {"completed": False}
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals and process groups")
-@pytest.mark.parametrize("signum", [signal.SIGTERM, getattr(signal, "SIGHUP", signal.SIGTERM)])
-def test_a_signal_to_the_reviewer_stops_the_provider_it_started(tmp_path, signum):
-    # The provider CLI runs in its own session, so nothing else forwards the signal.
+posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals and process groups")
+# The command a project configures as its reviewer, as ``run_stage`` receives it.
+REVIEWER_STAGE = (
+    f"{shlex.quote(sys.executable)} -m agentic_preflight reviewer run --provider claude"
+)
+
+
+@pytest.fixture
+def sleeping_provider(tmp_path, monkeypatch):
+    """A provider CLI that records its pid and then waits to be stopped.
+
+    Yields a function that waits for the provider to start and returns its pid.
+    """
     pid_file = tmp_path / "provider.pid"
     fake = tmp_path / "provider"
     fake.write_text(f'#!/bin/sh\necho $$ > "{pid_file}"\nexec sleep 120\n')
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("AP_CLAUDE_BIN", str(fake))
+    monkeypatch.setenv("AP_REVIEWER_TIMEOUT", "60")
+
+    def started(starter: subprocess.Popen | None = None) -> int:
+        deadline = time.monotonic() + 30
+        while not pid_file.exists() or not pid_file.read_text().strip():
+            assert time.monotonic() < deadline, "the provider never started"
+            if starter is not None:
+                assert starter.poll() is None, "the process exited before the provider started"
+            time.sleep(0.05)
+        return int(pid_file.read_text())
+
+    try:
+        yield started
+    finally:
+        # Ending the provider also ends a reviewer that a failed test left waiting for it.
+        if pid_file.exists() and pid_file.read_text().strip():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+
+
+def assert_exits(pid: int) -> None:
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        assert time.monotonic() < deadline, "the provider is still running"
+        time.sleep(0.05)
+
+
+def start_reviewer(**popen_kwargs) -> subprocess.Popen:
     reviewer = subprocess.Popen(
         [
             sys.executable,
@@ -436,34 +480,71 @@ def test_a_signal_to_the_reviewer_stops_the_provider_it_started(tmp_path, signum
         stdin=subprocess.PIPE,
         stdout=subprocess.DEVNULL,
         cwd=Path(__file__).parent.parent,
-        env={**os.environ, "AP_CLAUDE_BIN": str(fake), "AP_REVIEWER_TIMEOUT": "60"},
+        **popen_kwargs,
     )
-    try:
-        assert reviewer.stdin is not None
-        reviewer.stdin.write(json.dumps(CONTEXT).encode())
-        reviewer.stdin.close()
-        deadline = time.monotonic() + 30
-        while not pid_file.exists() or not pid_file.read_text().strip():
-            assert time.monotonic() < deadline, "the provider never started"
-            assert reviewer.poll() is None, "the reviewer exited before the provider started"
-            time.sleep(0.05)
-        provider_pid = int(pid_file.read_text())
+    assert reviewer.stdin is not None
+    reviewer.stdin.write(json.dumps(CONTEXT).encode())
+    reviewer.stdin.close()
+    return reviewer
 
+
+@posix_only
+@pytest.mark.parametrize("signum", [signal.SIGTERM, getattr(signal, "SIGHUP", signal.SIGTERM)])
+def test_a_signal_to_the_reviewer_stops_the_provider_it_started(sleeping_provider, signum):
+    # The provider CLI runs in its own session, so nothing else forwards the signal.
+    reviewer = start_reviewer()
+    try:
+        provider_pid = sleeping_provider(reviewer)
         reviewer.send_signal(signum)
         reviewer.wait(timeout=30)
         assert reviewer.returncode == -signum
-
-        deadline = time.monotonic() + 10
-        while True:
-            try:
-                os.kill(provider_pid, 0)
-            except ProcessLookupError:
-                break
-            assert time.monotonic() < deadline, "the provider is still running"
-            time.sleep(0.05)
+        assert_exits(provider_pid)
     finally:
         if reviewer.poll() is None:
             reviewer.kill()
-        if pid_file.exists() and pid_file.read_text().strip():
-            with contextlib.suppress(ProcessLookupError):
-                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+
+
+@posix_only
+def test_killing_the_reviewers_process_group_stops_the_provider_it_started(sleeping_provider):
+    # What a stage timeout does to the reviewer. SIGKILL cannot be handled, and the
+    # provider is in another process group, so the reviewer cannot forward this one.
+    reviewer = start_reviewer(start_new_session=True)
+    try:
+        provider_pid = sleeping_provider(reviewer)
+        os.killpg(reviewer.pid, signal.SIGKILL)
+        reviewer.wait(timeout=30)
+        assert_exits(provider_pid)
+    finally:
+        if reviewer.poll() is None:
+            reviewer.kill()
+
+
+@posix_only
+def test_terminating_the_tool_stops_the_provider_its_reviewer_started(tmp_path, sleeping_provider):
+    driver = tmp_path / "driver.py"
+    driver.write_text(
+        "from agentic_preflight.stages import shellstage\n"
+        f"shellstage.run_stage({str(tmp_path)!r}, {REVIEWER_STAGE!r}, "
+        f"timeout_seconds=60, stdin_text={json.dumps(CONTEXT)!r})\n",
+        encoding="utf-8",
+    )
+    tool = subprocess.Popen([sys.executable, str(driver)], cwd=Path(__file__).parent.parent)
+    try:
+        provider_pid = sleeping_provider(tool)
+        tool.send_signal(signal.SIGTERM)
+        tool.wait(timeout=30)
+        assert tool.returncode == -signal.SIGTERM
+        assert_exits(provider_pid)
+    finally:
+        if tool.poll() is None:
+            tool.kill()
+
+
+@posix_only
+def test_a_stage_timeout_stops_the_provider_the_reviewer_started(tmp_path, sleeping_provider):
+    # Long enough for the reviewer to start its provider, which takes under a second.
+    result = shellstage.run_stage(
+        tmp_path, REVIEWER_STAGE, timeout_seconds=5, stdin_text=json.dumps(CONTEXT)
+    )
+    assert result.timed_out
+    assert_exits(sleeping_provider())
