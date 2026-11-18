@@ -53,6 +53,15 @@ def reviewer_effort(provider: str) -> str:
     return common.reviewer_effort(_DEFAULT_EFFORTS[provider])
 
 
+def prompt_bytes(prompt: str) -> bytes:
+    """Return the bytes sent to the provider CLI, which the report's digest covers.
+
+    UTF-8 whatever the locale, with ``errors="replace"``, so an unencodable
+    character cannot fail the review.
+    """
+    return prompt.encode("utf-8", errors="replace")
+
+
 def provider_argv(provider: str, context: dict[str, Any], final: Path) -> list[str]:
     """Keep the legacy adapters' isolation flags and model/effort defaults."""
     if provider == "claude":
@@ -253,7 +262,7 @@ class Orchestrator:
 
     def note_prompt(self, phase: str, prompt: str) -> None:
         """Remember a prompt for the report, once for each distinct phase and text."""
-        sent = (phase, hashlib.sha256(prompt.encode("utf-8")).hexdigest())
+        sent = (phase, hashlib.sha256(prompt_bytes(prompt)).hexdigest())
         if sent not in self.prompts:
             self.prompts.append(sent)
 
@@ -297,14 +306,14 @@ class Orchestrator:
                             stdin=subprocess.PIPE,
                             stdout=stream,
                             stderr=errors,
-                            encoding="utf-8",
-                            errors="replace",
                             **process_group_kwargs(),
                         )
                         termination.bind(process)
                         launched = True
                         try:
-                            process.communicate(input=prompt, timeout=timeout)
+                            # Bytes, not text: a text pipe rewrites newlines on Windows,
+                            # and the report must hash exactly what was sent.
+                            process.communicate(input=prompt_bytes(prompt), timeout=timeout)
                         except BaseException:
                             kill_process_tree(process)
                             with contextlib.suppress(subprocess.TimeoutExpired):
